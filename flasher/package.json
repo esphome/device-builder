@@ -1,0 +1,22 @@
+{
+  "name": "esphome-device-builder-flasher",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone Web Serial flasher test page for ESPHome Device Builder. The postMessage contract here is reimplemented in web.esphome.io in a follow-up.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --serve",
+    "typecheck": "tsc --noEmit",
+    "test": "node build.mjs && node test/validate.test.mjs && node test/handshake.test.mjs"
+  },
+  "dependencies": {
+    "esptool-js": "0.6.0"
+  },
+  "devDependencies": {
+    "@types/w3c-web-serial": "^1.0.7",
+    "esbuild": "^0.25.0",
+    "puppeteer": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

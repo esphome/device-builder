@@ -2,12 +2,11 @@
 Shared ``secrets.yaml`` read / merge / write helpers.
 
 One home for every ``secrets.yaml`` touch so the bundle-import merge,
-the onboarding wifi writer, and the placeholder-state detection don't
-drift apart. The dashboard's first-run bootstrap writes deterministic
-placeholder strings into ``secrets.yaml`` so ``!secret wifi_ssid``
-references in generated YAML resolve cleanly through ESPHome's
-validator; the same constants here detect whether the user has
-supplied real values yet.
+the Wi-Fi writer (the create wizard and the kebab "Set up Wi-Fi"
+action), and the placeholder-state detection don't drift apart. Wi-Fi
+credentials are collected per-device in the create wizard, which writes
+them here so generated YAML can reference ``!secret wifi_ssid`` instead
+of inlining bare credentials.
 
 Two mutation shapes live here on purpose:
 ``_replace_or_append_secret`` / ``write_wifi_secrets`` *set* specific
@@ -60,20 +59,14 @@ except ImportError:
     PLACEHOLDER_WIFI_SSID = "REPLACE_WITH_YOUR_WIFI_NETWORK"
     PLACEHOLDER_WIFI_PASSWORD = "REPLACE_WITH_YOUR_WIFI_PASSWORD"  # noqa: S105
 
-# Values that count as "not user-configured" for ``wifi_ssid``:
-# missing key, empty string, or the bootstrap placeholder. Stored
-# as a frozenset so a future placeholder rotation just appends
-# the old value here for backward compatibility.
-_UNCONFIGURED_WIFI_SSID_VALUES: frozenset[str] = frozenset({"", PLACEHOLDER_WIFI_SSID})
-
 
 def read_secrets_yaml(config_dir: Path) -> dict | None:
     """
     Load ``secrets.yaml`` as a plain dict, or ``None`` on any failure.
 
     Centralised so every reader (``ConfigController.get_secrets``,
-    ``OnboardingController.get_state``, future MQTT-broker pickup
-    etc.) shares one fail-soft contract: missing file ⇒ ``None``,
+    the create wizard's Wi-Fi check, future MQTT-broker pickup etc.)
+    shares one fail-soft contract: missing file ⇒ ``None``,
     parse error ⇒ ``None``, non-dict top-level (``secrets.yaml``
     that's a list or scalar — invalid but possible) ⇒ ``None``.
 
@@ -119,32 +112,23 @@ def validate_secrets_content(content: str, path: Path) -> None:
         raise SecretsContentError("secrets.yaml must be a top-level mapping of name: value entries")
 
 
-def is_wifi_unconfigured(secrets: dict | None) -> bool:
+def wifi_secrets_defined(secrets: dict | None) -> bool:
     """
-    Return True when ``secrets.yaml``'s ``wifi_ssid`` is missing / empty / placeholder.
+    Return True when a generated ``!secret`` Wi-Fi block would validate.
 
-    Only the SSID is checked — ESPHome's ``cv.ssid`` validator
-    rejects empty strings ("SSID can't be empty.") while
-    ``cv.string_strict`` on the password accepts ``""`` (open
-    networks are valid). So the SSID is the canonical "wifi
-    is configured" signal; matching on it alone keeps the
-    state-check minimal.
-
-    Boundary cases:
-
-    - Missing file / empty dict / missing key → unconfigured.
-    - Non-string value (e.g. ``wifi_ssid: 42`` — quotes stripped
-      by accident) → unconfigured. ESPHome's compile-time
-      validator would reject it later anyway, and clearing
-      onboarding here would mask a real broken-config state from
-      the user.
+    ``wifi_ssid`` must be a non-empty string (ESPHome's ``cv.ssid`` rejects an
+    empty SSID) and ``wifi_password`` a string — empty is allowed (open
+    networks), but ``null`` / non-string is rejected by ``cv.string_strict``, so
+    those count as undefined.
     """
-    if not secrets:
-        return True
-    val = secrets.get("wifi_ssid")
-    if not isinstance(val, str):
-        return True
-    return val.strip() in _UNCONFIGURED_WIFI_SSID_VALUES
+    if secrets is None:
+        return False
+    ssid = secrets.get("wifi_ssid")
+    return (
+        isinstance(ssid, str)
+        and ssid.strip() != ""
+        and isinstance(secrets.get("wifi_password"), str)
+    )
 
 
 def merge_secrets_file(src: Path, dest: Path) -> None:
@@ -194,7 +178,7 @@ def merge_secrets_file(src: Path, dest: Path) -> None:
 # a trailing comment. The rewrite still produces valid YAML
 # because the new value is re-quoted, but the spurious tail is
 # preserved as a comment. See the dedicated regression test in
-# ``tests/test_onboarding_controller.py``. Realistic impact is
+# ``tests/test_secrets_state.py``. Realistic impact is
 # low — ``#`` in SSIDs is uncommon and the user's hand-edit has
 # to land before they re-run the wizard.
 _SECRET_LINE_RE = re.compile(r"^(\s*)([a-zA-Z_]\w*)\s*:[^#\n]*?(\s+#.*)?$")
@@ -208,6 +192,77 @@ _SECRET_KEY_RE = re.compile(r"[a-zA-Z_]\w*\Z")
 def is_valid_secret_key(key: str) -> bool:
     """Whether *key* is a writable ``!secret`` name (identifier-shaped)."""
     return isinstance(key, str) and _SECRET_KEY_RE.match(key) is not None
+
+
+# Cap inputs at the same length ESPHome's own validators enforce —
+# ``cv.ssid`` (32 chars) and the WPA password validator (64 chars).
+MAX_SSID_LEN = 32
+MAX_WIFI_PASSWORD_LEN = 64
+
+
+def validate_wifi_credentials(ssid: str, password: str) -> None:
+    """
+    Raise ``SecretsContentError`` unless *ssid* / *password* are writable.
+
+    Enforces ESPHome's SSID (32) / WPA password (64) length caps, rejects an
+    empty / all-whitespace SSID, and bans control characters (except TAB) the
+    single-line ``secrets.yaml`` rewrite can't carry. Shared by
+    ``config/set_wifi_credentials`` and ``devices/create`` so both surfaces
+    persist the same valid values. SSID whitespace is otherwise preserved —
+    a network may legitimately be named with leading / trailing spaces.
+    """
+    if not isinstance(ssid, str):
+        raise SecretsContentError("SSID must be a string.")
+    if not isinstance(password, str):
+        raise SecretsContentError("Password must be a string.")
+    if not ssid.strip():
+        raise SecretsContentError("SSID can't be empty.")
+    if len(ssid) > MAX_SSID_LEN:
+        raise SecretsContentError(f"SSID can't be longer than {MAX_SSID_LEN} characters.")
+    if len(password) > MAX_WIFI_PASSWORD_LEN:
+        raise SecretsContentError(
+            f"Password can't be longer than {MAX_WIFI_PASSWORD_LEN} characters."
+        )
+    for label, value in (("SSID", ssid), ("Password", password)):
+        if any(c != "\t" and (ord(c) < 0x20 or ord(c) == 0x7F) for c in value):
+            raise SecretsContentError(f"{label} can't contain control characters.")
+
+
+def migrate_placeholder_wifi_secrets(config_dir: Path) -> None:
+    """
+    Drop seeded placeholder Wi-Fi secrets from an existing ``secrets.yaml``.
+
+    Older builds bootstrapped ``wifi_ssid`` / ``wifi_password`` placeholders.
+    Wi-Fi is now collected per-device, so a leftover placeholder would make a
+    no-``ssid`` create emit ``!secret wifi_ssid`` pointing at the placeholder
+    (the device compiles but never joins). Remove each key only while it still
+    holds the exact placeholder, leaving real values and other secrets intact.
+    Idempotent; a no-op on fresh installs (no placeholders seeded).
+    """
+    secrets_path = config_dir / SECRETS_FILENAME
+    if not secrets_path.exists():
+        return
+    data = read_secrets_yaml(config_dir)
+    if not data:
+        return
+    drop = {
+        key
+        for key, placeholder in (
+            ("wifi_ssid", PLACEHOLDER_WIFI_SSID),
+            ("wifi_password", PLACEHOLDER_WIFI_PASSWORD),
+        )
+        if data.get(key) == placeholder
+    }
+    if not drop:
+        return
+    original = secrets_path.read_text(encoding="utf-8")
+    updated = "\n".join(
+        line
+        for line in original.split("\n")
+        if not ((m := _SECRET_LINE_RE.match(line)) and m.group(2) in drop)
+    )
+    if updated != original:
+        atomic_write_file(secrets_path, updated)
 
 
 def write_wifi_secrets(config_dir: Path, ssid: str, password: str) -> None:

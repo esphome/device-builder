@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ESPHome Device Builder USB flasher</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+      }
+      main {
+        width: min(34rem, 92vw);
+        padding: 1.5rem;
+      }
+      h1 {
+        font-size: 1.25rem;
+      }
+      .devbanner {
+        border: 2px solid #ff9800;
+        background: #ff980022;
+        border-radius: 0.5rem;
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+      }
+      .devbanner strong {
+        color: #e65100;
+      }
+      .devbanner a {
+        color: inherit;
+      }
+      .status {
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+        background: #8884;
+      }
+      .status.connecting { background: #2196f344; }
+      .status.installing { background: #ff980044; }
+      .status.done { background: #4caf5044; }
+      .status.error { background: #f4433644; }
+      #progress {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 1rem 0;
+      }
+      #bar {
+        flex: 1;
+        height: 0.5rem;
+        border-radius: 0.25rem;
+        background: #8884;
+        overflow: hidden;
+      }
+      #fill {
+        height: 100%;
+        width: 0%;
+        background: #2196f3;
+        transition: width 0.2s;
+      }
+      #pct {
+        font-size: 0.85rem;
+        opacity: 0.8;
+        min-width: 4ch;
+        font-variant-numeric: tabular-nums;
+      }
+      .spinner {
+        display: inline-block;
+        width: 1em;
+        height: 1em;
+        margin-right: 0.5em;
+        border: 2px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        vertical-align: -0.15em;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      button {
+        margin-top: 1rem;
+        padding: 0.6rem 1.2rem;
+        font-size: 1rem;
+        border-radius: 0.5rem;
+        border: 0;
+        background: #03a9f4;
+        color: #fff;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      details {
+        margin-top: 1.5rem;
+        font-size: 0.9rem;
+      }
+      summary {
+        cursor: pointer;
+      }
+      pre {
+        margin-top: 0.5rem;
+        max-height: 18rem;
+        overflow: auto;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="./flasher.js"></script>
+  </body>
+</html>

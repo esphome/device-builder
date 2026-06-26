@@ -31,13 +31,16 @@ def compose_subprocess_env(job: FirmwareJob) -> dict[str, str]:
 
     Layers ``os.environ`` + :data:`ESPHOME_SUBPROCESS_ENV`, then
     for receiver-side remote-build jobs pins ``ESPHOME_DATA_DIR``
-    to the per-build subtree under ``CORE.data_dir`` so per-config
-    artefacts land in one ``(dashboard_id, device)``-keyed dir.
+    to the per-build subtree under ``CORE.data_dir`` and drops the
+    ``ESPHOME_IS_HA_ADDON`` marker so the override is honoured.
     """
     env = {**os.environ, **ESPHOME_SUBPROCESS_ENV}
     remote_build_path = parse_remote_build_path(job.configuration)
     if remote_build_path is not None:
         env["ESPHOME_DATA_DIR"] = str(remote_build_path.data_dir(Path(CORE.data_dir)))
+        # esphome's CORE.data_dir prefers is_ha_addon() over ESPHOME_DATA_DIR; an
+        # add-on receiver would write artefacts to /data and ignore the override.
+        env.pop("ESPHOME_IS_HA_ADDON", None)
     return env
 
 

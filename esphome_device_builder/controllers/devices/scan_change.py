@@ -16,12 +16,20 @@ _LOGGER = logging.getLogger(__name__)
 
 def on_scan_change(controller: DevicesController, kind: ScanChange, device: Device) -> None:
     """Forward scanner changes onto the event bus and fan out per-kind side effects."""
+    # UPDATED and RELOADED both refresh the client row via DEVICE_UPDATED;
+    # only UPDATED (the scanner saw the YAML's mtime/size/inode change) also
+    # fires DEVICE_YAML_UPDATED, so version history commits on edits but not
+    # on metadata reloads.
     event = {
         ScanChange.ADDED: EventType.DEVICE_ADDED,
         ScanChange.UPDATED: EventType.DEVICE_UPDATED,
+        ScanChange.RELOADED: EventType.DEVICE_UPDATED,
         ScanChange.REMOVED: EventType.DEVICE_REMOVED,
     }[kind]
-    controller._db.bus.fire(event, DeviceEventData(device=device))
+    payload = DeviceEventData(device=device)
+    controller._db.bus.fire(event, payload)
+    if kind is ScanChange.UPDATED:
+        controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, payload)
     if kind is ScanChange.ADDED:
         # ``probe_device`` short-circuits to the zeroconf cache
         # when present; otherwise it spawns a fire-and-forget
@@ -38,9 +46,9 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # clients stop showing the adopt banner once the device is
         # configured. Idempotent: fires REMOVED only if a row existed.
         controller._on_importable_removed(device.name)
-    if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
-        # YAML cache key changed; clear any prior failure
-        # marker so the next edit gets a fresh chance at
+    if kind in (ScanChange.UPDATED, ScanChange.RELOADED, ScanChange.REMOVED):
+        # YAML cache key changed (or a reload re-read it); clear any
+        # prior failure marker so the next edit gets a fresh chance at
         # ``--only-generate`` (and re-creating a deleted file
         # later doesn't inherit the old failure).
         controller.state.regenerate_failed.discard(device.configuration)

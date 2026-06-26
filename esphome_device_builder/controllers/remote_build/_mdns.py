@@ -104,8 +104,10 @@ def peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer
     # path silently skips those rows.
     pin_sha256 = decode_txt_value(properties.get(b"pin_sha256"))
     remote_build_port = decode_txt_port(properties.get(b"remote_build_port"))
+    # Human machine label; ``""`` for older receivers that don't send it.
+    friendly_name = decode_txt_value(properties.get(b"friendly_name"))
     # ``info.name`` comes back as ``<instance>.<service_type>``;
-    # we only want the leftmost label as the friendly name.
+    # we only want the leftmost label (the stable instance label).
     instance = (info.name or name).split(".", 1)[0]
     server = info.server or ""
     return RemoteBuildPeer(
@@ -116,6 +118,7 @@ def peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer
         addresses=info.parsed_scoped_addresses(IPVersion.All) or [],
         server_version=server_version,
         esphome_version=esphome_version,
+        friendly_name=friendly_name,
         pin_sha256=pin_sha256,
         remote_build_port=remote_build_port,
     )

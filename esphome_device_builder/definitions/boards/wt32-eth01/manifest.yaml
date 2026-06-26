@@ -19,6 +19,32 @@ tags:
 - compact
 - module
 docs_url: https://esphome.io/components/esp32.html
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in Ethernet PHY — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO16
+      locked: true
 pins:
 - gpio: 0
   label: GPIO0

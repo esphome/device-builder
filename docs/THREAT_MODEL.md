@@ -147,3 +147,17 @@ These are explicitly *not* threats the dashboard defends against:
   authenticated client.** They can already crash their own
   dashboard; reliability is a quality bar, not a security
   boundary.
+- **An operator who deliberately opened the front door.** On the HA
+  add-on, enabling "Disable external authentication"
+  (`leave_front_door_open`) *and* mapping port 6052 binds the public
+  port with no authentication at all; the operator removed the
+  boundary themselves, so the resulting wide-open LAN dashboard is
+  not a breach of anything we defend. It is LAN-equivalent to handing
+  out shell access on the host, by explicit request; the dashboard
+  logs a loud banner saying exactly that. The public site stays
+  untrusted, so the WS `Origin` gate still rejects a plain
+  cross-origin browser drive-by; the residual reach is DNS rebinding
+  (where `Origin` and `Host` both become the attacker's rebound name),
+  which an operator who cares closes with `--trusted-domains` (the
+  `Host` allowlist). Both opt-ins are required (legacy parity), so it
+  can't happen by accident.

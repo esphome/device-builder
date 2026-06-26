@@ -9,9 +9,19 @@ hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-M1/M1-2_01.jpg
 pins:
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
 - gpio: 32
   available: false
   occupied_by: M1-sensor-DI
@@ -20,6 +30,25 @@ pins:
   occupied_by: M1-relay
 docs_url: https://devices.esphome.io/devices/KinCony-M1/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk_mode:
+      value: GPIO17_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -46,5 +75,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-M1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-M1/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 0c114ed313b81975a7c9c943a410c55d6bd0abc210d4775a115decaf6836cd78

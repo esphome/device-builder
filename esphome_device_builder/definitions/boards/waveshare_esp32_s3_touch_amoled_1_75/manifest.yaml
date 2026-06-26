@@ -89,5 +89,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-Touch-AMOLED-1.75
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 721eb4caf158309221a7b5ee4662fa412c26e5fc00d5b649a4064ca2aa34a955

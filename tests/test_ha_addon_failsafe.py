@@ -1,17 +1,22 @@
-"""Tests for the fail-secure HA-add-on bind logic in ``DeviceBuilder.run``.
+"""Tests for the HA-add-on bind logic in ``DeviceBuilder.run``.
 
 The legacy dashboard had a supervisor ``/auth`` fallback that gated
 the public port with HA credentials when ``PASSWORD`` wasn't set;
-we don't carry that forward (see issue #85). Without the fallback,
-binding the public port without ``USERNAME``/``PASSWORD`` would
-leave the dashboard wide-open on the LAN whenever the add-on's
-``ports:`` mapping exposed it.
+we don't carry that forward (see issue #85). The add-on is
+ingress-only by default. The one way to expose the LAN port is the
+operator's explicit, two-part opt-in (legacy parity): the
+``leave_front_door_open`` option (``DISABLE_HA_AUTHENTICATION``)
+*and* a mapped port 6052 (``--ha-addon-allow-public``), which binds
+the public port with no auth at all.
 
-These tests pin the three branches of the fail-secure logic:
+These tests pin the branches:
 
-1. on-ha-addon + no password + ingress available → run ingress-only.
-2. on-ha-addon + no password + ingress disabled → refuse to start.
-3. anything else (password set, not on add-on) → public site as
+1. on-ha-addon + no password + ingress (default) → run ingress-only.
+2. on-ha-addon + no password + front door open + mapped port → bind
+   the public port unauthenticated, keep the ingress site (sidebar).
+3. on-ha-addon + no password + only one of the two opt-ins →
+   ingress-only with an explanatory warning (never expose unauthed).
+4. anything else (password set, not on add-on) → public site as
    normal.
 """
 
@@ -33,17 +38,20 @@ def _make_db(
     *,
     on_ha_addon: bool,
     using_password: bool,
+    allow_public_port: bool = False,
 ) -> DeviceBuilder:
     """Build a DeviceBuilder with the requested settings shape.
 
-    Tests drive ``create_ingress_site`` (the only HA-add-on
-    setting that varies between scenarios) via
-    ``monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", ...)`` —
-    same path the production code reads, no class trickery.
+    Tests drive ``front_door_open`` via
+    ``monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", ...)`` — the
+    same path the production property reads, no class trickery —
+    and ``allow_public_port`` directly (the CLI flag the add-on
+    passes only when the operator mapped port 6052).
     """
     settings = make_settings()
     settings.on_ha_addon = on_ha_addon
     settings.using_password = using_password
+    settings.allow_public_port = allow_public_port
     if using_password:
         settings.username = "admin"
         settings.password_hash = b"x" * 32
@@ -90,10 +98,11 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
 
     # Only the ingress site got bound — public port was suppressed.
     assert captured["port"] == 6053  # ingress_port
-    # ``host`` is now always a list — ``resolve_bind_host`` wraps
-    # literals in a singleton so the bind code can fan out
-    # uniformly when the operator passes an interface name.
-    assert captured["host"] == ["0.0.0.0"]  # ingress_host fallback
+    # No ``--ingress-host`` → loopback + supervisor gateway only, NEVER
+    # 0.0.0.0: on a host-network add-on all-interfaces would expose the
+    # no-auth ingress site on the LAN. Loopback serves HA core's ESPHome
+    # integration; the gateway serves the supervisor's ingress proxy.
+    assert captured["host"] == ["127.0.0.1", "172.30.32.1"]
     assert captured["trusted"] is True  # trusted=True (auth bypass)
     assert captured["handle_signals"] is False  # we own the stop signal end-to-end
 
@@ -126,28 +135,156 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
     assert "standalone PyPI install" in warning
 
 
-def test_ha_addon_no_password_no_ingress_refuses_to_start(
+def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
     make_settings: MakeSettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """``DISABLE_HA_AUTHENTICATION`` + no password = refuse to start.
+    """Both opt-ins set → public port bound with no auth, ingress kept for the sidebar.
 
-    Without ingress and without credentials there's nothing safe
-    to bind. Failing loudly at startup is the only correct outcome
-    — silently doing nothing would look like a working dashboard
-    that just isn't reachable.
+    The explicit two-part opt-in (``DISABLE_HA_AUTHENTICATION`` +
+    a mapped port via ``allow_public_port``) must NOT crash; it
+    binds ``0.0.0.0:6052`` with the peer guard off so a LAN client
+    reaches it (auth is a no-op without a password) but the site
+    untrusted so the origin gate stays, logs the wide-open banner,
+    and still registers the ingress site so HA-sidebar access
+    survives.
     """
     monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
-    db = _make_db(make_settings, on_ha_addon=True, using_password=False)
+    db = _make_db(make_settings, on_ha_addon=True, using_password=False, allow_public_port=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+        captured["host"] = host
+        captured["port"] = port
+        captured["trusted_site"] = bool(app.get("trusted_site"))
+        captured["ingress_hook"] = db._start_ingress_site in app.on_startup
 
     with (
-        patch("esphome_device_builder.device_builder.web.run_app") as run_app_mock,
-        pytest.raises(RuntimeError, match="DISABLE_HA_AUTHENTICATION"),
+        caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"),
+        patch("esphome_device_builder.device_builder.web.run_app", fake_run_app),
+        patch.object(db, "create_app", wraps=db.create_app) as create_app_spy,
     ):
         db.run()
 
-    # Nothing bound.
-    run_app_mock.assert_not_called()
+    # Public port bound on all interfaces.
+    assert captured["port"] == 6052
+    assert captured["host"] == ["0.0.0.0"]
+    # Not a trusted site: the WS origin/Host gate stays active (auth is a no-op
+    # without a password), so a plain cross-origin drive-by is still rejected.
+    assert captured["trusted_site"] is False
+    # Ingress site still bound alongside it (HA sidebar keeps working).
+    assert captured["ingress_hook"] is True
+
+    # The public app drops the peer guard so the LAN reaches it, but stays
+    # untrusted to keep the origin gate.
+    main_call = create_app_spy.call_args_list[0]
+    assert main_call.kwargs == {"trusted": False, "peer_guard": False}
+
+    banner = [r.getMessage() for r in caplog.records if "FRONT DOOR OPEN" in r.getMessage()]
+    assert banner, "expected the loud FRONT DOOR OPEN banner"
+    assert "0.0.0.0:6052" in banner[0]
+    assert "NO authentication" in banner[0]
+
+
+def test_ha_addon_front_door_open_without_mapped_port_runs_ingress_only(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Front door open but port not mapped → nothing exposed (legacy parity)."""
+    monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
+    db = _make_db(make_settings, on_ha_addon=True, using_password=False, allow_public_port=False)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+        captured["host"] = host
+        captured["port"] = port
+
+    with (
+        caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"),
+        patch("esphome_device_builder.device_builder.web.run_app", fake_run_app),
+    ):
+        db.run()
+
+    # Only the ingress site bound — never 0.0.0.0.
+    assert captured["port"] == 6053
+    assert captured["host"] == ["127.0.0.1", "172.30.32.1"]
+    warnings = [r.getMessage() for r in caplog.records if "NOT bound" in r.getMessage()]
+    assert warnings and "not mapped" in warnings[0]
+
+
+def test_ha_addon_mapped_port_without_front_door_runs_ingress_only(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Mapped port without front-door-open → ingress-only; no silent unauthed bind (#85)."""
+    monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    db = _make_db(make_settings, on_ha_addon=True, using_password=False, allow_public_port=True)
+
+    captured: dict[str, object] = {}
+
+    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+        captured["host"] = host
+        captured["port"] = port
+
+    with (
+        caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"),
+        patch("esphome_device_builder.device_builder.web.run_app", fake_run_app),
+    ):
+        db.run()
+
+    assert captured["port"] == 6053
+    assert captured["host"] == ["127.0.0.1", "172.30.32.1"]
+    warnings = [r.getMessage() for r in caplog.records if "NOT bound" in r.getMessage()]
+    assert warnings and "#85" in warnings[0]
+
+
+@pytest.mark.parametrize(
+    ("on_ha_addon", "disable_env", "allow_public_port", "front", "serve", "ingress"),
+    [
+        # On the add-on: serve_public needs BOTH opt-ins; create_ingress_site
+        # is the inverse of serve_public (so the no-auth banner fires only there).
+        (True, False, False, False, False, True),
+        (True, False, True, False, False, True),
+        (True, True, False, True, False, True),
+        (True, True, True, True, True, False),
+        # Off the add-on the env var and flag are inert.
+        (False, True, True, False, False, False),
+    ],
+    ids=[
+        "addon_default",
+        "addon_mapped_no_frontdoor",
+        "addon_frontdoor_unmapped",
+        "addon_both_optins",
+        "off_addon_inert",
+    ],
+)
+def test_front_door_property_truth_table(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    on_ha_addon: bool,
+    disable_env: bool,
+    allow_public_port: bool,
+    front: bool,
+    serve: bool,
+    ingress: bool,
+) -> None:
+    """Pin the security-relevant property matrix so a refactor can't widen exposure."""
+    if disable_env:
+        monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
+    else:
+        monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
+    settings = make_settings()
+    settings.on_ha_addon = on_ha_addon
+    settings.allow_public_port = allow_public_port
+
+    assert settings.front_door_open is front
+    assert settings.serve_public_unauthenticated is serve
+    assert settings.create_ingress_site is ingress
 
 
 def test_ha_addon_with_password_binds_public_site_normally(
@@ -266,6 +403,10 @@ async def test_start_and_stop_ingress_site_lifecycle(make_settings: MakeSettings
     """
     db = _make_db(make_settings, on_ha_addon=True, using_password=True)
     db.settings.ingress_port = 0  # let OS pick a free port
+    # Single explicit host so the ephemeral port (0) is allowed — the default
+    # bind is multi-host (loopback + gateway), which can't share an OS-assigned
+    # ephemeral port.
+    db.settings.ingress_host = "127.0.0.1"
 
     # _start_ingress_site reads self.settings.ingress_port via
     # web.TCPSite — a real socket bind. The hook also calls
@@ -286,12 +427,9 @@ async def test_start_ingress_site_cleans_up_runner_on_partial_bind_failure(
 ) -> None:
     """Partial multi-host bind failure releases the half-bound runner."""
     db = _make_db(make_settings, on_ha_addon=True, using_password=True)
-    db.settings.ingress_port = 6053  # fixed port; multi-host expansion is allowed
-
-    monkeypatch.setattr(
-        "esphome_device_builder.device_builder.resolve_bind_host",
-        lambda _: ["127.0.0.1", "127.0.0.1"],
-    )
+    # Fixed port + the default multi-host bind (loopback + supervisor gateway):
+    # the first host binds, the second is forced to fail below.
+    db.settings.ingress_port = 6053
 
     real_start = web.TCPSite.start
     calls: list[web.TCPSite] = []
@@ -327,16 +465,10 @@ async def test_start_ingress_site_cleans_up_runner_on_partial_bind_failure(
 
 async def test_start_ingress_site_refuses_port_zero_with_multi_host(
     make_settings: MakeSettingsFactory,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``--ingress-port 0`` paired with a multi-address NIC refuses to bind."""
+    """``--ingress-port 0`` with the default multi-host bind refuses to bind."""
     db = _make_db(make_settings, on_ha_addon=True, using_password=True)
-    db.settings.ingress_port = 0
-
-    monkeypatch.setattr(
-        "esphome_device_builder.device_builder.resolve_bind_host",
-        lambda _: ["192.168.1.10", "192.168.1.11"],
-    )
+    db.settings.ingress_port = 0  # default ingress_host → loopback + gateway (2 hosts)
 
     fake_app: object = object()
     with pytest.raises(RuntimeError, match=r"--ingress-port 0 .* multiple addresses"):

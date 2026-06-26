@@ -48,6 +48,8 @@ from script.sync_boards import (
     _LIBRETINY_FAMILIES,
     _NRF52_PLATFORM,
     _RP2040_PLATFORM,
+    _augment_rmii_data_pins,
+    _augment_rp2040_onboard_ethernet_pins,
     _backfill_esp32_variants,
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
@@ -84,6 +86,8 @@ def test_split_artefacts_match_manifests() -> None:
     _backfill_esp32_variants(from_yaml.boards)
     _backfill_rp2040_wifi(from_yaml.boards)
     _backfill_rp2040_mcu(from_yaml.boards)
+    _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
+    _augment_rmii_data_pins(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
@@ -108,10 +112,43 @@ def test_split_artefacts_match_manifests() -> None:
         if platform in esphome_filled or (platform == "esp8266" and not board.pins):
             expected.pop("pins", None)
             actual.pop("pins", None)
+        # Images are vendor-controlled URLs; a manifest image edit shouldn't fail
+        # this consistency check until the catalog regenerates. Reachability is
+        # validated separately by validate_definitions.py --check-images.
+        expected.pop("images", None)
+        actual.pop("images", None)
         assert expected == actual, (
             f"{board.id} is out of sync with its manifest. "
             "Run `python script/sync_boards.py` to regenerate."
         )
+
+
+def test_no_duplicate_platform_name_boards() -> None:
+    """
+    No two catalog entries share a ``(platform, display-name)``.
+
+    A curated manifest claiming an ESPHome board key under a different id must not
+    leave a same-named generated twin in the picker (the WIZnet/Freenove/Sonoff
+    duplicates).
+    """
+    seen: dict[tuple[str, str], str] = {}
+    dups: list[str] = []
+    for board in load_board_catalog().boards:
+        key = (board.esphome.platform.value, board.name)
+        if key in seen:
+            dups.append(f"{board.name!r}: {board.id} vs {seen[key]}")
+        else:
+            seen[key] = board.id
+    assert not dups, "Duplicate (platform, name) board entries:\n" + "\n".join(dups)
+
+
+def test_wiznet_w6300_resolves_to_curated_ethernet_board() -> None:
+    """The W6300-EVB-Pico2 lists once, as the curated board carrying onboard ethernet."""
+    hits = [b for b in load_board_catalog().boards if b.name == "WIZnet W6300-EVB-Pico2"]
+    assert len(hits) == 1
+    board = hits[0]
+    assert board.esphome.board == "wiznet_6300_evb_pico2"
+    assert any(fc.component_id == "ethernet" for fc in board.featured_components)
 
 
 def test_boards_index_omits_body_fields() -> None:

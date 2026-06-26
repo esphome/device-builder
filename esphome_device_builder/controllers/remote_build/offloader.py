@@ -239,13 +239,18 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         )
 
     async def _refresh_identity_and_respawn_clients(self) -> None:
-        """Reload the identity snapshot and respawn every APPROVED peer-link client."""
+        """Reload the identity snapshot and respawn every APPROVED peer-link client.
+
+        Awaits each old client's teardown before respawning: rotation keeps the
+        ``dashboard_id`` and reconnects to the same receiver, so a late old
+        registration would supersede the fresh client (same race as rebind).
+        """
         await self._load_offloader_identities_async()
         for pin_sha256 in list(self.state.peer_link_clients):
             pairing = self.state.pairings.get(pin_sha256)
             if pairing is None or pairing.status is not PeerStatus.APPROVED:
                 continue
-            self._cancel_peer_link_client(pin_sha256)
+            await self._cancel_peer_link_client_and_wait(pin_sha256)
             self._spawn_peer_link_client(pairing)
 
     def _on_offloader_queue_status_changed(
@@ -328,9 +333,11 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             self, pairing=pairing, new_hostname=new_hostname, new_port=new_port
         )
 
-    def _commit_endpoint_rebind(self, pairing: StoredPairing, *, hostname: str, port: int) -> None:
+    async def _commit_endpoint_rebind(
+        self, pairing: StoredPairing, *, hostname: str, port: int
+    ) -> None:
         """Mutate *pairing* to (*hostname*, *port*) and run the rebind epilogue."""
-        rebind.commit_endpoint_rebind(self, pairing, hostname=hostname, port=port)
+        await rebind.commit_endpoint_rebind(self, pairing, hostname=hostname, port=port)
 
     # ------------------------------------------------------------------
     # mDNS auto-rebind
@@ -599,6 +606,10 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     def _cancel_peer_link_client(self, pin_sha256: str) -> None:
         """Cancel the peer-link client for *pin_sha256*. No-op if none running."""
         peer_link_lifecycle.cancel_peer_link_client(self, pin_sha256)
+
+    async def _cancel_peer_link_client_and_wait(self, pin_sha256: str) -> None:
+        """Cancel the peer-link client for *pin_sha256* and await its teardown."""
+        await peer_link_lifecycle.cancel_peer_link_client_and_wait(self, pin_sha256)
 
     def _sweep_stale_pairings_at_endpoint(
         self, hostname: str, port: int, *, keep_pin_sha256: str

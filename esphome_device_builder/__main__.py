@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-import os
 import signal
 import sys
 import threading
@@ -24,6 +23,7 @@ from .constants import (
     DEFAULT_REMOTE_BUILD_PORT,
     __version__,
 )
+from .helpers.credentials import resolve_credentials
 from .helpers.logging import activate_log_queue_handler
 from .helpers.startup_timing import StartupTimer
 
@@ -207,6 +207,16 @@ def main() -> None:
     )
     parser.add_argument("--ha-addon", action="store_true", help="Running as HA add-on")
     parser.add_argument(
+        "--ha-addon-allow-public",
+        action="store_true",
+        help=(
+            "Bind the public port on the LAN with no authentication. Only with "
+            "--ha-addon, and only honoured together with the front-door-open "
+            "option; the add-on passes this exclusively when the operator has "
+            "mapped port 6052"
+        ),
+    )
+    parser.add_argument(
         "--ingress-port",
         type=int,
         default=DEFAULT_INGRESS_PORT,
@@ -216,9 +226,13 @@ def main() -> None:
         "--ingress-host",
         default="",
         help=(
-            "Bind address for the HA Ingress site (defaults to all interfaces "
-            "inside the addon container). Accepts an IP literal or a local "
-            "network interface name (e.g. 'eth0')"
+            "Bind address for the HA Ingress site. Defaults to loopback plus "
+            "the supervisor gateway (127.0.0.1 + 172.30.32.1) so the no-auth "
+            "site is never exposed on the LAN. Accepts an IP literal or a local "
+            "network interface name (e.g. 'eth0') to override the bind. Note: "
+            "a peer guard still restricts sources to loopback and the supervisor "
+            "(172.30.32.2) regardless of this bind, so overriding it to reach the "
+            "site from another machine will 403"
         ),
     )
     parser.add_argument(
@@ -308,6 +322,8 @@ def main() -> None:
 
     _warn_deprecated_credential_flags(args)
 
+    _warn_legacy_credential_env(args)
+
     # ``--version`` / ``--help`` exit above before reaching this
     # point, so the lazy imports below are reachable only when the
     # user actually meant to run the dashboard. Gate on
@@ -376,6 +392,10 @@ def _serve_until_stop(device_builder: DeviceBuilder) -> None:
     non-``CancelledError`` that escapes ``run_app``. With a stop pending
     that's a clean exit; a crash with no stop pending propagates.
     """
+    # Honour a startup stop whose SystemExit was swallowed (e.g. in a weakref callback).
+    if _stop_requested:
+        logging.getLogger(_LOGGER_NAME).info("Stop signal received during startup; exiting")
+        return
     try:
         device_builder.run()
     except Exception:
@@ -451,9 +471,7 @@ def _format_version() -> str:
 
 def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Reject mismatched --username / --password (or env equivalents)."""
-    has_user = bool(args.username or os.getenv("ESPHOME_USERNAME"))
-    has_pass = bool(args.password or os.getenv("ESPHOME_PASSWORD"))
-    if has_user != has_pass:
+    if resolve_credentials(args.username, args.password).mismatch:
         parser.error(
             "--username and --password must both be set (or both unset). "
             "Use $ESPHOME_USERNAME / $ESPHOME_PASSWORD env vars as alternatives."
@@ -472,9 +490,31 @@ def _warn_deprecated_credential_flags(args: argparse.Namespace) -> None:
     )
 
 
+def _warn_legacy_credential_env(args: argparse.Namespace) -> None:
+    """Warn loudly when auth came from the deprecated bare $USERNAME / $PASSWORD."""
+    if not resolve_credentials(args.username, args.password).used_legacy:
+        return
+    banner = "=" * 70
+    logging.getLogger(_LOGGER_NAME).warning(
+        "\n%s\n"
+        " DEPRECATION: authenticating with the legacy $USERNAME / $PASSWORD\n"
+        " environment variables. Rename them to $ESPHOME_USERNAME /\n"
+        " $ESPHOME_PASSWORD; the bare names will stop working in a future\n"
+        " release.\n"
+        "%s",
+        banner,
+        banner,
+    )
+
+
 def _warn_if_unprotected(settings: DashboardSettings) -> None:
     """Print a banner when starting without any authentication boundary."""
     if settings.using_password:
+        return
+    # The wide-open add-on opt-in gets a more accurate banner from
+    # DeviceBuilder.run (_warn_front_door_open); the generic one below points
+    # at $ESPHOME_USERNAME/$ESPHOME_PASSWORD env vars the add-on doesn't expose.
+    if settings.serve_public_unauthenticated:
         return
     # HA add-on installs are exempt — the supervisor's ingress proxy
     # authenticates upstream of the trusted site.

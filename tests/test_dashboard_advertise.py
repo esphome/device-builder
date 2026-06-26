@@ -70,33 +70,24 @@ def test_default_friendly_name_falls_back_when_empty(monkeypatch: pytest.MonkeyP
     assert _default_friendly_name() == "esphome-dashboard"
 
 
-def test_build_mdns_hostname_combines_hostname_and_dashboard_id(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_build_mdns_hostname_uses_fixed_prefix_and_dashboard_id() -> None:
     """
-    Production path: ``{hostname}-{short_id}.local``.
+    Production path: ``esphome-builder-{short_id}.local``.
 
-    Pins the collision-resistant SRV target shape Home Assistant
-    uses: a human-recognisable hostname prefix plus a stable
-    per-install identifier suffix, so two machines named ``mac``
-    on the same LAN advertise distinct mDNS hostnames. The
-    suffix is *up to* :data:`_DASHBOARD_ID_SUFFIX_CHARS` (8)
-    characters of the dashboard_id; a hyphen-derived character
-    at the truncation boundary lands on a 7-char suffix in ~6%
-    of installs after the trailing-hyphen strip. Sample below
-    picks a dashboard_id whose first 8 chars are all
-    base64url-alphanumerics so the assertion checks the 8-char
-    happy path; another test covers the boundary-strip case.
+    The SRV target is a fixed product prefix plus a stable
+    per-install identifier suffix, so two dashboards on the same
+    LAN advertise distinct mDNS hostnames. The suffix is *up to*
+    :data:`_DASHBOARD_ID_SUFFIX_CHARS` (8) characters of the
+    dashboard_id; the sample's first 8 chars are all
+    base64url-alphanumerics so this checks the 8-char happy path.
     """
-    monkeypatch.setattr(socket, "gethostname", lambda: "mac")
     assert (
-        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH") == "mac-jwywnver.local"
+        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
+        == "esphome-builder-jwywnver.local"
     )
 
 
-def test_build_mdns_hostname_suffix_strips_trailing_hyphen(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_build_mdns_hostname_suffix_strips_trailing_hyphen() -> None:
     """A dashboard_id with ``_`` or ``-`` at position 8 yields a 7-char suffix.
 
     ``secrets.token_urlsafe`` produces base64url; the alphabet
@@ -104,115 +95,44 @@ def test_build_mdns_hostname_suffix_strips_trailing_hyphen(
     truncation boundary would leave a trailing-hyphen label.
     The implementation strips trailing hyphens to keep the
     label strictly RFC 1123-compliant, so the suffix can be
-    one short of the cap. Entropy claim still holds (~42 bits
-    for 7 base64url chars).
+    one short of the cap.
     """
-    monkeypatch.setattr(socket, "gethostname", lambda: "mac")
     # Underscore at position 8 → sanitises to ``-`` → trailing-strip → 7-char suffix.
     assert (
-        build_mdns_hostname(dashboard_id="jWyWNVe_rwl0qjPYTzGV70RyMnDsqaTH") == "mac-jwywnve.local"
+        build_mdns_hostname(dashboard_id="jWyWNVe_rwl0qjPYTzGV70RyMnDsqaTH")
+        == "esphome-builder-jwywnve.local"
     )
 
 
-def test_build_mdns_hostname_strips_fqdn_and_lowercases(
+def test_build_mdns_hostname_is_independent_of_system_hostname(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    System FQDNs and mixed-case hostnames normalise.
+    The SRV target depends only on dashboard_id, never the OS hostname.
 
-    Regression for the original user report: ``socket.gethostname()``
-    returning ``Mac.koston.org`` (the user's MBP under a configured
-    search domain) had been leaking the ``.koston.org`` FQDN into
-    the SRV target. The helper takes only the leftmost label and
-    lowercases it, so any of these shapes lands at the same
-    ``mac-jwywnver.local``.
+    This is the fix for the reconnect churn: macOS flips
+    ``socket.gethostname()`` across reboots (``mac`` ↔
+    ``macbook-pro``), which used to flip the SRV target and force
+    an endpoint rebind on every restart. The target must stay
+    constant no matter what gethostname / getfqdn report.
     """
-    for raw in ("Mac.koston.org", "Mac", "MAC.lan", "macbook-pro.local"):
-        monkeypatch.setattr(socket, "gethostname", lambda r=raw: r)
-        result = build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
-        assert result.endswith("-jwywnver.local")
-        assert "koston.org" not in result
-        assert result.lower() == result
-
-
-def test_build_mdns_hostname_caps_long_hostname_prefix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """
-    Overlong system hostnames truncate to a safe DNS-label width.
-
-    RFC 1035 §2.3.4 caps each DNS label at 63 octets. The helper
-    truncates the hostname prefix at
-    :data:`_HOSTNAME_PREFIX_MAX_CHARS` (32), leaving comfortable
-    headroom for the ``-{8 chars}`` suffix and the ``.local``
-    tail. Pins the cap because a comically long system hostname
-    on a CI runner or an enterprise-named workstation would
-    otherwise push the SRV target past what zeroconf is willing
-    to publish.
-    """
-    monkeypatch.setattr(
-        socket,
-        "gethostname",
-        lambda: "veryveryveryverylonglonglonglonglonglonglonglong",
-    )
-    result = build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
-    label = result.removesuffix(".local")
-    # Each DNS label must be ≤63 octets per RFC 1035; the
-    # implementation caps at 32 chars + 1 hyphen + 8 chars = 41.
-    assert len(label) <= 63
-    assert label.endswith("-jwywnver")
-    # Prefix is bounded by the cap, not arbitrary.
-    assert len(label) - len("-jwywnver") <= 32
-
-
-def test_build_mdns_hostname_falls_back_when_hostname_blank(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No hostname → ``dashboard-{short_id}.local`` so we still advertise an identifier."""
-    monkeypatch.setattr(socket, "gethostname", lambda: "")
-    assert (
-        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
-        == "dashboard-jwywnver.local"
-    )
-
-
-def test_build_mdns_hostname_falls_back_when_dashboard_id_blank(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No dashboard_id → ``{hostname}.local``; collision risk degrades to pre-fix behaviour."""
-    monkeypatch.setattr(socket, "gethostname", lambda: "Mac")
-    assert build_mdns_hostname(dashboard_id="") == "mac.local"
-
-
-def test_build_mdns_hostname_returns_empty_when_everything_blank(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Neither hostname nor dashboard_id → empty string; caller fails soft and skips advertise."""
-    monkeypatch.setattr(socket, "gethostname", lambda: "")
-    assert build_mdns_hostname(dashboard_id="") == ""
-
-
-def test_build_mdns_hostname_does_not_use_getfqdn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    The helper must NOT route through ``socket.getfqdn``.
-
-    On macOS that resolver can return the reverse-DNS arpa form
-    (a long ``...ip6.arpa`` string) when reverse lookup fails,
-    which would corrupt the published SRV target. Pin the
-    implementation so a future refactor doesn't reintroduce the
-    call.
-    """
-    monkeypatch.setattr(socket, "gethostname", lambda: "host")
 
     def _boom() -> str:
-        msg = "getfqdn must not be called in this code path"
+        msg = "the SRV target must not read the system hostname"
         raise AssertionError(msg)
 
     monkeypatch.setattr(socket, "getfqdn", _boom)
-    assert (
-        build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
-        == "host-jwywnver.local"
-    )
+    for raw in ("mac", "macbook-pro", "Mac.koston.org", ""):
+        monkeypatch.setattr(socket, "gethostname", lambda r=raw: r)
+        assert (
+            build_mdns_hostname(dashboard_id="jWyWNVeRrwl0qjPYTzGV70RyMnDsqaTH")
+            == "esphome-builder-jwywnver.local"
+        )
+
+
+def test_build_mdns_hostname_falls_back_when_dashboard_id_blank() -> None:
+    """No dashboard_id → the bare ``esphome-builder.local`` (transient pre-identity)."""
+    assert build_mdns_hostname(dashboard_id="") == "esphome-builder.local"
 
 
 # ---------------------------------------------------------------------------
@@ -429,13 +349,14 @@ def test_build_service_info_populates_txt_and_server() -> None:
     assert info.port == 6052
     # ServiceInfo encodes properties as bytes; decode to compare.
     decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
-    # TXT carries only the version fields that aren't already
-    # implied by the browse response. Friendly name and hostname
-    # come from ``info.name`` and ``info.server`` instead — pinned
-    # below so a future refactor doesn't quietly add them back.
+    # TXT carries the version fields plus ``friendly_name`` (the human
+    # machine label). The hostname is not duplicated — it comes from
+    # ``info.server`` — pinned below so a future refactor doesn't add
+    # it back.
     assert decoded == {
         "server_version": "1.2.3",
         "esphome_version": "2026.5.0",
+        "friendly_name": "green",
     }
     # ``server`` is always trailing-dotted so zeroconf doesn't double-suffix it.
     assert info.server == "green.local."
@@ -657,26 +578,23 @@ async def test_service_target_endpoint_returns_lowercased_no_trailing_dot(
     assert advertiser.service_target_endpoint is None
 
 
-def test_build_service_info_falls_back_when_hostname_is_blank(
+def test_build_service_info_valid_target_without_dashboard_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Blank hostname → SRV target derived from the friendly name.
+    No dashboard_id (and a blank system hostname) still yields a valid SRV target.
 
-    When ``socket.gethostname`` is blank (minimal containers,
-    misconfigured systems), ``_default_hostname`` returns ``""``.
-    Without a fallback, ``build_service_info`` would set
-    ``server="."`` — an invalid SRV target that python-zeroconf
-    rejects at register time. Pin the recovery so the advertise
-    still produces a valid record on degraded hosts.
+    The fixed-prefix fallback ``esphome-builder.local`` keeps the
+    advertise from emitting a bare ``.`` that python-zeroconf would
+    reject. ``friendly_name`` independently rescues to
+    ``esphome-dashboard`` from ``_default_friendly_name``.
     """
     monkeypatch.setattr(socket, "gethostname", lambda: "")
-    # Both inherit the ``""`` from gethostname; ``_default_friendly_name``
-    # rescues with ``"esphome-dashboard"`` and we want SRV target to
-    # follow.
     advertiser = DashboardAdvertiser(port=6052, server_version="1.0", esphome_version="2026.5.0")
     info = advertiser.build_service_info(addresses=[])
-    assert info.server == "esphome-dashboard.local."
+    assert info.server == "esphome-builder.local."
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert decoded["friendly_name"] == "esphome-dashboard"
 
 
 # ---------------------------------------------------------------------------

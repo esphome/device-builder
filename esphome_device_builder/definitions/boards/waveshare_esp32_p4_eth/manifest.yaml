@@ -1,0 +1,58 @@
+id: waveshare_esp32_p4_eth
+name: Waveshare ESP32-P4-Eth
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-p4-evboard
+  variant: esp32p4
+  framework: esp-idf
+hardware:
+  connectivity:
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-P4-ETH/esp32-p4-eth-1.jpg
+pins:
+- gpio: 31
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 50
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 51
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 52
+  available: false
+  occupied_by: Ethernet MDIO
+docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-P4-ETH/
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO31
+      locked: true
+    mdio_pin:
+      value: GPIO52
+      locked: true
+    power_pin:
+      value: GPIO51
+      locked: true
+    clk:
+      value:
+        mode: CLK_EXT_IN
+        pin: GPIO50
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+source:
+  type: esphome-devices
+  remote_id: Waveshare-ESP32-P4-ETH
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-P4-ETH/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: b6c87d2008a6a77d2a4f2866a8a2bc946733c65b6c00eac3e15bc5b1b925ee6f

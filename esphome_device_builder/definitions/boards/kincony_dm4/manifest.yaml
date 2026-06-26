@@ -4,11 +4,13 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: esp32
   board: esp32-s3-devkitc-1
+  variant: esp32s3
   framework: arduino
 hardware:
   connectivity:
   - wifi
   - bluetooth
+  - ethernet
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM4/DM4-1.jpg
 pins:
@@ -39,6 +41,18 @@ pins:
 - gpio: 40
   available: false
   occupied_by: dm4-W1-io40
+- gpio: 41
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 42
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 43
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 44
+  available: false
+  occupied_by: Ethernet RESET
 - gpio: 47
   available: false
   occupied_by: dm4-W1-io47
@@ -47,6 +61,31 @@ pins:
   occupied_by: dm4-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM4/
 featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO1
+      locked: true
+    mosi_pin:
+      value: GPIO2
+      locked: true
+    miso_pin:
+      value: GPIO41
+      locked: true
+    cs_pin:
+      value: GPIO42
+      locked: true
+    interrupt_pin:
+      value: GPIO43
+      locked: true
+    reset_pin:
+      value: GPIO44
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -285,5 +324,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-DM4
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-DM4/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: d373adb661eda887178821c381a81dfcdb8450a56938f824d75dcfc3e17739ce

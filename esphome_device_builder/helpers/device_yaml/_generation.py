@@ -58,6 +58,61 @@ _NO_NETWORK_TODO_LINES: tuple[str, ...] = (
     "",
 )
 
+# Emitted instead of the Wi-Fi block when no ``wifi_ssid`` / ``wifi_password``
+# secrets are defined (the user skipped Wi-Fi / uses Ethernet). The board may
+# have native Wi-Fi, so unlike ``_NO_NETWORK_TODO_LINES`` this doesn't claim
+# otherwise — it just points at adding a network. ``api:`` / ``ota:`` are
+# omitted because both require a ``network`` component to validate.
+_NO_WIFI_SECRETS_TODO_LINES: tuple[str, ...] = (
+    "# No Wi-Fi secrets are set, so this starter has no network yet.",
+    "# Add a ``wifi:`` block (with your credentials) or an ``ethernet:`` /",
+    "# ``openthread:`` block to suit your board, then add ``api:`` and",
+    "# ``ota:`` blocks once the network is ready.",
+    "",
+)
+
+# Catalog ids of components that satisfy ESPHome's ``network`` dependency.
+# When one is supplied through *defaults*, ``generate_device_yaml`` emits
+# ``api:`` / ``ota:`` and drops the ``wifi:`` block in its favour. Ethernet
+# today; ``openthread`` joins here when Thread boards are wired up. Shared
+# with the components controller (``resolve_network_components``) so the
+# "what to auto-pull" and "what counts as a network" sets can't diverge.
+NETWORK_PROVIDER_COMPONENT_IDS: frozenset[str] = frozenset({"ethernet"})
+
+
+def board_provides_network(board: BoardCatalogEntry) -> bool:
+    """
+    Whether *board* supplies its own network (onboard ``ethernet:``, …).
+
+    True when a featured component (or a bare default-component id) names a
+    provider in :data:`NETWORK_PROVIDER_COMPONENT_IDS`. A no-``ssid`` create
+    on such a board is wired by default — the generator drops the ``wifi:``
+    block — so the wizard skips the Wi-Fi step rather than asking.
+    """
+    if any(fc.component_id in NETWORK_PROVIDER_COMPONENT_IDS for fc in board.featured_components):
+        return True
+    return any(dc.id in NETWORK_PROVIDER_COMPONENT_IDS for dc in board.default_components)
+
+
+def board_has_native_wifi(board: BoardCatalogEntry) -> bool:
+    """Whether *board* has built-in Wi-Fi (``connectivity`` hint, else inferred)."""
+    connectivity = [c.value for c in board.hardware.connectivity] if board.hardware else []
+    return "wifi" in connectivity if connectivity else _infer_native_wifi(board)
+
+
+def board_requires_wifi(board: BoardCatalogEntry) -> bool:
+    """
+    Whether the create wizard must collect Wi-Fi for *board*.
+
+    True when Wi-Fi is the board's only built-in network — it has native Wi-Fi
+    and provides no onboard non-Wi-Fi network. A generated config needs a
+    network (``api`` / ``ota`` / a board's ``web_server`` default all depend on
+    one), so Wi-Fi can't be skipped for these boards; the no-network stub would
+    fail to validate. Boards that bring their own network
+    (:func:`board_provides_network`) skip the Wi-Fi step entirely instead.
+    """
+    return board_has_native_wifi(board) and not board_provides_network(board)
+
 
 def _has_native_wifi(
     *, platform: str, board: str | None = None, variant: str | None = None
@@ -88,6 +143,7 @@ def generate_device_yaml(
     ssid: str,
     psk: str,
     *,
+    wifi_secrets_available: bool = True,
     defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]] | None = None,
 ) -> str:
     """
@@ -97,7 +153,10 @@ def generate_device_yaml(
     and Wi-Fi — the most common/sane defaults for a new device. When
     *defaults* is non-empty each ``(component, fields)`` pair is
     appended via :func:`merge_component_yaml`, matching the shape
-    ``add_component`` would produce on a fresh YAML.
+    ``add_component`` would produce on a fresh YAML. When *defaults*
+    supplies a network component (``NETWORK_PROVIDER_COMPONENT_IDS``,
+    e.g. onboard ``ethernet:``) it takes precedence: the ``wifi:``
+    block is dropped and *ssid* / *psk* are ignored.
     """
     esphome_cfg = board.esphome
     lines: list[str] = []
@@ -158,18 +217,23 @@ def generate_device_yaml(
     # / ``rp2040.boards.BOARDS`` so a future no-Wi-Fi variant or new
     # RP2040 Wi-Fi board flows through without a coordinated edit
     # here.
-    connectivity = [c.value for c in board.hardware.connectivity] if board.hardware else []
-    has_wifi = "wifi" in connectivity if connectivity else _infer_native_wifi(board)
+    has_wifi = board_has_native_wifi(board)
 
-    if has_wifi:
+    # ``api:`` / ``ota:`` both require a ``network`` component
+    # (DEPENDENCIES=["network"]), so they're emitted only when one is
+    # actually present — an injected provider (onboard ``ethernet:``) or
+    # a usable ``wifi:`` block — otherwise validation rejects the config
+    # with "Component api requires component network." A network provider
+    # in *defaults* takes precedence over Wi-Fi (wired board). Wi-Fi is
+    # usable only with a literal ssid (always inlines) or resolvable
+    # secrets; a bare ``!secret`` reference with no secrets defined fails
+    # validation with "Secret not defined".
+    network_provided = any(
+        component.id in NETWORK_PROVIDER_COMPONENT_IDS for component, _ in (defaults or ())
+    )
+    emit_wifi = has_wifi and not network_provided and (bool(ssid) or wifi_secrets_available)
+    if network_provided or emit_wifi:
         # Home Assistant API — unique encryption key per device.
-        # Skipped on no-Wi-Fi boards because ``api:`` requires a
-        # ``network`` component (DEPENDENCIES=["network"]) and the
-        # wizard doesn't emit ``ethernet:`` / ``openthread:`` /
-        # ``host:`` for non-Wi-Fi boards. Validation would otherwise
-        # reject the generated config with
-        # "Component api requires component network." — see ``ota``
-        # below for the same reasoning.
         api_key = base64.b64encode(secrets.token_bytes(32)).decode()
         lines.append("api:")
         lines.append("  encryption:")
@@ -181,17 +245,12 @@ def generate_device_yaml(
         lines.append("  - platform: esphome")
         lines.append("")
 
-        lines.append("wifi:")
-        if ssid:
-            # An unquoted SSID like 'Home #2' truncates at the # comment
-            # marker; a password starting with an indicator char (*, !, &)
-            # fails to parse. Route raw user input through scalar-safe quoting.
-            lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
-            lines.append(f"  password: {_safe_yaml_scalar(psk)}")
-        else:
-            lines.append("  ssid: !secret wifi_ssid")
-            lines.append("  password: !secret wifi_password")
-        lines.extend(_fallback_recovery_lines(friendly_name or name, platform))
+        if emit_wifi:
+            lines.extend(_wifi_block_lines(ssid, psk, friendly_name or name, platform))
+    elif has_wifi:
+        # Native Wi-Fi but no usable credentials and no wired network →
+        # point the user at adding one (no ``api:`` / ``ota:`` yet).
+        lines.extend(_NO_WIFI_SECRETS_TODO_LINES)
     else:
         # No native Wi-Fi → leave a TODO so the user knows what they
         # need to configure before adding ``api:`` / ``ota:``. Both
@@ -205,6 +264,27 @@ def generate_device_yaml(
         lines.extend(_NO_NETWORK_TODO_LINES)
 
     return _apply_default_components("\n".join(lines), defaults)
+
+
+def _wifi_block_lines(ssid: str, psk: str, ap_name: str, platform: str) -> list[str]:
+    """
+    Build the ``wifi:`` block lines plus the fallback AP / captive portal.
+
+    With *ssid* set, emits explicit credentials; otherwise ``!secret``
+    references. *ap_name* / *platform* drive the recovery AP.
+    """
+    lines = ["wifi:"]
+    if ssid:
+        # An unquoted SSID like 'Home #2' truncates at the # comment
+        # marker; a password starting with an indicator char (*, !, &)
+        # fails to parse. Route raw user input through scalar-safe quoting.
+        lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
+        lines.append(f"  password: {_safe_yaml_scalar(psk)}")
+    else:
+        lines.append("  ssid: !secret wifi_ssid")
+        lines.append("  password: !secret wifi_password")
+    lines.extend(_fallback_recovery_lines(ap_name, platform))
+    return lines
 
 
 def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
@@ -260,7 +340,9 @@ def _apply_default_components(
     return yaml_text
 
 
-def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
+def generate_minimal_stub_yaml(
+    name: str, friendly_name: str, *, wifi_secrets_available: bool = True
+) -> str:
     """
     Render a minimal ``esphome rename``-compatible stub config.
 
@@ -273,6 +355,12 @@ def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
     block without unwinding wizard-specific defaults like an
     auto-generated API encryption key.
 
+    When ``wifi_secrets_available`` is False (no ``wifi_ssid`` /
+    ``wifi_password`` in secrets.yaml) the stub omits the Wi-Fi
+    ``!secret`` block — and ``api:`` / ``ota:``, which need a
+    network — emitting a network TODO instead, so it still
+    validates.
+
     The platform defaults to ``esp32`` with ``board: esp32dev``
     because esp32 is the most common starter target and
     ``esp32dev`` is upstream-canonical (ships in
@@ -282,15 +370,19 @@ def generate_minimal_stub_yaml(name: str, friendly_name: str) -> str:
     bind concern is at least called out in the file the user is
     about to edit.
     """
-    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
-    recovery = "\n".join(_fallback_recovery_lines(friendly_name or name, "esp32"))
-    return (
+    header = (
         f"esphome:\n  name: {name}\n"
         f"  friendly_name: {_safe_yaml_scalar(friendly_name)}\n\n"
         "# Replace this with your actual platform if you aren't using ESP32.\n"
         "esp32:\n  board: esp32dev\n\n"
         "logger:\n\n"
-        "api:\n  encryption:\n"
+    )
+    if not wifi_secrets_available:
+        return header + "\n".join(_NO_WIFI_SECRETS_TODO_LINES)
+    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    recovery = "\n".join(_fallback_recovery_lines(friendly_name or name, "esp32"))
+    return (
+        header + "api:\n  encryption:\n"
         f'    key: "{api_key}"\n\n'
         "ota:\n  - platform: esphome\n\n"
         "wifi:\n"

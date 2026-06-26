@@ -16,7 +16,9 @@ from ...helpers.secrets_state import (
     SecretsContentError,
     is_valid_secret_key,
     read_secrets_yaml,
+    validate_wifi_credentials,
     write_secret,
+    write_wifi_secrets,
 )
 from ...helpers.storage import ShutdownCallback
 from ...helpers.storage_path import resolve_storage_path
@@ -165,6 +167,31 @@ class ConfigController:
                 ErrorCode.INVALID_ARGS, f"refusing to save invalid secrets.yaml: {err}"
             ) from err
         return {"created": created}
+
+    @api_command("config/set_wifi_credentials")
+    async def set_wifi_credentials(
+        self,
+        *,
+        ssid: str,
+        password: str = "",
+        **kwargs: Any,
+    ) -> dict:
+        """
+        Set ``wifi_ssid`` / ``wifi_password`` in ``secrets.yaml``.
+
+        Backs the kebab "Set up Wi-Fi" action; the create wizard's own
+        Wi-Fi entry is persisted by ``devices/create``. Validates inputs
+        (shared with that path) so a malformed value can't slip through to
+        the next ``compile``, and preserves any other secret keys + the
+        file's comments via a line-based rewrite.
+        """
+        try:
+            validate_wifi_credentials(ssid, password)
+        except SecretsContentError as err:
+            raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+        config_dir = self._db.settings.config_dir
+        await self._db.write_secrets_locked(write_wifi_secrets, config_dir, ssid, password)
+        return {}
 
     @api_command("config/get_info")
     async def get_info(self, *, configuration: str, **kwargs: Any) -> dict | None:

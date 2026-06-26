@@ -20,6 +20,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
 from esphome.core import CORE
 
 from esphome_device_builder.controllers.firmware.constants import (
@@ -134,6 +135,31 @@ def test_remote_build_clean_job_pins_data_dir_to_per_dashboard_esphome(
 
     expected = Path(CORE.data_dir) / ".remote_builds" / "a1b2c3d4" / ".esphome"
     assert env["ESPHOME_DATA_DIR"] == str(expected)
+
+
+def test_remote_build_job_drops_ha_addon_marker(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A remote-build job drops ``ESPHOME_IS_HA_ADDON`` so the child honours the override."""
+    monkeypatch.setenv("ESPHOME_IS_HA_ADDON", "1")
+    controller = firmware_controller_factory(with_settings=True)
+    configuration = ".esphome/.remote_builds/a1b2c3d4/kitchen/kitchen.yaml"
+    env = controller._compose_subprocess_env(_make_job(configuration=configuration))
+
+    assert "ESPHOME_IS_HA_ADDON" not in env
+
+
+def test_local_job_keeps_ha_addon_marker(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A local job leaves ``ESPHOME_IS_HA_ADDON`` untouched so local builds still target /data."""
+    monkeypatch.setenv("ESPHOME_IS_HA_ADDON", "1")
+    controller = firmware_controller_factory(with_settings=True)
+    env = controller._compose_subprocess_env(_make_job(configuration="kitchen.yaml"))
+
+    assert env["ESPHOME_IS_HA_ADDON"] == "1"
 
 
 def test_malformed_remote_build_path_falls_through_to_local(

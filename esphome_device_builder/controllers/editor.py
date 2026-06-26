@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 _STARTUP_TIMEOUT = 15.0
 _VALIDATE_TIMEOUT = 30.0
+# Short budget for adopt: a YAML-syntax error surfaces at parse (sub-second,
+# pre-network); the cold ``github://`` package fetch is abandoned, not awaited.
+IMPORT_VALIDATE_TIMEOUT = 8.0
 # Linter and save both call ``validate_yaml`` on identical
 # content (typing-stops → linter at 600 ms → user clicks save).
 # Cache covers that hand-off; longer would risk staleness for
@@ -42,6 +45,10 @@ _VALIDATE_CACHE_TTL = 60.0
 # user leaves.
 _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
+
+
+class ValidatorUnavailableError(RuntimeError):
+    """Validator subprocess couldn't be reached (failed to start / closed its pipe)."""
 
 
 @dataclass
@@ -156,7 +163,9 @@ class EditorController:
             await asyncio.wait_for(session.proc.stdout.readline(), timeout=_STARTUP_TIMEOUT)
         except TimeoutError as err:
             await self._terminate_subprocess(session)
-            raise RuntimeError("esphome vscode subprocess did not start in time") from err
+            raise ValidatorUnavailableError(
+                "esphome vscode subprocess did not start in time"
+            ) from err
 
     async def _terminate_subprocess(self, session: _EditorSession) -> None:
         """Terminate the session's subprocess."""
@@ -273,6 +282,7 @@ class EditorController:
         *,
         configuration: str,
         content: str,
+        timeout: float | None = None,
         client: Any = None,
         message_id: str = "",
         **kwargs: Any,
@@ -288,7 +298,15 @@ class EditorController:
         Results are cached per session by content hash for
         ``_VALIDATE_CACHE_TTL`` seconds; the linter and the
         save-time re-validate hit the same content back-to-back.
+
+        ``timeout`` bounds the round-trip (not subprocess startup) and is
+        internal-only; a WS client always gets the default.
         """
+        if client is not None:
+            # ``timeout`` is internal-only; ignore a WS client's value.
+            timeout = None
+        if timeout is None:
+            timeout = _VALIDATE_TIMEOUT
         session = self._sessions.setdefault(
             configuration, _EditorSession(configuration=configuration)
         )
@@ -307,15 +325,23 @@ class EditorController:
             cached = session.cached
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
+            ok = False
             try:
+                # Warm the subprocess outside the budget so a cold start
+                # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
+                await self._ensure_subprocess(session)
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
-                    timeout=_VALIDATE_TIMEOUT,
+                    timeout=timeout,
                 )
-            except (TimeoutError, RuntimeError, BrokenPipeError):
-                # Subprocess wedged or died — kill it so the next call respawns.
-                await self._terminate_subprocess(session)
-                raise
+                ok = True
+            finally:
+                # Any failure (timeout, subprocess loss, a bug, cancellation)
+                # can leave the stateful stdin/stdout protocol mid-message;
+                # kill it so the next call respawns clean. The exception (typed
+                # for callers) propagates unchanged.
+                if not ok:
+                    await self._terminate_subprocess(session)
             session.cached = _CachedValidation(
                 content_hash=content_hash, result=result, at=time.monotonic()
             )
@@ -327,10 +353,10 @@ class EditorController:
         """
         Run a single validation round-trip against `session`'s subprocess.
 
-        Caller must hold ``session.lock``; the stdin/stdout protocol is stateful
-        and any interleaving would corrupt subsequent responses.
+        Caller must hold ``session.lock`` and have brought the subprocess up
+        via ``_ensure_subprocess``; the stdin/stdout protocol is stateful and
+        any interleaving would corrupt subsequent responses.
         """
-        await self._ensure_subprocess(session)
         proc = session.proc
         assert proc is not None and proc.stdin is not None and proc.stdout is not None
 
@@ -341,7 +367,7 @@ class EditorController:
         while True:
             line = await proc.stdout.readline()
             if not line:
-                raise RuntimeError("esphome vscode subprocess closed stdout")
+                raise ValidatorUnavailableError("esphome vscode subprocess closed stdout")
             try:
                 # The subprocess emits one UTF-8 JSON object per line;
                 # orjson decodes bytes directly so no .decode() round-trip.

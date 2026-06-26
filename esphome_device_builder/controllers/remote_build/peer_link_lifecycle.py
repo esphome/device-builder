@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from ...helpers.api import CommandError
 from ...models import ErrorCode, PeerStatus, StoredPairing
 from ._models import PeerLinkClientHandle
+from ._shared import drain_tasks
 from .peer_link_client import PeerLinkClient
 
 if TYPE_CHECKING:
@@ -78,6 +79,26 @@ def cancel_peer_link_client(controller: OffloaderController, pin_sha256: str) ->
     handle = controller.state.peer_link_clients.pop(pin_sha256, None)
     if handle is not None and not handle.task.done():
         handle.task.cancel()
+
+
+async def cancel_peer_link_client_and_wait(
+    controller: OffloaderController, pin_sha256: str
+) -> None:
+    """Cancel the peer-link client for *pin_sha256* and await its teardown.
+
+    The rebind respawn must let the old client's in-flight connect fully
+    unwind (its ``terminate`` sent, the receiver's ``dashboard_id`` slot
+    freed) before a new client connects; otherwise the late old
+    registration supersedes the fresh client and orphans it.
+    """
+    handle = controller.state.peer_link_clients.pop(pin_sha256, None)
+    if handle is None or handle.task.done():
+        return
+    # ``drain_tasks`` cancels + awaits and retrieves the outcome via
+    # ``gather(return_exceptions=True)``: a teardown exception is logged and
+    # absorbed (not "never retrieved") so it can't abort the caller's respawn,
+    # while a cancellation of *this* task still propagates.
+    await drain_tasks((handle.task,), log_exceptions=True)
 
 
 def lookup_open_peer_link_client(

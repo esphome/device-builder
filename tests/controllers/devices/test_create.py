@@ -15,6 +15,7 @@ import gzip
 import io
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -37,7 +38,7 @@ from esphome_device_builder.controllers.devices.mutations_yaml import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
-from esphome_device_builder.models import ErrorCode
+from esphome_device_builder.models import ComponentCatalogEntry, ComponentCategory, ErrorCode
 
 from .conftest import MakeControllerFactory, StubBoardLookups
 
@@ -217,6 +218,9 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     about to edit.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    # Wi-Fi secrets present (production bootstraps placeholders), so the stub
+    # emits the !secret wifi block.
+    (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
     boards = StubBoardLookups(ctrl)
     # Catalog returns a board for ``esp32dev`` to model the realistic
     # scenario flagged in review: many curated entries share that
@@ -233,12 +237,93 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     assert "esp32:\n  board: esp32dev\n" in content
     assert "Replace this with your actual platform" in content
     assert "api:\n  encryption:\n    key:" in content
+    assert "  ssid: !secret wifi_ssid\n" in content
     assert ctrl._scanner.calls == [("scan",)]
     # Stub branch deliberately skips the catalog lookup so an
     # arbitrary entry sharing ``esp32dev`` doesn't get pinned to
     # this device's metadata before the user picks real hardware.
     pio_lookup.assert_not_called()
     variant_lookup.assert_not_called()
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_minimal_stub_omits_wifi_without_secrets(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """No board / no file_content / no wifi secrets → no-network stub (no ``!secret``)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    # No secrets.yaml on disk → wifi_ssid/wifi_password undefined, so a
+    # generated !secret reference would not resolve. The stub must omit it.
+    assert not (tmp_path / "secrets.yaml").exists()
+
+    result = await ctrl.create_device(name="kitchen")
+
+    content = (tmp_path / result.configuration).read_text("utf-8")
+    assert "esp32:\n  board: esp32dev\n" in content
+    assert "!secret" not in content
+    assert "wifi:" not in content.splitlines()
+    assert "api:" not in content.splitlines()
+    assert "No Wi-Fi secrets are set" in content
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_persists_supplied_wifi_to_secrets_and_uses_secret_ref(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Supplied Wi-Fi is written to secrets.yaml and referenced via ``!secret``.
+
+    Bare credentials are never written into the device YAML; the next device
+    reuses the same shared secret.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    assert not (tmp_path / "secrets.yaml").exists()
+
+    result = await ctrl.create_device(name="kitchen", ssid="MyNetwork", psk="hunter2")
+
+    content = (tmp_path / result.configuration).read_text("utf-8")
+    assert "  ssid: !secret wifi_ssid\n" in content
+    assert "  password: !secret wifi_password\n" in content
+    assert "MyNetwork" not in content
+    assert "hunter2" not in content
+    secrets = (tmp_path / "secrets.yaml").read_text("utf-8")
+    assert 'wifi_ssid: "MyNetwork"' in secrets
+    assert 'wifi_password: "hunter2"' in secrets
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_rejects_invalid_supplied_wifi(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An oversize SSID is refused (shared validator) before anything is written."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    StubBoardLookups(ctrl)
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="kitchen", ssid="A" * 33, psk="p")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_yaml_content_for_create_refuses_no_wifi_on_wifi_only_board(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A Wi-Fi-only board with no ssid and no secrets refuses cleanly.
+
+    Its api/ota/web_server defaults need a network, so a no-network stub would
+    be unflashable — surface INVALID_ARGS, not an INTERNAL_ERROR generator bug.
+    """
+    ctrl = make_controller(tmp_path, with_boards=True)
+    board = SimpleNamespace(
+        hardware=SimpleNamespace(connectivity=[SimpleNamespace(value="wifi")]),
+        featured_components=[],
+        default_components=[],
+    )
+    assert not (tmp_path / "secrets.yaml").exists()
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl._yaml_content_for_create("dev", "Dev", board, None, "", "")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "Wi-Fi" in excinfo.value.message
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
@@ -577,6 +662,9 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     the user with a "config doesn't validate" they didn't write.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    # Wi-Fi secrets present so the no-ssid create reaches generation/validation
+    # (rather than the "this board needs Wi-Fi" refusal).
+    (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
     # Board returns a valid catalog entry that drives ``generate_device_yaml``.
     board = MagicMock()
     board.id = "esp32-c3"
@@ -588,9 +676,11 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     board.hardware.connectivity = []
     board.name = "Generic ESP32-C3"
     board.manufacturer = "Generic"
-    # Empty default_components skips the awaitable catalog resolver
-    # path — this test only exercises the generator failure mode.
+    # Empty default_components / featured_components skip the awaitable
+    # catalog resolver paths — this test only exercises the generator
+    # failure mode.
     board.default_components = []
+    board.featured_components = []
     ctrl._db.boards.get_board = AsyncMock(return_value=board)
     ctrl._db.editor.validate_yaml = AsyncMock(
         return_value={
@@ -738,14 +828,20 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
 
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     ctrl._db.settings.config_dir = config_dir
+    # Wi-Fi secrets present so the no-ssid create proceeds (the metadata path
+    # under test) rather than refusing on a Wi-Fi-only board.
+    (config_dir / "secrets.yaml").write_text(
+        'wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8"
+    )
     # Catalog returns a usable board for the new id.
     new_board = MagicMock()
     new_board.id = "rp2040-new-board"
     new_board.esphome.platform = "rp2040"
     new_board.template = None
-    # Skip the awaitable default-components resolver — this test
-    # only cares about the metadata-overwrite path.
+    # Skip the awaitable default- / network-components resolvers — this
+    # test only cares about the metadata-overwrite path.
     new_board.default_components = []
+    new_board.featured_components = []
     ctrl._db.boards.get_board = AsyncMock(return_value=new_board)
 
     await ctrl.create_device(name="kitchen", board_id="rp2040-new-board")
@@ -782,3 +878,156 @@ async def test_yaml_content_for_create_threads_default_components_through(
     assert "web_server:" in yaml
     assert "switch:" in yaml
     assert "platform: gpio" in yaml
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_defaults_ethernet_board_to_wired(
+    session_component_catalog: Any,
+) -> None:
+    """An onboard-ethernet board defaults to ``ethernet:`` with no ``wifi:``.
+
+    Pins the auto-pull wire-up: buying a wired board is the signal —
+    with no ``ssid`` the board's network suggested hardware is resolved
+    and the Wi-Fi block suppressed, regardless of ``secrets.yaml`` state.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    yaml_text, source = await yaml_content_for_create(
+        name="wt32",
+        friendly="WT32",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        catalog=session_component_catalog,
+    )
+    assert source == "template"
+    assert "ethernet:" in yaml_text
+    assert "wifi:" not in yaml_text
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_get_board_marks_requires_wifi(session_component_catalog: Any) -> None:
+    """``get_board`` derives ``requires_wifi`` from the board definition."""
+    eth = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    wifi = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
+    assert eth is not None and wifi is not None
+    # Onboard-Ethernet board: brings its own network, so Wi-Fi isn't required.
+    assert eth.requires_wifi is False
+    # Wi-Fi-only board: no onboard network, so Wi-Fi can't be skipped.
+    assert wifi.requires_wifi is True
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_keeps_wifi_for_non_ethernet_board(
+    session_component_catalog: Any,
+) -> None:
+    """A board without onboard ethernet still gets the ``wifi:`` block.
+
+    Exercises the empty-resolve path: a board whose ``featured_components``
+    carry no network provider resolves to no network component, so Wi-Fi
+    stays the default.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="apollo-esk-1")
+    assert board is not None
+    yaml_text, _ = await yaml_content_for_create(
+        name="apollo",
+        friendly="Apollo",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        catalog=session_component_catalog,
+    )
+    assert "wifi:" in yaml_text
+    assert "ethernet:" not in yaml_text
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_keeps_wifi_when_ssid_supplied(
+    session_component_catalog: Any,
+) -> None:
+    """Explicit Wi-Fi credentials opt an ethernet board back into Wi-Fi.
+
+    A user typing an SSID in the wizard wants Wi-Fi; the ethernet
+    suggested hardware must not displace the credentials they supplied.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    yaml_text, _ = await yaml_content_for_create(
+        name="wt32",
+        friendly="WT32",
+        board=board,
+        file_content=None,
+        ssid="MyNetwork",
+        psk="hunter2",
+        catalog=session_component_catalog,
+    )
+    assert "wifi:" in yaml_text
+    assert "MyNetwork" in yaml_text
+    assert "ethernet:" not in yaml_text
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_yaml_content_for_create_wifi_requested_keeps_secret_wifi_on_ethernet_board(
+    session_component_catalog: Any,
+) -> None:
+    """``wifi_requested`` opts an ethernet board into Wi-Fi via ``!secret``.
+
+    The controller persists typed creds to secrets.yaml and clears ``ssid`` to
+    force the ``!secret`` path; ``wifi_requested`` must still suppress the
+    Ethernet auto-pull so the user's Wi-Fi intent isn't silently dropped, and
+    no bare credentials appear.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    yaml_text, _ = await yaml_content_for_create(
+        name="wt32",
+        friendly="WT32",
+        board=board,
+        file_content=None,
+        ssid="",
+        psk="",
+        wifi_secrets_available=True,
+        wifi_requested=True,
+        catalog=session_component_catalog,
+    )
+    assert "wifi:" in yaml_text
+    assert "ssid: !secret wifi_ssid" in yaml_text
+    assert "ethernet:" not in yaml_text
+
+
+async def test_yaml_content_for_create_skips_network_pull_when_default_already_networked() -> None:
+    """A board already providing a network via default_components isn't double-injected.
+
+    Pins the dedupe guard: when ``resolve_default_components`` already
+    supplies a network provider (``ethernet``), the featured auto-pull is
+    skipped so ``merge_component_yaml`` never emits the block twice.
+    """
+    board = MagicMock()
+    board.id = "wired-board"
+    board.name = "Wired Board"
+    board.manufacturer = ""
+    board.esphome.platform = "esp32"
+    board.esphome.variant = "esp32"
+    board.esphome.framework = "esp-idf"
+    board.esphome.board = ""
+    board.hardware.flash_size = "4MB"
+    board.hardware.connectivity = []
+    board.default_components = [object()]
+    board.featured_components = [object()]
+
+    eth = ComponentCatalogEntry(
+        id="ethernet", name="ethernet", description="", category=ComponentCategory.CORE
+    )
+    catalog = MagicMock()
+    catalog.resolve_default_components = AsyncMock(return_value=[(eth, {"type": "LAN8720"})])
+    catalog.resolve_network_components = AsyncMock(return_value=[(eth, {"type": "LAN8720"})])
+
+    yaml_text, source = await yaml_content_for_create(
+        name="dev", friendly="Dev", board=board, file_content=None, ssid="", psk="", catalog=catalog
+    )
+
+    assert source == "template"
+    catalog.resolve_network_components.assert_not_called()
+    assert yaml_text.count("ethernet:") == 1

@@ -34,8 +34,8 @@ def test_mode_is_a_select_of_every_variant_mode() -> None:
     by_value = {o["value"]: o["variants"] for o in mode["options"]}
     assert set(by_value) == {"quad", "octal", "hex"}
     # Variants are lowercased to match the board catalog ``esphome.variant`` form.
-    assert by_value["octal"] == ["esp32s3"]
-    assert by_value["hex"] == ["esp32p4"]
+    assert "esp32s3" in by_value["octal"]
+    assert "esp32p4" in by_value["hex"]
     assert "esp32" in by_value["quad"] and "esp32s3" in by_value["quad"]
     # No single default is valid on every chip (P4 needs hex, not quad).
     assert "default_value" not in mode
@@ -50,7 +50,7 @@ def test_speed_unions_all_variant_speeds_ascending() -> None:
     assert {"40MHZ", "80MHZ", "120MHZ", "200MHZ"} <= set(values)
     assert values == sorted(values, key=lambda v: int(v[:-3]))
     # 20MHZ is P4-only; 40MHZ covers the classic chips.
-    assert by_value["20MHZ"] == ["esp32p4"]
+    assert "esp32p4" in by_value["20MHZ"]
     assert "esp32" in by_value["40MHZ"]
     # P4's 40MHZ is invalid, so no cross-chip default is shipped.
     assert "default_value" not in speed

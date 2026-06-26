@@ -11,22 +11,28 @@ a state actually changes; controllers stay free of zeroconf / icmplib
 
 Source precedence (highest first): ``mdns`` > ``mqtt`` > ``ping``. A
 lower-priority source can never override the state set by a higher one.
+A separate Native API fallback fills ``mac_address`` / ``deployed_version``
+for online API devices mDNS hasn't reached; it never drives ONLINE/OFFLINE
+and so stays out of the precedence ledger.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
+from ...helpers.async_ import create_eager_task
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import AdoptableDevice, Device, DeviceState, ReachabilitySource
 from .._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
 from .._task_controller_base import TaskControllerBase
 from ._state import MonitorState
+from .api_info import ApiInfoSource
 from .helpers import (
     _normalize_mac,
     _pick_ipv4,
@@ -37,6 +43,8 @@ from .ping import PingSource
 from .shared import _SOURCE_PRIORITY
 
 _LOGGER = logging.getLogger(__name__)
+# Cap on draining the ping / API-info / resolve tasks at shutdown.
+_STOP_DRAIN_TIMEOUT = 2.0
 # Padding added to the cached A record's TTL when the drawer's
 # refresh loop schedules its next probe. Sleeping ``ttl + this``
 # guarantees ``async_resolve_host`` falls through its cache short-
@@ -80,6 +88,11 @@ MacAddressChangeCallback = Callable[[str, str], None]
 ImportableAddedCallback = Callable[[AdoptableDevice], None]
 ImportableRemovedCallback = Callable[[str], None]
 
+# Native API connection resolver keyed on the YAML filename, returning
+# ``(encryption_key, port)``. The API info fallback uses it to reach a
+# device; an empty key means "connect plaintext".
+ApiConnectionResolver = Callable[[str], Awaitable[tuple[str, int]]]
+
 # Set and clear persistent queued_update flag through the state callback path.
 QueuedUpdateChangeCallback = Callable[[str, bool], None]
 
@@ -109,6 +122,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         is_ignored: Callable[[str], bool] | None = None,
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
         presence: SubscriberPresence | None = None,
+        resolve_api_connection: ApiConnectionResolver | None = None,
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
@@ -131,8 +145,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_importable_removed = on_importable_removed
         self._on_queued_update_change = on_queued_update_change
         self._is_ignored = is_ignored or (lambda _name: False)
+        self._resolve_api_connection = resolve_api_connection
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
+        self._api_info_task: asyncio.Task | None = None
         # ``self._tasks`` (fire-and-forget mDNS resolve refs) is
         # inherited from :class:`TaskControllerBase`.
         # When wired, the ping loop pauses while no dashboard client
@@ -144,27 +160,52 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._importable = ImportableDiscovery(self)
         self._mdns = MdnsSource(self)
         self._ping = PingSource(self)
+        self._api_info = ApiInfoSource(self)
 
     async def start(self) -> None:
-        """Start the mDNS browser and the periodic ping sweep."""
+        """Start the mDNS browser, the periodic ping sweep, and the API info fallback."""
         await self._mdns.start()
         self._ping_task = asyncio.create_task(self._ping.run())
+        self._api_info_task = asyncio.create_task(self._api_info.run())
+        self._api_info_task.add_done_callback(self._log_api_info_task_exit)
 
     async def stop(self) -> None:
-        """Tear down the browser and cancel the ping loop."""
+        """Tear down the browser and drain the ping + API-info + resolve tasks (bounded)."""
+        drain: list[asyncio.Task[Any]] = []
         if self._ping_task is not None:
             self._ping_task.cancel()
+            drain.append(self._ping_task)
             self._ping_task = None
+        if self._api_info_task is not None:
+            self._api_info_task.cancel()
+            drain.append(self._api_info_task)
+            self._api_info_task = None
         # Cancel the browser FIRST so it stops dispatching new mDNS
         # callbacks; otherwise the drain below would race against
         # newly-spawned resolve tasks the browser is still firing.
         await self._mdns.cancel_browser()
         for task in self._tasks:
             task.cancel()
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
-            self._tasks.clear()
-        await self._mdns.close_zeroconf()
+        drain.extend(self._tasks)
+        self._tasks.clear()
+        # Close zeroconf eagerly so 5353 frees now, overlapping the task drain.
+        close = create_eager_task(self._mdns.close_zeroconf())
+        if drain:
+            # Drain bounded here so the cancelled tasks don't leak to aiohttp's
+            # unbounded terminal sweep.
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT
+                )
+        await close
+
+    @staticmethod
+    def _log_api_info_task_exit(task: asyncio.Task) -> None:
+        """Surface an unexpected API-info loop crash instead of letting it die silently."""
+        if task.cancelled():
+            return
+        if (exc := task.exception()) is not None:
+            _LOGGER.error("API info fallback loop crashed: %s", exc, exc_info=exc)
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
@@ -208,15 +249,16 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Record a state observation from *source*.
 
         Returns True iff the state was forwarded to the callback.
-        Sources below the current source's priority are ignored;
+        A source below the current source's priority is ignored,
+        except a positive ONLINE always revives a not-online device;
         observations where every matching device already carries
         *state* no-op.
 
         ``claim=True`` lets *source* take ownership even when the
         state is unchanged, blocking a lower-priority observation
         from later flipping the device back. The priority check
-        still applies — ``claim`` can't override a higher-priority
-        owner.
+        governs OFFLINE/downgrades; a positive ONLINE from any
+        source still revives a not-online device regardless of owner.
         """
         devices = self._get_devices_by_name(name)
         if not devices:
@@ -236,14 +278,23 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             self.state.reachability.observe(name, source)
 
         current_source = self.state.state_source.get(name, ReachabilitySource.UNKNOWN)
-        if _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(current_source, 0):
+        # Scan *every* matching device, not just the first. Duplicate
+        # ``esphome.name`` entries (a config plus a ``foo (1).yaml``
+        # copy, dashboard_import siblings) share the broadcast — if one
+        # sibling was rebuilt with state=UNKNOWN the first-match bail
+        # would leave it stale.
+        all_match = all(d.state == state for d in devices)
+        # Online-wins: a positive reachability from any source brings a
+        # not-online device online, even one a higher-priority source owns
+        # (ping/MQTT reviving a device a stale mdns/mqtt OFFLINE owns). The
+        # priority gate still governs OFFLINE/downgrades so a low-priority
+        # flap can't drop a device a higher source confirmed online.
+        online_takeover = state == DeviceState.ONLINE and not all_match
+        if not online_takeover and _SOURCE_PRIORITY.get(source, 0) < _SOURCE_PRIORITY.get(
+            current_source, 0
+        ):
             return False
-        # Dedupe must look at *every* matching device, not just the
-        # first. Duplicate ``esphome.name`` entries (a config plus
-        # a ``foo (1).yaml`` copy, dashboard_import siblings) share
-        # the broadcast — if one sibling was rebuilt with
-        # state=UNKNOWN the first-match bail would leave it stale.
-        if all(d.state == state for d in devices):
+        if all_match:
             if claim:
                 self.state.state_source[name] = source
             return False
@@ -317,6 +368,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             return False
         self._on_ip_change(name, primary, addresses)
         return True
+
+    def request_version_reprobe(self, name: str) -> None:
+        """Force one Native-API version probe of *name*, ignoring the mac+version guard."""
+        self._api_info.request_reprobe(name)
 
     def apply_version(self, name: str, version: str) -> bool:
         """Record a firmware version observation; True iff forwarded."""

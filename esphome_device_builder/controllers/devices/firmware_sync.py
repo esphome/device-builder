@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from esphome.storage_json import StorageJSON
 
 from ...helpers.config_hash import compute_yaml_config_hash
 from ...helpers.event_bus import Event
 from ...helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
+from ...helpers.storage_path import resolve_storage_path
 from ...models import JobLifecycleData, JobStatus, JobType
 
 if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+# Delay before the post-flash Native-API version re-probe so the device
+# has time to reboot into the new image before we connect.
+_POST_FLASH_VERSION_REPROBE_DELAY = 60
 
 
 def on_job_completed(controller: DevicesController, event: Event[JobLifecycleData]) -> None:
@@ -96,17 +104,18 @@ async def refresh_after_job(
 
     Always reloads after the optional hash recompute so the
     mtime side of ``has_pending_changes`` flips. When *flashed*,
-    optimistically pins ``deployed_config_hash = expected`` so
-    the dot clears immediately rather than waiting on the
-    rebooted device's mDNS announce; if the OTA actually failed
-    silently, ``_on_config_hash_change`` pushes the real value
-    back on the next announce.
+    optimistically pins ``deployed_config_hash`` + ``deployed_version``
+    so the dot and the "update available" badge clear immediately
+    rather than waiting on the rebooted device's mDNS announce, then
+    schedules a delayed Native-API re-probe to confirm the running
+    version (the only signal of a rollback when mDNS can't reach us).
     """
     if recompute_hash:
         await controller._persist_expected_config_hash(configuration)
     await controller._scanner.reload(configuration)
     if flashed:
-        controller._sync_deployed_hash_after_flash(configuration)
+        await controller._sync_deployed_state_after_flash(configuration)
+        controller._schedule_version_reprobe(configuration)
     # A real compile moves the build-size cache's freshness
     # pair (build-dir mtime + ``build_info.json`` mtime); the
     # worker short-circuits when the pair didn't actually move
@@ -143,24 +152,50 @@ async def persist_expected_config_hash(controller: DevicesController, configurat
     _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
 
-def sync_deployed_hash_after_flash(controller: DevicesController, configuration: str) -> None:
+async def sync_deployed_state_after_flash(
+    controller: DevicesController, configuration: str
+) -> None:
     """
-    Optimistically align ``deployed_config_hash`` with the just-flashed image.
+    Optimistically align ``deployed_config_hash`` + ``deployed_version`` with the flash.
 
-    Driving the update through ``apply_config_hash`` lets the
-    existing ``_on_config_hash_change`` callback handle the
-    device-field write + ``DEVICE_UPDATED`` event, and seeds
-    the monitor's per-name cache so the rebooted device's
-    matching announce deduplicates instead of firing a
-    redundant event.
+    A successful flash means the freshly-compiled binary is on the
+    device, so its ``expected_config_hash`` and
+    ``StorageJSON.esphome_version`` describe what the device now runs.
+    Driving both through ``apply_config_hash`` / ``apply_version`` lets
+    the existing ``_on_*_change`` callbacks write the fields, fire
+    ``DEVICE_UPDATED``, and seed the monitor's cache so the rebooted
+    device's matching announce deduplicates. Clears the orange dot and
+    the "update available" badge without waiting on an mDNS announce —
+    one that never arrives in mDNS-dark deployments (Docker-bridge).
     """
-    device = next(
-        (d for d in controller._scanner.devices if d.configuration == configuration),
-        None,
-    )
-    if device is None or not device.expected_config_hash:
+    device = controller._scanner.get_by_configuration(configuration)
+    if device is None:
         return
-    controller._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
+    if device.expected_config_hash:
+        controller._state_monitor.apply_config_hash(device.name, device.expected_config_hash)
+    version = await asyncio.to_thread(_read_compiled_esphome_version, configuration)
+    if version:
+        controller._state_monitor.apply_version(device.name, version)
+
+
+def schedule_version_reprobe(controller: DevicesController, configuration: str) -> None:
+    """
+    Arm a one-shot Native-API version re-probe ~60s after a flash.
+
+    The delay lets the device reboot into the new image before we
+    connect; the re-probe then confirms the optimistically-pinned
+    version (and catches a rollback) where mDNS can't reach us.
+    Re-arming for the same configuration cancels the prior timer so a
+    rapid re-flash doesn't stack probes; the handle is tracked on the
+    controller so ``stop`` can cancel anything still pending.
+    """
+    existing = controller._reprobe_timers.pop(configuration, None)
+    if existing is not None:
+        existing.cancel()
+    loop = asyncio.get_running_loop()
+    controller._reprobe_timers[configuration] = loop.call_later(
+        _POST_FLASH_VERSION_REPROBE_DELAY, _fire_version_reprobe, controller, configuration
+    )
 
 
 async def migrate_metadata_then_scan(
@@ -178,3 +213,25 @@ async def migrate_metadata_then_scan(
             new_configuration,
         )
     await controller._scanner.scan()
+
+
+def _fire_version_reprobe(controller: DevicesController, configuration: str) -> None:
+    """
+    Timer callback: ask the monitor to verify the device's running version.
+
+    A no-op if the device vanished in the interim. The request still
+    honours the monitor's ``priority_for != MDNS`` guard, so a device
+    already seen over mDNS by now is skipped rather than probed.
+    """
+    controller._reprobe_timers.pop(configuration, None)
+    device = controller._scanner.get_by_configuration(configuration)
+    if device is not None:
+        controller._state_monitor.request_version_reprobe(device.name)
+
+
+def _read_compiled_esphome_version(configuration: str) -> str:
+    """Read ``esphome_version`` from the device's StorageJSON; ``""`` on miss."""
+    storage = StorageJSON.load(resolve_storage_path(configuration))
+    if storage is None or not storage.esphome_version:
+        return ""
+    return str(storage.esphome_version)

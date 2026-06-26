@@ -11,33 +11,45 @@ from contextlib import suppress
 from pathlib import Path
 
 from ...helpers.subprocess import run_subprocess_capture
+from ...models.boards import Esp32Variant
 
 _LOGGER = logging.getLogger(__name__)
 
-# Maps esptool's chip family string (lower-cased) to
-# ``(chip_family, variant, platform)``. ``chip_family`` matches a
-# ``WIZARD_BOARD_PLATFORMS.label`` value in the frontend so callers
-# can hand it straight to the board-picker filter; ``variant`` and
-# ``platform`` mirror ESPHome's own keys. Families not in this
-# table cause ``_chip_family_to_descriptor`` to return ``None``,
-# which the WS handler surfaces as ``_DETECT_UNKNOWN_CHIP``.
-#
+
+def _esp32_chip_family_map() -> dict[str, tuple[str, str, str]]:
+    """
+    Build the esptool-family → ``(chip_family, variant, platform)`` table.
+
+    Sourced from :class:`Esp32Variant` so a new ESP32 variant is
+    recognised by adding one enum member; keys mirror esptool's dashed
+    family string and ``chip_family`` the frontend filter label.
+    """
+    table: dict[str, tuple[str, str, str]] = {}
+    for v in Esp32Variant:
+        suffix = v.value[len("esp32") :]  # "" for classic, "s3"/"c61"/… otherwise
+        key = "esp32" if not suffix else f"esp32-{suffix}"
+        label = "ESP32" if not suffix else f"ESP32-{suffix.upper()}"
+        table[key] = (label, v.value, "esp32")
+    return table
+
+
 # esptool can only identify ESP chips. Non-ESP platforms (RP2040 /
 # RP2350, BK72xx, RTL87xx, LN882x, nRF52) need their own probe path;
-# they're not in this table.
+# they're not in this table. Families not in it cause
+# ``_chip_family_to_descriptor`` to return ``None``, which the WS
+# handler surfaces as ``_DETECT_UNKNOWN_CHIP``.
 _CHIP_FAMILY_MAP: dict[str, tuple[str, str, str]] = {
-    "esp32": ("ESP32", "esp32", "esp32"),
-    "esp32-s2": ("ESP32-S2", "esp32s2", "esp32"),
-    "esp32-s3": ("ESP32-S3", "esp32s3", "esp32"),
-    "esp32-c2": ("ESP32-C2", "esp32c2", "esp32"),
-    "esp32-c3": ("ESP32-C3", "esp32c3", "esp32"),
-    "esp32-c5": ("ESP32-C5", "esp32c5", "esp32"),
-    "esp32-c6": ("ESP32-C6", "esp32c6", "esp32"),
-    "esp32-c61": ("ESP32-C61", "esp32c61", "esp32"),
-    "esp32-h2": ("ESP32-H2", "esp32h2", "esp32"),
-    "esp32-p4": ("ESP32-P4", "esp32p4", "esp32"),
+    **_esp32_chip_family_map(),
     "esp8266": ("ESP8266", "", "esp8266"),
 }
+
+# esptool's ``get_chip_description()`` reports package-specific names
+# (``ESP32-D0WD``, ``ESP32-PICO-D4``, ``ESP8266EX``, ``ESP8285``) that
+# aren't bare family keys. These prefixes collapse the *classic* ESP32
+# SKUs to ``esp32``; sub-variants (s2/s3/c3/…) are dashed exact keys in
+# the map and never reach normalisation, so ``ESP32-S0WD`` (classic) maps
+# to ``esp32`` while ``ESP32-S31`` (a real variant) keeps its own key.
+_CLASSIC_ESP32_PREFIXES = ("esp32d", "esp32pico", "esp32u", "esp32s0")
 
 # ESP-IDF ``esp_app_desc_t`` lives at the start of every IDF app
 # image. With ESPHome's default partition layout the app partition
@@ -89,13 +101,26 @@ def _is_valid_port_name(port: str) -> bool:
 
 
 def _chip_family_to_descriptor(esptool_family: str) -> dict[str, str] | None:
-    """Map ``"ESP32-C3"`` → ``{chip_family, variant, platform}``."""
+    """Map ``"ESP32-C3"`` / ``"ESP32-D0WD"`` → ``{chip_family, variant, platform}``."""
     key = esptool_family.strip().lower()
     entry = _CHIP_FAMILY_MAP.get(key)
+    if entry is None:
+        normalized = _normalize_chip_family(key)
+        entry = _CHIP_FAMILY_MAP.get(normalized) if normalized else None
     if entry is None:
         return None
     family, variant, platform = entry
     return {"chip_family": family, "variant": variant, "platform": platform}
+
+
+def _normalize_chip_family(key: str) -> str | None:
+    """Collapse a package-specific esptool name to its bare family key."""
+    nodash = key.replace("-", "")
+    if nodash.startswith("esp82"):  # esp8266 / esp8285 share esphome's esp8266
+        return "esp8266"
+    if nodash.startswith(_CLASSIC_ESP32_PREFIXES):
+        return "esp32"
+    return None
 
 
 def _parse_project_name(blob: bytes) -> str | None:

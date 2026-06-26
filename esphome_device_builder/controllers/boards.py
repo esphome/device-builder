@@ -10,6 +10,7 @@ from ..definitions import (
     load_board_index,
 )
 from ..helpers.api import api_command
+from ..helpers.device_yaml import board_requires_wifi
 from ..helpers.lazy_catalog import LazyBodyStore
 from ..models import (
     BoardCatalogEntry,
@@ -70,7 +71,13 @@ class BoardCatalog:
     @api_command("boards/get_board")
     async def get_board(self, *, board_id: str, **kwargs: Any) -> BoardCatalogEntry | None:
         """Get a single board's full body by id, or ``None`` if unknown."""
-        return await self._body_store.get(board_id)
+        board = await self._body_store.get(board_id)
+        if board is not None:
+            # Derived (not stored in the body JSON), idempotent on the cached
+            # body: the wizard makes Wi-Fi mandatory for Wi-Fi-only boards and
+            # skips the step for boards with their own network.
+            board.requires_wifi = board_requires_wifi(board)
+        return board
 
     @api_command("boards/get_boards")
     async def get_boards(

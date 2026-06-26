@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.controllers.version_history import git_repo as git_repo_mod
 from esphome_device_builder.controllers.version_history.git_repo import GitRepo
 
 _GIT = shutil.which("git") or "git"
@@ -71,6 +72,64 @@ def test_init_creates_repo_and_gitignore(tmp_path: Path) -> None:
     assert ".esphome/" in gitignore.read_text()
     # The .gitignore landed as a real commit, not just on disk.
     assert "Initialize version history" in _git(tmp_path, "log", "--format=%s")
+
+
+def test_unusable_git_pointer_disables_without_raising(tmp_path: Path) -> None:
+    """A ``.git`` pointing at a missing git dir (broken submodule) disables rather than crashing."""
+    # Mirrors a submodule whose parent ``.git/modules`` tree isn't mounted:
+    # ``git init`` over this pointer aborts with ``fatal: not a git repository``.
+    (tmp_path / ".git").write_text("gitdir: ./nonexistent/git/dir\n", encoding="utf-8")
+    repo = GitRepo(config_dir=tmp_path)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+    assert repo.toplevel is None
+    assert not repo.managed
+
+
+def test_init_failure_disables_without_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``git init`` that exits non-zero disables the feature instead of crashing."""
+    real_run = subprocess.run
+
+    def _fake(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "init" in cmd:
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: boom")
+        return real_run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.git_repo.subprocess.run", _fake
+    )
+    repo = GitRepo(config_dir=tmp_path)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+    assert repo.toplevel is None
+    assert not repo.managed
+
+
+def test_failure_after_adopt_resets_to_fully_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git failure after the adopt branch enabled the repo rolls state back to disabled."""
+    _make_repo(tmp_path)
+    repo = GitRepo(config_dir=tmp_path)
+
+    def _boom(_self: GitRepo) -> bool:
+        raise subprocess.CalledProcessError(1, ["git", "config"])
+
+    # ``_adopt_ownership`` runs after the adopt branch sets ``enabled``/``toplevel``;
+    # patch the class since ``GitRepo`` is slotted (no per-instance attributes).
+    monkeypatch.setattr(GitRepo, "_adopt_ownership", _boom)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+    assert repo.toplevel is None
+    assert not repo.managed
 
 
 def test_adopts_existing_repo_without_touching_gitignore(tmp_path: Path) -> None:
@@ -506,20 +565,20 @@ def test_pre_marker_repo_is_backfilled_as_managed(tmp_path: Path) -> None:
 
 
 def test_commit_keeps_fresh_index_lock(tmp_path: Path) -> None:
-    """A young ``index.lock`` (a live git may hold it) is left alone; the write raises."""
+    """A young ``index.lock`` (a live git may hold it) is left alone; the write raises busy."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
     yaml = tmp_path / "kitchen.yaml"
     yaml.write_text("v1\n", encoding="utf-8")
     lock = _index_lock(tmp_path, age_seconds=0)
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
         repo.commit_paths([yaml], "Create kitchen.yaml")
     assert lock.exists()
 
 
 def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
-    """An adopted work tree (user's ``/config``) is never auto-unlocked, even when stale."""
+    """An adopted work tree is never auto-unlocked; a stale lock there propagates as-is."""
     _make_repo(tmp_path)
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
@@ -528,13 +587,164 @@ def test_adopted_repo_never_clears_index_lock(tmp_path: Path) -> None:
     yaml.write_text("v1\n", encoding="utf-8")
     lock = _index_lock(tmp_path, age_seconds=3600)
 
-    with pytest.raises(subprocess.CalledProcessError):
+    # Stale (won't free itself) and unclearable (adopted) → the original
+    # failure surfaces, not a retryable busy signal.
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
+    assert lock.exists()
+
+
+def test_adopted_repo_fresh_lock_is_retryable_busy(tmp_path: Path) -> None:
+    """A live writer's fresh lock in an adopted repo is the retryable case (the PR's target)."""
+    _make_repo(tmp_path)
+    repo = GitRepo(config_dir=tmp_path)
+    repo.discover_or_init()
+    assert not repo.managed
+    yaml = tmp_path / "kitchen.yaml"
+    yaml.write_text("v1\n", encoding="utf-8")
+    lock = _index_lock(tmp_path, age_seconds=0)
+
+    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
         repo.commit_paths([yaml], "Create kitchen.yaml")
     assert lock.exists()
 
 
-def test_commit_raises_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None:
-    """If the stale lock can't be unlinked (e.g. it's a directory), the write still raises."""
+def _lock_error() -> subprocess.CalledProcessError:
+    """Build a git failure whose stderr blames a live ``index.lock``."""
+    return subprocess.CalledProcessError(
+        128,
+        ["git", "add"],
+        stderr="fatal: Unable to create '.git/index.lock': File exists.",
+    )
+
+
+def _bare_repo(tmp_path: Path) -> GitRepo:
+    """Wire a GitRepo just enough to drive ``_run_write`` with a stubbed ``_run``."""
+    repo = GitRepo(config_dir=tmp_path)
+    repo.git_bin = "git"
+    repo.toplevel = tmp_path
+    return repo
+
+
+def test_run_write_raises_busy_on_a_fresh_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh lock (a live writer) becomes GitIndexLockBusyError for the async caller to retry."""
+    repo = _bare_repo(tmp_path)
+    monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: False)
+    monkeypatch.setattr(GitRepo, "_index_lock_is_fresh", lambda _self: True)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        raise _lock_error()
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
+        repo._run_write(["add", "--", "x"])
+    assert calls["n"] == 1  # no in-thread retry; the wait belongs on the loop
+
+
+def test_run_write_propagates_a_stale_unclearable_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale lock that couldn't be cleared surfaces the original error, not a busy retry."""
+    repo = _bare_repo(tmp_path)
+    monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: False)
+    monkeypatch.setattr(GitRepo, "_index_lock_is_fresh", lambda _self: False)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        raise _lock_error()
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        repo._run_write(["add", "--", "x"])
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
+    assert calls["n"] == 1
+
+
+def test_run_write_retries_in_place_after_clearing_a_stale_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale lock is cleared and the write retried at once, no busy signal."""
+    repo = _bare_repo(tmp_path)
+    monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: True)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _lock_error()
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    repo._run_write(["add", "--", "x"])
+    assert calls["n"] == 2
+
+
+def test_run_write_reclassifies_a_post_clear_recollision_as_busy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh writer grabbing the lock right after a stale-clear is still retryable busy."""
+    repo = _bare_repo(tmp_path)
+    monkeypatch.setattr(GitRepo, "_clear_stale_index_lock", lambda _self, _exc: True)
+    monkeypatch.setattr(GitRepo, "_index_lock_is_fresh", lambda _self: True)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        raise _lock_error()  # the cleared lock is immediately re-taken
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    with pytest.raises(git_repo_mod.GitIndexLockBusyError):
+        repo._run_write(["add", "--", "x"])
+    assert calls["n"] == 2  # original attempt + one post-clear retry, then busy
+
+
+def test_run_write_propagates_a_non_lock_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git failure that isn't index.lock contention is not wrapped as busy."""
+    repo = _bare_repo(tmp_path)
+    calls = {"n": 0}
+
+    def _fake_run(_self: GitRepo, args: list[str], *, check: bool) -> object:
+        calls["n"] += 1
+        raise subprocess.CalledProcessError(1, ["git", "commit"], stderr="fatal: nothing to do")
+
+    monkeypatch.setattr(GitRepo, "_run", _fake_run)
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
+        repo._run_write(["commit"])
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
+    assert calls["n"] == 1
+
+
+def test_index_lock_is_fresh_classifies_by_age(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unresolvable / vanished / young locks count as fresh; only an aged one is stale."""
+    repo = _bare_repo(tmp_path)
+    lock = tmp_path / "index.lock"
+
+    monkeypatch.setattr(GitRepo, "_index_lock_path", lambda _self: None)
+    assert repo._index_lock_is_fresh() is True  # can't resolve → retry resolves it
+
+    monkeypatch.setattr(GitRepo, "_index_lock_path", lambda _self: lock)
+    assert repo._index_lock_is_fresh() is True  # vanished (stat raises) → fresh
+
+    lock.write_text("", encoding="utf-8")
+    assert repo._index_lock_is_fresh() is True  # young → a live writer may hold it
+
+    stamp = time.time() - 3600
+    os.utime(lock, (stamp, stamp))
+    assert repo._index_lock_is_fresh() is False  # aged → won't free itself
+
+
+def test_commit_propagates_a_stale_lock_it_cannot_remove(tmp_path: Path) -> None:
+    """A stale lock we can't unlink (e.g. it's a directory) surfaces the original error."""
     repo = GitRepo(config_dir=tmp_path)
     repo.discover_or_init()
     yaml = tmp_path / "kitchen.yaml"
@@ -545,8 +755,10 @@ def test_commit_raises_when_stale_lock_cannot_be_removed(tmp_path: Path) -> None
     stamp = time.time() - 3600
     os.utime(lock_dir, (stamp, stamp))
 
-    with pytest.raises(subprocess.CalledProcessError):
+    # Stale (won't free itself) and unclearable → not a retryable busy signal.
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
         repo.commit_paths([yaml], "Create kitchen.yaml")
+    assert not isinstance(excinfo.value, git_repo_mod.GitIndexLockBusyError)
     assert lock_dir.exists()
 
 

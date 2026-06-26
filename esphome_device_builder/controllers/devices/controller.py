@@ -22,10 +22,18 @@ from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import (
+    board_requires_wifi,
     configuration_stem,
 )
 from ...helpers.event_bus import Event
-from ...helpers.secrets_state import SecretsContentError, validate_secrets_content
+from ...helpers.secrets_state import (
+    SecretsContentError,
+    read_secrets_yaml,
+    validate_secrets_content,
+    validate_wifi_credentials,
+    wifi_secrets_defined,
+    write_wifi_secrets,
+)
 from ...helpers.storage import ShutdownCallback
 from ...models import (
     AddComponentResponse,
@@ -107,6 +115,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
+        # Guards poll() from re-arming a torn-down scanner during the shutdown drain.
+        self._stopped = False
+        # Pending post-flash version re-probe timers, keyed on
+        # configuration so a re-flash cancels its predecessor; cancelled
+        # en masse in stop().
+        self._reprobe_timers: dict[str, asyncio.TimerHandle] = {}
 
         # Constructed before the scanner so the first
         # ``_resolve_device_metadata`` reads off the store.
@@ -194,6 +208,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_importable_removed=self._on_importable_removed,
             is_ignored=self.state.ignored_devices.__contains__,
             presence=self._db.subscriber_presence,
+            resolve_api_connection=self._resolve_device_api_connection,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
         # ping RTT) feeding the device drawer's Reachability section.
@@ -232,6 +247,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def start(self) -> None:
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
+        self._stopped = False
         self.state.esphome_cmd = _find_esphome_cmd()
         loop = asyncio.get_running_loop()
         # Seed the store (and migrate on first post-upgrade boot)
@@ -255,9 +271,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def stop(self) -> None:
         """Stop background monitors so the process exits cleanly."""
+        self._stopped = True
         if self._unsub_job_completed is not None:
             self._unsub_job_completed()
             self._unsub_job_completed = None
+        self._cancel_reprobe_timers()
         await self._scanner.stop()
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
@@ -266,7 +284,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             await callback()
 
     async def poll(self) -> None:
-        """Poll for file changes."""
+        """Poll for file changes; a no-op once stopped (don't re-arm during shutdown)."""
+        if self._stopped:
+            return
         await self._scanner.scan()
         await self._mqtt_coordinator.reconcile()
 
@@ -518,8 +538,67 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ssid: str,
         psk: str,
     ) -> tuple[str, mutations_yaml.CreateYamlSource]:
+        """
+        Build the YAML body for ``devices/create``, resolving Wi-Fi.
+
+        Provided credentials are persisted to ``secrets.yaml`` (validated)
+        and the config emits ``!secret`` — bare credentials are never
+        written into the device YAML. A supplied *ssid* is an explicit "use
+        Wi-Fi" intent, so it keeps the ``wifi:`` block even on an
+        onboard-network board (no Ethernet auto-pull). An empty *ssid* reuses
+        whatever ``secrets.yaml`` already holds and lets a networked board
+        default to Ethernet (or a no-Wi-Fi board fall to the no-network stub).
+        """
+        wifi_secrets_available = True
+        # A supplied ssid means "this device uses Wi-Fi": keep the wifi block
+        # even on a board that would otherwise auto-pull onboard Ethernet.
+        wifi_requested = False
+        if file_content:
+            pass  # user YAML written as-is; ssid/psk ignored
+        elif ssid:
+            # Persist the user's Wi-Fi to secrets.yaml and emit !secret rather
+            # than inlining bare credentials into the device config. The write
+            # must land *before* the caller validates the generated YAML —
+            # validation runs ``esphome config``, which resolves
+            # ``!secret wifi_ssid`` against the on-disk file. A later
+            # generate/validate failure therefore leaves the secret persisted;
+            # that's benign — ``wifi_ssid`` / ``wifi_password`` is a shared,
+            # idempotent upsert (identical to ``config/set_wifi_credentials``)
+            # that the next device reuses, not per-device state.
+            try:
+                validate_wifi_credentials(ssid, psk)
+            except SecretsContentError as err:
+                raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
+            await self._db.write_secrets_locked(
+                write_wifi_secrets, self._db.settings.config_dir, ssid, psk
+            )
+            ssid, psk = "", ""  # force the !secret path in the generator
+            wifi_requested = True
+        else:
+            loop = asyncio.get_running_loop()
+            secrets = await loop.run_in_executor(
+                None, read_secrets_yaml, self._db.settings.config_dir
+            )
+            wifi_secrets_available = wifi_secrets_defined(secrets)
+            # A Wi-Fi-only board with no secrets would generate an unflashable
+            # no-network stub (its api/ota/web_server defaults need a network).
+            # Refuse cleanly instead of letting it surface as a generator bug.
+            if not wifi_secrets_available and board is not None and board_requires_wifi(board):
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    "This board connects over Wi-Fi; provide an SSID or set "
+                    "Wi-Fi credentials first.",
+                )
         return await mutations_yaml.yaml_content_for_create(
-            name, friendly, board, file_content, ssid, psk, catalog=self._db.components
+            name,
+            friendly,
+            board,
+            file_content,
+            ssid,
+            psk,
+            wifi_secrets_available=wifi_secrets_available,
+            wifi_requested=wifi_requested,
+            catalog=self._db.components,
         )
 
     async def _validate_rewritten_yaml_or_raise(
@@ -530,6 +609,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         action: str,
         on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
         on_error_cleanup: Callable[[], None] | None = None,
+        tolerate_unavailable: bool = False,
+        timeout: float | None = None,
     ) -> None:
         await mutations_yaml.validate_rewritten_yaml_or_raise(
             self._db.editor,
@@ -538,6 +619,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             action=action,
             on_failure=on_failure,
             on_error_cleanup=on_error_cleanup,
+            tolerate_unavailable=tolerate_unavailable,
+            timeout=timeout,
         )
 
     @api_command("devices/delete")
@@ -665,15 +748,25 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
 
     @api_command("devices/update_config")
-    async def update_config(self, *, configuration: str, content: str, **kwargs: Any) -> None:
-        """Write device config YAML."""
-        if not content.strip():
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                f"refusing to write empty content to {configuration!r} to prevent "
-                "accidental data loss; use the delete action to remove a file",
-            )
+    async def update_config(
+        self, *, configuration: str, content: str, allow_wipe: bool = False, **kwargs: Any
+    ) -> None:
+        """
+        Write device config YAML.
+
+        ``allow_wipe`` permits clearing secrets.yaml to empty; without it an
+        empty secrets save is refused. An empty device YAML is always refused.
+        """
+        if not isinstance(allow_wipe, bool):
+            raise CommandError(ErrorCode.INVALID_ARGS, "allow_wipe must be a boolean")
+        is_empty = not content.strip()
         if is_secrets_file(configuration):
+            if is_empty and not allow_wipe:
+                raise CommandError(
+                    ErrorCode.INVALID_ARGS,
+                    "refusing to clear all secrets from secrets.yaml without "
+                    "confirmation; pass allow_wipe to confirm",
+                )
             try:
                 validate_secrets_content(content, self._db.settings.rel_path(configuration))
             except SecretsContentError as err:
@@ -689,6 +782,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
                     configuration, content, message=f"Edit {configuration}"
                 )
             return
+        if is_empty:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"refusing to write empty content to {configuration!r} to prevent "
+                "accidental data loss; use the delete action to remove a file",
+            )
         await self._persist_yaml_mutation(configuration, content, message=f"Edit {configuration}")
 
     async def apply_restored_yaml(
@@ -721,6 +820,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def _resolve_api_key_via_esphome_config(self, configuration: str) -> str:
         return await api_key.resolve_via_esphome_config(self, configuration)
+
+    async def _resolve_device_api_connection(self, configuration: str) -> tuple[str, int]:
+        """Native API (encryption key, port) for the state monitor's API info fallback."""
+        return await api_key.get_api_connection(self, configuration)
 
     @api_command("devices/add_component")
     async def add_component(
@@ -1047,8 +1150,17 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _persist_expected_config_hash(self, configuration: str) -> None:
         await firmware_sync.persist_expected_config_hash(self, configuration)
 
-    def _sync_deployed_hash_after_flash(self, configuration: str) -> None:
-        firmware_sync.sync_deployed_hash_after_flash(self, configuration)
+    async def _sync_deployed_state_after_flash(self, configuration: str) -> None:
+        await firmware_sync.sync_deployed_state_after_flash(self, configuration)
+
+    def _schedule_version_reprobe(self, configuration: str) -> None:
+        firmware_sync.schedule_version_reprobe(self, configuration)
+
+    def _cancel_reprobe_timers(self) -> None:
+        """Cancel any pending post-flash re-probe timers."""
+        for handle in self._reprobe_timers.values():
+            handle.cancel()
+        self._reprobe_timers.clear()
 
     def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
         """Merge a fresh build-size triple into the metadata store."""

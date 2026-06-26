@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers.version_history import VersionHistoryController
+from esphome_device_builder.controllers.version_history import controller as vh_controller
+from esphome_device_builder.controllers.version_history.git_repo import GitIndexLockBusyError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import Device, DeviceEventData, ErrorCode, EventType
@@ -88,7 +90,7 @@ async def test_disabled_when_no_git(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 async def test_external_edit_committed_via_scanner_catch_all(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A scanner DEVICE_UPDATED commits the externally-edited YAML (debounced)."""
+    """A scanner DEVICE_YAML_UPDATED commits the externally-edited YAML (debounced)."""
     monkeypatch.setattr(
         "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
         0.0,
@@ -98,13 +100,65 @@ async def test_external_edit_committed_via_scanner_catch_all(
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
 
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     # Let the debounced flush task run.
     assert controller._flush_task is not None
     await controller._flush_task
 
     versions = await controller.list_versions(configuration="kitchen.yaml")
     assert [v["message"] for v in versions] == ["Edit kitchen.yaml"]
+
+
+async def test_commit_retries_a_busy_index_lock_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live concurrent writer's lock is waited out on the loop, then the commit lands."""
+    monkeypatch.setattr(vh_controller, "_LOCK_RETRY_BACKOFF", 0.0)
+    sleeps: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(vh_controller.asyncio, "sleep", _fake_sleep)
+    controller = _make_controller(tmp_path)
+    calls = {"n": 0}
+
+    def _commit_paths(paths: list[Path], message: str) -> str:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise GitIndexLockBusyError(128, ["git", "add"], stderr="...index.lock...")
+        return "deadbeef"
+
+    controller._repo = SimpleNamespace(enabled=True, commit_paths=_commit_paths)  # type: ignore[assignment]
+
+    assert await controller.commit([tmp_path / "kitchen.yaml"], "Edit") == "deadbeef"
+    assert calls["n"] == 3
+    assert len(sleeps) == 2  # one wait per retry
+    assert controller.degraded is False
+
+
+async def test_commit_gives_up_after_retries_on_persistent_busy_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A lock that never clears propagates after the bounded retries and counts a failure."""
+    monkeypatch.setattr(vh_controller, "_LOCK_RETRY_BACKOFF", 0.0)
+
+    async def _fake_sleep(_delay: float) -> None:
+        return None
+
+    monkeypatch.setattr(vh_controller.asyncio, "sleep", _fake_sleep)
+    controller = _make_controller(tmp_path)
+    calls = {"n": 0}
+
+    def _commit_paths(paths: list[Path], message: str) -> str:
+        calls["n"] += 1
+        raise GitIndexLockBusyError(128, ["git", "add"], stderr="...index.lock...")
+
+    controller._repo = SimpleNamespace(enabled=True, commit_paths=_commit_paths)  # type: ignore[assignment]
+
+    with pytest.raises(GitIndexLockBusyError):
+        await controller.commit([tmp_path / "kitchen.yaml"], "Edit")
+    assert calls["n"] == vh_controller._LOCK_RETRY_ATTEMPTS + 1
 
 
 async def test_external_edit_self_heals_stale_index_lock_after_restart(
@@ -133,7 +187,7 @@ async def test_external_edit_self_heals_stale_index_lock_after_restart(
 
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     assert controller._flush_task is not None
     await controller._flush_task
 
@@ -160,7 +214,7 @@ async def test_dashboard_commit_makes_catch_all_a_noop(
     await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml via editor")
     # Scanner then fires for the same on-disk change.
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     assert controller._flush_task is not None
     await controller._flush_task
 
@@ -196,12 +250,12 @@ async def test_flush_picks_up_edit_arriving_during_commit(
             injected = True
             # Simulate b.yaml being edited externally mid-flush.
             device = Device(name="b", friendly_name="b", configuration="b.yaml")
-            controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+            controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
         return result
 
     monkeypatch.setattr(controller, "record_configuration", _wrapper)
     device = Device(name="a", friendly_name="a", configuration="a.yaml")
-    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     assert controller._flush_task is not None
     await controller._flush_task
 
@@ -318,7 +372,7 @@ async def test_stop_detaches_listeners_and_flushes_pending(
     await controller.start()
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
-    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     assert controller._flush_task is not None
 
     await controller.stop()
@@ -327,7 +381,7 @@ async def test_stop_detaches_listeners_and_flushes_pending(
     # The queued edit was flushed on shutdown rather than lost.
     assert await controller.list_versions(configuration="kitchen.yaml")
     # A post-stop event must not reach the (now detached) listener.
-    controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     assert not controller._pending
 
 
@@ -419,7 +473,7 @@ async def test_flush_task_failure_is_surfaced(
     monkeypatch.setattr(controller, "_flush_pending", _boom)
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
     with caplog.at_level(logging.WARNING):
-        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
         task = controller._flush_task
         assert task is not None
         with suppress(RuntimeError):
@@ -473,7 +527,7 @@ async def test_catch_all_flush_survives_a_failing_config(
     monkeypatch.setattr(controller, "record_configuration", _maybe_fail)
     for name in ("bad.yaml", "good.yaml"):
         device = Device(name=name, friendly_name=name, configuration=name)
-        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
     assert controller._flush_task is not None
     await controller._flush_task
 
@@ -537,7 +591,7 @@ async def test_catch_all_programming_bug_propagates_to_done_callback(
     monkeypatch.setattr(controller, "record_configuration", _bug)
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
     with caplog.at_level(logging.WARNING):
-        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
         task = controller._flush_task
         assert task is not None
         with suppress(AttributeError):
@@ -592,7 +646,7 @@ async def test_catch_all_warns_on_real_commit_failure(
     )
     device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
     with caplog.at_level(logging.WARNING):
-        controller._db.bus.fire(EventType.DEVICE_UPDATED, DeviceEventData(device=device))
+        controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
         assert controller._flush_task is not None
         await controller._flush_task
 

@@ -244,3 +244,15 @@ async def test_poll_rescans_and_reconciles_mqtt(tmp_path: Path, make_db: MakeDbF
         await controller.poll()
 
     assert log == ["scan", "mqtt.reconcile"]
+
+
+async def test_poll_is_noop_after_stop(tmp_path: Path, make_db: MakeDbFactory) -> None:
+    """``poll()`` no-ops once stopped, so a shutdown-drain GET can't re-arm torn-down work."""
+    db = make_db(tmp_path)
+    controller = DevicesController(db)
+    controller._stopped = True  # as stop() sets it
+
+    with _capture_inner_lifecycle(controller) as log:
+        await controller.poll()
+
+    assert log == []

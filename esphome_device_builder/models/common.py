@@ -63,6 +63,10 @@ class EventType(StrEnum):
     DEVICE_ADDED = "device_added"
     DEVICE_REMOVED = "device_removed"
     DEVICE_UPDATED = "device_updated"
+    # Fires when the scanner detects a device's YAML change on disk
+    # (mtime/size/inode), unlike DEVICE_UPDATED which also rides runtime
+    # ticks and metadata reloads. Internal-only; not broadcast to clients.
+    DEVICE_YAML_UPDATED = "device_yaml_updated"
 
     # Device online/offline state change
     DEVICE_STATE_CHANGED = "device_state_changed"

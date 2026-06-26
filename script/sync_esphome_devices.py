@@ -43,13 +43,17 @@ from typing import Any
 
 import yaml
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
+
+from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 _LOGGER = logging.getLogger("sync_esphome_devices")
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
 _COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
@@ -86,12 +90,32 @@ _ESP32_VARIANT_DEFAULT_BOARD: dict[str, str] = {
     "esp32p4": "esp32-p4-function-ev-board",
 }
 
-# Connectivity defaults inferred from the SoC family / variant. ESP32
+# ESPHome esp32 board ids encode the chip variant (``esp32-p4-evboard``,
+# ``esp32-c6-devkitc-1``); infer it when a page gives ``board:`` but no
+# ``variant:``. Load-bearing for esp32p4 — it has no built-in radio, so the
+# wrong (classic-esp32) variant would mislabel it wifi-capable and emit a
+# ``wifi:`` block that fails validation (P4 wifi needs ``esp32_hosted``). Built
+# from ``Esp32Variant`` longest-first so e.g. ``esp32s31`` isn't swallowed by
+# ``esp32s3`` (nor ``esp32c61`` by ``esp32c6``).
+_ESP32_VARIANT_SUFFIXES = sorted(
+    (v.value.removeprefix("esp32") for v in Esp32Variant if v is not Esp32Variant.ESP32),
+    key=len,
+    reverse=True,
+)
+# Suffix must end the token (next char is ``-``, ``_``, or end) — a bare ``\b``
+# wouldn't fire before ``_`` (underscore is a word char) so ``esp32_s3_zero`` would
+# miss, and it keeps ``s3`` from matching inside ``s31``.
+_ESP32_BOARD_VARIANT_RE = re.compile(
+    r"esp32[-_]?(" + "|".join(_ESP32_VARIANT_SUFFIXES) + r")(?=[-_]|$)"
+)
+
+# Built-in radio defaults inferred from the SoC family / variant. ESP32
 # variants differ on what's built in: classic + S3 + C3 + C5 + C6 +
 # C61 carry both wifi + BLE; S2 has wifi only; H2 has BLE/Thread but
-# no wifi; P4 has neither built in. Imports don't try to cover
-# ethernet / zigbee / matter — those need explicit evidence we can't
-# reliably mine from upstream.
+# no wifi; P4 has neither built in. Onboard ethernet is *not* inferred
+# from the SoC here — it's mined from an explicit upstream ``ethernet:``
+# block by ``_extract_ethernet`` (which adds the ``ethernet`` flag).
+# Zigbee / matter still aren't mined; we have no reliable upstream signal.
 _SOC_CONNECTIVITY: dict[str, list[str]] = {
     "esp8266": ["wifi"],
     "bk72xx": ["wifi"],
@@ -193,6 +217,49 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
 # substitutions block forward, so anything still containing one is
 # unsafe to surface as a preset value or as an ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
+
+# Legacy flat ``clk_mode: GPIO17_OUT`` encodes the RMII clock pin in the
+# mode string; this pulls the GPIO number out for the occupancy map.
+_CLK_MODE_PIN_RE = re.compile(r"GPIO(\d+)_")
+
+# Hardware fields of a top-level ``ethernet:`` block worth locking as a
+# featured-component preset (the PHY/pinout). Network/runtime fields
+# (``manual_ip``, ``domain``, ``use_address``, ``mac_address``,
+# ``enable_on_boot``, ...) are user/site-specific and deliberately omitted.
+# Every key here is a real ``ethernet`` config_entry, so the locked preset
+# passes manifest validation.
+_ETHERNET_HW_FIELDS: frozenset[str] = frozenset(
+    {
+        "type",
+        "mdc_pin",
+        "mdio_pin",
+        "clk",
+        "clk_mode",
+        "clk_pin",
+        "phy_addr",
+        "power_pin",
+        "mosi_pin",
+        "miso_pin",
+        "cs_pin",
+        "interrupt_pin",
+        "reset_pin",
+        "clock_speed",
+    }
+)
+
+# Pin-valued ethernet fields → the ``occupied_by`` role shown in the pin
+# picker. ``clk`` is nested (``{pin, mode}``) and handled separately.
+_ETHERNET_PIN_ROLES: dict[str, str] = {
+    "mdc_pin": "Ethernet MDC",
+    "mdio_pin": "Ethernet MDIO",
+    "clk_pin": "Ethernet CLK",
+    "power_pin": "Ethernet Power",
+    "mosi_pin": "Ethernet MOSI",
+    "miso_pin": "Ethernet MISO",
+    "cs_pin": "Ethernet CS",
+    "interrupt_pin": "Ethernet INT",
+    "reset_pin": "Ethernet RESET",
+}
 
 # Platforms we never lift, regardless of which domain hosts them. The
 # ``template`` family (``switch.template``, ``binary_sensor.template``,
@@ -462,15 +529,42 @@ def _resolve_fenced_yaml(info: str, inline: str, device_dir: Path) -> str | None
 
 
 def _first_config_yaml(body: str, device_dir: Path) -> tuple[dict[str, Any], str] | None:
-    """First parseable ``yaml`` config fence as ``(parsed, raw_text)``, following ``file=``."""
+    """
+    First parseable ``yaml`` config fence as ``(parsed, raw_text)``, following ``file=``.
+
+    A device page often splits optional snippets across separate fences. The
+    onboard ``ethernet:`` block (real hardware we lift) is sometimes a standalone
+    fence after the base config, so fold just that one into the primary fence when
+    the primary lacks it — the other example snippets (BLE, OTA, …) are left out.
+    """
+    primary: tuple[dict[str, Any], str] | None = None
+    ethernet: Any = None
+    ethernet_text: str | None = None
     for match in _YAML_FENCE_RE.finditer(body):
         text = _resolve_fenced_yaml(match.group(1), match.group(2), device_dir)
         if text is None:
             continue
         parsed = _safe_load_yaml(text)
-        if isinstance(parsed, dict):
-            return parsed, text
-    return None
+        if not isinstance(parsed, dict):
+            continue
+        if primary is None:
+            primary = parsed, text
+        if ethernet is None and isinstance(parsed.get("ethernet"), dict):
+            ethernet = parsed["ethernet"]
+            ethernet_text = text
+        if primary is not None and ethernet is not None:
+            break  # nothing later can change the result — the common single-fence case
+    if primary is None:
+        return None
+    parsed, text = primary
+    if ethernet is not None and "ethernet" not in parsed:
+        parsed = {**parsed, "ethernet": ethernet}
+        # A ``file=``-referenced ethernet fence isn't in *body*, so fold its
+        # resolved text into the returned raw_text or the source hash would miss
+        # edits to it. An inline fence is already in *body* — leave it be.
+        if ethernet_text is not None and ethernet_text not in body:
+            text = f"{text}\n{ethernet_text}"
+    return parsed, text
 
 
 def _extract_local_images(body: str, device_dir: Path) -> list[str]:
@@ -649,8 +743,15 @@ def _resolve_board_and_variant(
     elif isinstance(raw_framework, str):
         framework = raw_framework
 
-    if soc == "esp32" and not board and variant:
-        board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
+    if soc == "esp32":
+        if board and not variant:
+            # Import-time resolver (connectivity is frozen here from the variant);
+            # the catalog's authoritative ``_backfill_esp32_variants`` runs later
+            # and only fixes ``esphome.variant``, not ``hardware.connectivity``.
+            match = _ESP32_BOARD_VARIANT_RE.search(board.lower())
+            variant = f"esp32{match.group(1)}" if match else None
+        elif not board and variant:
+            board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
 
     return board, variant, framework
 
@@ -1203,7 +1304,70 @@ def _build_tags(name: str, type_field: str | None) -> list[str]:
     return tags
 
 
-def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get their own early exit
+def _eth_value_safe(value: Any) -> bool:
+    """Return True when *value* carries no ``${...}`` template or fill-in placeholder."""
+    if isinstance(value, str):
+        return "${" not in value and not _is_placeholder_value(value)
+    if isinstance(value, dict):
+        return all(_eth_value_safe(v) for v in value.values())
+    if isinstance(value, list):
+        return all(_eth_value_safe(v) for v in value)
+    return True
+
+
+def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[int, str]]:
+    """
+    Mine a top-level ``ethernet:`` block into a locked featured component.
+
+    Returns ``(featured_entry, gpio_occupancy)`` — the entry is ``None``
+    when there's no ``ethernet:`` block, it lacks a PHY ``type``, or any
+    hardware value is templated/placeholder (we never lock an unresolved
+    ``${...}``). Only the PHY/pinout fields are lifted; the pin GPIOs are
+    returned for the pin picker's occupancy map.
+
+    This only runs for imported boards. A board where upstream lacks an
+    ``ethernet:`` block, or whose ethernet must differ from upstream (a
+    second hardware revision), needs a hand-curated, non-``source`` board
+    the sync never overwrites — see ``gl_inet_gl_s10_v2``.
+    """
+    eth = config.get("ethernet")
+    if not isinstance(eth, dict) or not isinstance(eth.get("type"), str):
+        return None, {}
+    fields: dict[str, Any] = {}
+    occupancy: dict[int, str] = {}
+    for key, value in eth.items():
+        if key not in _ETHERNET_HW_FIELDS:
+            continue
+        if not _eth_value_safe(value):
+            return None, {}
+        if key in _ETHERNET_PIN_ROLES:
+            # A pin field that doesn't resolve to a concrete GPIO (a
+            # ``!secret`` tag, a lambda, ...) can't be locked into a valid
+            # preset — distrust the whole block rather than emit garbage.
+            gpio = _gpio_number(value)
+            if gpio is None:
+                return None, {}
+            occupancy[gpio] = _ETHERNET_PIN_ROLES[key]
+        fields[key] = {"value": value, "locked": True}
+    clk = eth.get("clk")
+    if isinstance(clk, dict):
+        gpio = _gpio_number(clk.get("pin"))
+        if gpio is None:
+            return None, {}
+        occupancy[gpio] = "Ethernet CLK"
+    clk_mode = eth.get("clk_mode")
+    if isinstance(clk_mode, str) and (m := _CLK_MODE_PIN_RE.match(clk_mode)):
+        occupancy[int(m.group(1))] = "Ethernet CLK"
+    entry = {
+        "id": "onboard_ethernet",
+        "component_id": "ethernet",
+        "name": "Onboard Ethernet",
+        "fields": fields,
+    }
+    return entry, occupancy
+
+
+def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each get their own early exit
     src: _DeviceSource,
     components_index: dict[str, dict[str, Any]],
     revision: str,
@@ -1235,6 +1399,13 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
     featured, bundles, gpio_occupancy = _extract_featured_components(
         src.config_yaml, components_index
     )
+    # Lift a top-level ``ethernet:`` block (the upstream importer otherwise
+    # drops it) so wired boards get their onboard-network provider — and so
+    # an ethernet-only page isn't rejected by the no-featured gate below.
+    eth_entry, eth_occupancy = _extract_ethernet(src.config_yaml)
+    if eth_entry is not None:
+        featured = [eth_entry, *featured]
+        gpio_occupancy = {**eth_occupancy, **gpio_occupancy}
     if not featured:
         return None, "no extractable featured components"
 
@@ -1245,9 +1416,11 @@ def _make_record(  # noqa: C901, PLR0911 — distinct skip reasons each get thei
         "esphome": _build_esphome_block(soc, board, variant, framework),
     }
 
-    connectivity = _connectivity_for(soc, variant)
+    connectivity = list(_connectivity_for(soc, variant) or [])
+    if eth_entry is not None and "ethernet" not in connectivity:
+        connectivity.append("ethernet")
     if connectivity:
-        record["hardware"] = {"connectivity": list(connectivity)}
+        record["hardware"] = {"connectivity": connectivity}
 
     if src.images:
         # Reference upstream raw URLs directly so the wheel doesn't have
@@ -1332,7 +1505,13 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     older syncs is removed so the wheel doesn't carry stale mirrors.
     """
     target_dir = _BOARDS_DIR / record["id"]
-    if not _is_writable_target(target_dir):
+    manifest_path = target_dir / "manifest.yaml"
+    prior = _read_manifest_dict(manifest_path)
+    # An existing manifest the sync doesn't own is a slug collision —
+    # leave it untouched. Hand-curated boards (no ``source.type``) and
+    # unparsable files both read as "not imported"; an unreadable file
+    # ``prior is None`` so guard on the file existing, not on the parse.
+    if manifest_path.is_file() and not _imported_remote_id(prior)[0]:
         _LOGGER.warning(
             "Skipping %s — slug collides with a hand-curated board (no source.type)",
             record["id"],
@@ -1344,33 +1523,33 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
     if images_dir.is_dir():
         shutil.rmtree(images_dir)
 
-    manifest_path = target_dir / "manifest.yaml"
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")
     return target_dir
 
 
-def _is_writable_target(target_dir: Path) -> bool:
-    """Return True when the sync owns *target_dir* (or it doesn't exist yet)."""
-    manifest = target_dir / "manifest.yaml"
-    if not manifest.is_file():
-        return True
-    is_imported, _ = _is_imported_manifest(manifest)
-    return is_imported
-
-
-def _is_imported_manifest(manifest_path: Path) -> tuple[bool, str | None]:
-    """Return ``(is_imported, remote_id)`` for an existing board manifest."""
+def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
+    """Parse an existing ``manifest.yaml`` to a dict, or ``None`` if missing/unreadable."""
+    if not manifest_path.is_file():
+        return None
     try:
         data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     except (OSError, yaml.YAMLError):
-        return False, None
-    if not isinstance(data, dict):
-        return False, None
-    source = data.get("source")
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _imported_remote_id(prior: dict[str, Any] | None) -> tuple[bool, str | None]:
+    """Return ``(is_imported, remote_id)`` for an already-parsed manifest dict."""
+    source = prior.get("source") if prior is not None else None
     if not isinstance(source, dict) or source.get("type") != _SOURCE_TYPE:
         return False, None
     remote_id = source.get("remote_id")
     return True, remote_id if isinstance(remote_id, str) else None
+
+
+def _is_imported_manifest(manifest_path: Path) -> tuple[bool, str | None]:
+    """Return ``(is_imported, remote_id)`` for an existing board manifest."""
+    return _imported_remote_id(_read_manifest_dict(manifest_path))
 
 
 def _prune_removed(active_remote_ids: set[str]) -> list[str]:

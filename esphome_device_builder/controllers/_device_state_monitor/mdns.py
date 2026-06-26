@@ -9,6 +9,7 @@ cache-inspection accessors the drawer's reachability snapshot reads.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from operator import attrgetter
@@ -42,6 +43,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 _MDNS_RESOLVE_TIMEOUT_MS = 2000
+
+# Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
+# hang on a wedged socket; shutdown must not block on it.
+_MDNS_CLOSE_TIMEOUT = 1.0
 
 
 class MdnsSource:
@@ -115,12 +120,12 @@ class MdnsSource:
             self._mdns_browser = None
 
     async def close_zeroconf(self) -> None:
-        """Close the zeroconf responder. Called after the resolve-task drain."""
+        """Close the zeroconf responder, bounded so a wedged socket can't stall shutdown."""
         if self._zeroconf is not None:
             try:
-                await self._zeroconf.async_close()
+                await asyncio.wait_for(self._zeroconf.async_close(), _MDNS_CLOSE_TIMEOUT)
             except Exception:
-                _LOGGER.debug("zeroconf close failed", exc_info=True)
+                _LOGGER.debug("zeroconf close failed or timed out", exc_info=True)
             self._zeroconf = None
 
     async def refresh_mdns(self, name: str) -> None:
@@ -208,9 +213,17 @@ class MdnsSource:
         # into 0.108 and render as "TTL: 0s".
         age_s = max(0.0, millis_to_seconds(now_ms - latest.created))
         ttl_remaining_s = max(0.0, float(latest.get_remaining_ttl(now_ms)))
+        # The PTR's full announced TTL (the device's own record
+        # lifetime). The drawer's "offline in N" countdown is this
+        # lifetime measured from ``age_seconds`` so it stays in
+        # lockstep with "last seen"; the PTR's *remaining* TTL is
+        # refreshed by the browser at ~80% of the lifetime and would
+        # drift against the actively-probed A record.
+        ptr_ttl_s = float(ptr.ttl) if ptr is not None else None
         return MdnsCacheInfo(
             age_seconds=age_s,
             ttl_remaining_seconds=ttl_remaining_s,
+            ptr_ttl_seconds=ptr_ttl_s,
             txt_records=_decode_mdns_txt_records(txt_dns_records),
         )
 

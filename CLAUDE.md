@@ -216,8 +216,10 @@ upstream-canonical reference for shared concerns (mDNS source dispatch,
 build-info hashes, StorageJSON layout, `CORE` lifecycle, `address_cache`
 semantics). Functional parity is essentially achieved as of 2026-05; the
 one intentional decline is the HA Supervisor `/auth` POST flow (our HA
-add-on path is ingress-only by design — issue #85, inline comment at
-`device_builder.py:419`). Before declaring a new feature complete, check
+add-on path is ingress-only by design; issue #85, in
+`device_builder.py`'s `_warn_front_door_open`, gated on the
+`DashboardSettings.front_door_open` property in
+`controllers/config/settings.py`). Before declaring a new feature complete, check
 the open issue list filtered to "legacy parity".
 
 **Lessons about the comparison itself:** the legacy code is
@@ -349,7 +351,17 @@ against legacy behaviour before assuming the simpler version suffices.
   `_split_qualified_key` flips it.
 - **Board catalog** (`definitions/boards/<id>/manifest.yaml`) is
   hand-curated YAML. ~80 popular boards plus generic fallbacks per
-  platform. `script/validate_definitions.py` lints the manifests.
+  platform. `script/validate_definitions.py` lints the manifests. The
+  manifest is the only hand-edited file; after editing one, run
+  `script/update_board.py [board-id]` (auto-detects the edited board) to
+  regenerate its JSON and validate in one step. It wraps
+  `script/sync_boards.py <board-id>` (single board) / `sync_boards.py`
+  (all) + `validate_definitions.py`. Single-board mode refuses unless the
+  installed `esphome` matches the `esphome_version` stamped in
+  `boards.index.json` by the last full sync (betas canonicalized to base, as
+  it rebuilds the shared index from every board); a full sync regenerates
+  everything from the installed esphome and re-stamps it, so it doesn't
+  check. Full contributor workflow: `definitions/README.md`.
 - **Frontend handoff** for the catalog is documented inline in models
   (`ConfigEntry`, `ComponentCatalogEntry`). New `ConfigEntryType` values
   need a frontend update — coordinate.
@@ -366,6 +378,14 @@ against legacy behaviour before assuming the simpler version suffices.
   | Default (pip install, dev checkout) | `<config_dir>/.esphome` | `<config_dir>/.esphome/storage/<file>.json` | `<config_dir>/.esphome/build/<name>/` |
   | HA addon (`is_ha_addon()` true) | `/data` | `/data/storage/<file>.json` | `/data/build/<name>/` |
   | `ESPHOME_DATA_DIR` env override | `$ESPHOME_DATA_DIR` | `$ESPHOME_DATA_DIR/storage/<file>.json` | `$ESPHOME_DATA_DIR/build/<name>/` |
+
+  The rows aren't independent: esphome's `CORE.data_dir` resolves
+  `is_ha_addon()` *before* `$ESPHOME_DATA_DIR`, so on an HA-addon host the
+  override is silently ignored unless `ESPHOME_IS_HA_ADDON` is also cleared —
+  which is why a remote-build receiver running as an addon would write
+  artefacts to `/data` instead of its per-build `ESPHOME_DATA_DIR` subtree, and
+  why `controllers/firmware/cli.py:compose_subprocess_env` drops the marker for
+  remote-build compile subprocesses.
 
   The HA-addon shape is dominant in production: YAML configs at
   `/config/esphome/` (HA's `/config` mount), every ESPHome artefact at
@@ -386,6 +406,51 @@ against legacy behaviour before assuming the simpler version suffices.
   in `helpers/windows_build_paths` to relocate `CORE.data_dir` to
   `C:\esphb\<id8>` (clears `MAX_PATH` + spaces), so don't assume
   default-mode `<config>/.esphome` paths on Windows.
+- **Deployment modes also change the network & auth boundary; never
+  widen a bind or drop a credential source.** The on-disk table above is
+  only half the story; each mode also has a distinct trust posture, and
+  two advisories (GHSA-vv4j-m4vr-f3g6, GHSA-rrxg-g2pf-6hh4) came from
+  missing it. `docs/THREAT_MODEL.md` is the source of truth for the one
+  trust boundary; `docs/ARCHITECTURE.md` (ingress / host-network /
+  peer-guard) is the full narrative. The shapes:
+
+  | Mode | Bind | Auth |
+  |---|---|---|
+  | Standalone public (default / Docker) | `--host:--port` (`0.0.0.0:6052`) | password gate + WS in-band `auth` handshake *only when* `using_password`; with no credentials it runs open and logs a `WITHOUT AUTHENTICATION` banner. `--trusted-domains` Origin/Host allowlist always applies |
+  | HA add-on ingress (default add-on) | `ingress_bind_hosts:ingress_port`, loopback + `172.30.32.1` only, NEVER `0.0.0.0` | none in-process by design; the supervisor authenticates upstream, and `ingress_peer_guard` restricts source peers to loopback / `172.30.32.2` |
+  | HA add-on public opt-in | public `6052`, `trusted=False, peer_guard=False` | none; requires both `DISABLE_HA_AUTHENTICATION` (`leave_front_door_open`) and a mapped port 6052 (`serve_public_unauthenticated`), Origin gate still active |
+
+  * **The ingress site is unauthenticated on purpose; its only boundary
+    is where it binds plus the peer guard.** The add-on runs host-network
+    for mDNS, so `0.0.0.0` would put the no-auth site on the LAN
+    (GHSA-vv4j-m4vr-f3g6, #1565). Two defenses, keep both:
+    `HA_INGRESS_DEFAULT_BIND_HOSTS` (`constants.py`) limits *where* it
+    listens; `ingress_peer_guard` (`helpers/auth.py`) limits *who* can
+    connect. `--ingress-host` may override the bind, but the peer guard
+    still restricts sources regardless. Never widen the ingress bind to
+    all interfaces.
+  * **Credential precedence** (`helpers/credentials.py:resolve_credentials`,
+    via `DashboardSettings.parse_args`): CLI `--username`/`--password`,
+    then `$ESPHOME_USERNAME` / `$ESPHOME_PASSWORD`, then the deprecated
+    bare `$USERNAME` / `$PASSWORD` (pair-only, gated on `$PASSWORD` so the
+    OS login `$USERNAME` is never read alone). Renaming or dropping a
+    credential source silently disabled auth for operators relying on it
+    (GHSA-rrxg-g2pf-6hh4); never remove a credential input without a
+    gated fallback and a loud deprecation. Auth resolution changes must
+    fail loud / closed, never silently open.
+  * **Mode plumbing:** `--ha-addon` sets `settings.on_ha_addon`;
+    esphome's `is_ha_addon()` is a *separate* signal (data-dir
+    resolution), not the flag. Mode branching is in `device_builder.py`
+    `run()`; the `front_door_open` / `serve_public_unauthenticated` /
+    `create_ingress_site` properties are in `controllers/config/
+    settings.py`. The add-on's own config (`host_network: true`,
+    `ingress: true`, `ingress_port: 0`, unmapped `6052`) lives in the
+    separate `esphome/home-assistant-addon` repo (metadata-only,
+    template-generated); the run script that passes `--ha-addon` is baked
+    into the `ghcr.io/esphome/esphome-hassio` image, not that repo. The
+    ingress-only-by-design decline lives in `device_builder.py`'s
+    `_warn_front_door_open`, gated on the `DashboardSettings.front_door_open`
+    property in `controllers/config/settings.py` (issue #85).
 - **`config_hash` source of truth is `build_info.json`.** ESPHome writes
   `<storage.build_path>/build_info.json` after every successful compile
   *and* every `--only-generate` (the `write_cpp(config)` call runs before
@@ -401,12 +466,20 @@ against legacy behaviour before assuming the simpler version suffices.
   `apply_api_encryption` both lean on the empty-string-means-plaintext
   distinction; a nullable boolean would lose it.
 - **Optimistic post-flash sync** in
-  `DevicesController._sync_deployed_hash_after_flash` pre-pins
-  `deployed_config_hash = expected_config_hash` after a successful
-  UPLOAD/INSTALL via `DeviceStateMonitor.apply_config_hash`, so the dot
-  clears immediately instead of waiting on the rebooted device's mDNS
-  announce. If the OTA silently failed, the next real announce pushes the
-  truth back through the same callback.
+  `DevicesController._sync_deployed_state_after_flash` pre-pins both
+  `deployed_config_hash = expected_config_hash` *and*
+  `deployed_version = StorageJSON.esphome_version` after a successful
+  UPLOAD/INSTALL via `DeviceStateMonitor.apply_config_hash` /
+  `apply_version`, so the dot and the "update available" badge clear
+  immediately instead of waiting on the rebooted device's mDNS announce.
+  A real announce later overwrites either through the same callback. mDNS
+  is dark in some deployments (Docker-bridge), so `refresh_after_job`
+  also arms a `loop.call_later` timer (`_schedule_version_reprobe`,
+  tracked in `_reprobe_timers`, cancelled in `stop()`) that ~60s later
+  forces one Native-API version probe via `request_version_reprobe` —
+  the only signal of a rollback / failed boot where the announce never
+  arrives. The forced probe still honours `_is_due`'s `priority_for !=
+  MDNS` guard, so a device already seen over mDNS is skipped.
 - **Two mDNS paths with different OFFLINE semantics:**
   - **Browser callback** (`_on_service_state_change`) — passively
     subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
@@ -581,6 +654,20 @@ When changing the sync script or catalog handling, watch for these:
   `tests/benchmarks/test_peer_link_noise_xx.py`:
   `pytest.param(_NEWLINE_PAYLOAD, 1000, id="newline_1k")`,
   `pytest.param(1024, id="1KiB")`. Bare ints / short slugs are fine.
+- **Binding the ingress site to `0.0.0.0` exposed it on the LAN.** The
+  HA-addon ingress site is unauthenticated by design; its only boundary
+  is its bind target plus `ingress_peer_guard`. The add-on runs
+  host-network for mDNS, so `0.0.0.0` reached every LAN device with no
+  credentials. Bind only `HA_INGRESS_DEFAULT_BIND_HOSTS` (loopback +
+  supervisor gateway) and keep the peer guard. (GHSA-vv4j-m4vr-f3g6,
+  #1565; see the network & auth boundary table above.)
+- **Renaming an auth env var silently disabled auth on upgrade.**
+  Dropping the bare `$USERNAME` / `$PASSWORD` fallback for `$ESPHOME_*`
+  left operators who set the old names with no credentials and no error;
+  `docker run -d` never surfaces the `WITHOUT AUTHENTICATION` banner.
+  Keep a gated deprecated fallback when moving a credential source, and
+  make auth resolution fail loud, not open. (GHSA-rrxg-g2pf-6hh4, fix
+  1.0.12.)
 
 ## Useful entry points
 
@@ -595,7 +682,8 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
 | `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
 | `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
-| `script/sync_boards.py` | Regenerates the split board catalog from the manifests |
+| `script/update_board.py` | One-step contributor wrapper: regenerate one board's JSON (`sync_boards.py`) + validate (`validate_definitions.py`). Auto-detects the edited board, or takes an id. |
+| `script/sync_boards.py` | Regenerates the split board catalog from the manifests; stamps the generating `esphome_version` into `boards.index.json`. Takes an optional board id to regenerate just one (single-board mode guards installed `esphome` against that stamp). |
 | `script/sync_components.py` | Regenerates the component catalog + `platform_capabilities.index.json` |
 | `script/check_catalog.py` | Smoke test for popular components |
 | `script/check_import_time.py` | CI guard: fails if `import …device_builder` regresses past `script/import_time_budget.json` (e.g. a fresh eager `esphome.components.*` import) |

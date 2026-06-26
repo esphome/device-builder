@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import NamedTuple
 
@@ -9,6 +10,12 @@ from esphome import const
 from esphome.const import CONF_PACKAGES
 
 from ..yaml import _split_value_and_comment, _strip_yaml_quotes
+
+_LOGGER = logging.getLogger(__name__)
+
+# Native API default port — the single source of truth shared with the
+# state monitor's API info fallback.
+DEFAULT_API_PORT = 6053
 
 
 class EsphomeMeta(NamedTuple):
@@ -549,12 +556,40 @@ def get_api_encryption_block(config: dict | None) -> dict | None:
 
 
 def get_api_encryption_key(config: dict | None) -> str:
-    """Return the resolved Native API encryption key, or empty string."""
+    """Native API encryption key, ``!secret`` resolved but ``${var}`` not, or ``""``."""
     encryption = get_api_encryption_block(config)
     if encryption is None:
         return ""
     key = encryption.get("key")
     return key if isinstance(key, str) else ""
+
+
+def get_resolved_api_encryption_key(config: dict | None) -> str:
+    """Native API encryption key with ``${var}`` resolved; ``""`` if absent or unresolved."""
+    key = get_api_encryption_key(config)
+    if not key:
+        return ""
+    key = _resolve_substitutions(key, _extract_resolved_substitutions(config)) or ""
+    if _UNRESOLVED_SUBSTITUTION_RE.search(key):
+        return ""
+    return key
+
+
+def get_api_port(config: dict | None) -> int:
+    """Return the configured Native API port (1..65535), defaulting to 6053."""
+    api_block = config.get("api") if isinstance(config, dict) else None
+    if isinstance(api_block, dict):
+        port = api_block.get("port")
+        if isinstance(port, str) and port.isdigit():
+            port = int(port)
+        if isinstance(port, int) and not isinstance(port, bool) and 1 <= port <= 65535:
+            return port
+        if port is not None:
+            # A present-but-invalid value (out of range, non-numeric, an
+            # unresolved ``${...}``) is dropped — log so it's distinguishable
+            # from the unconfigured default.
+            _LOGGER.debug("Ignoring invalid api.port %r; using %d", port, DEFAULT_API_PORT)
+    return DEFAULT_API_PORT
 
 
 def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | None:

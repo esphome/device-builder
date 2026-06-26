@@ -174,21 +174,26 @@ there's no separate username or password to configure for the
 add-on, and port `6052` stays unbound to keep the dashboard off the
 LAN by default.
 
-This is the supported way to use the add-on and we're not planning
-to add a "just expose the port directly" option for it. The classic
-dashboard let you opt in to binding port `6052` on the LAN and
-forwarded your Home Assistant username and password through the
-supervisor `/auth` endpoint to gate it; that endpoint has no rate
-limiting or lockout, so opting into the exposed port turned the
-dashboard into an open brute-force target against every account on
-the Home Assistant instance. We chose not to carry that risk
-forward (see
+This is the supported way to use the add-on. The classic dashboard
+also let you forward your Home Assistant username and password
+through the supervisor `/auth` endpoint to gate an exposed port
+`6052`; that endpoint has no rate limiting or lockout, so it turned
+the dashboard into an open brute-force target against every account
+on the Home Assistant instance, and we don't carry that path forward
+(see
 [device-builder issue #85](https://github.com/esphome/device-builder/issues/85)).
 
-If you need port `6052` reachable on the LAN, please file a feature
-request describing the use case. For LAN access today, run the
-standalone PyPI install on the same network as your add-on with its
-own dashboard-managed password.
+The classic dashboard's other option, "Disable external
+authentication" (`leave_front_door_open`), is honored. With it on
+*and* port `6052` mapped in the add-on's Network options, the
+dashboard binds the port on the LAN with no authentication at all,
+for example so the VS Code ESPHome plugin can reach it. Both opt-ins
+are required, matching the classic add-on; the dashboard logs a loud
+banner because this leaves the dashboard wide open to anyone on your
+network. Turn the option off, or unmap the port, for ingress-only
+access. For password-gated LAN access instead, run the standalone
+PyPI install on the same network with its own dashboard-managed
+password.
 
 ### Standalone (PyPI)
 
@@ -272,12 +277,54 @@ Two ways to make it work:
    restriction entirely (handy when the Host varies per request
    — but then operator-supplied auth becomes the only gate).
 
+### Subpath mounts (X-Forwarded-Prefix)
+
+If you run the standalone dashboard behind an HTTP reverse proxy
+(nginx, Traefik, Caddy, nginx-proxy-manager, …) at a subpath (for
+example `https://example.com/esphome/`), the proxy must forward the
+mount prefix to the backend using the `X-Forwarded-Prefix` header so
+the server can render the SPA's `<base href>` correctly per request.
+The header value does not need a trailing slash — the server
+normalises the prefix internally.
+
+Minimal nginx example:
+
+```nginx
+location /esphome/ {
+    proxy_pass http://localhost:6052/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /esphome;
+    proxy_read_timeout 86400s;
+}
+```
+
+Notes:
+
+- Home Assistant ingress deployments do not need this because the
+  supervisor sets `X-Ingress-Path` automatically; the dashboard
+  prefers `X-Ingress-Path` when present.
+- Traefik and Caddy provide equivalent ways to forward or strip
+  prefixes (look for `X-Forwarded-Prefix` or `stripPrefix`-style
+  options in their docs).
+- For the exact precedence and normalization logic, see
+  `_resolve_base_href()` in the backend source:
+  https://github.com/esphome/device-builder/blob/main/esphome_device_builder/device_builder.py
+
 CLI tools and the Home Assistant integration omit `Origin`
 entirely, so they're never affected — the gate is browser-only.
 The HA Ingress site (the `--ingress-host` listener the
-supervisor proxies to) skips both checks because it's bound to
-the supervisor's internal docker network and the supervisor
-handles auth upstream.
+supervisor proxies to) skips both checks because the supervisor
+handles auth upstream. It binds only loopback plus the supervisor
+gateway (`127.0.0.1` + `172.30.32.1`), never all interfaces, and a
+peer guard rejects any source other than loopback or the supervisor
+(`172.30.32.2`) — so the no-auth site is never reachable from the LAN
+or another add-on even though the add-on runs host-network. This
+matches the legacy add-on's nginx `allow`/`deny` ACL.
 
 See [docs/ARCHITECTURE.md § Authentication](docs/ARCHITECTURE.md#authentication)
 for the deep dive on the trust model.
@@ -440,7 +487,9 @@ receiver is paired.
 - **[docs/API.md](docs/API.md)** — every WebSocket command, request/response
   shapes, event types.
 - **[esphome_device_builder/definitions/README.md](esphome_device_builder/definitions/README.md)** —
-  contributor guide for board manifests.
+  board (and component) contributor guide: manifest schema plus the
+  workflow for adding or updating a board (edit the manifest, then run
+  `python script/update_board.py` to regenerate and validate).
 
 ## Contributing
 

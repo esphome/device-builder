@@ -78,5 +78,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-Ceiling-Light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Ceiling-Light/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: ca7763c4295cbfd366509c98d68963d2b2db46041651ba4056e53e334e0b59c2

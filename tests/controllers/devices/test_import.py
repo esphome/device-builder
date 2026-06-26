@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
 
@@ -423,36 +424,80 @@ async def test_import_device_preserves_original_error_when_cleanup_fails(
     assert "required key not provided: a platform" in excinfo.value.message
 
 
-async def test_import_device_rolls_back_on_validator_subprocess_error(
+@pytest.mark.parametrize(
+    "exc",
+    [
+        TimeoutError("subprocess wedged"),
+        ValidatorUnavailableError("closed stdout"),
+        BrokenPipeError(),
+    ],
+)
+async def test_import_device_keeps_yaml_when_validator_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    exc: Exception,
+) -> None:
+    """Adopt tolerates an unavailable validator: file kept, adoption completes, scan runs."""
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=exc)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
+
+    assert result == {"configuration": "kitchen.yaml"}
+    assert (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._scanner.calls == [("scan",)]
+
+
+async def test_import_device_propagates_generic_runtime_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A non-CommandError failure from the validator still rolls the YAML back.
-
-    The validator subprocess can raise ``TimeoutError`` /
-    ``RuntimeError`` / ``BrokenPipeError`` (or even an
-    ``OSError`` from the post-write read) without going through
-    ``CommandError``. Without a broad ``except`` the rollback
-    would skip and the half-imported YAML would stick around,
-    tripping ``FileExistsError`` on every retry — exactly the
-    foot-gun this PR is meant to prevent.
-    """
+    """A generic RuntimeError (a bug, not subprocess loss) propagates and rolls the YAML back."""
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
-    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError("subprocess wedged"))
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=RuntimeError("unexpected bug"))
 
-    with pytest.raises(TimeoutError):
+    with pytest.raises(RuntimeError, match="unexpected bug"):
         await ctrl.import_device(
             name="kitchen",
             project_name="x",
             package_import_url="github://x",
         )
 
-    # YAML must be unlinked even though the failure wasn't a CommandError.
     assert not (tmp_path / "kitchen.yaml").exists()
     assert ctrl._scanner.calls == []
+
+
+async def test_import_device_validates_with_short_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Adopt passes the short import budget so it isn't gated on a cold fetch."""
+    from esphome_device_builder.controllers.editor import IMPORT_VALIDATE_TIMEOUT  # noqa: PLC0415
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    validate = AsyncMock(return_value={"yaml_errors": [], "validation_errors": []})
+    ctrl._db.editor.validate_yaml = validate
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
+
+    assert validate.await_args.kwargs["timeout"] == IMPORT_VALIDATE_TIMEOUT
 
 
 async def test_import_device_skips_validation_when_editor_unavailable(

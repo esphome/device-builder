@@ -157,6 +157,8 @@ async def test_download_artifacts_unknown_job_rejected(
     assert payload["type"] == "artifacts_end"
     assert payload["accepted"] is False
     assert payload["reason"] == "unknown_job"
+    # Rejects without a specific elaboration omit the detail field entirely.
+    assert "detail" not in payload
     log_text = "\n".join(record.getMessage() for record in caplog.records)
     assert "missing" in log_text  # requested job_id
     assert "another" in log_text  # the receiver's known job_ids
@@ -238,11 +240,37 @@ async def test_download_artifacts_build_dir_missing_rejected(
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
     assert payload["reason"] == "build_dir_missing"
+    # The reject frame now carries the FileNotFoundError detail so the offloader
+    # can surface the actual missing path, not just the coarse reason.
+    assert payload["detail"] == "StorageJSON sidecar missing for kitchen.yaml"
     # Receiver-side log carries the configuration + the
     # FileNotFoundError detail (the actual missing path).
     log_text = "\n".join(record.getMessage() for record in caplog.records)
     assert "kitchen.yaml" in log_text
     assert "StorageJSON sidecar missing" in log_text
+
+
+async def test_download_artifacts_reject_detail_capped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An overlong FileNotFoundError message is truncated on the reject frame."""
+
+    def _raise_long(_configuration: str) -> Any:
+        raise FileNotFoundError("x" * 1000)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
+        _raise_long,
+    )
+    sender = _make_sender(_make_firmware_with_job(configuration="kitchen.yaml"))
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    payload = _last_app_frame(session)
+    assert payload["reason"] == "build_dir_missing"
+    assert len(payload["detail"]) == 256
 
 
 async def test_download_artifacts_pack_failed_rejected(
@@ -266,6 +294,7 @@ async def test_download_artifacts_pack_failed_rejected(
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
     assert payload["reason"] == "pack_failed"
+    assert payload["detail"] == "RuntimeError: size cap"
 
 
 async def test_download_artifacts_happy_path_streams_start_chunk_end(

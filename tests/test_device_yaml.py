@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, ClassVar
 from unittest import mock
 
@@ -25,6 +26,8 @@ from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
     _has_native_wifi,
     _parse_inline_value,
+    board_provides_network,
+    board_requires_wifi,
     compute_has_pending_changes,
     configuration_stem,
     extract_esphome_meta_from_config,
@@ -42,6 +45,8 @@ from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
     BoardHardware,
+    ComponentCatalogEntry,
+    ComponentCategory,
     Connectivity,
     DefaultComponent,
     Esp32Variant,
@@ -1158,6 +1163,48 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     assert "  password: !secret wifi_password\n" in secret
 
 
+def test_generate_yaml_omits_wifi_when_board_has_wifi_but_no_secrets() -> None:
+    """No literal ssid and no wifi secrets → no ``!secret`` block, network TODO instead."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+
+    out = generate_device_yaml(
+        "kitchen", "Kitchen", board, ssid="", psk="", wifi_secrets_available=False
+    )
+
+    assert "!secret" not in out
+    # Line-anchored: the TODO comment mentions ``wifi:`` / ``api:`` in prose.
+    assert "wifi:" not in out.splitlines()
+    assert "api:" not in out.splitlines()
+    assert "ota:" not in out.splitlines()
+    assert "No Wi-Fi secrets are set" in out
+
+
+def test_generate_yaml_literal_ssid_inlines_regardless_of_secrets() -> None:
+    """A literal ssid still inlines even when wifi secrets are absent."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+
+    out = generate_device_yaml(
+        "kitchen", "Kitchen", board, ssid="MyNet", psk="pw", wifi_secrets_available=False
+    )
+
+    assert "  ssid: MyNet\n" in out
+    assert "!secret" not in out
+    assert "No Wi-Fi secrets are set" not in out
+
+
+def test_generate_minimal_stub_yaml_omits_wifi_without_secrets() -> None:
+    """Stub with no wifi secrets drops wifi/api/ota and emits a network TODO."""
+    out = generate_minimal_stub_yaml("kitchen", "Kitchen Lamp", wifi_secrets_available=False)
+
+    assert "esphome:\n  name: kitchen\n  friendly_name: Kitchen Lamp\n" in out
+    assert "esp32:\n  board: esp32dev\n" in out
+    assert "!secret" not in out
+    assert "wifi:" not in out.splitlines()
+    assert "api:" not in out.splitlines()
+    assert "ota:" not in out.splitlines()
+    assert "No Wi-Fi secrets are set" in out
+
+
 def test_generate_yaml_secret_refs_resolve_through_esphome_loader(tmp_path: Path) -> None:
     """Empty ssid/psk emit !secret tags ESPHome's loader resolves from secrets.yaml.
 
@@ -1711,22 +1758,20 @@ def test_infer_native_wifi_routes_through_module_alias(
     ]
 
 
-def test_has_native_wifi_agrees_with_upstream_on_indexed_inputs() -> None:
-    """Our index-fed wifi inference matches esphome for the inputs the index covers.
-
-    Scoped to the variants / platforms in our committed index so it's robust on
-    the CI matrix (newer esphome adds inputs we don't yet know). For the inputs we
-    DO claim, we must agree with upstream's ``has_native_wifi`` — guards logic
-    drift the value-pinned ``test_has_native_wifi`` can't see.
-    """
-    from esphome.components.wifi import has_native_wifi  # noqa: PLC0415
-
-    from esphome_device_builder.definitions import (  # noqa: PLC0415
-        load_platform_capabilities_index,
+def test_has_native_wifi_logic_matches_upstream(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin ``_has_native_wifi`` to esphome's inference over esphome's no-wifi set and variants."""
+    from esphome.components.esp32.const import VARIANTS  # noqa: PLC0415
+    from esphome.components.wifi import (  # noqa: PLC0415
+        NO_WIFI_VARIANTS,
+        has_native_wifi,
     )
 
-    caps = load_platform_capabilities_index()
-    for variant in caps.esp32_variants:
+    monkeypatch.setattr(
+        device_yaml._generation,
+        "_ESP32_NO_WIFI_VARIANTS",
+        frozenset(v.lower() for v in NO_WIFI_VARIANTS),
+    )
+    for variant in VARIANTS:
         assert device_yaml._has_native_wifi(platform="esp32", variant=variant) == has_native_wifi(
             platform="esp32", variant=variant
         )
@@ -2495,3 +2540,214 @@ def test_every_board_body_generates_creatable_platform_block() -> None:
         elif not block.get("board"):
             offenders.append(f"{entry.id}: {platform} block missing board")
     assert not offenders, "boards generate invalid create YAML:\n" + "\n".join(offenders)
+
+
+# ---------------------------------------------------------------------------
+# generate_device_yaml — onboard ethernet (network-provider defaults)
+# ---------------------------------------------------------------------------
+
+
+def _make_component(
+    entry_id: str, category: ComponentCategory = ComponentCategory.CORE
+) -> ComponentCatalogEntry:
+    """Minimal ``ComponentCatalogEntry`` for the network-default tests."""
+    return ComponentCatalogEntry(id=entry_id, name=entry_id, description="", category=category)
+
+
+def test_generate_device_yaml_network_default_suppresses_wifi() -> None:
+    """A network-providing default (``ethernet``) drops ``wifi:`` and keeps ``api:`` / ``ota:``.
+
+    The injected network component satisfies the ``network`` dependency,
+    so API/OTA emit while Wi-Fi is omitted — and the network block is
+    actually present, never API/OTA without a network.
+    """
+    board = _make_esp32_board()
+    defaults = [(_make_component("ethernet"), {"type": "LAN8720"})]
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="", defaults=defaults)
+    assert "wifi:" not in out
+    assert "ethernet:" in out
+    assert "api:" in out
+    assert "ota:" in out
+
+
+def test_generate_device_yaml_non_network_default_keeps_wifi() -> None:
+    """A non-network default doesn't satisfy the network dep, so ``wifi:`` stays.
+
+    Pins that dropping ``wifi:`` is keyed on an actual network provider,
+    not on the mere presence of *defaults*.
+    """
+    board = _make_esp32_board()
+    defaults = [(_make_component("web_server"), {})]
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="", defaults=defaults)
+    assert "wifi:" in out
+    assert "web_server:" in out
+
+
+def test_generate_device_yaml_network_default_wins_over_no_wifi_secrets() -> None:
+    """An injected network provider beats the no-Wi-Fi-secrets TODO.
+
+    Pins the interaction between the no-secrets stub path and onboard
+    ethernet: a wired board with no Wi-Fi secrets still gets ``ethernet:``
+    + ``api:`` / ``ota:``, not the no-network placeholder.
+    """
+    board = _make_esp32_board()
+    defaults = [(_make_component("ethernet"), {"type": "LAN8720"})]
+    out = generate_device_yaml(
+        "kitchen",
+        "Kitchen",
+        board,
+        ssid="",
+        psk="",
+        wifi_secrets_available=False,
+        defaults=defaults,
+    )
+    assert "ethernet:" in out
+    assert "api:" in out
+    assert "wifi:" not in out.splitlines()
+    assert "No Wi-Fi secrets are set" not in out
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_resolve_network_components_returns_locked_ethernet(
+    session_component_catalog: Any,
+) -> None:
+    """wt32-eth01's onboard-ethernet suggested hardware resolves with locked pins.
+
+    Pins the auto-pull resolver: the board's ``featured_components``
+    ethernet entry resolves to the ``ethernet`` catalog component with
+    its locked pin presets baked into the fields map.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    pairs = await session_component_catalog.resolve_network_components(board)
+    assert len(pairs) == 1
+    component, fields = pairs[0]
+    assert component.id == "ethernet"
+    assert fields["type"] == "LAN8720"
+    assert fields["mdc_pin"] == "GPIO23"
+    assert fields["clk"] == {"pin": "GPIO0", "mode": "CLK_EXT_IN"}
+    assert fields["phy_addr"] == 1
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_resolve_network_components_skips_when_body_missing(
+    session_component_catalog: Any,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A network featured ref whose body vanished mid-flight skips with a warning.
+
+    Bodies hydrate lazily; if the ethernet body file is deleted (or the
+    catalog is mid-regen), the resolver logs and skips rather than
+    reaching into ``None``.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+
+    async def drop_bodies(component_ids: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(session_component_catalog, "_load_bodies", drop_bodies)
+    with caplog.at_level(logging.WARNING):
+        pairs = await session_component_catalog.resolve_network_components(board)
+    assert pairs == []
+    assert any("network featured" in rec.getMessage() for rec in caplog.records)
+
+
+@pytest.mark.xdist_group("catalog")
+async def test_generate_device_yaml_wt32_eth01_suppresses_wifi_with_ethernet(
+    session_component_catalog: Any,
+) -> None:
+    """End-to-end: an onboard-ethernet board emits ``ethernet:`` and no ``wifi:``.
+
+    Real catalog + manifest: resolving wt32-eth01's network suggested
+    hardware and generating with that network default produces a
+    compilable wired-only config (nested ``clk:``, ``api:`` / ``ota:``,
+    no Wi-Fi).
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id="wt32-eth01")
+    assert board is not None
+    defaults = await session_component_catalog.resolve_network_components(board)
+    out = generate_device_yaml("wt32", "WT32", board, ssid="", psk="", defaults=defaults)
+    assert "wifi:" not in out
+    parsed = yaml.safe_load(out)
+    assert parsed["ethernet"]["type"] == "LAN8720"
+    assert parsed["ethernet"]["clk"] == {"pin": "GPIO0", "mode": "CLK_EXT_IN"}
+    assert parsed["ethernet"]["power_pin"] == "GPIO16"
+    assert "api" in parsed
+    assert "ota" in parsed
+
+
+@pytest.mark.xdist_group("catalog")
+@pytest.mark.parametrize(
+    ("board_id", "clk"),
+    [
+        pytest.param("wt32-eth01", {"pin": "GPIO0", "mode": "CLK_EXT_IN"}, id="wt32-eth01"),
+        pytest.param("esp32-poe-iso", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="esp32-poe-iso"),
+        pytest.param("esp32-evb", {"pin": "GPIO0", "mode": "CLK_EXT_IN"}, id="esp32-evb"),
+        pytest.param("esp32-gateway", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="esp32-gateway"),
+    ],
+)
+async def test_every_curated_ethernet_board_generates_wired_only_config(
+    session_component_catalog: Any,
+    board_id: str,
+    clk: dict[str, str],
+) -> None:
+    """Each curated onboard-ethernet board emits its ``ethernet:`` block and no ``wifi:``.
+
+    Pins the four hand-curated manifests to their sourced pinouts so a
+    bad edit (wrong clk mode/pin) surfaces here.
+    """
+    board = await session_component_catalog._db.boards.get_board(board_id=board_id)
+    assert board is not None
+    defaults = await session_component_catalog.resolve_network_components(board)
+    out = generate_device_yaml("dev", "Dev", board, ssid="", psk="", defaults=defaults)
+    assert "wifi:" not in out
+    parsed = yaml.safe_load(out)
+    assert parsed["ethernet"]["type"] == "LAN8720"
+    assert parsed["ethernet"]["clk"] == clk
+    assert parsed["ethernet"]["mdc_pin"] == "GPIO23"
+    assert parsed["ethernet"]["mdio_pin"] == "GPIO18"
+
+
+def _board(
+    *,
+    featured: list[str] | None = None,
+    default: list[str] | None = None,
+    connectivity: list[str] | None = None,
+) -> Any:
+    """Build a board stub with only the network fields the helpers read."""
+    return SimpleNamespace(
+        featured_components=[SimpleNamespace(component_id=c) for c in (featured or [])],
+        default_components=[SimpleNamespace(id=c) for c in (default or [])],
+        hardware=SimpleNamespace(
+            connectivity=[SimpleNamespace(value=c) for c in (connectivity or [])]
+        ),
+    )
+
+
+def test_board_provides_network_detects_featured_ethernet() -> None:
+    assert board_provides_network(_board(featured=["ethernet"])) is True
+
+
+def test_board_provides_network_detects_bare_default_component() -> None:
+    assert board_provides_network(_board(default=["ethernet"])) is True
+
+
+def test_board_provides_network_false_for_wifi_only_board() -> None:
+    assert board_provides_network(_board(featured=["relay"], default=["status_led"])) is False
+
+
+def test_board_requires_wifi_for_wifi_only_board() -> None:
+    """Native Wi-Fi with no onboard network ⇒ Wi-Fi can't be skipped."""
+    assert board_requires_wifi(_board(connectivity=["wifi"])) is True
+
+
+def test_board_requires_wifi_false_when_board_has_onboard_ethernet() -> None:
+    """A Wi-Fi board that also has onboard Ethernet uses the wired default."""
+    assert board_requires_wifi(_board(connectivity=["wifi"], featured=["ethernet"])) is False
+
+
+def test_board_requires_wifi_false_for_non_wifi_board() -> None:
+    """No native Wi-Fi ⇒ not required (handled by the no-network / Thread path)."""
+    assert board_requires_wifi(_board(connectivity=["ethernet"], featured=["ethernet"])) is False

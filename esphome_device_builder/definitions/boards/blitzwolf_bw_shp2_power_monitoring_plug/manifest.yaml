@@ -117,5 +117,5 @@ source:
   type: esphome-devices
   remote_id: BlitzWolf-BW-SHP2-Power-Monitoring-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/BlitzWolf-BW-SHP2-Power-Monitoring-Plug/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 7ea701d4f708aa1c1eec145b2ce933e29f43e418cc8494c344f7c9e3b420f008

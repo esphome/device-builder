@@ -10,6 +10,11 @@ HA uses:
 - /compile (WebSocket, spawn protocol)
 - /upload (WebSocket, spawn protocol)
 
+GET /ping (``{<config>.yaml: True|False|None}`` online-status map) is
+consumed by third-party widgets (gethomepage/homepage) rather than HA
+core; it is restored here for backward compatibility with the legacy
+dashboard.
+
 The ``/compile`` and ``/upload`` WebSocket handlers route through the
 new firmware-job queue rather than spawning subprocesses directly.
 This is what makes HA-triggered builds show up alongside dashboard-
@@ -42,6 +47,7 @@ from ..helpers.json import (
 from ..models import (
     TERMINAL_JOB_EVENTS,
     TERMINAL_JOB_STATUSES,
+    DeviceState,
     EventType,
     FirmwareJob,
     JobType,
@@ -68,6 +74,13 @@ def _exit_frame(exit_code: int | None) -> dict[str, Any]:
     failure (1) rather than serialising null.
     """
     return {"event": "exit", "code": exit_code if exit_code is not None else 1}
+
+
+# Legacy ``/ping`` tri-state; ``.get`` defaults UNKNOWN (and any future state) to None.
+_STATE_TO_BOOL: dict[DeviceState, bool] = {
+    DeviceState.ONLINE: True,
+    DeviceState.OFFLINE: False,
+}
 
 
 class _LegacyWSWriter:
@@ -313,6 +326,16 @@ def create_legacy_routes() -> web.RouteTableDef:
         ]
 
         return json_response({"configured": configured, "importable": importable})
+
+    @routes.get("/ping")
+    async def legacy_ping(request: web.Request) -> web.Response:
+        """Legacy online-status map ``{<config>.yaml: True|False|None}`` (third-party widgets)."""
+        db = request.app["device_builder"]
+        devices_ctrl = db.devices
+        await devices_ctrl.poll()
+        return json_response(
+            {d.configuration: _STATE_TO_BOOL.get(d.state) for d in devices_ctrl.get_devices()}
+        )
 
     @routes.get("/json-config")
     async def legacy_json_config(request: web.Request) -> web.Response:

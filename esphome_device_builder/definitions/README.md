@@ -2,6 +2,88 @@
 
 This directory contains the board and component definitions used by the ESPHome Device Builder.
 
+## Editing boards: the build pipeline
+
+> **Read this first.** Editing a `manifest.yaml` is only half the job; if you
+> stop there, your change never reaches the dashboard and CI fails.
+
+The `manifest.yaml` files under `boards/<id>/` are the only thing you hand-edit.
+The dashboard does **not** read them at runtime. It reads three generated
+artefacts, all written by `script/sync_boards.py`:
+
+| Artefact | What it is |
+|----------|------------|
+| `boards.index.json` | Slim per-board index; powers the board picker. |
+| `board_bodies/<id>.json` | Full body (hardware, pins, featured components); lazy-loaded when a board is opened. |
+| `featured_components.index.json` | Aggregated featured-components map read once at startup. |
+
+After editing a manifest, run the one-step helper from the project venv:
+
+```bash
+python script/update_board.py            # auto-detects the board you edited
+python script/update_board.py my-board   # or name it explicitly
+```
+
+It regenerates that board's JSON, validates the definitions, and prints the
+files to commit. That is all most contributors need.
+
+Under the hood it runs the two scripts you can also call directly:
+
+```bash
+# regenerate the JSON. Pass a board id to rewrite just that board; omit it
+# to rebuild the whole catalog (~990 body files).
+python script/sync_boards.py my-board
+
+# validate the manifests against the schema and cross-references
+python script/validate_definitions.py
+```
+
+Passing the board id (the folder name under `boards/`) rewrites only that
+board's `board_bodies/<id>.json` and refreshes the two index files, so the diff
+stays scoped to what you edited.
+
+Commit the manifest **and** the regenerated JSON together. **Never hand-edit the
+JSON** (`boards.index.json`, `board_bodies/*.json`); it is overwritten on the
+next sync, and `tests/test_boards_json.py::test_split_artefacts_match_manifests`
+compares every manifest against its generated body and fails CI on any drift.
+
+`validate_definitions.py --check-images` additionally fetches each image URL to
+confirm it resolves (network, opt-in); the consistency test exempts `images`, so
+a broken image URL passes the sync but is caught here.
+
+### Run the sync with the project venv
+
+`sync_boards.py` imports ESPHome: it generates the boards no manifest covers
+straight from your installed ESPHome's board tables, and fills curated boards'
+pin aliases the same way. Run it from the project venv:
+
+```bash
+source .venv/bin/activate    # or call .venv/bin/python directly
+python script/sync_boards.py my-board
+```
+
+Single-board mode (and `update_board.py`) rewrites one body but rebuilds the
+shared index from every board, so the installed ESPHome must match the version
+the committed catalog was generated against (stamped as `esphome_version` in
+`boards.index.json` by the last full sync, betas canonicalized to their base
+release) or their index entries silently drift; it refuses on a mismatch and
+prints the version to install. A full `python script/sync_boards.py` regenerates
+everything against your installed ESPHome and re-stamps that version, so it does
+not check; still run it from the venv so you don't commit catalog-wide changes
+from a different ESPHome.
+
+### Curated vs generated vs imported boards
+
+- **Curated** (most hand-written manifests): a `manifest.yaml` with no `source:`
+  block. Edit freely; this is the normal case.
+- **Generated**: no manifest at all. The board comes from ESPHome's board tables
+  on every sync, with a synthesized pin map and a generic image. To customise
+  one (real pinout, photo, featured components), add a curated manifest at
+  `boards/<esphome.board>/manifest.yaml`.
+- **Imported**: a manifest carrying a `source:` block (e.g.
+  `type: esphome-devices`). It is owned by the importer and regenerated from
+  upstream, so hand edits are overwritten; change the upstream source instead.
+
 ## Adding a Board
 
 Create a new subfolder in `boards/` with a `manifest.yaml`:
@@ -27,20 +109,28 @@ manufacturer: "Acme Corp"
 
 # ESPHome configuration — maps directly to the ESPHome YAML platform block
 esphome:
-  platform: esp32              # esp32, esp8266, rp2040, bk72xx, rtl87xx
+  platform: esp32              # esp32, esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52, host
   board: esp32-s3-devkitc-1    # PlatformIO board ID
-  variant: esp32s3             # ESP32 chip variant (omit for esp8266/rp2040)
-  framework: esp-idf           # arduino or esp-idf (omit for platform default)
-  flash_size: 8MB              # 2MB, 4MB, 8MB, 16MB (omit for board default)
+  variant: esp32s3             # ESP32 chip variant only (omit otherwise)
+  framework: esp-idf           # arduino, esp-idf, or zephyr (omit for platform default)
+
+# Hardware specs (all optional)
+hardware:
+  flash_size: 8MB              # 2MB, 4MB, 8MB, 16MB
+  ram_size: 327680             # bytes
+  cpu_frequency: 240MHz
+  connectivity: [wifi, bluetooth]
 
 # Optional metadata
-tags: [esp32-s3, wifi, bluetooth, usb, rgb-led]
-docs_url: "https://example.com/docs"
+tags: [compact, usb-c, rgb-led]   # only the enum values in board.schema.json
+docs_url: "https://esphome.io/components/esp32.html"
+product_url: "https://example.com/my-awesome-board"
 is_generic: false              # true only for generic fallback boards
 
-# Images — URLs or paths relative to this manifest (first = primary)
+# Images; URLs or paths relative to this manifest (first = primary).
+# Prefer a bundled local asset over a hotlinked vendor URL, which can rot.
 images:
-  - "https://example.com/board.png"
+  - "images/board-top.png"
   - "images/pinout.png"
 
 # Pin definitions (see below)
@@ -48,6 +138,11 @@ pins:
   - gpio: 0
     # ...
 ```
+
+`tags` accepts only the values enumerated in
+[`schemas/board.schema.json`](schemas/board.schema.json) (`compact`, `dev-kit`,
+`usb-c`, `rgb-led`, `poe`, ...); platform, variant, and connectivity live in
+their own fields, not in `tags`.
 
 ### Pin Definitions
 

@@ -21,6 +21,7 @@ from ...models import (
     ImportableDeviceAddedData,
     ImportableDeviceRemovedData,
 )
+from ..editor import IMPORT_VALIDATE_TIMEOUT
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -81,10 +82,10 @@ async def import_device(
         msg = f"Configuration {configuration} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
 
-    # Validate the freshly-written YAML before announcing it; on
-    # any failure the cleanup callback unlinks the file so a
-    # retry doesn't trip ``FileExistsError`` on a leftover
-    # half-import.
+    # Validate the freshly-written YAML; on a genuine failure the cleanup
+    # callback unlinks it so a retry doesn't trip ``FileExistsError``. Adopt
+    # tolerates a validator timeout on a short budget: the config's
+    # ``github://`` fetch can outlast a full validate.
     def _read() -> str:
         return path.read_text(encoding="utf-8")
 
@@ -97,7 +98,12 @@ async def import_device(
         await loop.run_in_executor(None, _cleanup)
         raise
     await controller._validate_rewritten_yaml_or_raise(
-        configuration, content, action="import", on_error_cleanup=_cleanup
+        configuration,
+        content,
+        action="import",
+        on_error_cleanup=_cleanup,
+        tolerate_unavailable=True,
+        timeout=IMPORT_VALIDATE_TIMEOUT,
     )
 
     await controller._commit_history(configuration, f"Import {configuration}")

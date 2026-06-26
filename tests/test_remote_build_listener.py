@@ -431,6 +431,7 @@ async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
         assert set(decoded) == {
             "server_version",
             "esphome_version",
+            "friendly_name",
             "pin_sha256",
             "remote_build_port",
         }
@@ -480,13 +481,14 @@ async def test_maybe_start_remote_build_site_against_unregistered_advertiser_sta
         # absent, so ``refresh`` was a no-op.
         assert advertiser._info is None
         assert advertiser._zeroconf is None
-        # A subsequent ``build_service_info`` carries all 4 TXT keys
-        # in one shot; what ``register`` will publish.
+        # A subsequent ``build_service_info`` carries all TXT keys in
+        # one shot; what ``register`` will publish.
         info = advertiser.build_service_info(addresses=["127.0.0.1"])
         decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
         assert set(decoded) == {
             "server_version",
             "esphome_version",
+            "friendly_name",
             "pin_sha256",
             "remote_build_port",
         }

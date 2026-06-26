@@ -103,6 +103,10 @@ _REASON_JOB_NOT_COMPLETED = "job_not_completed"
 _REASON_BUILD_DIR_MISSING = "build_dir_missing"
 _REASON_PACK_FAILED = "pack_failed"
 
+# Cap the operator-facing reject ``detail`` (a build-server path / exception
+# message) so a pathological configuration string can't bloat the frame.
+_MAX_REJECT_DETAIL = 256
+
 
 # Required-field shape on the peer-controlled inbound frame.
 # ``parse_app_frame`` confirms the JSON parses to a dict, but
@@ -263,29 +267,40 @@ class ArtifactsDownloadSender:
                     firmware_job.configuration,
                     exc,
                 )
-                await self._send_reject(session, job_id, _REASON_BUILD_DIR_MISSING)
+                await self._send_reject(session, job_id, _REASON_BUILD_DIR_MISSING, detail=str(exc))
                 return
-            except Exception:
+            except Exception as exc:
                 _LOGGER.exception(
                     "download_artifacts from %s: pack failed for job %s (configuration=%r)",
                     session.dashboard_id,
                     job_id,
                     firmware_job.configuration,
                 )
-                await self._send_reject(session, job_id, _REASON_PACK_FAILED)
+                await self._send_reject(
+                    session, job_id, _REASON_PACK_FAILED, detail=f"{type(exc).__name__}: {exc}"
+                )
                 return
             await self._send_stream(session, job_id, packed)
         finally:
             self._inflight.pop(session.dashboard_id, None)
 
-    async def _send_reject(self, session: PeerLinkSession, job_id: str, reason: str) -> None:
-        """Send a single ``artifacts_end{accepted: false, reason}`` and return."""
+    async def _send_reject(
+        self, session: PeerLinkSession, job_id: str, reason: str, *, detail: str = ""
+    ) -> None:
+        """
+        Send a single ``artifacts_end{accepted: false, reason}`` and return.
+
+        *detail* (capped) rides on the frame when given so the offloader can
+        show the exact missing artefact path instead of just the coarse reason.
+        """
         end: ArtifactsEndFrameData = {
             "type": "artifacts_end",
             "job_id": job_id,
             "accepted": False,
             "reason": reason,
         }
+        if detail:
+            end["detail"] = detail[:_MAX_REJECT_DETAIL]
         await session.send_app_frame(cast(dict[str, Any], end))
 
     async def _send_stream(

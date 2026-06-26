@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from ...helpers.device_yaml import get_api_encryption_key, load_device_yaml
+from ...helpers.device_yaml import (
+    get_api_port,
+    get_resolved_api_encryption_key,
+    load_device_yaml,
+)
 from ...helpers.subprocess import create_subprocess_exec
 
 if TYPE_CHECKING:
@@ -30,11 +34,31 @@ async def get_api_key(controller: DevicesController, configuration: str) -> dict
     path = controller._db.settings.rel_path(configuration)
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(None, load_device_yaml, path)
-    key = get_api_encryption_key(config)
+    key = get_resolved_api_encryption_key(config)
     if key:
         return {"key": key}
     key = await resolve_via_esphome_config(controller, configuration)
     return {"key": key}
+
+
+async def get_api_connection(controller: DevicesController, configuration: str) -> tuple[str, int]:
+    """
+    Resolve the Native API ``(encryption_key, port)`` from the on-disk YAML.
+
+    In-process only — unlike :func:`get_api_key` this never shells out
+    to ``esphome config``, so the background API-info sweep pays no
+    per-device subprocess. A device whose key resolves only through
+    Jinja-templated ``packages`` returns an empty key here and is left
+    for mDNS. Raises :class:`ValueError` when the YAML is missing or
+    unparsable so the caller records a miss instead of dialing a doomed
+    plaintext/default-port connection it can't have resolved correctly.
+    """
+    path = controller._db.settings.rel_path(configuration)
+    loop = asyncio.get_running_loop()
+    config = await loop.run_in_executor(None, load_device_yaml, path)
+    if config is None:
+        raise ValueError(f"could not load YAML for {configuration}")
+    return get_resolved_api_encryption_key(config), get_api_port(config)
 
 
 async def resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
@@ -81,4 +105,4 @@ async def resolve_via_esphome_config(controller: DevicesController, configuratio
             type(exc).__name__,
         )
         return ""
-    return get_api_encryption_key(resolved)
+    return get_resolved_api_encryption_key(resolved)

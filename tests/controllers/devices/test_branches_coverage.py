@@ -32,8 +32,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
+import esphome_device_builder.controllers.devices.add_component as add_component_mod
 import esphome_device_builder.controllers.devices.api_key as api_key_mod
 from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_size import BuildDirSignal, BuildSizeRefreshResult
 from esphome_device_builder.helpers.event_bus import Event
@@ -237,6 +239,69 @@ async def test_get_api_key_resolves_through_yaml_loader(
     result = await controller.get_api_key(configuration="kitchen.yaml")
 
     assert result == {"key": "a/c+inline-key=="}
+
+
+async def test_get_api_key_resolves_substitution_from_secret(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """``devices/get_api_key`` expands ``${api_key}`` over a ``!secret`` substitution (#1691)."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "secrets.yaml").write_text("api_key: a/c+secret-key==\n", encoding="utf-8")
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n"
+        "substitutions:\n  api_key: !secret api_key\n"
+        "api:\n  encryption:\n    key: ${api_key}\n",
+        encoding="utf-8",
+    )
+
+    result = await controller.get_api_key(configuration="kitchen.yaml")
+
+    assert result == {"key": "a/c+secret-key=="}
+
+
+async def test_resolve_device_api_connection_returns_key_and_port(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The state monitor's resolver returns the encryption key and configured port."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\napi:\n  port: 6055\n  encryption:\n    key: a/c+inline-key==\n",
+        encoding="utf-8",
+    )
+
+    key, port = await controller._resolve_device_api_connection("kitchen.yaml")
+
+    assert key == "a/c+inline-key=="
+    assert port == 6055
+
+
+async def test_resolve_device_api_connection_resolves_substitution(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The mac/version Native-API fallback resolves a ``${api_key}`` substitution (#1691)."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "secrets.yaml").write_text("api_key: a/c+secret-key==\n", encoding="utf-8")
+    (tmp_path / "kitchen.yaml").write_text(
+        "esphome:\n  name: kitchen\n"
+        "substitutions:\n  api_key: !secret api_key\n"
+        "api:\n  encryption:\n    key: ${api_key}\n",
+        encoding="utf-8",
+    )
+
+    key, port = await controller._resolve_device_api_connection("kitchen.yaml")
+
+    assert key == "a/c+secret-key=="
+    assert port == 6053
+
+
+async def test_resolve_device_api_connection_raises_on_unloadable_config(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A missing / unparsable YAML raises so the probe records a miss, not a doomed connect."""
+    controller = make_controller(tmp_path)
+    # No kitchen.yaml on disk → load_device_yaml returns None.
+    with pytest.raises(ValueError, match="could not load YAML"):
+        await controller._resolve_device_api_connection("kitchen.yaml")
 
 
 async def test_get_api_key_returns_empty_when_no_encryption(
@@ -510,6 +575,108 @@ async def test_add_component_missing_required_field_raises(
             configuration="kitchen.yaml",
             component_id="dht",
             fields={"name": "Bedroom Temp"},
+        )
+    assert exc.value.code is ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.parametrize(
+    ("entry_kwargs", "fields", "expected"),
+    [
+        ({}, {}, True),
+        ({"depends_on": "type"}, {"type": "W5500"}, True),
+        ({"depends_on": "type", "depends_on_value": "W5500"}, {"type": "W5500"}, True),
+        ({"depends_on": "type", "depends_on_value": "W5500"}, {"type": "LAN8720"}, False),
+        ({"depends_on": "type", "depends_on_value_not": "W5500"}, {"type": "LAN8720"}, True),
+        ({"depends_on": "type", "depends_on_value_not": "W5500"}, {"type": "W5500"}, False),
+        (
+            {"depends_on": "type", "depends_on_value_any": ["LAN8720", "DP83848"]},
+            {"type": "LAN8720"},
+            True,
+        ),
+        (
+            {"depends_on": "type", "depends_on_value_any": ["LAN8720", "DP83848"]},
+            {"type": "W5500"},
+            False,
+        ),
+        ({"depends_on": "type", "depends_on_value_any": ["LAN8720"]}, {}, False),
+    ],
+)
+def test_entry_gate_active(
+    entry_kwargs: dict[str, Any], fields: dict[str, Any], expected: bool
+) -> None:
+    """``_entry_gate_active`` evaluates each ``depends_on`` value predicate."""
+    entry = ConfigEntry(key="clk", type=ConfigEntryType.NESTED, label="Clk", **entry_kwargs)
+    assert _entry_gate_active(entry, fields) is expected
+
+
+async def test_add_component_gated_inactive_required_field_not_demanded(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A required field whose variant gate is inactive is not demanded."""
+    controller = make_controller(tmp_path)
+    component = MagicMock()
+    component.id = "ethernet"
+    component.config_entries = [
+        ConfigEntry(key="type", type=ConfigEntryType.STRING, label="Type", required=True),
+        ConfigEntry(
+            key="clk",
+            type=ConfigEntryType.NESTED,
+            label="Clk",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["LAN8720", "DP83848"],
+        ),
+        ConfigEntry(
+            key="clk_pin",
+            type=ConfigEntryType.PIN,
+            label="Clk Pin",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["W5500"],
+        ),
+    ]
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+    monkeypatch.setattr(add_component_mod, "merge_component_yaml", lambda *a, **k: "merged: ok\n")
+
+    response = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="ethernet",
+        fields={"type": "W5500", "clk_pin": "GPIO10"},
+        yaml="esphome:\n  name: kitchen\n",
+    )
+    assert response.yaml == "merged: ok\n"
+
+
+async def test_add_component_gated_active_required_field_demanded(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A required field whose variant gate is active stays demanded."""
+    controller = make_controller(tmp_path)
+    component = MagicMock()
+    component.id = "ethernet"
+    component.config_entries = [
+        ConfigEntry(key="type", type=ConfigEntryType.STRING, label="Type", required=True),
+        ConfigEntry(
+            key="clk",
+            type=ConfigEntryType.NESTED,
+            label="Clk",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["LAN8720", "DP83848"],
+        ),
+    ]
+    controller._db.components = MagicMock()
+    controller._db.components.get_component = AsyncMock(return_value=component)
+
+    with pytest.raises(CommandError, match="Missing required field: Clk") as exc:
+        await controller.add_component(
+            configuration="kitchen.yaml",
+            component_id="ethernet",
+            fields={"type": "LAN8720"},
+            yaml="esphome:\n  name: kitchen\n",
         )
     assert exc.value.code is ErrorCode.INVALID_ARGS
 
@@ -828,6 +995,43 @@ def test_on_scan_change_updated_clears_regenerate_failed_marker(
     controller._on_scan_change(ScanChange.UPDATED, device)
 
     assert "kitchen.yaml" not in controller.state.regenerate_failed
+
+
+def test_on_scan_change_updated_fires_yaml_updated(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A real YAML edit fires DEVICE_UPDATED for clients and DEVICE_YAML_UPDATED for history."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    device = _device("kitchen")
+    captured = capture_devices_events(
+        controller, EventType.DEVICE_UPDATED, EventType.DEVICE_YAML_UPDATED
+    )
+
+    controller._on_scan_change(ScanChange.UPDATED, device)
+
+    assert [e.event_type for e in captured] == [
+        EventType.DEVICE_UPDATED,
+        EventType.DEVICE_YAML_UPDATED,
+    ]
+
+
+def test_on_scan_change_reloaded_skips_yaml_updated(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A metadata reload refreshes the row but never commits to version history."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    device = _device("kitchen")
+    captured = capture_devices_events(
+        controller, EventType.DEVICE_UPDATED, EventType.DEVICE_YAML_UPDATED
+    )
+
+    controller._on_scan_change(ScanChange.RELOADED, device)
+
+    assert [e.event_type for e in captured] == [EventType.DEVICE_UPDATED]
 
 
 def test_on_scan_change_removed_revisits_importables(

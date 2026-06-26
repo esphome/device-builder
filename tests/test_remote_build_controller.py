@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import secrets as _secrets
 from pathlib import Path
@@ -40,6 +41,8 @@ from esphome_device_builder.controllers.remote_build._mdns import (
     decode_txt_value,
     peer_from_service_info,
 )
+from esphome_device_builder.controllers.remote_build._models import PeerLinkClientHandle
+from esphome_device_builder.controllers.remote_build._shared import drain_tasks
 from esphome_device_builder.controllers.remote_build._storage_codecs import (
     decode_pairings,
     encode_pairings,
@@ -98,6 +101,7 @@ def _fake_service_info(
     addresses: list[str] | None = None,
     server_version: str = "1.2.3",
     esphome_version: str = "2026.5.0",
+    friendly_name: str = "",
 ) -> MagicMock:
     """Build a stand-in for ``AsyncServiceInfo`` carrying the fields we read."""
     info = MagicMock()
@@ -109,6 +113,8 @@ def _fake_service_info(
         b"server_version": server_version.encode("utf-8"),
         b"esphome_version": esphome_version.encode("utf-8"),
     }
+    if friendly_name:
+        info.properties[b"friendly_name"] = friendly_name.encode("utf-8")
     return info
 
 
@@ -224,6 +230,15 @@ def test_peer_from_service_info_handles_missing_txt_keys() -> None:
     peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
     assert peer.server_version == ""
     assert peer.esphome_version == ""
+    assert peer.friendly_name == ""
+
+
+def test_peer_from_service_info_reads_friendly_name_from_txt() -> None:
+    """The human machine label is read from the ``friendly_name`` TXT entry."""
+    info = _fake_service_info(name="esphome-builder-jwywnve", friendly_name="MacBook-Pro")
+    peer = peer_from_service_info(f"esphome-builder-jwywnve.{SERVICE_TYPE}", info)
+    assert peer.name == "esphome-builder-jwywnve"
+    assert peer.friendly_name == "MacBook-Pro"
 
 
 # ---------------------------------------------------------------------------
@@ -351,8 +366,8 @@ def _patch_probe_internals(
     """Stub the probe's three external calls and seed an optional cooldown.
 
     Every probe test mocks the same three surfaces:
-    ``_cancel_peer_link_client`` (assert called or not),
-    ``_spawn_peer_link_client`` (same), and
+    ``_cancel_peer_link_client_and_wait`` (assert called or
+    not), ``_spawn_peer_link_client`` (same), and
     ``peer_link_preview_pair`` (return the observed pin or
     raise). Tests that pin "the cooldown is preserved on
     failure" also seed ``_rebind_probe_until[pin]`` before
@@ -362,12 +377,13 @@ def _patch_probe_internals(
     Returns ``(cancel_mock, spawn_mock)`` so the caller can do
     ``cancel.assert_called_once_with(pin)`` on the success
     path or ``cancel.assert_not_called()`` on every failure
-    path. Pass exactly one of *preview_return* /
+    path. The rebind respawn awaits the cancel, so the mock is
+    an ``AsyncMock``. Pass exactly one of *preview_return* /
     *preview_side_effect*.
     """
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
     if preview_side_effect is not None:
         monkeypatch.setattr(
@@ -414,6 +430,143 @@ async def test_rebind_probe_match_mutates_pairing_and_fires_event(
     # Successful rebind clears the cooldown so a future move
     # gets probed immediately rather than waiting out the window.
     assert pin not in controller.offloader.state.rebind_probe_until
+
+
+async def test_cancel_peer_link_client_and_wait_awaits_teardown(tmp_path: Path) -> None:
+    """The awaiting cancel cancels the client task and waits for it to finish."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing()
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    running = asyncio.Event()
+
+    async def _park() -> None:
+        running.set()
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(_park())
+    await running.wait()
+    controller.offloader.state.peer_link_clients[pin] = PeerLinkClientHandle(
+        client=MagicMock(), task=task
+    )
+
+    await controller.offloader._cancel_peer_link_client_and_wait(pin)
+
+    assert task.done()
+    assert pin not in controller.offloader.state.peer_link_clients
+
+
+async def test_cancel_peer_link_client_and_wait_propagates_caller_cancellation(
+    tmp_path: Path,
+) -> None:
+    """A cancel of the calling task isn't swallowed by the teardown wait."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing()
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    child_cancelled = asyncio.Event()
+
+    async def _stubborn() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            # Swallow the first cancel so the helper stays parked in its
+            # ``asyncio.wait`` while we cancel the calling task.
+            child_cancelled.set()
+            await asyncio.sleep(3600)
+
+    child = asyncio.create_task(_stubborn())
+    await asyncio.sleep(0)
+    controller.offloader.state.peer_link_clients[pin] = PeerLinkClientHandle(
+        client=MagicMock(), task=child
+    )
+
+    outer = asyncio.create_task(controller.offloader._cancel_peer_link_client_and_wait(pin))
+    await child_cancelled.wait()
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+
+    child.cancel()
+    await asyncio.gather(child, return_exceptions=True)
+
+
+async def test_drain_tasks_logs_exception_when_requested(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``log_exceptions=True`` logs a non-cancel teardown failure and absorbs it."""
+
+    async def _bad_teardown() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            raise RuntimeError("terminate send failed") from None
+
+    task = asyncio.create_task(_bad_teardown(), name="bad-teardown")
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await drain_tasks((task,), log_exceptions=True)
+    assert any(
+        "bad-teardown" in rec.getMessage() and rec.levelno == logging.WARNING
+        for rec in caplog.records
+    )
+
+
+async def test_drain_tasks_does_not_log_plain_cancellation(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A clean cancellation isn't logged even with ``log_exceptions=True``."""
+
+    async def _park() -> None:
+        await asyncio.sleep(3600)
+
+    task = asyncio.create_task(_park(), name="parked")
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await drain_tasks((task,), log_exceptions=True)
+    assert not any("parked" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_drain_tasks_silent_by_default(caplog: pytest.LogCaptureFixture) -> None:
+    """Without the flag, a teardown failure is swallowed without logging."""
+
+    async def _bad_teardown() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            raise RuntimeError("boom") from None
+
+    task = asyncio.create_task(_bad_teardown(), name="silent-boom")
+    await asyncio.sleep(0)
+    with caplog.at_level(logging.WARNING):
+        await drain_tasks((task,))
+    assert not any("silent-boom" in rec.getMessage() for rec in caplog.records)
+
+
+async def test_rebind_respawn_awaits_old_client_before_spawn(tmp_path: Path) -> None:
+    """Respawn waits for the old client to tear down before spawning the new one."""
+    pin = "a" * 64
+    pairing = _valid_stored_pairing(receiver_hostname="new.local", receiver_port=7000)
+    controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
+    running = asyncio.Event()
+
+    async def _park() -> None:
+        running.set()
+        await asyncio.sleep(3600)
+
+    old_task = asyncio.create_task(_park())
+    await running.wait()
+    controller.offloader.state.peer_link_clients[pin] = PeerLinkClientHandle(
+        client=MagicMock(), task=old_task
+    )
+
+    old_done_at_spawn: list[bool] = []
+    controller.offloader._spawn_peer_link_client = lambda _p: old_done_at_spawn.append(  # type: ignore[method-assign]
+        old_task.done()
+    )
+
+    await rb_rebind._respawn_peer_link_at_new_endpoint(controller.offloader, pairing)
+
+    assert old_done_at_spawn == [True]
+    assert old_task.cancelled()
 
 
 async def test_rebind_probe_pin_mismatch_does_not_mutate(
@@ -920,9 +1073,9 @@ async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_
         return pin
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _replace_during_preview)
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
 
     with pytest.raises(CommandError) as exc_info:
@@ -989,9 +1142,9 @@ async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_preconditio
         return pin
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _flip_status_during_preview)
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
 
     with pytest.raises(CommandError) as exc_info:
@@ -1957,16 +2110,18 @@ async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_client
     controller.offloader.state.pairings["b" * 64] = pending
     controller.offloader.state.peer_link_clients["a" * 64] = MagicMock()
     controller.offloader.state.peer_link_clients["b" * 64] = MagicMock()
-    cancel = MagicMock()
+    cancel = AsyncMock()
     spawn = MagicMock()
-    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", cancel)
+    monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client_and_wait", cancel)
     monkeypatch.setattr(controller.offloader, "_spawn_peer_link_client", spawn)
 
     rotated = await controller.offloader._db.peer_link_identity_store.async_rotate()
     await controller.offloader._refresh_identity_and_respawn_clients()
 
     assert controller.offloader.state.offloader_peer_link_priv == rotated.private_bytes
-    cancel.assert_called_once_with("a" * 64)
+    # Awaits teardown before respawn (same supersede race as rebind: rotation
+    # keeps the dashboard_id and reconnects to the same receiver).
+    cancel.assert_awaited_once_with("a" * 64)
     spawn.assert_called_once_with(approved)
 
 

@@ -38,5 +38,5 @@ source:
   type: esphome-devices
   remote_id: MagicHome-ZJ-WFMN-C-Single-Color
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/MagicHome-ZJ-WFMN-C-Single-Color/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: 286af7f21800840f54f702b0600016ffd5dbfe4656aa56393d1b93e14ad9711d

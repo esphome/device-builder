@@ -11,7 +11,6 @@ import asyncio
 import contextlib
 import html
 import logging
-import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
@@ -43,7 +42,7 @@ from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.async_ import create_eager_task
-from .helpers.auth import auth_middleware
+from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
 from .helpers.event_bus import Event, EventBus, StreamControls, stream_events
@@ -88,7 +87,6 @@ _SHUTDOWN_TIMEOUT_SECONDS = 5.0
 #     on every rebuild, so they're safe to cache forever.
 _NO_CACHE_HEADERS = {"Cache-Control": "no-cache"}
 _IMMUTABLE_HEADERS = {"Cache-Control": "public, max-age=31536000, immutable"}
-_HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
 
 # Path extensions that should NEVER fall back to ``index.html``. The
 # frontend bundle's entry script is emitted with a relative ``src``
@@ -192,6 +190,14 @@ async def _handle_version(_request: web.Request) -> web.Response:
 # and the test suite's pin-down assertion can reference it.
 _EXECUTOR_MAX_WORKERS = 64
 
+# Event types broadcast to every ``subscribe_events`` client. Two are held
+# back: ``DEVICE_REACHABILITY`` fires per-signal for every device (60+/min
+# under fleet load) and rides the per-device ``subscribe_reachability``
+# stream instead, and ``DEVICE_YAML_UPDATED`` is an internal version-history
+# signal (clients already get ``DEVICE_UPDATED`` for the row). Computed once.
+_INTERNAL_ONLY_EVENTS = frozenset({EventType.DEVICE_REACHABILITY, EventType.DEVICE_YAML_UPDATED})
+_BROADCAST_EVENT_TYPES = [et for et in EventType if et not in _INTERNAL_ONLY_EVENTS]
+
 
 class DeviceBuilder:
     """Core application singleton.
@@ -258,6 +264,10 @@ class DeviceBuilder:
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
 
+        # Latches the one-time network teardown so it can run early (in the
+        # aiohttp ``on_shutdown`` hook) and stop() doesn't repeat it.
+        self._network_stopped = False
+
         self._ingress_runner: web.AppRunner | None = None
         # Remote-build peer-link listener lifecycle (issue #106) —
         # bind / teardown / rebuild of the Noise-XX receiver site and
@@ -323,6 +333,8 @@ class DeviceBuilder:
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
         self.loop = asyncio.get_running_loop()
+        # Re-arm the network-teardown latch so a restart-in-place teardown runs.
+        self._network_stopped = False
         # Pool itself was constructed in ``__init__`` (so callers
         # probing ``self._executor`` pre-start see the right value);
         # here we just register it as the loop's default. See
@@ -451,9 +463,27 @@ class DeviceBuilder:
             self._startup_timer.mark("controllers")
             _LOGGER.info("Startup phases: %s", self._startup_timer.summary())
 
-    async def stop(self) -> None:  # noqa: C901, PLR0912
-        """Shut down the application."""
+    async def stop(self) -> None:
+        """Shut down the application: free network sockets first, then flush local state."""
         _LOGGER.info("Shutting down ESPHome Device Builder")
+        # finally so a wedged network teardown can't skip the local-state flush.
+        try:
+            await self._stop_network()
+        finally:
+            await self._stop_local()
+
+    async def _on_shutdown(self, app: web.Application) -> None:
+        """Free the network sockets early (aiohttp ``on_shutdown``)."""
+        try:
+            await self._stop_network()
+        except Exception:
+            # A raise here would abort aiohttp cleanup before on_cleanup runs.
+            _LOGGER.exception("Early network teardown failed; continuing shutdown")
+
+    async def _stop_network(self) -> None:
+        """Tear down network-facing resources (remote-build, mDNS) once a full pass completes."""
+        if self._network_stopped:
+            return
         if self._bg_task:
             self._bg_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -485,6 +515,12 @@ class DeviceBuilder:
             self._dashboard_advertiser = None
         if self.devices is not None:
             await self.devices.stop()
+        # Latch only after a full pass, so a partial teardown (a step raising in
+        # the swallowing on_shutdown hook) can still be retried by stop().
+        self._network_stopped = True
+
+    async def _stop_local(self) -> None:
+        """Flush local state (editor, version history, settings) and drain the executor pool."""
         if self.editor is not None:
             await self.editor.stop()
         if self.version_history is not None:
@@ -677,16 +713,6 @@ class DeviceBuilder:
             # massive backlog.
             controls.push_or_terminate(event.event_type.value, serialized)
 
-        # ``DEVICE_REACHABILITY`` is intentionally excluded — it fires
-        # on every per-signal observation (every mDNS announce, every
-        # ping success, every MQTT discover response) for *every*
-        # configured device, which would push 60+ events/min/device
-        # at every connected client. The drawer's per-device
-        # subscription is the only consumer; broadcasting these
-        # would defeat the point of having a per-device stream and
-        # could trip the bounded queue's backpressure terminator
-        # under fleet load.
-        broadcast_event_types = [et for et in EventType if et is not EventType.DEVICE_REACHABILITY]
         # Hold a presence reference for the lifetime of the stream so
         # idle-time ICMP discovery resumes the moment a client
         # subscribes and pauses again on disconnect. The 0→1
@@ -698,7 +724,7 @@ class DeviceBuilder:
                 client=client,
                 message_id=message_id,
                 bus=self.bus,
-                event_types=broadcast_event_types,
+                event_types=_BROADCAST_EVENT_TYPES,
                 handle_event=_handle_event,
                 send_initial=_send_initial,
             )
@@ -719,6 +745,7 @@ class DeviceBuilder:
         self,
         *,
         trusted: bool = False,
+        peer_guard: bool | None = None,
         with_lifecycle: bool = True,
         with_ingress_site: bool = True,
     ) -> web.Application:
@@ -726,6 +753,10 @@ class DeviceBuilder:
         Build the aiohttp application.
 
         ``trusted`` skips the auth middleware (HA Ingress site).
+        ``peer_guard`` restricts sources to loopback + the supervisor;
+        it defaults to ``trusted`` so the ingress site is locked down,
+        but the front-door-open public site passes ``False`` to stay
+        reachable from the LAN while still skipping auth.
         ``with_lifecycle`` toggles startup/cleanup hooks; the ingress
         app reuses the public app's controller singleton and so passes
         ``False`` to avoid re-initialising them.
@@ -737,7 +768,15 @@ class DeviceBuilder:
         IS the ingress) to avoid recursively spawning a second
         ingress site via ``_start_ingress_site``.
         """
-        middlewares: list[Any] = [cors_middleware]
+        if peer_guard is None:
+            peer_guard = trusted
+        # The trusted ingress site bypasses auth, so the peer guard (loopback +
+        # supervisor only) runs outermost to reject everything else before any
+        # other processing. The public site gates by Authorization instead.
+        middlewares: list[Any] = []
+        if peer_guard:
+            middlewares.append(ingress_peer_guard)
+        middlewares.append(cors_middleware)
         if not trusted:
             middlewares.append(auth_middleware)
 
@@ -791,7 +830,14 @@ class DeviceBuilder:
 
         if with_lifecycle:
             app.on_startup.append(self._on_startup)
-            if with_ingress_site and self.settings.create_ingress_site:
+            # After init_ws_app's close_active_websockets so WS handlers unwind
+            # before the network teardown.
+            app.on_shutdown.append(self._on_shutdown)
+            # Every add-on shape needs the trusted ingress site for the HA
+            # sidebar, including the front-door-open one whose main app is the
+            # unauthenticated public site. The ingress-only path passes
+            # ``with_ingress_site=False`` (it IS the ingress).
+            if with_ingress_site and self.settings.on_ha_addon:
                 app.on_startup.append(self._start_ingress_site)
                 app.on_cleanup.append(self._stop_ingress_site)
             app.on_cleanup.append(self._on_cleanup)
@@ -806,7 +852,7 @@ class DeviceBuilder:
 
     async def _start_ingress_site(self, _: web.Application) -> None:
         """Start the trusted HA Ingress TCP site alongside the public site."""
-        hosts = resolve_bind_host(self.settings.ingress_host or "0.0.0.0")
+        hosts = self.settings.ingress_bind_hosts
         ensure_single_host_for_ephemeral_port(hosts, self.settings.ingress_port, "--ingress-port")
         ingress_app = self.create_app(trusted=True, with_lifecycle=False)
         runner = web.AppRunner(ingress_app)
@@ -837,54 +883,103 @@ class DeviceBuilder:
             await self._ingress_runner.cleanup()
             self._ingress_runner = None
 
+    def _warn_front_door_open(self) -> None:
+        """Log the wide-open banner before binding the unauthenticated public port."""
+        settings = self.settings
+        banner = "=" * 70
+        _LOGGER.warning(
+            "\n%s\n"
+            " FRONT DOOR OPEN: external authentication is DISABLED.\n"
+            " The dashboard is serving on %s:%d with NO authentication.\n"
+            " ANYONE on your network can flash firmware and run code on this host.\n"
+            ' You enabled this with the add-on option "Disable external\n'
+            ' authentication" (leave_front_door_open) plus a mapped port %d.\n'
+            " There is no password, no login, no protection of any kind.\n"
+            " Turn that option OFF (or unmap the port) for ingress-only access.\n"
+            "%s",
+            banner,
+            settings.host,
+            settings.port,
+            settings.port,
+            banner,
+        )
+
     def run(self) -> None:
         """Start the HTTP server (blocking)."""
         # Logging is already configured by __main__.py
         settings = self.settings
-        # Fail-secure on the HA add-on path. The legacy dashboard
-        # had a supervisor ``/auth`` fallback that gated the public
-        # port with HA credentials when ``PASSWORD`` wasn't set; we
-        # don't carry that forward (see issue #85). Without the
-        # fallback, binding the public port without
-        # ``USERNAME``/``PASSWORD`` would leave the dashboard
-        # wide-open on the LAN whenever the add-on's ``ports:``
-        # mapping exposed it. So when on-ha-addon and no password
-        # is configured, run ingress-only and tell the operator
-        # loudly how to enable LAN access if they want it.
+        # On the HA add-on with no password we never gate the public
+        # port with HA credentials — the legacy supervisor ``/auth``
+        # fallback is gone (an unrate-limited brute-force vector,
+        # issue #85). The default is ingress-only: the dashboard is
+        # reached through the HA sidebar and the public port stays
+        # unbound. The one exception is the operator's explicit,
+        # two-part opt-in to a wide-open dashboard — the
+        # ``leave_front_door_open`` add-on option *and* a mapped port
+        # 6052 — which binds the public port with no auth at all
+        # (legacy parity; legacy required both too).
         if settings.on_ha_addon and not settings.using_password:
-            if not settings.create_ingress_site:
-                # ``DISABLE_HA_AUTHENTICATION`` forces all traffic
-                # through the public port (no trusted ingress site)
-                # — but we have no credentials to gate it. Refuse
-                # to start rather than expose an unauthenticated
-                # dashboard. The supervisor surfaces this in the
-                # add-on log so the operator sees exactly what to
-                # change.
-                msg = (
-                    "Refusing to start: DISABLE_HA_AUTHENTICATION "
-                    "forces public-port auth, but the HA add-on is "
-                    "ingress-only by design and doesn't expose "
-                    "USERNAME/PASSWORD options. Turn "
-                    '"Disable external authentication" off to use '
-                    "ingress-only mode, or run the standalone PyPI "
-                    "install for password-gated LAN access. See "
-                    'README "Home Assistant add-on".'
+            if settings.serve_public_unauthenticated:
+                self._warn_front_door_open()
+                # peer_guard=False so LAN clients (e.g. the VS Code ESPHome
+                # plugin) can reach it; the ingress site is still bound via the
+                # on_ha_addon lifecycle hook so the HA sidebar keeps working.
+                # trusted=False keeps the WS origin/Host gate active so a plain
+                # cross-origin browser drive-by is still rejected; auth itself is
+                # a no-op here because the add-on configures no password, so the
+                # site stays unauthenticated for same-origin and non-browser
+                # clients (which omit Origin) without paying the open-origin cost.
+                app = self.create_app(trusted=False, peer_guard=False)
+                if self._startup_timer is not None:
+                    self._startup_timer.mark("app")
+                hosts = resolve_bind_host(settings.host)
+                ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
+                web.run_app(
+                    app,
+                    host=hosts,
+                    port=settings.port,
+                    shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+                    handle_signals=False,
                 )
-                raise RuntimeError(msg)
-            _LOGGER.warning(
-                "Public port %d NOT bound: the HA add-on is "
-                "ingress-only by design and doesn't expose "
-                "USERNAME/PASSWORD options. The dashboard is "
-                "reachable through the Home Assistant UI. For "
-                "password-gated LAN access, run the standalone PyPI "
-                'install on the same network. See README "Home '
-                'Assistant add-on".',
-                settings.port,
-            )
+                return
+            if settings.front_door_open:
+                # Front door open but the port isn't mapped, so there's
+                # nothing to expose (legacy parity: nginx only listened
+                # on 6052 when the operator mapped it).
+                _LOGGER.warning(
+                    'Public port %d NOT bound: "Disable external authentication" is '
+                    "on but port 6052 is not mapped, so nothing is exposed on the "
+                    "LAN. Map the port in the add-on Network options to expose the "
+                    "dashboard without auth.",
+                    settings.port,
+                )
+            elif settings.allow_public_port:
+                # Mapped port without front-door-open: the new dashboard
+                # has no HA-credential gate to put on it (#85), so it
+                # stays ingress-only rather than silently exposing it.
+                _LOGGER.warning(
+                    "Public port %d NOT bound: port 6052 is mapped but the new "
+                    "dashboard can't gate it with Home Assistant credentials (see "
+                    'issue #85). Turn on "Disable external authentication" to expose '
+                    "it without auth, or run the standalone PyPI install for "
+                    "password-gated LAN access.",
+                    settings.port,
+                )
+            else:
+                _LOGGER.warning(
+                    "Public port %d NOT bound: the HA add-on is "
+                    "ingress-only by design and doesn't expose "
+                    "USERNAME/PASSWORD options. The dashboard is "
+                    "reachable through the Home Assistant UI. For "
+                    "password-gated LAN access, run the standalone PyPI "
+                    'install on the same network. See README "Home '
+                    'Assistant add-on".',
+                    settings.port,
+                )
             app = self.create_app(trusted=True, with_ingress_site=False)
             if self._startup_timer is not None:
                 self._startup_timer.mark("app")
-            hosts = resolve_bind_host(settings.ingress_host or "0.0.0.0")
+            hosts = settings.ingress_bind_hosts
             ensure_single_host_for_ephemeral_port(hosts, settings.ingress_port, "--ingress-port")
             web.run_app(
                 app,
@@ -1036,7 +1131,7 @@ class DeviceBuilder:
                 resolved = await asyncio.to_thread(_resolve_static, candidate)
                 if resolved is not None:
                     headers = (
-                        _IMMUTABLE_HEADERS if _HASHED_FILENAME_RE.search(tail) else shell_headers
+                        _IMMUTABLE_HEADERS if HASHED_FILENAME_RE.search(tail) else shell_headers
                     )
                     return web.FileResponse(resolved, headers=headers)
             # 404 asset-shaped requests instead of returning the SPA

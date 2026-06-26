@@ -24,11 +24,14 @@ demands.
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
+from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.auth import auth_middleware
 
 
@@ -117,6 +120,8 @@ def _build_app(device_builder: _StubDeviceBuilder) -> web.Application:
       without auth.
     - ``/assets/app.js`` — ``_PUBLIC_PREFIXES`` allowlist (the
       hashed bundles).
+    - top-level content-hashed bundles (``/app.<hash>.js`` etc.) —
+      the deploy-root assets the SPA needs before login.
     """
     app = web.Application(middlewares=[auth_middleware])
     app["device_builder"] = device_builder
@@ -125,13 +130,33 @@ def _build_app(device_builder: _StubDeviceBuilder) -> web.Application:
         return web.Response(text="ok")
 
     app.router.add_get("/api/anything", _ok)
+    # Legacy online-status map — must stay gated (exposes the device
+    # inventory), unlike the public /version healthcheck.
+    app.router.add_get("/ping", _ok)
     app.router.add_get("/", _ok)
     app.router.add_get("/assets/app.js", _ok)
     app.router.add_get("/favicon.ico", _ok)
     app.router.add_get("/boards/images/esp32.png", _ok)
     app.router.add_route("OPTIONS", "/api/anything", _ok)
+    # Top-level content-hashed bundles + sidecars served from the deploy root.
+    for hashed in _HASHED_BUNDLES:
+        app.router.add_get(hashed, _ok)
+    # A hashed-looking asset nested under a deep-link path — must stay gated.
+    app.router.add_get("/device/app.5ec0f3c42890e1a7.js", _ok)
 
     return app
+
+
+# Representative top-level frontend bundles: entry script, a numbered lazy
+# chunk, vendors, and the .js.map / .js.LICENSE.txt sidecars — all carry the
+# ``.<hash>.`` segment and live at the deploy root, not under /assets/.
+_HASHED_BUNDLES = (
+    "/app.5ec0f3c42890e1a7.js",
+    "/493.d5c6840fa646b2c4.js",
+    "/vendors.25bbebc05765afee.js",
+    "/app.5ec0f3c42890e1a7.js.map",
+    "/app.5ec0f3c42890e1a7.js.LICENSE.txt",
+)
 
 
 def _basic_auth_header(username: str, password: str) -> str:
@@ -227,6 +252,84 @@ async def test_auth_middleware_public_prefixes_pass_through(
     resp = await client.get(path)
 
     assert resp.status == 200
+
+
+@pytest.mark.parametrize("path", _HASHED_BUNDLES)
+async def test_auth_middleware_top_level_hashed_bundle_passes_through(
+    aiohttp_client: AiohttpClient,
+    path: str,
+) -> None:
+    """Top-level content-hashed bundles pass auth pre-login."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.get(path)
+
+    assert resp.status == 200
+
+
+async def test_auth_middleware_hashed_bundle_head_passes_through(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """HEAD on a hashed bundle is allowed too (aiohttp auto-handles HEAD for GET)."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.head("/app.5ec0f3c42890e1a7.js")
+
+    assert resp.status == 200
+
+
+async def test_auth_middleware_unhashed_top_level_path_still_gated(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A top-level path with no hash segment stays gated."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.get("/api/anything")
+
+    assert resp.status == 401
+
+
+async def test_auth_middleware_ping_is_gated(aiohttp_client: AiohttpClient) -> None:
+    """``/ping`` is gated: it exposes the device inventory, so it stays out of ``_PUBLIC_PATHS``."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    assert (await client.get("/ping")).status == 401
+    auth = {"Authorization": _basic_auth_header("admin", "hunter2")}
+    assert (await client.get("/ping", headers=auth)).status == 200
+
+
+async def test_auth_middleware_nested_hashed_path_still_gated(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A hashed asset under a deep-link path stays gated (top-level anchor)."""
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    client = await aiohttp_client(_build_app(db))
+
+    resp = await client.get("/device/app.5ec0f3c42890e1a7.js")
+
+    assert resp.status == 401
+
+
+async def test_auth_middleware_non_get_hashed_path_still_gated(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Only GET/HEAD bypass — a write method to a hashed path still needs auth."""
+
+    async def _ok(_request: web.Request) -> web.Response:
+        return web.Response(text="ok")
+
+    db = _StubDeviceBuilder(_StubSettings(using_password=True))
+    app = _build_app(db)
+    app.router.add_post("/app.5ec0f3c42890e1a7.js", _ok)
+    client = await aiohttp_client(app)
+
+    resp = await client.post("/app.5ec0f3c42890e1a7.js")
+
+    assert resp.status == 401
 
 
 # ---------------------------------------------------------------------------
@@ -416,3 +519,51 @@ async def test_auth_middleware_malformed_authorization_header_returns_401(
     )
 
     assert resp.status == 401
+
+
+# ---------------------------------------------------------------------------
+# Real route table — gated-by-default guard
+# ---------------------------------------------------------------------------
+
+# Plain routes the real app intends to be reachable without credentials:
+# / and the SPA catch-all serve the public shell, /ws authenticates in-band,
+# /version is the healthcheck, /api/firmware/download carries its own token.
+# Static dirs (/assets, /boards/images) and the catch-all are non-plain
+# resources and are skipped (public frontend surfaces).
+_PUBLIC_PLAIN_ROUTES = frozenset({"/", "/ws", "/version", "/api/firmware/download"})
+
+
+async def test_create_app_gates_every_non_public_route(
+    tmp_path: Path,
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """Every plain route in the real ``create_app`` is auth-gated unless allowlisted.
+
+    Drives the actual route table (not a stub) so a new route landing in
+    ``_PUBLIC_PATHS`` or matching the hashed-asset bypass by accident fails
+    here; a deliberately-public route must be added to
+    ``_PUBLIC_PLAIN_ROUTES`` to pass.
+    """
+    settings = DashboardSettings()
+    settings.config_dir = tmp_path
+    settings.absolute_config_dir = tmp_path.resolve()
+    settings.using_password = True
+    # No auth controller needed: with no Authorization header the middleware
+    # 401s before touching db.auth, and before reaching any handler.
+    app = DeviceBuilder(settings).create_app(with_lifecycle=False)
+    client = await aiohttp_client(app)
+
+    gated: set[str] = set()
+    for route in app.router.routes():
+        canonical = route.resource.canonical
+        if type(route.resource).__name__ != "PlainResource":
+            continue
+        if canonical in _PUBLIC_PLAIN_ROUTES:
+            continue
+        resp = await client.request(route.method, canonical)
+        assert resp.status == 401, f"{route.method} {canonical} is reachable without auth"
+        gated.add(canonical)
+
+    # The sensitive legacy REST surface must have actually been exercised —
+    # guards against the loop silently skipping everything.
+    assert gated >= {"/devices", "/json-config", "/compile", "/upload"}

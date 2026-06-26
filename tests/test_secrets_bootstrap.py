@@ -1,12 +1,10 @@
 """Tests for the ``secrets.yaml`` bootstrap in ``DashboardSettings.parse_args``.
 
-The bootstrap creates a placeholder ``secrets.yaml`` on first
-startup so ``!secret wifi_ssid`` / ``!secret wifi_password``
-references in generated YAML resolve cleanly. The placeholders
-must be **non-empty** — ESPHome's ``wifi`` validator rejects an
-empty SSID with "SSID can't be empty.", which would surface to
-the user as "Failed to create device: SSID can't be empty." on
-the very first wizard run.
+The bootstrap creates an empty ``secrets.yaml`` on first startup so the
+Secrets editor opens a real file and ``!secret`` references have a target.
+No Wi-Fi placeholders are seeded: credentials are collected per-device in
+the create wizard (which writes them here), and generation is adaptive, so
+a device created before any Wi-Fi secret exists gets a no-network stub.
 """
 
 from __future__ import annotations
@@ -17,6 +15,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from esphome_device_builder.controllers.config import DashboardSettings
+from esphome_device_builder.helpers.secrets_state import (
+    PLACEHOLDER_WIFI_PASSWORD,
+    PLACEHOLDER_WIFI_SSID,
+    read_secrets_yaml,
+)
 
 
 def _ns(**overrides: object) -> Namespace:
@@ -51,26 +54,32 @@ def _bootstrap(tmp_path: Path) -> DashboardSettings:
     return settings
 
 
-def test_bootstrap_creates_secrets_with_non_empty_placeholders(
+def test_bootstrap_creates_secrets_without_wifi_placeholders(
     tmp_path: Path,
 ) -> None:
     _bootstrap(tmp_path)
-    content = (tmp_path / "secrets.yaml").read_text()
-    # The placeholders must be non-empty so the YAML round-trips
-    # through ESPHome's wifi validator without "SSID can't be empty.".
-    assert 'wifi_ssid: ""' not in content
-    assert 'wifi_password: ""' not in content
-    assert "wifi_ssid:" in content
-    assert "wifi_password:" in content
-    # The placeholder text should be obvious enough that a user
-    # who skipped the explanation comment still recognises the
-    # value as something to replace.
-    assert "REPLACE" in content
+    secrets_path = tmp_path / "secrets.yaml"
+    assert secrets_path.exists()
+    content = secrets_path.read_text()
+    # No Wi-Fi keys are seeded — the wizard collects and writes them, and
+    # a fresh-install create emits a no-network stub until then.
+    assert "wifi_ssid" not in content
+    assert "wifi_password" not in content
 
 
 def test_bootstrap_does_not_overwrite_existing_secrets(tmp_path: Path) -> None:
-    """An existing ``secrets.yaml`` is left alone — no clobbering user data."""
+    """An existing ``secrets.yaml`` with real values is left alone."""
     existing = "wifi_ssid: home_network\nwifi_password: real_password\n"
     (tmp_path / "secrets.yaml").write_text(existing)
     _bootstrap(tmp_path)
     assert (tmp_path / "secrets.yaml").read_text() == existing
+
+
+def test_bootstrap_migrates_away_seeded_wifi_placeholders(tmp_path: Path) -> None:
+    """An existing install's leftover placeholder Wi-Fi secrets are stripped."""
+    (tmp_path / "secrets.yaml").write_text(
+        f'api_key: keep\nwifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
+        f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n'
+    )
+    _bootstrap(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"api_key": "keep"}

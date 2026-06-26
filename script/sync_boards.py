@@ -23,17 +23,27 @@ The YAML manifests under ``definitions/boards/<id>/manifest.yaml``
 remain the human-editable source of truth; this script is the only
 thing that writes the three artefacts.
 
+Single-board mode (``BOARD_ID``) must run against the same ESPHome the
+rest of the committed catalog was generated against (the
+``esphome_version`` a full sync stamps into ``boards.index.json``),
+since it rebuilds the shared index from every board; it refuses on a
+mismatch. A full sync regenerates everything from the installed ESPHome
+and re-stamps that version, so it does not check.
+
 Usage
 -----
 
-    python script/sync_boards.py
+    python script/sync_boards.py              # regenerate every board
+    python script/sync_boards.py BOARD_ID     # regenerate only one board
 """
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import logging
 import re
+import shutil
 import sys
 from dataclasses import replace
 from operator import attrgetter
@@ -51,6 +61,7 @@ from _catalog_split import (  # noqa: E402
     prepare_next_bodies_dir,
     swap_split_catalog_in,
 )
+from _esphome_version import assert_installed_esphome  # noqa: E402
 
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
@@ -245,6 +256,36 @@ def _generated_board(
     )
 
 
+def _generation_dedup_keys(
+    boards: list[BoardCatalogEntry],
+) -> tuple[set[str], set[tuple[Platform, str]]]:
+    """Seed the id and (platform, display-name) sets a generator skips covered boards by."""
+    ids = {b.id for b in boards}
+    names = {(b.esphome.platform, b.name) for b in boards}
+    return ids, names
+
+
+def _name_already_listed(
+    platform: Platform, name: str, display: str, names: set[tuple[Platform, str]]
+) -> bool:
+    """
+    Return True when ``(platform, display)`` is already in the catalog; log the skip.
+
+    A curated/generated twin today; the log surfaces a future upstream board
+    shadowed by a name collision (generated ``id == board key``, so it would
+    otherwise vanish without a catalog entry).
+    """
+    if (platform, display) not in names:
+        return False
+    _LOGGER.debug(
+        "Not generating %s board %r: display name %r already in the catalog",
+        platform.value,
+        name,
+        display,
+    )
+    return True
+
+
 def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Fill LibreTiny pins from ESPHome and add the boards manifests don't cover.
@@ -254,34 +295,31 @@ def _augment_libretiny_boards(boards: list[BoardCatalogEntry]) -> None:
     canonical entry for every ESPHome board no manifest *id* already defines, so
     ``board: bw15`` resolves with its pinout and lists in the picker. Dedup is on
     board ``id`` (the unique key), not ``esphome.board`` — a chip referenced only
-    by vendor-product manifests still gets its own canonical board.
+    by vendor-product manifests still gets its own canonical board — and on
+    display name so a curated board claiming an ESPHome key isn't twinned.
     """
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     for platform, (boards_attr, pins_attr) in _LIBRETINY_FAMILIES.items():
         module = importlib.import_module(f"esphome.components.{platform}.boards")
         # No getattr default: an upstream rename of these (private) symbols
         # should fail the sync loudly, not silently emit a pinless catalog.
         board_list: dict[str, Any] = getattr(module, boards_attr)
         pin_map: dict[str, Any] = getattr(module, pins_attr)
+        pf = Platform(platform)
         for board in boards:
             if board.esphome.platform.value == platform and not board.pins:
                 pins = _resolve_board_pins(pin_map, board.esphome.board)
                 if pins:
                     board.pins = _derive_pins_from_aliases(pins)
         for name, meta in board_list.items():
-            if name in ids:
+            display = _meta_name(meta, name)
+            if name in ids or _name_already_listed(pf, name, display, names):
                 continue
             pins = _resolve_board_pins(pin_map, name)
             if pins:
-                boards.append(
-                    _generated_board(
-                        Platform(platform),
-                        name,
-                        _meta_name(meta, name),
-                        _derive_pins_from_aliases(pins),
-                    )
-                )
+                boards.append(_generated_board(pf, name, display, _derive_pins_from_aliases(pins)))
                 ids.add(name)
+                names.add((pf, display))
 
 
 # RP2350B (48-GPIO, max_pin 47) routes its ADC inputs to GPIO40-47; rp2040 and
@@ -360,22 +398,24 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     Add catalog entries for RP2040/RP2350 boards no manifest id covers.
 
     No empty-pin fill step — the manifested rp2040 boards already ship full
-    pinouts; only generation matters. Dedup on board ``id``. A board missing from
-    ``RP2040_BOARD_PINS`` still gets the matrix (GPIO0..max_pin + pwm + adc).
+    pinouts; only generation matters. Dedup on board ``id`` and display name, so a
+    curated board claiming an ESPHome key under a different id doesn't also emit a
+    same-named twin. A board missing from ``RP2040_BOARD_PINS`` still gets the matrix.
     """
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     module = importlib.import_module("esphome.components.rp2040.boards")
     default_max_pin: int = module.DEFAULT_MAX_PIN
     for name, meta in module.BOARDS.items():
-        if name in ids:
+        display = _meta_name(meta, name)
+        if name in ids or _name_already_listed(Platform.RP2040, name, display, names):
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
-        entry = _generated_board(
-            Platform.RP2040, name, _meta_name(meta, name), _derive_rp2040_pins(pins, max_pin)
+        boards.append(
+            _generated_board(Platform.RP2040, name, display, _derive_rp2040_pins(pins, max_pin))
         )
-        boards.append(entry)
         ids.add(name)
+        names.add((Platform.RP2040, display))
 
 
 def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
@@ -409,6 +449,66 @@ def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
         if board.esphome.platform is Platform.RP2040:
             meta = module.BOARDS.get(board.esphome.board)
             board.esphome.mcu = meta.get("mcu", "rp2040") if isinstance(meta, dict) else "rp2040"
+
+
+# SPI ethernet pin field -> the occupied_by label shown on the overlaid pin.
+_RP2040_ETHERNET_PIN_ROLES: dict[str, str] = {
+    "clk_pin": "Ethernet CLK",
+    "mosi_pin": "Ethernet MOSI",
+    "miso_pin": "Ethernet MISO",
+    "cs_pin": "Ethernet CS",
+    "interrupt_pin": "Ethernet INT",
+    "reset_pin": "Ethernet RESET",
+}
+
+# Canonical Pico/Pico2 pinout each onboard-ethernet board overlays onto, by chip
+# series. Reusing these curated bodies (not ESPHome's matrix) fixes RP2350A, whose
+# ESPHome ``max_pin`` is 47 though the Pico2 form factor exposes 30 GPIOs.
+_RP2040_BASE_PINOUT_BOARD: dict[str, str] = {"rp2040": "rpipico", "rp2350": "rpipico2"}
+
+
+def _gpio_number(value: object) -> int | None:
+    """GPIO number from a pin-field value (``"GPIO17"`` or ``17``), or ``None``."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and (match := re.search(r"\d+", value)):
+        return int(match.group())
+    return None
+
+
+def _augment_rp2040_onboard_ethernet_pins(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Overlay a pinless rp2040 ethernet board's SPI pins onto the Pico pinout.
+
+    Uses rpipico / rpipico2 by chip series and locks the ethernet pins; skips
+    boards that already ship pins.
+    """
+    base_by_mcu = {
+        board.esphome.mcu: board.pins
+        for board in boards
+        if board.esphome.board in _RP2040_BASE_PINOUT_BOARD.values()
+    }
+    for board in boards:
+        if board.esphome.platform is not Platform.RP2040 or board.pins:
+            continue
+        ethernet = next(
+            (fc for fc in board.featured_components if fc.component_id == "ethernet"), None
+        )
+        base = base_by_mcu.get(board.esphome.mcu or "rp2040")
+        if ethernet is None or not base:
+            continue
+        roles: dict[int, str] = {}
+        for field, role in _RP2040_ETHERNET_PIN_ROLES.items():
+            preset = ethernet.fields.get(field)
+            gpio = _gpio_number(preset.value) if preset is not None else None
+            if gpio is not None:
+                roles[gpio] = role
+        board.pins = [
+            replace(pin, available=False, occupied_by=roles[pin.gpio], features=[], notes=None)
+            if pin.gpio in roles
+            else replace(pin, features=list(pin.features))
+            for pin in base
+        ]
 
 
 def _esp32_generic_pins_by_variant(
@@ -489,24 +589,26 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
     curated subset. Each uncovered board takes its chip's ``generic-<variant>``
     pinout, enriched with any named ``ESP32_BOARD_PINS`` aliases. Dedup is on
     board ``id`` (the unique key), so a board referenced only by vendor
-    manifests still gets its own canonical entry.
+    manifests still gets its own canonical entry, and on display name so an
+    ESPHome key-aliased board (``freenove-esp32-s3-n8r8`` /
+    ``freenove_esp32_s3_wroom``) isn't listed twice.
     """
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     generic_pins = _esp32_generic_pins_by_variant(boards)
     module = importlib.import_module(_ESP32_BOARDS_MODULE)
     # No getattr default: an upstream rename should fail the sync loudly.
     board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
     pin_map: dict[str, Any] = getattr(module, _ESP32_BOARD_PINS_ATTR)
     for name, meta in board_list.items():
-        if name in ids:
+        display = _meta_name(meta, name)
+        if name in ids or _name_already_listed(Platform("esp32"), name, display, names):
             continue
         variant = Esp32Variant(meta["variant"].lower())
         pins = _resolve_board_pins(pin_map, name)
         derived = _esp32_board_pins(generic_pins.get(variant, []), pins)
-        boards.append(
-            _generated_board(Platform("esp32"), name, _meta_name(meta, name), derived, variant)
-        )
+        boards.append(_generated_board(Platform("esp32"), name, display, derived, variant))
         ids.add(name)
+        names.add((Platform("esp32"), display))
 
 
 def _esp8266_generic_pins(boards: list[BoardCatalogEntry]) -> list[BoardPin]:
@@ -560,7 +662,9 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     pin resolver uses. Dedup on board ``id`` (curated esp8266 manifests use the
     ESPHome board name verbatim, so a base board referenced only by vendor
     products still generates its own canonical entry, e.g. ``esp01_1m``;
-    otherwise ``find_by_pio_board`` falls back to an arbitrary product — #395).
+    otherwise ``find_by_pio_board`` falls back to an arbitrary product — #395),
+    and on display name so a curated product claiming an ESPHome key under a
+    different id (``sonoff-basic`` for ``sonoff_basic``) isn't listed twice.
     """
     module = importlib.import_module("esphome.components.esp8266.boards")
     # Direct access (not getattr-with-default): an upstream rename of these
@@ -569,25 +673,24 @@ def _augment_esp8266_boards(boards: list[BoardCatalogEntry]) -> None:
     pin_map: dict[str, Any] = module.ESP8266_BOARD_PINS
     base: dict[str, int] = module.ESP8266_BASE_PINS
     generic = _esp8266_generic_pins(boards)
-    ids = {b.id for b in boards}
+    ids, names = _generation_dedup_keys(boards)
     for board in boards:
         if board.esphome.platform.value != "esp8266" or board.pins:
             continue
         amap = {**base, **(_resolve_board_pins(pin_map, board.esphome.board) or {})}
         board.pins = _overlay_esp8266_aliases(generic, amap)
     for name, meta in board_list.items():
-        if name in ids:
+        display = _meta_name(meta, name)
+        if name in ids or _name_already_listed(Platform("esp8266"), name, display, names):
             continue
         amap = {**base, **(_resolve_board_pins(pin_map, name) or {})}
         boards.append(
             _generated_board(
-                Platform("esp8266"),
-                name,
-                _meta_name(meta, name),
-                _overlay_esp8266_aliases(generic, amap),
+                Platform("esp8266"), name, display, _overlay_esp8266_aliases(generic, amap)
             )
         )
         ids.add(name)
+        names.add((Platform("esp8266"), display))
 
 
 def _derive_nrf52_pins(adc_gpios: set[int]) -> list[BoardPin]:
@@ -618,9 +721,11 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
     whose catalog id is already owned by another platform (rp2040's
     ``adafruit_itsybitsy``, the PlatformIO string both platforms share) can't be
     served by an id-keyed catalog, so it's skipped with a warning rather than
-    shadowed onto the other platform's pinout.
+    shadowed onto the other platform's pinout. Also deduped on display name so a
+    curated nRF52 board claiming a Zephyr id under a different id isn't twinned.
     """
     platform_by_id = {b.id: b.esphome.platform.value for b in boards}
+    _, names = _generation_dedup_keys(boards)
     boards_module = importlib.import_module("esphome.components.nrf52.boards")
     const_module = importlib.import_module("esphome.components.nrf52.const")
     adc_gpios = set(const_module.AIN_TO_GPIO.values())
@@ -636,15 +741,61 @@ def _augment_nrf52_boards(boards: list[BoardCatalogEntry]) -> None:
                     owner,
                 )
             continue
+        display = _NRF52_BOARD_NAMES.get(name, name)
+        if _name_already_listed(Platform.NRF52, name, display, names):
+            continue
         boards.append(
-            _generated_board(
-                Platform.NRF52,
-                name,
-                _NRF52_BOARD_NAMES.get(name, name),
-                _derive_nrf52_pins(adc_gpios),
-            )
+            _generated_board(Platform.NRF52, name, display, _derive_nrf52_pins(adc_gpios))
         )
         platform_by_id[name] = _NRF52_PLATFORM
+        names.add((Platform.NRF52, display))
+
+
+def _has_rmii_ethernet(board: BoardCatalogEntry) -> bool:
+    """Return True when the board's onboard ethernet is RMII (signalled by ``mdc_pin``)."""
+    return any(
+        fc.component_id == "ethernet" and "mdc_pin" in fc.fields for fc in board.featured_components
+    )
+
+
+def _augment_rmii_data_pins(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Mark the hardware-fixed RMII Ethernet data pins occupied on RMII boards.
+
+    The EMAC consumes TXD0/TXD1/TX_EN/RXD0/RXD1/CRS_DV on fixed GPIOs (per ESP32
+    variant) that never appear in the ``ethernet:`` config, so the pin picker
+    would otherwise offer them as free. Sourced from ESPHome so a pinout revision
+    flows through; the configurable pins (MDC/MDIO/CLK/power) are already marked
+    by the board's featured ethernet component.
+    """
+    module = importlib.import_module("esphome.components.ethernet")
+    # No getattr default: an upstream rename should fail the sync loudly.
+    by_variant: dict[Esp32Variant, dict[int, str]] = {
+        Esp32Variant.ESP32: module.ESP32_RMII_FIXED_PINS,
+        Esp32Variant.ESP32P4: module.ESP32P4_RMII_DEFAULT_PINS,
+    }
+    for board in boards:
+        if board.esphome.platform is not Platform.ESP32 or not _has_rmii_ethernet(board):
+            continue
+        fixed = by_variant.get(board.esphome.variant or Esp32Variant.ESP32)
+        if not fixed:
+            continue
+        roles = {gpio: f"Ethernet {emac.removeprefix('EMAC_')}" for gpio, emac in fixed.items()}
+        # Merge keyed by gpio: replace a free data pin in place (leaving an
+        # already-occupied one, e.g. a CLK on a CLK_OUT board, untouched), and
+        # append any fixed pin the manifest didn't declare at all.
+        merged = {pin.gpio: pin for pin in board.pins}
+        for gpio, role in roles.items():
+            pin = merged.get(gpio)
+            if pin is None:
+                merged[gpio] = BoardPin(
+                    gpio=gpio, label=f"GPIO{gpio}", available=False, occupied_by=role
+                )
+            elif not pin.occupied_by:
+                merged[gpio] = replace(
+                    pin, available=False, occupied_by=role, features=[], notes=None
+                )
+        board.pins = list(merged.values())
 
 
 def build_catalog() -> BoardCatalogResponse:
@@ -660,15 +811,32 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_rp2040_boards(catalog.boards)
     _backfill_rp2040_wifi(catalog.boards)
     _backfill_rp2040_mcu(catalog.boards)
+    _augment_rp2040_onboard_ethernet_pins(catalog.boards)
     _augment_esp32_boards(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
+    _augment_rmii_data_pins(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    parser = argparse.ArgumentParser(
+        description="Regenerate the board catalog JSON from the YAML manifests."
+    )
+    parser.add_argument(
+        "board",
+        nargs="?",
+        help="Board id (the folder name under esphome_device_builder/definitions/boards/) "
+        "to regenerate on its own. Omit to regenerate the whole catalog.",
+    )
+    args = parser.parse_args()
+
+    # Only single-board mode needs the match: it rebuilds the shared index from
+    # every board, so a mismatched esphome drifts the others' index entries.
+    if args.board:
+        _require_matching_esphome()
 
     # Abort the sync on the first bad manifest — partial output here
     # would silently ship a board-shaped hole to every install.
@@ -677,6 +845,10 @@ def main() -> int:
     # ``to_dict`` here already applies the omit_default Configs, so
     # body files and index entries both ship the stripped wire shape.
     full_payloads = [board.to_dict() for board in catalog.boards]
+
+    if args.board:
+        return _emit_single_board(catalog.boards, full_payloads, args.board)
+
     _emit_split_catalog(catalog.boards, full_payloads)
     _emit_featured_components_index(catalog.boards)
 
@@ -688,6 +860,45 @@ def main() -> int:
         _FEATURED_INDEX_FILE,
     )
     return 0
+
+
+def _emit_single_board(
+    boards: list[BoardCatalogEntry], full_payloads: list[dict[str, Any]], board_id: str
+) -> int:
+    """
+    Rewrite one board's body file, then refresh the index and featured map.
+
+    Only the target's ``board_bodies/<id>.json`` is rewritten; the index and
+    featured-components files are full rebuilds whose other entries are
+    byte-identical (the version guard rules out drift), so the diff stays
+    scoped to the edited board. This assumes only *board_id* was edited:
+    naming one board while another's manifest is also dirty rewrites the
+    other's index entry but not its body, which the consistency test flags.
+    """
+    idx = next((i for i, board in enumerate(boards) if board.id == board_id), None)
+    if idx is None:
+        raise SystemExit(
+            f"sync_boards: no board with id {board_id!r}; "
+            f"expected a folder name under {_DEFINITIONS_DIR / 'boards'}"
+        )
+    _emit_body_atomically(full_payloads[idx], board_id)
+    _write_index(full_payloads)
+    _emit_featured_components_index(boards)
+    _LOGGER.info("Regenerated board_bodies/%s.json + refreshed index and featured map", board_id)
+    return 0
+
+
+def _emit_body_atomically(payload: dict[str, Any], board_id: str) -> None:
+    """Write one body file via stage-then-replace so an interrupted write can't truncate it."""
+    staging = _BODIES_DIR.parent / "board_bodies.single"
+    prepare_next_bodies_dir(staging)
+    try:
+        emit_body_with_roundtrip(
+            payload, board_id, staging, BoardCatalogEntry, log_label="Board", sort_keys=True
+        )
+        (staging / f"{board_id}.json").replace(_BODIES_DIR / f"{board_id}.json")
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _emit_split_catalog(
@@ -711,20 +922,75 @@ def _emit_split_catalog(
             sort_keys=True,
         )
 
-    index_payload = {
+    swap_split_catalog_in(
+        next_bodies=next_bodies,
+        live_bodies=_BODIES_DIR,
+        index_payload=_index_payload(full_payloads),
+        live_index=_INDEX_FILE,
+        index_cls=BoardCatalogIndex,
+        index_entries_key="boards",
+        sort_keys=True,
+    )
+
+
+def _index_payload(full_payloads: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the slim index payload, stamped with the ESPHome it was generated from."""
+    return {
+        "esphome_version": _installed_esphome_version(),
         "boards": sorted(
             (_strip_body_fields(payload) for payload in full_payloads),
             key=lambda p: p["id"],
         ),
     }
-    swap_split_catalog_in(
-        next_bodies=next_bodies,
-        live_bodies=_BODIES_DIR,
-        index_payload=index_payload,
-        live_index=_INDEX_FILE,
-        index_cls=BoardCatalogIndex,
-        index_entries_key="boards",
-        sort_keys=True,
+
+
+# ESPHome betas/dev builds (``2026.7.0b1``, ``2026.7.0-dev``) share board tables
+# with their base release, so canonicalize to the base for both the stamp and
+# the guard or a beta would false-mismatch its own release.
+_ESPHOME_BASE_VERSION_RE = re.compile(r"^(\d+\.\d+\.\d+)")
+
+
+def _canonical_esphome_version(version: str) -> str:
+    """Drop a prerelease/dev suffix: ``2026.7.0b1`` -> ``2026.7.0``."""
+    match = _ESPHOME_BASE_VERSION_RE.match(version)
+    return match.group(1) if match else version
+
+
+def _installed_esphome_version() -> str:
+    from esphome.const import __version__
+
+    return _canonical_esphome_version(__version__)
+
+
+def _write_index(full_payloads: list[dict[str, Any]]) -> None:
+    """Rewrite ``boards.index.json`` only, leaving the body files untouched."""
+    index_payload = _index_payload(full_payloads)
+    for entry in index_payload["boards"]:
+        BoardCatalogIndex.from_dict(entry)
+    next_index = _INDEX_FILE.with_suffix(".json.next")
+    next_index.write_bytes(
+        orjson.dumps(index_payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+    )
+    next_index.replace(_INDEX_FILE)
+
+
+def _require_matching_esphome() -> None:
+    """Abort unless installed ESPHome matches the ``esphome_version`` boards.index.json was built with."""
+    try:
+        expected = orjson.loads(_INDEX_FILE.read_bytes())["esphome_version"]
+    except (OSError, orjson.JSONDecodeError, KeyError):
+        raise SystemExit(
+            f"sync_boards: could not read esphome_version from {_INDEX_FILE}.\n"
+            f"To fix, regenerate the whole catalog first: python script/sync_boards.py"
+        ) from None
+    assert_installed_esphome(
+        expected,
+        what="sync_boards single-board mode",
+        normalize=_canonical_esphome_version,
+        alt_fix=(
+            "Or regenerate the whole catalog against your installed ESPHome instead:\n"
+            "    python script/sync_boards.py"
+        ),
     )
 
 

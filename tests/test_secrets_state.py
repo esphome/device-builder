@@ -1,9 +1,8 @@
-"""Tests for ``helpers.secrets_state.is_wifi_unconfigured``.
+"""Tests for ``helpers.secrets_state``.
 
-Covers every call shape the onboarding controller can hand it:
-missing file (``None``), empty dict, missing ``wifi_ssid`` key,
-empty-string value, the bootstrap placeholder, a real value, and
-a non-string typo.
+Covers the Wi-Fi state predicate (``wifi_secrets_defined``), the shared
+``validate_wifi_credentials`` guard, the placeholder migration, the read /
+merge / line-based write helpers, and the secret-key rules.
 """
 
 from __future__ import annotations
@@ -16,77 +15,58 @@ from esphome import yaml_util
 from esphome.core import EsphomeError
 
 from esphome_device_builder.helpers.secrets_state import (
+    MAX_SSID_LEN,
+    MAX_WIFI_PASSWORD_LEN,
     PLACEHOLDER_WIFI_PASSWORD,
     PLACEHOLDER_WIFI_SSID,
     SecretsContentError,
     _quote_yaml_string,
+    _replace_or_append_secret,
     is_valid_secret_key,
-    is_wifi_unconfigured,
     merge_secrets_file,
+    migrate_placeholder_wifi_secrets,
     read_secrets_yaml,
     validate_secrets_content,
+    validate_wifi_credentials,
+    wifi_secrets_defined,
     write_secret,
     write_secrets_locked,
+    write_wifi_secrets,
 )
 
 
-def test_unconfigured_when_secrets_is_none() -> None:
-    """File missing entirely ⇒ user needs to set credentials."""
-    assert is_wifi_unconfigured(None) is True
+def test_wifi_secrets_defined_requires_both_keys() -> None:
+    """Non-empty ssid + password key ⇒ True; missing either / None / empty ⇒ False."""
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": "y"}) is True
+    # Open network: an empty password is still a defined key.
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": ""}) is True
+    assert wifi_secrets_defined({"wifi_ssid": "x"}) is False
+    assert wifi_secrets_defined({"wifi_password": "y"}) is False
+    assert wifi_secrets_defined({}) is False
+    assert wifi_secrets_defined(None) is False
 
 
-def test_unconfigured_when_secrets_is_empty_dict() -> None:
-    """File present but empty ⇒ same as missing for our purposes."""
-    assert is_wifi_unconfigured({}) is True
+def test_wifi_secrets_defined_false_for_empty_or_non_string_ssid() -> None:
+    """A present-but-empty / blank / non-string ssid would fail cv.ssid, so it's not defined."""
+    assert wifi_secrets_defined({"wifi_ssid": "", "wifi_password": "y"}) is False
+    assert wifi_secrets_defined({"wifi_ssid": "   ", "wifi_password": "y"}) is False
+    assert wifi_secrets_defined({"wifi_ssid": 42, "wifi_password": "y"}) is False
 
 
-def test_unconfigured_when_wifi_ssid_key_is_missing() -> None:
-    """Other secrets present but no ``wifi_ssid`` ⇒ unconfigured."""
-    assert is_wifi_unconfigured({"api_key": "ZZZ", "mqtt_pw": "shhh"}) is True
+def test_wifi_secrets_defined_false_for_null_or_non_string_password() -> None:
+    """A null / non-string password would fail cv.string_strict, so it's not defined."""
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": None}) is False
+    assert wifi_secrets_defined({"wifi_ssid": "x", "wifi_password": 12345678}) is False
 
 
-def test_unconfigured_when_wifi_ssid_is_empty_string() -> None:
-    """Existing installs from the previous bootstrap ⇒ still unconfigured."""
-    assert is_wifi_unconfigured({"wifi_ssid": ""}) is True
-
-
-def test_unconfigured_when_wifi_ssid_is_only_whitespace() -> None:
-    """``"  "`` should be treated like empty — strip before comparing."""
-    assert is_wifi_unconfigured({"wifi_ssid": "   "}) is True
-
-
-def test_unconfigured_when_wifi_ssid_matches_bootstrap_placeholder() -> None:
-    """Fresh-install placeholder ⇒ user hasn't replaced it yet."""
-    assert is_wifi_unconfigured({"wifi_ssid": PLACEHOLDER_WIFI_SSID}) is True
-
-
-def test_configured_when_wifi_ssid_is_a_real_value() -> None:
-    assert is_wifi_unconfigured({"wifi_ssid": "home_network"}) is False
-
-
-def test_unconfigured_when_wifi_ssid_is_a_non_string_typo() -> None:
-    """``wifi_ssid: 42`` (missing quotes) — keep onboarding visible.
-
-    ESPHome's compile-time validator rejects non-string SSID, so
-    treating this as 'configured' would clear the onboarding
-    badge while the actual config is still broken — the user
-    would never see the prompt that would have helped them.
-    """
-    assert is_wifi_unconfigured({"wifi_ssid": 42}) is True
-    assert is_wifi_unconfigured({"wifi_ssid": ["x"]}) is True
-    assert is_wifi_unconfigured({"wifi_ssid": None}) is True
-
-
-@pytest.mark.parametrize(
-    "value",
-    ["MyNetwork", "REPLACE_WITH_OTHER_THING", "  spaced  network  "],
-)
-def test_password_does_not_affect_configured_state(value: str) -> None:
-    """Password value is intentionally not part of the check.
-
-    Open networks legitimately have an empty password.
-    """
-    assert is_wifi_unconfigured({"wifi_ssid": value, "wifi_password": ""}) is False
+def test_wifi_secrets_defined_true_for_placeholder_values() -> None:
+    """Seeded placeholders still count as defined — the keys exist, so ``!secret`` resolves."""
+    assert (
+        wifi_secrets_defined(
+            {"wifi_ssid": PLACEHOLDER_WIFI_SSID, "wifi_password": PLACEHOLDER_WIFI_PASSWORD}
+        )
+        is True
+    )
 
 
 def test_read_secrets_yaml_returns_none_for_missing_file(tmp_path: Path) -> None:
@@ -193,10 +173,9 @@ def test_validate_secrets_content_accepts_comment_only_file(tmp_path: Path) -> N
 def test_placeholder_password_constant_is_exported() -> None:
     """Pin the placeholder password export.
 
-    The constant is unused by ``is_wifi_unconfigured`` but
-    exported alongside the SSID one because the bootstrap and
-    the onboarding setter both need it. Locking the export here
-    prevents a future refactor from silently moving it.
+    Kept live by ``migrate_placeholder_wifi_secrets`` (it strips a leftover
+    seeded value only when it equals this exact placeholder). Locking the
+    export here prevents a future refactor from silently moving it.
     """
     assert isinstance(PLACEHOLDER_WIFI_PASSWORD, str)
     assert PLACEHOLDER_WIFI_PASSWORD
@@ -357,3 +336,190 @@ def test_is_valid_secret_key_accepts_identifier_keys(key: str) -> None:
 @pytest.mark.parametrize("key", ["", "1abc", "with-dash", "has space", "a:b", "x\n", "no#hash"])
 def test_is_valid_secret_key_rejects_non_identifier_keys(key: str) -> None:
     assert is_valid_secret_key(key) is False
+
+
+# ---------------------------------------------------------------------------
+# validate_wifi_credentials — shared by config/set_wifi_credentials + create
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ssid", "password"),
+    [
+        ("MyAP", "hunter2"),
+        ("OpenNet", ""),  # open network: empty password allowed
+        ("  spaced  ", "p"),  # 802.11 allows leading/trailing whitespace
+        ("MyAP", "hunter\t2"),  # TAB is the one allowed control char
+        ("A" * MAX_SSID_LEN, "P" * MAX_WIFI_PASSWORD_LEN),  # at the caps
+    ],
+)
+def test_validate_wifi_credentials_accepts_valid(ssid: str, password: str) -> None:
+    validate_wifi_credentials(ssid, password)
+
+
+@pytest.mark.parametrize(
+    ("ssid", "password", "match"),
+    [
+        ("   ", "p", "SSID can't be empty"),
+        (42, "p", "SSID must be a string"),
+        ("MyAP", None, "Password must be a string"),
+        ("A" * (MAX_SSID_LEN + 1), "p", "32 characters"),
+        ("MyAP", "P" * (MAX_WIFI_PASSWORD_LEN + 1), "64 characters"),
+        ("My\nNet", "p", "control character"),
+        ("My\x00Net", "p", "control character"),
+        ("MyAP", "p\rass", "control character"),
+    ],
+)
+def test_validate_wifi_credentials_rejects_invalid(
+    ssid: object, password: object, match: str
+) -> None:
+    with pytest.raises(SecretsContentError, match=match):
+        validate_wifi_credentials(ssid, password)  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# migrate_placeholder_wifi_secrets — one-shot cleanup for existing installs
+# ---------------------------------------------------------------------------
+
+
+def test_migrate_placeholder_wifi_removes_seeded_placeholders(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text(
+        f'# secrets\napi_key: ABC\nwifi_ssid: "{PLACEHOLDER_WIFI_SSID}"\n'
+        f'wifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n',
+        "utf-8",
+    )
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"api_key": "ABC"}
+    # Unrelated content is preserved.
+    assert "# secrets" in _secrets(tmp_path).read_text("utf-8")
+
+
+def test_migrate_placeholder_wifi_keeps_real_values(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("wifi_ssid: home\nwifi_password: hunter2\n", "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home", "wifi_password": "hunter2"}
+
+
+def test_migrate_placeholder_wifi_drops_only_placeholder_key(tmp_path: Path) -> None:
+    """A real SSID with a placeholder password drops only the placeholder."""
+    _secrets(tmp_path).write_text(
+        f'wifi_ssid: home\nwifi_password: "{PLACEHOLDER_WIFI_PASSWORD}"\n', "utf-8"
+    )
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "home"}
+
+
+def test_migrate_placeholder_wifi_noop_on_missing_file(tmp_path: Path) -> None:
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert not _secrets(tmp_path).exists()
+
+
+def test_migrate_placeholder_wifi_noop_on_comment_only_file(tmp_path: Path) -> None:
+    """A comment-only / empty secrets.yaml parses to nothing — leave it untouched."""
+    original = "# nothing here yet\n"
+    _secrets(tmp_path).write_text(original, "utf-8")
+    migrate_placeholder_wifi_secrets(tmp_path)
+    assert _secrets(tmp_path).read_text("utf-8") == original
+
+
+# ---------------------------------------------------------------------------
+# write_wifi_secrets — line-based two-key setter
+# ---------------------------------------------------------------------------
+
+
+def test_write_wifi_secrets_creates_file_when_missing(tmp_path: Path) -> None:
+    write_wifi_secrets(tmp_path, "MyAP", "secret")
+    assert read_secrets_yaml(tmp_path) == {"wifi_ssid": "MyAP", "wifi_password": "secret"}
+
+
+def test_write_wifi_secrets_preserves_other_keys_and_comments(tmp_path: Path) -> None:
+    _secrets(tmp_path).write_text("# top\napi_key: ABC\nwifi_ssid: old  # note\n", "utf-8")
+    write_wifi_secrets(tmp_path, "new_ap", "pw")
+    content = _secrets(tmp_path).read_text("utf-8")
+    assert "# top" in content
+    assert "api_key: ABC" in content
+    assert 'wifi_ssid: "new_ap"  # note' in content
+    assert 'wifi_password: "pw"' in content
+
+
+def test_write_wifi_secrets_escapes_double_quotes(tmp_path: Path) -> None:
+    write_wifi_secrets(tmp_path, 'Net"x', "p")
+    assert r'wifi_ssid: "Net\"x"' in _secrets(tmp_path).read_text("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# _replace_or_append_secret — direct unit tests
+# ---------------------------------------------------------------------------
+#
+# Isolated coverage of the fiddly line regex the writers lean on. Anyone
+# refactoring ``_SECRET_LINE_RE`` should see these break first.
+
+
+def test_replace_or_append_secret_appends_when_key_absent_in_existing_file() -> None:
+    """File exists with other keys — new key gets appended, not inlined."""
+    result = _replace_or_append_secret("api_key: ABC\n", "wifi_ssid", "MyAP")
+    assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_appends_to_file_without_trailing_newline() -> None:
+    """No trailing newline on input — helper adds one before appending."""
+    result = _replace_or_append_secret("api_key: ABC", "wifi_ssid", "MyAP")
+    assert result == 'api_key: ABC\nwifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_appends_to_empty_content() -> None:
+    """Empty input behaves like the missing-file path."""
+    assert _replace_or_append_secret("", "wifi_ssid", "MyAP") == 'wifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_preserves_indent() -> None:
+    """Indented secret lines keep their indent on rewrite."""
+    result = _replace_or_append_secret('  wifi_ssid: "old"\n', "wifi_ssid", "new")
+    assert result == '  wifi_ssid: "new"\n'
+
+
+def test_replace_or_append_secret_quotes_special_characters() -> None:
+    """Backslash and double-quote in the value get escaped, others pass through."""
+    result = _replace_or_append_secret('wifi_password: "old"\n', "wifi_password", 'p\\a"s s')
+    assert result == 'wifi_password: "p\\\\a\\"s s"\n'
+
+
+def test_replace_or_append_secret_only_matches_full_key_name() -> None:
+    r"""``wifi_ssid_backup`` is not the same key as ``wifi_ssid``."""
+    result = _replace_or_append_secret('wifi_ssid_backup: "keep"\n', "wifi_ssid", "MyAP")
+    assert 'wifi_ssid_backup: "keep"' in result
+    assert 'wifi_ssid: "MyAP"' in result
+
+
+def test_replace_or_append_secret_ignores_pure_comment_lines() -> None:
+    """A standalone ``# wifi_ssid: foo`` comment is not a key."""
+    result = _replace_or_append_secret(
+        '# wifi_ssid: "example"\napi_key: ABC\n', "wifi_ssid", "MyAP"
+    )
+    assert '# wifi_ssid: "example"' in result
+    assert 'wifi_ssid: "MyAP"' in result
+
+
+def test_replace_or_append_secret_preserves_inline_comment_with_special_chars() -> None:
+    """Trailing ``# comment with : colons`` round-trips intact."""
+    result = _replace_or_append_secret(
+        'wifi_ssid: "old"  # see ticket: ABC-123\n', "wifi_ssid", "MyAP"
+    )
+    assert result == 'wifi_ssid: "MyAP"  # see ticket: ABC-123\n'
+
+
+def test_replace_or_append_secret_handles_bare_key() -> None:
+    """``wifi_ssid:`` with no value still matches and gets the new value."""
+    result = _replace_or_append_secret("wifi_ssid:\n", "wifi_ssid", "MyAP")
+    assert result == 'wifi_ssid: "MyAP"\n'
+
+
+def test_replace_or_append_secret_value_with_hash_in_quotes_is_misparsed() -> None:
+    """Known limitation: ``# `` inside a quoted value confuses the regex.
+
+    The result is still valid YAML; the spurious tail is preserved as a
+    comment. Pin the behaviour so a future regex tightening that fixes it
+    has a green-then-red breadcrumb.
+    """
+    result = _replace_or_append_secret('wifi_ssid: "foo # bar"\n', "wifi_ssid", "MyAP")
+    assert result == 'wifi_ssid: "MyAP" # bar"\n'

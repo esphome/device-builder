@@ -35,13 +35,13 @@ browse response on its own:
   TXT so paired peers connect to the right port even when the
   operator has overridden ``--remote-build-port``. Omitted when
   the receiver site isn't bound (default-off mode).
+* ``friendly_name`` (optional) — the human machine label (e.g.
+  ``MacBook-Pro``), since the instance name / SRV target are
+  opaque per-install identifiers (``esphome-builder-<id>``).
 
-A friendly label and the host's mDNS name are *not* in TXT — both
-are already on the wire. python-zeroconf exposes the service
-instance name (the leftmost label of the published name, e.g.
-``MacBook-Pro``) and the SRV record's target (the FQDN, e.g.
-``MacBook-Pro.local.``) directly on the resolved ``ServiceInfo``;
-duplicating them in TXT just bloats the packet.
+The host's mDNS name is *not* in TXT — it's already on the wire.
+python-zeroconf exposes the SRV record's target directly on the
+resolved ``ServiceInfo``; duplicating it in TXT just bloats the packet.
 
 The advertise reuses the existing ``AsyncEsphomeZeroconf`` instance
 owned by :class:`~esphome_device_builder.controllers._device_state_monitor.DeviceStateMonitor`
@@ -81,6 +81,10 @@ SERVICE_TYPE = "_esphomebuilder._tcp.local."
 # steady-state cost is one ``ifaddr.get_adapters`` call per tick
 # with zero wire traffic.
 _REFRESH_INTERVAL_SECONDS = 300
+
+# Bound on the mDNS goodbye broadcast at shutdown; a wedged socket must not
+# stall the dashboard's exit.
+_UNREGISTER_TIMEOUT = 1.0
 
 
 def _default_friendly_name() -> str:
@@ -236,78 +240,24 @@ def _local_addresses() -> list[str]:
 
 
 _DASHBOARD_ID_SUFFIX_CHARS = 8
-_HOSTNAME_PREFIX_MAX_CHARS = 32
-_FALLBACK_HOSTNAME_PREFIX = "dashboard"
+_STABLE_HOSTNAME_PREFIX = "esphome-builder"
 
 
 def build_mdns_hostname(*, dashboard_id: str = "") -> str:
     """
-    Single source of truth for the dashboard's mDNS SRV target.
+    Stable mDNS SRV target derived only from the persisted *dashboard_id*.
 
-    Returns ``{short_hostname}-{short_dashboard_id}.local`` for
-    the production path (system hostname + a stable per-install
-    identifier), with graceful degradation when either piece is
-    missing. Mirrors Home Assistant's zeroconf advertise pattern:
-    the SRV target is a per-install identifier rather than the
-    raw system hostname, so two machines named ``mac`` on the
-    same LAN advertise distinct SRV targets.
-
-    Eliminated by construction:
-
-    * **FQDN leak.** Only the leftmost label of
-      ``socket.gethostname()`` is consumed; a system FQDN like
-      ``mac.koston.org`` can't reach the wire.
-    * **Case-sensitivity drift.** Both halves lowercase, so the
-      same machine can't show up as ``Mac.local`` from one code
-      path and ``mac.local`` from another.
-    * **Hostname collisions on the LAN.** Two machines named
-      ``mac`` get distinct SRV targets via the ``dashboard_id``
-      suffix (~48 bits of entropy at
-      :data:`_DASHBOARD_ID_SUFFIX_CHARS`; collision needs ~16M
-      concurrent dashboards on one LAN).
-    * **Overlong labels.** The hostname prefix is capped at
-      :data:`_HOSTNAME_PREFIX_MAX_CHARS`, well under the RFC
-      1035 §2.3.4 63-octet per-label ceiling, so a comically
-      long system hostname can't push the SRV target past what
-      ``zeroconf`` is willing to publish.
-
-    ``dashboard_id`` is the 32-char base64url string from
-    :func:`secrets.token_urlsafe`; the helper sanitises it to a
-    strict RFC 1123 label (``[a-z0-9-]+``) and takes **up to** the
-    first :data:`_DASHBOARD_ID_SUFFIX_CHARS` characters. Trailing
-    hyphens left by the truncation get stripped (the underlying
-    base64url alphabet maps ``_`` → ``-``, so the 8th character
-    can occasionally land on a hyphen-derived position; ~6% of
-    suffixes end up 7 chars rather than 8). Entropy claim holds
-    either way: 7 chars of base64url is ~42 bits, ~4M concurrent
-    dashboards before a birthday collision risk.
-
-    Fallback shapes (in order of preference):
-
-    * Both pieces present: ``{short_hostname}-{short_id}.local``.
-    * Hostname missing / empty: ``dashboard-{short_id}.local``
-      (avoids a leading hyphen + still tags the install).
-    * ``dashboard_id`` missing / empty: ``{short_hostname}.local``
-      (pre-identity-loaded fallback; collision risk reverts to
-      "two machines with the same name" until the next restart
-      picks up an identity).
-    * Both missing: ``""`` (caller fails soft; no advertise).
-
-    Doesn't use ``socket.getfqdn()``: on macOS that resolver can
-    return the reverse-DNS arpa form (``...ip6.arpa``) when
-    reverse lookup fails, which would be worse than no hostname
-    at all.
+    Returns ``esphome-builder-{short_dashboard_id}.local`` — a fixed
+    product prefix plus the first :data:`_DASHBOARD_ID_SUFFIX_CHARS`
+    sanitised (RFC 1123) chars of *dashboard_id*. Never reads the OS
+    hostname, so the target can't flip across reboots. Falls back to
+    ``esphome-builder.local`` when *dashboard_id* is empty (transient
+    pre-identity shape only).
     """
-    raw_hostname = (socket.gethostname() or "").strip().split(".", 1)[0]
-    prefix = _sanitize_dns_label(raw_hostname)[:_HOSTNAME_PREFIX_MAX_CHARS].strip("-")
     suffix = _sanitize_dns_label(dashboard_id)[:_DASHBOARD_ID_SUFFIX_CHARS].strip("-")
-    if prefix and suffix:
-        return f"{prefix}-{suffix}.local"
     if suffix:
-        return f"{_FALLBACK_HOSTNAME_PREFIX}-{suffix}.local"
-    if prefix:
-        return f"{prefix}.local"
-    return ""
+        return f"{_STABLE_HOSTNAME_PREFIX}-{suffix}.local"
+    return f"{_STABLE_HOSTNAME_PREFIX}.local"
 
 
 _DNS_LABEL_DISALLOWED_RE = re.compile(r"[^a-z0-9_-]")
@@ -360,29 +310,17 @@ class DashboardAdvertiser:
         """
         Capture the static fields used in the published ``ServiceInfo``.
 
-        ``port`` is the dashboard's HTTP listen port — what a peer
-        connects to once it's chosen this advertisement from a
-        browse. ``name`` defaults to the system hostname's leftmost
-        label and is used as the mDNS service-instance name (the
-        bit before ``._esphomebuilder._tcp.local.``); operators
-        name their machines with intentional case, so the friendly
-        name is *not* lowercased.
+        ``port`` is the dashboard's HTTP listen port. ``name`` defaults
+        to the system hostname's leftmost label and becomes the
+        ``friendly_name`` TXT entry (not lowercased — operators name
+        machines with intentional case).
 
-        ``hostname`` lands in the SRV record's target. When
-        ``dashboard_id`` is provided (the production path) the SRV
-        target is composed as ``{short_hostname}-{short_dashboard_id}.local``
-        via :func:`build_mdns_hostname` for collision-free
-        per-install identification. When ``hostname`` is passed
-        explicitly it overrides that composition (tests +
-        belt-and-braces). When neither is set, the call still
-        routes through :func:`build_mdns_hostname` which falls
-        through to ``{short_hostname}.local`` from the system
-        hostname alone, or to ``""`` if even that is unavailable
-        (caller fails soft and skips the advertise).
-
-        Neither name nor hostname is duplicated in TXT — peers
-        read them off ``ServiceInfo.name`` / ``ServiceInfo.server``
-        for free.
+        ``hostname`` lands in the SRV record's target. With
+        ``dashboard_id`` (production) it is composed as
+        ``esphome-builder-{short_dashboard_id}.local`` via
+        :func:`build_mdns_hostname`; an explicit ``hostname`` overrides
+        that (tests). The SRV target is not duplicated in TXT — peers
+        read it off ``ServiceInfo.server``.
 
         ``pin_sha256`` is SHA-256 of the receiver's X25519 peer-link
         public key (lowercase hex). When set, peers who browse the
@@ -405,7 +343,10 @@ class DashboardAdvertiser:
         explicit_host = (hostname or "").strip()
         host = explicit_host or build_mdns_hostname(dashboard_id=dashboard_id or "")
         self._port = int(port)
-        self._name = friendly
+        # Human label rides in TXT; the instance label is the stable
+        # SRV target's leftmost label.
+        self._friendly_name = friendly
+        self._name = host.split(".", 1)[0]
         self._hostname = host
         self._server_version = server_version
         self._esphome_version = esphome_version
@@ -464,8 +405,8 @@ class DashboardAdvertiser:
         The published mDNS service-instance name, or ``None``.
 
         Returns the fully-qualified instance name as zeroconf
-        registered it (e.g. ``MacBook-Pro._esphomebuilder._tcp.local.``,
-        or ``MacBook-Pro-2._esphomebuilder._tcp.local.`` after a
+        registered it (e.g. ``esphome-builder-jwywnve._esphomebuilder._tcp.local.``,
+        or ``esphome-builder-jwywnve-2._esphomebuilder._tcp.local.`` after a
         ``allow_name_change`` collision rename). ``None`` when the
         advertiser hasn't registered yet — same shape callers
         already use to gate other operations on ``registered``.
@@ -523,29 +464,22 @@ class DashboardAdvertiser:
         if addresses is None:
             addresses = _local_addresses()
         instance = f"{self._name}.{SERVICE_TYPE}"
-        # TXT carries only what isn't already on the wire. The
-        # service-instance label (``self._name``) and the SRV
-        # target (``server`` below) are returned by every browse;
-        # peers read them directly off ``ServiceInfo.name`` /
-        # ``ServiceInfo.server`` rather than parsing TXT.
+        # The SRV target (``server`` below) is returned by every browse,
+        # so it isn't duplicated in TXT. ``friendly_name`` is the human
+        # label peers display (the instance name is opaque).
         properties: dict[str, str] = {
             "server_version": self._server_version,
             "esphome_version": self._esphome_version,
         }
+        if self._friendly_name:
+            properties["friendly_name"] = self._friendly_name
         if self._pin_sha256:
             properties["pin_sha256"] = self._pin_sha256
         if self._remote_build_port is not None:
             properties["remote_build_port"] = str(self._remote_build_port)
         # ``server`` is the SRV record's target. Zeroconf appends
-        # ``.local.`` if missing; pass it through as-is so a host
-        # already advertising e.g. ``mac-jwywnve.local`` keeps the
-        # same answer it does for every other service. When
-        # :func:`build_mdns_hostname` returned ``""`` (rare — both
-        # ``gethostname`` AND ``dashboard_id`` were unavailable),
-        # fall back to the friendly name + ``.local`` so the SRV
-        # target is a valid name rather than the bare ``.``.
-        host = self._hostname or f"{self._name}.local"
-        server = host if host.endswith(".") else f"{host}."
+        # ``.local.`` if missing; pass it through as-is.
+        server = self._hostname if self._hostname.endswith(".") else f"{self._hostname}."
         # Publishing the host's addresses explicitly avoids relying
         # on the receiver's A/AAAA lookup against ``server``, which
         # on macOS can return loopback while mDNSResponder is in a
@@ -592,9 +526,10 @@ class DashboardAdvertiser:
         self._info = info
         self._zeroconf = zeroconf
         _LOGGER.info(
-            "Advertising dashboard on %s as %r (port %d, esphome %s)",
+            "Advertising dashboard on %s as %r (%r, port %d, esphome %s)",
             SERVICE_TYPE,
             info.name,
+            self._friendly_name,
             self._port,
             self._esphome_version,
         )
@@ -716,6 +651,6 @@ class DashboardAdvertiser:
         if info is None or zeroconf is None:
             return
         try:
-            await zeroconf.async_unregister_service(info)
+            await asyncio.wait_for(zeroconf.async_unregister_service(info), _UNREGISTER_TIMEOUT)
         except Exception:
-            _LOGGER.debug("Dashboard advertise unregister failed", exc_info=True)
+            _LOGGER.debug("Dashboard advertise unregister failed or timed out", exc_info=True)

@@ -18,9 +18,11 @@ loads and the command-handler registration walk.
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.api.ws import close_active_websockets
 from esphome_device_builder.device_builder import DeviceBuilder
 
 from .conftest import MakeSettingsFactory
@@ -290,6 +292,107 @@ async def test_stop_cancels_background_tasks_and_tears_down_controllers(
     assert db.devices._unsub_job_completed is None  # type: ignore[attr-defined]
     # Executor pool drained.
     assert db._executor is None
+
+
+async def test_on_shutdown_releases_network_before_local_flush(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """on_shutdown frees the network resources; stop() then only flushes local (latch holds)."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.devices is not None
+
+    # on_shutdown fires the network teardown early...
+    await db._on_shutdown(MagicMock())
+    assert db._network_stopped is True
+    assert db.devices._unsub_job_completed is None  # type: ignore[attr-defined]
+    # ...but the local flush hasn't run yet — the executor pool is still live.
+    assert db._executor is not None
+
+    # stop() must not repeat the network teardown; it only flushes local state.
+    db.devices.stop = AsyncMock()  # would be awaited again if the latch failed
+    await db.stop()
+    db.devices.stop.assert_not_awaited()
+    assert db._executor is None
+
+
+async def test_on_shutdown_error_is_swallowed_retried_and_local_flush_runs(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """A network-teardown raise in on_shutdown is retried by stop(); local still flushes."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.devices is not None
+
+    real_stop = db.devices.stop
+    calls = {"n": 0}
+
+    async def flaky_stop() -> None:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("zeroconf close boom")
+        await real_stop()
+
+    db.devices.stop = flaky_stop  # type: ignore[method-assign]
+
+    # on_shutdown runs _stop_network; devices.stop raises; _on_shutdown logs it.
+    await db._on_shutdown(MagicMock())  # must not raise
+    assert db._network_stopped is False  # not latched, so a retry is possible
+
+    # on_cleanup -> stop() retries the network teardown, then flushes local.
+    await db.stop()
+    assert calls["n"] == 2  # the failed teardown was retried
+    assert db._network_stopped is True
+    assert db._executor is None  # local flush ran despite the earlier error
+
+
+async def test_stop_flushes_local_even_when_network_teardown_keeps_failing(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """A persistently failing network teardown still runs the local flush (stop()'s finally)."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.devices is not None
+    db.devices.stop = AsyncMock(side_effect=RuntimeError("wedged"))  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="wedged"):
+        await db.stop()
+    assert db._executor is None  # local flush ran despite the failure
+
+
+async def test_stop_network_is_idempotent_under_retry(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """A full second _stop_network pass (the swallowed-error retry) is second-call-safe."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    assert db.remote_build_offloader is not None
+    assert db.remote_build_receiver is not None
+    try:
+        await db._stop_network()
+        # Simulate a swallowed on_shutdown error that left the latch unset.
+        db._network_stopped = False
+        await db._stop_network()  # the full second pass must not raise
+        assert db._network_stopped is True
+    finally:
+        await db._stop_local()
+
+
+async def test_create_app_registers_on_shutdown_after_ws_closer(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """The lifecycle app wires ``_on_shutdown`` after ``init_ws_app``'s WS closer."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    await db.start()
+    try:
+        app = db.create_app(with_lifecycle=True)
+        handlers = list(app.on_shutdown)
+        assert close_active_websockets in handlers
+        assert db._on_shutdown in handlers
+        # WS handlers must unwind before the network teardown.
+        assert handlers.index(close_active_websockets) < handlers.index(db._on_shutdown)
+    finally:
+        await db.stop()
 
 
 async def test_stop_is_safe_without_start(make_settings: MakeSettingsFactory) -> None:

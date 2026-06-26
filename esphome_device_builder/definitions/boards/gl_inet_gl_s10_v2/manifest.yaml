@@ -1,0 +1,109 @@
+id: gl_inet_gl_s10_v2
+name: GL-iNet GL-S10 V2
+description: GL.iNet GL-S10 hardware revision V2.x, which uses the IP101 Ethernet PHY (with a power pin) instead
+  of the V1.x LAN8720. Hand-curated split — devices.esphome.io ships a single page for both revisions.
+manufacturer: GL.iNet
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: arduino
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image1.jpg
+docs_url: https://devices.esphome.io/devices/GL-iNet-GL-S10/
+product_url: https://blakadder.com/gl-s10/
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in IP101 Ethernet PHY (V2.x) — wired networking with no Wi-Fi setup.
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO5
+      locked: true
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 33
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Reset Button
+- id: binary_sensor_status_1
+  component_id: binary_sensor.status
+  fields:
+    internal: true
+    id: binary_sensor_status_1
+    name: Status
+- id: button_safe_mode_1
+  component_id: button.safe_mode
+  fields:
+    entity_category: diagnostic
+    id: button_safe_mode_1
+    name: Safe Mode Boot
+- id: power_led
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: power_led
+- id: bluetooth_led
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    inverted:
+      value: true
+      locked: true
+    id: bluetooth_led
+pins:
+- gpio: 12
+  available: false
+  occupied_by: bluetooth_led
+- gpio: 14
+  available: false
+  occupied_by: power_led
+- gpio: 33
+  available: false
+  occupied_by: Reset Button
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 0
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 5
+  available: false
+  occupied_by: Ethernet Power

@@ -1,0 +1,58 @@
+id: waveshare_esp32_p4_nano
+name: Waveshare ESP32-P4-Nano
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-p4-evboard
+  variant: esp32p4
+  framework: esp-idf
+hardware:
+  connectivity:
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-P4-Nano/waveshare-esp32-p4-nano.webp
+pins:
+- gpio: 31
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 50
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 51
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 52
+  available: false
+  occupied_by: Ethernet MDIO
+docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-P4-Nano/
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO31
+      locked: true
+    mdio_pin:
+      value: GPIO52
+      locked: true
+    power_pin:
+      value: GPIO51
+      locked: true
+    clk:
+      value:
+        mode: CLK_EXT_IN
+        pin: GPIO50
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+source:
+  type: esphome-devices
+  remote_id: Waveshare-ESP32-P4-Nano
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-P4-Nano/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 57ac8d90a8ad45d9f67cae8d4428f2a2d1c8b3bbd784b5b368fb95c8d6ea1cbe

@@ -10,6 +10,7 @@ from ...models import AddComponentResponse, ErrorCode
 from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields
 
 if TYPE_CHECKING:
+    from ...models import ConfigEntry
     from .controller import DevicesController
 
 
@@ -68,7 +69,7 @@ async def add_component(
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
     for entry in component.config_entries:
-        if entry.required and entry.key not in fields:
+        if entry.required and _entry_gate_active(entry, fields) and entry.key not in fields:
             msg = f"Missing required field: {entry.label or entry.key}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
@@ -92,3 +93,17 @@ async def add_component(
         )
 
     return AddComponentResponse(yaml=new_yaml)
+
+
+def _entry_gate_active(entry: ConfigEntry, fields: dict[str, Any]) -> bool:
+    """Whether *entry*'s ``depends_on`` value gate is satisfied by *fields*."""
+    if entry.depends_on is None:
+        return True
+    dep = fields.get(entry.depends_on)
+    if entry.depends_on_value is not None:
+        return dep == entry.depends_on_value
+    if entry.depends_on_value_not is not None:
+        return dep != entry.depends_on_value_not
+    if entry.depends_on_value_any is not None:
+        return dep in entry.depends_on_value_any
+    return True

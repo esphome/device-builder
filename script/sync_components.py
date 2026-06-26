@@ -112,6 +112,7 @@ from _catalog_split import (  # noqa: E402
     prepare_next_bodies_dir,
     swap_split_catalog_in,
 )
+from _esphome_version import assert_installed_esphome  # noqa: E402
 
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
@@ -842,11 +843,12 @@ _IMPORTANT_KEYS: frozenset[str] = frozenset(_IMPORTANT_KEY_ORDER)
 # sort priority but always lives under the advanced section).
 _ADVANCED_IMPORTANT_KEYS: frozenset[str] = frozenset({"id"})
 
-# A ``*.template`` entity's control fields (``optimistic`` + the
-# ``*_action`` handlers) are forced onto the main form by
+# A ``*.template`` entity's primary fields (``lambda`` + ``optimistic`` +
+# the ``*_action`` handlers) are forced onto the main form by
 # ``_promote_template_controls`` (#1324).
 _TEMPLATE_ID_SUFFIX = ".template"
 _OPTIMISTIC_KEY = "optimistic"
+_LAMBDA_KEY = "lambda"
 _ACTION_KEY_SUFFIX = "_action"
 
 # ---------------------------------------------------------------------------
@@ -900,6 +902,12 @@ def main() -> int:
         include_prereleases=args.include_prereleases,
     )
     _LOGGER.info("Using ESPHome schema version: %s", version)
+
+    # Platform metadata (variants, board tables, wifi sets) is introspected from
+    # the installed ESPHome, but the schema bundle and the stamped
+    # esphome_schema_version come from *version*. They must be the same release
+    # or the catalog ships one ESPHome's metadata labelled as another's.
+    assert_installed_esphome(version, what="sync_components")
 
     schema_dir = ensure_schema(version)
     _LOGGER.info("Schema cached at: %s", schema_dir)
@@ -1208,11 +1216,26 @@ def build_catalog(
         _inject_umbrella_entries(out)
 
     _resolve_provides(out, schema_dir)
+    _apply_libretiny_family_provides(out)
 
     # Multi-instance status needs the whole-catalog multi_conf + provides view.
     _apply_auto_loaded_reference_advanced_all(out)
 
+    # Must run after the reference-advanced pass: that pass reads ``multi_conf``
+    # through ``_multi_instance_targets``, so stamping platform stems earlier
+    # would suppress advanced-promotion of auto-loaded singleton refs. Platform
+    # domains are unbounded YAML lists, so every platform entry is repeatable.
+    _mark_platform_domains_multi_conf(out)
+
     return out
+
+
+def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
+    """Stamp ``multi_conf`` on every platform-domain entry; they're list members."""
+    for entry in entries:
+        domain, _, stem = entry["id"].partition(".")
+        if stem and domain in _PLATFORM_DOMAINS:
+            entry["multi_conf"] = True
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
@@ -1285,6 +1308,19 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
         entry["provides_id_paths"] = {
             ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
         }
+
+
+def _apply_libretiny_family_provides(entries: list[dict]) -> None:
+    """Make every libretiny family platform ``provides`` libretiny.
+
+    The families ``AUTO_LOAD`` libretiny, so an ``rtl87xx:`` block already
+    satisfies a ``libretiny`` dependency; advertising it lets the frontend
+    skip the (invalid) "add a second platform block" prompt.
+    """
+    families = set(_libretiny_families())
+    for entry in entries:
+        if entry["id"] in families:
+            entry["provides"] = sorted({*entry.get("provides", ()), "libretiny"})
 
 
 # Matches a description that is actually the first bullet of an MDX
@@ -1871,7 +1907,7 @@ _FRONTMATTER_DESCRIPTION = re.compile(
 )
 
 
-def _extract_mdx_description(text: str) -> str:  # noqa: C901
+def _extract_mdx_description(text: str) -> str:
     """Return the curated description for a component MDX file.
 
     Tries the frontmatter ``description:`` field first; falls back to
@@ -1889,30 +1925,45 @@ def _extract_mdx_description(text: str) -> str:  # noqa: C901
         if cleaned:
             return cleaned
 
-    # Fall back to the first prose paragraph.
-    paragraphs: list[str] = []
-    current: list[str] = []
-    for raw_line in body.splitlines():
-        line = raw_line.strip()
-        if not line:
-            if current:
-                paragraphs.append(" ".join(current))
-                current = []
+    for paragraph in _prose_paragraphs(body):
+        # Never surface residual JSX/HTML attribute markup.
+        if "/>" in paragraph or "={" in paragraph:
             continue
-        if line.startswith(("import ", "<", ":::", "#", "```", "{")):
-            if current:
-                paragraphs.append(" ".join(current))
-                current = []
-            continue
-        current.append(line)
-    if current:
-        paragraphs.append(" ".join(current))
-
-    for p in paragraphs:
-        cleaned = _clean_description_text(p)
+        cleaned = _clean_description_text(paragraph)
         if cleaned:
             return cleaned
     return ""
+
+
+def _prose_paragraphs(body: str) -> list[str]:
+    """Split an MDX body into prose paragraphs, dropping import / JSX blocks.
+
+    Skips whole multi-line elements (a wrapped ``<Figure … />`` and its
+    attribute lines), not just the opening tag line.
+    """
+    paragraphs: list[str] = []
+    current: list[str] = []
+    in_jsx_block = False  # inside a wrapped element, e.g. a multi-line <Figure ... />
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if in_jsx_block:
+            # ``/>`` and a bare ``>`` both end in ``>``; either closes the tag.
+            if line.endswith(">"):
+                in_jsx_block = False
+            continue
+        if line and not line.startswith(("import ", "<", ":::", "#", "```", "{")):
+            current.append(line)
+            continue
+        if current:
+            paragraphs.append(" ".join(current))
+            current = []
+        # A tag that opens here but doesn't close on this line starts a
+        # multi-line element whose attribute lines must also be skipped.
+        if line.startswith("<") and not line.endswith(">"):
+            in_jsx_block = True
+    if current:
+        paragraphs.append(" ".join(current))
+    return paragraphs
 
 
 # Markdown link / inline-code stripping for description text.
@@ -2061,6 +2112,15 @@ def build_component_entry(
     # entry's own hub back in.
     if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
         dependencies.append(stem)
+
+    # A device that cross-references a bus hub (``spi_id`` / ``i2c_id`` /
+    # ``uart_id``) needs that bus block to exist; ESPHome enforces it at config
+    # time but doesn't always list it in ``DEPENDENCIES`` (atm90e32, max6675,
+    # i2c touchscreens), so the schema index ships them bus-less and the
+    # frontend never prompts to add the bus. Union the referenced bus back in.
+    for bus in sorted(_referenced_buses(config_entries)):
+        if bus not in dependencies:
+            dependencies.append(bus)
 
     # Drop deps the chosen networking transport will auto-load. See
     # ``_implicit_dependencies``.
@@ -2244,23 +2304,24 @@ def _apply_visibility_cascade(
 
 def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
     """
-    Surface a ``*.template`` entity's control fields on the main form.
+    Surface a ``*.template`` entity's primary fields on the main form.
 
     A template entity (``switch.template`` / ``cover.template`` / …) only
-    works once its control fields are set: ``optimistic`` and the
-    ``*_action`` handlers. ESPHome marks them optional because they are
-    *conditionally* required (you need ``optimistic`` and/or the actions,
-    else validation fails), which the schema can't express, so
-    ``_classify_advanced`` defaults them to advanced. Force them core so the
-    user isn't sent hunting under "Show advanced" for effectively-required
-    fields (#1324). Scoped to ``.template`` ids so it can't promote, e.g.,
-    ``climate.thermostat``'s many optional ``fan_mode_*_action`` handlers.
+    works once its primary fields are set: ``lambda`` (its value source) and
+    the control fields ``optimistic`` / the ``*_action`` handlers. ESPHome
+    marks them optional because they are *conditionally* required (you need a
+    lambda and/or optimistic and/or the actions, else the entity does nothing),
+    which the schema can't express, so ``_classify_advanced`` defaults them to
+    advanced. Force them core so the user isn't sent hunting under "Show
+    advanced" for effectively-required fields (#1324). Scoped to ``.template``
+    ids so it can't promote, e.g., ``climate.thermostat``'s many optional
+    ``fan_mode_*_action`` handlers.
     """
     if not component_id.endswith(_TEMPLATE_ID_SUFFIX):
         return
     for entry in entries:
         key = entry.get("key", "")
-        if key == _OPTIMISTIC_KEY or key.endswith(_ACTION_KEY_SUFFIX):
+        if key in (_OPTIMISTIC_KEY, _LAMBDA_KEY) or key.endswith(_ACTION_KEY_SUFFIX):
             entry["advanced"] = False
 
 
@@ -3086,7 +3147,6 @@ def _emit_platform_capabilities_index() -> None:
     from types import SimpleNamespace
 
     from esphome.components.esp32.const import VARIANTS
-    from esphome.components.libretiny.const import FAMILY_COMPONENT
     from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
 
@@ -3112,7 +3172,7 @@ def _emit_platform_capabilities_index() -> None:
     payload = {
         "esp32_variants": sorted(VARIANTS),
         "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
-        "libretiny_families": sorted(set(FAMILY_COMPONENT.values())),
+        "libretiny_families": list(_libretiny_families()),
         "rp2040_no_wifi_boards": sorted(
             board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
         ),
@@ -4560,6 +4620,15 @@ def _walk_schema_keys(
             return
         candidate = _unwrap_schema_to_dict(node)
         if candidate is None:
+            # A ``cv.typed_schema`` is a closure, not a ``vol.*`` wrapper, so
+            # ``_unwrap_schema_to_dict`` can't peel it. Descend each per-type
+            # branch at the same path (typed variants flatten in YAML and add
+            # no path segment) so the collectors reach variant-only fields
+            # like ethernet's ``clock_speed``.
+            branches = _typed_branch_schemas(node)
+            if branches is not None:
+                for branch in branches.values():
+                    walk(branch, path, depth + 1)
             return
         if id(candidate) in visited:
             return
@@ -4956,6 +5025,21 @@ def _collect_refined_types(  # noqa: C901
     return out
 
 
+def _closure_nonlocals(func: Any) -> dict[str, Any]:
+    """Map *func*'s closure freevar names to values, ``{}`` for a non-closure.
+
+    Reads ``__code__.co_freevars`` / ``__closure__`` directly instead of
+    ``inspect.getclosurevars``, whose global/builtin name analysis dominates the
+    schema walk. Raises ``ValueError`` on an unbound cell (as ``getclosurevars``
+    does); callers suppress it.
+    """
+    code = getattr(func, "__code__", None)
+    closure = getattr(func, "__closure__", None)
+    if code is None or not closure:
+        return {}
+    return {name: cell.cell_contents for name, cell in zip(code.co_freevars, closure, strict=True)}
+
+
 def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str, Any]]:
     """Read a ``cv.typed_schema`` validator's ``(typed_key, default)`` + its closure vars.
 
@@ -4967,7 +5051,7 @@ def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str,
     if not (callable(node) and getattr(node, "__closure__", None)):
         return None, {}
     try:
-        nonlocals = inspect.getclosurevars(node).nonlocals
+        nonlocals = _closure_nonlocals(node)
     except (TypeError, ValueError):
         return None, {}
     default = nonlocals.get("default_schema_option")
@@ -4976,12 +5060,15 @@ def _typed_closure_default(node: Any) -> tuple[tuple[str, Any] | None, dict[str,
     return None, nonlocals
 
 
-def _typed_default_of(node: Any) -> tuple[str, Any] | None:
-    """Return ``(typed_key, default_type)`` for a ``cv.typed_schema`` reachable from *node*.
+def _search_validator_graph[ProbeResult](
+    node: Any, probe: Callable[[Any], ProbeResult | None]
+) -> ProbeResult | None:
+    """Return the first non-None ``probe(current)`` across the validator graph from *node*.
 
-    ``cv.All(cv.ensure_list(...))`` buries the typed validator two
-    closures deep (``spi``), so descend ``.validators`` / ``.schema`` /
-    closure cells. ``None`` when no reachable typed_schema has a default.
+    Walks the union of each node's closure freevars, ``.validators`` tuple, and
+    ``.schema`` attribute — the nesting ``cv.All`` / ``cv.ensure_list`` /
+    ``cv.typed_schema`` use to bury validators — deduping by ``id`` so a cyclic
+    schema terminates.
     """
     seen: set[int] = set()
     stack: list[Any] = [node]
@@ -4990,10 +5077,12 @@ def _typed_default_of(node: Any) -> tuple[str, Any] | None:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        found, nonlocals = _typed_closure_default(current)
-        if found is not None:
-            return found
-        stack.extend(nonlocals.values())
+        result = probe(current)
+        if result is not None:
+            return result
+        if callable(current) and getattr(current, "__closure__", None):
+            with contextlib.suppress(TypeError, ValueError):
+                stack.extend(_closure_nonlocals(current).values())
         inner = getattr(current, "validators", None)
         if isinstance(inner, (list, tuple)):
             stack.extend(inner)
@@ -5001,6 +5090,35 @@ def _typed_default_of(node: Any) -> tuple[str, Any] | None:
         if schema is not None and schema is not current:
             stack.append(schema)
     return None
+
+
+def _typed_branch_schemas(node: Any) -> dict[str, Any] | None:
+    """Return a reachable ``cv.typed_schema``'s per-type branch sub-schemas, or None.
+
+    Reads the ``schemas`` freevar — the ``{type_name: sub_schema}`` dict
+    ``cv.typed_schema(schemas, ...)`` captures — off the first reachable
+    typed_schema closure.
+    """
+
+    def _branches(current: Any) -> dict[str, Any] | None:
+        if not (callable(current) and getattr(current, "__closure__", None)):
+            return None
+        try:
+            schemas = _closure_nonlocals(current).get("schemas")
+        except (TypeError, ValueError):
+            return None
+        return schemas if isinstance(schemas, dict) and schemas else None
+
+    return _search_validator_graph(node, _branches)
+
+
+def _typed_default_of(node: Any) -> tuple[str, Any] | None:
+    """Return ``(typed_key, default_type)`` for a ``cv.typed_schema`` reachable from *node*.
+
+    ``cv.All(cv.ensure_list(...))`` buries the typed validator two closures deep
+    (``spi``); ``None`` when no reachable typed_schema has a default.
+    """
+    return _search_validator_graph(node, lambda current: _typed_closure_default(current)[0])
 
 
 def _collect_typed_defaults(manifest: Any) -> dict[tuple[str, ...], Any]:
@@ -5064,6 +5182,19 @@ def _references_own_hub(config_entries: list[dict], stem: str) -> bool:
 
     _walk_catalog_entries(config_entries, visit)
     return found
+
+
+def _referenced_buses(config_entries: list[dict]) -> set[str]:
+    """Bus components (``i2c`` / ``spi`` / ``uart`` / ...) a config var cross-references via use_id."""
+    buses: set[str] = set()
+
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        ref = entry.get("references_component")
+        if ref is not None and _CATEGORY_OVERRIDES.get(ref) == "bus":
+            buses.add(ref)
+
+    _walk_catalog_entries(config_entries, visit)
+    return buses
 
 
 # Capability validators ESPHome wraps a pin field in when the pin must
@@ -5910,7 +6041,7 @@ def _platform_set(node: Any) -> frozenset[str] | None:
     """
     if callable(node) and getattr(node, "__closure__", None):
         try:
-            nonlocals = inspect.getclosurevars(node).nonlocals
+            nonlocals = _closure_nonlocals(node)
         except (TypeError, ValueError):
             nonlocals = {}
         platforms = nonlocals.get("platforms")
@@ -6000,7 +6131,7 @@ def _apply_platform_constraints(
     def visit(entry: dict, path: tuple[str, ...]) -> None:
         constraint = constraints.get(path)
         if constraint:
-            entry["supported_platforms"] = list(constraint)
+            entry["supported_platforms"] = _expand_libretiny(constraint)
 
     _walk_catalog_entries(entries, visit)
 
@@ -6028,7 +6159,7 @@ def _required_group_from_validator(node: Any) -> dict[str, Any] | None:
     if kind is None:
         return None
     try:
-        nonlocals = inspect.getclosurevars(node).nonlocals
+        nonlocals = _closure_nonlocals(node)
     except (TypeError, ValueError):
         return None
     keys = nonlocals.get("keys")
@@ -6562,6 +6693,33 @@ def _apply_exclusive_group(entries: list[dict], members: dict[str, bool], group_
     _walk_catalog_entries(entries, visit)
 
 
+@cache
+def _libretiny_families() -> tuple[str, ...]:
+    """
+    Concrete chip families behind the ``libretiny`` umbrella, from esphome.
+
+    Imported eagerly (not guarded) so a renamed/relocated ``FAMILY_COMPONENT``
+    aborts the sync rather than silently emitting an empty list — an empty
+    expansion would re-leak libretiny components onto every platform.
+    """
+    from esphome.components.libretiny.const import FAMILY_COMPONENT
+
+    families = tuple(sorted(set(FAMILY_COMPONENT.values())))
+    if not families:
+        raise RuntimeError("esphome FAMILY_COMPONENT yielded no libretiny families")
+    return families
+
+
+def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
+    """Replace the ``libretiny`` umbrella token with its concrete families."""
+    expanded = (
+        name
+        for platform in platforms
+        for name in (_libretiny_families() if platform == "libretiny" else (platform,))
+    )
+    return list(dict.fromkeys(expanded))
+
+
 def _derive_supported_platforms(
     component_id: str,
     dependencies: list[str],
@@ -6573,11 +6731,12 @@ def _derive_supported_platforms(
     themselves. Otherwise, dependencies that match ``_TARGET_PLATFORMS``
     are surfaced — ``esp32_ble_tracker`` depends on ``esp32`` so we
     return ``["esp32"]``; most components have no platform-specific
-    deps and return ``[]`` (treated as "all platforms").
+    deps and return ``[]`` (treated as "all platforms"). A ``libretiny``
+    dependency (or the umbrella component itself) expands to its families.
     """
     if introspection.get("is_target_platform"):
-        return [component_id]
-    return [d for d in dependencies if d in _TARGET_PLATFORMS]
+        return _expand_libretiny([component_id])
+    return _expand_libretiny(d for d in dependencies if d in _TARGET_PLATFORMS or d == "libretiny")
 
 
 def _auto_load_closure(component_id: str) -> set[str]:

@@ -89,5 +89,5 @@ source:
   type: esphome-devices
   remote_id: Xiangshang-XS-SSA05
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Xiangshang-XS-SSA05/index.md
-  upstream_revision: c5d3c291760d8e2d9909f54b1b491aacfc59740e
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
   content_hash: e29f3da64b4a80a6215169c720456c50903510b4c44ef6c97a27b1578bae9e38

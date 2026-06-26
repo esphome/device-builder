@@ -6,9 +6,11 @@ import json
 from pathlib import Path
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _PLATFORM_DOMAINS,
     _apply_auto_loaded_reference_advanced,
     _convert_field,
     _is_own_id_field,
+    _mark_platform_domains_multi_conf,
     _multi_instance_targets,
     _resolve_auto_load,
 )
@@ -193,6 +195,41 @@ def test_multi_instance_targets_includes_provided_bases() -> None:
     assert "rc522_spi" in multi
     assert "switch" in multi  # platform domains are always multi-instance
     assert "web_server_base" not in multi
+
+
+def test_mark_platform_domains_multi_conf() -> None:
+    """Platform-domain entries flip to multi_conf; singletons stay untouched."""
+    entries = [
+        {"id": "output.libretiny_pwm"},
+        {"id": "sensor.dht"},
+        {"id": "wifi"},
+        {"id": "bmi270.motion"},
+        {"id": "i2c", "multi_conf": True},
+    ]
+    _mark_platform_domains_multi_conf(entries)
+    by_id = {e["id"]: e for e in entries}
+    assert by_id["output.libretiny_pwm"]["multi_conf"] is True
+    assert by_id["sensor.dht"]["multi_conf"] is True
+    assert "multi_conf" not in by_id["wifi"]  # bare singleton
+    assert "multi_conf" not in by_id["bmi270.motion"]  # non-platform domain
+    assert by_id["i2c"]["multi_conf"] is True
+
+
+def test_shipped_platform_entries_are_multi_conf() -> None:
+    """The shipped catalog marks platform variants repeatable (issue #1663)."""
+    assert _load_body("output.libretiny_pwm")["multi_conf"] is True
+    assert _load_body("sensor.dht")["multi_conf"] is True
+
+
+def test_platform_domains_match_yaml_entity_categories() -> None:
+    """``_PLATFORM_DOMAINS`` must equal the YAML serializer's ``_ENTITY_CATEGORIES``."""
+    # If they drift, a platform domain stamped multi_conf=True here would fall into
+    # the serializer's multi_conf branch and render invalid list-form ``<id>:`` YAML.
+    from esphome_device_builder.helpers.yaml.component import (  # noqa: PLC0415
+        _ENTITY_CATEGORIES,
+    )
+
+    assert set(_PLATFORM_DOMAINS) == set(_ENTITY_CATEGORIES)
 
 
 def test_resolve_auto_load_handles_callable() -> None:

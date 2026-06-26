@@ -32,6 +32,7 @@ from esphome_device_builder.controllers._device_state_monitor import importable 
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
+from esphome_device_builder.controllers._device_state_monitor.api_info import ApiInfoSource
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
@@ -77,6 +78,8 @@ def _make_monitor(
 
     monitor._presence = None  # ping loop runs unconditionally in tests
     monitor._ping = PingSource(monitor)
+    monitor._api_info = ApiInfoSource(monitor)
+    monitor._resolve_api_connection = None
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
@@ -85,6 +88,7 @@ def _make_monitor(
     monitor._mdns._zeroconf = None
     monitor._mdns._mdns_browser = None
     monitor._ping_task = None
+    monitor._api_info_task = None
     monitor._tasks = set()
     monitor._importable._import_discovery = None
 
@@ -246,6 +250,42 @@ async def test_stop_swallows_zeroconf_close_exception(
     await _stop_and_drain(monitor)  # must not raise
 
     assert monitor._mdns._zeroconf is None
+
+
+async def test_close_zeroconf_is_bounded_when_async_close_hangs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A wedged ``async_close`` can't stall shutdown past ``_MDNS_CLOSE_TIMEOUT``."""
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    monkeypatch.setattr(mdns_module, "_MDNS_CLOSE_TIMEOUT", 0.05)
+
+    async def _hang() -> None:
+        await asyncio.sleep(30)
+
+    monitor._mdns._zeroconf.async_close = _hang
+
+    # Returns far under the 30s hang (timeout guard fails fast on a regression).
+    async with asyncio.timeout(5):
+        await monitor._mdns.close_zeroconf()
+
+    assert monitor._mdns._zeroconf is None
+    await _stop_and_drain(monitor)
+
+
+async def test_stop_drains_ping_and_api_info_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """stop() awaits the cancelled ping / API-info tasks, not leaving them for aiohttp's sweep."""
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    ping = monitor._ping_task
+    api = monitor._api_info_task
+    assert ping is not None
+    assert api is not None
+
+    await monitor.stop()
+
+    assert ping.done()
+    assert api.done()
 
 
 # ---------------------------------------------------------------------------

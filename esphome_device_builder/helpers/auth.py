@@ -6,15 +6,18 @@ import asyncio
 import base64
 import hashlib
 import logging
+import re
 import secrets
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 
 from aiohttp import web
 
+from ..constants import HA_SUPERVISOR_IP
 from .json import JSONDecodeError, dumps, loads
 
 _LOGGER = logging.getLogger(__name__)
@@ -321,6 +324,13 @@ _PUBLIC_PATHS = frozenset(
 )
 _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 
+# Content-hash segment in a frontend bundle filename (app.<hash>.js,
+# chunks, vendors, .js.map / .js.LICENSE.txt sidecars). These load from the
+# deploy root, not /assets/, so auth must let them through pre-login. Safe
+# because no API/legacy route is content-addressed, so a hashed top-level
+# path can never resolve to a sensitive endpoint.
+HASHED_FILENAME_RE = re.compile(r"\.[a-f0-9]{8,}\.")
+
 
 @web.middleware
 async def auth_middleware(  # noqa: PLR0911
@@ -343,7 +353,11 @@ async def auth_middleware(  # noqa: PLR0911
         return await handler(request)
 
     path = request.path
-    if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+    if (
+        path in _PUBLIC_PATHS
+        or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+        or _is_public_hashed_asset(request.method, path)
+    ):
         return await handler(request)
 
     header = request.headers.get("Authorization", "")
@@ -366,6 +380,23 @@ async def auth_middleware(  # noqa: PLR0911
     return _unauthorized()
 
 
+# Bounded so adversarial distinct paths can't grow it without limit; the
+# legitimate working set (every top-level bundle/chunk/map/sidecar, GET+HEAD)
+# is only a few dozen entries.
+@lru_cache(maxsize=1024)
+def _is_public_hashed_asset(method: str, path: str) -> bool:
+    """Return True for a safe-method request to a top-level content-hashed bundle.
+
+    ``path.count("/") == 1`` anchors to the deploy root so a deep-link
+    asset (``/device/app.<hash>.js``) stays gated.
+    """
+    return (
+        method in ("GET", "HEAD")
+        and path.count("/") == 1
+        and HASHED_FILENAME_RE.search(path) is not None
+    )
+
+
 def _unauthorized(message: str = "Authentication required") -> web.Response:
     return web.Response(
         status=401,
@@ -374,3 +405,36 @@ def _unauthorized(message: str = "Authentication required") -> web.Response:
             "WWW-Authenticate": 'Basic realm="ESPHome Device Builder", Bearer',
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Trusted HA Ingress site peer guard
+# ---------------------------------------------------------------------------
+
+# Source IPs allowed to reach the trusted (auth-bypassing) HA Ingress site:
+# the supervisor (it proxies the already-authenticated browser request) and
+# loopback (HA core's host-network ESPHome integration, plus the host). Mirrors
+# the legacy add-on nginx ACL ``allow 127.0.0.1; allow 172.30.32.2; deny all``.
+# The site skips auth, so the TCP peer is the only gate — a bridge add-on or
+# LAN client reaching the bound address gets 403, not the dashboard.
+_TRUSTED_INGRESS_PEERS = frozenset({"127.0.0.1", "::1", HA_SUPERVISOR_IP})
+
+
+@web.middleware
+async def ingress_peer_guard(
+    request: web.Request,
+    handler: Callable[[web.Request], Awaitable[web.StreamResponse]],
+) -> web.StreamResponse:
+    """Reject trusted-ingress requests whose TCP peer isn't loopback/supervisor.
+
+    Applies regardless of ``--ingress-host`` — the bind address is
+    configurable but the allowed peers are not.
+    """
+    peername = request.transport.get_extra_info("peername") if request.transport else None
+    peer_ip = peername[0] if peername else None
+    if peer_ip not in _TRUSTED_INGRESS_PEERS:
+        # Logged so a misconfigured --ingress-host override (binds fine but
+        # every request 403s) is diagnosable instead of silently failing.
+        _LOGGER.debug("Ingress peer guard rejected non-trusted source %s", peer_ip)
+        return web.Response(status=403, text="Forbidden")
+    return await handler(request)

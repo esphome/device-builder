@@ -7,8 +7,13 @@ import logging
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.api import CommandError
-from ...helpers.device_yaml import generate_device_yaml, generate_minimal_stub_yaml
+from ...helpers.device_yaml import (
+    NETWORK_PROVIDER_COMPONENT_IDS,
+    generate_device_yaml,
+    generate_minimal_stub_yaml,
+)
 from ...models import ErrorCode
+from ..editor import ValidatorUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -40,22 +45,53 @@ async def yaml_content_for_create(
     ssid: str,
     psk: str,
     *,
+    wifi_secrets_available: bool = True,
+    wifi_requested: bool = False,
     catalog: ComponentCatalog | None = None,
 ) -> tuple[str, CreateYamlSource]:
-    """Pick the YAML body for ``devices/create`` based on the inputs."""
+    """
+    Pick the YAML body for ``devices/create`` based on the inputs.
+
+    A board with onboard-network suggested hardware (``ethernet:``) is
+    wired by default — the network component is auto-pulled into
+    *defaults*, and the generator drops the ``wifi:`` block in its
+    favour — unless the user opts that device into Wi-Fi. *wifi_requested*
+    is that opt-in for the ``!secret`` path (the caller persisted the
+    credentials and cleared *ssid*); a literal *ssid* opts in the same way.
+    """
     if file_content:
         return file_content, "user"
     if board:
         defaults = (
             await catalog.resolve_default_components(board)
             if catalog and board.default_components
-            else None
+            else []
         )
+        # Auto-pull onboard ethernet only when the board doesn't already
+        # provide a network through ``default_components`` — a board listing a
+        # provider in both lists would otherwise merge its block twice.
+        already_networked = any(
+            component.id in NETWORK_PROVIDER_COMPONENT_IDS for component, _ in defaults
+        )
+        wants_wifi = bool(ssid) or wifi_requested
+        if catalog and not wants_wifi and not already_networked and board.featured_components:
+            defaults.extend(await catalog.resolve_network_components(board))
         return (
-            generate_device_yaml(name, friendly, board, ssid, psk, defaults=defaults),
+            generate_device_yaml(
+                name,
+                friendly,
+                board,
+                ssid,
+                psk,
+                wifi_secrets_available=wifi_secrets_available,
+                defaults=defaults,
+            ),
             "template",
         )
-    return generate_minimal_stub_yaml(name, friendly), "stub"
+    return (
+        generate_minimal_stub_yaml(name, friendly, wifi_secrets_available=wifi_secrets_available),
+        "stub",
+    )
 
 
 async def validate_rewritten_yaml_or_raise(
@@ -66,6 +102,8 @@ async def validate_rewritten_yaml_or_raise(
     action: str,
     on_failure: ErrorCode = ErrorCode.INVALID_ARGS,
     on_error_cleanup: Callable[[], None] | None = None,
+    tolerate_unavailable: bool = False,
+    timeout: float | None = None,
 ) -> None:
     """
     Schema-validate *content* via the editor; raise if invalid.
@@ -76,12 +114,43 @@ async def validate_rewritten_yaml_or_raise(
     generators. *on_error_cleanup* runs in a finally on any
     non-success path so callers that wrote the YAML before
     validating can roll back.
+
+    *tolerate_unavailable* treats validator unavailability (timeout /
+    subprocess failure) as success: file kept, no cleanup; genuine
+    YAML/schema errors still raise. *timeout* overrides the validator's
+    round-trip budget.
     """
     if editor is None:
         return
     succeeded = False
     try:
-        result = await editor.validate_yaml(configuration=configuration, content=content)
+        try:
+            result = await editor.validate_yaml(
+                configuration=configuration, content=content, timeout=timeout
+            )
+        except TimeoutError:
+            if not tolerate_unavailable:
+                raise
+            # Expected on adopt: the cold ``github://`` fetch outran the budget.
+            _LOGGER.info(
+                "Validation of %s for %s timed out; keeping file, deferring to compile/install",
+                configuration,
+                action,
+            )
+            succeeded = True
+            return
+        except (ValidatorUnavailableError, BrokenPipeError):
+            if not tolerate_unavailable:
+                raise
+            # Subprocess down (a generic RuntimeError still propagates); WARNING
+            # since an always-down validator is operationally significant.
+            _LOGGER.warning(
+                "Validator subprocess unavailable during %s of %s; keeping file unvalidated",
+                action,
+                configuration,
+            )
+            succeeded = True
+            return
         errors = [
             *(err.get("message", "") for err in result.get("yaml_errors", [])),
             *(err.get("message", "") for err in result.get("validation_errors", [])),
