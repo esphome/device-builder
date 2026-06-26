@@ -172,6 +172,9 @@ class FeaturedComponent(DashboardModel):
     # underlying component's generic image on the recommended card.
     # Resolved at sync time (local path -> /boards/images/..., URL as-is).
     image_url: str = ""
+    # Mirrors the underlying component's ``multi_conf``. Default True so only
+    # the single-instance exceptions serialise (omit_default).
+    multi_conf: bool = True
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""

@@ -21,6 +21,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import orjson
 import pytest
 
 from esphome_device_builder import definitions
@@ -39,6 +40,7 @@ from esphome_device_builder.definitions import (
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import generate_component_yaml
 from esphome_device_builder.models import ComponentCategory, ErrorCode
+from esphome_device_builder.models.boards import FeaturedComponent
 from esphome_device_builder.models.common import FieldPreset
 
 # Pin every test in the file onto the same xdist worker as the rest of
@@ -101,6 +103,34 @@ def test_load_featured_component_image_url_passthrough() -> None:
         {"id": "dht", "component_id": "sensor.dht", "image_url": url}, Path("boards/x")
     )
     assert fc.image_url == url
+
+
+def test_load_featured_component_multi_conf_from_map() -> None:
+    """multi_conf comes from the component map; an unknown id defaults True."""
+    m = {"sensor.dht": True, "ethernet": False}
+
+    def load(cid: str) -> FeaturedComponent:
+        return _load_featured_component({"id": "x", "component_id": cid}, Path("boards/x"), m)
+
+    assert load("sensor.dht").multi_conf is True
+    assert load("ethernet").multi_conf is False
+    assert load("nonexistent").multi_conf is True
+
+
+def test_committed_featured_multi_conf_matches_catalog() -> None:
+    """Each committed featured entry's multi_conf mirrors its underlying component."""
+    defs = Path(definitions.__file__).parent
+    comps = {
+        c["id"]: c.get("multi_conf", False)
+        for c in orjson.loads((defs / "components.index.json").read_bytes())["components"]
+    }
+    featured = orjson.loads((defs / "featured_components.index.json").read_bytes())
+    for board, entries in featured.items():
+        for e in entries:
+            expected = comps.get(e["component_id"], True)
+            assert e.get("multi_conf", True) == expected, (
+                f"{board}/{e['id']}: multi_conf {e.get('multi_conf', True)} != {expected}"
+            )
 
 
 def test_load_featured_bundle() -> None:

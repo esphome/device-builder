@@ -54,6 +54,7 @@ _DEFINITIONS_DIR = Path(__file__).parent
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
 _BOARDS_BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
+_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
 _FEATURED_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 _PIN_REGISTRY_MODES_INDEX_JSON = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
 _PLATFORM_CAPABILITIES_INDEX_JSON = _DEFINITIONS_DIR / "platform_capabilities.index.json"
@@ -218,7 +219,18 @@ def _resolve_featured_image(raw: object, board_dir: Path) -> str:
     return ""
 
 
-def _load_featured_component(data: dict, board_dir: Path) -> FeaturedComponent:
+def _load_component_multi_conf() -> dict[str, bool]:
+    """Map each component id to its ``multi_conf`` from the component index."""
+    try:
+        components = orjson.loads(_COMPONENTS_INDEX_JSON.read_bytes())["components"]
+    except (OSError, ValueError, KeyError):
+        return {}
+    return {c["id"]: c.get("multi_conf", False) for c in components}
+
+
+def _load_featured_component(
+    data: dict, board_dir: Path, multi_conf_by_id: dict[str, bool] | None = None
+) -> FeaturedComponent:
     """Load a FeaturedComponent from its YAML dict form."""
     raw_fields = data.get("fields") or {}
     fields = {key: _coerce_field_preset(val) for key, val in raw_fields.items()}
@@ -229,6 +241,8 @@ def _load_featured_component(data: dict, board_dir: Path) -> FeaturedComponent:
         description=data.get("description"),
         fields=fields,
         image_url=_resolve_featured_image(data.get("image_url"), board_dir),
+        # Unknown underlying id defaults to multi-conf (won't false-collapse).
+        multi_conf=(multi_conf_by_id or {}).get(data["component_id"], True),
     )
 
 
@@ -287,6 +301,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
     failure is logged.
     """
     boards: list[BoardCatalogEntry] = []
+    multi_conf_by_id = _load_component_multi_conf()
 
     for manifest in sorted(_BOARDS_DIR.glob("*/manifest.yaml")):
         try:
@@ -329,7 +344,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     featured=data.get("featured", False),
                     is_generic=data.get("is_generic", False),
                     featured_components=[
-                        _load_featured_component(fc, board_dir)
+                        _load_featured_component(fc, board_dir, multi_conf_by_id)
                         for fc in data.get("featured_components", [])
                     ],
                     featured_bundles=[
