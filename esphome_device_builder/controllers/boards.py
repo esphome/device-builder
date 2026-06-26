@@ -20,6 +20,7 @@ from ..models import (
     PagedBoardsResponse,
     Platform,
 )
+from ..models.boards import normalize_platform
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -106,7 +107,9 @@ class BoardCatalog:
         results: list[BoardCatalogIndex] = self._boards
 
         if platform:
-            results = [b for b in results if b.esphome.platform == platform]
+            raw = platform.value if isinstance(platform, Platform) else platform
+            platform = normalize_platform(raw)
+            results = [b for b in results if b.esphome.platform.value == platform]
 
         if variant:
             results = _filter_by_variant(results, variant)
@@ -167,7 +170,8 @@ class BoardCatalog:
         """Catalog entries on a PlatformIO board, optionally scoped to a platform."""
         matches = [b for b in self._boards if b.esphome.board == pio_board]
         if platform is not None:
-            platform_value = platform.value if isinstance(platform, Platform) else platform
+            raw = platform.value if isinstance(platform, Platform) else platform
+            platform_value = normalize_platform(raw)
             matches = [b for b in matches if b.esphome.platform.value == platform_value]
         return matches
 
@@ -232,6 +236,7 @@ class BoardCatalog:
         """
         if not platform:
             return None
+        platform = normalize_platform(platform)
         matches = [b for b in self._boards if b.esphome.platform.value == platform]
         if not matches:
             return None

@@ -18,6 +18,8 @@ without forcing the firmware to broadcast all of them.
 
 from __future__ import annotations
 
+from ..models.boards import RP2_PLATFORM_ALIASES
+
 # Platform keys (``Device.target_platform``) that follow Espressif's
 # 4-MAC offset scheme. Anything outside this set falls through the
 # derivation paths as "no derived MACs" — explicit allowlist beats
@@ -31,7 +33,7 @@ _ESP32_PLATFORMS: frozenset[str] = frozenset(
 # equals the primary; bluetooth on the Pico W routes through a
 # separate radio chip with its own allocation scheme so we don't
 # derive there.
-_SINGLE_MAC_PLATFORMS: frozenset[str] = frozenset({"rp2040", "rp2350"})
+_SINGLE_MAC_PLATFORMS: frozenset[str] = frozenset({"rp2350"}) | RP2_PLATFORM_ALIASES
 
 
 def _has_ethernet(loaded_integrations: list[str]) -> bool:

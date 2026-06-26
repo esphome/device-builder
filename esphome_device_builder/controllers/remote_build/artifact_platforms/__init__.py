@@ -12,6 +12,7 @@ from __future__ import annotations
 from functools import cache
 
 from ....definitions import load_platform_capabilities_index
+from ....models.boards import normalize_platform
 from . import bk72xx, esp32, esp8266, ln882x, nrf52, rp2040, rtl87xx
 
 _PLATFORMS = (bk72xx, esp8266, esp32, ln882x, nrf52, rp2040, rtl87xx)
@@ -34,7 +35,7 @@ def _by_target() -> dict[str, tuple[str, ...]]:
 
 def build_files_for_platform(target_platform: str) -> tuple[str, ...]:
     """Return BUILD_FILES for *target_platform*; empty tuple if unrecognised."""
-    key = target_platform.lower()
+    key = normalize_platform(target_platform.lower())
     files = _by_target().get(key)
     if files is not None:
         return files

@@ -25,6 +25,7 @@ from ...helpers.api import CommandError
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
 from ...helpers.storage_path import resolve_storage_path
+from ...models.boards import normalize_platform
 from .helpers import _find_sibling_cli
 
 if TYPE_CHECKING:
@@ -337,7 +338,7 @@ def _resolve_download_component(target_platform: str | None) -> str:
     built. A real but unknown platform routes to the helper, whose import failure
     is the branch that logs.
     """
-    platform = (target_platform or "").lower()
+    platform = normalize_platform((target_platform or "").lower())
     routing = _platform_sets()
     if platform.upper() in routing.esp32_variants:
         return "esp32"

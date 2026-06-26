@@ -12,6 +12,7 @@ from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
 from ...models import Device, DeviceState
+from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_storage_path
 from ._parsing import (
@@ -242,6 +243,7 @@ def load_device_from_storage(
             target_platform = core_platform.lower()
     if not target_platform:
         target_platform = detect_platform_from_yaml(yaml_content, resolved_config)
+    target_platform = normalize_platform(target_platform)
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     # Subset of loaded_integrations the user directly wrote — top-

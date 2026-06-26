@@ -20,6 +20,7 @@ from ...models import (
     ComponentCategory,
     PagedComponentsResponse,
 )
+from ...models.boards import normalize_platform
 from ..devices.helpers import _apply_featured_presets
 from ._resolve import (
     _BODY_CACHE_MAXSIZE,
@@ -720,7 +721,7 @@ class ComponentCatalog:
         provided, look up the board to find its platform.
         """
         if platform:
-            return platform.lower()
+            return normalize_platform(platform.lower())
         if not board_id or self._db is None or self._db.boards is None:
             return None
         board = self._db.boards.get_by_id(board_id)

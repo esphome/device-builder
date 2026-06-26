@@ -48,6 +48,20 @@ class Platform(StrEnum):
     HOST = "host"
 
 
+# esphome/esphome#17145 renames the ``rp2040`` target-platform key to ``rp2``
+# (the chips/variants stay rp2040/rp2350; only the platform key changes). Our
+# catalog, board manifests and capability index remain keyed on ``rp2040``
+# until a coordinated esphome bump, so ``rp2`` is folded onto ``rp2040`` at
+# every boundary that ingests an external platform string (StorageJSON from a
+# newer esphome, or user YAML using the ``rp2:`` key).
+RP2_PLATFORM_ALIASES: frozenset[str] = frozenset({"rp2", "rp2040"})
+
+
+def normalize_platform(name: str) -> str:
+    """Fold the renamed ``rp2`` platform key onto the catalog's ``rp2040``."""
+    return "rp2040" if name == "rp2" else name
+
+
 class Esp32Variant(StrEnum):
     """ESP32 chip variants."""
 
