@@ -74,11 +74,49 @@ def test_init_creates_repo_and_gitignore(tmp_path: Path) -> None:
     assert "Initialize version history" in _git(tmp_path, "log", "--format=%s")
 
 
-def test_unusable_git_pointer_disables_without_raising(tmp_path: Path) -> None:
-    """A ``.git`` pointing at a missing git dir (broken submodule) disables rather than crashing."""
-    # Mirrors a submodule whose parent ``.git/modules`` tree isn't mounted:
-    # ``git init`` over this pointer aborts with ``fatal: not a git repository``.
-    (tmp_path / ".git").write_text("gitdir: ./nonexistent/git/dir\n", encoding="utf-8")
+@pytest.mark.parametrize(
+    "pointer",
+    [
+        # The exact submodule pointer from #1710: a relative gitdir into the
+        # parent repo's ``.git/modules`` tree, which isn't mounted in the
+        # container, so it resolves to nothing.
+        "gitdir: ../../../.git/modules/vms/smarthome/esphome\n",
+        "gitdir: ./nonexistent/git/dir\n",
+        "gitdir: /nonexistent/.git/modules/x\n",
+    ],
+)
+def test_unusable_git_pointer_disables_without_raising(tmp_path: Path, pointer: str) -> None:
+    """A ``.git`` pointer at a missing git dir (broken submodule) disables rather than crashing."""
+    # ``git init`` over such a pointer aborts with ``fatal: not a git repository``.
+    (tmp_path / ".git").write_text(pointer, encoding="utf-8")
+    repo = GitRepo(config_dir=tmp_path)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+    assert repo.toplevel is None
+    assert not repo.managed
+
+
+def test_unusable_git_pointer_to_empty_dir_disables(tmp_path: Path) -> None:
+    """A ``.git`` pointer whose target exists but is empty (partial mount) disables."""
+    empty = tmp_path / "empty-git-dir"
+    empty.mkdir()
+    (tmp_path / ".git").write_text(f"gitdir: {empty}\n", encoding="utf-8")
+    repo = GitRepo(config_dir=tmp_path)
+
+    repo.discover_or_init()
+
+    assert not repo.enabled
+    assert repo.toplevel is None
+    assert not repo.managed
+
+
+def test_broken_git_symlink_disables_without_initialising(tmp_path: Path) -> None:
+    """A broken-symlink ``.git`` disables instead of silently initialising a stray repo."""
+    # ``Path.exists()`` follows the dangling link and reports False; the guard
+    # must still treat the symlink as a present-but-unusable git entry.
+    (tmp_path / ".git").symlink_to(tmp_path / "missing-git-dir")
     repo = GitRepo(config_dir=tmp_path)
 
     repo.discover_or_init()
