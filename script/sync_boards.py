@@ -811,13 +811,24 @@ def _component_pin_keys(component_id: str) -> frozenset[str]:
     return frozenset(e["key"] for e in body.get("config_entries", []) if e.get("type") == "pin")
 
 
+# Sub-keys of an internal-GPIO pin mapping. A pin dict carrying any other key
+# references an I/O expander hub (``{number: 3, pcf8574: hub}``) — an
+# expander-local channel, not a board GPIO, so it must not be recorded.
+_BOARD_PIN_KEYS = frozenset(
+    {"number", "mode", "inverted", "ignore_strapping_warning", "allow_other_uses", "drive_strength"}
+)
+
+
 def _canonical_gpio(value: Any) -> int | None:
-    """Reduce a manifest pin value (bare int, ``GPIOn`` string, ``{number: n}``) to a GPIO int."""
+    """Reduce a manifest pin value (bare int, ``GPIOn`` string, ``{number: n}``) to a board GPIO int."""
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
         return value
     if isinstance(value, dict):
+        # Skip expander pins: a hub-referencing key means a channel, not a GPIO.
+        if value.keys() - _BOARD_PIN_KEYS:
+            return None
         return _canonical_gpio(value.get("number"))
     if isinstance(value, str):
         match = re.match(r"^\s*(?:GPIO)?(\d+)\s*$", value, re.IGNORECASE)

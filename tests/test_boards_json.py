@@ -246,6 +246,17 @@ def test_featured_locked_pins_from_schema() -> None:
     assert by_id["aht20"].locked_pins == {}
 
 
+def test_featured_locked_pins_skips_io_expander_pins() -> None:
+    """An expander channel (``{number, pcf8574: hub}``) is not a board GPIO."""
+    body = load_board_body_from_disk("kincony_b16")
+    assert body is not None
+    by_id = {fc.id: fc for fc in body.featured_components}
+    # pcf8574 expander channel — a hub-referencing key, so not recorded.
+    assert by_id["b16_input01"].locked_pins == {}
+    # A real board GPIO on the same board is still recorded.
+    assert by_id["binary_sensor_gpio_17"].locked_pins == {"pin": 48}
+
+
 def test_omit_default_preserves_meaningful_falsy() -> None:
     """``locked=True`` / falsy non-default ``value`` survive the strip."""
     # ``omit_default`` removes a field only when its runtime value
