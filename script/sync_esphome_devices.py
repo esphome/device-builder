@@ -46,7 +46,7 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
+from esphome_device_builder.models.boards import BOARD_PIN_KEYS, Esp32Variant  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -681,19 +681,15 @@ def _normalize_pin_value(raw: Any) -> Any:
     return raw
 
 
-# Long-form pin keys that describe a board GPIO. Any other key in a pin dict
-# is an I/O-expander provider (``pcf8574``, ``mcp23xxx``, …) whose value is a
-# hub instance id and whose ``number`` is an expander channel, not a board pin.
-_PIN_VALUE_KEYS: frozenset[str] = frozenset(
-    {"number", "mode", "inverted", "ignore_strapping_warning", "allow_other_uses", "drive_strength"}
-)
-
-
 def _expander_keys(pin_value: Any) -> set[str]:
-    """Return provider keys in a long-form pin dict that reference an I/O-expander hub."""
+    """Return provider keys in a long-form pin dict that reference an I/O-expander hub.
+
+    A provider key is any key beyond the standard board-GPIO ``BOARD_PIN_KEYS``
+    whose value is a hub instance id.
+    """
     if not isinstance(pin_value, dict):
         return set()
-    return {k for k in pin_value.keys() - _PIN_VALUE_KEYS if isinstance(pin_value[k], str)}
+    return {k for k in pin_value.keys() - BOARD_PIN_KEYS if isinstance(pin_value[k], str)}
 
 
 def _resolve_soc(
@@ -1472,21 +1468,15 @@ def _ensure_buses(
 
 def _wire_consumer_requires(
     consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]],
-    hub_local: dict[tuple[str, str], str],
-    hub_buses: dict[str, list[str]],
+    hub_prereqs: dict[tuple[str, str], list[str]],
 ) -> None:
-    """Stamp each consumer's ``requires`` with its hubs' buses then the hubs, deduped."""
+    """Stamp each consumer's ``requires`` with its hubs' prerequisite chains, deduped."""
     for entry, refs in consumers:
         requires: list[str] = []
         for ref in refs:
-            hub_id = hub_local.get(ref)
-            if hub_id is None:
-                continue
-            for bus_id in hub_buses.get(hub_id, []):
-                if bus_id not in requires:
-                    requires.append(bus_id)
-            if hub_id not in requires:
-                requires.append(hub_id)
+            for prereq in hub_prereqs.get(ref, []):
+                if prereq not in requires:
+                    requires.append(prereq)
         if requires:
             entry["requires"] = requires
 
@@ -1560,8 +1550,9 @@ def _extract_expander_hubs(
     extra: list[dict[str, Any]] = []
     occupancy: dict[int, str] = {}
     bus_local: dict[str, str] = {}
-    hub_local: dict[tuple[str, str], str] = {}
-    hub_buses: dict[str, list[str]] = {}
+    # Each materialized hub keyed by its ref, carrying the local id + the bus
+    # ids it needs — the ordered prerequisite chain a consumer references.
+    hub_prereqs: dict[tuple[str, str], list[str]] = {}
 
     for hub_cid, instance_id in ordered_refs:
         hub_component = components_index.get(hub_cid)
@@ -1579,10 +1570,9 @@ def _extract_expander_hubs(
         if bus_ids:
             hub_entry["requires"] = bus_ids
         extra.append(hub_entry)
-        hub_local[(hub_cid, instance_id)] = hub_id
-        hub_buses[hub_id] = bus_ids
+        hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
 
-    _wire_consumer_requires(consumers, hub_local, hub_buses)
+    _wire_consumer_requires(consumers, hub_prereqs)
     return extra, occupancy
 
 

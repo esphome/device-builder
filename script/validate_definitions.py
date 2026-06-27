@@ -407,6 +407,8 @@ def _is_entity_base_universal(fkey: str, category: str | None) -> bool:
 # Long-form pin keys describing a board GPIO. A pin dict carrying any other key
 # sits on an I/O expander (``pcf8574``, ``mcp23xxx``, …): its ``number`` is an
 # expander channel, not a board GPIO, so it isn't checked against the board pins.
+# Mirror of ``esphome_device_builder.models.boards.BOARD_PIN_KEYS`` — kept inline
+# because this validator stays import-free (see top-of-file note); keep in sync.
 _LONG_FORM_PIN_KEYS = frozenset(
     {"number", "mode", "inverted", "ignore_strapping_warning", "allow_other_uses", "drive_strength"}
 )
