@@ -243,14 +243,10 @@ class GitRepo:
         return Path(root) if root else None
 
     def _enclosing_repo_ignores_config_dir(self) -> bool:
-        """Whether the enclosing work tree ignores ``config_dir`` itself.
-
-        A ``/config`` inside an unrelated checkout that ``.gitignore``s it can
-        never track our YAML, so adopting would back up nothing while still
-        writing into that repo; init a config-local repo instead.
-        """
+        """Whether the enclosing work tree ignores ``config_dir`` itself."""
         result = self._run(
-            ["check-ignore", "-q", str(self.config_dir)],
+            # ``--`` so a config_dir starting with ``-`` isn't read as an option.
+            ["check-ignore", "-q", "--", str(self.config_dir)],
             cwd=self.config_dir,
             check=False,
         )

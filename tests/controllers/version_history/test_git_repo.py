@@ -242,12 +242,7 @@ def test_declines_to_adopt_own_source_checkout(
 
 
 def test_declines_to_adopt_repo_that_ignores_config_dir(tmp_path: Path) -> None:
-    """A config dir gitignored by its enclosing repo gets a nested repo, not adoption.
-
-    Adopting an enclosing checkout that ``.gitignore``s the config dir backs up
-    nothing (git refuses the ignored YAML) while still writing our managed block
-    into that unrelated repo (#1718).
-    """
+    """A config dir gitignored by its enclosing repo gets a nested repo, not adoption."""
     _make_repo(tmp_path)  # stands in for the unrelated esphome/esphome checkout
     config = tmp_path / "config"
     config.mkdir()
