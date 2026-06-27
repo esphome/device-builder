@@ -390,6 +390,54 @@ def test_extract_expander_hub_with_placeholder_field_is_skipped() -> None:
     assert "requires" not in consumer
 
 
+# A shift-register hub (unlike an i2c expander) drives board GPIOs directly, so
+# its own block carries real board pins — the occupancy-leak surface.
+_SHIFT_REGISTER_INDEX = {
+    "switch.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
+    "sn74hc595": {
+        "config_entries": [
+            {"key": "id", "type": "id"},
+            {"key": "data_pin", "type": "pin"},
+            {"key": "clock_pin", "type": "pin"},
+            {"key": "latch_pin", "type": "pin"},
+        ],
+    },
+}
+
+
+def _shift_register_config(latch_pin: object) -> dict:
+    return {
+        "sn74hc595": [{"id": "sr1", "data_pin": 21, "clock_pin": 22, "latch_pin": latch_pin}],
+        "switch": [
+            {
+                "platform": "gpio",
+                "name": "Relay 1",
+                "pin": {"sn74hc595": "sr1", "number": 0},
+            }
+        ],
+    }
+
+
+def test_extract_shift_register_hub_placeholder_does_not_leak_board_pins() -> None:
+    """A placeholder part-way through a shift-register block leaves no board pin occupied."""
+    config = _shift_register_config("(FILL IN LATCH PIN)")
+    featured, _, _ = _extract_featured_components(config, _SHIFT_REGISTER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _SHIFT_REGISTER_INDEX)
+    # data_pin/clock_pin are recorded before the placeholder latch_pin aborts the
+    # hub; dropping the hub must drop those pins too, not strand them occupied.
+    assert extra == []
+    assert occupancy == {}
+
+
+def test_extract_shift_register_hub_records_its_board_pins() -> None:
+    """A complete shift-register hub occupies the board GPIOs it drives."""
+    config = _shift_register_config(23)
+    featured, _, _ = _extract_featured_components(config, _SHIFT_REGISTER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _SHIFT_REGISTER_INDEX)
+    assert {e["id"] for e in extra} == {"sr1"}
+    assert set(occupancy) == {21, 22, 23}
+
+
 def test_extract_expander_ambiguous_multi_hub_is_skipped() -> None:
     """Two hub blocks, neither matching the pin's id, can't be disambiguated → no guess."""
     config = _expander_config(

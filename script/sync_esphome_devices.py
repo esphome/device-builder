@@ -1585,12 +1585,18 @@ def _extract_expander_hubs(
         block = _find_hub_block(config.get(hub_cid), instance_id)
         if hub_component is None or block is None:
             continue
-        fields = _extract_fields(block, hub_component, occupancy, hub_cid)
+        # Record the hub's own pin occupancy locally and merge only on success:
+        # a shift-register hub puts board GPIOs (data/clock/latch) here, and a
+        # placeholder field part-way through the block must not leave those pins
+        # marked occupied for a hub we then drop (mirrors the consumer/bus path).
+        hub_occ: dict[int, str] = {}
+        fields = _extract_fields(block, hub_component, hub_occ, hub_cid)
         if fields is None:
             # A placeholder value in the hub block (mirrors the bus path): emit
             # neither an incomplete hub nor a ``requires`` pointing at it. Skip
             # before materializing its bus so a dropped hub leaves no orphan bus.
             continue
+        occupancy.update(hub_occ)
         bus_ids, bus_refs = _ensure_buses(
             hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
         )
