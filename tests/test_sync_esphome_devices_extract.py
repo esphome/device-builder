@@ -381,9 +381,11 @@ def test_extract_expander_hub_with_placeholder_field_is_skipped() -> None:
     """A placeholder in the hub block skips the hub (and its bus) entirely — no orphan."""
     config = _expander_config(pcf8574=[{"id": "pcf8574_hub_in_1", "address": "(FILL IN ADDRESS)"}])
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
-    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
-    # Neither the hub nor the bus it would have used is materialized.
+    extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    # Neither the hub nor the bus it would have used is materialized, and the
+    # bus's pins don't leak into occupancy (the skip happens before the bus).
     assert extra == []
+    assert occupancy == {}
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
     assert "requires" not in consumer
 
