@@ -307,10 +307,13 @@ _EXPANDER_INDEX = {
 }
 
 
-def _expander_config() -> dict:
+def _expander_config(*, i2c: list | None = None, pcf8574: list | None = None) -> dict:
+    """Build an expander board config; override ``i2c`` / ``pcf8574`` for an edge case."""
     return {
-        "i2c": [{"id": "bus_a", "sda": 9, "scl": 10}],
-        "pcf8574": [{"id": "pcf8574_hub_in_1", "address": 0x21}],
+        "i2c": i2c if i2c is not None else [{"id": "bus_a", "sda": 9, "scl": 10}],
+        "pcf8574": pcf8574
+        if pcf8574 is not None
+        else [{"id": "pcf8574_hub_in_1", "address": 0x21}],
         "binary_sensor": [
             {
                 "platform": "gpio",
@@ -360,18 +363,8 @@ def test_extract_expander_pin_does_not_occupy_a_board_gpio() -> None:
 
 def test_extract_expander_hub_with_synthetic_id() -> None:
     """A sole hub block with no ``id`` adopts the pin's referenced id."""
-    config = {
-        "i2c": [{"id": "bus_a", "sda": 9, "scl": 10}],
-        # No ``id`` on the single hub — ESPHome would auto-generate one.
-        "pcf8574": [{"address": 0x21}],
-        "binary_sensor": [
-            {
-                "platform": "gpio",
-                "name": "Input 1",
-                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
-            }
-        ],
-    }
+    # No ``id`` on the single hub — ESPHome would auto-generate one.
+    config = _expander_config(pcf8574=[{"address": 0x21}])
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
     by_id = {e["id"]: e for e in extra}
@@ -385,58 +378,31 @@ def test_extract_expander_hub_with_synthetic_id() -> None:
 
 
 def test_extract_expander_hub_with_placeholder_field_is_skipped() -> None:
-    """A placeholder in the hub block skips the hub entirely (no incomplete entry, no requires)."""
-    config = {
-        "i2c": [{"id": "bus_a", "sda": 9, "scl": 10}],
-        "pcf8574": [{"id": "pcf8574_hub_in_1", "address": "(FILL IN HUB ADDRESS)"}],
-        "binary_sensor": [
-            {
-                "platform": "gpio",
-                "name": "Input 1",
-                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
-            }
-        ],
-    }
+    """A placeholder in the hub block skips the hub (and its bus) entirely — no orphan."""
+    config = _expander_config(pcf8574=[{"id": "pcf8574_hub_in_1", "address": "(FILL IN ADDRESS)"}])
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
-    assert not any(e["component_id"] == "pcf8574" for e in extra)
+    # Neither the hub nor the bus it would have used is materialized.
+    assert extra == []
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
     assert "requires" not in consumer
 
 
 def test_extract_expander_ambiguous_multi_hub_is_skipped() -> None:
     """Two hub blocks, neither matching the pin's id, can't be disambiguated → no guess."""
-    config = {
-        "i2c": [{"id": "bus_a", "sda": 9, "scl": 10}],
-        "pcf8574": [{"id": "hub_x", "address": 0x21}, {"id": "hub_y", "address": 0x22}],
-        "binary_sensor": [
-            {
-                "platform": "gpio",
-                "name": "Input 1",
-                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
-            }
-        ],
-    }
+    config = _expander_config(
+        pcf8574=[{"id": "hub_x", "address": 0x21}, {"id": "hub_y", "address": 0x22}]
+    )
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
-    assert not any(e["component_id"] == "pcf8574" for e in extra)
+    assert extra == []
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
     assert "requires" not in consumer
 
 
 def test_extract_expander_bus_without_id_not_materialized() -> None:
     """An i2c bus with no upstream id isn't locked; the hub still lands, requiring only itself."""
-    config = {
-        "i2c": [{"sda": 9, "scl": 10}],  # no id to lock onto
-        "pcf8574": [{"id": "pcf8574_hub_in_1", "address": 0x21}],
-        "binary_sensor": [
-            {
-                "platform": "gpio",
-                "name": "Input 1",
-                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
-            }
-        ],
-    }
+    config = _expander_config(i2c=[{"sda": 9, "scl": 10}])  # no id to lock onto
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
     assert not any(e["component_id"] == "i2c" for e in extra)
@@ -447,20 +413,10 @@ def test_extract_expander_bus_without_id_not_materialized() -> None:
 
 def test_extract_expander_picks_the_bus_the_hub_pins_via_i2c_id() -> None:
     """With two i2c buses, the hub's ``i2c_id`` selects which one is lifted (and locked on)."""
-    config = {
-        "i2c": [
-            {"id": "bus_a", "sda": 5, "scl": 16},
-            {"id": "bus_b", "sda": 15, "scl": 4},
-        ],
-        "pcf8574": [{"id": "pcf8574_hub_in_1", "i2c_id": "bus_b", "address": 0x24}],
-        "binary_sensor": [
-            {
-                "platform": "gpio",
-                "name": "Input 1",
-                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
-            }
-        ],
-    }
+    config = _expander_config(
+        i2c=[{"id": "bus_a", "sda": 5, "scl": 16}, {"id": "bus_b", "sda": 15, "scl": 4}],
+        pcf8574=[{"id": "pcf8574_hub_in_1", "i2c_id": "bus_b", "address": 0x24}],
+    )
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
     by_id = {e["id"]: e for e in extra}

@@ -1585,15 +1585,15 @@ def _extract_expander_hubs(
         block = _find_hub_block(config.get(hub_cid), instance_id)
         if hub_component is None or block is None:
             continue
-        bus_ids, bus_refs = _ensure_buses(
-            hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
-        )
         fields = _extract_fields(block, hub_component, occupancy, hub_cid)
         if fields is None:
             # A placeholder value in the hub block (mirrors the bus path): emit
-            # neither an incomplete hub nor a ``requires`` pointing at it, rather
-            # than a hub missing its required fields.
+            # neither an incomplete hub nor a ``requires`` pointing at it. Skip
+            # before materializing its bus so a dropped hub leaves no orphan bus.
             continue
+        bus_ids, bus_refs = _ensure_buses(
+            hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
+        )
         hub_id = _unique_local_id(_sanitize_local_id(instance_id), used_ids, hub_cid)
         used_ids.add(hub_id)
         fields["id"] = {"value": instance_id, "locked": True}
