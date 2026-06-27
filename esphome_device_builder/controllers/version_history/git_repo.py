@@ -177,7 +177,11 @@ class GitRepo:
             return
         try:
             toplevel = self._discover_toplevel()
-            if toplevel is not None and not _encloses_own_source(toplevel):
+            if (
+                toplevel is not None
+                and not _encloses_own_source(toplevel)
+                and not self._enclosing_repo_ignores_config_dir()
+            ):
                 self.toplevel = toplevel
                 self.enabled = True
                 self.managed = self._adopt_ownership()
@@ -185,10 +189,16 @@ class GitRepo:
                 _LOGGER.debug("Adopted existing git work tree at %s", toplevel)
                 return
             if toplevel is not None:
+                reason = (
+                    "is inside the Device Builder source checkout"
+                    if _encloses_own_source(toplevel)
+                    else "is ignored by the enclosing git repo"
+                )
                 _LOGGER.info(
-                    "Config dir %s is inside the Device Builder source checkout (%s); "
-                    "creating a config-local history repo instead of committing into it",
+                    "Config dir %s %s (%s); creating a config-local history repo "
+                    "instead of committing into it",
                     self.config_dir,
+                    reason,
                     toplevel,
                 )
             elif (git_entry := self.config_dir / ".git").is_symlink() or git_entry.exists():
@@ -231,6 +241,20 @@ class GitRepo:
             return None
         root = result.stdout.strip()
         return Path(root) if root else None
+
+    def _enclosing_repo_ignores_config_dir(self) -> bool:
+        """Whether the enclosing work tree ignores ``config_dir`` itself.
+
+        A ``/config`` inside an unrelated checkout that ``.gitignore``s it can
+        never track our YAML, so adopting would back up nothing while still
+        writing into that repo; init a config-local repo instead.
+        """
+        result = self._run(
+            ["check-ignore", "-q", str(self.config_dir)],
+            cwd=self.config_dir,
+            check=False,
+        )
+        return result.returncode == 0
 
     def _init_repo(self) -> None:
         """Create a fresh repo in ``config_dir`` and seed the existing configs.

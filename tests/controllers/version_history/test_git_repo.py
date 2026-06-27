@@ -241,6 +241,36 @@ def test_declines_to_adopt_own_source_checkout(
     assert (configs / ".git").is_dir()
 
 
+def test_declines_to_adopt_repo_that_ignores_config_dir(tmp_path: Path) -> None:
+    """A config dir gitignored by its enclosing repo gets a nested repo, not adoption.
+
+    Adopting an enclosing checkout that ``.gitignore``s the config dir backs up
+    nothing (git refuses the ignored YAML) while still writing our managed block
+    into that unrelated repo (#1718).
+    """
+    _make_repo(tmp_path)  # stands in for the unrelated esphome/esphome checkout
+    config = tmp_path / "config"
+    config.mkdir()
+    (tmp_path / ".gitignore").write_text("config/\n", encoding="utf-8")
+    _git(tmp_path, "add", ".gitignore")
+    _git(tmp_path, "commit", "-m", "ignore config")
+    (config / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    repo = GitRepo(config_dir=config)
+    repo.discover_or_init()
+
+    assert repo.enabled
+    assert repo.toplevel == config  # nested repo, not the enclosing one
+    assert (config / ".git").is_dir()
+    # The seed actually committed the config the adopted parent could never track.
+    assert "kitchen.yaml" in _git(config, "ls-files").split()
+    assert "Initialize version history" in _git(config, "log", "--format=%s")
+    # The unrelated parent repo was left untouched.
+    assert "ESPHome Device Builder" not in (tmp_path / ".git" / "info" / "exclude").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_init_keeps_a_preexisting_gitignore(tmp_path: Path) -> None:
     """A .gitignore already sitting in a non-repo dir is committed, not overwritten."""
     (tmp_path / ".gitignore").write_text("user-rules/\n", encoding="utf-8")
