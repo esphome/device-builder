@@ -15,9 +15,17 @@ synthesized ``pins[]`` block with orphan GPIO labels.
 from __future__ import annotations
 
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
+    _expander_keys,
     _extract_expander_hubs,
     _extract_featured_components,
 )
+
+
+def test_expander_keys_treats_board_pin_id_as_a_board_key() -> None:
+    """A pin-level ``id`` is a board-GPIO key; the provider is the hub key, not ``id``."""
+    assert _expander_keys({"pcf8574": "hub", "number": 0, "id": "relay1"}) == {"pcf8574"}
+    assert _expander_keys({"number": 5, "id": "btn", "ignore_pin_validation_error": True}) == set()
+
 
 # Minimal fake components index — only the keys the extractor reads
 # (``config_entries[*].key`` / ``type``). The pin entries make the

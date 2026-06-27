@@ -75,3 +75,21 @@ HA_INGRESS_DEFAULT_BIND_HOSTS = ("127.0.0.1", HA_SUPERVISOR_NETWORK_GATEWAY)
 # forward secrecy at the application layer, so there's no SSLContext
 # to manage.
 DEFAULT_REMOTE_BUILD_PORT = 6055
+
+
+# Long-form pin keys describing a board GPIO. Any other key in a pin mapping
+# names an I/O-expander provider whose value is the hub id. ``id`` is included
+# because expander pin schemas share this base, so a channel carrying an ``id``
+# must not have it taken for the provider key.
+BOARD_PIN_KEYS: frozenset[str] = frozenset(
+    {
+        "id",
+        "number",
+        "mode",
+        "inverted",
+        "allow_other_uses",
+        "ignore_strapping_warning",
+        "ignore_pin_validation_error",
+        "drive_strength",
+    }
+)

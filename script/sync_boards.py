@@ -64,6 +64,7 @@ from _catalog_split import (  # noqa: E402
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
 
+from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
@@ -78,7 +79,6 @@ from esphome_device_builder.models import (  # noqa: E402
     PinFeature,
     Platform,
 )
-from esphome_device_builder.models.boards import BOARD_PIN_KEYS  # noqa: E402
 
 _LOGGER = logging.getLogger("sync_boards")
 

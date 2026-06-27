@@ -21,15 +21,6 @@ from .common import (
 _ = PinFeature  # suppress "imported but unused" — this is a re-export
 
 
-# Long-form pin sub-keys that describe a board GPIO. Any other key in a pin
-# mapping names an I/O-expander provider (``pcf8574``, ``mcp23xxx``, …) whose
-# value is a hub instance id and whose ``number`` is an expander channel, not a
-# board GPIO. Single source of truth for the sync + validation scripts.
-BOARD_PIN_KEYS: frozenset[str] = frozenset(
-    {"number", "mode", "inverted", "ignore_strapping_warning", "allow_other_uses", "drive_strength"}
-)
-
-
 class Connectivity(StrEnum):
     """Known connectivity types."""
 

@@ -46,7 +46,8 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from esphome_device_builder.models.boards import BOARD_PIN_KEYS, Esp32Variant  # noqa: E402
+from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
+from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
