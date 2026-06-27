@@ -86,6 +86,9 @@ featured_components:
     id:
       value: pcf8574_hub_in_1
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
   requires:
   - bus_a
 - id: onboard_ethernet

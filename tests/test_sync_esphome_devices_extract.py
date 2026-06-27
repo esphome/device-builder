@@ -443,3 +443,34 @@ def test_extract_expander_bus_without_id_not_materialized() -> None:
     assert any(e["component_id"] == "pcf8574" for e in extra)
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
     assert consumer["requires"] == ["pcf8574_hub_in_1"]
+
+
+def test_extract_expander_picks_the_bus_the_hub_pins_via_i2c_id() -> None:
+    """With two i2c buses, the hub's ``i2c_id`` selects which one is lifted (and locked on)."""
+    config = {
+        "i2c": [
+            {"id": "bus_a", "sda": 5, "scl": 16},
+            {"id": "bus_b", "sda": 15, "scl": 4},
+        ],
+        "pcf8574": [{"id": "pcf8574_hub_in_1", "i2c_id": "bus_b", "address": 0x24}],
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
+            }
+        ],
+    }
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    by_id = {e["id"]: e for e in extra}
+    # Only the referenced bus is lifted, with its own pins.
+    assert "bus_b" in by_id
+    assert "bus_a" not in by_id
+    assert by_id["bus_b"]["fields"]["sda"] == {"value": 15, "locked": True}
+    # The hub keeps its i2c_id so it binds to that bus, not esphome's defaults.
+    assert by_id["pcf8574_hub_in_1"]["fields"]["i2c_id"] == {"value": "bus_b", "locked": True}
+    assert by_id["pcf8574_hub_in_1"]["requires"] == ["bus_b"]
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["requires"] == ["bus_b", "pcf8574_hub_in_1"]
+    assert occupancy == {15: "bus_b", 4: "bus_b"}

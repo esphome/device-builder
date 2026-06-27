@@ -64,6 +64,9 @@ featured_components:
     id:
       value: pcf8574_hub_out_1
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
   requires:
   - bus_a
 - id: pcf8574_hub_out_2
@@ -72,6 +75,9 @@ featured_components:
     address: 36
     id:
       value: pcf8574_hub_out_2
+      locked: true
+    i2c_id:
+      value: bus_a
       locked: true
   requires:
   - bus_a
@@ -82,6 +88,9 @@ featured_components:
     id:
       value: pcf8574_hub_out_3
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
   requires:
   - bus_a
 - id: pcf8574_hub_out_4
@@ -90,6 +99,9 @@ featured_components:
     address: 38
     id:
       value: pcf8574_hub_out_4
+      locked: true
+    i2c_id:
+      value: bus_a
       locked: true
   requires:
   - bus_a

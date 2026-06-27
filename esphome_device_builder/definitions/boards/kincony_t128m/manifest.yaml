@@ -46,6 +46,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: t128m-io10
+- gpio: 11
+  available: false
+  occupied_by: bus_b
+- gpio: 12
+  available: false
+  occupied_by: bus_b
 - gpio: 15
   available: false
   occupied_by: t128m-W1-io15
@@ -70,8 +76,28 @@ pins:
 - gpio: 44
   available: false
   occupied_by: Ethernet MISO
+- gpio: 47
+  available: false
+  occupied_by: bus_a
+- gpio: 48
+  available: false
+  occupied_by: bus_a
 docs_url: https://devices.esphome.io/devices/KinCony-T128M/
 featured_components:
+- id: bus_b
+  component_id: i2c
+  fields:
+    sda:
+      value: 12
+      locked: true
+    scl:
+      value: 11
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_b
+      locked: true
 - id: pcf8574_hub_in_1
   component_id: pcf8574
   fields:
@@ -80,6 +106,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_1
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_2
   component_id: pcf8574
   fields:
@@ -88,6 +119,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_2
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_3
   component_id: pcf8574
   fields:
@@ -96,6 +132,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_3
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_4
   component_id: pcf8574
   fields:
@@ -104,6 +145,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_4
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_5
   component_id: pcf8574
   fields:
@@ -112,6 +158,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_5
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_6
   component_id: pcf8574
   fields:
@@ -120,6 +171,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_6
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_7
   component_id: pcf8574
   fields:
@@ -128,6 +184,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_7
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_8
   component_id: pcf8574
   fields:
@@ -135,6 +196,25 @@ featured_components:
     pcf8575: true
     id:
       value: pcf8574_hub_in_8
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 48
+      locked: true
+    scl:
+      value: 47
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
       locked: true
 - id: pcf8574_hub_out_1
   component_id: pcf8574
@@ -144,6 +224,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_1
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_2
   component_id: pcf8574
   fields:
@@ -152,6 +237,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_2
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_3
   component_id: pcf8574
   fields:
@@ -160,6 +250,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_3
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_4
   component_id: pcf8574
   fields:
@@ -168,6 +263,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_4
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_5
   component_id: pcf8574
   fields:
@@ -176,6 +276,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_5
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_6
   component_id: pcf8574
   fields:
@@ -184,6 +289,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_6
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_7
   component_id: pcf8574
   fields:
@@ -192,6 +302,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_7
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_8
   component_id: pcf8574
   fields:
@@ -200,6 +315,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_8
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -238,6 +358,7 @@ featured_components:
     id: binary_sensor_gpio_1
     name: t128m-input01
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -252,6 +373,7 @@ featured_components:
     id: binary_sensor_gpio_2
     name: t128m-input02
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
@@ -266,6 +388,7 @@ featured_components:
     id: binary_sensor_gpio_3
     name: t128m-input03
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
@@ -280,6 +403,7 @@ featured_components:
     id: binary_sensor_gpio_4
     name: t128m-input04
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -294,6 +418,7 @@ featured_components:
     id: binary_sensor_gpio_5
     name: t128m-input05
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
@@ -308,6 +433,7 @@ featured_components:
     id: binary_sensor_gpio_6
     name: t128m-input06
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
@@ -322,6 +448,7 @@ featured_components:
     id: binary_sensor_gpio_7
     name: t128m-input07
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
@@ -336,6 +463,7 @@ featured_components:
     id: binary_sensor_gpio_8
     name: t128m-input08
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
@@ -350,6 +478,7 @@ featured_components:
     id: binary_sensor_gpio_9
     name: t128m-input09
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
@@ -364,6 +493,7 @@ featured_components:
     id: binary_sensor_gpio_10
     name: t128m-input10
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
@@ -378,6 +508,7 @@ featured_components:
     id: binary_sensor_gpio_11
     name: t128m-input11
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
@@ -392,6 +523,7 @@ featured_components:
     id: binary_sensor_gpio_12
     name: t128m-input12
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
@@ -406,6 +538,7 @@ featured_components:
     id: binary_sensor_gpio_13
     name: t128m-input13
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
@@ -420,6 +553,7 @@ featured_components:
     id: binary_sensor_gpio_14
     name: t128m-input14
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
@@ -434,6 +568,7 @@ featured_components:
     id: binary_sensor_gpio_15
     name: t128m-input15
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
@@ -448,6 +583,7 @@ featured_components:
     id: binary_sensor_gpio_16
     name: t128m-input16
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
@@ -462,6 +598,7 @@ featured_components:
     id: binary_sensor_gpio_17
     name: t128m-input17
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
@@ -476,6 +613,7 @@ featured_components:
     id: binary_sensor_gpio_18
     name: t128m-input18
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
@@ -490,6 +628,7 @@ featured_components:
     id: binary_sensor_gpio_19
     name: t128m-input19
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
@@ -504,6 +643,7 @@ featured_components:
     id: binary_sensor_gpio_20
     name: t128m-input20
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
@@ -518,6 +658,7 @@ featured_components:
     id: binary_sensor_gpio_21
     name: t128m-input21
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
@@ -532,6 +673,7 @@ featured_components:
     id: binary_sensor_gpio_22
     name: t128m-input22
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
@@ -546,6 +688,7 @@ featured_components:
     id: binary_sensor_gpio_23
     name: t128m-input23
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
@@ -560,6 +703,7 @@ featured_components:
     id: binary_sensor_gpio_24
     name: t128m-input24
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
@@ -574,6 +718,7 @@ featured_components:
     id: binary_sensor_gpio_25
     name: t128m-input25
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
@@ -588,6 +733,7 @@ featured_components:
     id: binary_sensor_gpio_26
     name: t128m-input26
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
@@ -602,6 +748,7 @@ featured_components:
     id: binary_sensor_gpio_27
     name: t128m-input27
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
@@ -616,6 +763,7 @@ featured_components:
     id: binary_sensor_gpio_28
     name: t128m-input28
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
@@ -630,6 +778,7 @@ featured_components:
     id: binary_sensor_gpio_29
     name: t128m-input29
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
@@ -644,6 +793,7 @@ featured_components:
     id: binary_sensor_gpio_30
     name: t128m-input30
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
@@ -658,6 +808,7 @@ featured_components:
     id: binary_sensor_gpio_31
     name: t128m-input31
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
@@ -672,6 +823,7 @@ featured_components:
     id: binary_sensor_gpio_32
     name: t128m-input32
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
@@ -686,6 +838,7 @@ featured_components:
     id: binary_sensor_gpio_33
     name: t128m-input33
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_34
   component_id: binary_sensor.gpio
@@ -700,6 +853,7 @@ featured_components:
     id: binary_sensor_gpio_34
     name: t128m-input34
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_35
   component_id: binary_sensor.gpio
@@ -714,6 +868,7 @@ featured_components:
     id: binary_sensor_gpio_35
     name: t128m-input35
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_36
   component_id: binary_sensor.gpio
@@ -728,6 +883,7 @@ featured_components:
     id: binary_sensor_gpio_36
     name: t128m-input36
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_37
   component_id: binary_sensor.gpio
@@ -742,6 +898,7 @@ featured_components:
     id: binary_sensor_gpio_37
     name: t128m-input37
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_38
   component_id: binary_sensor.gpio
@@ -756,6 +913,7 @@ featured_components:
     id: binary_sensor_gpio_38
     name: t128m-input38
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_39
   component_id: binary_sensor.gpio
@@ -770,6 +928,7 @@ featured_components:
     id: binary_sensor_gpio_39
     name: t128m-input39
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_40
   component_id: binary_sensor.gpio
@@ -784,6 +943,7 @@ featured_components:
     id: binary_sensor_gpio_40
     name: t128m-input40
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_41
   component_id: binary_sensor.gpio
@@ -798,6 +958,7 @@ featured_components:
     id: binary_sensor_gpio_41
     name: t128m-input41
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_42
   component_id: binary_sensor.gpio
@@ -812,6 +973,7 @@ featured_components:
     id: binary_sensor_gpio_42
     name: t128m-input42
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_43
   component_id: binary_sensor.gpio
@@ -826,6 +988,7 @@ featured_components:
     id: binary_sensor_gpio_43
     name: t128m-input43
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_44
   component_id: binary_sensor.gpio
@@ -840,6 +1003,7 @@ featured_components:
     id: binary_sensor_gpio_44
     name: t128m-input44
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_45
   component_id: binary_sensor.gpio
@@ -854,6 +1018,7 @@ featured_components:
     id: binary_sensor_gpio_45
     name: t128m-input45
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_46
   component_id: binary_sensor.gpio
@@ -868,6 +1033,7 @@ featured_components:
     id: binary_sensor_gpio_46
     name: t128m-input46
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_47
   component_id: binary_sensor.gpio
@@ -882,6 +1048,7 @@ featured_components:
     id: binary_sensor_gpio_47
     name: t128m-input47
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_48
   component_id: binary_sensor.gpio
@@ -896,6 +1063,7 @@ featured_components:
     id: binary_sensor_gpio_48
     name: t128m-input48
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_49
   component_id: binary_sensor.gpio
@@ -910,6 +1078,7 @@ featured_components:
     id: binary_sensor_gpio_49
     name: t128m-input49
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_50
   component_id: binary_sensor.gpio
@@ -924,6 +1093,7 @@ featured_components:
     id: binary_sensor_gpio_50
     name: t128m-input50
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_51
   component_id: binary_sensor.gpio
@@ -938,6 +1108,7 @@ featured_components:
     id: binary_sensor_gpio_51
     name: t128m-input51
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_52
   component_id: binary_sensor.gpio
@@ -952,6 +1123,7 @@ featured_components:
     id: binary_sensor_gpio_52
     name: t128m-input52
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_53
   component_id: binary_sensor.gpio
@@ -966,6 +1138,7 @@ featured_components:
     id: binary_sensor_gpio_53
     name: t128m-input53
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_54
   component_id: binary_sensor.gpio
@@ -980,6 +1153,7 @@ featured_components:
     id: binary_sensor_gpio_54
     name: t128m-input54
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_55
   component_id: binary_sensor.gpio
@@ -994,6 +1168,7 @@ featured_components:
     id: binary_sensor_gpio_55
     name: t128m-input55
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_56
   component_id: binary_sensor.gpio
@@ -1008,6 +1183,7 @@ featured_components:
     id: binary_sensor_gpio_56
     name: t128m-input56
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_57
   component_id: binary_sensor.gpio
@@ -1022,6 +1198,7 @@ featured_components:
     id: binary_sensor_gpio_57
     name: t128m-input57
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_58
   component_id: binary_sensor.gpio
@@ -1036,6 +1213,7 @@ featured_components:
     id: binary_sensor_gpio_58
     name: t128m-input58
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_59
   component_id: binary_sensor.gpio
@@ -1050,6 +1228,7 @@ featured_components:
     id: binary_sensor_gpio_59
     name: t128m-input59
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_60
   component_id: binary_sensor.gpio
@@ -1064,6 +1243,7 @@ featured_components:
     id: binary_sensor_gpio_60
     name: t128m-input60
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_61
   component_id: binary_sensor.gpio
@@ -1078,6 +1258,7 @@ featured_components:
     id: binary_sensor_gpio_61
     name: t128m-input61
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_62
   component_id: binary_sensor.gpio
@@ -1092,6 +1273,7 @@ featured_components:
     id: binary_sensor_gpio_62
     name: t128m-input62
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_63
   component_id: binary_sensor.gpio
@@ -1106,6 +1288,7 @@ featured_components:
     id: binary_sensor_gpio_63
     name: t128m-input63
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_64
   component_id: binary_sensor.gpio
@@ -1120,6 +1303,7 @@ featured_components:
     id: binary_sensor_gpio_64
     name: t128m-input64
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_65
   component_id: binary_sensor.gpio
@@ -1134,6 +1318,7 @@ featured_components:
     id: binary_sensor_gpio_65
     name: t128m-input65
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_66
   component_id: binary_sensor.gpio
@@ -1148,6 +1333,7 @@ featured_components:
     id: binary_sensor_gpio_66
     name: t128m-input66
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_67
   component_id: binary_sensor.gpio
@@ -1162,6 +1348,7 @@ featured_components:
     id: binary_sensor_gpio_67
     name: t128m-input67
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_68
   component_id: binary_sensor.gpio
@@ -1176,6 +1363,7 @@ featured_components:
     id: binary_sensor_gpio_68
     name: t128m-input68
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_69
   component_id: binary_sensor.gpio
@@ -1190,6 +1378,7 @@ featured_components:
     id: binary_sensor_gpio_69
     name: t128m-input69
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_70
   component_id: binary_sensor.gpio
@@ -1204,6 +1393,7 @@ featured_components:
     id: binary_sensor_gpio_70
     name: t128m-input70
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_71
   component_id: binary_sensor.gpio
@@ -1218,6 +1408,7 @@ featured_components:
     id: binary_sensor_gpio_71
     name: t128m-input71
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_72
   component_id: binary_sensor.gpio
@@ -1232,6 +1423,7 @@ featured_components:
     id: binary_sensor_gpio_72
     name: t128m-input72
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_73
   component_id: binary_sensor.gpio
@@ -1246,6 +1438,7 @@ featured_components:
     id: binary_sensor_gpio_73
     name: t128m-input73
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_74
   component_id: binary_sensor.gpio
@@ -1260,6 +1453,7 @@ featured_components:
     id: binary_sensor_gpio_74
     name: t128m-input74
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_75
   component_id: binary_sensor.gpio
@@ -1274,6 +1468,7 @@ featured_components:
     id: binary_sensor_gpio_75
     name: t128m-input75
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_76
   component_id: binary_sensor.gpio
@@ -1288,6 +1483,7 @@ featured_components:
     id: binary_sensor_gpio_76
     name: t128m-input76
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_77
   component_id: binary_sensor.gpio
@@ -1302,6 +1498,7 @@ featured_components:
     id: binary_sensor_gpio_77
     name: t128m-input77
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_78
   component_id: binary_sensor.gpio
@@ -1316,6 +1513,7 @@ featured_components:
     id: binary_sensor_gpio_78
     name: t128m-input78
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_79
   component_id: binary_sensor.gpio
@@ -1330,6 +1528,7 @@ featured_components:
     id: binary_sensor_gpio_79
     name: t128m-input79
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_80
   component_id: binary_sensor.gpio
@@ -1344,6 +1543,7 @@ featured_components:
     id: binary_sensor_gpio_80
     name: t128m-input80
   requires:
+  - bus_b
   - pcf8574_hub_in_5
 - id: binary_sensor_gpio_81
   component_id: binary_sensor.gpio
@@ -1358,6 +1558,7 @@ featured_components:
     id: binary_sensor_gpio_81
     name: t128m-input81
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_82
   component_id: binary_sensor.gpio
@@ -1372,6 +1573,7 @@ featured_components:
     id: binary_sensor_gpio_82
     name: t128m-input82
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_83
   component_id: binary_sensor.gpio
@@ -1386,6 +1588,7 @@ featured_components:
     id: binary_sensor_gpio_83
     name: t128m-input83
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_84
   component_id: binary_sensor.gpio
@@ -1400,6 +1603,7 @@ featured_components:
     id: binary_sensor_gpio_84
     name: t128m-input84
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_85
   component_id: binary_sensor.gpio
@@ -1414,6 +1618,7 @@ featured_components:
     id: binary_sensor_gpio_85
     name: t128m-input85
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_86
   component_id: binary_sensor.gpio
@@ -1428,6 +1633,7 @@ featured_components:
     id: binary_sensor_gpio_86
     name: t128m-input86
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_87
   component_id: binary_sensor.gpio
@@ -1442,6 +1648,7 @@ featured_components:
     id: binary_sensor_gpio_87
     name: t128m-input87
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_88
   component_id: binary_sensor.gpio
@@ -1456,6 +1663,7 @@ featured_components:
     id: binary_sensor_gpio_88
     name: t128m-input88
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_89
   component_id: binary_sensor.gpio
@@ -1470,6 +1678,7 @@ featured_components:
     id: binary_sensor_gpio_89
     name: t128m-input89
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_90
   component_id: binary_sensor.gpio
@@ -1484,6 +1693,7 @@ featured_components:
     id: binary_sensor_gpio_90
     name: t128m-input90
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_91
   component_id: binary_sensor.gpio
@@ -1498,6 +1708,7 @@ featured_components:
     id: binary_sensor_gpio_91
     name: t128m-input91
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_92
   component_id: binary_sensor.gpio
@@ -1512,6 +1723,7 @@ featured_components:
     id: binary_sensor_gpio_92
     name: t128m-input92
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_93
   component_id: binary_sensor.gpio
@@ -1526,6 +1738,7 @@ featured_components:
     id: binary_sensor_gpio_93
     name: t128m-input93
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_94
   component_id: binary_sensor.gpio
@@ -1540,6 +1753,7 @@ featured_components:
     id: binary_sensor_gpio_94
     name: t128m-input94
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_95
   component_id: binary_sensor.gpio
@@ -1554,6 +1768,7 @@ featured_components:
     id: binary_sensor_gpio_95
     name: t128m-input95
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_96
   component_id: binary_sensor.gpio
@@ -1568,6 +1783,7 @@ featured_components:
     id: binary_sensor_gpio_96
     name: t128m-input96
   requires:
+  - bus_b
   - pcf8574_hub_in_6
 - id: binary_sensor_gpio_97
   component_id: binary_sensor.gpio
@@ -1582,6 +1798,7 @@ featured_components:
     id: binary_sensor_gpio_97
     name: t128m-input97
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_98
   component_id: binary_sensor.gpio
@@ -1596,6 +1813,7 @@ featured_components:
     id: binary_sensor_gpio_98
     name: t128m-input98
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_99
   component_id: binary_sensor.gpio
@@ -1610,6 +1828,7 @@ featured_components:
     id: binary_sensor_gpio_99
     name: t128m-input99
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_100
   component_id: binary_sensor.gpio
@@ -1624,6 +1843,7 @@ featured_components:
     id: binary_sensor_gpio_100
     name: t128m-input100
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_101
   component_id: binary_sensor.gpio
@@ -1638,6 +1858,7 @@ featured_components:
     id: binary_sensor_gpio_101
     name: t128m-input101
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_102
   component_id: binary_sensor.gpio
@@ -1652,6 +1873,7 @@ featured_components:
     id: binary_sensor_gpio_102
     name: t128m-input102
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_103
   component_id: binary_sensor.gpio
@@ -1666,6 +1888,7 @@ featured_components:
     id: binary_sensor_gpio_103
     name: t128m-input103
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_104
   component_id: binary_sensor.gpio
@@ -1680,6 +1903,7 @@ featured_components:
     id: binary_sensor_gpio_104
     name: t128m-input104
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_105
   component_id: binary_sensor.gpio
@@ -1694,6 +1918,7 @@ featured_components:
     id: binary_sensor_gpio_105
     name: t128m-input105
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_106
   component_id: binary_sensor.gpio
@@ -1708,6 +1933,7 @@ featured_components:
     id: binary_sensor_gpio_106
     name: t128m-input106
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_107
   component_id: binary_sensor.gpio
@@ -1722,6 +1948,7 @@ featured_components:
     id: binary_sensor_gpio_107
     name: t128m-input107
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_108
   component_id: binary_sensor.gpio
@@ -1736,6 +1963,7 @@ featured_components:
     id: binary_sensor_gpio_108
     name: t128m-input108
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_109
   component_id: binary_sensor.gpio
@@ -1750,6 +1978,7 @@ featured_components:
     id: binary_sensor_gpio_109
     name: t128m-input109
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_110
   component_id: binary_sensor.gpio
@@ -1764,6 +1993,7 @@ featured_components:
     id: binary_sensor_gpio_110
     name: t128m-input110
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_111
   component_id: binary_sensor.gpio
@@ -1778,6 +2008,7 @@ featured_components:
     id: binary_sensor_gpio_111
     name: t128m-input111
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_112
   component_id: binary_sensor.gpio
@@ -1792,6 +2023,7 @@ featured_components:
     id: binary_sensor_gpio_112
     name: t128m-input112
   requires:
+  - bus_b
   - pcf8574_hub_in_7
 - id: binary_sensor_gpio_113
   component_id: binary_sensor.gpio
@@ -1806,6 +2038,7 @@ featured_components:
     id: binary_sensor_gpio_113
     name: t128m-input113
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_114
   component_id: binary_sensor.gpio
@@ -1820,6 +2053,7 @@ featured_components:
     id: binary_sensor_gpio_114
     name: t128m-input114
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_115
   component_id: binary_sensor.gpio
@@ -1834,6 +2068,7 @@ featured_components:
     id: binary_sensor_gpio_115
     name: t128m-input115
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_116
   component_id: binary_sensor.gpio
@@ -1848,6 +2083,7 @@ featured_components:
     id: binary_sensor_gpio_116
     name: t128m-input116
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_117
   component_id: binary_sensor.gpio
@@ -1862,6 +2098,7 @@ featured_components:
     id: binary_sensor_gpio_117
     name: t128m-input117
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_118
   component_id: binary_sensor.gpio
@@ -1876,6 +2113,7 @@ featured_components:
     id: binary_sensor_gpio_118
     name: t128m-input118
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_119
   component_id: binary_sensor.gpio
@@ -1890,6 +2128,7 @@ featured_components:
     id: binary_sensor_gpio_119
     name: t128m-input119
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_120
   component_id: binary_sensor.gpio
@@ -1904,6 +2143,7 @@ featured_components:
     id: binary_sensor_gpio_120
     name: t128m-input120
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_121
   component_id: binary_sensor.gpio
@@ -1918,6 +2158,7 @@ featured_components:
     id: binary_sensor_gpio_121
     name: t128m-input121
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_122
   component_id: binary_sensor.gpio
@@ -1932,6 +2173,7 @@ featured_components:
     id: binary_sensor_gpio_122
     name: t128m-input122
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_123
   component_id: binary_sensor.gpio
@@ -1946,6 +2188,7 @@ featured_components:
     id: binary_sensor_gpio_123
     name: t128m-input123
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_124
   component_id: binary_sensor.gpio
@@ -1960,6 +2203,7 @@ featured_components:
     id: binary_sensor_gpio_124
     name: t128m-input124
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_125
   component_id: binary_sensor.gpio
@@ -1974,6 +2218,7 @@ featured_components:
     id: binary_sensor_gpio_125
     name: t128m-input125
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_126
   component_id: binary_sensor.gpio
@@ -1988,6 +2233,7 @@ featured_components:
     id: binary_sensor_gpio_126
     name: t128m-input126
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_127
   component_id: binary_sensor.gpio
@@ -2002,6 +2248,7 @@ featured_components:
     id: binary_sensor_gpio_127
     name: t128m-input127
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_128
   component_id: binary_sensor.gpio
@@ -2016,6 +2263,7 @@ featured_components:
     id: binary_sensor_gpio_128
     name: t128m-input128
   requires:
+  - bus_b
   - pcf8574_hub_in_8
 - id: binary_sensor_gpio_129
   component_id: binary_sensor.gpio
@@ -2152,6 +2400,7 @@ featured_components:
     id: t128m_output01
     name: t128m-output01
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output02
   component_id: switch.gpio
@@ -2166,6 +2415,7 @@ featured_components:
     id: t128m_output02
     name: t128m-output02
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output03
   component_id: switch.gpio
@@ -2180,6 +2430,7 @@ featured_components:
     id: t128m_output03
     name: t128m-output03
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output04
   component_id: switch.gpio
@@ -2194,6 +2445,7 @@ featured_components:
     id: t128m_output04
     name: t128m-output04
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output05
   component_id: switch.gpio
@@ -2208,6 +2460,7 @@ featured_components:
     id: t128m_output05
     name: t128m-output05
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output06
   component_id: switch.gpio
@@ -2222,6 +2475,7 @@ featured_components:
     id: t128m_output06
     name: t128m-output06
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output07
   component_id: switch.gpio
@@ -2236,6 +2490,7 @@ featured_components:
     id: t128m_output07
     name: t128m-output07
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output08
   component_id: switch.gpio
@@ -2250,6 +2505,7 @@ featured_components:
     id: t128m_output08
     name: t128m-output08
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output09
   component_id: switch.gpio
@@ -2264,6 +2520,7 @@ featured_components:
     id: t128m_output09
     name: t128m-output09
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output10
   component_id: switch.gpio
@@ -2278,6 +2535,7 @@ featured_components:
     id: t128m_output10
     name: t128m-output10
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output11
   component_id: switch.gpio
@@ -2292,6 +2550,7 @@ featured_components:
     id: t128m_output11
     name: t128m-output11
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output12
   component_id: switch.gpio
@@ -2306,6 +2565,7 @@ featured_components:
     id: t128m_output12
     name: t128m-output12
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output13
   component_id: switch.gpio
@@ -2320,6 +2580,7 @@ featured_components:
     id: t128m_output13
     name: t128m-output13
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output14
   component_id: switch.gpio
@@ -2334,6 +2595,7 @@ featured_components:
     id: t128m_output14
     name: t128m-output14
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output15
   component_id: switch.gpio
@@ -2348,6 +2610,7 @@ featured_components:
     id: t128m_output15
     name: t128m-output15
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output16
   component_id: switch.gpio
@@ -2362,6 +2625,7 @@ featured_components:
     id: t128m_output16
     name: t128m-output16
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t128m_output17
   component_id: switch.gpio
@@ -2376,6 +2640,7 @@ featured_components:
     id: t128m_output17
     name: t128m-output17
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output18
   component_id: switch.gpio
@@ -2390,6 +2655,7 @@ featured_components:
     id: t128m_output18
     name: t128m-output18
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output19
   component_id: switch.gpio
@@ -2404,6 +2670,7 @@ featured_components:
     id: t128m_output19
     name: t128m-output19
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output20
   component_id: switch.gpio
@@ -2418,6 +2685,7 @@ featured_components:
     id: t128m_output20
     name: t128m-output20
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output21
   component_id: switch.gpio
@@ -2432,6 +2700,7 @@ featured_components:
     id: t128m_output21
     name: t128m-output21
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output22
   component_id: switch.gpio
@@ -2446,6 +2715,7 @@ featured_components:
     id: t128m_output22
     name: t128m-output22
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output23
   component_id: switch.gpio
@@ -2460,6 +2730,7 @@ featured_components:
     id: t128m_output23
     name: t128m-output23
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output24
   component_id: switch.gpio
@@ -2474,6 +2745,7 @@ featured_components:
     id: t128m_output24
     name: t128m-output24
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output25
   component_id: switch.gpio
@@ -2488,6 +2760,7 @@ featured_components:
     id: t128m_output25
     name: t128m-output25
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output26
   component_id: switch.gpio
@@ -2502,6 +2775,7 @@ featured_components:
     id: t128m_output26
     name: t128m-output26
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output27
   component_id: switch.gpio
@@ -2516,6 +2790,7 @@ featured_components:
     id: t128m_output27
     name: t128m-output27
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output28
   component_id: switch.gpio
@@ -2530,6 +2805,7 @@ featured_components:
     id: t128m_output28
     name: t128m-output28
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output29
   component_id: switch.gpio
@@ -2544,6 +2820,7 @@ featured_components:
     id: t128m_output29
     name: t128m-output29
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output30
   component_id: switch.gpio
@@ -2558,6 +2835,7 @@ featured_components:
     id: t128m_output30
     name: t128m-output30
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output31
   component_id: switch.gpio
@@ -2572,6 +2850,7 @@ featured_components:
     id: t128m_output31
     name: t128m-output31
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output32
   component_id: switch.gpio
@@ -2586,6 +2865,7 @@ featured_components:
     id: t128m_output32
     name: t128m-output32
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t128m_output33
   component_id: switch.gpio
@@ -2600,6 +2880,7 @@ featured_components:
     id: t128m_output33
     name: t128m-output33
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output34
   component_id: switch.gpio
@@ -2614,6 +2895,7 @@ featured_components:
     id: t128m_output34
     name: t128m-output34
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output35
   component_id: switch.gpio
@@ -2628,6 +2910,7 @@ featured_components:
     id: t128m_output35
     name: t128m-output35
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output36
   component_id: switch.gpio
@@ -2642,6 +2925,7 @@ featured_components:
     id: t128m_output36
     name: t128m-output36
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output37
   component_id: switch.gpio
@@ -2656,6 +2940,7 @@ featured_components:
     id: t128m_output37
     name: t128m-output37
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output38
   component_id: switch.gpio
@@ -2670,6 +2955,7 @@ featured_components:
     id: t128m_output38
     name: t128m-output38
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output39
   component_id: switch.gpio
@@ -2684,6 +2970,7 @@ featured_components:
     id: t128m_output39
     name: t128m-output39
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output40
   component_id: switch.gpio
@@ -2698,6 +2985,7 @@ featured_components:
     id: t128m_output40
     name: t128m-output40
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output41
   component_id: switch.gpio
@@ -2712,6 +3000,7 @@ featured_components:
     id: t128m_output41
     name: t128m-output41
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output42
   component_id: switch.gpio
@@ -2726,6 +3015,7 @@ featured_components:
     id: t128m_output42
     name: t128m-output42
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output43
   component_id: switch.gpio
@@ -2740,6 +3030,7 @@ featured_components:
     id: t128m_output43
     name: t128m-output43
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output44
   component_id: switch.gpio
@@ -2754,6 +3045,7 @@ featured_components:
     id: t128m_output44
     name: t128m-output44
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output45
   component_id: switch.gpio
@@ -2768,6 +3060,7 @@ featured_components:
     id: t128m_output45
     name: t128m-output45
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output46
   component_id: switch.gpio
@@ -2782,6 +3075,7 @@ featured_components:
     id: t128m_output46
     name: t128m-output46
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output47
   component_id: switch.gpio
@@ -2796,6 +3090,7 @@ featured_components:
     id: t128m_output47
     name: t128m-output47
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output48
   component_id: switch.gpio
@@ -2810,6 +3105,7 @@ featured_components:
     id: t128m_output48
     name: t128m-output48
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t128m_output49
   component_id: switch.gpio
@@ -2824,6 +3120,7 @@ featured_components:
     id: t128m_output49
     name: t128m-output49
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output50
   component_id: switch.gpio
@@ -2838,6 +3135,7 @@ featured_components:
     id: t128m_output50
     name: t128m-output50
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output51
   component_id: switch.gpio
@@ -2852,6 +3150,7 @@ featured_components:
     id: t128m_output51
     name: t128m-output51
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output52
   component_id: switch.gpio
@@ -2866,6 +3165,7 @@ featured_components:
     id: t128m_output52
     name: t128m-output52
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output53
   component_id: switch.gpio
@@ -2880,6 +3180,7 @@ featured_components:
     id: t128m_output53
     name: t128m-output53
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output54
   component_id: switch.gpio
@@ -2894,6 +3195,7 @@ featured_components:
     id: t128m_output54
     name: t128m-output54
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output55
   component_id: switch.gpio
@@ -2908,6 +3210,7 @@ featured_components:
     id: t128m_output55
     name: t128m-output55
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output56
   component_id: switch.gpio
@@ -2922,6 +3225,7 @@ featured_components:
     id: t128m_output56
     name: t128m-output56
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output57
   component_id: switch.gpio
@@ -2936,6 +3240,7 @@ featured_components:
     id: t128m_output57
     name: t128m-output57
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output58
   component_id: switch.gpio
@@ -2950,6 +3255,7 @@ featured_components:
     id: t128m_output58
     name: t128m-output58
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output59
   component_id: switch.gpio
@@ -2964,6 +3270,7 @@ featured_components:
     id: t128m_output59
     name: t128m-output59
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output60
   component_id: switch.gpio
@@ -2978,6 +3285,7 @@ featured_components:
     id: t128m_output60
     name: t128m-output60
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output61
   component_id: switch.gpio
@@ -2992,6 +3300,7 @@ featured_components:
     id: t128m_output61
     name: t128m-output61
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output62
   component_id: switch.gpio
@@ -3006,6 +3315,7 @@ featured_components:
     id: t128m_output62
     name: t128m-output62
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output63
   component_id: switch.gpio
@@ -3020,6 +3330,7 @@ featured_components:
     id: t128m_output63
     name: t128m-output63
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output64
   component_id: switch.gpio
@@ -3034,6 +3345,7 @@ featured_components:
     id: t128m_output64
     name: t128m-output64
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t128m_output65
   component_id: switch.gpio
@@ -3048,6 +3360,7 @@ featured_components:
     id: t128m_output65
     name: t128m-output65
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output66
   component_id: switch.gpio
@@ -3062,6 +3375,7 @@ featured_components:
     id: t128m_output66
     name: t128m-output66
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output67
   component_id: switch.gpio
@@ -3076,6 +3390,7 @@ featured_components:
     id: t128m_output67
     name: t128m-output67
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output68
   component_id: switch.gpio
@@ -3090,6 +3405,7 @@ featured_components:
     id: t128m_output68
     name: t128m-output68
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output69
   component_id: switch.gpio
@@ -3104,6 +3420,7 @@ featured_components:
     id: t128m_output69
     name: t128m-output69
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output70
   component_id: switch.gpio
@@ -3118,6 +3435,7 @@ featured_components:
     id: t128m_output70
     name: t128m-output70
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output71
   component_id: switch.gpio
@@ -3132,6 +3450,7 @@ featured_components:
     id: t128m_output71
     name: t128m-output71
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output72
   component_id: switch.gpio
@@ -3146,6 +3465,7 @@ featured_components:
     id: t128m_output72
     name: t128m-output72
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output73
   component_id: switch.gpio
@@ -3160,6 +3480,7 @@ featured_components:
     id: t128m_output73
     name: t128m-output73
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output74
   component_id: switch.gpio
@@ -3174,6 +3495,7 @@ featured_components:
     id: t128m_output74
     name: t128m-output74
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output75
   component_id: switch.gpio
@@ -3188,6 +3510,7 @@ featured_components:
     id: t128m_output75
     name: t128m-output75
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output76
   component_id: switch.gpio
@@ -3202,6 +3525,7 @@ featured_components:
     id: t128m_output76
     name: t128m-output76
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output77
   component_id: switch.gpio
@@ -3216,6 +3540,7 @@ featured_components:
     id: t128m_output77
     name: t128m-output77
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output78
   component_id: switch.gpio
@@ -3230,6 +3555,7 @@ featured_components:
     id: t128m_output78
     name: t128m-output78
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output79
   component_id: switch.gpio
@@ -3244,6 +3570,7 @@ featured_components:
     id: t128m_output79
     name: t128m-output79
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output80
   component_id: switch.gpio
@@ -3258,6 +3585,7 @@ featured_components:
     id: t128m_output80
     name: t128m-output80
   requires:
+  - bus_a
   - pcf8574_hub_out_5
 - id: t128m_output81
   component_id: switch.gpio
@@ -3272,6 +3600,7 @@ featured_components:
     id: t128m_output81
     name: t128m-output81
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output82
   component_id: switch.gpio
@@ -3286,6 +3615,7 @@ featured_components:
     id: t128m_output82
     name: t128m-output82
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output83
   component_id: switch.gpio
@@ -3300,6 +3630,7 @@ featured_components:
     id: t128m_output83
     name: t128m-output83
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output84
   component_id: switch.gpio
@@ -3314,6 +3645,7 @@ featured_components:
     id: t128m_output84
     name: t128m-output84
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output85
   component_id: switch.gpio
@@ -3328,6 +3660,7 @@ featured_components:
     id: t128m_output85
     name: t128m-output85
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output86
   component_id: switch.gpio
@@ -3342,6 +3675,7 @@ featured_components:
     id: t128m_output86
     name: t128m-output86
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output87
   component_id: switch.gpio
@@ -3356,6 +3690,7 @@ featured_components:
     id: t128m_output87
     name: t128m-output87
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output88
   component_id: switch.gpio
@@ -3370,6 +3705,7 @@ featured_components:
     id: t128m_output88
     name: t128m-output88
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output89
   component_id: switch.gpio
@@ -3384,6 +3720,7 @@ featured_components:
     id: t128m_output89
     name: t128m-output89
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output90
   component_id: switch.gpio
@@ -3398,6 +3735,7 @@ featured_components:
     id: t128m_output90
     name: t128m-output90
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output91
   component_id: switch.gpio
@@ -3412,6 +3750,7 @@ featured_components:
     id: t128m_output91
     name: t128m-output91
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output92
   component_id: switch.gpio
@@ -3426,6 +3765,7 @@ featured_components:
     id: t128m_output92
     name: t128m-output92
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output93
   component_id: switch.gpio
@@ -3440,6 +3780,7 @@ featured_components:
     id: t128m_output93
     name: t128m-output93
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output94
   component_id: switch.gpio
@@ -3454,6 +3795,7 @@ featured_components:
     id: t128m_output94
     name: t128m-output94
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output95
   component_id: switch.gpio
@@ -3468,6 +3810,7 @@ featured_components:
     id: t128m_output95
     name: t128m-output95
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output96
   component_id: switch.gpio
@@ -3482,6 +3825,7 @@ featured_components:
     id: t128m_output96
     name: t128m-output96
   requires:
+  - bus_a
   - pcf8574_hub_out_6
 - id: t128m_output97
   component_id: switch.gpio
@@ -3496,6 +3840,7 @@ featured_components:
     id: t128m_output97
     name: t128m-output97
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output98
   component_id: switch.gpio
@@ -3510,6 +3855,7 @@ featured_components:
     id: t128m_output98
     name: t128m-output98
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output99
   component_id: switch.gpio
@@ -3524,6 +3870,7 @@ featured_components:
     id: t128m_output99
     name: t128m-output99
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output100
   component_id: switch.gpio
@@ -3538,6 +3885,7 @@ featured_components:
     id: t128m_output100
     name: t128m-output100
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output101
   component_id: switch.gpio
@@ -3552,6 +3900,7 @@ featured_components:
     id: t128m_output101
     name: t128m-output101
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output102
   component_id: switch.gpio
@@ -3566,6 +3915,7 @@ featured_components:
     id: t128m_output102
     name: t128m-output102
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output103
   component_id: switch.gpio
@@ -3580,6 +3930,7 @@ featured_components:
     id: t128m_output103
     name: t128m-output103
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output104
   component_id: switch.gpio
@@ -3594,6 +3945,7 @@ featured_components:
     id: t128m_output104
     name: t128m-output104
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output105
   component_id: switch.gpio
@@ -3608,6 +3960,7 @@ featured_components:
     id: t128m_output105
     name: t128m-output105
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output106
   component_id: switch.gpio
@@ -3622,6 +3975,7 @@ featured_components:
     id: t128m_output106
     name: t128m-output106
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output107
   component_id: switch.gpio
@@ -3636,6 +3990,7 @@ featured_components:
     id: t128m_output107
     name: t128m-output107
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output108
   component_id: switch.gpio
@@ -3650,6 +4005,7 @@ featured_components:
     id: t128m_output108
     name: t128m-output108
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output109
   component_id: switch.gpio
@@ -3664,6 +4020,7 @@ featured_components:
     id: t128m_output109
     name: t128m-output109
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output110
   component_id: switch.gpio
@@ -3678,6 +4035,7 @@ featured_components:
     id: t128m_output110
     name: t128m-output110
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output111
   component_id: switch.gpio
@@ -3692,6 +4050,7 @@ featured_components:
     id: t128m_output111
     name: t128m-output111
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output112
   component_id: switch.gpio
@@ -3706,6 +4065,7 @@ featured_components:
     id: t128m_output112
     name: t128m-output112
   requires:
+  - bus_a
   - pcf8574_hub_out_7
 - id: t128m_output113
   component_id: switch.gpio
@@ -3720,6 +4080,7 @@ featured_components:
     id: t128m_output113
     name: t128m-output113
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output114
   component_id: switch.gpio
@@ -3734,6 +4095,7 @@ featured_components:
     id: t128m_output114
     name: t128m-output114
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output115
   component_id: switch.gpio
@@ -3748,6 +4110,7 @@ featured_components:
     id: t128m_output115
     name: t128m-output115
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output116
   component_id: switch.gpio
@@ -3762,6 +4125,7 @@ featured_components:
     id: t128m_output116
     name: t128m-output116
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output117
   component_id: switch.gpio
@@ -3776,6 +4140,7 @@ featured_components:
     id: t128m_output117
     name: t128m-output117
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output118
   component_id: switch.gpio
@@ -3790,6 +4155,7 @@ featured_components:
     id: t128m_output118
     name: t128m-output118
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output119
   component_id: switch.gpio
@@ -3804,6 +4170,7 @@ featured_components:
     id: t128m_output119
     name: t128m-output119
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output120
   component_id: switch.gpio
@@ -3818,6 +4185,7 @@ featured_components:
     id: t128m_output120
     name: t128m-output120
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output121
   component_id: switch.gpio
@@ -3832,6 +4200,7 @@ featured_components:
     id: t128m_output121
     name: t128m-output121
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output122
   component_id: switch.gpio
@@ -3846,6 +4215,7 @@ featured_components:
     id: t128m_output122
     name: t128m-output122
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output123
   component_id: switch.gpio
@@ -3860,6 +4230,7 @@ featured_components:
     id: t128m_output123
     name: t128m-output123
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output124
   component_id: switch.gpio
@@ -3874,6 +4245,7 @@ featured_components:
     id: t128m_output124
     name: t128m-output124
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output125
   component_id: switch.gpio
@@ -3888,6 +4260,7 @@ featured_components:
     id: t128m_output125
     name: t128m-output125
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output126
   component_id: switch.gpio
@@ -3902,6 +4275,7 @@ featured_components:
     id: t128m_output126
     name: t128m-output126
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output127
   component_id: switch.gpio
@@ -3916,6 +4290,7 @@ featured_components:
     id: t128m_output127
     name: t128m-output127
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 - id: t128m_output128
   component_id: switch.gpio
@@ -3930,6 +4305,7 @@ featured_components:
     id: t128m_output128
     name: t128m-output128
   requires:
+  - bus_a
   - pcf8574_hub_out_8
 source:
   type: esphome-devices

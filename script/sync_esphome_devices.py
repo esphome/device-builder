@@ -1442,28 +1442,45 @@ def _collect_expander_refs(
 
 def _ensure_buses(
     hub_component: dict[str, Any],
+    hub_block: dict[str, Any],
     config: dict[str, Any],
     components_index: dict[str, dict[str, Any]],
     used_ids: set[str],
-    bus_local: dict[str, str],
+    bus_local: dict[tuple[str, str | None], str],
     occupancy: dict[int, str],
     extra: list[dict[str, Any]],
-) -> list[str]:
-    """Materialize (once) each bus a hub depends on; return their local ids."""
+) -> tuple[list[str], dict[str, str]]:
+    """
+    Materialize (once) the bus each hub dependency resolves to.
+
+    Honors the hub's ``<bus>_id`` (e.g. ``i2c_id: bus_a``) so a board with more
+    than one bus picks the right one; otherwise the sole bus. Returns the bus
+    local ids (for ``requires``) and the ``{<bus>_id: source_id}`` references to
+    lock onto the hub so it points at the bus that was lifted.
+    """
     bus_ids: list[str] = []
+    bus_refs: dict[str, str] = {}
     for dep in hub_component.get("dependencies") or []:
-        local = bus_local.get(dep)
+        ref_field = f"{dep}_id"
+        instance = hub_block.get(ref_field)
+        instance = instance if isinstance(instance, str) and instance else None
+        key = (dep, instance)
+        local = bus_local.get(key)
         if local is None:
-            bus_entry, local, bus_occ = _materialize_bus(dep, config, components_index, used_ids)
+            bus_entry, local, bus_occ = _materialize_bus(
+                dep, instance, config, components_index, used_ids
+            )
             if bus_entry is None:
                 continue
             used_ids.add(local)
-            bus_local[dep] = local
+            bus_local[key] = local
             occupancy.update(bus_occ)
             extra.append(bus_entry)
         if local not in bus_ids:
             bus_ids.append(local)
-    return bus_ids
+        if instance is not None:
+            bus_refs[ref_field] = instance
+    return bus_ids, bus_refs
 
 
 def _wire_consumer_requires(
@@ -1494,24 +1511,33 @@ def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
 
 def _materialize_bus(
     bus_domain: str,
+    instance_id: str | None,
     config: dict[str, Any],
     components_index: dict[str, dict[str, Any]],
     used_ids: set[str],
 ) -> tuple[dict[str, Any] | None, str, dict[int, str]]:
     """
-    Lift the single top-level ``i2c:`` / ``spi:`` bus a hub depends on into a featured entry.
+    Lift the top-level ``i2c:`` / ``spi:`` bus a hub depends on into a featured entry.
 
-    Returns ``(entry, local_id, occupancy)`` or ``(None, "", {})`` when the bus
-    is absent, ambiguous (more than one, so the hub would need an explicit
-    ``*_id``), placeholder, or has no upstream ``id`` to lock onto (the catalog
-    component's own ``dependencies`` then surfaces the bare bus via the
-    add-dialog's missing-dependency banner instead).
+    *instance_id* names the specific bus when the hub pins one (``i2c_id:
+    bus_a``); otherwise the sole bus is used. Returns ``(entry, local_id,
+    occupancy)`` or ``(None, "", {})`` when the bus is absent, ambiguous (no
+    ``*_id`` and more than one bus), placeholder, or has no upstream ``id`` to
+    lock onto (the catalog component's own ``dependencies`` then surfaces the
+    bare bus via the add-dialog's missing-dependency banner instead).
     """
     component = components_index.get(bus_domain)
-    blocks = _as_block_list(config.get(bus_domain))
-    if component is None or len(blocks) != 1 or not isinstance(blocks[0], dict):
+    blocks = [block for block in _as_block_list(config.get(bus_domain)) if isinstance(block, dict)]
+    if component is None:
         return None, "", {}
-    block = blocks[0]
+    if instance_id is not None:
+        block = next((b for b in blocks if b.get("id") == instance_id), None)
+    elif len(blocks) == 1:
+        block = blocks[0]
+    else:
+        block = None
+    if block is None:
+        return None, "", {}
     bus_inst = block.get("id")
     if not isinstance(bus_inst, str) or not bus_inst:
         return None, "", {}
@@ -1549,7 +1575,7 @@ def _extract_expander_hubs(
     used_ids = {entry["id"] for entry in featured}
     extra: list[dict[str, Any]] = []
     occupancy: dict[int, str] = {}
-    bus_local: dict[str, str] = {}
+    bus_local: dict[tuple[str, str | None], str] = {}
     # Each materialized hub keyed by its ref, carrying the local id + the bus
     # ids it needs — the ordered prerequisite chain a consumer references.
     hub_prereqs: dict[tuple[str, str], list[str]] = {}
@@ -1559,8 +1585,8 @@ def _extract_expander_hubs(
         block = _find_hub_block(config.get(hub_cid), instance_id)
         if hub_component is None or block is None:
             continue
-        bus_ids = _ensure_buses(
-            hub_component, config, components_index, used_ids, bus_local, occupancy, extra
+        bus_ids, bus_refs = _ensure_buses(
+            hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
         )
         fields = _extract_fields(block, hub_component, occupancy, hub_cid)
         if fields is None:
@@ -1571,6 +1597,10 @@ def _extract_expander_hubs(
         hub_id = _unique_local_id(_sanitize_local_id(instance_id), used_ids, hub_cid)
         used_ids.add(hub_id)
         fields["id"] = {"value": instance_id, "locked": True}
+        # Lock the hub onto the bus it was lifted from (multi-bus boards), so it
+        # doesn't fall back to esphome's default i2c pins.
+        for ref_field, bus_inst in bus_refs.items():
+            fields[ref_field] = {"value": bus_inst, "locked": True}
         hub_entry: dict[str, Any] = {"id": hub_id, "component_id": hub_cid, "fields": fields}
         if bus_ids:
             hub_entry["requires"] = bus_ids

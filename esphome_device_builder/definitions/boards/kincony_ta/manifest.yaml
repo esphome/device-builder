@@ -87,6 +87,9 @@ featured_components:
     id:
       value: pcf8574_hub_out_1
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
   requires:
   - bus_a
 - id: ta_input01

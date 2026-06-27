@@ -46,6 +46,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: t64m-io10
+- gpio: 11
+  available: false
+  occupied_by: bus_b
+- gpio: 12
+  available: false
+  occupied_by: bus_b
 - gpio: 15
   available: false
   occupied_by: t64m-W1-io15
@@ -70,8 +76,28 @@ pins:
 - gpio: 44
   available: false
   occupied_by: Ethernet MISO
+- gpio: 47
+  available: false
+  occupied_by: bus_a
+- gpio: 48
+  available: false
+  occupied_by: bus_a
 docs_url: https://devices.esphome.io/devices/KinCony-T64M/
 featured_components:
+- id: bus_b
+  component_id: i2c
+  fields:
+    sda:
+      value: 12
+      locked: true
+    scl:
+      value: 11
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_b
+      locked: true
 - id: pcf8574_hub_in_1
   component_id: pcf8574
   fields:
@@ -80,6 +106,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_1
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_2
   component_id: pcf8574
   fields:
@@ -88,6 +119,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_2
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_3
   component_id: pcf8574
   fields:
@@ -96,6 +132,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_3
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_4
   component_id: pcf8574
   fields:
@@ -103,6 +144,25 @@ featured_components:
     pcf8575: true
     id:
       value: pcf8574_hub_in_4
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 48
+      locked: true
+    scl:
+      value: 47
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
       locked: true
 - id: pcf8574_hub_out_1
   component_id: pcf8574
@@ -112,6 +172,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_1
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_2
   component_id: pcf8574
   fields:
@@ -120,6 +185,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_2
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_3
   component_id: pcf8574
   fields:
@@ -128,6 +198,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_3
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_4
   component_id: pcf8574
   fields:
@@ -136,6 +211,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_4
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -174,6 +254,7 @@ featured_components:
     id: binary_sensor_gpio_1
     name: t64m-input01
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -188,6 +269,7 @@ featured_components:
     id: binary_sensor_gpio_2
     name: t64m-input02
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
@@ -202,6 +284,7 @@ featured_components:
     id: binary_sensor_gpio_3
     name: t64m-input03
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
@@ -216,6 +299,7 @@ featured_components:
     id: binary_sensor_gpio_4
     name: t64m-input04
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -230,6 +314,7 @@ featured_components:
     id: binary_sensor_gpio_5
     name: t64m-input05
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
@@ -244,6 +329,7 @@ featured_components:
     id: binary_sensor_gpio_6
     name: t64m-input06
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
@@ -258,6 +344,7 @@ featured_components:
     id: binary_sensor_gpio_7
     name: t64m-input07
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
@@ -272,6 +359,7 @@ featured_components:
     id: binary_sensor_gpio_8
     name: t64m-input08
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
@@ -286,6 +374,7 @@ featured_components:
     id: binary_sensor_gpio_9
     name: t64m-input09
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
@@ -300,6 +389,7 @@ featured_components:
     id: binary_sensor_gpio_10
     name: t64m-input10
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
@@ -314,6 +404,7 @@ featured_components:
     id: binary_sensor_gpio_11
     name: t64m-input11
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
@@ -328,6 +419,7 @@ featured_components:
     id: binary_sensor_gpio_12
     name: t64m-input12
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
@@ -342,6 +434,7 @@ featured_components:
     id: binary_sensor_gpio_13
     name: t64m-input13
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
@@ -356,6 +449,7 @@ featured_components:
     id: binary_sensor_gpio_14
     name: t64m-input14
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
@@ -370,6 +464,7 @@ featured_components:
     id: binary_sensor_gpio_15
     name: t64m-input15
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
@@ -384,6 +479,7 @@ featured_components:
     id: binary_sensor_gpio_16
     name: t64m-input16
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
@@ -398,6 +494,7 @@ featured_components:
     id: binary_sensor_gpio_17
     name: t64m-input17
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
@@ -412,6 +509,7 @@ featured_components:
     id: binary_sensor_gpio_18
     name: t64m-input18
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
@@ -426,6 +524,7 @@ featured_components:
     id: binary_sensor_gpio_19
     name: t64m-input19
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
@@ -440,6 +539,7 @@ featured_components:
     id: binary_sensor_gpio_20
     name: t64m-input20
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
@@ -454,6 +554,7 @@ featured_components:
     id: binary_sensor_gpio_21
     name: t64m-input21
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
@@ -468,6 +569,7 @@ featured_components:
     id: binary_sensor_gpio_22
     name: t64m-input22
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
@@ -482,6 +584,7 @@ featured_components:
     id: binary_sensor_gpio_23
     name: t64m-input23
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
@@ -496,6 +599,7 @@ featured_components:
     id: binary_sensor_gpio_24
     name: t64m-input24
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
@@ -510,6 +614,7 @@ featured_components:
     id: binary_sensor_gpio_25
     name: t64m-input25
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
@@ -524,6 +629,7 @@ featured_components:
     id: binary_sensor_gpio_26
     name: t64m-input26
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
@@ -538,6 +644,7 @@ featured_components:
     id: binary_sensor_gpio_27
     name: t64m-input27
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
@@ -552,6 +659,7 @@ featured_components:
     id: binary_sensor_gpio_28
     name: t64m-input28
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
@@ -566,6 +674,7 @@ featured_components:
     id: binary_sensor_gpio_29
     name: t64m-input29
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
@@ -580,6 +689,7 @@ featured_components:
     id: binary_sensor_gpio_30
     name: t64m-input30
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
@@ -594,6 +704,7 @@ featured_components:
     id: binary_sensor_gpio_31
     name: t64m-input31
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
@@ -608,6 +719,7 @@ featured_components:
     id: binary_sensor_gpio_32
     name: t64m-input32
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
@@ -622,6 +734,7 @@ featured_components:
     id: binary_sensor_gpio_33
     name: t64m-input33
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_34
   component_id: binary_sensor.gpio
@@ -636,6 +749,7 @@ featured_components:
     id: binary_sensor_gpio_34
     name: t64m-input34
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_35
   component_id: binary_sensor.gpio
@@ -650,6 +764,7 @@ featured_components:
     id: binary_sensor_gpio_35
     name: t64m-input35
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_36
   component_id: binary_sensor.gpio
@@ -664,6 +779,7 @@ featured_components:
     id: binary_sensor_gpio_36
     name: t64m-input36
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_37
   component_id: binary_sensor.gpio
@@ -678,6 +794,7 @@ featured_components:
     id: binary_sensor_gpio_37
     name: t64m-input37
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_38
   component_id: binary_sensor.gpio
@@ -692,6 +809,7 @@ featured_components:
     id: binary_sensor_gpio_38
     name: t64m-input38
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_39
   component_id: binary_sensor.gpio
@@ -706,6 +824,7 @@ featured_components:
     id: binary_sensor_gpio_39
     name: t64m-input39
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_40
   component_id: binary_sensor.gpio
@@ -720,6 +839,7 @@ featured_components:
     id: binary_sensor_gpio_40
     name: t64m-input40
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_41
   component_id: binary_sensor.gpio
@@ -734,6 +854,7 @@ featured_components:
     id: binary_sensor_gpio_41
     name: t64m-input41
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_42
   component_id: binary_sensor.gpio
@@ -748,6 +869,7 @@ featured_components:
     id: binary_sensor_gpio_42
     name: t64m-input42
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_43
   component_id: binary_sensor.gpio
@@ -762,6 +884,7 @@ featured_components:
     id: binary_sensor_gpio_43
     name: t64m-input43
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_44
   component_id: binary_sensor.gpio
@@ -776,6 +899,7 @@ featured_components:
     id: binary_sensor_gpio_44
     name: t64m-input44
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_45
   component_id: binary_sensor.gpio
@@ -790,6 +914,7 @@ featured_components:
     id: binary_sensor_gpio_45
     name: t64m-input45
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_46
   component_id: binary_sensor.gpio
@@ -804,6 +929,7 @@ featured_components:
     id: binary_sensor_gpio_46
     name: t64m-input46
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_47
   component_id: binary_sensor.gpio
@@ -818,6 +944,7 @@ featured_components:
     id: binary_sensor_gpio_47
     name: t64m-input47
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_48
   component_id: binary_sensor.gpio
@@ -832,6 +959,7 @@ featured_components:
     id: binary_sensor_gpio_48
     name: t64m-input48
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_49
   component_id: binary_sensor.gpio
@@ -846,6 +974,7 @@ featured_components:
     id: binary_sensor_gpio_49
     name: t64m-input49
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_50
   component_id: binary_sensor.gpio
@@ -860,6 +989,7 @@ featured_components:
     id: binary_sensor_gpio_50
     name: t64m-input50
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_51
   component_id: binary_sensor.gpio
@@ -874,6 +1004,7 @@ featured_components:
     id: binary_sensor_gpio_51
     name: t64m-input51
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_52
   component_id: binary_sensor.gpio
@@ -888,6 +1019,7 @@ featured_components:
     id: binary_sensor_gpio_52
     name: t64m-input52
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_53
   component_id: binary_sensor.gpio
@@ -902,6 +1034,7 @@ featured_components:
     id: binary_sensor_gpio_53
     name: t64m-input53
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_54
   component_id: binary_sensor.gpio
@@ -916,6 +1049,7 @@ featured_components:
     id: binary_sensor_gpio_54
     name: t64m-input54
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_55
   component_id: binary_sensor.gpio
@@ -930,6 +1064,7 @@ featured_components:
     id: binary_sensor_gpio_55
     name: t64m-input55
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_56
   component_id: binary_sensor.gpio
@@ -944,6 +1079,7 @@ featured_components:
     id: binary_sensor_gpio_56
     name: t64m-input56
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_57
   component_id: binary_sensor.gpio
@@ -958,6 +1094,7 @@ featured_components:
     id: binary_sensor_gpio_57
     name: t64m-input57
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_58
   component_id: binary_sensor.gpio
@@ -972,6 +1109,7 @@ featured_components:
     id: binary_sensor_gpio_58
     name: t64m-input58
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_59
   component_id: binary_sensor.gpio
@@ -986,6 +1124,7 @@ featured_components:
     id: binary_sensor_gpio_59
     name: t64m-input59
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_60
   component_id: binary_sensor.gpio
@@ -1000,6 +1139,7 @@ featured_components:
     id: binary_sensor_gpio_60
     name: t64m-input60
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_61
   component_id: binary_sensor.gpio
@@ -1014,6 +1154,7 @@ featured_components:
     id: binary_sensor_gpio_61
     name: t64m-input61
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_62
   component_id: binary_sensor.gpio
@@ -1028,6 +1169,7 @@ featured_components:
     id: binary_sensor_gpio_62
     name: t64m-input62
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_63
   component_id: binary_sensor.gpio
@@ -1042,6 +1184,7 @@ featured_components:
     id: binary_sensor_gpio_63
     name: t64m-input63
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_64
   component_id: binary_sensor.gpio
@@ -1056,6 +1199,7 @@ featured_components:
     id: binary_sensor_gpio_64
     name: t64m-input64
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_65
   component_id: binary_sensor.gpio
@@ -1192,6 +1336,7 @@ featured_components:
     id: t64m_output01
     name: t64m-output01
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output02
   component_id: switch.gpio
@@ -1206,6 +1351,7 @@ featured_components:
     id: t64m_output02
     name: t64m-output02
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output03
   component_id: switch.gpio
@@ -1220,6 +1366,7 @@ featured_components:
     id: t64m_output03
     name: t64m-output03
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output04
   component_id: switch.gpio
@@ -1234,6 +1381,7 @@ featured_components:
     id: t64m_output04
     name: t64m-output04
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output05
   component_id: switch.gpio
@@ -1248,6 +1396,7 @@ featured_components:
     id: t64m_output05
     name: t64m-output05
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output06
   component_id: switch.gpio
@@ -1262,6 +1411,7 @@ featured_components:
     id: t64m_output06
     name: t64m-output06
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output07
   component_id: switch.gpio
@@ -1276,6 +1426,7 @@ featured_components:
     id: t64m_output07
     name: t64m-output07
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output08
   component_id: switch.gpio
@@ -1290,6 +1441,7 @@ featured_components:
     id: t64m_output08
     name: t64m-output08
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output09
   component_id: switch.gpio
@@ -1304,6 +1456,7 @@ featured_components:
     id: t64m_output09
     name: t64m-output09
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output10
   component_id: switch.gpio
@@ -1318,6 +1471,7 @@ featured_components:
     id: t64m_output10
     name: t64m-output10
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output11
   component_id: switch.gpio
@@ -1332,6 +1486,7 @@ featured_components:
     id: t64m_output11
     name: t64m-output11
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output12
   component_id: switch.gpio
@@ -1346,6 +1501,7 @@ featured_components:
     id: t64m_output12
     name: t64m-output12
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output13
   component_id: switch.gpio
@@ -1360,6 +1516,7 @@ featured_components:
     id: t64m_output13
     name: t64m-output13
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output14
   component_id: switch.gpio
@@ -1374,6 +1531,7 @@ featured_components:
     id: t64m_output14
     name: t64m-output14
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output15
   component_id: switch.gpio
@@ -1388,6 +1546,7 @@ featured_components:
     id: t64m_output15
     name: t64m-output15
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output16
   component_id: switch.gpio
@@ -1402,6 +1561,7 @@ featured_components:
     id: t64m_output16
     name: t64m-output16
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: t64m_output17
   component_id: switch.gpio
@@ -1416,6 +1576,7 @@ featured_components:
     id: t64m_output17
     name: t64m-output17
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output18
   component_id: switch.gpio
@@ -1430,6 +1591,7 @@ featured_components:
     id: t64m_output18
     name: t64m-output18
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output19
   component_id: switch.gpio
@@ -1444,6 +1606,7 @@ featured_components:
     id: t64m_output19
     name: t64m-output19
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output20
   component_id: switch.gpio
@@ -1458,6 +1621,7 @@ featured_components:
     id: t64m_output20
     name: t64m-output20
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output21
   component_id: switch.gpio
@@ -1472,6 +1636,7 @@ featured_components:
     id: t64m_output21
     name: t64m-output21
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output22
   component_id: switch.gpio
@@ -1486,6 +1651,7 @@ featured_components:
     id: t64m_output22
     name: t64m-output22
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output23
   component_id: switch.gpio
@@ -1500,6 +1666,7 @@ featured_components:
     id: t64m_output23
     name: t64m-output23
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output24
   component_id: switch.gpio
@@ -1514,6 +1681,7 @@ featured_components:
     id: t64m_output24
     name: t64m-output24
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output25
   component_id: switch.gpio
@@ -1528,6 +1696,7 @@ featured_components:
     id: t64m_output25
     name: t64m-output25
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output26
   component_id: switch.gpio
@@ -1542,6 +1711,7 @@ featured_components:
     id: t64m_output26
     name: t64m-output26
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output27
   component_id: switch.gpio
@@ -1556,6 +1726,7 @@ featured_components:
     id: t64m_output27
     name: t64m-output27
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output28
   component_id: switch.gpio
@@ -1570,6 +1741,7 @@ featured_components:
     id: t64m_output28
     name: t64m-output28
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output29
   component_id: switch.gpio
@@ -1584,6 +1756,7 @@ featured_components:
     id: t64m_output29
     name: t64m-output29
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output30
   component_id: switch.gpio
@@ -1598,6 +1771,7 @@ featured_components:
     id: t64m_output30
     name: t64m-output30
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output31
   component_id: switch.gpio
@@ -1612,6 +1786,7 @@ featured_components:
     id: t64m_output31
     name: t64m-output31
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output32
   component_id: switch.gpio
@@ -1626,6 +1801,7 @@ featured_components:
     id: t64m_output32
     name: t64m-output32
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: t64m_output33
   component_id: switch.gpio
@@ -1640,6 +1816,7 @@ featured_components:
     id: t64m_output33
     name: t64m-output33
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output34
   component_id: switch.gpio
@@ -1654,6 +1831,7 @@ featured_components:
     id: t64m_output34
     name: t64m-output34
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output35
   component_id: switch.gpio
@@ -1668,6 +1846,7 @@ featured_components:
     id: t64m_output35
     name: t64m-output35
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output36
   component_id: switch.gpio
@@ -1682,6 +1861,7 @@ featured_components:
     id: t64m_output36
     name: t64m-output36
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output37
   component_id: switch.gpio
@@ -1696,6 +1876,7 @@ featured_components:
     id: t64m_output37
     name: t64m-output37
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output38
   component_id: switch.gpio
@@ -1710,6 +1891,7 @@ featured_components:
     id: t64m_output38
     name: t64m-output38
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output39
   component_id: switch.gpio
@@ -1724,6 +1906,7 @@ featured_components:
     id: t64m_output39
     name: t64m-output39
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output40
   component_id: switch.gpio
@@ -1738,6 +1921,7 @@ featured_components:
     id: t64m_output40
     name: t64m-output40
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output41
   component_id: switch.gpio
@@ -1752,6 +1936,7 @@ featured_components:
     id: t64m_output41
     name: t64m-output41
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output42
   component_id: switch.gpio
@@ -1766,6 +1951,7 @@ featured_components:
     id: t64m_output42
     name: t64m-output42
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output43
   component_id: switch.gpio
@@ -1780,6 +1966,7 @@ featured_components:
     id: t64m_output43
     name: t64m-output43
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output44
   component_id: switch.gpio
@@ -1794,6 +1981,7 @@ featured_components:
     id: t64m_output44
     name: t64m-output44
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output45
   component_id: switch.gpio
@@ -1808,6 +1996,7 @@ featured_components:
     id: t64m_output45
     name: t64m-output45
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output46
   component_id: switch.gpio
@@ -1822,6 +2011,7 @@ featured_components:
     id: t64m_output46
     name: t64m-output46
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output47
   component_id: switch.gpio
@@ -1836,6 +2026,7 @@ featured_components:
     id: t64m_output47
     name: t64m-output47
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output48
   component_id: switch.gpio
@@ -1850,6 +2041,7 @@ featured_components:
     id: t64m_output48
     name: t64m-output48
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: t64m_output49
   component_id: switch.gpio
@@ -1864,6 +2056,7 @@ featured_components:
     id: t64m_output49
     name: t64m-output49
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output50
   component_id: switch.gpio
@@ -1878,6 +2071,7 @@ featured_components:
     id: t64m_output50
     name: t64m-output50
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output51
   component_id: switch.gpio
@@ -1892,6 +2086,7 @@ featured_components:
     id: t64m_output51
     name: t64m-output51
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output52
   component_id: switch.gpio
@@ -1906,6 +2101,7 @@ featured_components:
     id: t64m_output52
     name: t64m-output52
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output53
   component_id: switch.gpio
@@ -1920,6 +2116,7 @@ featured_components:
     id: t64m_output53
     name: t64m-output53
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output54
   component_id: switch.gpio
@@ -1934,6 +2131,7 @@ featured_components:
     id: t64m_output54
     name: t64m-output54
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output55
   component_id: switch.gpio
@@ -1948,6 +2146,7 @@ featured_components:
     id: t64m_output55
     name: t64m-output55
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output56
   component_id: switch.gpio
@@ -1962,6 +2161,7 @@ featured_components:
     id: t64m_output56
     name: t64m-output56
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output57
   component_id: switch.gpio
@@ -1976,6 +2176,7 @@ featured_components:
     id: t64m_output57
     name: t64m-output57
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output58
   component_id: switch.gpio
@@ -1990,6 +2191,7 @@ featured_components:
     id: t64m_output58
     name: t64m-output58
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output59
   component_id: switch.gpio
@@ -2004,6 +2206,7 @@ featured_components:
     id: t64m_output59
     name: t64m-output59
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output60
   component_id: switch.gpio
@@ -2018,6 +2221,7 @@ featured_components:
     id: t64m_output60
     name: t64m-output60
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output61
   component_id: switch.gpio
@@ -2032,6 +2236,7 @@ featured_components:
     id: t64m_output61
     name: t64m-output61
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output62
   component_id: switch.gpio
@@ -2046,6 +2251,7 @@ featured_components:
     id: t64m_output62
     name: t64m-output62
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output63
   component_id: switch.gpio
@@ -2060,6 +2266,7 @@ featured_components:
     id: t64m_output63
     name: t64m-output63
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: t64m_output64
   component_id: switch.gpio
@@ -2074,6 +2281,7 @@ featured_components:
     id: t64m_output64
     name: t64m-output64
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 source:
   type: esphome-devices

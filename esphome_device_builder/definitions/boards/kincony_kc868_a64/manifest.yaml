@@ -15,6 +15,18 @@ images:
 tags:
 - relay
 pins:
+- gpio: 4
+  available: false
+  occupied_by: bus_b
+- gpio: 5
+  available: false
+  occupied_by: bus_a
+- gpio: 15
+  available: false
+  occupied_by: bus_b
+- gpio: 16
+  available: false
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -38,6 +50,20 @@ pins:
   occupied_by: a64--analog--1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A64/
 featured_components:
+- id: bus_b
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 4
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_b
+      locked: true
 - id: pcf8574_hub_in_1
   component_id: pcf8574
   fields:
@@ -46,6 +72,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_1
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_2
   component_id: pcf8574
   fields:
@@ -54,6 +85,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_2
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_3
   component_id: pcf8574
   fields:
@@ -62,6 +98,11 @@ featured_components:
     id:
       value: pcf8574_hub_in_3
       locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
 - id: pcf8574_hub_in_4
   component_id: pcf8574
   fields:
@@ -69,6 +110,25 @@ featured_components:
     pcf8575: true
     id:
       value: pcf8574_hub_in_4
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 5
+      locked: true
+    scl:
+      value: 16
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
       locked: true
 - id: pcf8574_hub_out_1
   component_id: pcf8574
@@ -78,6 +138,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_1
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_2
   component_id: pcf8574
   fields:
@@ -86,6 +151,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_2
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_3
   component_id: pcf8574
   fields:
@@ -94,6 +164,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_3
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: pcf8574_hub_out_4
   component_id: pcf8574
   fields:
@@ -102,6 +177,11 @@ featured_components:
     id:
       value: pcf8574_hub_out_4
       locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -134,6 +214,7 @@ featured_components:
     id: binary_sensor_gpio_1
     name: a64--input1
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -148,6 +229,7 @@ featured_components:
     id: binary_sensor_gpio_2
     name: a64--input2
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
@@ -162,6 +244,7 @@ featured_components:
     id: binary_sensor_gpio_3
     name: a64--input3
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
@@ -176,6 +259,7 @@ featured_components:
     id: binary_sensor_gpio_4
     name: a64--input4
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -190,6 +274,7 @@ featured_components:
     id: binary_sensor_gpio_5
     name: a64--input5
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
@@ -204,6 +289,7 @@ featured_components:
     id: binary_sensor_gpio_6
     name: a64--input6
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
@@ -218,6 +304,7 @@ featured_components:
     id: binary_sensor_gpio_7
     name: a64--input7
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
@@ -232,6 +319,7 @@ featured_components:
     id: binary_sensor_gpio_8
     name: a64--input8
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
@@ -246,6 +334,7 @@ featured_components:
     id: binary_sensor_gpio_9
     name: a64--input9
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
@@ -260,6 +349,7 @@ featured_components:
     id: binary_sensor_gpio_10
     name: a64--input10
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
@@ -274,6 +364,7 @@ featured_components:
     id: binary_sensor_gpio_11
     name: a64--input11
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
@@ -288,6 +379,7 @@ featured_components:
     id: binary_sensor_gpio_12
     name: a64--input12
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
@@ -302,6 +394,7 @@ featured_components:
     id: binary_sensor_gpio_13
     name: a64--input13
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
@@ -316,6 +409,7 @@ featured_components:
     id: binary_sensor_gpio_14
     name: a64--input14
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
@@ -330,6 +424,7 @@ featured_components:
     id: binary_sensor_gpio_15
     name: a64--input15
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
@@ -344,6 +439,7 @@ featured_components:
     id: binary_sensor_gpio_16
     name: a64--input16
   requires:
+  - bus_b
   - pcf8574_hub_in_1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
@@ -358,6 +454,7 @@ featured_components:
     id: binary_sensor_gpio_17
     name: a64--input17
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
@@ -372,6 +469,7 @@ featured_components:
     id: binary_sensor_gpio_18
     name: a64--input18
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
@@ -386,6 +484,7 @@ featured_components:
     id: binary_sensor_gpio_19
     name: a64--input19
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
@@ -400,6 +499,7 @@ featured_components:
     id: binary_sensor_gpio_20
     name: a64--input20
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
@@ -414,6 +514,7 @@ featured_components:
     id: binary_sensor_gpio_21
     name: a64--input21
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
@@ -428,6 +529,7 @@ featured_components:
     id: binary_sensor_gpio_22
     name: a64--input22
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
@@ -442,6 +544,7 @@ featured_components:
     id: binary_sensor_gpio_23
     name: a64--input23
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
@@ -456,6 +559,7 @@ featured_components:
     id: binary_sensor_gpio_24
     name: a64--input24
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
@@ -470,6 +574,7 @@ featured_components:
     id: binary_sensor_gpio_25
     name: a64--input25
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
@@ -484,6 +589,7 @@ featured_components:
     id: binary_sensor_gpio_26
     name: a64--input26
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
@@ -498,6 +604,7 @@ featured_components:
     id: binary_sensor_gpio_27
     name: a64--input27
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
@@ -512,6 +619,7 @@ featured_components:
     id: binary_sensor_gpio_28
     name: a64--input28
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
@@ -526,6 +634,7 @@ featured_components:
     id: binary_sensor_gpio_29
     name: a64--input29
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
@@ -540,6 +649,7 @@ featured_components:
     id: binary_sensor_gpio_30
     name: a64--input30
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
@@ -554,6 +664,7 @@ featured_components:
     id: binary_sensor_gpio_31
     name: a64--input31
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
@@ -568,6 +679,7 @@ featured_components:
     id: binary_sensor_gpio_32
     name: a64--input32
   requires:
+  - bus_b
   - pcf8574_hub_in_2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
@@ -582,6 +694,7 @@ featured_components:
     id: binary_sensor_gpio_33
     name: a64--input33
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_34
   component_id: binary_sensor.gpio
@@ -596,6 +709,7 @@ featured_components:
     id: binary_sensor_gpio_34
     name: a64--input34
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_35
   component_id: binary_sensor.gpio
@@ -610,6 +724,7 @@ featured_components:
     id: binary_sensor_gpio_35
     name: a64--input35
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_36
   component_id: binary_sensor.gpio
@@ -624,6 +739,7 @@ featured_components:
     id: binary_sensor_gpio_36
     name: a64--input36
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_37
   component_id: binary_sensor.gpio
@@ -638,6 +754,7 @@ featured_components:
     id: binary_sensor_gpio_37
     name: a64--input37
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_38
   component_id: binary_sensor.gpio
@@ -652,6 +769,7 @@ featured_components:
     id: binary_sensor_gpio_38
     name: a64--input38
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_39
   component_id: binary_sensor.gpio
@@ -666,6 +784,7 @@ featured_components:
     id: binary_sensor_gpio_39
     name: a64--input39
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_40
   component_id: binary_sensor.gpio
@@ -680,6 +799,7 @@ featured_components:
     id: binary_sensor_gpio_40
     name: a64--input40
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_41
   component_id: binary_sensor.gpio
@@ -694,6 +814,7 @@ featured_components:
     id: binary_sensor_gpio_41
     name: a64--input41
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_42
   component_id: binary_sensor.gpio
@@ -708,6 +829,7 @@ featured_components:
     id: binary_sensor_gpio_42
     name: a64--input42
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_43
   component_id: binary_sensor.gpio
@@ -722,6 +844,7 @@ featured_components:
     id: binary_sensor_gpio_43
     name: a64--input43
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_44
   component_id: binary_sensor.gpio
@@ -736,6 +859,7 @@ featured_components:
     id: binary_sensor_gpio_44
     name: a64--input44
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_45
   component_id: binary_sensor.gpio
@@ -750,6 +874,7 @@ featured_components:
     id: binary_sensor_gpio_45
     name: a64--input45
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_46
   component_id: binary_sensor.gpio
@@ -764,6 +889,7 @@ featured_components:
     id: binary_sensor_gpio_46
     name: a64--input46
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_47
   component_id: binary_sensor.gpio
@@ -778,6 +904,7 @@ featured_components:
     id: binary_sensor_gpio_47
     name: a64--input47
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_48
   component_id: binary_sensor.gpio
@@ -792,6 +919,7 @@ featured_components:
     id: binary_sensor_gpio_48
     name: a64--input48
   requires:
+  - bus_b
   - pcf8574_hub_in_3
 - id: binary_sensor_gpio_49
   component_id: binary_sensor.gpio
@@ -806,6 +934,7 @@ featured_components:
     id: binary_sensor_gpio_49
     name: a64--input49
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_50
   component_id: binary_sensor.gpio
@@ -820,6 +949,7 @@ featured_components:
     id: binary_sensor_gpio_50
     name: a64--input50
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_51
   component_id: binary_sensor.gpio
@@ -834,6 +964,7 @@ featured_components:
     id: binary_sensor_gpio_51
     name: a64--input51
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_52
   component_id: binary_sensor.gpio
@@ -848,6 +979,7 @@ featured_components:
     id: binary_sensor_gpio_52
     name: a64--input52
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_53
   component_id: binary_sensor.gpio
@@ -862,6 +994,7 @@ featured_components:
     id: binary_sensor_gpio_53
     name: a64--input53
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_54
   component_id: binary_sensor.gpio
@@ -876,6 +1009,7 @@ featured_components:
     id: binary_sensor_gpio_54
     name: a64--input54
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_55
   component_id: binary_sensor.gpio
@@ -890,6 +1024,7 @@ featured_components:
     id: binary_sensor_gpio_55
     name: a64--input55
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_56
   component_id: binary_sensor.gpio
@@ -904,6 +1039,7 @@ featured_components:
     id: binary_sensor_gpio_56
     name: a64--input56
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_57
   component_id: binary_sensor.gpio
@@ -918,6 +1054,7 @@ featured_components:
     id: binary_sensor_gpio_57
     name: a64--input57
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_58
   component_id: binary_sensor.gpio
@@ -932,6 +1069,7 @@ featured_components:
     id: binary_sensor_gpio_58
     name: a64--input58
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_59
   component_id: binary_sensor.gpio
@@ -946,6 +1084,7 @@ featured_components:
     id: binary_sensor_gpio_59
     name: a64--input59
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_60
   component_id: binary_sensor.gpio
@@ -960,6 +1099,7 @@ featured_components:
     id: binary_sensor_gpio_60
     name: a64--input60
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_61
   component_id: binary_sensor.gpio
@@ -974,6 +1114,7 @@ featured_components:
     id: binary_sensor_gpio_61
     name: a64--input61
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_62
   component_id: binary_sensor.gpio
@@ -988,6 +1129,7 @@ featured_components:
     id: binary_sensor_gpio_62
     name: a64--input62
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_63
   component_id: binary_sensor.gpio
@@ -1002,6 +1144,7 @@ featured_components:
     id: binary_sensor_gpio_63
     name: a64--input63
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: binary_sensor_gpio_64
   component_id: binary_sensor.gpio
@@ -1016,6 +1159,7 @@ featured_components:
     id: binary_sensor_gpio_64
     name: a64--input64
   requires:
+  - bus_b
   - pcf8574_hub_in_4
 - id: sensor_adc_1
   component_id: sensor.adc
@@ -1070,6 +1214,7 @@ featured_components:
     id: switch_gpio_1
     name: a64--light1
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_2
   component_id: switch.gpio
@@ -1084,6 +1229,7 @@ featured_components:
     id: switch_gpio_2
     name: a64--light2
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_3
   component_id: switch.gpio
@@ -1098,6 +1244,7 @@ featured_components:
     id: switch_gpio_3
     name: a64--light3
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_4
   component_id: switch.gpio
@@ -1112,6 +1259,7 @@ featured_components:
     id: switch_gpio_4
     name: a64--light4
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_5
   component_id: switch.gpio
@@ -1126,6 +1274,7 @@ featured_components:
     id: switch_gpio_5
     name: a64--light5
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_6
   component_id: switch.gpio
@@ -1140,6 +1289,7 @@ featured_components:
     id: switch_gpio_6
     name: a64--light6
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_7
   component_id: switch.gpio
@@ -1154,6 +1304,7 @@ featured_components:
     id: switch_gpio_7
     name: a64--light7
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_8
   component_id: switch.gpio
@@ -1168,6 +1319,7 @@ featured_components:
     id: switch_gpio_8
     name: a64--light8
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_9
   component_id: switch.gpio
@@ -1182,6 +1334,7 @@ featured_components:
     id: switch_gpio_9
     name: a64--light9
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_10
   component_id: switch.gpio
@@ -1196,6 +1349,7 @@ featured_components:
     id: switch_gpio_10
     name: a64--light10
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_11
   component_id: switch.gpio
@@ -1210,6 +1364,7 @@ featured_components:
     id: switch_gpio_11
     name: a64--light11
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_12
   component_id: switch.gpio
@@ -1224,6 +1379,7 @@ featured_components:
     id: switch_gpio_12
     name: a64--light12
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_13
   component_id: switch.gpio
@@ -1238,6 +1394,7 @@ featured_components:
     id: switch_gpio_13
     name: a64--light13
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_14
   component_id: switch.gpio
@@ -1252,6 +1409,7 @@ featured_components:
     id: switch_gpio_14
     name: a64--light14
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_15
   component_id: switch.gpio
@@ -1266,6 +1424,7 @@ featured_components:
     id: switch_gpio_15
     name: a64--light15
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_16
   component_id: switch.gpio
@@ -1280,6 +1439,7 @@ featured_components:
     id: switch_gpio_16
     name: a64--light16
   requires:
+  - bus_a
   - pcf8574_hub_out_1
 - id: switch_gpio_17
   component_id: switch.gpio
@@ -1294,6 +1454,7 @@ featured_components:
     id: switch_gpio_17
     name: a64--light17
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_18
   component_id: switch.gpio
@@ -1308,6 +1469,7 @@ featured_components:
     id: switch_gpio_18
     name: a64--light18
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_19
   component_id: switch.gpio
@@ -1322,6 +1484,7 @@ featured_components:
     id: switch_gpio_19
     name: a64--light19
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_20
   component_id: switch.gpio
@@ -1336,6 +1499,7 @@ featured_components:
     id: switch_gpio_20
     name: a64--light20
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_21
   component_id: switch.gpio
@@ -1350,6 +1514,7 @@ featured_components:
     id: switch_gpio_21
     name: a64--light21
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_22
   component_id: switch.gpio
@@ -1364,6 +1529,7 @@ featured_components:
     id: switch_gpio_22
     name: a64--light22
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_23
   component_id: switch.gpio
@@ -1378,6 +1544,7 @@ featured_components:
     id: switch_gpio_23
     name: a64--light23
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_24
   component_id: switch.gpio
@@ -1392,6 +1559,7 @@ featured_components:
     id: switch_gpio_24
     name: a64--light24
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_25
   component_id: switch.gpio
@@ -1406,6 +1574,7 @@ featured_components:
     id: switch_gpio_25
     name: a64--light25
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_26
   component_id: switch.gpio
@@ -1420,6 +1589,7 @@ featured_components:
     id: switch_gpio_26
     name: a64--light26
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_27
   component_id: switch.gpio
@@ -1434,6 +1604,7 @@ featured_components:
     id: switch_gpio_27
     name: a64--light27
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_28
   component_id: switch.gpio
@@ -1448,6 +1619,7 @@ featured_components:
     id: switch_gpio_28
     name: a64--light28
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_29
   component_id: switch.gpio
@@ -1462,6 +1634,7 @@ featured_components:
     id: switch_gpio_29
     name: a64--light29
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_30
   component_id: switch.gpio
@@ -1476,6 +1649,7 @@ featured_components:
     id: switch_gpio_30
     name: a64--light30
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_31
   component_id: switch.gpio
@@ -1490,6 +1664,7 @@ featured_components:
     id: switch_gpio_31
     name: a64--light31
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_32
   component_id: switch.gpio
@@ -1504,6 +1679,7 @@ featured_components:
     id: switch_gpio_32
     name: a64--light32
   requires:
+  - bus_a
   - pcf8574_hub_out_2
 - id: switch_gpio_33
   component_id: switch.gpio
@@ -1518,6 +1694,7 @@ featured_components:
     id: switch_gpio_33
     name: a64--light33
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_34
   component_id: switch.gpio
@@ -1532,6 +1709,7 @@ featured_components:
     id: switch_gpio_34
     name: a64--light34
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_35
   component_id: switch.gpio
@@ -1546,6 +1724,7 @@ featured_components:
     id: switch_gpio_35
     name: a64--light35
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_36
   component_id: switch.gpio
@@ -1560,6 +1739,7 @@ featured_components:
     id: switch_gpio_36
     name: a64--light36
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_37
   component_id: switch.gpio
@@ -1574,6 +1754,7 @@ featured_components:
     id: switch_gpio_37
     name: a64--light37
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_38
   component_id: switch.gpio
@@ -1588,6 +1769,7 @@ featured_components:
     id: switch_gpio_38
     name: a64--light38
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_39
   component_id: switch.gpio
@@ -1602,6 +1784,7 @@ featured_components:
     id: switch_gpio_39
     name: a64--light39
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_40
   component_id: switch.gpio
@@ -1616,6 +1799,7 @@ featured_components:
     id: switch_gpio_40
     name: a64--light40
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_41
   component_id: switch.gpio
@@ -1630,6 +1814,7 @@ featured_components:
     id: switch_gpio_41
     name: a64--light41
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_42
   component_id: switch.gpio
@@ -1644,6 +1829,7 @@ featured_components:
     id: switch_gpio_42
     name: a64--light42
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_43
   component_id: switch.gpio
@@ -1658,6 +1844,7 @@ featured_components:
     id: switch_gpio_43
     name: a64--light43
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_44
   component_id: switch.gpio
@@ -1672,6 +1859,7 @@ featured_components:
     id: switch_gpio_44
     name: a64--light44
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_45
   component_id: switch.gpio
@@ -1686,6 +1874,7 @@ featured_components:
     id: switch_gpio_45
     name: a64--light45
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_46
   component_id: switch.gpio
@@ -1700,6 +1889,7 @@ featured_components:
     id: switch_gpio_46
     name: a64--light46
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_47
   component_id: switch.gpio
@@ -1714,6 +1904,7 @@ featured_components:
     id: switch_gpio_47
     name: a64--light47
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_48
   component_id: switch.gpio
@@ -1728,6 +1919,7 @@ featured_components:
     id: switch_gpio_48
     name: a64--light48
   requires:
+  - bus_a
   - pcf8574_hub_out_3
 - id: switch_gpio_49
   component_id: switch.gpio
@@ -1742,6 +1934,7 @@ featured_components:
     id: switch_gpio_49
     name: a64--light49
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_50
   component_id: switch.gpio
@@ -1756,6 +1949,7 @@ featured_components:
     id: switch_gpio_50
     name: a64--light50
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_51
   component_id: switch.gpio
@@ -1770,6 +1964,7 @@ featured_components:
     id: switch_gpio_51
     name: a64--light51
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_52
   component_id: switch.gpio
@@ -1784,6 +1979,7 @@ featured_components:
     id: switch_gpio_52
     name: a64--light52
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_53
   component_id: switch.gpio
@@ -1798,6 +1994,7 @@ featured_components:
     id: switch_gpio_53
     name: a64--light53
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_54
   component_id: switch.gpio
@@ -1812,6 +2009,7 @@ featured_components:
     id: switch_gpio_54
     name: a64--light54
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_55
   component_id: switch.gpio
@@ -1826,6 +2024,7 @@ featured_components:
     id: switch_gpio_55
     name: a64--light55
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_56
   component_id: switch.gpio
@@ -1840,6 +2039,7 @@ featured_components:
     id: switch_gpio_56
     name: a64--light56
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_57
   component_id: switch.gpio
@@ -1854,6 +2054,7 @@ featured_components:
     id: switch_gpio_57
     name: a64--light57
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_58
   component_id: switch.gpio
@@ -1868,6 +2069,7 @@ featured_components:
     id: switch_gpio_58
     name: a64--light58
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_59
   component_id: switch.gpio
@@ -1882,6 +2084,7 @@ featured_components:
     id: switch_gpio_59
     name: a64--light59
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_60
   component_id: switch.gpio
@@ -1896,6 +2099,7 @@ featured_components:
     id: switch_gpio_60
     name: a64--light60
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_61
   component_id: switch.gpio
@@ -1910,6 +2114,7 @@ featured_components:
     id: switch_gpio_61
     name: a64--light61
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_62
   component_id: switch.gpio
@@ -1924,6 +2129,7 @@ featured_components:
     id: switch_gpio_62
     name: a64--light62
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_63
   component_id: switch.gpio
@@ -1938,6 +2144,7 @@ featured_components:
     id: switch_gpio_63
     name: a64--light63
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 - id: switch_gpio_64
   component_id: switch.gpio
@@ -1952,6 +2159,7 @@ featured_components:
     id: switch_gpio_64
     name: a64--light64
   requires:
+  - bus_a
   - pcf8574_hub_out_4
 source:
   type: esphome-devices
