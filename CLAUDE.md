@@ -190,6 +190,11 @@ built path to verify the bundle the user actually receives.
 
 ### Driving the browser headlessly (CDP + puppeteer)
 
+Full walkthrough (bringing up both servers, shadow-DOM helpers, the create
+wizard, the recommended-add flow, save + validate):
+[docs/how_to_drive_editor.md](docs/how_to_drive_editor.md). The non-obvious
+bits to keep in mind:
+
 `npm i puppeteer` (downloads its own browser, no OS-specific path) and
 drive the dashboard with `headless:true`. The non-obvious bits:
 
@@ -690,6 +695,7 @@ When changing the sync script or catalog handling, watch for these:
 | `script/validate_definitions.py` | Lint board manifests |
 | `docs/ARCHITECTURE.md` | Full architecture + deployment + CI overview |
 | `docs/API.md` | Every WS command + payload shape + event |
+| `docs/how_to_drive_editor.md` | Headless CDP + puppeteer walkthrough for driving the live dashboard editor (create wizard, recommended-add flow, save + validate) |
 
 ## Things not to do
 
