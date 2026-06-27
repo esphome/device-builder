@@ -1498,6 +1498,28 @@ def _wire_consumer_requires(
             entry["requires"] = requires
 
 
+def _drop_unresolved_consumers(
+    featured: list[dict[str, Any]],
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]],
+    hub_prereqs: dict[tuple[str, str], list[str]],
+) -> None:
+    """
+    Drop (in place) consumers whose hub couldn't be materialized.
+
+    A skipped hub (placeholder / ambiguous / no id) leaves its consumer with a
+    locked ``pin: {<provider>: <hub_id>, ...}`` preset pointing at a hub that
+    never ships — a dangling reference that won't compile. Remove the consumer
+    alongside its hub rather than emit the broken config this lift prevents.
+    """
+    dropped = {
+        id(entry) for entry, refs in consumers if any(ref not in hub_prereqs for ref in refs)
+    }
+    if not dropped:
+        return
+    featured[:] = [entry for entry in featured if id(entry) not in dropped]
+    consumers[:] = [c for c in consumers if id(c[0]) not in dropped]
+
+
 def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
     """Return *base* (or *fallback*) made unique against *used*."""
     candidate = base or fallback
@@ -1565,8 +1587,10 @@ def _extract_expander_hubs(
     single i2c/spi bus it depends on, and stamps ``requires`` on every consumer
     (bus first, then hub) so the dashboard adds the prerequisites first.
 
-    Mutates the consumer entries in *featured* (adds ``requires``); returns the
-    new hub/bus entries to prepend and the GPIOs their bus pins occupy.
+    Mutates *featured*: adds ``requires`` to resolved consumers and drops
+    consumers whose hub couldn't be materialized (so no dangling expander
+    reference ships). Returns the new hub/bus entries to prepend and the GPIOs
+    their bus pins occupy.
     """
     consumers, ordered_refs = _collect_expander_refs(featured, components_index)
     if not ordered_refs:
@@ -1613,6 +1637,7 @@ def _extract_expander_hubs(
         extra.append(hub_entry)
         hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
 
+    _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return extra, occupancy
 

@@ -386,8 +386,8 @@ def test_extract_expander_hub_with_placeholder_field_is_skipped() -> None:
     # bus's pins don't leak into occupancy (the skip happens before the bus).
     assert extra == []
     assert occupancy == {}
-    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
-    assert "requires" not in consumer
+    # The consumer is dropped too — keeping it would ship a dangling pin ref.
+    assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
 
 
 # A shift-register hub (unlike an i2c expander) drives board GPIOs directly, so
@@ -446,8 +446,8 @@ def test_extract_expander_ambiguous_multi_hub_is_skipped() -> None:
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
     assert extra == []
-    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
-    assert "requires" not in consumer
+    # An unresolvable hub drops its consumer rather than leaving a dangling ref.
+    assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
 
 
 def test_extract_expander_bus_without_id_not_materialized() -> None:
