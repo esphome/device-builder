@@ -1562,9 +1562,14 @@ def _extract_expander_hubs(
         bus_ids = _ensure_buses(
             hub_component, config, components_index, used_ids, bus_local, occupancy, extra
         )
+        fields = _extract_fields(block, hub_component, occupancy, hub_cid)
+        if fields is None:
+            # A placeholder value in the hub block (mirrors the bus path): emit
+            # neither an incomplete hub nor a ``requires`` pointing at it, rather
+            # than a hub missing its required fields.
+            continue
         hub_id = _unique_local_id(_sanitize_local_id(instance_id), used_ids, hub_cid)
         used_ids.add(hub_id)
-        fields = _extract_fields(block, hub_component, occupancy, hub_cid) or {}
         fields["id"] = {"value": instance_id, "locked": True}
         hub_entry: dict[str, Any] = {"id": hub_id, "component_id": hub_cid, "fields": fields}
         if bus_ids:
