@@ -1517,7 +1517,7 @@ def _drop_unresolved_consumers(
     if not dropped:
         return
     featured[:] = [entry for entry in featured if id(entry) not in dropped]
-    consumers[:] = [c for c in consumers if id(c[0]) not in dropped]
+    consumers[:] = [(entry, refs) for entry, refs in consumers if id(entry) not in dropped]
 
 
 def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
