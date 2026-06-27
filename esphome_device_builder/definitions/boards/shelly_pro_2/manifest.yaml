@@ -17,21 +17,9 @@ tags:
 - relay
 - shelly
 pins:
-- gpio: 0
-  available: false
-  occupied_by: Relay 1
-- gpio: 1
-  available: false
-  occupied_by: Relay 2
-- gpio: 2
-  available: false
-  occupied_by: wifi_led_blue
-- gpio: 3
-  available: false
-  occupied_by: wifi_led_green
 - gpio: 4
   available: false
-  occupied_by: wifi_led_red
+  occupied_by: sn74hc595_hub
 - gpio: 35
   available: false
   occupied_by: reset_button
@@ -49,6 +37,17 @@ pins:
   occupied_by: input2
 docs_url: https://devices.esphome.io/devices/Shelly-Pro-2/
 featured_components:
+- id: sn74hc595_hub
+  component_id: sn74hc595
+  fields:
+    type: spi
+    latch_pin:
+      value: 4
+      locked: true
+    sr_count: 1
+    id:
+      value: sn74hc595_hub
+      locked: true
 - id: reset_button
   component_id: binary_sensor.gpio
   fields:
@@ -140,6 +139,8 @@ featured_components:
       locked: true
     id: relay1
     name: Relay 1
+  requires:
+  - sn74hc595_hub
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -151,6 +152,8 @@ featured_components:
       locked: true
     id: relay2
     name: Relay 2
+  requires:
+  - sn74hc595_hub
 - id: wifi_led_blue
   component_id: switch.gpio
   fields:
@@ -162,6 +165,8 @@ featured_components:
       locked: true
     id: wifi_led_blue
     name: wifi_led_blue
+  requires:
+  - sn74hc595_hub
 - id: wifi_led_green
   component_id: switch.gpio
   fields:
@@ -173,6 +178,8 @@ featured_components:
       locked: true
     id: wifi_led_green
     name: wifi_led_green
+  requires:
+  - sn74hc595_hub
 - id: wifi_led_red
   component_id: switch.gpio
   fields:
@@ -184,6 +191,8 @@ featured_components:
       locked: true
     id: wifi_led_red
     name: wifi_led_red
+  requires:
+  - sn74hc595_hub
 featured_bundles:
 - id: temp_resistance1_setup
   name: temp_resistance1 (full setup)

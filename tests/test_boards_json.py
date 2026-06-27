@@ -246,14 +246,14 @@ def test_featured_locked_pins_from_schema() -> None:
     assert by_id["aht20"].locked_pins == {}
 
 
-def test_featured_locked_pins_skips_io_expander_pins() -> None:
-    """An expander channel (``{number, pcf8574: hub}``) is not a board GPIO."""
+def test_featured_locked_pins_namespace_io_expander_pins() -> None:
+    """An expander channel is a ``provider:hub_id:channel`` token, not a board GPIO."""
     body = load_board_body_from_disk("kincony_b16")
     assert body is not None
     by_id = {fc.id: fc for fc in body.featured_components}
-    # pcf8574 expander channel — a hub-referencing key, so not recorded.
-    assert by_id["b16_input01"].locked_pins == {}
-    # A real board GPIO on the same board is still recorded.
+    # pcf8574 expander channel — namespaced so it never aliases board GPIO 0.
+    assert by_id["b16_input01"].locked_pins == {"pin": "pcf8574:pcf8574_hub_in_1:0"}
+    # A real board GPIO on the same board is still recorded as an int.
     assert by_id["binary_sensor_gpio_17"].locked_pins == {"pin": 48}
 
 

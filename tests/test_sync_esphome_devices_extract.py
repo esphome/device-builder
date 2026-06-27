@@ -15,6 +15,7 @@ synthesized ``pins[]`` block with orphan GPIO labels.
 from __future__ import annotations
 
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
+    _extract_expander_hubs,
     _extract_featured_components,
 )
 
@@ -281,3 +282,103 @@ def test_extract_skips_bundle_when_no_dependencies_resolve() -> None:
     }
     _, bundles, _ = _extract_featured_components(inline, _INDEX)
     assert bundles == []
+
+
+# Index entries for the I/O-expander extraction. The hub carries an
+# ``address`` and an ``id``; i2c carries pin-type ``sda`` / ``scl`` so the
+# bus pins land in occupancy. ``pcf8574`` depends on ``i2c`` so the bus is
+# pulled in as a prerequisite.
+_EXPANDER_INDEX = {
+    "binary_sensor.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
+    "pcf8574": {
+        "dependencies": ["i2c"],
+        "config_entries": [
+            {"key": "id", "type": "id"},
+            {"key": "address", "type": "string"},
+        ],
+    },
+    "i2c": {
+        "config_entries": [
+            {"key": "id", "type": "id"},
+            {"key": "sda", "type": "pin"},
+            {"key": "scl", "type": "pin"},
+        ],
+    },
+}
+
+
+def _expander_config() -> dict:
+    return {
+        "i2c": [{"id": "bus_a", "sda": 9, "scl": 10}],
+        "pcf8574": [{"id": "pcf8574_hub_in_1", "address": 0x21}],
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
+            }
+        ],
+    }
+
+
+def test_extract_expander_hubs_materializes_hub_and_bus_with_locked_ids() -> None:
+    """A gpio pin on a pcf8574 lifts the hub + i2c bus, ids locked to the source."""
+    config = _expander_config()
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+
+    by_id = {e["id"]: e for e in extra}
+    # The hub's id is locked so it matches the pin's baked reference.
+    assert by_id["pcf8574_hub_in_1"]["component_id"] == "pcf8574"
+    assert by_id["pcf8574_hub_in_1"]["fields"]["id"] == {
+        "value": "pcf8574_hub_in_1",
+        "locked": True,
+    }
+    assert by_id["pcf8574_hub_in_1"]["requires"] == ["bus_a"]
+    assert by_id["bus_a"]["component_id"] == "i2c"
+    assert by_id["bus_a"]["fields"]["id"] == {"value": "bus_a", "locked": True}
+    # The i2c pins occupy real board GPIOs; the expander channel does not.
+    assert occupancy == {9: "bus_a", 10: "bus_a"}
+
+
+def test_extract_expander_hubs_wires_consumer_requires() -> None:
+    """The gpio consumer requires its bus then its hub, in order."""
+    config = _expander_config()
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["requires"] == ["bus_a", "pcf8574_hub_in_1"]
+
+
+def test_extract_expander_pin_does_not_occupy_a_board_gpio() -> None:
+    """The expander channel ``number`` is never recorded as a board GPIO."""
+    config = _expander_config()
+    _, _, occupancy = _extract_featured_components(config, _EXPANDER_INDEX)
+    # Channel 0 is an expander channel, not board GPIO 0.
+    assert 0 not in occupancy
+
+
+def test_extract_expander_hub_with_synthetic_id() -> None:
+    """A sole hub block with no ``id`` adopts the pin's referenced id."""
+    config = {
+        "i2c": [{"id": "bus_a", "sda": 9, "scl": 10}],
+        # No ``id`` on the single hub — ESPHome would auto-generate one.
+        "pcf8574": [{"address": 0x21}],
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
+            }
+        ],
+    }
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    by_id = {e["id"]: e for e in extra}
+    assert by_id["pcf8574_hub_in_1"]["fields"]["id"] == {
+        "value": "pcf8574_hub_in_1",
+        "locked": True,
+    }
+    assert by_id["pcf8574_hub_in_1"]["fields"]["address"]  # hardware lifted from the sole block
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert "pcf8574_hub_in_1" in (consumer.get("requires") or [])

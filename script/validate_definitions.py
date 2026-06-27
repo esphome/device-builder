@@ -404,6 +404,19 @@ def _is_entity_base_universal(fkey: str, category: str | None) -> bool:
     return fkey == "name" and category in _HA_ENTITY_CATEGORIES
 
 
+# Long-form pin keys describing a board GPIO. A pin dict carrying any other key
+# sits on an I/O expander (``pcf8574``, ``mcp23xxx``, …): its ``number`` is an
+# expander channel, not a board GPIO, so it isn't checked against the board pins.
+_LONG_FORM_PIN_KEYS = frozenset(
+    {"number", "mode", "inverted", "ignore_strapping_warning", "allow_other_uses", "drive_strength"}
+)
+
+
+def _is_expander_pin(raw: object) -> bool:
+    """Whether *raw* is a long-form pin sitting on an I/O-expander hub."""
+    return isinstance(raw, dict) and bool(raw.keys() - _LONG_FORM_PIN_KEYS)
+
+
 def _validate_field_preset(
     path: str,
     fkey: str,
@@ -426,6 +439,11 @@ def _validate_field_preset(
         # fail every plain-GPIO recommendation.
         required_features = {f for f in (ce.get("pin_features") or []) if f in _BOARD_PIN_FEATURES}
         for raw in _pin_values_to_check(value, suggestions):
+            if _is_expander_pin(raw):
+                # The pin sits on an I/O expander; its ``number`` is an
+                # expander channel, not a board GPIO, so it isn't checked
+                # against the board pins.
+                continue
             gpio = _extract_gpio(raw)
             if gpio is None:
                 # Best-effort: rich pin specs without a recognisable

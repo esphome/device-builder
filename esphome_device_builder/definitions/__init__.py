@@ -248,6 +248,7 @@ def _load_featured_component(
         image_url=_resolve_featured_image(data.get("image_url"), board_dir),
         # Unknown underlying id defaults to multi-conf (won't false-collapse).
         multi_conf=(multi_conf_by_id or {}).get(data["component_id"], True),
+        requires=list(data.get("requires") or []),
     )
 
 
