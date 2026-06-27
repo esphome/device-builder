@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import pytest
 
+from esphome_device_builder.models.boards import BOARD_PIN_KEYS
 from script.validate_definitions import (  # type: ignore[import-not-found]
+    _LONG_FORM_PIN_KEYS,
     _build_components_index,
     _validate_featured,
     _validate_field_preset,
@@ -19,6 +21,11 @@ from script.validate_definitions import (  # type: ignore[import-not-found]
 # Co-locate with the rest of the catalog-heavy suite so we don't burn a
 # second xdist worker re-reading ``components.index.json``.
 pytestmark = pytest.mark.xdist_group("catalog")
+
+
+def test_long_form_pin_keys_match_canonical_board_pin_keys() -> None:
+    """The validator's import-free inline copy must not drift from ``BOARD_PIN_KEYS``."""
+    assert _LONG_FORM_PIN_KEYS == BOARD_PIN_KEYS
 
 
 @pytest.fixture(scope="module")
