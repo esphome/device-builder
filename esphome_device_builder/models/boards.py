@@ -175,6 +175,11 @@ class FeaturedComponent(DashboardModel):
     # Mirrors the underlying component's ``multi_conf``. Default True so only
     # the single-instance exceptions serialise (omit_default).
     multi_conf: bool = True
+    # Canonical GPIO per locked pin field (e.g. ``{"scl": 0, "sda": 1}``),
+    # computed at sync time from the underlying component's PIN config_entries.
+    # Lets the catalog hide this card when an existing same-domain instance
+    # already occupies these exact pins. Empty (omitted) for non-pin components.
+    locked_pins: dict[str, int] = field(default_factory=dict)
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""
