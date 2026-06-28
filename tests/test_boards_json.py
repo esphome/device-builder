@@ -374,6 +374,11 @@ def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
     _synthesize_full_setup_bundles([shared])
     assert {b.id for b in shared.featured_bundles} == {"all_recommended"}
 
+    # ESPHome needs *every* usage to allow it; one plain usage still conflicts.
+    mixed = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13)])
+    _synthesize_full_setup_bundles([mixed])
+    assert mixed.featured_bundles == []
+
 
 def test_omit_default_preserves_meaningful_falsy() -> None:
     """``locked=True`` / falsy non-default ``value`` survive the strip."""

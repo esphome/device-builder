@@ -898,6 +898,10 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
         if any(featured_set <= set(b.component_ids) for b in board.featured_bundles):
             continue
         if _has_pin_conflict(board.featured_components):
+            _LOGGER.info(
+                "Skipping all_recommended for %s: featured components share a board GPIO",
+                board.id,
+            )
             continue
         # Existing-bundle members first (dependency-ordered by the importer),
         # then the remaining featured ids in manifest order; dict.fromkeys
@@ -915,26 +919,24 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
 
 def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
     """
-    Whether two components exclusively claim the same board GPIO.
+    Whether the featured components reuse a board GPIO without permission.
 
-    A pin marked ``allow_other_uses`` (or a namespaced expander channel, which
-    is a string token, not a board GPIO) is shared on purpose and doesn't
-    count. Two plain locked GPIOs on the same number would make the combined
-    config fail ESPHome's pin-use validation, so such a board gets no bundle.
+    ESPHome accepts a pin used more than once only when *every* usage sets
+    ``allow_other_uses``; a single plain usage of a shared pin fails validation.
+    Mirror that: a board GPIO used by more than one locked pin is a conflict
+    unless all of those usages allow it. Namespaced expander channels are string
+    tokens, not board GPIOs, so they're ignored.
     """
-    claimed: set[int] = set()
+    usages: dict[int, list[bool]] = {}
     for fc in components:
         for key, gpio in fc.locked_pins.items():
             if not isinstance(gpio, int):
                 continue
             preset = fc.fields.get(key)
             value = preset.value if preset is not None else None
-            if isinstance(value, dict) and value.get("allow_other_uses"):
-                continue
-            if gpio in claimed:
-                return True
-            claimed.add(gpio)
-    return False
+            allows = isinstance(value, dict) and bool(value.get("allow_other_uses"))
+            usages.setdefault(gpio, []).append(allows)
+    return any(len(uses) > 1 and not all(uses) for uses in usages.values())
 
 
 def build_catalog() -> BoardCatalogResponse:
