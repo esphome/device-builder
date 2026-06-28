@@ -884,16 +884,11 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
         featured_set = set(featured_ids)
         if any(featured_set <= set(b.component_ids) for b in board.featured_bundles):
             continue
-        ordered: list[str] = []
-        seen: set[str] = set()
-        for member in (m for b in board.featured_bundles for m in b.component_ids):
-            if member in featured_set and member not in seen:
-                ordered.append(member)
-                seen.add(member)
-        for fid in featured_ids:
-            if fid not in seen:
-                ordered.append(fid)
-                seen.add(fid)
+        # Existing-bundle members first (dependency-ordered by the importer),
+        # then the remaining featured ids in manifest order; dict.fromkeys
+        # dedups while preserving that first-seen order.
+        existing = [m for b in board.featured_bundles for m in b.component_ids if m in featured_set]
+        ordered = list(dict.fromkeys(existing + featured_ids))
         board.featured_bundles.append(
             FeaturedBundle(
                 id=_ALL_RECOMMENDED_BUNDLE_ID,
