@@ -92,7 +92,14 @@ _COMPONENTS_DIR = _DEFINITIONS_DIR / "components"
 # Fields stripped from the slim index entry — they belong on the
 # per-board body file only.
 _INDEX_DROP_FIELDS: frozenset[str] = frozenset(
-    {"hardware", "pins", "featured_components", "featured_bundles", "default_components"}
+    {
+        "hardware",
+        "pins",
+        "featured_components",
+        "featured_bundles",
+        "default_components",
+        "full_config",
+    }
 )
 
 # LibreTiny families: ESPHome's ``components/<platform>/boards.py`` carries
@@ -873,11 +880,15 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
     """
     Add an ``all_recommended`` bundle covering every featured component.
 
-    The importer only derives bundles from cross-component id references, so a
-    board of independent components gets none. Skipped when one featured
-    component (no bundle needed) or an existing bundle already covers them all.
+    Only for ``full_config`` boards (a complete onboard device), so a starter
+    kit's optional components aren't offered as one click. The importer only
+    derives bundles from cross-component id references, so a board of
+    independent components gets none. Skipped when one featured component (no
+    bundle needed) or an existing bundle already covers them all.
     """
     for board in boards:
+        if not board.full_config:
+            continue
         featured_ids = [fc.id for fc in board.featured_components]
         if len(featured_ids) < 2:
             continue

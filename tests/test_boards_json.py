@@ -64,7 +64,14 @@ _FEATURED_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 
 # Body-only fields — must be absent from every slim index entry.
 _BODY_ONLY_KEYS = frozenset(
-    {"hardware", "pins", "featured_components", "featured_bundles", "default_components"}
+    {
+        "hardware",
+        "pins",
+        "featured_components",
+        "featured_bundles",
+        "default_components",
+        "full_config",
+    }
 )
 
 
@@ -260,9 +267,10 @@ def test_featured_locked_pins_namespace_io_expander_pins() -> None:
 
 
 def test_full_setup_bundle_synthesized_for_independent_components() -> None:
-    """A board of independent featured components gets an ``all_recommended`` bundle."""
+    """A full-config board of independent featured components gets an ``all_recommended`` bundle."""
     body = load_board_body_from_disk("esp32_relay_x4")
     assert body is not None
+    assert body.full_config is True
     by_id = {b.id: b for b in body.featured_bundles}
     assert "all_recommended" in by_id
     assert by_id["all_recommended"].component_ids == [
@@ -271,6 +279,14 @@ def test_full_setup_bundle_synthesized_for_independent_components() -> None:
         "switch_gpio_3",
         "switch_gpio_4",
     ]
+
+
+def test_full_setup_bundle_skipped_for_curated_optional_board() -> None:
+    """A hand-curated board (optional components) gets no synthesized ``all_recommended``."""
+    body = load_board_body_from_disk("apollo-esk-1")
+    assert body is not None
+    assert body.full_config is False
+    assert "all_recommended" not in {b.id for b in body.featured_bundles}
 
 
 def test_full_setup_bundle_skipped_when_existing_bundle_covers_all() -> None:
@@ -284,11 +300,14 @@ def test_full_setup_bundle_skipped_when_existing_bundle_covers_all() -> None:
     assert set(bundle.component_ids) == {fc.id for fc in body.featured_components}
 
 
-def test_synthesize_full_setup_bundle_skips_single_and_orders_deps_first() -> None:
-    """Synthesis skips <2 featured, orders existing-bundle members ahead of standalone."""
+def test_synthesize_full_setup_bundle_gating_and_ordering() -> None:
+    """Synthesis is gated on full_config, skips <2 featured, orders existing members first."""
 
     def _board(
-        fids: list[str], bundles: tuple[tuple[str, list[str]], ...] = ()
+        fids: list[str],
+        bundles: tuple[tuple[str, list[str]], ...] = (),
+        *,
+        full_config: bool = True,
     ) -> BoardCatalogEntry:
         return BoardCatalogEntry(
             id="b",
@@ -296,11 +315,17 @@ def test_synthesize_full_setup_bundle_skips_single_and_orders_deps_first() -> No
             description="d",
             manufacturer="m",
             esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+            full_config=full_config,
             featured_components=[FeaturedComponent(id=f, component_id="switch.gpio") for f in fids],
             featured_bundles=[
                 FeaturedBundle(id=bid, name=bid, component_ids=members) for bid, members in bundles
             ],
         )
+
+    # Optional-component board (full_config False) is never synthesized into.
+    optional = _board(["a", "b"], full_config=False)
+    _synthesize_full_setup_bundles([optional])
+    assert optional.featured_bundles == []
 
     # A single featured component needs no bundle.
     single = _board(["only"])

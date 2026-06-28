@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from functools import cache
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import orjson
 import yaml
@@ -298,6 +298,27 @@ def _load_hardware(data: dict | None, board_id: str) -> BoardHardware:
     )
 
 
+# Manifest ``source.type`` written by the devices.esphome.io importer. Such
+# boards are complete onboard configs by default; hand-curated manifests carry
+# no ``source`` block.
+_DEVICE_IMPORT_SOURCE_TYPE = "esphome-devices"
+
+
+def _resolve_full_config(data: dict[str, Any]) -> bool:
+    """
+    Whether a board's featured components are a complete onboard config.
+
+    The manifest's optional ``full_config`` overrides; absent it, defaults to
+    "is a devices.esphome.io import" (so imports opt in, hand-curated boards
+    opt out, and either can be hand-curated the other way).
+    """
+    override = data.get("full_config")
+    if isinstance(override, bool):
+        return override
+    source = data.get("source")
+    return isinstance(source, dict) and source.get("type") == _DEVICE_IMPORT_SOURCE_TYPE
+
+
 def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogResponse:
     """
     Build the board catalog by parsing every ``manifest.yaml`` on disk.
@@ -324,6 +345,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
 
             esphome_cfg = _load_esphome_config(data["esphome"], board_id)
             images = _resolve_images(board_dir, data.get("images"))
+            full_config = _resolve_full_config(data)
 
             # Fall back to generic chip image when no specific image exists
             if not images:
@@ -349,6 +371,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     product_url=data.get("product_url", ""),
                     featured=data.get("featured", False),
                     is_generic=data.get("is_generic", False),
+                    full_config=full_config,
                     featured_components=[
                         _load_featured_component(fc, board_dir, multi_conf_by_id)
                         for fc in data.get("featured_components", [])

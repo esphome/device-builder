@@ -1802,12 +1802,31 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
         return None
     target_dir.mkdir(parents=True, exist_ok=True)
 
+    # Carry a hand-curated ``full_config`` opt-out/opt-in across re-imports —
+    # the importer never sets it (imports derive ``full_config`` from
+    # ``source.type``), so an override only survives if preserved here.
+    prior_full_config = prior.get("full_config") if prior is not None else None
+    if isinstance(prior_full_config, bool):
+        record = _insert_after(record, "esphome", "full_config", prior_full_config)
+
     images_dir = target_dir / "images"
     if images_dir.is_dir():
         shutil.rmtree(images_dir)
 
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")
     return target_dir
+
+
+def _insert_after(data: dict[str, Any], anchor: str, key: str, value: Any) -> dict[str, Any]:
+    """Return *data* with *key*=*value* inserted right after *anchor* (or appended)."""
+    out: dict[str, Any] = {}
+    for k, v in data.items():
+        out[k] = v
+        if k == anchor:
+            out[key] = value
+    if key not in out:
+        out[key] = value
+    return out
 
 
 def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:

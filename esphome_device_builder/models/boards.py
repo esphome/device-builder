@@ -257,6 +257,12 @@ class BoardCatalogEntry(DashboardModel):
     product_url: str = ""
     featured: bool = False
     is_generic: bool = False
+    # True when the featured components are a complete onboard config (a
+    # devices.esphome.io import, or a hand-curated product opting in) rather
+    # than optional add-ons. Gates the synthesized "full setup" bundle.
+    # Resolved at manifest load: the manifest's optional ``full_config`` wins,
+    # else defaults to "is a devices.esphome.io import".
+    full_config: bool = False
     # Components recommended for this board, surfaced in the Add
     # Component dialog as a "Recommended" section.
     featured_components: list[FeaturedComponent] = field(default_factory=list)
