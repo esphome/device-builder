@@ -46,7 +46,10 @@ import yaml
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
+from esphome_device_builder.constants import (  # noqa: E402
+    BOARD_PIN_KEYS,
+    DEVICE_IMPORT_SOURCE_TYPE,
+)
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -67,8 +70,6 @@ _DEVICES_SUBDIR = Path("src/docs/devices")
 _DEVICES_PAGE_BASE = "https://devices.esphome.io/devices"
 _DEVICES_REPO_BLOB_BASE = "https://github.com/esphome/devices.esphome.io/blob/main"
 _DEVICES_REPO_RAW_BASE = "https://raw.githubusercontent.com/esphome/devices.esphome.io/main"
-
-_SOURCE_TYPE = "esphome-devices"
 
 # Closed enums upstream enforces (mirror of
 # devices.esphome.io/src/utils/validFrontmatter.ts).
@@ -1761,7 +1762,7 @@ def _connectivity_for(soc: str, variant: str | None) -> list[str] | None:
 def _build_source_block(folder_name: str, revision: str, content_hash: str) -> dict[str, Any]:
     """Compose the manifest's ``source:`` block (origin + drift-detection metadata)."""
     block: dict[str, Any] = {
-        "type": _SOURCE_TYPE,
+        "type": DEVICE_IMPORT_SOURCE_TYPE,
         "remote_id": folder_name,
         "upstream_url": f"{_DEVICES_REPO_BLOB_BASE}/{_DEVICES_SUBDIR.as_posix()}/"
         f"{folder_name}/index.md",
@@ -1804,10 +1805,16 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
 
     # Carry a hand-curated ``full_config`` opt-out/opt-in across re-imports —
     # the importer never sets it (imports derive ``full_config`` from
-    # ``source.type``), so an override only survives if preserved here.
+    # ``source.type``), so an override only survives if preserved here. Re-insert
+    # it right after ``esphome`` to keep manifest key order stable.
     prior_full_config = prior.get("full_config") if prior is not None else None
     if isinstance(prior_full_config, bool):
-        record = _insert_after(record, "esphome", "full_config", prior_full_config)
+        rebuilt: dict[str, Any] = {}
+        for key, value in record.items():
+            rebuilt[key] = value
+            if key == "esphome":
+                rebuilt["full_config"] = prior_full_config
+        record = rebuilt
 
     images_dir = target_dir / "images"
     if images_dir.is_dir():
@@ -1815,18 +1822,6 @@ def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
 
     manifest_path.write_text(_dump_manifest(record), encoding="utf-8")
     return target_dir
-
-
-def _insert_after(data: dict[str, Any], anchor: str, key: str, value: Any) -> dict[str, Any]:
-    """Return *data* with *key*=*value* inserted right after *anchor* (or appended)."""
-    out: dict[str, Any] = {}
-    for k, v in data.items():
-        out[k] = v
-        if k == anchor:
-            out[key] = value
-    if key not in out:
-        out[key] = value
-    return out
 
 
 def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
@@ -1843,7 +1838,7 @@ def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
 def _imported_remote_id(prior: dict[str, Any] | None) -> tuple[bool, str | None]:
     """Return ``(is_imported, remote_id)`` for an already-parsed manifest dict."""
     source = prior.get("source") if prior is not None else None
-    if not isinstance(source, dict) or source.get("type") != _SOURCE_TYPE:
+    if not isinstance(source, dict) or source.get("type") != DEVICE_IMPORT_SOURCE_TYPE:
         return False, None
     remote_id = source.get("remote_id")
     return True, remote_id if isinstance(remote_id, str) else None

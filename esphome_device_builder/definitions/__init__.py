@@ -28,6 +28,7 @@ from typing import Any, NamedTuple
 import orjson
 import yaml
 
+from ..constants import DEVICE_IMPORT_SOURCE_TYPE
 from ..helpers.lazy_catalog import is_unsafe_catalog_id
 from ..helpers.yaml import FastestSafeLoader
 from ..models import (
@@ -298,12 +299,6 @@ def _load_hardware(data: dict | None, board_id: str) -> BoardHardware:
     )
 
 
-# Manifest ``source.type`` written by the devices.esphome.io importer. Such
-# boards are complete onboard configs by default; hand-curated manifests carry
-# no ``source`` block.
-_DEVICE_IMPORT_SOURCE_TYPE = "esphome-devices"
-
-
 def _resolve_full_config(data: dict[str, Any]) -> bool:
     """
     Whether a board's featured components are a complete onboard config.
@@ -316,7 +311,7 @@ def _resolve_full_config(data: dict[str, Any]) -> bool:
     if isinstance(override, bool):
         return override
     source = data.get("source")
-    return isinstance(source, dict) and source.get("type") == _DEVICE_IMPORT_SOURCE_TYPE
+    return isinstance(source, dict) and source.get("type") == DEVICE_IMPORT_SOURCE_TYPE
 
 
 def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogResponse:

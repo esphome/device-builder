@@ -93,3 +93,9 @@ BOARD_PIN_KEYS: frozenset[str] = frozenset(
         "drive_strength",
     }
 )
+
+# A board manifest's ``source.type`` written by the devices.esphome.io importer.
+# Such boards are complete onboard configs; hand-curated manifests have no
+# ``source`` block. Shared so the importer (writer) and the loader (reader)
+# can't drift.
+DEVICE_IMPORT_SOURCE_TYPE = "esphome-devices"
