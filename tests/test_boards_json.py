@@ -54,6 +54,7 @@ from script.sync_boards import (
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
     _stamp_featured_locked_pins,
+    _synthesize_full_setup_bundles,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -90,6 +91,7 @@ def test_split_artefacts_match_manifests() -> None:
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
+    _synthesize_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
@@ -255,6 +257,62 @@ def test_featured_locked_pins_namespace_io_expander_pins() -> None:
     assert by_id["b16_input01"].locked_pins == {"pin": "pcf8574:pcf8574_hub_in_1:0"}
     # A real board GPIO on the same board is still recorded as an int.
     assert by_id["binary_sensor_gpio_17"].locked_pins == {"pin": 48}
+
+
+def test_full_setup_bundle_synthesized_for_independent_components() -> None:
+    """A board of independent featured components gets an ``all_recommended`` bundle."""
+    body = load_board_body_from_disk("esp32_relay_x4")
+    assert body is not None
+    by_id = {b.id: b for b in body.featured_bundles}
+    assert "all_recommended" in by_id
+    assert by_id["all_recommended"].component_ids == [
+        "switch_gpio_1",
+        "switch_gpio_2",
+        "switch_gpio_3",
+        "switch_gpio_4",
+    ]
+
+
+def test_full_setup_bundle_skipped_when_existing_bundle_covers_all() -> None:
+    """No duplicate ``all_recommended`` when the importer's bundle already covers everything."""
+    body = load_board_body_from_disk("arlec_grid_connect_smart_led_globe_cwww")
+    assert body is not None
+    bundle_ids = {b.id for b in body.featured_bundles}
+    assert "all_recommended" not in bundle_ids
+    # The one derived bundle already lists every featured component.
+    (bundle,) = body.featured_bundles
+    assert set(bundle.component_ids) == {fc.id for fc in body.featured_components}
+
+
+def test_synthesize_full_setup_bundle_skips_single_and_orders_deps_first() -> None:
+    """Synthesis skips <2 featured, orders existing-bundle members ahead of standalone."""
+
+    def _board(
+        fids: list[str], bundles: tuple[tuple[str, list[str]], ...] = ()
+    ) -> BoardCatalogEntry:
+        return BoardCatalogEntry(
+            id="b",
+            name="Board",
+            description="d",
+            manufacturer="m",
+            esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+            featured_components=[FeaturedComponent(id=f, component_id="switch.gpio") for f in fids],
+            featured_bundles=[
+                FeaturedBundle(id=bid, name=bid, component_ids=members) for bid, members in bundles
+            ],
+        )
+
+    # A single featured component needs no bundle.
+    single = _board(["only"])
+    _synthesize_full_setup_bundles([single])
+    assert single.featured_bundles == []
+
+    # A partial dependency bundle: its members come first, standalone after.
+    board = _board(["dep", "consumer", "extra"], bundles=(("c_setup", ["dep", "consumer"]),))
+    _synthesize_full_setup_bundles([board])
+    by_id = {b.id: b for b in board.featured_bundles}
+    assert by_id["all_recommended"].component_ids == ["dep", "consumer", "extra"]
+    assert by_id["all_recommended"].name == "Board (full setup)"
 
 
 def test_omit_default_preserves_meaningful_falsy() -> None:

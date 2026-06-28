@@ -76,6 +76,7 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardPin,
     BoardTag,
     Esp32Variant,
+    FeaturedBundle,
     PinFeature,
     Platform,
 )
@@ -865,6 +866,43 @@ def _stamp_featured_locked_pins(boards: list[BoardCatalogEntry]) -> None:
                         fc.locked_pins[key] = pin
 
 
+_ALL_RECOMMENDED_BUNDLE_ID = "all_recommended"
+
+
+def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Add an ``all_recommended`` bundle covering every featured component.
+
+    The importer only derives bundles from cross-component id references, so a
+    board of independent components gets none. Skipped when one featured
+    component (no bundle needed) or an existing bundle already covers them all.
+    """
+    for board in boards:
+        featured_ids = [fc.id for fc in board.featured_components]
+        if len(featured_ids) < 2:
+            continue
+        featured_set = set(featured_ids)
+        if any(featured_set <= set(b.component_ids) for b in board.featured_bundles):
+            continue
+        ordered: list[str] = []
+        seen: set[str] = set()
+        for member in (m for b in board.featured_bundles for m in b.component_ids):
+            if member in featured_set and member not in seen:
+                ordered.append(member)
+                seen.add(member)
+        for fid in featured_ids:
+            if fid not in seen:
+                ordered.append(fid)
+                seen.add(fid)
+        board.featured_bundles.append(
+            FeaturedBundle(
+                id=_ALL_RECOMMENDED_BUNDLE_ID,
+                name=f"{board.name} (full setup)",
+                component_ids=ordered,
+            )
+        )
+
+
 def build_catalog() -> BoardCatalogResponse:
     """
     Build the catalog as emitted: manifests + ESPHome-derived per-platform pins.
@@ -884,6 +922,7 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_nrf52_boards(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
     _stamp_featured_locked_pins(catalog.boards)
+    _synthesize_full_setup_bundles(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 
