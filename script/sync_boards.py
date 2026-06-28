@@ -77,6 +77,7 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardTag,
     Esp32Variant,
     FeaturedBundle,
+    FeaturedComponent,
     PinFeature,
     Platform,
 )
@@ -884,7 +885,8 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
     kit's optional components aren't offered as one click. The importer only
     derives bundles from cross-component id references, so a board of
     independent components gets none. Skipped when one featured component (no
-    bundle needed) or an existing bundle already covers them all.
+    bundle needed), an existing bundle already covers them all, or two members
+    claim the same board GPIO (adding them all would not compile).
     """
     for board in boards:
         if not board.full_config:
@@ -894,6 +896,8 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
             continue
         featured_set = set(featured_ids)
         if any(featured_set <= set(b.component_ids) for b in board.featured_bundles):
+            continue
+        if _has_pin_conflict(board.featured_components):
             continue
         # Existing-bundle members first (dependency-ordered by the importer),
         # then the remaining featured ids in manifest order; dict.fromkeys
@@ -907,6 +911,30 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
                 component_ids=ordered,
             )
         )
+
+
+def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
+    """
+    Whether two components exclusively claim the same board GPIO.
+
+    A pin marked ``allow_other_uses`` (or a namespaced expander channel, which
+    is a string token, not a board GPIO) is shared on purpose and doesn't
+    count. Two plain locked GPIOs on the same number would make the combined
+    config fail ESPHome's pin-use validation, so such a board gets no bundle.
+    """
+    claimed: set[int] = set()
+    for fc in components:
+        for key, gpio in fc.locked_pins.items():
+            if not isinstance(gpio, int):
+                continue
+            preset = fc.fields.get(key)
+            value = preset.value if preset is not None else None
+            if isinstance(value, dict) and value.get("allow_other_uses"):
+                continue
+            if gpio in claimed:
+                return True
+            claimed.add(gpio)
+    return False
 
 
 def build_catalog() -> BoardCatalogResponse:

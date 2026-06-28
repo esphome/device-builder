@@ -19,6 +19,7 @@ once at startup by the components controller). These tests pin:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import orjson
 
@@ -338,6 +339,40 @@ def test_synthesize_full_setup_bundle_gating_and_ordering() -> None:
     by_id = {b.id: b for b in board.featured_bundles}
     assert by_id["all_recommended"].component_ids == ["dep", "consumer", "extra"]
     assert by_id["all_recommended"].name == "Board (full setup)"
+
+
+def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
+    """Two members claiming the same board GPIO get no bundle unless allow_other_uses."""
+
+    def _fc(fid: str, gpio: int, *, allow_other_uses: bool = False) -> FeaturedComponent:
+        value: Any = {"number": gpio, "allow_other_uses": True} if allow_other_uses else gpio
+        return FeaturedComponent(
+            id=fid,
+            component_id="switch.gpio",
+            fields={"pin": FieldPreset(value=value, locked=True)},
+            locked_pins={"pin": gpio},
+        )
+
+    def _board(components: list[FeaturedComponent]) -> BoardCatalogEntry:
+        return BoardCatalogEntry(
+            id="b",
+            name="Board",
+            description="d",
+            manufacturer="m",
+            esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+            full_config=True,
+            featured_components=components,
+        )
+
+    # Two plain locked GPIO 13s would fail ESPHome pin validation — no bundle.
+    conflict = _board([_fc("a", 13), _fc("b", 13)])
+    _synthesize_full_setup_bundles([conflict])
+    assert conflict.featured_bundles == []
+
+    # The same pin shared on purpose (allow_other_uses) is fine — bundle stands.
+    shared = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13, allow_other_uses=True)])
+    _synthesize_full_setup_bundles([shared])
+    assert {b.id for b in shared.featured_bundles} == {"all_recommended"}
 
 
 def test_omit_default_preserves_meaningful_falsy() -> None:
