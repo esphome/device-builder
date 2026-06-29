@@ -1599,6 +1599,7 @@ def _extract_expander_hubs(
         resolve_block=lambda cid, instance_id: _find_hub_block(config.get(cid), instance_id),
         id_fallback_suffix="",
         skip_empty_fields=False,
+        require_all_pins=False,
         drop_unresolved=True,
     )
 
@@ -1613,6 +1614,7 @@ def _materialize_hubs(
     resolve_block: Callable[[str, str | None], dict[str, Any] | None],
     id_fallback_suffix: str,
     skip_empty_fields: bool,
+    require_all_pins: bool,
     drop_unresolved: bool,
 ) -> tuple[list[dict[str, Any]], dict[int, str]]:
     """
@@ -1647,6 +1649,11 @@ def _materialize_hubs(
         fields = _extract_fields(block, hub_component, hub_occ, hub_cid)
         if fields is None or (skip_empty_fields and not fields):
             continue
+        if require_all_pins and not _required_pin_keys(hub_component) <= fields.keys():
+            # A required pin didn't parse (lambda / reference): skip the hub and
+            # leave ``requires`` unstamped so the dep banner covers it, rather than
+            # ship a pinless hub that compiles into an invalid config.
+            continue
         occupancy.update(hub_occ)
         bus_ids, bus_refs = _ensure_buses(
             hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
@@ -1672,6 +1679,15 @@ def _materialize_hubs(
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return extra, occupancy
+
+
+def _required_pin_keys(component: dict[str, Any]) -> set[str]:
+    """Keys of the component's required ``type: "pin"`` config entries."""
+    return {
+        ce["key"]
+        for ce in component.get("config_entries") or []
+        if ce.get("type") == "pin" and ce.get("required") and isinstance(ce.get("key"), str)
+    }
 
 
 def _is_driver_hub(component: dict[str, Any]) -> bool:
@@ -1771,6 +1787,7 @@ def _extract_driver_hubs(
         resolve_block=lambda cid, _instance_id: _sole_hub_block(config.get(cid)),
         id_fallback_suffix="_hub",
         skip_empty_fields=True,
+        require_all_pins=True,
         drop_unresolved=False,
     )
 

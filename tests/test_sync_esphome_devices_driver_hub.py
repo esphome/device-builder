@@ -24,8 +24,9 @@ _COMPONENTS: dict[str, dict[str, Any]] = {
         "id": "bp5758d",
         "category": "misc",
         "config_entries": [
-            {"key": "clock_pin", "type": "pin"},
-            {"key": "data_pin", "type": "pin"},
+            {"key": "clock_pin", "type": "pin", "required": True},
+            {"key": "data_pin", "type": "pin", "required": True},
+            {"key": "rgb_current", "type": "string"},
             {"key": "id", "type": "id"},
         ],
     },
@@ -113,11 +114,24 @@ def test_ambiguous_multi_hub_is_skipped() -> None:
     assert all("requires" not in e for e in featured)
 
 
-def test_unparseable_hub_pin_skips_hub_and_requires() -> None:
+def test_unparsable_hub_pin_skips_hub_and_requires() -> None:
     """A lambda/reference pin the hub can't lock yields no hub and no ``requires``."""
     featured = _outputs()
     extra, _ = _extract_driver_hubs(
         {"bp5758d": {"clock_pin": "!lambda return 1;", "data_pin": "!lambda return 2;"}},
+        featured,
+        _COMPONENTS,
+    )
+    assert extra == []
+    assert all("requires" not in e for e in featured)
+
+
+def test_scalar_fields_dont_rescue_a_missing_required_pin() -> None:
+    """A liftable scalar must not mask an unparsable required pin (#1728 review)."""
+    featured = _outputs()
+    extra, _ = _extract_driver_hubs(
+        # data_pin is a lambda (dropped), but rgb_current makes fields non-empty.
+        {"bp5758d": {"clock_pin": "P26", "data_pin": "!lambda return 2;", "rgb_current": "10mA"}},
         featured,
         _COMPONENTS,
     )
