@@ -496,6 +496,12 @@ class ConfigEntry(DashboardModel):
     locked: bool = False
     suggestions: list[ConfigPrimitive] | None = None
 
+    # True on entries that carry a board-side preset value (locked,
+    # suggestion, or plain value). Tells the add form to seed this field
+    # while leaving plain catalog defaults unseeded, so a featured add
+    # emits only the preset fields — matching the create-time auto-add.
+    from_preset: bool = False
+
     # === conditional visibility ===
     # `depends_on_value`, `depends_on_value_not` and
     # `depends_on_value_any` are mutually exclusive — set at most one.

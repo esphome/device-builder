@@ -18,28 +18,19 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Relay 1
-- gpio: 1
-  available: false
-  occupied_by: Relay 2
-- gpio: 2
-  available: false
-  occupied_by: Relay 3
-- gpio: 3
-  available: false
-  occupied_by: Relay 4
+  occupied_by: Boot Button
 - gpio: 4
   available: false
-  occupied_by: Relay 5
+  occupied_by: DI1
 - gpio: 5
   available: false
-  occupied_by: Relay 6
+  occupied_by: DI2
 - gpio: 6
   available: false
-  occupied_by: Relay 7
+  occupied_by: DI3
 - gpio: 7
   available: false
-  occupied_by: Relay 8
+  occupied_by: DI4
 - gpio: 8
   available: false
   occupied_by: DI5
@@ -70,11 +61,40 @@ pins:
 - gpio: 38
   available: false
   occupied_by: RGB LED
+- gpio: 41
+  available: false
+  occupied_by: i2cbus
+- gpio: 42
+  available: false
+  occupied_by: i2cbus
 - gpio: 46
   available: false
   occupied_by: buzzer
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-ETH-8DI-8RO/
 featured_components:
+- id: i2cbus
+  component_id: i2c
+  fields:
+    sda:
+      value: 42
+      locked: true
+    scl:
+      value: 41
+      locked: true
+    scan: false
+    frequency: 100kHz
+    id:
+      value: i2cbus
+      locked: true
+- id: tca9554_hub
+  component_id: pca9554
+  fields:
+    address: 32
+    id:
+      value: TCA9554_hub
+      locked: true
+  requires:
+  - i2cbus
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -251,6 +271,9 @@ featured_components:
       locked: true
     id: relay1
     name: Relay 1
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -264,6 +287,9 @@ featured_components:
       locked: true
     id: relay2
     name: Relay 2
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay3
   component_id: switch.gpio
   fields:
@@ -277,6 +303,9 @@ featured_components:
       locked: true
     id: relay3
     name: Relay 3
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay4
   component_id: switch.gpio
   fields:
@@ -290,6 +319,9 @@ featured_components:
       locked: true
     id: relay4
     name: Relay 4
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay5
   component_id: switch.gpio
   fields:
@@ -303,6 +335,9 @@ featured_components:
       locked: true
     id: relay5
     name: Relay 5
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay6
   component_id: switch.gpio
   fields:
@@ -316,6 +351,9 @@ featured_components:
       locked: true
     id: relay6
     name: Relay 6
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay7
   component_id: switch.gpio
   fields:
@@ -329,6 +367,9 @@ featured_components:
       locked: true
     id: relay7
     name: Relay 7
+  requires:
+  - i2cbus
+  - tca9554_hub
 - id: relay8
   component_id: switch.gpio
   fields:
@@ -342,6 +383,9 @@ featured_components:
       locked: true
     id: relay8
     name: Relay 8
+  requires:
+  - i2cbus
+  - tca9554_hub
 source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-S3-ETH-8DI-8RO

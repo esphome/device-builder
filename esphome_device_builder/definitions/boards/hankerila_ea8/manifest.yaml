@@ -16,30 +16,12 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: a8-relay1
-- gpio: 1
-  available: false
-  occupied_by: a8-relay2
-- gpio: 2
-  available: false
-  occupied_by: a8-relay3
-- gpio: 3
-  available: false
-  occupied_by: a8-relay4
 - gpio: 4
   available: false
-  occupied_by: a8-relay5
+  occupied_by: bus_a
 - gpio: 5
   available: false
-  occupied_by: a8-relay6
-- gpio: 6
-  available: false
-  occupied_by: a8-relay7
-- gpio: 7
-  available: false
-  occupied_by: a8-relay8
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -51,6 +33,37 @@ pins:
   occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/Hankerila-EA8/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 38
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -84,6 +97,9 @@ featured_components:
       locked: true
     id: input1
     name: a8-input1
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input2
   component_id: binary_sensor.gpio
   fields:
@@ -96,6 +112,9 @@ featured_components:
       locked: true
     id: input2
     name: a8-input2
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input3
   component_id: binary_sensor.gpio
   fields:
@@ -108,6 +127,9 @@ featured_components:
       locked: true
     id: input3
     name: a8-input3
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input4
   component_id: binary_sensor.gpio
   fields:
@@ -120,6 +142,9 @@ featured_components:
       locked: true
     id: input4
     name: a8-input4
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input5
   component_id: binary_sensor.gpio
   fields:
@@ -132,6 +157,9 @@ featured_components:
       locked: true
     id: input5
     name: a8-input5
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input6
   component_id: binary_sensor.gpio
   fields:
@@ -144,6 +172,9 @@ featured_components:
       locked: true
     id: input6
     name: a8-input6
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input7
   component_id: binary_sensor.gpio
   fields:
@@ -156,6 +187,9 @@ featured_components:
       locked: true
     id: input7
     name: a8-input7
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: input8
   component_id: binary_sensor.gpio
   fields:
@@ -168,6 +202,9 @@ featured_components:
       locked: true
     id: input8
     name: a8-input8
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: dac_output
   component_id: output.mcp4725
   fields:
@@ -218,6 +255,9 @@ featured_components:
       locked: true
     id: relay1
     name: a8-relay1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -230,6 +270,9 @@ featured_components:
       locked: true
     id: relay2
     name: a8-relay2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay3
   component_id: switch.gpio
   fields:
@@ -242,6 +285,9 @@ featured_components:
       locked: true
     id: relay3
     name: a8-relay3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay4
   component_id: switch.gpio
   fields:
@@ -254,6 +300,9 @@ featured_components:
       locked: true
     id: relay4
     name: a8-relay4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay5
   component_id: switch.gpio
   fields:
@@ -266,6 +315,9 @@ featured_components:
       locked: true
     id: relay5
     name: a8-relay5
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay6
   component_id: switch.gpio
   fields:
@@ -278,6 +330,9 @@ featured_components:
       locked: true
     id: relay6
     name: a8-relay6
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay7
   component_id: switch.gpio
   fields:
@@ -290,6 +345,9 @@ featured_components:
       locked: true
     id: relay7
     name: a8-relay7
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay8
   component_id: switch.gpio
   fields:
@@ -302,6 +360,9 @@ featured_components:
       locked: true
     id: relay8
     name: a8-relay8
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 source:
   type: esphome-devices
   remote_id: Hankerila-EA8

@@ -177,7 +177,11 @@ class GitRepo:
             return
         try:
             toplevel = self._discover_toplevel()
-            if toplevel is not None and not _encloses_own_source(toplevel):
+            if (
+                toplevel is not None
+                and not _encloses_own_source(toplevel)
+                and not self._enclosing_repo_ignores_config_dir()
+            ):
                 self.toplevel = toplevel
                 self.enabled = True
                 self.managed = self._adopt_ownership()
@@ -185,17 +189,27 @@ class GitRepo:
                 _LOGGER.debug("Adopted existing git work tree at %s", toplevel)
                 return
             if toplevel is not None:
+                reason = (
+                    "is inside the Device Builder source checkout"
+                    if _encloses_own_source(toplevel)
+                    else "is ignored by the enclosing git repo"
+                )
                 _LOGGER.info(
-                    "Config dir %s is inside the Device Builder source checkout (%s); "
-                    "creating a config-local history repo instead of committing into it",
+                    "Config dir %s %s (%s); creating a config-local history repo "
+                    "instead of committing into it",
                     self.config_dir,
+                    reason,
                     toplevel,
                 )
-            elif (self.config_dir / ".git").exists():
-                # rev-parse found no work tree yet ``.git`` is present: an
-                # unusable git dir (a submodule / worktree pointer whose
-                # target isn't mounted, or a corrupt repo). Re-initialising
-                # over it fails, so disable rather than crash on init.
+            elif (git_entry := self.config_dir / ".git").is_symlink() or git_entry.exists():
+                # rev-parse found no work tree yet ``.git`` is physically
+                # present: an unusable git dir (a submodule / worktree pointer
+                # file or symlink whose target isn't mounted, or a corrupt
+                # repo). ``is_symlink()`` catches a broken symlink that
+                # ``exists()`` misses; a valid symlink to a usable repo never
+                # reaches here (rev-parse would have found its work tree).
+                # Re-initialising over it fails, so disable rather than crash
+                # on init.
                 _LOGGER.info(
                     "Config dir %s has a .git git can't use here (likely a submodule or "
                     "worktree whose git dir isn't mounted); version history disabled",
@@ -227,6 +241,16 @@ class GitRepo:
             return None
         root = result.stdout.strip()
         return Path(root) if root else None
+
+    def _enclosing_repo_ignores_config_dir(self) -> bool:
+        """Whether the enclosing work tree ignores ``config_dir`` itself."""
+        result = self._run(
+            # ``--`` so a config_dir starting with ``-`` isn't read as an option.
+            ["check-ignore", "-q", "--", str(self.config_dir)],
+            cwd=self.config_dir,
+            check=False,
+        )
+        return result.returncode == 0
 
     def _init_repo(self) -> None:
         """Create a fresh repo in ``config_dir`` and seed the existing configs.

@@ -251,6 +251,11 @@
           "type": "object",
           "description": "Per-config-entry presets, keyed by ConfigEntry.key.",
           "additionalProperties": { "$ref": "#/$defs/field_preset_or_value" }
+        },
+        "requires": {
+          "type": "array",
+          "description": "Local ids of other featured_components on this board to add first, in order (e.g. an i2c bus then the pcf8574 hub a pin sits on).",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
         }
       }
     },

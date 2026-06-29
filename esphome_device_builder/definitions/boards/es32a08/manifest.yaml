@@ -15,69 +15,42 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: A
-- gpio: 1
-  available: false
-  occupied_by: B
-- gpio: 2
-  available: false
-  occupied_by: C
-- gpio: 3
-  available: false
-  occupied_by: D
 - gpio: 4
   available: false
-  occupied_by: E
+  occupied_by: sn74hc595_hub
 - gpio: 5
   available: false
-  occupied_by: F
-- gpio: 6
+  occupied_by: sn74hc165_hub
+- gpio: 13
   available: false
-  occupied_by: G
-- gpio: 7
+  occupied_by: sn74hc595_hub
+- gpio: 14
   available: false
-  occupied_by: DP
-- gpio: 8
-  available: false
-  occupied_by: G1
-- gpio: 9
-  available: false
-  occupied_by: G2
-- gpio: 10
-  available: false
-  occupied_by: G3
-- gpio: 11
-  available: false
-  occupied_by: G4
+  occupied_by: sn74hc595_hub
 - gpio: 15
   available: false
   occupied_by: status LED
 - gpio: 16
   available: false
-  occupied_by: O1
+  occupied_by: sn74hc165_hub
 - gpio: 17
   available: false
-  occupied_by: O2
+  occupied_by: sn74hc165_hub
 - gpio: 18
   available: false
-  occupied_by: O3
+  occupied_by: KEY1
 - gpio: 19
   available: false
-  occupied_by: O4
-- gpio: 20
-  available: false
-  occupied_by: O5
+  occupied_by: KEY2
 - gpio: 21
   available: false
-  occupied_by: O6
-- gpio: 22
-  available: false
-  occupied_by: O7
+  occupied_by: KEY3
 - gpio: 23
   available: false
-  occupied_by: O8
+  occupied_by: KEY4
+- gpio: 27
+  available: false
+  occupied_by: sn74hc595_hub
 - gpio: 32
   available: false
   occupied_by: ADC5 (0-10V)
@@ -98,6 +71,41 @@ pins:
   occupied_by: ADC2 (0-20ma)
 docs_url: https://devices.esphome.io/devices/ES32A08/
 featured_components:
+- id: sn74hc165_hub
+  component_id: sn74hc165
+  fields:
+    clock_pin:
+      value: 17
+      locked: true
+    data_pin:
+      value: 5
+      locked: true
+    load_pin:
+      value: 16
+      locked: true
+    sr_count: 1
+    id:
+      value: sn74hc165_hub
+      locked: true
+- id: sn74hc595_hub
+  component_id: sn74hc595
+  fields:
+    data_pin:
+      value: 13
+      locked: true
+    clock_pin:
+      value: 27
+      locked: true
+    latch_pin:
+      value: 14
+      locked: true
+    oe_pin:
+      value: 4
+      locked: true
+    sr_count: 3
+    id:
+      value: sn74hc595_hub
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -109,6 +117,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: I1
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -120,6 +130,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: I2
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -131,6 +143,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: I3
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -142,6 +156,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: I4
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -153,6 +169,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: I5
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -164,6 +182,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: I6
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -175,6 +195,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: I7
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -186,6 +208,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: I8
+  requires:
+  - sn74hc165_hub
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -248,6 +272,8 @@ featured_components:
         inverted: false
       locked: true
     id: a
+  requires:
+  - sn74hc595_hub
 - id: b
   component_id: output.gpio
   fields:
@@ -258,6 +284,8 @@ featured_components:
         inverted: false
       locked: true
     id: b
+  requires:
+  - sn74hc595_hub
 - id: c
   component_id: output.gpio
   fields:
@@ -268,6 +296,8 @@ featured_components:
         inverted: false
       locked: true
     id: c
+  requires:
+  - sn74hc595_hub
 - id: d
   component_id: output.gpio
   fields:
@@ -278,6 +308,8 @@ featured_components:
         inverted: false
       locked: true
     id: d
+  requires:
+  - sn74hc595_hub
 - id: e
   component_id: output.gpio
   fields:
@@ -288,6 +320,8 @@ featured_components:
         inverted: false
       locked: true
     id: e
+  requires:
+  - sn74hc595_hub
 - id: f
   component_id: output.gpio
   fields:
@@ -298,6 +332,8 @@ featured_components:
         inverted: false
       locked: true
     id: f
+  requires:
+  - sn74hc595_hub
 - id: g
   component_id: output.gpio
   fields:
@@ -308,6 +344,8 @@ featured_components:
         inverted: false
       locked: true
     id: g
+  requires:
+  - sn74hc595_hub
 - id: dp
   component_id: output.gpio
   fields:
@@ -318,6 +356,8 @@ featured_components:
         inverted: false
       locked: true
     id: dp
+  requires:
+  - sn74hc595_hub
 - id: g1
   component_id: output.gpio
   fields:
@@ -328,6 +368,8 @@ featured_components:
         inverted: true
       locked: true
     id: g1
+  requires:
+  - sn74hc595_hub
 - id: g2
   component_id: output.gpio
   fields:
@@ -338,6 +380,8 @@ featured_components:
         inverted: true
       locked: true
     id: g2
+  requires:
+  - sn74hc595_hub
 - id: g3
   component_id: output.gpio
   fields:
@@ -348,6 +392,8 @@ featured_components:
         inverted: true
       locked: true
     id: g3
+  requires:
+  - sn74hc595_hub
 - id: g4
   component_id: output.gpio
   fields:
@@ -358,6 +404,8 @@ featured_components:
         inverted: true
       locked: true
     id: g4
+  requires:
+  - sn74hc595_hub
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -423,6 +471,8 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: O1
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -434,6 +484,8 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: O2
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -445,6 +497,8 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: O3
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -456,6 +510,8 @@ featured_components:
       locked: true
     id: switch_gpio_4
     name: O4
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -467,6 +523,8 @@ featured_components:
       locked: true
     id: switch_gpio_5
     name: O5
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -478,6 +536,8 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: O6
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_7
   component_id: switch.gpio
   fields:
@@ -489,6 +549,8 @@ featured_components:
       locked: true
     id: switch_gpio_7
     name: O7
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_8
   component_id: switch.gpio
   fields:
@@ -500,6 +562,8 @@ featured_components:
       locked: true
     id: switch_gpio_8
     name: O8
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_9
   component_id: switch.gpio
   fields:

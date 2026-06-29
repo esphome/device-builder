@@ -21,10 +21,12 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import orjson
 import pytest
 
 from esphome_device_builder import definitions
 from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components._resolve import _apply_preset_value
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices.helpers import (
@@ -33,12 +35,14 @@ from esphome_device_builder.controllers.devices.helpers import (
 )
 from esphome_device_builder.definitions import (
     _coerce_field_preset,
+    _load_component_multi_conf,
     _load_featured_bundle,
     _load_featured_component,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import generate_component_yaml
-from esphome_device_builder.models import ComponentCategory, ErrorCode
+from esphome_device_builder.models import ComponentCategory, ConfigEntry, ConfigEntryType, ErrorCode
+from esphome_device_builder.models.boards import FeaturedComponent
 from esphome_device_builder.models.common import FieldPreset
 
 # Pin every test in the file onto the same xdist worker as the rest of
@@ -51,6 +55,48 @@ pytestmark = pytest.mark.xdist_group("catalog")
 # ---------------------------------------------------------------------------
 # Loader-level (pure unit tests, no catalog)
 # ---------------------------------------------------------------------------
+
+
+def test_apply_preset_value_recurses_nested_dict() -> None:
+    """A dict on a NESTED group lands on leaves; a pin entry keeps its dict verbatim."""
+    nested = ConfigEntry(
+        key="clk",
+        label="Clk",
+        type=ConfigEntryType.NESTED,
+        config_entries=[
+            ConfigEntry(key="pin", label="Pin", type=ConfigEntryType.PIN),
+            ConfigEntry(key="mode", label="Mode", type=ConfigEntryType.STRING),
+        ],
+    )
+    _apply_preset_value(nested, {"pin": "GPIO17", "mode": "CLK_OUT"}, locked=True)
+    assert nested.default_value is None
+    assert nested.from_preset is True
+    assert [(c.default_value, c.locked, c.from_preset) for c in nested.config_entries] == [
+        ("GPIO17", True, True),
+        ("CLK_OUT", True, True),
+    ]
+
+    pin = ConfigEntry(key="power_pin", label="Power Pin", type=ConfigEntryType.PIN)
+    _apply_preset_value(pin, {"number": "GPIO12"}, locked=True)
+    assert pin.default_value == {"number": "GPIO12"}
+    assert pin.from_preset is True
+
+
+def test_apply_preset_value_logs_unmatched_nested_key(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A preset dict key with no matching child is dropped but logged for diagnosis."""
+    nested = ConfigEntry(
+        key="clk",
+        label="Clk",
+        type=ConfigEntryType.NESTED,
+        config_entries=[ConfigEntry(key="pin", label="Pin", type=ConfigEntryType.PIN)],
+    )
+    with caplog.at_level("DEBUG"):
+        _apply_preset_value(nested, {"pin": "GPIO17", "pn": "typo"}, locked=True)
+    assert nested.config_entries[0].default_value == "GPIO17"
+    assert "no matching child" in caplog.text
+    assert "pn" in caplog.text
 
 
 def test_coerce_primitive_shorthand() -> None:
@@ -101,6 +147,74 @@ def test_load_featured_component_image_url_passthrough() -> None:
         {"id": "dht", "component_id": "sensor.dht", "image_url": url}, Path("boards/x")
     )
     assert fc.image_url == url
+
+
+def test_load_featured_component_multi_conf_from_map() -> None:
+    """multi_conf comes from the component map; an unknown id defaults True."""
+    m = {"sensor.dht": True, "ethernet": False}
+
+    def load(cid: str) -> FeaturedComponent:
+        return _load_featured_component({"id": "x", "component_id": cid}, Path("boards/x"), m)
+
+    assert load("sensor.dht").multi_conf is True
+    assert load("ethernet").multi_conf is False
+    assert load("nonexistent").multi_conf is True
+
+
+def test_load_component_multi_conf_reads_index() -> None:
+    """The real component index resolves to a non-empty id->multi_conf map."""
+    m = _load_component_multi_conf()
+    assert m["ethernet"] is False
+    assert m["switch.gpio"] is True
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,  # missing file
+        b"not json",
+        b'{"no_components_key": 1}',
+        b'{"components": "not-a-list"}',  # iterates to chars -> TypeError
+        b'{"components": [{"multi_conf": true}]}',  # entry missing id -> KeyError
+    ],
+)
+def test_load_component_multi_conf_logs_and_empties_on_bad_index(
+    content: bytes | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A missing or malformed index yields an empty map with a logged error."""
+    path = tmp_path / "missing.json"
+    if content is not None:
+        path.write_bytes(content)
+    monkeypatch.setattr(definitions, "_COMPONENTS_INDEX_JSON", path)
+    with caplog.at_level("ERROR"):
+        assert _load_component_multi_conf() == {}
+    assert "components.index.json" in caplog.text
+
+
+def test_load_component_multi_conf_strict_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Strict (sync/CI) builds surface a corrupt index instead of degrading."""
+    monkeypatch.setattr(definitions, "_COMPONENTS_INDEX_JSON", Path("/no/such/index.json"))
+    with pytest.raises(FileNotFoundError):
+        _load_component_multi_conf(strict=True)
+
+
+def test_committed_featured_multi_conf_matches_catalog() -> None:
+    """Each committed featured entry's multi_conf mirrors its underlying component."""
+    defs = Path(definitions.__file__).parent
+    comps = {
+        c["id"]: c.get("multi_conf", False)
+        for c in orjson.loads((defs / "components.index.json").read_bytes())["components"]
+    }
+    featured = orjson.loads((defs / "featured_components.index.json").read_bytes())
+    for board, entries in featured.items():
+        for e in entries:
+            expected = comps.get(e["component_id"], True)
+            assert e.get("multi_conf", True) == expected, (
+                f"{board}/{e['id']}: multi_conf {e.get('multi_conf', True)} != {expected}"
+            )
 
 
 def test_load_featured_bundle() -> None:
@@ -211,6 +325,23 @@ async def test_get_component_id_from_manifest_field(catalog: ComponentCatalog) -
     id_field = next(ce for ce in entry.config_entries if ce.key == "id")
     assert id_field.default_value == "button"
     assert id_field.locked is False
+
+
+async def test_get_component_nested_preset_reaches_leaves(catalog: ComponentCatalog) -> None:
+    """A dict preset on a NESTED group (esp32-poe-iso ``clk``) lands on its leaf children."""
+    entry = await catalog.get_component(component_id="featured.esp32-poe-iso.onboard_ethernet")
+    assert entry is not None
+    clk = next(ce for ce in entry.config_entries if ce.key == "clk")
+    pin = next(ce for ce in clk.config_entries if ce.key == "pin")
+    mode = next(ce for ce in clk.config_entries if ce.key == "mode")
+    assert (pin.default_value, pin.locked, pin.from_preset) == ("GPIO17", True, True)
+    assert (mode.default_value, mode.locked, mode.from_preset) == ("CLK_OUT", True, True)
+    # A ``pin``-typed group keeps its dict value verbatim (the pin renderer reads it).
+    power_pin = next(ce for ce in entry.config_entries if ce.key == "power_pin")
+    assert power_pin.default_value == {"number": "GPIO12", "ignore_strapping_warning": True}
+    # Plain catalog defaults stay unmarked so the add form doesn't seed them.
+    clock_speed = next(ce for ce in entry.config_entries if ce.key == "clock_speed")
+    assert clock_speed.from_preset is False
 
 
 async def test_get_component_name_from_manifest_field(

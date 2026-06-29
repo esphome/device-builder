@@ -14,30 +14,15 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM8/DM8-1.jpg
 pins:
-- gpio: 0
-  available: false
-  occupied_by: dm8-input01
 - gpio: 1
   available: false
-  occupied_by: dm8-input02
+  occupied_by: Ethernet CLK
 - gpio: 2
   available: false
-  occupied_by: dm8-input03
-- gpio: 3
+  occupied_by: Ethernet MOSI
+- gpio: 8
   available: false
-  occupied_by: dm8-input04
-- gpio: 4
-  available: false
-  occupied_by: dm8-input05
-- gpio: 5
-  available: false
-  occupied_by: dm8-input06
-- gpio: 6
-  available: false
-  occupied_by: dm8-input07
-- gpio: 7
-  available: false
-  occupied_by: dm8-input08
+  occupied_by: bus_a
 - gpio: 13
   available: false
   occupied_by: dm8-W1-io13
@@ -47,6 +32,9 @@ pins:
 - gpio: 17
   available: false
   occupied_by: dm8-W1-io17
+- gpio: 18
+  available: false
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: dm8-W1-io21
@@ -73,6 +61,32 @@ pins:
   occupied_by: dm8-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM8/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -110,6 +124,9 @@ featured_components:
       locked: true
     id: dm8_input01
     name: dm8-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input02
   component_id: binary_sensor.gpio
   fields:
@@ -122,6 +139,9 @@ featured_components:
       locked: true
     id: dm8_input02
     name: dm8-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input03
   component_id: binary_sensor.gpio
   fields:
@@ -134,6 +154,9 @@ featured_components:
       locked: true
     id: dm8_input03
     name: dm8-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input04
   component_id: binary_sensor.gpio
   fields:
@@ -146,6 +169,9 @@ featured_components:
       locked: true
     id: dm8_input04
     name: dm8-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input05
   component_id: binary_sensor.gpio
   fields:
@@ -158,6 +184,9 @@ featured_components:
       locked: true
     id: dm8_input05
     name: dm8-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input06
   component_id: binary_sensor.gpio
   fields:
@@ -170,6 +199,9 @@ featured_components:
       locked: true
     id: dm8_input06
     name: dm8-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input07
   component_id: binary_sensor.gpio
   fields:
@@ -182,6 +214,9 @@ featured_components:
       locked: true
     id: dm8_input07
     name: dm8-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm8_input08
   component_id: binary_sensor.gpio
   fields:
@@ -194,6 +229,9 @@ featured_components:
       locked: true
     id: dm8_input08
     name: dm8-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:

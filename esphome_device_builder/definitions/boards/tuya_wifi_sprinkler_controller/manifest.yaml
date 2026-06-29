@@ -10,33 +10,20 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/disassembled.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/assembled.jpg
-pins:
-- gpio: 0
-  available: false
-  occupied_by: valve_1
-- gpio: 1
-  available: false
-  occupied_by: valve_2
-- gpio: 2
-  available: false
-  occupied_by: valve_3
-- gpio: 3
-  available: false
-  occupied_by: valve_4
-- gpio: 4
-  available: false
-  occupied_by: valve_5
-- gpio: 5
-  available: false
-  occupied_by: valve_6
-- gpio: 6
-  available: false
-  occupied_by: valve_7
-- gpio: 7
-  available: false
-  occupied_by: valve_8
 docs_url: https://devices.esphome.io/devices/Tuya-WIFI-Sprinkler-Controller/
 featured_components:
+- id: led_sn74hc595
+  component_id: sn74hc595
+  fields:
+    id:
+      value: led_sn74hc595
+      locked: true
+- id: valve_sn74hc595
+  component_id: sn74hc595
+  fields:
+    id:
+      value: valve_sn74hc595
+      locked: true
 - id: touch_sensor_1
   component_id: binary_sensor.gpio
   fields:
@@ -71,6 +58,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_1
+  requires:
+  - led_sn74hc595
 - id: led_2
   component_id: output.gpio
   fields:
@@ -81,6 +70,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_2
+  requires:
+  - led_sn74hc595
 - id: led_3
   component_id: output.gpio
   fields:
@@ -91,6 +82,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_3
+  requires:
+  - led_sn74hc595
 - id: led_4
   component_id: output.gpio
   fields:
@@ -101,6 +94,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_4
+  requires:
+  - led_sn74hc595
 - id: led_5
   component_id: output.gpio
   fields:
@@ -111,6 +106,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_5
+  requires:
+  - led_sn74hc595
 - id: led_6
   component_id: output.gpio
   fields:
@@ -121,6 +118,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_6
+  requires:
+  - led_sn74hc595
 - id: led_7
   component_id: output.gpio
   fields:
@@ -131,6 +130,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_7
+  requires:
+  - led_sn74hc595
 - id: led_8
   component_id: output.gpio
   fields:
@@ -141,6 +142,8 @@ featured_components:
         inverted: true
       locked: true
     id: led_8
+  requires:
+  - led_sn74hc595
 - id: valve_1
   component_id: switch.gpio
   fields:
@@ -152,6 +155,8 @@ featured_components:
       locked: true
     id: valve_1
     name: valve_1
+  requires:
+  - valve_sn74hc595
 - id: valve_2
   component_id: switch.gpio
   fields:
@@ -163,6 +168,8 @@ featured_components:
       locked: true
     id: valve_2
     name: valve_2
+  requires:
+  - valve_sn74hc595
 - id: valve_3
   component_id: switch.gpio
   fields:
@@ -174,6 +181,8 @@ featured_components:
       locked: true
     id: valve_3
     name: valve_3
+  requires:
+  - valve_sn74hc595
 - id: valve_4
   component_id: switch.gpio
   fields:
@@ -185,6 +194,8 @@ featured_components:
       locked: true
     id: valve_4
     name: valve_4
+  requires:
+  - valve_sn74hc595
 - id: valve_5
   component_id: switch.gpio
   fields:
@@ -196,6 +207,8 @@ featured_components:
       locked: true
     id: valve_5
     name: valve_5
+  requires:
+  - valve_sn74hc595
 - id: valve_6
   component_id: switch.gpio
   fields:
@@ -207,6 +220,8 @@ featured_components:
       locked: true
     id: valve_6
     name: valve_6
+  requires:
+  - valve_sn74hc595
 - id: valve_7
   component_id: switch.gpio
   fields:
@@ -218,6 +233,8 @@ featured_components:
       locked: true
     id: valve_7
     name: valve_7
+  requires:
+  - valve_sn74hc595
 - id: valve_8
   component_id: switch.gpio
   fields:
@@ -229,6 +246,8 @@ featured_components:
       locked: true
     id: valve_8
     name: valve_8
+  requires:
+  - valve_sn74hc595
 source:
   type: esphome-devices
   remote_id: Tuya-WIFI-Sprinkler-Controller

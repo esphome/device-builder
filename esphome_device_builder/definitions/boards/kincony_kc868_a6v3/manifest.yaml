@@ -19,28 +19,25 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: A6v3-output1
-- gpio: 1
-  available: false
-  occupied_by: A6v3-output2
-- gpio: 2
-  available: false
-  occupied_by: A6v3-output3
-- gpio: 3
-  available: false
-  occupied_by: A6v3-output4
+  occupied_by: A6v3-W1-DW
 - gpio: 4
   available: false
-  occupied_by: A6v3-output5
+  occupied_by: A6v3 A1 Voltage
 - gpio: 5
   available: false
-  occupied_by: A6v3-output6
+  occupied_by: A6v3 A2 Voltage
 - gpio: 6
   available: false
   occupied_by: A6v3 A3 Current
 - gpio: 7
   available: false
   occupied_by: A6v3 A4 Current
+- gpio: 11
+  available: false
+  occupied_by: bus_a
+- gpio: 12
+  available: false
+  occupied_by: bus_a
 - gpio: 15
   available: false
   occupied_by: A6v3-W1-io15
@@ -49,6 +46,37 @@ pins:
   occupied_by: A6v3-W1-io16
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6v3/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 12
+      locked: true
+    scl:
+      value: 11
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+  requires:
+  - bus_a
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -61,6 +89,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: A6v3-input1
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -73,6 +104,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: A6v3-input2
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -85,6 +119,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: A6v3-input3
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -97,6 +134,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: A6v3-input4
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -109,6 +149,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: A6v3-input5
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -121,6 +164,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: A6v3-input6
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -227,6 +273,9 @@ featured_components:
       locked: true
     id: a6v3_output1
     name: A6v3-output1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: a6v3_output2
   component_id: switch.gpio
   fields:
@@ -239,6 +288,9 @@ featured_components:
       locked: true
     id: a6v3_output2
     name: A6v3-output2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: a6v3_output3
   component_id: switch.gpio
   fields:
@@ -251,6 +303,9 @@ featured_components:
       locked: true
     id: a6v3_output3
     name: A6v3-output3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: a6v3_output4
   component_id: switch.gpio
   fields:
@@ -263,6 +318,9 @@ featured_components:
       locked: true
     id: a6v3_output4
     name: A6v3-output4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: a6v3_output5
   component_id: switch.gpio
   fields:
@@ -275,6 +333,9 @@ featured_components:
       locked: true
     id: a6v3_output5
     name: A6v3-output5
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: a6v3_output6
   component_id: switch.gpio
   fields:
@@ -287,6 +348,9 @@ featured_components:
       locked: true
     id: a6v3_output6
     name: A6v3-output6
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 featured_bundles:
 - id: light_monochromatic_1_setup
   name: A6v3-DAC-1 (full setup)

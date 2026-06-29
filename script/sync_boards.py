@@ -46,6 +46,7 @@ import re
 import shutil
 import sys
 from dataclasses import replace
+from functools import cache
 from operator import attrgetter
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,7 @@ from _catalog_split import (  # noqa: E402
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
 
+from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
@@ -74,6 +76,8 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardPin,
     BoardTag,
     Esp32Variant,
+    FeaturedBundle,
+    FeaturedComponent,
     PinFeature,
     Platform,
 )
@@ -84,11 +88,19 @@ _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _INDEX_FILE = _DEFINITIONS_DIR / "boards.index.json"
 _BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
 _FEATURED_INDEX_FILE = _DEFINITIONS_DIR / "featured_components.index.json"
+_COMPONENTS_DIR = _DEFINITIONS_DIR / "components"
 
 # Fields stripped from the slim index entry — they belong on the
 # per-board body file only.
 _INDEX_DROP_FIELDS: frozenset[str] = frozenset(
-    {"hardware", "pins", "featured_components", "featured_bundles", "default_components"}
+    {
+        "hardware",
+        "pins",
+        "featured_components",
+        "featured_bundles",
+        "default_components",
+        "full_config",
+    }
 )
 
 # LibreTiny families: ESPHome's ``components/<platform>/boards.py`` carries
@@ -798,6 +810,135 @@ def _augment_rmii_data_pins(boards: list[BoardCatalogEntry]) -> None:
         board.pins = list(merged.values())
 
 
+@cache
+def _component_pin_keys(component_id: str) -> frozenset[str]:
+    """Top-level config_entry keys of ``type: pin`` for *component_id* (empty if unknown)."""
+    path = _COMPONENTS_DIR / f"{component_id}.json"
+    try:
+        body = orjson.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(e["key"] for e in body.get("config_entries", []) if e.get("type") == "pin")
+
+
+def _canonical_gpio(value: Any) -> int | None:
+    """Reduce a manifest pin value (bare int, ``GPIOn`` string, ``{number: n}``) to a board GPIO int."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict):
+        # Skip expander pins: a hub-referencing key means a channel, not a GPIO.
+        if value.keys() - BOARD_PIN_KEYS:
+            return None
+        return _canonical_gpio(value.get("number"))
+    if isinstance(value, str):
+        match = re.match(r"^\s*(?:GPIO)?(\d+)\s*$", value, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _canonical_pin(value: Any) -> int | str | None:
+    """
+    Reduce a manifest pin value to its occupied-pin identity.
+
+    A board GPIO is an int; a pin on an I/O expander
+    (``{number: 0, pcf8574: hub}``) is the namespaced token
+    ``"<provider>:<hub_id>:<channel>"`` so an expander channel never aliases a
+    board GPIO of the same number. ``None`` when no concrete pin is present.
+    """
+    if isinstance(value, dict):
+        expander = value.keys() - BOARD_PIN_KEYS
+        if expander:
+            provider = sorted(expander)[0]
+            hub = value.get(provider)
+            channel = value.get("number")
+            if isinstance(hub, str) and isinstance(channel, int) and not isinstance(channel, bool):
+                return f"{provider}:{hub}:{channel}"
+            return None
+    return _canonical_gpio(value)
+
+
+def _stamp_featured_locked_pins(boards: list[BoardCatalogEntry]) -> None:
+    """Fill each featured component's ``locked_pins`` from the underlying PIN schema."""
+    for board in boards:
+        for fc in board.featured_components:
+            pin_keys = _component_pin_keys(fc.component_id)
+            if not pin_keys:
+                continue
+            for key, preset in fc.fields.items():
+                if key in pin_keys and preset.locked:
+                    pin = _canonical_pin(preset.value)
+                    if pin is not None:
+                        fc.locked_pins[key] = pin
+
+
+_ALL_RECOMMENDED_BUNDLE_ID = "all_recommended"
+
+
+def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Add an ``all_recommended`` bundle covering every featured component.
+
+    Only for ``full_config`` boards (a complete onboard device), so a starter
+    kit's optional components aren't offered as one click. The importer only
+    derives bundles from cross-component id references, so a board of
+    independent components gets none. Skipped when one featured component (no
+    bundle needed), an existing bundle already covers them all, or two members
+    claim the same board GPIO (adding them all would not compile).
+    """
+    for board in boards:
+        if not board.full_config:
+            continue
+        featured_ids = [fc.id for fc in board.featured_components]
+        if len(featured_ids) < 2:
+            continue
+        featured_set = set(featured_ids)
+        if any(featured_set <= set(b.component_ids) for b in board.featured_bundles):
+            continue
+        if _has_pin_conflict(board.featured_components):
+            _LOGGER.info(
+                "Skipping all_recommended for %s: featured components share a board GPIO",
+                board.id,
+            )
+            continue
+        # Existing-bundle members first (dependency-ordered by the importer),
+        # then the remaining featured ids in manifest order; dict.fromkeys
+        # dedups while preserving that first-seen order.
+        existing = [m for b in board.featured_bundles for m in b.component_ids if m in featured_set]
+        ordered = list(dict.fromkeys(existing + featured_ids))
+        board.featured_bundles.append(
+            FeaturedBundle(
+                id=_ALL_RECOMMENDED_BUNDLE_ID,
+                name=f"{board.name} (full setup)",
+                component_ids=ordered,
+            )
+        )
+
+
+def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
+    """
+    Whether the featured components reuse a board GPIO without permission.
+
+    ESPHome accepts a pin used more than once only when *every* usage sets
+    ``allow_other_uses``; a single plain usage of a shared pin fails validation.
+    Mirror that: a board GPIO used by more than one locked pin is a conflict
+    unless all of those usages allow it. Namespaced expander channels are string
+    tokens, not board GPIOs, so they're ignored.
+    """
+    usages: dict[int, list[bool]] = {}
+    for fc in components:
+        for key, gpio in fc.locked_pins.items():
+            if not isinstance(gpio, int):
+                continue
+            preset = fc.fields.get(key)
+            value = preset.value if preset is not None else None
+            allows = isinstance(value, dict) and bool(value.get("allow_other_uses"))
+            usages.setdefault(gpio, []).append(allows)
+    return any(len(uses) > 1 and not all(uses) for uses in usages.values())
+
+
 def build_catalog() -> BoardCatalogResponse:
     """
     Build the catalog as emitted: manifests + ESPHome-derived per-platform pins.
@@ -816,6 +957,8 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
+    _stamp_featured_locked_pins(catalog.boards)
+    _synthesize_full_setup_bundles(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 

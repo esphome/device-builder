@@ -15,8 +15,17 @@ synthesized ``pins[]`` block with orphan GPIO labels.
 from __future__ import annotations
 
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
+    _expander_keys,
+    _extract_expander_hubs,
     _extract_featured_components,
 )
+
+
+def test_expander_keys_treats_board_pin_id_as_a_board_key() -> None:
+    """A pin-level ``id`` is a board-GPIO key; the provider is the hub key, not ``id``."""
+    assert _expander_keys({"pcf8574": "hub", "number": 0, "id": "relay1"}) == {"pcf8574"}
+    assert _expander_keys({"number": 5, "id": "btn", "ignore_pin_validation_error": True}) == set()
+
 
 # Minimal fake components index — only the keys the extractor reads
 # (``config_entries[*].key`` / ``type``). The pin entries make the
@@ -281,3 +290,201 @@ def test_extract_skips_bundle_when_no_dependencies_resolve() -> None:
     }
     _, bundles, _ = _extract_featured_components(inline, _INDEX)
     assert bundles == []
+
+
+# Index entries for the I/O-expander extraction. The hub carries an
+# ``address`` and an ``id``; i2c carries pin-type ``sda`` / ``scl`` so the
+# bus pins land in occupancy. ``pcf8574`` depends on ``i2c`` so the bus is
+# pulled in as a prerequisite.
+_EXPANDER_INDEX = {
+    "binary_sensor.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
+    "pcf8574": {
+        "dependencies": ["i2c"],
+        "config_entries": [
+            {"key": "id", "type": "id"},
+            {"key": "address", "type": "string"},
+        ],
+    },
+    "i2c": {
+        "config_entries": [
+            {"key": "id", "type": "id"},
+            {"key": "sda", "type": "pin"},
+            {"key": "scl", "type": "pin"},
+        ],
+    },
+}
+
+
+def _expander_config(*, i2c: list | None = None, pcf8574: list | None = None) -> dict:
+    """Build an expander board config; override ``i2c`` / ``pcf8574`` for an edge case."""
+    return {
+        "i2c": i2c if i2c is not None else [{"id": "bus_a", "sda": 9, "scl": 10}],
+        "pcf8574": pcf8574
+        if pcf8574 is not None
+        else [{"id": "pcf8574_hub_in_1", "address": 0x21}],
+        "binary_sensor": [
+            {
+                "platform": "gpio",
+                "name": "Input 1",
+                "pin": {"pcf8574": "pcf8574_hub_in_1", "number": 0, "mode": "INPUT"},
+            }
+        ],
+    }
+
+
+def test_extract_expander_hubs_materializes_hub_and_bus_with_locked_ids() -> None:
+    """A gpio pin on a pcf8574 lifts the hub + i2c bus, ids locked to the source."""
+    config = _expander_config()
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+
+    by_id = {e["id"]: e for e in extra}
+    # The hub's id is locked so it matches the pin's baked reference.
+    assert by_id["pcf8574_hub_in_1"]["component_id"] == "pcf8574"
+    assert by_id["pcf8574_hub_in_1"]["fields"]["id"] == {
+        "value": "pcf8574_hub_in_1",
+        "locked": True,
+    }
+    assert by_id["pcf8574_hub_in_1"]["requires"] == ["bus_a"]
+    assert by_id["bus_a"]["component_id"] == "i2c"
+    assert by_id["bus_a"]["fields"]["id"] == {"value": "bus_a", "locked": True}
+    # The i2c pins occupy real board GPIOs; the expander channel does not.
+    assert occupancy == {9: "bus_a", 10: "bus_a"}
+
+
+def test_extract_expander_hubs_wires_consumer_requires() -> None:
+    """The gpio consumer requires its bus then its hub, in order."""
+    config = _expander_config()
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["requires"] == ["bus_a", "pcf8574_hub_in_1"]
+
+
+def test_extract_expander_pin_does_not_occupy_a_board_gpio() -> None:
+    """The expander channel ``number`` is never recorded as a board GPIO."""
+    config = _expander_config()
+    _, _, occupancy = _extract_featured_components(config, _EXPANDER_INDEX)
+    # Channel 0 is an expander channel, not board GPIO 0.
+    assert 0 not in occupancy
+
+
+def test_extract_expander_hub_with_synthetic_id() -> None:
+    """A sole hub block with no ``id`` adopts the pin's referenced id."""
+    # No ``id`` on the single hub — ESPHome would auto-generate one.
+    config = _expander_config(pcf8574=[{"address": 0x21}])
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    by_id = {e["id"]: e for e in extra}
+    assert by_id["pcf8574_hub_in_1"]["fields"]["id"] == {
+        "value": "pcf8574_hub_in_1",
+        "locked": True,
+    }
+    assert by_id["pcf8574_hub_in_1"]["fields"]["address"]  # hardware lifted from the sole block
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert "pcf8574_hub_in_1" in (consumer.get("requires") or [])
+
+
+def test_extract_expander_hub_with_placeholder_field_is_skipped() -> None:
+    """A placeholder in the hub block skips the hub (and its bus) entirely — no orphan."""
+    config = _expander_config(pcf8574=[{"id": "pcf8574_hub_in_1", "address": "(FILL IN ADDRESS)"}])
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    # Neither the hub nor the bus it would have used is materialized, and the
+    # bus's pins don't leak into occupancy (the skip happens before the bus).
+    assert extra == []
+    assert occupancy == {}
+    # The consumer is dropped too — keeping it would ship a dangling pin ref.
+    assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
+
+
+# A shift-register hub (unlike an i2c expander) drives board GPIOs directly, so
+# its own block carries real board pins — the occupancy-leak surface.
+_SHIFT_REGISTER_INDEX = {
+    "switch.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
+    "sn74hc595": {
+        "config_entries": [
+            {"key": "id", "type": "id"},
+            {"key": "data_pin", "type": "pin"},
+            {"key": "clock_pin", "type": "pin"},
+            {"key": "latch_pin", "type": "pin"},
+        ],
+    },
+}
+
+
+def _shift_register_config(latch_pin: object) -> dict:
+    return {
+        "sn74hc595": [{"id": "sr1", "data_pin": 21, "clock_pin": 22, "latch_pin": latch_pin}],
+        "switch": [
+            {
+                "platform": "gpio",
+                "name": "Relay 1",
+                "pin": {"sn74hc595": "sr1", "number": 0},
+            }
+        ],
+    }
+
+
+def test_extract_shift_register_hub_placeholder_does_not_leak_board_pins() -> None:
+    """A placeholder part-way through a shift-register block leaves no board pin occupied."""
+    config = _shift_register_config("(FILL IN LATCH PIN)")
+    featured, _, _ = _extract_featured_components(config, _SHIFT_REGISTER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _SHIFT_REGISTER_INDEX)
+    # data_pin/clock_pin are recorded before the placeholder latch_pin aborts the
+    # hub; dropping the hub must drop those pins too, not strand them occupied.
+    assert extra == []
+    assert occupancy == {}
+
+
+def test_extract_shift_register_hub_records_its_board_pins() -> None:
+    """A complete shift-register hub occupies the board GPIOs it drives."""
+    config = _shift_register_config(23)
+    featured, _, _ = _extract_featured_components(config, _SHIFT_REGISTER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _SHIFT_REGISTER_INDEX)
+    assert {e["id"] for e in extra} == {"sr1"}
+    assert set(occupancy) == {21, 22, 23}
+
+
+def test_extract_expander_ambiguous_multi_hub_is_skipped() -> None:
+    """Two hub blocks, neither matching the pin's id, can't be disambiguated → no guess."""
+    config = _expander_config(
+        pcf8574=[{"id": "hub_x", "address": 0x21}, {"id": "hub_y", "address": 0x22}]
+    )
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    assert extra == []
+    # An unresolvable hub drops its consumer rather than leaving a dangling ref.
+    assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
+
+
+def test_extract_expander_bus_without_id_not_materialized() -> None:
+    """An i2c bus with no upstream id isn't locked; the hub still lands, requiring only itself."""
+    config = _expander_config(i2c=[{"sda": 9, "scl": 10}])  # no id to lock onto
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    assert not any(e["component_id"] == "i2c" for e in extra)
+    assert any(e["component_id"] == "pcf8574" for e in extra)
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["requires"] == ["pcf8574_hub_in_1"]
+
+
+def test_extract_expander_picks_the_bus_the_hub_pins_via_i2c_id() -> None:
+    """With two i2c buses, the hub's ``i2c_id`` selects which one is lifted (and locked on)."""
+    config = _expander_config(
+        i2c=[{"id": "bus_a", "sda": 5, "scl": 16}, {"id": "bus_b", "sda": 15, "scl": 4}],
+        pcf8574=[{"id": "pcf8574_hub_in_1", "i2c_id": "bus_b", "address": 0x24}],
+    )
+    featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
+    extra, occupancy = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
+    by_id = {e["id"]: e for e in extra}
+    # Only the referenced bus is lifted, with its own pins.
+    assert "bus_b" in by_id
+    assert "bus_a" not in by_id
+    assert by_id["bus_b"]["fields"]["sda"] == {"value": 15, "locked": True}
+    # The hub keeps its i2c_id so it binds to that bus, not esphome's defaults.
+    assert by_id["pcf8574_hub_in_1"]["fields"]["i2c_id"] == {"value": "bus_b", "locked": True}
+    assert by_id["pcf8574_hub_in_1"]["requires"] == ["bus_b"]
+    consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
+    assert consumer["requires"] == ["bus_b", "pcf8574_hub_in_1"]
+    assert occupancy == {15: "bus_b", 4: "bus_b"}

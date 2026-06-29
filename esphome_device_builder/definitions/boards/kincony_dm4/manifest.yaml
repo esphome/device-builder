@@ -19,13 +19,13 @@ pins:
   occupied_by: dm4-0
 - gpio: 1
   available: false
-  occupied_by: dm4-input02
+  occupied_by: Ethernet CLK
 - gpio: 2
   available: false
-  occupied_by: dm4-input03
-- gpio: 3
+  occupied_by: Ethernet MOSI
+- gpio: 8
   available: false
-  occupied_by: dm4-input04
+  occupied_by: bus_a
 - gpio: 13
   available: false
   occupied_by: dm4-io13
@@ -35,6 +35,9 @@ pins:
 - gpio: 17
   available: false
   occupied_by: dm4-W1-io17
+- gpio: 18
+  available: false
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: dm4-21
@@ -61,6 +64,33 @@ pins:
   occupied_by: dm4-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM4/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: false
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -98,6 +128,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: dm4-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -110,6 +143,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: dm4-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -122,6 +158,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: dm4-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -134,6 +173,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: dm4-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:

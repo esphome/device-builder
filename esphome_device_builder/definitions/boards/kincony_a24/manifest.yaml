@@ -16,54 +16,12 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: a24--light13
-- gpio: 1
-  available: false
-  occupied_by: a24--light14
-- gpio: 2
-  available: false
-  occupied_by: a24--light15
-- gpio: 3
-  available: false
-  occupied_by: a24--light16
-- gpio: 4
-  available: false
-  occupied_by: a24--light17
 - gpio: 5
   available: false
-  occupied_by: a24--light18
-- gpio: 6
+  occupied_by: bus_a
+- gpio: 16
   available: false
-  occupied_by: a24--light19
-- gpio: 7
-  available: false
-  occupied_by: a24--light20
-- gpio: 8
-  available: false
-  occupied_by: a24--light21
-- gpio: 9
-  available: false
-  occupied_by: a24--light22
-- gpio: 10
-  available: false
-  occupied_by: a24--light23
-- gpio: 11
-  available: false
-  occupied_by: a24--light24
-- gpio: 12
-  available: false
-  occupied_by: a24--input13
-- gpio: 13
-  available: false
-  occupied_by: K-Type Thermocouple-1
-- gpio: 14
-  available: false
-  occupied_by: K-Type Thermocouple-2
-- gpio: 15
-  available: false
-  occupied_by: K-Type Thermocouple-3
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -87,6 +45,72 @@ pins:
   occupied_by: A24 A3 Current
 docs_url: https://devices.esphome.io/devices/KinCony-A24/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 16
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_2
+  component_id: pcf8574
+  fields:
+    address: 37
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 33
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_2
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -118,6 +142,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: a24--input1
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -130,6 +157,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: a24--input2
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -142,6 +172,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: a24--input3
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -154,6 +187,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: a24--input4
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -166,6 +202,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: a24--input5
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -178,6 +217,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: a24--input6
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -190,6 +232,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: a24--input7
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -202,6 +247,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: a24--input8
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -214,6 +262,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: a24--input9
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -226,6 +277,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: a24--input10
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -238,6 +292,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: a24--input11
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -250,6 +307,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: a24--input12
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -262,6 +322,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: a24--input13
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -274,6 +337,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: a24--input14
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -286,6 +352,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: a24--input15
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -298,6 +367,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: a24--input16
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
   fields:
@@ -310,6 +382,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_17
     name: a24--input17
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
   fields:
@@ -322,6 +397,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_18
     name: a24--input18
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
   fields:
@@ -334,6 +412,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_19
     name: a24--input19
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
   fields:
@@ -346,6 +427,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_20
     name: a24--input20
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
   fields:
@@ -358,6 +442,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_21
     name: a24--input21
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
   fields:
@@ -370,6 +457,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_22
     name: a24--input22
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
   fields:
@@ -382,6 +472,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_23
     name: a24--input23
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
   fields:
@@ -394,6 +487,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: a24--input24
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
@@ -471,6 +567,9 @@ featured_components:
     update_interval: 5s
     id: sensor_max31855_1
     name: K-Type Thermocouple-1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: sensor_max31855_2
   component_id: sensor.max31855
   fields:
@@ -484,6 +583,9 @@ featured_components:
     update_interval: 5s
     id: sensor_max31855_2
     name: K-Type Thermocouple-2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: sensor_max31855_3
   component_id: sensor.max31855
   fields:
@@ -497,6 +599,9 @@ featured_components:
     update_interval: 5s
     id: sensor_max31855_3
     name: K-Type Thermocouple-3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -509,6 +614,9 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: a24--light1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -521,6 +629,9 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: a24--light2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -533,6 +644,9 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: a24--light3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -545,6 +659,9 @@ featured_components:
       locked: true
     id: switch_gpio_4
     name: a24--light4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -557,6 +674,9 @@ featured_components:
       locked: true
     id: switch_gpio_5
     name: a24--light5
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -569,6 +689,9 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: a24--light6
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_7
   component_id: switch.gpio
   fields:
@@ -581,6 +704,9 @@ featured_components:
       locked: true
     id: switch_gpio_7
     name: a24--light7
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_8
   component_id: switch.gpio
   fields:
@@ -593,6 +719,9 @@ featured_components:
       locked: true
     id: switch_gpio_8
     name: a24--light8
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_9
   component_id: switch.gpio
   fields:
@@ -605,6 +734,9 @@ featured_components:
       locked: true
     id: switch_gpio_9
     name: a24--light9
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_10
   component_id: switch.gpio
   fields:
@@ -617,6 +749,9 @@ featured_components:
       locked: true
     id: switch_gpio_10
     name: a24--light10
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_11
   component_id: switch.gpio
   fields:
@@ -629,6 +764,9 @@ featured_components:
       locked: true
     id: switch_gpio_11
     name: a24--light11
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_12
   component_id: switch.gpio
   fields:
@@ -641,6 +779,9 @@ featured_components:
       locked: true
     id: switch_gpio_12
     name: a24--light12
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_13
   component_id: switch.gpio
   fields:
@@ -653,6 +794,9 @@ featured_components:
       locked: true
     id: switch_gpio_13
     name: a24--light13
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_14
   component_id: switch.gpio
   fields:
@@ -665,6 +809,9 @@ featured_components:
       locked: true
     id: switch_gpio_14
     name: a24--light14
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_15
   component_id: switch.gpio
   fields:
@@ -677,6 +824,9 @@ featured_components:
       locked: true
     id: switch_gpio_15
     name: a24--light15
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_16
   component_id: switch.gpio
   fields:
@@ -689,6 +839,9 @@ featured_components:
       locked: true
     id: switch_gpio_16
     name: a24--light16
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_17
   component_id: switch.gpio
   fields:
@@ -701,6 +854,9 @@ featured_components:
       locked: true
     id: switch_gpio_17
     name: a24--light17
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_18
   component_id: switch.gpio
   fields:
@@ -713,6 +869,9 @@ featured_components:
       locked: true
     id: switch_gpio_18
     name: a24--light18
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_19
   component_id: switch.gpio
   fields:
@@ -725,6 +884,9 @@ featured_components:
       locked: true
     id: switch_gpio_19
     name: a24--light19
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_20
   component_id: switch.gpio
   fields:
@@ -737,6 +899,9 @@ featured_components:
       locked: true
     id: switch_gpio_20
     name: a24--light20
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_21
   component_id: switch.gpio
   fields:
@@ -749,6 +914,9 @@ featured_components:
       locked: true
     id: switch_gpio_21
     name: a24--light21
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_22
   component_id: switch.gpio
   fields:
@@ -761,6 +929,9 @@ featured_components:
       locked: true
     id: switch_gpio_22
     name: a24--light22
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_23
   component_id: switch.gpio
   fields:
@@ -773,6 +944,9 @@ featured_components:
       locked: true
     id: switch_gpio_23
     name: a24--light23
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_24
   component_id: switch.gpio
   fields:
@@ -785,6 +959,9 @@ featured_components:
       locked: true
     id: switch_gpio_24
     name: a24--light24
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 featured_bundles:
 - id: light_monochromatic_1_setup
   name: A24-DAC-1 (full setup)
