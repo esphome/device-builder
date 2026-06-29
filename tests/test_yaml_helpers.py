@@ -1959,6 +1959,14 @@ def test_generate_component_yaml_id_falls_back_when_name_slug_is_empty() -> None
     assert "  id: hlw8012_\n" not in out
 
 
+def test_generate_component_yaml_id_dedups_leading_chip_stem() -> None:
+    """A name already leading with the chip stem doesn't double it in the auto-id."""
+    component = _component(component_id="hlw8012", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"id": "", "name": "HLW8012 Power Monitor"})
+    assert "  id: hlw8012_power_monitor\n" in out
+    assert "hlw8012_hlw8012" not in out
+
+
 def test_load_yaml_fast_then_esphome_fast_path(tmp_path: Path) -> None:
     """A plain key/value file resolves through the fast loader."""
     path = tmp_path / "secrets.yaml"
