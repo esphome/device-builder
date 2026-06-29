@@ -70,6 +70,13 @@ _COMPONENTS: dict[str, dict[str, Any]] = {
         "dependencies": ["output"],
         "config_entries": [{"key": "pin", "type": "pin"}],
     },
+    # A non-bus dependency so the ``category != "bus"`` filter is exercised
+    # (not the absent-component branch).
+    "output": {
+        "id": "output",
+        "category": "misc",
+        "config_entries": [{"key": "id", "type": "id"}],
+    },
 }
 
 

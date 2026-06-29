@@ -1541,12 +1541,17 @@ def _ensure_buses(
 
 
 def _wire_consumer_requires(
-    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]],
-    hub_prereqs: dict[tuple[str, str], list[str]],
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    hub_prereqs: dict[tuple[str, str | None], list[str]],
 ) -> None:
-    """Stamp each consumer's ``requires`` with its hubs' prerequisite chains, deduped."""
+    """
+    Merge each consumer's prerequisite chains into its ``requires``, deduped.
+
+    Seeds from any existing ``requires`` so a later pass adds to an earlier pass's
+    stamp rather than clobbering it (a leaf can need both a hub and a bus).
+    """
     for entry, refs in consumers:
-        requires: list[str] = []
+        requires: list[str] = list(entry.get("requires") or [])
         for ref in refs:
             for prereq in hub_prereqs.get(ref, []):
                 if prereq not in requires:
@@ -1939,18 +1944,11 @@ def _extract_bus_deps(
         bus_local[(dep, instance)] = local
         occupancy.update(bus_occ)
         extra.append(bus_entry)
-    for entry, refs in consumers:
-        requires = list(entry.get("requires") or [])
-        for ref in refs:
-            local = bus_local.get(ref)
-            if local and local not in requires:
-                requires.append(local)
-        if requires:
-            entry["requires"] = requires
+    _wire_consumer_requires(consumers, {ref: [local] for ref, local in bus_local.items()})
     return extra, occupancy
 
 
-def _make_record(  # noqa: C901, PLR0911, PLR0912, PLR0915 — distinct skip reasons + sequential lift passes
+def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each get their own early exit
     src: _DeviceSource,
     components_index: dict[str, dict[str, Any]],
     revision: str,
@@ -1989,30 +1987,18 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912, PLR0915 — distinct skip rea
     if eth_entry is not None:
         featured = [eth_entry, *featured]
         gpio_occupancy = {**eth_occupancy, **gpio_occupancy}
-    # Lift the I/O-expander hubs (and their bus) that featured pins reference, so
-    # an expander-backed gpio preset lands a working config instead of a dangling
-    # ``pcf8574: <id>`` reference. Stamps ``requires`` on the consumers.
-    hub_entries, hub_occupancy = _extract_expander_hubs(src.config_yaml, featured, components_index)
-    if hub_entries:
-        featured = [*hub_entries, *featured]
-        gpio_occupancy = {**hub_occupancy, **gpio_occupancy}
-    # Lift output-driver hubs (bp5758d, sm2135, ...) bound by an output platform's
-    # catalog dependency — the hub owns the board pins the user can't guess, and
-    # ``requires`` makes the dashboard add it (pins pre-filled) before the output.
-    driver_entries, driver_occupancy = _extract_driver_hubs(
-        src.config_yaml, featured, components_index
-    )
-    if driver_entries:
-        featured = [*driver_entries, *featured]
-        gpio_occupancy = {**driver_occupancy, **gpio_occupancy}
-    # Lift the bus (spi/i2c/uart) a featured leaf depends on directly — the
-    # platform-list extraction drops the top-level block, so a display/sensor
-    # would otherwise land with empty bus pins and an unsatisfied dependency.
-    # ``requires`` makes the dashboard add it (pins pre-filled) before the leaf.
-    bus_entries, bus_occupancy = _extract_bus_deps(src.config_yaml, featured, components_index)
-    if bus_entries:
-        featured = [*bus_entries, *featured]
-        gpio_occupancy = {**bus_occupancy, **gpio_occupancy}
+    # Lift the prerequisites a featured leaf needs but the platform-list
+    # extraction drops, each stamping ``requires`` so the dashboard adds them
+    # first with pins pre-filled: I/O-expander hubs referenced by a featured
+    # pin (else a dangling ``pcf8574: <id>``), output-driver hubs (bp5758d, ...)
+    # bound by an output platform's catalog dependency, and the bus (spi/i2c/
+    # uart) a display/sensor depends on directly. Order matters — each pass
+    # dedups against the entries already lifted.
+    for _lift in (_extract_expander_hubs, _extract_driver_hubs, _extract_bus_deps):
+        lift_entries, lift_occupancy = _lift(src.config_yaml, featured, components_index)
+        if lift_entries:
+            featured = [*lift_entries, *featured]
+            gpio_occupancy = {**lift_occupancy, **gpio_occupancy}
     # The per-consumer bundle is built from id references before hubs are
     # lifted, so fold each member's ``requires`` (bus/hub) back in — otherwise a
     # "full setup" lands the light + outputs without the driver hub they need.
