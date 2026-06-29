@@ -432,6 +432,24 @@ def test_has_pin_conflict_folds_in_list_valued_pins() -> None:
     )
     assert _has_pin_conflict([spi, no_clash]) is False
 
+    # A list item that opts into allow_other_uses isn't a conflict when the
+    # colliding usage also allows it (tracked per item, not hardcoded False).
+    spi_shared = FeaturedComponent(
+        id="bus",
+        component_id="spi",
+        fields={
+            "data_pins": FieldPreset(value=[{"number": 7, "allow_other_uses": True}], locked=True)
+        },
+        locked_pins={},
+    )
+    clash_shared = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value={"number": 7, "allow_other_uses": True}, locked=True)},
+        locked_pins={"pin": 7},
+    )
+    assert _has_pin_conflict([spi_shared, clash_shared]) is False
+
 
 def test_omit_default_preserves_meaningful_falsy() -> None:
     """``locked=True`` / falsy non-default ``value`` survive the strip."""

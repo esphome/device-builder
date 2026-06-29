@@ -80,7 +80,6 @@ from esphome_device_builder.models import (  # noqa: E402
     Esp32Variant,
     FeaturedBundle,
     FeaturedComponent,
-    FieldPreset,
     PinFeature,
     Platform,
 )
@@ -938,20 +937,22 @@ def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
     for fc in components:
         for key, gpio in fc.locked_pins.items():
             if isinstance(gpio, int):
-                usages.setdefault(gpio, []).append(_pin_allows_reuse(fc.fields.get(key)))
-        for gpio in _list_pin_gpios(fc):
-            usages.setdefault(gpio, []).append(False)
+                preset = fc.fields.get(key)
+                usages.setdefault(gpio, []).append(
+                    _pin_allows_reuse(preset.value if preset is not None else None)
+                )
+        for gpio, allows in _list_pin_gpios(fc):
+            usages.setdefault(gpio, []).append(allows)
     return any(len(uses) > 1 and not all(uses) for uses in usages.values())
 
 
-def _pin_allows_reuse(preset: FieldPreset | None) -> bool:
-    """Whether a locked pin preset opts into ``allow_other_uses`` (long-form pins only)."""
-    value = preset.value if preset is not None else None
+def _pin_allows_reuse(value: Any) -> bool:
+    """Whether a pin value opts into ``allow_other_uses`` (long-form pin mappings only)."""
     return isinstance(value, dict) and bool(value.get("allow_other_uses"))
 
 
-def _list_pin_gpios(fc: FeaturedComponent) -> Iterator[int]:
-    """Yield each board GPIO a featured component locks via a list-valued pin field."""
+def _list_pin_gpios(fc: FeaturedComponent) -> Iterator[tuple[int, bool]]:
+    """Yield each ``(board GPIO, allow_other_uses)`` a component locks via a list pin field."""
     for key in _component_pin_keys(fc.component_id):
         preset = fc.fields.get(key)
         if preset is None or not preset.locked or not isinstance(preset.value, list):
@@ -959,7 +960,7 @@ def _list_pin_gpios(fc: FeaturedComponent) -> Iterator[int]:
         for item in preset.value:
             gpio = _canonical_gpio(item)
             if gpio is not None:
-                yield gpio
+                yield gpio, _pin_allows_reuse(item)
 
 
 def build_catalog() -> BoardCatalogResponse:
