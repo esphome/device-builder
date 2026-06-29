@@ -89,7 +89,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             (
                 d
                 for d in self._db.devices.get_devices()
-                if getattr(d, "configuration", None) == configuration
+                if d.configuration == configuration
             ),
             None,
         )
@@ -102,7 +102,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         config = event.data["configuration"]
         device = self._device_for_configuration(config)
 
-        if device and getattr(device, "queued_update", False):
+        if device and device.queued_update:
             _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
             if self._db.devices:
                 self._db.devices.set_queued_update(device.name, is_queued=False)
@@ -207,7 +207,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await self._validate_configuration_boundary(configuration)
 
         device = self._device_for_configuration(configuration)
-        if device and getattr(device, "queued_update", False) and self._db.devices:
+        if device and device.queued_update and self._db.devices:
             self._db.devices.set_queued_update(device.name, is_queued=False)
             _LOGGER.info("Queued update cleared for device %s", configuration)
 
@@ -446,7 +446,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         is_comp = job.job_type == JobType.COMPILE
         is_done = job.status == JobStatus.COMPLETED
-        is_deferred = getattr(job, "is_deferred_install", False)
+        is_deferred = job.is_deferred_install
 
         if is_comp and is_done and is_deferred:
             device = self._device_for_configuration(job.configuration)
