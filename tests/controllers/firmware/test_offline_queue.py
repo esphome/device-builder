@@ -256,7 +256,9 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
             new_callable=AsyncMock,
         ),
         patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload,
-        patch("esphome_device_builder.controllers.firmware.controller.create_eager_task") as mock_eager
+        patch(
+            "esphome_device_builder.controllers.firmware.controller.create_eager_task"
+        ) as mock_eager,
     ):
         await firmware_controller._execute_job(job, MagicMock())
 

@@ -458,7 +458,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 elif device.state == DeviceState.ONLINE:
                     _LOGGER.info(
                         "Device %s is online after deferred compile. Triggering upload now.",
-                        job.configuration
+                        job.configuration,
                     )
                     create_eager_task(self.upload(configuration=job.configuration, port="OTA"))
 
