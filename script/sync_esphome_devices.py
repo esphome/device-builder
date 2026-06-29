@@ -755,7 +755,6 @@ class _Candidate:
     """One inline-yaml item that survived filtering, ready to render."""
 
     item: dict[str, Any]
-    domain: str
     platform: str
     component_id: str
     component: dict[str, Any]
@@ -849,13 +848,7 @@ def _select_survivors(candidates: list[_Candidate]) -> list[_Candidate]:
 
 
 def _component_takes_name(component: dict[str, Any]) -> bool:
-    """
-    Whether the component's schema accepts a top-level ``name`` (i.e. it's an HA entity).
-
-    Read from the catalog rather than a domain allowlist: hub/bus platforms
-    (``sensor.hlw8012``, ``display.mipi_spi``) sit in entity domains but take no
-    ``name`` of their own, and injecting one yields a config ESPHome rejects.
-    """
+    """Whether the component's schema declares a top-level ``name`` config entry."""
     return any(ce.get("key") == "name" for ce in component.get("config_entries") or [])
 
 
@@ -940,7 +933,6 @@ def _build_candidate(  # noqa: PLR0911 — distinct skip reasons each get their 
     local_id = _assign_local_id(item, domain, platform, used_ids, counters[component_id])
     return _Candidate(
         item=item,
-        domain=domain,
         platform=platform,
         component_id=component_id,
         component=component,

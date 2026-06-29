@@ -126,7 +126,6 @@ featured_components:
     (SEL). The pins are physically fixed on this board.
   fields:
     id: power_monitor
-    name: HLW8012 Power Monitor
     cf_pin:
       value: 3
       locked: true
