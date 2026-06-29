@@ -99,3 +99,9 @@ class UserPreferences(DashboardModel):
     # side; bumping that constant when adding new steps re-prompts
     # users at lower versions.
     onboarding_completed_version: int = 0
+    # Whether the user has seen (completed or skipped) the guided product
+    # tour. Distinct from ``onboarding_completed_version`` — that gates the
+    # use-case / experience wizard; this gates the coachmark tour, which
+    # auto-shows once for a new user and is replayable from the kebab menu.
+    # Default False ⇒ the dashboard offers the tour after onboarding.
+    onboarding_tour_completed: bool = False
