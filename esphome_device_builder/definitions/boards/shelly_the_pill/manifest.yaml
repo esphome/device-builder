@@ -19,6 +19,9 @@ pins:
 - gpio: 3
   available: false
   occupied_by: Output 1
+- gpio: 4
+  available: false
+  occupied_by: one_wire.gpio
 - gpio: 6
   available: false
   occupied_by: Output 2
@@ -27,6 +30,12 @@ pins:
   occupied_by: Button
 docs_url: https://devices.esphome.io/devices/Shelly-The-Pill/
 featured_components:
+- id: one_wire_bus
+  component_id: one_wire.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -44,6 +53,8 @@ featured_components:
     update_interval: 30s
     id: sensor_dallas_temp_1
     name: Temperature
+  requires:
+  - one_wire_bus
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
