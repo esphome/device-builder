@@ -54,8 +54,8 @@ from script.sync_boards import (
     _backfill_esp32_variants,
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
+    _consolidate_full_setup_bundles,
     _stamp_featured_locked_pins,
-    _synthesize_full_setup_bundles,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -99,7 +99,7 @@ def test_split_artefacts_match_manifests() -> None:
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
-    _synthesize_full_setup_bundles(from_yaml.boards)
+    _consolidate_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
@@ -325,20 +325,34 @@ def test_synthesize_full_setup_bundle_gating_and_ordering() -> None:
 
     # Optional-component board (full_config False) is never synthesized into.
     optional = _board(["a", "b"], full_config=False)
-    _synthesize_full_setup_bundles([optional])
+    _consolidate_full_setup_bundles([optional])
     assert optional.featured_bundles == []
 
     # A single featured component needs no bundle.
     single = _board(["only"])
-    _synthesize_full_setup_bundles([single])
+    _consolidate_full_setup_bundles([single])
     assert single.featured_bundles == []
 
-    # A partial dependency bundle: its members come first, standalone after.
+    # A partial dependency bundle is replaced by the single all_recommended:
+    # its members come first, standalone after, and the sub-bundle is dropped.
     board = _board(["dep", "consumer", "extra"], bundles=(("c_setup", ["dep", "consumer"]),))
-    _synthesize_full_setup_bundles([board])
-    by_id = {b.id: b for b in board.featured_bundles}
-    assert by_id["all_recommended"].component_ids == ["dep", "consumer", "extra"]
-    assert by_id["all_recommended"].name == "Board (full setup)"
+    _consolidate_full_setup_bundles([board])
+    (only,) = board.featured_bundles
+    assert only.id == "all_recommended"
+    assert only.component_ids == ["dep", "consumer", "extra"]
+    assert only.name == "Board (full setup)"
+
+    # When a derived bundle already covers every featured component it stays as
+    # the single bundle; sibling subset bundles are pruned and no all_recommended
+    # is synthesized.
+    covered = _board(
+        ["dep", "consumer"],
+        bundles=(("c_setup", ["dep", "consumer"]), ("d_setup", ["dep"])),
+    )
+    _consolidate_full_setup_bundles([covered])
+    (kept,) = covered.featured_bundles
+    assert kept.id == "c_setup"
+    assert kept.component_ids == ["dep", "consumer"]
 
 
 def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
@@ -366,17 +380,17 @@ def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
 
     # Two plain locked GPIO 13s would fail ESPHome pin validation — no bundle.
     conflict = _board([_fc("a", 13), _fc("b", 13)])
-    _synthesize_full_setup_bundles([conflict])
+    _consolidate_full_setup_bundles([conflict])
     assert conflict.featured_bundles == []
 
     # The same pin shared on purpose (allow_other_uses) is fine — bundle stands.
     shared = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13, allow_other_uses=True)])
-    _synthesize_full_setup_bundles([shared])
+    _consolidate_full_setup_bundles([shared])
     assert {b.id for b in shared.featured_bundles} == {"all_recommended"}
 
     # ESPHome needs *every* usage to allow it; one plain usage still conflicts.
     mixed = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13)])
-    _synthesize_full_setup_bundles([mixed])
+    _consolidate_full_setup_bundles([mixed])
     assert mixed.featured_bundles == []
 
 

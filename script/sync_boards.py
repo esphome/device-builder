@@ -870,16 +870,18 @@ def _stamp_featured_locked_pins(boards: list[BoardCatalogEntry]) -> None:
 _ALL_RECOMMENDED_BUNDLE_ID = "all_recommended"
 
 
-def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
+def _consolidate_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
     """
-    Add an ``all_recommended`` bundle covering every featured component.
+    Leave each ``full_config`` board with a single complete "(full setup)" bundle.
 
-    Only for ``full_config`` boards (a complete onboard device), so a starter
-    kit's optional components aren't offered as one click. The importer only
-    derives bundles from cross-component id references, so a board of
-    independent components gets none. Skipped when one featured component (no
-    bundle needed), an existing bundle already covers them all, or two members
-    claim the same board GPIO (adding them all would not compile).
+    An imported device is one upstream config, so it gets one bundle that sets up
+    the whole thing; the importer's per-consumer sub-bundles (which set up only
+    part of the device, often badly named) are dropped. When a derived bundle
+    already covers every featured component it stays as that one bundle; otherwise
+    a board-named ``all_recommended`` covering them all replaces the lot. Left
+    alone for: hand-curated boards (optional add-ons, not one device), a single
+    featured component, or a board GPIO claimed by two members (the combined
+    config would not compile, so the partial bundles are the only valid options).
     """
     for board in boards:
         if not board.full_config:
@@ -888,7 +890,12 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
         if len(featured_ids) < 2:
             continue
         featured_set = set(featured_ids)
-        if any(featured_set <= set(b.component_ids) for b in board.featured_bundles):
+        covering = next(
+            (b for b in board.featured_bundles if featured_set <= set(b.component_ids)),
+            None,
+        )
+        if covering is not None:
+            board.featured_bundles = [covering]
             continue
         if _has_pin_conflict(board.featured_components):
             _LOGGER.info(
@@ -901,13 +908,13 @@ def _synthesize_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
         # dedups while preserving that first-seen order.
         existing = [m for b in board.featured_bundles for m in b.component_ids if m in featured_set]
         ordered = list(dict.fromkeys(existing + featured_ids))
-        board.featured_bundles.append(
+        board.featured_bundles = [
             FeaturedBundle(
                 id=_ALL_RECOMMENDED_BUNDLE_ID,
                 name=f"{board.name} (full setup)",
                 component_ids=ordered,
             )
-        )
+        ]
 
 
 def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
@@ -951,7 +958,7 @@ def build_catalog() -> BoardCatalogResponse:
     _augment_nrf52_boards(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
     _stamp_featured_locked_pins(catalog.boards)
-    _synthesize_full_setup_bundles(catalog.boards)
+    _consolidate_full_setup_bundles(catalog.boards)
     catalog.boards.sort(key=attrgetter("id"))
     return catalog
 
