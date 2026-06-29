@@ -340,7 +340,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def set_queued_update(self, name: str, *, is_queued: bool) -> bool:
         """Public API to mutate the queued update flag for a device."""
-        if hasattr(self, "_state_monitor") and self._state_monitor:
+        if self._state_monitor:
             return self._state_monitor.apply_queued_update(name, is_queued=is_queued)
         return False
 
