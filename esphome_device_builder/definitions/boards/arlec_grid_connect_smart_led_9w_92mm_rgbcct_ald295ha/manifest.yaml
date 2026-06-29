@@ -95,7 +95,7 @@ featured_components:
   - bp5758d_hub
 featured_bundles:
 - id: id_name_setup
-  name: None (full setup)
+  name: Rgbww (full setup)
   component_ids:
   - bp5758d_hub
   - output_red

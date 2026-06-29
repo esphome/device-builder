@@ -64,7 +64,7 @@ featured_components:
     id: output_white
 featured_bundles:
 - id: light_rgbw_setup
-  name: None (full setup)
+  name: Rgbw (full setup)
   component_ids:
   - output_red
   - output_green

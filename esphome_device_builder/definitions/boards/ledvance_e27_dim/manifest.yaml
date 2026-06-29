@@ -30,7 +30,7 @@ featured_components:
     id: output_brightness
 featured_bundles:
 - id: light_monochromatic_1_setup
-  name: None (full setup)
+  name: Monochromatic (full setup)
   component_ids:
   - output_brightness
   - light_monochromatic_1

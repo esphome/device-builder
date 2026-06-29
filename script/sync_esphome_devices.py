@@ -1173,9 +1173,14 @@ def _bundle_id_for(cand: _Candidate, used: set[str]) -> str:
 
 
 def _bundle_name_for(cand: _Candidate) -> str:
-    """Pick a human-readable bundle name from the consumer's upstream item."""
+    """Pick a human-readable bundle name from the consumer's upstream item.
+
+    ESPHome's ``name: None`` sentinel (the entity adopts the device's friendly
+    name) is kept as the entity's own name but is not a usable label, so the
+    bundle falls back to the platform rather than read "None (full setup)".
+    """
     cleaned = _clean_entity_name(cand.item)
-    if cleaned:
+    if cleaned and cleaned.casefold() != "none":
         return f"{cleaned} (full setup)"
     return f"{cand.platform.replace('_', ' ').title()} (full setup)"
 
