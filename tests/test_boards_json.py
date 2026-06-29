@@ -393,6 +393,17 @@ def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
     _consolidate_full_setup_bundles([mixed])
     assert mixed.featured_bundles == []
 
+    # The pin-conflict carve-out wins over the covering-bundle collapse: a
+    # bundle that lists every (conflicting) component would not compile, so the
+    # partial bundles are kept untouched rather than collapsed onto it.
+    conflict_covered = _board([_fc("a", 13), _fc("b", 13)])
+    conflict_covered.featured_bundles = [
+        FeaturedBundle(id="all_setup", name="x", component_ids=["a", "b"]),
+        FeaturedBundle(id="a_setup", name="y", component_ids=["a"]),
+    ]
+    _consolidate_full_setup_bundles([conflict_covered])
+    assert [b.id for b in conflict_covered.featured_bundles] == ["all_setup", "a_setup"]
+
 
 def test_omit_default_preserves_meaningful_falsy() -> None:
     """``locked=True`` / falsy non-default ``value`` survive the strip."""

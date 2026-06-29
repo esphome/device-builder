@@ -890,18 +890,21 @@ def _consolidate_full_setup_bundles(boards: list[BoardCatalogEntry]) -> None:
         if len(featured_ids) < 2:
             continue
         featured_set = set(featured_ids)
+        # Pin conflict first: a board whose components share a locked GPIO can't
+        # be set up all at once, so a single combined bundle (even an existing
+        # covering one) would not compile — leave the partial bundles in place.
+        if _has_pin_conflict(board.featured_components):
+            _LOGGER.info(
+                "Skipping all_recommended for %s: featured components share a board GPIO",
+                board.id,
+            )
+            continue
         covering = next(
             (b for b in board.featured_bundles if featured_set <= set(b.component_ids)),
             None,
         )
         if covering is not None:
             board.featured_bundles = [covering]
-            continue
-        if _has_pin_conflict(board.featured_components):
-            _LOGGER.info(
-                "Skipping all_recommended for %s: featured components share a board GPIO",
-                board.id,
-            )
             continue
         # Existing-bundle members first (dependency-ordered by the importer),
         # then the remaining featured ids in manifest order; dict.fromkeys
