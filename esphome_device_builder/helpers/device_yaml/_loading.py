@@ -76,6 +76,7 @@ def load_device_from_storage(
     *,
     deployed_config_hash: str = "",
     deployed_version: str = "",
+    queued_update: bool = False,
     api_encryption_active: str | None = None,
     previous: Device | None = None,
 ) -> Device:
@@ -197,6 +198,7 @@ def load_device_from_storage(
         deployed_config_hash = previous.deployed_config_hash
         deployed_version = previous.deployed_version
         api_encryption_active = previous.api_encryption_active
+        queued_update = previous.queued_update
     state = previous.state if previous else DeviceState.UNKNOWN
     ip_addresses = list(previous.ip_addresses) if previous else []
 
@@ -337,6 +339,7 @@ def load_device_from_storage(
         state=state,
         has_pending_changes=has_pending,
         update_available=update_available,
+        queued_update=queued_update,
         # ``uses_mqtt`` keeps its prior shape — the resolved config
         # wins, raw-text fills in mid-edit, and we don't have a
         # ``loaded_integrations`` entry that maps cleanly to "uses
