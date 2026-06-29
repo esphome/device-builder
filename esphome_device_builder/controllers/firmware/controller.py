@@ -86,11 +86,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         # Direct, typed call. Test stubs must implement get_devices().
         return next(
-            (
-                d
-                for d in self._db.devices.get_devices()
-                if d.configuration == configuration
-            ),
+            (d for d in self._db.devices.get_devices() if d.configuration == configuration),
             None,
         )
 
