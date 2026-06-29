@@ -131,7 +131,6 @@ featured_components:
     auto_clear_enabled: false
     update_interval: 250ms
     id: my_display
-    name: my_display
   requires:
   - display_spi
 - id: display_backlight
@@ -177,7 +176,6 @@ featured_components:
   fields:
     display: my_display
     id: my_touchscreen
-    name: my_touchscreen
   requires:
   - touchscreen_i2c
 featured_bundles:

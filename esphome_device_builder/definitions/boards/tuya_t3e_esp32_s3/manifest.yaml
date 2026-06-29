@@ -126,7 +126,6 @@ featured_components:
         allow_other_uses: true
       locked: true
     id: tft_display
-    name: tft_display
   requires:
   - lcd_spi
 - id: display_backlight
@@ -183,7 +182,6 @@ featured_components:
   fields:
     display: tft_display
     id: tft_touch
-    name: tft_touch
   requires:
   - touchscreen_bus
 featured_bundles:

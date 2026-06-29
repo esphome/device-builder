@@ -130,7 +130,6 @@ featured_components:
     address: 98
     update_interval: $sensor_interval
     id: sensor_scd4x_1
-    name: Scd4X 1
   requires:
   - bus_a
 - id: wifi_signal_db
@@ -148,7 +147,6 @@ featured_components:
     address: 105
     update_interval: $sensor_interval
     id: sen55
-    name: sen55
   requires:
   - bus_a
 source:

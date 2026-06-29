@@ -207,13 +207,11 @@ featured_components:
   fields:
     update_interval: 10s
     id: sensor_bl0939_1
-    name: Bl0939 1
 - id: sensor_bl0939_2
   component_id: sensor.bl0939
   fields:
     update_interval: 10s
     id: sensor_bl0939_2
-    name: Bl0939 2
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

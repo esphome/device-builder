@@ -100,7 +100,6 @@ featured_components:
   fields:
     update_interval: 5s
     id: sensor_bl0942_1
-    name: Bl0942 1
   requires:
   - uart_bus
 featured_bundles:

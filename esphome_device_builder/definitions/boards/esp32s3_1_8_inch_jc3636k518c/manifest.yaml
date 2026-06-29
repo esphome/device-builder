@@ -86,7 +86,6 @@ featured_components:
     invert_colors: true
     auto_clear_enabled: false
     id: display_qspi_dbi_1
-    name: Qspi Dbi 1
   requires:
   - display_qspi
 - id: display_backlight
@@ -108,7 +107,6 @@ featured_components:
     sample_rate: 16000
     bits_per_sample: 32bit
     id: i2s_microphone
-    name: i2s_microphone
   requires:
   - i2s_in
 - id: backlight_pwm

@@ -91,7 +91,6 @@ featured_components:
     rotation: 270
     show_test_card: true
     id: display_st7789v_1
-    name: St7789V 1
 - id: led1
   component_id: light.monochromatic
   fields:
@@ -107,7 +106,6 @@ featured_components:
     adc_type: external
     pdm: true
     id: mic
-    name: mic
   requires:
   - bus_i2s
 - id: builtin_led

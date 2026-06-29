@@ -114,7 +114,6 @@ featured_components:
     adc_type: external
     pdm: true
     id: mic
-    name: mic
   requires:
   - bus_i2s
 - id: builtin_led
@@ -163,7 +162,6 @@ featured_components:
     address: 104
     update_interval: 10s
     id: sensor_mpu6886_1
-    name: Mpu6886 1
   requires:
   - bus_a
 featured_bundles:

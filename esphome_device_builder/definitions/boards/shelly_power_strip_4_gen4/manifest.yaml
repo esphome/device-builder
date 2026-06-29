@@ -150,7 +150,6 @@ featured_components:
       locked: true
     update_interval: 10s
     id: ade7953_0
-    name: ade7953_0
   requires:
   - spi_bus
 - id: ade7953_1
@@ -164,7 +163,6 @@ featured_components:
       locked: true
     update_interval: 10s
     id: ade7953_1
-    name: ade7953_1
   requires:
   - spi_bus
 - id: relay_0

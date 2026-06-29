@@ -295,18 +295,6 @@ _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp",
 # editing.
 _SKIPPED_FIELDS: frozenset[str] = frozenset({"platform", "id", "name"})
 
-# Platform-list domains that aren't HA entities — they're referenced
-# by entity wrappers (``light:`` / ``switch:`` reference an ``output:``
-# entry by id) rather than surfaced directly, and emitting a top-level
-# ``name:`` on one of these produces a config ESPHome rejects. Kept
-# explicit so adding a new entry to ``_PLATFORM_LIST_DOMAINS`` doesn't
-# silently flip its name-injection behaviour.
-_NON_ENTITY_PLATFORM_DOMAINS: frozenset[str] = frozenset({"output"})
-
-# HA-entity subset of ``_PLATFORM_LIST_DOMAINS`` — derived so a new
-# entity domain added upstream doesn't get forgotten here.
-_HA_ENTITY_DOMAINS: frozenset[str] = _PLATFORM_LIST_DOMAINS - _NON_ENTITY_PLATFORM_DOMAINS
-
 
 # ---------------------------------------------------------------------------
 # Records
@@ -860,6 +848,17 @@ def _select_survivors(candidates: list[_Candidate]) -> list[_Candidate]:
     return [c for c in candidates if c.local_id in survivor_locals]
 
 
+def _component_takes_name(component: dict[str, Any]) -> bool:
+    """
+    Whether the component's schema accepts a top-level ``name`` (i.e. it's an HA entity).
+
+    Read from the catalog rather than a domain allowlist: hub/bus platforms
+    (``sensor.hlw8012``, ``display.mipi_spi``) sit in entity domains but take no
+    ``name`` of their own, and injecting one yields a config ESPHome rejects.
+    """
+    return any(ce.get("key") == "name" for ce in component.get("config_entries") or [])
+
+
 def _entry_has_useful_preset(candidate: _Candidate, entry: dict[str, Any]) -> bool:
     """
     Return True when *entry* carries a real preset beyond the auto-injected ``id`` / ``name``.
@@ -870,7 +869,7 @@ def _entry_has_useful_preset(candidate: _Candidate, entry: dict[str, Any]) -> bo
     the latter is worth keeping in the manifest.
     """
     fields = entry["fields"]
-    auto_keys = {"id", "name"} if candidate.domain in _HA_ENTITY_DOMAINS else {"id"}
+    auto_keys = {"id", "name"} if _component_takes_name(candidate.component) else {"id"}
     return any(key not in auto_keys for key in fields)
 
 
@@ -1025,12 +1024,12 @@ def _finalize_entry(candidate: _Candidate, id_map: dict[str, str]) -> dict[str, 
 
     Resolves cross-component ``type: "id"`` references through *id_map*
     (dropping refs whose target wasn't kept), then injects the standard
-    ``id`` and (for HA entity domains) ``name`` fields.
+    ``id`` and (for components whose schema takes one) ``name`` fields.
     """
     fields = dict(candidate.fields)
     _apply_id_references(fields, candidate.item, candidate.component, id_map)
     fields["id"] = candidate.local_id
-    if candidate.domain in _HA_ENTITY_DOMAINS:
+    if _component_takes_name(candidate.component):
         fields["name"] = _clean_entity_name(candidate.item) or (
             f"{candidate.platform.replace('_', ' ').title()} {candidate.counter}"
         )

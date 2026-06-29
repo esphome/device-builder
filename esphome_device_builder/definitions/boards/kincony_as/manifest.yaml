@@ -45,7 +45,6 @@ featured_components:
     pdm: false
     bits_per_sample: 32 bit
     id: va_mic
-    name: va_mic
 source:
   type: esphome-devices
   remote_id: KinCony-AS

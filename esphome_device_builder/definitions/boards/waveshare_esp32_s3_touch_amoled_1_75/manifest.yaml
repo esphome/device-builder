@@ -74,7 +74,6 @@ featured_components:
       value: 12
       locked: true
     id: disp1
-    name: disp1
   requires:
   - display_qspi
 - id: display_backlight
@@ -94,7 +93,6 @@ featured_components:
     bits_per_sample: $i2s_bps_mic
     pdm: false
     id: mic_a
-    name: mic_a
 - id: speaker_a
   component_id: speaker.i2s_audio
   fields:
@@ -109,7 +107,6 @@ featured_components:
     use_apll: $i2s_use_apll
     channel: stereo
     id: speaker_a
-    name: speaker_a
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

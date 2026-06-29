@@ -74,7 +74,6 @@ featured_components:
     address: 68
     update_interval: 15s
     id: sensor_sht3xd_1
-    name: Sht3Xd 1
   requires:
   - bus_a
 source:

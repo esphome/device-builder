@@ -114,7 +114,6 @@ featured_components:
     update_interval: never
     auto_clear_enabled: false
     id: tft_display
-    name: tft_display
   requires:
   - lcd_spi
 - id: display_backlight
@@ -170,7 +169,6 @@ featured_components:
   fields:
     display: tft_display
     id: tft_touch
-    name: tft_touch
   requires:
   - touchscreen_bus
 featured_bundles:

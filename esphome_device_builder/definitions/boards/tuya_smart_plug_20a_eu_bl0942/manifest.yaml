@@ -71,7 +71,6 @@ featured_components:
   fields:
     line_frequency: 50Hz
     id: sensor_bl0942_1
-    name: Bl0942 1
   requires:
   - bl0942_uart
 featured_bundles:

@@ -109,7 +109,6 @@ featured_components:
       value: 4
       locked: true
     id: round_display
-    name: round_display
   requires:
   - spi_bus
 - id: display_backlight
@@ -149,7 +148,6 @@ featured_components:
   fields:
     address: 56
     id: touch
-    name: touch
   requires:
   - internal_i2c
 featured_bundles:

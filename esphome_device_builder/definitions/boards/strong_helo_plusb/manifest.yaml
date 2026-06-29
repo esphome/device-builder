@@ -88,7 +88,6 @@ featured_components:
     change_mode_every: 4
     update_interval: 10s
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: switch_skt
   component_id: switch.output
   fields:

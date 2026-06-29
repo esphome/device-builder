@@ -78,7 +78,6 @@ featured_components:
     rotation: 270
     show_test_card: true
     id: display_mipi_spi_1
-    name: Mipi Spi 1
 - id: led
   component_id: light.monochromatic
   fields:
@@ -106,7 +105,6 @@ featured_components:
       locked: true
     skip_probe: false
     id: my_touchscreen
-    name: my_touchscreen
   requires:
   - i2c_onboard
 featured_bundles:

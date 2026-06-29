@@ -77,7 +77,6 @@ featured_components:
     update_interval: 15s
     change_mode_every: 4
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-20A

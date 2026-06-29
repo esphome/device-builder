@@ -74,14 +74,12 @@ featured_components:
     model: M5CORE2
     show_test_card: true
     id: display_mipi_spi_1
-    name: Mipi Spi 1
 - id: sensor_mpu6886_1
   component_id: sensor.mpu6886
   fields:
     address: 104
     update_interval: 1s
     id: sensor_mpu6886_1
-    name: Mpu6886 1
   requires:
   - bus_a
 - id: touchscreen_ft63x6_1
@@ -91,7 +89,6 @@ featured_components:
       value: 39
       locked: true
     id: touchscreen_ft63x6_1
-    name: Ft63X6 1
   requires:
   - bus_a
 source:

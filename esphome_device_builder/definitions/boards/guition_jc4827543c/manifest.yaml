@@ -73,7 +73,6 @@ featured_components:
       value: 38
       locked: true
     id: my_touchscreen
-    name: my_touchscreen
   requires:
   - bus_a
 featured_bundles:

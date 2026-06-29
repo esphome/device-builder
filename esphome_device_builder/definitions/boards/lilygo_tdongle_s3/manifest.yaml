@@ -98,7 +98,6 @@ featured_components:
     use_bgr: true
     auto_clear_enabled: false
     id: display_st7735_1
-    name: St7735 1
   requires:
   - spi_lcd
 - id: lcd_backlight

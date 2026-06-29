@@ -199,7 +199,6 @@ featured_components:
     pixel_mode: 16bit
     auto_clear_enabled: false
     id: my_display
-    name: my_display
 - id: lilka_speaker
   component_id: speaker.i2s_audio
   fields:
@@ -211,7 +210,6 @@ featured_components:
     sample_rate: 16000
     bits_per_sample: 16bit
     id: lilka_speaker
-    name: lilka_speaker
   requires:
   - i2s_out
 source:
