@@ -10,8 +10,54 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tekkar-Gen3-CurtainSwitch/Tekkar-Gen3.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tekkar-Gen3-CurtainSwitch/cb3s.png
+pins:
+- gpio: 7
+  available: false
+  occupied_by: Stop
+- gpio: 8
+  available: false
+  occupied_by: Close
+- gpio: 9
+  available: false
+  occupied_by: led_blue_out
+- gpio: 10
+  available: false
+  occupied_by: Open
+- gpio: 14
+  available: false
+  occupied_by: Relay Open
+- gpio: 23
+  available: false
+  occupied_by: led_green_out
+- gpio: 24
+  available: false
+  occupied_by: Relay Close
 docs_url: https://devices.esphome.io/devices/Tekkar-Gen3-CurtainSwitch/
 featured_components:
+- id: open_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 10
+      locked: true
+    id: open_button
+    name: Open
+- id: stop_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: stop_button
+    name: Stop
+- id: close_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: close_button
+    name: Close
 - id: led_green
   component_id: light.binary
   fields:
@@ -29,6 +75,9 @@ featured_components:
 - id: led_green_out
   component_id: output.gpio
   fields:
+    pin:
+      value: 23
+      locked: true
     inverted:
       value: true
       locked: true
@@ -36,10 +85,29 @@ featured_components:
 - id: led_blue_out
   component_id: output.gpio
   fields:
+    pin:
+      value: 9
+      locked: true
     inverted:
       value: true
       locked: true
     id: led_blue_out
+- id: relay_open
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: relay_open
+    name: Relay Open
+- id: relay_close
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: relay_close
+    name: Relay Close
 featured_bundles:
 - id: led_green_setup
   name: LED (full setup)

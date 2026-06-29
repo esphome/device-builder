@@ -19,6 +19,9 @@ pins:
 - gpio: 21
   available: false
   occupied_by: display.qspi_dbi
+- gpio: 45
+  available: false
+  occupied_by: i2s_in
 - gpio: 46
   available: false
   occupied_by: i2s_microphone
@@ -27,6 +30,15 @@ pins:
   occupied_by: backlight_pwm
 docs_url: https://devices.esphome.io/devices/ESP32S3-1.8-inch-JC3636K518C/
 featured_components:
+- id: i2s_in
+  component_id: i2s_audio
+  fields:
+    i2s_lrclk_pin:
+      value: 45
+      locked: true
+    id:
+      value: i2s_in
+      locked: true
 - id: display_qspi_dbi_1
   component_id: display.qspi_dbi
   fields:
@@ -63,6 +75,8 @@ featured_components:
     bits_per_sample: 32bit
     id: i2s_microphone
     name: i2s_microphone
+  requires:
+  - i2s_in
 - id: backlight_pwm
   component_id: output.ledc
   fields:

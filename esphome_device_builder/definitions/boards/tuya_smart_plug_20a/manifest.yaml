@@ -14,18 +14,64 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 7
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 8
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 24
+  available: false
+  occupied_by: relay_1
+- gpio: 26
+  available: false
+  occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A/
 featured_components:
 - id: button_1
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 26
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
     icon: mdi:radiobox-blank
     id: button_1
     name: button_1
+- id: relay_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: relay_1
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    cf_pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    cf1_pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    sel_pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
     voltage_divider: 760
     initial_mode: CURRENT
     update_interval: 15s

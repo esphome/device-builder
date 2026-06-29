@@ -39,6 +39,10 @@ pins:
 docs_url: https://devices.esphome.io/devices/Citilab-ED1/
 product_url: https://github.com/glifocat/ed1-hoas
 featured_components:
+- id: esp32_touch_hub
+  component_id: esp32_touch
+  fields:
+    setup_mode: false
 - id: btn_up
   component_id: binary_sensor.esp32_touch
   fields:
@@ -48,6 +52,8 @@ featured_components:
     threshold: 500
     id: btn_up
     name: Button Up
+  requires:
+  - esp32_touch_hub
 - id: btn_down
   component_id: binary_sensor.esp32_touch
   fields:
@@ -57,6 +63,8 @@ featured_components:
     threshold: 500
     id: btn_down
     name: Button Down
+  requires:
+  - esp32_touch_hub
 - id: btn_left
   component_id: binary_sensor.esp32_touch
   fields:
@@ -66,6 +74,8 @@ featured_components:
     threshold: 500
     id: btn_left
     name: Button Left
+  requires:
+  - esp32_touch_hub
 - id: btn_right
   component_id: binary_sensor.esp32_touch
   fields:
@@ -75,6 +85,8 @@ featured_components:
     threshold: 500
     id: btn_right
     name: Button Right
+  requires:
+  - esp32_touch_hub
 - id: btn_ok
   component_id: binary_sensor.esp32_touch
   fields:
@@ -84,6 +96,8 @@ featured_components:
     threshold: 500
     id: btn_ok
     name: Button OK
+  requires:
+  - esp32_touch_hub
 - id: btn_x
   component_id: binary_sensor.esp32_touch
   fields:
@@ -93,6 +107,8 @@ featured_components:
     threshold: 900
     id: btn_x
     name: Button X
+  requires:
+  - esp32_touch_hub
 - id: buzzer_output
   component_id: output.ledc
   fields:

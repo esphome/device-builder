@@ -11,14 +11,69 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tapo-L900-5EU/Tapo-L900-Box.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tapo-L900-5EU/Tapo-L900-PCB-Front.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tapo-L900-5EU/Tapo-L900-PCB-Back.jpg
+pins:
+- gpio: 4
+  available: false
+  occupied_by: strip_light_pushbutton
+- gpio: 17
+  available: false
+  occupied_by: output_blue
+- gpio: 18
+  available: false
+  occupied_by: output_green
+- gpio: 19
+  available: false
+  occupied_by: output_red
 docs_url: https://devices.esphome.io/devices/Tapo-L900-5EU/
 featured_components:
 - id: strip_light_pushbutton
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 4
+        mode: INPUT_PULLUP
+      locked: true
     internal: true
     id: strip_light_pushbutton
     name: strip_light_pushbutton
+- id: strip_light
+  component_id: light.rgb
+  fields:
+    red: output_red
+    green: output_green
+    blue: output_blue
+    id: strip_light
+    name: Strip Light
+- id: output_red
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 19
+      locked: true
+    id: output_red
+- id: output_green
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 18
+      locked: true
+    id: output_green
+- id: output_blue
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 17
+      locked: true
+    id: output_blue
+featured_bundles:
+- id: strip_light_setup
+  name: Strip Light (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - strip_light
 source:
   type: esphome-devices
   remote_id: Tapo-L900-5EU

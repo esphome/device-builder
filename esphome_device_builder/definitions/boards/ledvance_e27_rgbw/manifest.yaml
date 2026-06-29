@@ -9,14 +9,68 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LEDVANCE-E27-RGBW/ledvance-e27-rgbw.jpg
+pins:
+- gpio: 7
+  available: false
+  occupied_by: output_red
+- gpio: 8
+  available: false
+  occupied_by: output_green
+- gpio: 9
+  available: false
+  occupied_by: output_blue
+- gpio: 24
+  available: false
+  occupied_by: output_white
 docs_url: https://devices.esphome.io/devices/LEDVANCE-E27-RGBW/
 featured_components:
 - id: light_rgbw
   component_id: light.rgbw
   fields:
     color_interlock: true
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white: output_white
     id: light_rgbw
     name: None
+- id: output_green
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: output_green
+- id: output_blue
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: output_blue
+- id: output_red
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: output_red
+- id: output_white
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_white
+featured_bundles:
+- id: light_rgbw_setup
+  name: None (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_white
+  - light_rgbw
 source:
   type: esphome-devices
   remote_id: LEDVANCE-E27-RGBW

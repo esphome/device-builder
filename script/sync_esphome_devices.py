@@ -36,7 +36,7 @@ import re
 import shutil
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -50,6 +50,7 @@ from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
     DEVICE_IMPORT_SOURCE_TYPE,
 )
+from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -648,17 +649,9 @@ def _slugify(name: str) -> str:
 
 def _gpio_number(raw: Any) -> int | None:
     """Extract a GPIO integer from any supported ESPHome pin shorthand."""
-    if isinstance(raw, bool):
-        return None
-    if isinstance(raw, int):
-        return raw
-    if isinstance(raw, str):
-        match = re.match(r"^\s*(?:GPIO)?(\d+)\s*$", raw, re.IGNORECASE)
-        if match:
-            return int(match.group(1))
     if isinstance(raw, dict):
         return _gpio_number(raw.get("number"))
-    return None
+    return parse_board_gpio(raw)
 
 
 def _normalize_pin_value(raw: Any) -> Any:
@@ -1597,38 +1590,74 @@ def _extract_expander_hubs(
     consumers, ordered_refs = _collect_expander_refs(featured, components_index)
     if not ordered_refs:
         return [], {}
+    return _materialize_hubs(
+        config,
+        featured,
+        components_index,
+        consumers,
+        ordered_refs,
+        resolve_block=lambda cid, instance_id: _find_hub_block(config.get(cid), instance_id),
+        id_fallback_suffix="",
+        skip_empty_fields=False,
+        drop_unresolved=True,
+    )
 
+
+def _materialize_hubs(
+    config: dict[str, Any],
+    featured: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    ordered_refs: list[tuple[str, str | None]],
+    *,
+    resolve_block: Callable[[str, str | None], dict[str, Any] | None],
+    id_fallback_suffix: str,
+    skip_empty_fields: bool,
+    drop_unresolved: bool,
+) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    """
+    Lift each referenced hub (and any bus it depends on) into a locked entry.
+
+    Shared spine of the expander-pin and driver-dependency paths; they differ
+    only in how a hub's block is found (*resolve_block*), whether an empty lift
+    is skipped (*skip_empty_fields* — a driver hub with no liftable pin falls
+    back to the add-dialog dep banner) and whether a consumer whose hub didn't
+    materialize is dropped (*drop_unresolved* — a dangling expander pin ref
+    won't compile, a missing driver hub is covered by the banner). Stamps the
+    bus-then-hub ``requires`` chain on every resolved consumer.
+    """
     used_ids = {entry["id"] for entry in featured}
     extra: list[dict[str, Any]] = []
     occupancy: dict[int, str] = {}
     bus_local: dict[tuple[str, str | None], str] = {}
     # Each materialized hub keyed by its ref, carrying the local id + the bus
     # ids it needs — the ordered prerequisite chain a consumer references.
-    hub_prereqs: dict[tuple[str, str], list[str]] = {}
+    hub_prereqs: dict[tuple[str, str | None], list[str]] = {}
 
     for hub_cid, instance_id in ordered_refs:
         hub_component = components_index.get(hub_cid)
-        block = _find_hub_block(config.get(hub_cid), instance_id)
+        block = resolve_block(hub_cid, instance_id)
         if hub_component is None or block is None:
             continue
         # Record the hub's own pin occupancy locally and merge only on success:
         # a shift-register hub puts board GPIOs (data/clock/latch) here, and a
         # placeholder field part-way through the block must not leave those pins
-        # marked occupied for a hub we then drop (mirrors the consumer/bus path).
+        # marked occupied for a hub we then drop.
         hub_occ: dict[int, str] = {}
         fields = _extract_fields(block, hub_component, hub_occ, hub_cid)
-        if fields is None:
-            # A placeholder value in the hub block (mirrors the bus path): emit
-            # neither an incomplete hub nor a ``requires`` pointing at it. Skip
-            # before materializing its bus so a dropped hub leaves no orphan bus.
+        if fields is None or (skip_empty_fields and not fields):
             continue
         occupancy.update(hub_occ)
         bus_ids, bus_refs = _ensure_buses(
             hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
         )
-        hub_id = _unique_local_id(_sanitize_local_id(instance_id), used_ids, hub_cid)
+        base = _sanitize_local_id(instance_id) if instance_id else ""
+        hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{id_fallback_suffix}")
         used_ids.add(hub_id)
-        fields["id"] = {"value": instance_id, "locked": True}
+        # Lock the hub's id to the upstream value an expander pin ref points at;
+        # a sole driver hub with no upstream id keeps its generated local id.
+        if instance_id:
+            fields["id"] = {"value": instance_id, "locked": True}
         # Lock the hub onto the bus it was lifted from (multi-bus boards), so it
         # doesn't fall back to esphome's default i2c pins.
         for ref_field, bus_inst in bus_refs.items():
@@ -1639,9 +1668,111 @@ def _extract_expander_hubs(
         extra.append(hub_entry)
         hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
 
-    _drop_unresolved_consumers(featured, consumers, hub_prereqs)
+    if drop_unresolved:
+        _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return extra, occupancy
+
+
+def _is_driver_hub(component: dict[str, Any]) -> bool:
+    """
+    Return True for a hub a consumer binds by catalog dependency that owns board pins.
+
+    LED-driver hubs (``bp5758d``, ``sm2135``, ...) sit as a top-level block with
+    their own ``clock_pin`` / ``data_pin`` and are pulled in by an
+    ``output.<driver>`` platform's ``dependencies`` rather than by a pin
+    reference. Buses (``i2c`` / ``spi`` / ``uart``) are excluded — a hub's own
+    bus is materialized through ``_ensure_buses`` instead.
+    """
+    if component.get("category") == "bus":
+        return False
+    return any(ce.get("type") == "pin" for ce in component.get("config_entries") or [])
+
+
+def _sole_hub_block(raw: Any) -> dict[str, Any] | None:
+    """Return the single top-level hub mapping, or ``None`` if absent/ambiguous."""
+    blocks = [block for block in _as_block_list(raw) if isinstance(block, dict)]
+    return blocks[0] if len(blocks) == 1 else None
+
+
+def _collect_driver_hub_refs(
+    config: dict[str, Any],
+    featured: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+) -> tuple[
+    list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    list[tuple[str, str | None]],
+]:
+    """Find driver-hub ``(hub_component_id, instance_id)`` refs via catalog dependencies.
+
+    Returns the consumers paired with their refs, plus the de-duplicated refs in
+    first-seen order. A hub already present as a featured entry (e.g. lifted by
+    the expander path) is skipped so it isn't materialized twice.
+    """
+    existing_cids = {entry["component_id"] for entry in featured}
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
+    ordered_refs: list[tuple[str, str | None]] = []
+    seen: set[tuple[str, str | None]] = set()
+    for entry in featured:
+        component = components_index.get(entry["component_id"])
+        if component is None:
+            continue
+        refs: list[tuple[str, str | None]] = []
+        for dep in component.get("dependencies") or []:
+            if not isinstance(dep, str) or dep in existing_cids:
+                continue
+            hub = components_index.get(dep)
+            if hub is None or not _is_driver_hub(hub):
+                continue
+            block = _sole_hub_block(config.get(dep))
+            if block is None:
+                continue
+            instance_id = block.get("id") if isinstance(block.get("id"), str) else None
+            ref = (dep, instance_id)
+            refs.append(ref)
+            if ref not in seen:
+                seen.add(ref)
+                ordered_refs.append(ref)
+        if refs:
+            consumers.append((entry, refs))
+    return consumers, ordered_refs
+
+
+def _extract_driver_hubs(
+    config: dict[str, Any],
+    featured: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    """
+    Materialize output-driver hubs bound through the catalog dependency graph.
+
+    Unlike an I/O-expander hub (referenced by a consumer's pin preset), an
+    LED-driver hub (``bp5758d:``) is pulled in by an ``output.<driver>``
+    platform's ``dependencies`` and owns its own board pins. The platform-list
+    extraction drops the top-level block, leaving the user with empty
+    ``clock_pin`` / ``data_pin`` dropdowns. This lifts each such hub as a locked
+    featured entry (plus any bus it depends on) and stamps ``requires`` on the
+    consumers so the dashboard adds the hub first with its pins pre-filled.
+
+    Mutates *featured*: adds ``requires`` to resolved consumers. The consumers
+    stay valid without their hub (the add-dialog's missing-dependency banner
+    still covers an unmaterialized one), so — unlike the expander path — none
+    are dropped.
+    """
+    consumers, ordered_refs = _collect_driver_hub_refs(config, featured, components_index)
+    if not ordered_refs:
+        return [], {}
+    return _materialize_hubs(
+        config,
+        featured,
+        components_index,
+        consumers,
+        ordered_refs,
+        resolve_block=lambda cid, _instance_id: _sole_hub_block(config.get(cid)),
+        id_fallback_suffix="_hub",
+        skip_empty_fields=True,
+        drop_unresolved=False,
+    )
 
 
 def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each get their own early exit
@@ -1690,6 +1821,15 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
     if hub_entries:
         featured = [*hub_entries, *featured]
         gpio_occupancy = {**hub_occupancy, **gpio_occupancy}
+    # Lift output-driver hubs (bp5758d, sm2135, ...) bound by an output platform's
+    # catalog dependency — the hub owns the board pins the user can't guess, and
+    # ``requires`` makes the dashboard add it (pins pre-filled) before the output.
+    driver_entries, driver_occupancy = _extract_driver_hubs(
+        src.config_yaml, featured, components_index
+    )
+    if driver_entries:
+        featured = [*driver_entries, *featured]
+        gpio_occupancy = {**driver_occupancy, **gpio_occupancy}
     if not featured:
         return None, "no extractable featured components"
 

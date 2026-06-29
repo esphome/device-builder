@@ -11,14 +11,73 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/AVATTOTuyaWiFiSmartSwitch.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/Frontside.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AVATTO-Tuya-WiFi-Smart-Switch/Backside.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: State
+- gpio: 8
+  available: false
+  occupied_by: button_onoff
+- gpio: 14
+  available: false
+  occupied_by: signal_onoff
+- gpio: 20
+  available: false
+  occupied_by: relayoutput
 docs_url: https://devices.esphome.io/devices/AVATTO-Tuya-WiFi-Smart-Switch/
 featured_components:
+- id: button_onoff
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: button_onoff
+    name: button_onoff
+- id: signal_onoff
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: signal_onoff
+    name: signal_onoff
 - id: led
   component_id: light.status_led
   fields:
     internal: true
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
     id: led
     name: State
+- id: relayoutput
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 20
+      locked: true
+    id: relayoutput
+- id: relais
+  component_id: switch.output
+  fields:
+    output: relayoutput
+    id: relais
+    name: relais
+featured_bundles:
+- id: relais_setup
+  name: relais (full setup)
+  component_ids:
+  - relayoutput
+  - relais
 source:
   type: esphome-devices
   remote_id: AVATTO-Tuya-WiFi-Smart-Switch

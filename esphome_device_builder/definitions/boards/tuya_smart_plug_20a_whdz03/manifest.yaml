@@ -14,11 +14,44 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 7
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 8
+  available: false
+  occupied_by: button_led
+- gpio: 11
+  available: false
+  occupied_by: binary_switch
+- gpio: 24
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 26
+  available: false
+  occupied_by: Relay Switch
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-WHDZ03/
 featured_components:
+- id: binary_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch
+    name: binary_switch
 - id: button_led
   component_id: output.gpio
   fields:
+    pin:
+      value: 8
+      locked: true
     inverted:
       value: true
       locked: true
@@ -27,6 +60,21 @@ featured_components:
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    cf_pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    cf1_pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    sel_pin:
+      value:
+        number: 24
+        inverted: true
+      locked: true
     voltage_divider: 800
     current_resistor: 0.001 ohm
     update_interval: 1s
@@ -37,6 +85,9 @@ featured_components:
   component_id: switch.gpio
   fields:
     restore_mode: RESTORE_DEFAULT_OFF
+    pin:
+      value: 26
+      locked: true
     id: relay
     name: Relay Switch
 source:

@@ -1,0 +1,99 @@
+id: oxt_wifi_3ch
+name: OXT Wi-Fi 3CH
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/OXT-WiFi-3CH/device.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/OXT-WiFi-3CH/pcb.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/OXT-WiFi-3CH/soldering.jpg
+tags:
+- relay
+pins:
+- gpio: 6
+  available: false
+  occupied_by: switch 1
+- gpio: 7
+  available: false
+  occupied_by: relay1
+- gpio: 8
+  available: false
+  occupied_by: relay2
+- gpio: 9
+  available: false
+  occupied_by: relay3
+- gpio: 24
+  available: false
+  occupied_by: switch 2
+- gpio: 26
+  available: false
+  occupied_by: switch 3
+docs_url: https://devices.esphome.io/devices/OXT-WiFi-3CH/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: switch 1
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_2
+    name: switch 2
+- id: binary_sensor_gpio_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_3
+    name: switch 3
+- id: relay1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: relay1
+    name: relay1
+- id: relay2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: relay2
+    name: relay2
+- id: relay3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: relay3
+    name: relay3
+source:
+  type: esphome-devices
+  remote_id: OXT-WiFi-3CH
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/OXT-WiFi-3CH/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: a5e725134d1ba9cc82e108f8339b0c12c1891aea1bfc59be4c24375fd21b0b54

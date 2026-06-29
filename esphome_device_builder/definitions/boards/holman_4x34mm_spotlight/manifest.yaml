@@ -9,12 +9,35 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Holman-4x34mm-spotlight/led.jpg
+pins:
+- gpio: 16
+  available: false
+  occupied_by: Light
+- gpio: 20
+  available: false
+  occupied_by: LED_button
 docs_url: https://devices.esphome.io/devices/Holman-4x34mm-spotlight/
 featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 20
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: LED_button
 - id: rgb_led
   component_id: light.beken_spi_led_strip
   fields:
     rgb_order: RGB
+    pin:
+      value: 16
+      locked: true
     num_leds: 5
     chipset: ws2812
     is_wrgb: true

@@ -13,6 +13,22 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/LED_plate.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/PCB_2.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Ceiling-Light/PCB.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: cold_white
+- gpio: 7
+  available: false
+  occupied_by: red_color
+- gpio: 8
+  available: false
+  occupied_by: green_color
+- gpio: 9
+  available: false
+  occupied_by: blue_color
+- gpio: 24
+  available: false
+  occupied_by: warm_white
 docs_url: https://devices.esphome.io/devices/Tuya-Ceiling-Light/
 featured_components:
 - id: ceiling
@@ -32,6 +48,9 @@ featured_components:
 - id: red_color
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 7
+      locked: true
     inverted:
       value: false
       locked: true
@@ -39,6 +58,9 @@ featured_components:
 - id: green_color
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 8
+      locked: true
     inverted:
       value: false
       locked: true
@@ -46,6 +68,9 @@ featured_components:
 - id: blue_color
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 9
+      locked: true
     inverted:
       value: false
       locked: true
@@ -53,6 +78,9 @@ featured_components:
 - id: cold_white
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 6
+      locked: true
     inverted:
       value: false
       locked: true
@@ -60,6 +88,9 @@ featured_components:
 - id: warm_white
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 24
+      locked: true
     inverted:
       value: false
       locked: true

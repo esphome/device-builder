@@ -12,14 +12,43 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: relay
+- gpio: 7
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 8
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 11
+  available: false
+  occupied_by: button
+- gpio: 24
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 26
+  available: false
+  occupied_by: button_led
 docs_url: https://devices.esphome.io/devices/Arlec-PC191HA-Plug/
 featured_components:
 - id: button
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value: 11
+      locked: true
     device_class: window
     id: button
     name: button
+- id: button_led
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: button_led
 - id: device_name_wifi_signal
   component_id: sensor.wifi_signal
   fields:
@@ -30,6 +59,21 @@ featured_components:
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    sel_pin:
+      value:
+        inverted: true
+        number: 24
+      locked: true
+    cf_pin:
+      value:
+        inverted: true
+        number: 7
+      locked: true
+    cf1_pin:
+      value:
+        inverted: true
+        number: 8
+      locked: true
     update_interval: 15s
     initial_mode: VOLTAGE
     change_mode_every: 4
@@ -46,6 +90,9 @@ featured_components:
 - id: relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: 6
+      locked: true
     restore_mode: always off
     icon: mdi:power-socket-au
     id: relay

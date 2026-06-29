@@ -12,6 +12,25 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Relay
+- gpio: 7
+  available: false
+  occupied_by: Button
+- gpio: 8
+  available: false
+  occupied_by: Switch State LED
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 24
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 26
+  available: false
+  occupied_by: sensor.hlw8012
 docs_url: https://devices.esphome.io/devices/Nous-A8M/
 product_url: https://nous.technology/product/a8m.html
 featured_components:
@@ -19,24 +38,53 @@ featured_components:
   component_id: binary_sensor.gpio
   fields:
     internal: true
+    pin:
+      value:
+        number: 7
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
     id: push_button
     name: Button
 - id: led
   component_id: light.status_led
   fields:
     internal: true
+    pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
     id: led
     name: Switch State LED
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    sel_pin:
+      value:
+        number: 14
+        inverted: true
+      locked: true
+    cf_pin:
+      value:
+        number: 24
+        inverted: true
+      locked: true
+    cf1_pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
     update_interval: 10s
     id: sensor_hlw8012_1
     name: Hlw8012 1
 - id: relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: 6
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power
     id: relay

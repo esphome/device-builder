@@ -9,27 +9,133 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-2-Gang-Switch-Socket/tyna-gpo-switch.png
+pins:
+- gpio: 0
+  available: false
+  occupied_by: Bottom_buttonLED
+- gpio: 6
+  available: false
+  occupied_by: relay1
+- gpio: 7
+  available: false
+  occupied_by: Top_buttonLED
+- gpio: 8
+  available: false
+  occupied_by: button_1
+- gpio: 10
+  available: false
+  occupied_by: button_2
+- gpio: 11
+  available: false
+  occupied_by: button_3
+- gpio: 24
+  available: false
+  occupied_by: relay2
+- gpio: 26
+  available: false
+  occupied_by: relay
 docs_url: https://devices.esphome.io/devices/Tuya-2-Gang-Switch-Socket/
 featured_components:
 - id: button_1
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
     internal: true
     id: button_1
     name: button_1
 - id: button_2
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
     internal: true
     id: button_2
     name: button_2
+- id: button_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: button_3
+    name: button_3
+- id: light1
+  component_id: light.binary
+  fields:
+    output: relay1
+    id: light1
+    name: '1'
+- id: light2
+  component_id: light.binary
+  fields:
+    output: relay2
+    id: light2
+    name: '2'
+- id: relay1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: relay1
+- id: relay2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: relay2
 - id: relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: 26
+      locked: true
     restore_mode: always on
     icon: mdi:power-socket-au
     id: relay
     name: relay
+- id: top_buttonled
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+      locked: true
+    id: top_buttonled
+    name: Top_buttonLED
+- id: bottom_buttonled
+  component_id: switch.gpio
+  fields:
+    pin:
+      value:
+        number: 0
+      locked: true
+    id: bottom_buttonled
+    name: Bottom_buttonLED
+featured_bundles:
+- id: light1_setup
+  name: 1 (full setup)
+  component_ids:
+  - relay1
+  - light1
+- id: light2_setup
+  name: 2 (full setup)
+  component_ids:
+  - relay2
+  - light2
 source:
   type: esphome-devices
   remote_id: Tuya-2-Gang-Switch-Socket

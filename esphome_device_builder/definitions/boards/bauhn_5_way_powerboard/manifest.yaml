@@ -15,8 +15,53 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: '1'
+- gpio: 7
+  available: false
+  occupied_by: '2'
+- gpio: 8
+  available: false
+  occupied_by: '3'
+- gpio: 9
+  available: false
+  occupied_by: '4'
+- gpio: 22
+  available: false
+  occupied_by: Button
+- gpio: 24
+  available: false
+  occupied_by: '5'
+- gpio: 28
+  available: false
+  occupied_by: Status LED
 docs_url: https://devices.esphome.io/devices/bauhn-5-way-powerboard/
 featured_components:
+- id: button1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 22
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: button1
+    name: Button
+- id: blue_led
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        inverted: false
+        number: 28
+      locked: true
+    id: blue_led
+    name: Status LED
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
@@ -26,30 +71,45 @@ featured_components:
 - id: relay_1
   component_id: switch.gpio
   fields:
+    pin:
+      value: 6
+      locked: true
     icon: mdi:power-socket-au
     id: relay_1
     name: '1'
 - id: relay_2
   component_id: switch.gpio
   fields:
+    pin:
+      value: 7
+      locked: true
     icon: mdi:power-socket-au
     id: relay_2
     name: '2'
 - id: relay_3
   component_id: switch.gpio
   fields:
+    pin:
+      value: 8
+      locked: true
     icon: mdi:power-socket-au
     id: relay_3
     name: '3'
 - id: relay_4
   component_id: switch.gpio
   fields:
+    pin:
+      value: 9
+      locked: true
     icon: mdi:power-socket-au
     id: relay_4
     name: '4'
 - id: relay_5
   component_id: switch.gpio
   fields:
+    pin:
+      value: 24
+      locked: true
     icon: mdi:power-socket-au
     id: relay_5
     name: '5'

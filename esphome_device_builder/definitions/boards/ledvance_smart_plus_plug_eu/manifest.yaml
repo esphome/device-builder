@@ -12,18 +12,67 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: button1
+- gpio: 7
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 8
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 10
+  available: false
+  occupied_by: led
+- gpio: 24
+  available: false
+  occupied_by: Outlet
+- gpio: 26
+  available: false
+  occupied_by: sensor.hlw8012
 docs_url: https://devices.esphome.io/devices/LEDVANCE-SMART-PLUS-PLUG-EU/
 featured_components:
+- id: button1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    id: button1
+    name: button1
 - id: led
   component_id: light.status_led
   fields:
     internal: true
+    pin:
+      value:
+        number: 10
+        inverted: true
+      locked: true
     id: led
     name: led
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    sel_pin:
+      value:
+        inverted: true
+        number: 26
+      locked: true
+    cf_pin:
+      value:
+        inverted: true
+        number: 7
+      locked: true
+    cf1_pin:
+      value:
+        inverted: true
+        number: 8
+      locked: true
     update_interval: $update_interval_seconds
     initial_mode: VOLTAGE
     change_mode_every: '4294967295'
@@ -46,6 +95,9 @@ featured_components:
 - id: outlet
   component_id: switch.gpio
   fields:
+    pin:
+      value: 24
+      locked: true
     icon: mdi:power-socket-eu
     id: outlet
     name: Outlet

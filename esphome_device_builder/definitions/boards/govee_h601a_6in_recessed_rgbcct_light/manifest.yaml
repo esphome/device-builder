@@ -10,6 +10,22 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/module.jpeg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Govee-H601A-6in-recessed-RGBCCT-light/full_pcb.png
+pins:
+- gpio: 2
+  available: false
+  occupied_by: green_pwm_output
+- gpio: 3
+  available: false
+  occupied_by: red_pwm_output
+- gpio: 4
+  available: false
+  occupied_by: warm_pwm_output
+- gpio: 18
+  available: false
+  occupied_by: blue_pwm_output
+- gpio: 19
+  available: false
+  occupied_by: cool_pwm_output
 docs_url: https://devices.esphome.io/devices/Govee-H601A-6in-recessed-RGBCCT-light/
 featured_components:
 - id: light_rgbww_1
@@ -28,26 +44,41 @@ featured_components:
 - id: green_pwm_output
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 2
+      locked: true
     max_power: 80%
     id: green_pwm_output
 - id: red_pwm_output
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 3
+      locked: true
     max_power: 80%
     id: red_pwm_output
 - id: blue_pwm_output
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 18
+      locked: true
     max_power: 80%
     id: blue_pwm_output
 - id: warm_pwm_output
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 4
+      locked: true
     max_power: 80%
     id: warm_pwm_output
 - id: cool_pwm_output
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 19
+      locked: true
     max_power: 80%
     id: cool_pwm_output
 featured_bundles:

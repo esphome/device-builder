@@ -13,14 +13,59 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-pcb-back.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-submodule-front.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WiFi-Smart-Switch-SB2S/Tuya-WiFi-Smart-Switch-SB2S-submodule-back.jpg
+pins:
+- gpio: 7
+  available: false
+  occupied_by: Switch state
+- gpio: 8
+  available: false
+  occupied_by: button
+- gpio: 24
+  available: false
+  occupied_by: relayoutput
 docs_url: https://devices.esphome.io/devices/Tuya-WiFi-Smart-Switch-SB2S/
 featured_components:
+- id: button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: button
+    name: button
+- id: led
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    id: led
+    name: Switch state
+- id: relayoutput
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: relayoutput
 - id: relay
   component_id: switch.output
   fields:
     restore_mode: ALWAYS_OFF
+    output: relayoutput
     id: relay
     name: Relay
+featured_bundles:
+- id: relay_setup
+  name: Relay (full setup)
+  component_ids:
+  - relayoutput
+  - relay
 source:
   type: esphome-devices
   remote_id: Tuya-WiFi-Smart-Switch-SB2S

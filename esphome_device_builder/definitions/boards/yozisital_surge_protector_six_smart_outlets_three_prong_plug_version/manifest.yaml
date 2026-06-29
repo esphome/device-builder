@@ -1,0 +1,123 @@
+id: yozisital_surge_protector_six_smart_outlets_three_prong_plug_version
+name: Yozisital Surge Protector with Six Smart Outlets, Three Prong Plug Version
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/1.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/2.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/3.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/4.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/5.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/6.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/7.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/8.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Relay 1
+- gpio: 7
+  available: false
+  occupied_by: Relay 2
+- gpio: 8
+  available: false
+  occupied_by: Relay 3
+- gpio: 10
+  available: false
+  occupied_by: light_status
+- gpio: 11
+  available: false
+  occupied_by: binary_switch_all
+- gpio: 23
+  available: false
+  occupied_by: Relay 4
+- gpio: 24
+  available: false
+  occupied_by: Relay 5
+- gpio: 26
+  available: false
+  occupied_by: Relay 6
+docs_url: https://devices.esphome.io/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/
+featured_components:
+- id: binary_switch_all
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_all
+    name: binary_switch_all
+- id: light_status
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+      locked: true
+    id: light_status
+    name: light_status
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: switch_1
+    name: Relay 1
+- id: switch_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: switch_2
+    name: Relay 2
+- id: switch_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: switch_3
+    name: Relay 3
+- id: switch_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 23
+      locked: true
+    id: switch_4
+    name: Relay 4
+- id: switch_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: switch_5
+    name: Relay 5
+- id: switch_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_6
+    name: Relay 6
+source:
+  type: esphome-devices
+  remote_id: Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Yozisital-Surge-Protector-Six-Smart-Outlets-Three-Prong-Plug-Version/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 193f6edb96a303ccce4cf2d38b557c4599cb80c5c6b00cef8af1dc887e9680c7

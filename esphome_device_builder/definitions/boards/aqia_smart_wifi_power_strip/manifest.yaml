@@ -1,0 +1,83 @@
+id: aqia_smart_wifi_power_strip
+name: AQiA Smart WiFi Power Strip
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/AQiA-Smart-WiFi-Power-Strip/AQiA-Smart-WiFi-Power-Strip.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 7
+  available: false
+  occupied_by: binary_switch_all
+- gpio: 8
+  available: false
+  occupied_by: Switch 2
+- gpio: 10
+  available: false
+  occupied_by: light_status
+- gpio: 24
+  available: false
+  occupied_by: Switch 3
+- gpio: 26
+  available: false
+  occupied_by: Switch 1
+docs_url: https://devices.esphome.io/devices/AQiA-Smart-WiFi-Power-Strip/
+featured_components:
+- id: binary_switch_all
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_all
+    name: binary_switch_all
+- id: light_status
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+      locked: true
+    id: light_status
+    name: light_status
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_1
+    name: Switch 1
+- id: switch_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: switch_2
+    name: Switch 2
+- id: switch_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: switch_3
+    name: Switch 3
+source:
+  type: esphome-devices
+  remote_id: AQiA-Smart-WiFi-Power-Strip
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AQiA-Smart-WiFi-Power-Strip/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: a994151aac52d5eefe20ce5afccbac418782ee82fbe02b746fce7b371893af2a

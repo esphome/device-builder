@@ -12,6 +12,12 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tomzn-TOB9-VAP/board.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tomzn-TOB9-VAP/disassembling.jpg
 pins:
+- gpio: 9
+  available: false
+  occupied_by: red_led_output
+- gpio: 15
+  available: false
+  occupied_by: blue_led
 - gpio: 17
   available: false
   occupied_by: power_button
@@ -31,6 +37,31 @@ featured_components:
       locked: true
     id: power_button
     name: power_button
+- id: blue_led
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 15
+        inverted: true
+      locked: true
+    id: blue_led
+    name: blue_led
+- id: red_led
+  component_id: light.monochromatic
+  fields:
+    output: red_led_output
+    id: red_led
+    name: red_led
+- id: red_led_output
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value:
+        number: 9
+        inverted: true
+      locked: true
+    id: red_led_output
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
@@ -48,6 +79,12 @@ featured_components:
     wait_time: 30ms
     id: main_switch
     name: Switch
+featured_bundles:
+- id: red_led_setup
+  name: red_led (full setup)
+  component_ids:
+  - red_led_output
+  - red_led
 source:
   type: esphome-devices
   remote_id: Tomzn-TOB9-VAP

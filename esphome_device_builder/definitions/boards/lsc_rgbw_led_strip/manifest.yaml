@@ -10,6 +10,9 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-RGBW-LED-Strip/image.jpg
 pins:
+- gpio: 0
+  available: false
+  occupied_by: remote_receiver
 - gpio: 4
   available: false
   occupied_by: pwm_red
@@ -24,48 +27,71 @@ pins:
   occupied_by: pwm_blue
 docs_url: https://devices.esphome.io/devices/LSC-RGBW-LED-Strip/
 featured_components:
+- id: remote_receiver_hub
+  component_id: remote_receiver
+  fields:
+    pin:
+      value:
+        number: 0
+        inverted: true
+      locked: true
+    dump: all
 - id: aan
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: aan
     name: Remote On
+  requires:
+  - remote_receiver_hub
 - id: uit
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: uit
     name: Remote Off
+  requires:
+  - remote_receiver_hub
 - id: white
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: white
     name: Remote white
+  requires:
+  - remote_receiver_hub
 - id: blue
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: blue
     name: Remote blue
+  requires:
+  - remote_receiver_hub
 - id: red
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: red
     name: Remote red
+  requires:
+  - remote_receiver_hub
 - id: green
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: green
     name: Remote green
+  requires:
+  - remote_receiver_hub
 - id: strobe
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
     id: strobe
     name: Remote Strobe
+  requires:
+  - remote_receiver_hub
 - id: strip
   component_id: light.rgbw
   fields:

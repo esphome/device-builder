@@ -9,6 +9,22 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb/anwio-br30-top-down.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: output_white_temp
+- gpio: 7
+  available: false
+  occupied_by: output_white_brightness
+- gpio: 8
+  available: false
+  occupied_by: output_red
+- gpio: 24
+  available: false
+  occupied_by: output_green
+- gpio: 26
+  available: false
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb/
 featured_components:
 - id: device
@@ -17,12 +33,47 @@ featured_components:
     color_interlock: true
     cold_white_color_temperature: 6200K
     warm_white_color_temperature: 2000K
+    red: output_red
+    green: output_green
+    blue: output_blue
     color_temperature: output_white_temp
+    white_brightness: output_white_brightness
     id: device
     name: Light
+- id: output_red
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: output_red
+- id: output_green
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_green
+- id: output_blue
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_blue
+- id: output_white_brightness
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: output_white_brightness
 - id: output_white_temp
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 6
+      locked: true
     inverted:
       value: true
       locked: true
@@ -37,7 +88,11 @@ featured_bundles:
 - id: device_setup
   name: Light (full setup)
   component_ids:
+  - output_red
+  - output_green
+  - output_blue
   - output_white_temp
+  - output_white_brightness
   - device
 source:
   type: esphome-devices

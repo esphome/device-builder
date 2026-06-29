@@ -13,6 +13,9 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/M5Stack-M5StickC-PLUS/m5stickcplus.png
 pins:
+- gpio: 0
+  available: false
+  occupied_by: bus_i2s
 - gpio: 5
   available: false
   occupied_by: display.st7789v
@@ -25,6 +28,9 @@ pins:
 - gpio: 23
   available: false
   occupied_by: display.st7789v
+- gpio: 26
+  available: false
+  occupied_by: bus_i2s
 - gpio: 34
   available: false
   occupied_by: mic
@@ -37,6 +43,18 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS/
 product_url: https://docs.m5stack.com/en/core/m5stickc_plus
 featured_components:
+- id: bus_i2s
+  component_id: i2s_audio
+  fields:
+    i2s_lrclk_pin:
+      value: 26
+      locked: true
+    i2s_bclk_pin:
+      value: 0
+      locked: true
+    id:
+      value: bus_i2s
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -90,6 +108,8 @@ featured_components:
     pdm: true
     id: mic
     name: mic
+  requires:
+  - bus_i2s
 - id: builtin_led
   component_id: output.ledc
   fields:

@@ -14,14 +14,63 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 14
+  available: false
+  occupied_by: relay_1
+- gpio: 24
+  available: false
+  occupied_by: led_output
+- gpio: 26
+  available: false
+  occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-EU_BL0942/
 featured_components:
+- id: button_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        mode: INPUT_PULLUP
+        inverted: true
+      locked: true
+    id: button_1
+    name: button_1
+- id: status_light
+  component_id: light.binary
+  fields:
+    output: led_output
+    id: status_light
+    name: Status LED
+- id: relay_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: relay_1
+- id: led_output
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        inverted: false
+      locked: true
+    id: led_output
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
     line_frequency: 50Hz
     id: sensor_bl0942_1
     name: Bl0942 1
+featured_bundles:
+- id: status_light_setup
+  name: Status LED (full setup)
+  component_ids:
+  - led_output
+  - status_light
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-20A-EU_BL0942

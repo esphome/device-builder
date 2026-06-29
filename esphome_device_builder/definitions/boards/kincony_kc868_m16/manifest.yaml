@@ -14,6 +14,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-M16/kc868-m16.jpg
 pins:
+- gpio: 13
+  available: false
+  occupied_by: cd74hc4067_1
+- gpio: 16
+  available: false
+  occupied_by: cd74hc4067_1
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -23,6 +29,12 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
+- gpio: 32
+  available: false
+  occupied_by: cd74hc4067_1
+- gpio: 33
+  available: false
+  occupied_by: cd74hc4067_1
 - gpio: 34
   available: false
   occupied_by: m16--AI-2
@@ -37,6 +49,24 @@ pins:
   occupied_by: m16--AI-3
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-M16/
 featured_components:
+- id: cd74hc4067_1
+  component_id: cd74hc4067
+  fields:
+    pin_s0:
+      value: 32
+      locked: true
+    pin_s1:
+      value: 33
+      locked: true
+    pin_s2:
+      value: 13
+      locked: true
+    pin_s3:
+      value: 16
+      locked: true
+    id:
+      value: cd74hc4067_1
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -104,6 +134,8 @@ featured_components:
     sensor: adc35
     id: ai1
     name: ai1
+  requires:
+  - cd74hc4067_1
 - id: ai2
   component_id: sensor.cd74hc4067
   fields:
@@ -112,6 +144,8 @@ featured_components:
     sensor: adc35
     id: ai2
     name: ai2
+  requires:
+  - cd74hc4067_1
 - id: ai3
   component_id: sensor.cd74hc4067
   fields:
@@ -120,6 +154,8 @@ featured_components:
     sensor: adc35
     id: ai3
     name: ai3
+  requires:
+  - cd74hc4067_1
 - id: ai4
   component_id: sensor.cd74hc4067
   fields:
@@ -128,6 +164,8 @@ featured_components:
     sensor: adc35
     id: ai4
     name: ai4
+  requires:
+  - cd74hc4067_1
 - id: ai5
   component_id: sensor.cd74hc4067
   fields:
@@ -136,6 +174,8 @@ featured_components:
     sensor: adc35
     id: ai5
     name: ai5
+  requires:
+  - cd74hc4067_1
 - id: ai6
   component_id: sensor.cd74hc4067
   fields:
@@ -144,6 +184,8 @@ featured_components:
     sensor: adc35
     id: ai6
     name: ai6
+  requires:
+  - cd74hc4067_1
 - id: ai7
   component_id: sensor.cd74hc4067
   fields:
@@ -152,6 +194,8 @@ featured_components:
     sensor: adc35
     id: ai7
     name: ai7
+  requires:
+  - cd74hc4067_1
 - id: ai8
   component_id: sensor.cd74hc4067
   fields:
@@ -160,6 +204,8 @@ featured_components:
     sensor: adc35
     id: ai8
     name: ai8
+  requires:
+  - cd74hc4067_1
 - id: ai9
   component_id: sensor.cd74hc4067
   fields:
@@ -168,6 +214,8 @@ featured_components:
     sensor: adc35
     id: ai9
     name: ai9
+  requires:
+  - cd74hc4067_1
 - id: ai10
   component_id: sensor.cd74hc4067
   fields:
@@ -176,6 +224,8 @@ featured_components:
     sensor: adc35
     id: ai10
     name: ai10
+  requires:
+  - cd74hc4067_1
 - id: ai11
   component_id: sensor.cd74hc4067
   fields:
@@ -184,6 +234,8 @@ featured_components:
     sensor: adc35
     id: ai11
     name: ai11
+  requires:
+  - cd74hc4067_1
 - id: ai12
   component_id: sensor.cd74hc4067
   fields:
@@ -192,6 +244,8 @@ featured_components:
     sensor: adc35
     id: ai12
     name: ai12
+  requires:
+  - cd74hc4067_1
 - id: ai13
   component_id: sensor.cd74hc4067
   fields:
@@ -200,6 +254,8 @@ featured_components:
     sensor: adc35
     id: ai13
     name: ai13
+  requires:
+  - cd74hc4067_1
 - id: ai14
   component_id: sensor.cd74hc4067
   fields:
@@ -208,6 +264,8 @@ featured_components:
     sensor: adc35
     id: ai14
     name: ai14
+  requires:
+  - cd74hc4067_1
 - id: ai15
   component_id: sensor.cd74hc4067
   fields:
@@ -216,6 +274,8 @@ featured_components:
     sensor: adc35
     id: ai15
     name: ai15
+  requires:
+  - cd74hc4067_1
 - id: ai16
   component_id: sensor.cd74hc4067
   fields:
@@ -224,6 +284,8 @@ featured_components:
     sensor: adc35
     id: ai16
     name: ai16
+  requires:
+  - cd74hc4067_1
 - id: sensor_ct_clamp_1
   component_id: sensor.ct_clamp
   fields:

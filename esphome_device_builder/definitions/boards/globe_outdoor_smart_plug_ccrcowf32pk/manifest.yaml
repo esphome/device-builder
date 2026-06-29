@@ -1,0 +1,61 @@
+id: globe_outdoor_smart_plug_ccrcowf32pk
+name: Globe Electric 3-Outlet Outdoor Plug
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Globe-Outdoor-Smart-Plug-CCRCOWF32PK/Globe-Outdoor-Smart-Plug-CCRCOWF32PK.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: binary_switch_1
+- gpio: 7
+  available: false
+  occupied_by: light_status
+- gpio: 8
+  available: false
+  occupied_by: Relay 1
+docs_url: https://devices.esphome.io/devices/Globe-Outdoor-Smart-Plug-CCRCOWF32PK/
+featured_components:
+- id: binary_switch_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_1
+    name: binary_switch_1
+- id: light_status
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    id: light_status
+    name: light_status
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: switch_1
+    name: Relay 1
+source:
+  type: esphome-devices
+  remote_id: Globe-Outdoor-Smart-Plug-CCRCOWF32PK
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Globe-Outdoor-Smart-Plug-CCRCOWF32PK/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 30c4e69a92d9273955d72c846e604bf5a8a62605607a189c3f04d5b2520129c5

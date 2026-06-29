@@ -1,0 +1,70 @@
+id: hbn_cp_a86wt
+name: HBN-CP-A86WT
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb2s
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/HBN-CP-A86WT/HBN-CP-A86WT.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Relay 1
+- gpio: 7
+  available: false
+  occupied_by: Relay 2
+- gpio: 8
+  available: false
+  occupied_by: binary_switch_all
+- gpio: 10
+  available: false
+  occupied_by: light_status
+docs_url: https://devices.esphome.io/devices/HBN-CP-A86WT/
+featured_components:
+- id: binary_switch_all
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_all
+    name: binary_switch_all
+- id: light_status
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 10
+      locked: true
+    id: light_status
+    name: light_status
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: switch_1
+    name: Relay 1
+- id: switch_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: switch_2
+    name: Relay 2
+source:
+  type: esphome-devices
+  remote_id: HBN-CP-A86WT
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/HBN-CP-A86WT/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: f8f74024479ba07d162c3bd907467e8048812fe8ae96626277219c1fa06bfb96

@@ -16,18 +16,67 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 7
+  available: false
+  occupied_by: Relay
+- gpio: 8
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 10
+  available: false
+  occupied_by: Button
+- gpio: 11
+  available: false
+  occupied_by: status
+- gpio: 26
+  available: false
+  occupied_by: sensor.hlw8012
 docs_url: https://devices.esphome.io/devices/EKF-RCS-2-WF/
 featured_components:
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+      locked: true
     icon: mdi:gesture-tap-button
     id: binary_sensor_gpio_1
     name: Button
+- id: status
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+      locked: true
+    id: status
+    name: status
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    cf_pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
+    cf1_pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    sel_pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
     update_interval: 10s
     voltage_divider: 800
     change_mode_every: 1
@@ -37,6 +86,9 @@ featured_components:
 - id: relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: 7
+      locked: true
     icon: mdi:electric-switch
     id: relay
     name: Relay

@@ -11,6 +11,22 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/box.webp
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/open.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Steren-RGBWW-Desk-Lamp/pcb1.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: warm_white
+- gpio: 7
+  available: false
+  occupied_by: cold_white
+- gpio: 8
+  available: false
+  occupied_by: red
+- gpio: 24
+  available: false
+  occupied_by: green
+- gpio: 26
+  available: false
+  occupied_by: blue
 docs_url: https://devices.esphome.io/devices/Steren-RGBWW-Desk-Lamp/
 featured_components:
 - id: rgb_light
@@ -20,8 +36,58 @@ featured_components:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2000 K
     color_interlock: true
+    red: red
+    green: green
+    blue: blue
+    warm_white: warm_white
+    cold_white: cold_white
     id: rgb_light
     name: Light
+- id: red
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: red
+- id: blue
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: blue
+- id: green
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: green
+- id: warm_white
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: warm_white
+- id: cold_white
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: cold_white
+featured_bundles:
+- id: rgb_light_setup
+  name: Light (full setup)
+  component_ids:
+  - red
+  - green
+  - blue
+  - warm_white
+  - cold_white
+  - rgb_light
 source:
   type: esphome-devices
   remote_id: Steren-RGBWW-Desk-Lamp

@@ -12,18 +12,92 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 7
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 10
+  available: false
+  occupied_by: output_led_1
+- gpio: 11
+  available: false
+  occupied_by: binary_switch_1
+- gpio: 24
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 26
+  available: false
+  occupied_by: Relay 1
 docs_url: https://devices.esphome.io/devices/Denver-SHP-102/
 featured_components:
+- id: binary_switch_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_1
+    name: binary_switch_1
+- id: light_switch_1
+  component_id: light.binary
+  fields:
+    output: output_led_1
+    id: light_switch_1
+    name: light_switch_1
+- id: output_led_1
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+      locked: true
+    id: output_led_1
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    cf_pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    cf1_pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
+    sel_pin:
+      value:
+        number: 24
+        inverted: true
+      locked: true
     voltage_divider: 800
     current_resistor: 0.001 ohm
     update_interval: 1s
     change_mode_every: 1
     id: sensor_hlw8012_1
     name: Hlw8012 1
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_1
+    name: Relay 1
+featured_bundles:
+- id: light_switch_1_setup
+  name: light_switch_1 (full setup)
+  component_ids:
+  - output_led_1
+  - light_switch_1
 source:
   type: esphome-devices
   remote_id: Denver-SHP-102

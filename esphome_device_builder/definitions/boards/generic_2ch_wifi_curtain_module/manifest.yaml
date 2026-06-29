@@ -10,11 +10,41 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/device.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Generic-2CH-Wifi-Curtain-Module/inside.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: S2_close
+- gpio: 7
+  available: false
+  occupied_by: S3_open
+- gpio: 8
+  available: false
+  occupied_by: S4_close
+- gpio: 16
+  available: false
+  occupied_by: Cover2_close
+- gpio: 17
+  available: false
+  occupied_by: Cover2_open
+- gpio: 20
+  available: false
+  occupied_by: Cover1_open
+- gpio: 26
+  available: false
+  occupied_by: S1_open
+- gpio: 28
+  available: false
+  occupied_by: Cover1_close
 docs_url: https://devices.esphome.io/devices/Generic-2CH-Wifi-Curtain-Module/
 featured_components:
 - id: s1_open
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
     device_class: running
     internal: true
     id: s1_open
@@ -22,6 +52,11 @@ featured_components:
 - id: s2_close
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
     device_class: running
     internal: true
     id: s2_close
@@ -29,6 +64,11 @@ featured_components:
 - id: s3_open
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
     device_class: running
     internal: true
     id: s3_open
@@ -36,6 +76,11 @@ featured_components:
 - id: s4_close
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
     device_class: running
     internal: true
     id: s4_close
@@ -63,6 +108,11 @@ featured_components:
 - id: l1_open
   component_id: switch.gpio
   fields:
+    pin:
+      value:
+        number: 20
+        inverted: false
+      locked: true
     restore_mode: ALWAYS_OFF
     internal: true
     id: l1_open
@@ -70,6 +120,11 @@ featured_components:
 - id: l2_close
   component_id: switch.gpio
   fields:
+    pin:
+      value:
+        number: 28
+        inverted: false
+      locked: true
     restore_mode: ALWAYS_OFF
     internal: true
     id: l2_close
@@ -77,6 +132,11 @@ featured_components:
 - id: l3_open
   component_id: switch.gpio
   fields:
+    pin:
+      value:
+        number: 17
+        inverted: false
+      locked: true
     restore_mode: ALWAYS_OFF
     internal: true
     id: l3_open
@@ -84,6 +144,11 @@ featured_components:
 - id: l4_close
   component_id: switch.gpio
   fields:
+    pin:
+      value:
+        number: 16
+        inverted: false
+      locked: true
     restore_mode: ALWAYS_OFF
     internal: true
     id: l4_close

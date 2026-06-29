@@ -13,6 +13,13 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/CB3L.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/extract_from_unit.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/SANPU-TYZ150-W2V24/flashing_points.png
+pins:
+- gpio: 6
+  available: false
+  occupied_by: output_cold_white
+- gpio: 7
+  available: false
+  occupied_by: output_warm_white
 docs_url: https://devices.esphome.io/devices/SANPU-TYZ150-W2V24/
 featured_components:
 - id: light_cwww_1
@@ -22,8 +29,31 @@ featured_components:
     warm_white_color_temperature: 2700K
     constant_brightness: true
     gamma_correct: 1
+    cold_white: output_cold_white
+    warm_white: output_warm_white
     id: light_cwww_1
     name: LED Strip
+- id: output_cold_white
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: output_cold_white
+- id: output_warm_white
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: output_warm_white
+featured_bundles:
+- id: light_cwww_1_setup
+  name: LED Strip (full setup)
+  component_ids:
+  - output_cold_white
+  - output_warm_white
+  - light_cwww_1
 source:
   type: esphome-devices
   remote_id: SANPU-TYZ150-W2V24

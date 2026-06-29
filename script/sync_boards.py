@@ -68,6 +68,7 @@ from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
+from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogEntry,
     BoardCatalogIndex,
@@ -480,12 +481,8 @@ _RP2040_BASE_PINOUT_BOARD: dict[str, str] = {"rp2040": "rpipico", "rp2350": "rpi
 
 
 def _gpio_number(value: object) -> int | None:
-    """GPIO number from a pin-field value (``"GPIO17"`` or ``17``), or ``None``."""
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and (match := re.search(r"\d+", value)):
-        return int(match.group())
-    return None
+    """GPIO number from a pin-field value (``"GPIO17"`` / ``"P23"`` / ``17``), or ``None``."""
+    return parse_board_gpio(value)
 
 
 def _augment_rp2040_onboard_ethernet_pins(boards: list[BoardCatalogEntry]) -> None:
@@ -832,11 +829,7 @@ def _canonical_gpio(value: Any) -> int | None:
         if value.keys() - BOARD_PIN_KEYS:
             return None
         return _canonical_gpio(value.get("number"))
-    if isinstance(value, str):
-        match = re.match(r"^\s*(?:GPIO)?(\d+)\s*$", value, re.IGNORECASE)
-        if match:
-            return int(match.group(1))
-    return None
+    return parse_board_gpio(value)
 
 
 def _canonical_pin(value: Any) -> int | str | None:
