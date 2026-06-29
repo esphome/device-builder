@@ -58,8 +58,13 @@ jobs:
         # installs into the runner's Python instead of a venv —
         # matches the existing pip-based CI shape so subsequent
         # ``pre-commit`` / ``python script/...`` steps keep working
-        # without a ``uv run`` prefix.
-        run: uv pip install --system -e '.[esphome,test]'
+        # without a ``uv run`` prefix. ``-c esphome-constraints.txt``
+        # pins esphome to the version the committed catalog was generated
+        # against; the ``sync-boards`` pre-commit hook below re-stamps
+        # boards.index.json from the installed esphome, so an unpinned
+        # "latest" would red this job on every esphome release until the
+        # catalog is re-synced. The sync workflows bump that pin.
+        run: uv pip install --system -c esphome-constraints.txt -e '.[esphome,test]'
 
       - name: Cache pre-commit hook envs
         # Keyed on the python version + ``.pre-commit-config.yaml``
@@ -84,13 +89,18 @@ jobs:
       - name: Validate board / component manifests
         run: python script/validate_definitions.py
 
-      - name: Verify boards.json is in sync with manifests
+      - name: Verify board catalog is in sync with manifests
         # Catches PRs that bypass the pre-commit hook — the diff
         # fails the build if the committed JSON doesn't match what
-        # the script regenerates from the YAMLs.
+        # the script regenerates from the YAMLs. esphome is pinned
+        # (esphome-constraints.txt), so the regenerated esphome_version
+        # stamp matches the committed catalog rather than drifting.
         run: |
           python script/sync_boards.py
-          git diff --exit-code -- esphome_device_builder/definitions/boards.json
+          git diff --exit-code -- \
+            esphome_device_builder/definitions/boards.index.json \
+            esphome_device_builder/definitions/board_bodies/ \
+            esphome_device_builder/definitions/featured_components.index.json
 
       - name: Smoke-test component catalog
         run: python script/check_catalog.py
