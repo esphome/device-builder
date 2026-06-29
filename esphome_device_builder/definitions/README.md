@@ -276,14 +276,23 @@ featured_bundles:
 `featured_components:` on the same board. The frontend adds bundle
 members sequentially via the regular `devices/add_component` flow.
 
-The sync also **synthesizes** an `all_recommended` "(full setup)" bundle
-covering every featured component for `full_config` boards (a complete onboard
-device; defaults to whether the board is a devices.esphome.io import,
-overridable per manifest with `full_config: true|false`). It's baked into the
-generated body only, so don't hand-add an `all_recommended` bundle to a
-manifest. Synthesis is skipped when an existing bundle already covers every
-featured component, or when two featured components claim the same board GPIO
-without `allow_other_uses`.
+The sync also **collapses** a `full_config` board (a complete onboard device;
+defaults to whether the board is a devices.esphome.io import, overridable per
+manifest with `full_config: true|false`) down to a **single** "(full setup)"
+bundle, since one imported device is one config and a partial sub-bundle just
+sets up half of it. The per-consumer `featured_bundles` you author are dropped
+in favour of that one bundle:
+
+- when an existing bundle already covers every featured component it's kept as
+  the sole bundle (its siblings are pruned);
+- otherwise a board-named `all_recommended` bundle covering every featured
+  component replaces the lot. It's baked into the generated body only, so don't
+  hand-add an `all_recommended` bundle to a manifest.
+
+Collapse is skipped — leaving your authored sub-bundles in place — for boards
+with fewer than two featured components, and for boards where two featured
+components claim the same board GPIO without `allow_other_uses` (the combined
+config wouldn't compile, so the partial bundles are the only valid options).
 
 **Default components** are installed automatically in every new device
 created from this board. Unlike `featured_components` (opt-in via the
