@@ -1089,11 +1089,12 @@ def _fold_requires_into_bundles(
     by_id = {entry["id"]: entry for entry in featured}
     for bundle in bundles:
         members = bundle["component_ids"]
-        member_set = set(members)
+        seen = set(members)
         prereqs: list[str] = []
         for member in members:
             for req in by_id.get(member, {}).get("requires") or []:
-                if req not in prereqs and req not in member_set:
+                if req not in seen:
+                    seen.add(req)
                     prereqs.append(req)
         if prereqs:
             bundle["component_ids"] = [*prereqs, *members]
@@ -1417,6 +1418,11 @@ def _as_block_list(raw: Any) -> list[Any]:
     return []
 
 
+def _block_mappings(raw: Any) -> list[dict[str, Any]]:
+    """Top-level blocks of a component key, keeping only the mapping ones."""
+    return [block for block in _as_block_list(raw) if isinstance(block, dict)]
+
+
 def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
     """
     Return the top-level hub block (``pcf8574:``) a pin's expander ref resolves to.
@@ -1428,7 +1434,7 @@ def _find_hub_block(raw: Any, instance_id: str) -> dict[str, Any] | None:
     against an explicitly-ided block, or an ambiguous multi-hub provider,
     yields ``None`` rather than guessing.
     """
-    blocks = [block for block in _as_block_list(raw) if isinstance(block, dict)]
+    blocks = _block_mappings(raw)
     for block in blocks:
         if block.get("id") == instance_id:
             return block
@@ -1574,7 +1580,7 @@ def _materialize_bus(
     bare bus via the add-dialog's missing-dependency banner instead).
     """
     component = components_index.get(bus_domain)
-    blocks = [block for block in _as_block_list(config.get(bus_domain)) if isinstance(block, dict)]
+    blocks = _block_mappings(config.get(bus_domain))
     if component is None:
         return None, "", {}
     if instance_id is not None:
@@ -1627,10 +1633,7 @@ def _extract_expander_hubs(
         consumers,
         ordered_refs,
         resolve_block=lambda cid, instance_id: _find_hub_block(config.get(cid), instance_id),
-        id_fallback_suffix="",
-        skip_empty_fields=False,
-        require_all_pins=False,
-        drop_unresolved=True,
+        driver=False,
     )
 
 
@@ -1642,21 +1645,14 @@ def _materialize_hubs(
     ordered_refs: list[tuple[str, str | None]],
     *,
     resolve_block: Callable[[str, str | None], dict[str, Any] | None],
-    id_fallback_suffix: str,
-    skip_empty_fields: bool,
-    require_all_pins: bool,
-    drop_unresolved: bool,
+    driver: bool,
 ) -> tuple[list[dict[str, Any]], dict[int, str]]:
     """
-    Lift each referenced hub (and any bus it depends on) into a locked entry.
+    Lift each hub (and its bus) into a locked entry; stamp consumers' ``requires``.
 
-    Shared spine of the expander-pin and driver-dependency paths; they differ
-    only in how a hub's block is found (*resolve_block*), whether an empty lift
-    is skipped (*skip_empty_fields* — a driver hub with no liftable pin falls
-    back to the add-dialog dep banner) and whether a consumer whose hub didn't
-    materialize is dropped (*drop_unresolved* — a dangling expander pin ref
-    won't compile, a missing driver hub is covered by the banner). Stamps the
-    bus-then-hub ``requires`` chain on every resolved consumer.
+    *resolve_block* locates a hub's top-level block. *driver* True skips a hub
+    missing a required pin and keeps its consumer; False emits on any non-None
+    lift and drops a consumer whose hub didn't materialize.
     """
     used_ids = {entry["id"] for entry in featured}
     extra: list[dict[str, Any]] = []
@@ -1677,9 +1673,9 @@ def _materialize_hubs(
         # marked occupied for a hub we then drop.
         hub_occ: dict[int, str] = {}
         fields = _extract_fields(block, hub_component, hub_occ, hub_cid)
-        if fields is None or (skip_empty_fields and not fields):
+        if fields is None or (driver and not fields):
             continue
-        if require_all_pins and not _required_pin_keys(hub_component) <= fields.keys():
+        if driver and not _required_pin_keys(hub_component) <= fields.keys():
             # A required pin didn't parse (lambda / reference): skip the hub and
             # leave ``requires`` unstamped so the dep banner covers it, rather than
             # ship a pinless hub that compiles into an invalid config.
@@ -1689,7 +1685,7 @@ def _materialize_hubs(
             hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
         )
         base = _sanitize_local_id(instance_id) if instance_id else ""
-        hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{id_fallback_suffix}")
+        hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{'_hub' if driver else ''}")
         used_ids.add(hub_id)
         # Lock the hub's id to the upstream value an expander pin ref points at;
         # a sole driver hub with no upstream id keeps its generated local id.
@@ -1705,7 +1701,7 @@ def _materialize_hubs(
         extra.append(hub_entry)
         hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
 
-    if drop_unresolved:
+    if not driver:
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
     return extra, occupancy
@@ -1737,7 +1733,7 @@ def _is_driver_hub(component: dict[str, Any]) -> bool:
 
 def _sole_hub_block(raw: Any) -> dict[str, Any] | None:
     """Return the single top-level hub mapping, or ``None`` if absent/ambiguous."""
-    blocks = [block for block in _as_block_list(raw) if isinstance(block, dict)]
+    blocks = _block_mappings(raw)
     return blocks[0] if len(blocks) == 1 else None
 
 
@@ -1757,8 +1753,6 @@ def _collect_driver_hub_refs(
     """
     existing_cids = {entry["component_id"] for entry in featured}
     consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
-    ordered_refs: list[tuple[str, str | None]] = []
-    seen: set[tuple[str, str | None]] = set()
     for entry in featured:
         component = components_index.get(entry["component_id"])
         if component is None:
@@ -1774,13 +1768,12 @@ def _collect_driver_hub_refs(
             if block is None:
                 continue
             instance_id = block.get("id") if isinstance(block.get("id"), str) else None
-            ref = (dep, instance_id)
-            refs.append(ref)
-            if ref not in seen:
-                seen.add(ref)
-                ordered_refs.append(ref)
+            refs.append((dep, instance_id))
         if refs:
             consumers.append((entry, refs))
+    # First-seen-order dedup across all consumers — the shared spine consumes one
+    # ordered ref list.
+    ordered_refs = list(dict.fromkeys(ref for _, refs in consumers for ref in refs))
     return consumers, ordered_refs
 
 
@@ -1815,10 +1808,7 @@ def _extract_driver_hubs(
         consumers,
         ordered_refs,
         resolve_block=lambda cid, _instance_id: _sole_hub_block(config.get(cid)),
-        id_fallback_suffix="_hub",
-        skip_empty_fields=True,
-        require_all_pins=True,
-        drop_unresolved=False,
+        driver=True,
     )
 
 
