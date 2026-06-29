@@ -18,15 +18,6 @@ pins:
 - gpio: 0
   available: false
   occupied_by: ta-io0
-- gpio: 1
-  available: false
-  occupied_by: ta-input02
-- gpio: 2
-  available: false
-  occupied_by: ta-input03
-- gpio: 3
-  available: false
-  occupied_by: ta-input04
 - gpio: 4
   available: false
   occupied_by: ta-io04
@@ -41,13 +32,10 @@ pins:
   occupied_by: ta-io07
 - gpio: 8
   available: false
-  occupied_by: ta-input09
+  occupied_by: bus_a
 - gpio: 9
   available: false
   occupied_by: ta-io09
-- gpio: 10
-  available: false
-  occupied_by: ta-input11
 - gpio: 11
   available: false
   occupied_by: ta-io11
@@ -59,10 +47,10 @@ pins:
   occupied_by: ta-io13
 - gpio: 14
   available: false
-  occupied_by: ta-output01
-- gpio: 15
+  occupied_by: ta-io14
+- gpio: 18
   available: false
-  occupied_by: ta-output02
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: ta-io21
@@ -77,6 +65,33 @@ pins:
   occupied_by: ta-io48
 docs_url: https://devices.esphome.io/devices/KinCony-TA/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: ta_input01
   component_id: binary_sensor.gpio
   fields:
@@ -89,6 +104,9 @@ featured_components:
       locked: true
     id: ta_input01
     name: ta-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input02
   component_id: binary_sensor.gpio
   fields:
@@ -101,6 +119,9 @@ featured_components:
       locked: true
     id: ta_input02
     name: ta-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input03
   component_id: binary_sensor.gpio
   fields:
@@ -113,6 +134,9 @@ featured_components:
       locked: true
     id: ta_input03
     name: ta-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input04
   component_id: binary_sensor.gpio
   fields:
@@ -125,6 +149,9 @@ featured_components:
       locked: true
     id: ta_input04
     name: ta-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input05
   component_id: binary_sensor.gpio
   fields:
@@ -137,6 +164,9 @@ featured_components:
       locked: true
     id: ta_input05
     name: ta-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input06
   component_id: binary_sensor.gpio
   fields:
@@ -149,6 +179,9 @@ featured_components:
       locked: true
     id: ta_input06
     name: ta-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input07
   component_id: binary_sensor.gpio
   fields:
@@ -161,6 +194,9 @@ featured_components:
       locked: true
     id: ta_input07
     name: ta-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input08
   component_id: binary_sensor.gpio
   fields:
@@ -173,6 +209,9 @@ featured_components:
       locked: true
     id: ta_input08
     name: ta-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input09
   component_id: binary_sensor.gpio
   fields:
@@ -185,6 +224,9 @@ featured_components:
       locked: true
     id: ta_input09
     name: ta-input09
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input10
   component_id: binary_sensor.gpio
   fields:
@@ -197,6 +239,9 @@ featured_components:
       locked: true
     id: ta_input10
     name: ta-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input11
   component_id: binary_sensor.gpio
   fields:
@@ -209,6 +254,9 @@ featured_components:
       locked: true
     id: ta_input11
     name: ta-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_input12
   component_id: binary_sensor.gpio
   fields:
@@ -221,6 +269,9 @@ featured_components:
       locked: true
     id: ta_input12
     name: ta-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -373,6 +424,9 @@ featured_components:
       locked: true
     id: ta_output01
     name: ta-output01
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: ta_output02
   component_id: switch.gpio
   fields:
@@ -385,6 +439,9 @@ featured_components:
       locked: true
     id: ta_output02
     name: ta-output02
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 source:
   type: esphome-devices
   remote_id: KinCony-TA

@@ -18,18 +18,21 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Ethernet CLK
-- gpio: 1
-  available: false
-  occupied_by: DO1
 - gpio: 2
   available: false
-  occupied_by: DO2
+  occupied_by: sn74hc595_hub
 - gpio: 3
   available: false
   occupied_by: WDT_Trigger
+- gpio: 4
+  available: false
+  occupied_by: sn74hc595_hub
 - gpio: 5
   available: false
   occupied_by: Ethernet Power
+- gpio: 15
+  available: false
+  occupied_by: sn74hc595_hub
 - gpio: 18
   available: false
   occupied_by: Ethernet MDIO
@@ -48,6 +51,22 @@ pins:
 docs_url: https://devices.esphome.io/devices/USR-EG118/
 product_url: https://www.pusr.com/products/arduino-open-source-iot-gateway.html
 featured_components:
+- id: sn74hc595_hub
+  component_id: sn74hc595
+  fields:
+    data_pin:
+      value: 4
+      locked: true
+    clock_pin:
+      value: 15
+      locked: true
+    latch_pin:
+      value: 2
+      locked: true
+    sr_count: 1
+    id:
+      value: sn74hc595_hub
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -117,6 +136,8 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: DO1
+  requires:
+  - sn74hc595_hub
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -127,6 +148,8 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: DO2
+  requires:
+  - sn74hc595_hub
 source:
   type: esphome-devices
   remote_id: USR-EG118

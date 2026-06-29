@@ -14,54 +14,27 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM32/DM32-1.jpg
 pins:
-- gpio: 0
-  available: false
-  occupied_by: dm32-input17
 - gpio: 1
   available: false
-  occupied_by: dm32-input18
+  occupied_by: Ethernet CLK
 - gpio: 2
   available: false
-  occupied_by: dm32-input19
-- gpio: 3
-  available: false
-  occupied_by: dm32-input20
-- gpio: 4
-  available: false
-  occupied_by: dm32-input21
-- gpio: 5
-  available: false
-  occupied_by: dm32-input22
-- gpio: 6
-  available: false
-  occupied_by: dm32-input23
+  occupied_by: Ethernet MOSI
 - gpio: 7
   available: false
   occupied_by: dm32-W1-io7
 - gpio: 8
   available: false
-  occupied_by: dm32-input25
-- gpio: 9
-  available: false
-  occupied_by: dm32-input26
-- gpio: 10
-  available: false
-  occupied_by: dm32-input27
-- gpio: 11
-  available: false
-  occupied_by: dm32-input28
-- gpio: 12
-  available: false
-  occupied_by: dm32-input29
+  occupied_by: bus_a
 - gpio: 13
   available: false
   occupied_by: dm32-W1-io13
 - gpio: 14
   available: false
   occupied_by: dm32-W1-io14
-- gpio: 15
+- gpio: 18
   available: false
-  occupied_by: dm32-input32
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: dm32-W1-io21
@@ -88,6 +61,46 @@ pins:
   occupied_by: dm32-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM32/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_2
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -125,6 +138,9 @@ featured_components:
       locked: true
     id: dm32_input01
     name: dm32-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input02
   component_id: binary_sensor.gpio
   fields:
@@ -137,6 +153,9 @@ featured_components:
       locked: true
     id: dm32_input02
     name: dm32-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input03
   component_id: binary_sensor.gpio
   fields:
@@ -149,6 +168,9 @@ featured_components:
       locked: true
     id: dm32_input03
     name: dm32-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input04
   component_id: binary_sensor.gpio
   fields:
@@ -161,6 +183,9 @@ featured_components:
       locked: true
     id: dm32_input04
     name: dm32-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input05
   component_id: binary_sensor.gpio
   fields:
@@ -173,6 +198,9 @@ featured_components:
       locked: true
     id: dm32_input05
     name: dm32-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input06
   component_id: binary_sensor.gpio
   fields:
@@ -185,6 +213,9 @@ featured_components:
       locked: true
     id: dm32_input06
     name: dm32-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input07
   component_id: binary_sensor.gpio
   fields:
@@ -197,6 +228,9 @@ featured_components:
       locked: true
     id: dm32_input07
     name: dm32-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input08
   component_id: binary_sensor.gpio
   fields:
@@ -209,6 +243,9 @@ featured_components:
       locked: true
     id: dm32_input08
     name: dm32-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input09
   component_id: binary_sensor.gpio
   fields:
@@ -221,6 +258,9 @@ featured_components:
       locked: true
     id: dm32_input09
     name: dm32-input09
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input10
   component_id: binary_sensor.gpio
   fields:
@@ -233,6 +273,9 @@ featured_components:
       locked: true
     id: dm32_input10
     name: dm32-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input11
   component_id: binary_sensor.gpio
   fields:
@@ -245,6 +288,9 @@ featured_components:
       locked: true
     id: dm32_input11
     name: dm32-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input12
   component_id: binary_sensor.gpio
   fields:
@@ -257,6 +303,9 @@ featured_components:
       locked: true
     id: dm32_input12
     name: dm32-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input13
   component_id: binary_sensor.gpio
   fields:
@@ -269,6 +318,9 @@ featured_components:
       locked: true
     id: dm32_input13
     name: dm32-input13
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input14
   component_id: binary_sensor.gpio
   fields:
@@ -281,6 +333,9 @@ featured_components:
       locked: true
     id: dm32_input14
     name: dm32-input14
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input15
   component_id: binary_sensor.gpio
   fields:
@@ -293,6 +348,9 @@ featured_components:
       locked: true
     id: dm32_input15
     name: dm32-input15
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input16
   component_id: binary_sensor.gpio
   fields:
@@ -305,6 +363,9 @@ featured_components:
       locked: true
     id: dm32_input16
     name: dm32-input16
+  requires:
+  - bus_a
+  - pcf8574_hub_1
 - id: dm32_input17
   component_id: binary_sensor.gpio
   fields:
@@ -317,6 +378,9 @@ featured_components:
       locked: true
     id: dm32_input17
     name: dm32-input17
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input18
   component_id: binary_sensor.gpio
   fields:
@@ -329,6 +393,9 @@ featured_components:
       locked: true
     id: dm32_input18
     name: dm32-input18
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input19
   component_id: binary_sensor.gpio
   fields:
@@ -341,6 +408,9 @@ featured_components:
       locked: true
     id: dm32_input19
     name: dm32-input19
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input20
   component_id: binary_sensor.gpio
   fields:
@@ -353,6 +423,9 @@ featured_components:
       locked: true
     id: dm32_input20
     name: dm32-input20
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input21
   component_id: binary_sensor.gpio
   fields:
@@ -365,6 +438,9 @@ featured_components:
       locked: true
     id: dm32_input21
     name: dm32-input21
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input22
   component_id: binary_sensor.gpio
   fields:
@@ -377,6 +453,9 @@ featured_components:
       locked: true
     id: dm32_input22
     name: dm32-input22
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input23
   component_id: binary_sensor.gpio
   fields:
@@ -389,6 +468,9 @@ featured_components:
       locked: true
     id: dm32_input23
     name: dm32-input23
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input24
   component_id: binary_sensor.gpio
   fields:
@@ -401,6 +483,9 @@ featured_components:
       locked: true
     id: dm32_input24
     name: dm32-input24
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input25
   component_id: binary_sensor.gpio
   fields:
@@ -413,6 +498,9 @@ featured_components:
       locked: true
     id: dm32_input25
     name: dm32-input25
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input26
   component_id: binary_sensor.gpio
   fields:
@@ -425,6 +513,9 @@ featured_components:
       locked: true
     id: dm32_input26
     name: dm32-input26
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input27
   component_id: binary_sensor.gpio
   fields:
@@ -437,6 +528,9 @@ featured_components:
       locked: true
     id: dm32_input27
     name: dm32-input27
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input28
   component_id: binary_sensor.gpio
   fields:
@@ -449,6 +543,9 @@ featured_components:
       locked: true
     id: dm32_input28
     name: dm32-input28
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input29
   component_id: binary_sensor.gpio
   fields:
@@ -461,6 +558,9 @@ featured_components:
       locked: true
     id: dm32_input29
     name: dm32-input29
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input30
   component_id: binary_sensor.gpio
   fields:
@@ -473,6 +573,9 @@ featured_components:
       locked: true
     id: dm32_input30
     name: dm32-input30
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input31
   component_id: binary_sensor.gpio
   fields:
@@ -485,6 +588,9 @@ featured_components:
       locked: true
     id: dm32_input31
     name: dm32-input31
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: dm32_input32
   component_id: binary_sensor.gpio
   fields:
@@ -497,6 +603,9 @@ featured_components:
       locked: true
     id: dm32_input32
     name: dm32-input32
+  requires:
+  - bus_a
+  - pcf8574_hub_2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
   fields:

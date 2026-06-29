@@ -18,52 +18,37 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: t32m-output17
+  occupied_by: t32m-io0
 - gpio: 1
   available: false
-  occupied_by: t32m-output18
+  occupied_by: Ethernet RESET
 - gpio: 2
   available: false
-  occupied_by: t32m-output19
-- gpio: 3
-  available: false
-  occupied_by: t32m-output20
+  occupied_by: Ethernet INT
 - gpio: 4
   available: false
-  occupied_by: t32m-output21
+  occupied_by: t32m A4 Current
 - gpio: 5
   available: false
-  occupied_by: t32m-output22
+  occupied_by: t32m A3 Current
 - gpio: 6
   available: false
-  occupied_by: t32m-output23
+  occupied_by: t32m A2 Voltage
 - gpio: 7
   available: false
-  occupied_by: t32m-output24
+  occupied_by: t32m A1 Voltage
 - gpio: 8
   available: false
-  occupied_by: t32m-output25
+  occupied_by: t32m-io8
 - gpio: 9
   available: false
-  occupied_by: t32m-output26
+  occupied_by: t32m-io9
 - gpio: 10
   available: false
-  occupied_by: t32m-output27
-- gpio: 11
-  available: false
-  occupied_by: t32m-output28
-- gpio: 12
-  available: false
-  occupied_by: t32m-output29
-- gpio: 13
-  available: false
-  occupied_by: t32m-output30
-- gpio: 14
-  available: false
-  occupied_by: t32m-output31
+  occupied_by: t32m-io10
 - gpio: 15
   available: false
-  occupied_by: t32m-output32
+  occupied_by: t32m-W1-io15
 - gpio: 16
   available: false
   occupied_by: t32m-W1-io16
@@ -85,8 +70,80 @@ pins:
 - gpio: 44
   available: false
   occupied_by: Ethernet MISO
+- gpio: 47
+  available: false
+  occupied_by: bus_a
+- gpio: 48
+  available: false
+  occupied_by: bus_a
 docs_url: https://devices.esphome.io/devices/KinCony-T32M/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 48
+      locked: true
+    scl:
+      value: 47
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 37
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_2
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 33
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_2
+  component_id: pcf8574
+  fields:
+    address: 32
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -124,6 +181,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: t32m-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -136,6 +196,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: t32m-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -148,6 +211,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: t32m-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -160,6 +226,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: t32m-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -172,6 +241,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: t32m-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -184,6 +256,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: t32m-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -196,6 +271,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: t32m-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -208,6 +286,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: t32m-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -220,6 +301,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: t32m-input09
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -232,6 +316,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: t32m-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -244,6 +331,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: t32m-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -256,6 +346,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: t32m-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -268,6 +361,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: t32m-input13
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -280,6 +376,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: t32m-input14
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -292,6 +391,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: t32m-input15
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -304,6 +406,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: t32m-input16
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
   fields:
@@ -316,6 +421,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_17
     name: t32m-input17
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
   fields:
@@ -328,6 +436,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_18
     name: t32m-input18
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
   fields:
@@ -340,6 +451,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_19
     name: t32m-input19
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
   fields:
@@ -352,6 +466,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_20
     name: t32m-input20
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
   fields:
@@ -364,6 +481,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_21
     name: t32m-input21
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
   fields:
@@ -376,6 +496,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_22
     name: t32m-input22
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
   fields:
@@ -388,6 +511,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_23
     name: t32m-input23
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
   fields:
@@ -400,6 +526,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: t32m-input24
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
   fields:
@@ -412,6 +541,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_25
     name: t32m-input25
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
   fields:
@@ -424,6 +556,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: t32m-input26
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
   fields:
@@ -436,6 +571,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_27
     name: t32m-input27
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
   fields:
@@ -448,6 +586,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_28
     name: t32m-input28
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
   fields:
@@ -460,6 +601,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_29
     name: t32m-input29
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
   fields:
@@ -472,6 +616,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_30
     name: t32m-input30
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
   fields:
@@ -484,6 +631,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_31
     name: t32m-input31
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
   fields:
@@ -496,6 +646,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_32
     name: t32m-input32
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
   fields:
@@ -630,6 +783,9 @@ featured_components:
       locked: true
     id: t32m_output01
     name: t32m-output01
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output02
   component_id: switch.gpio
   fields:
@@ -642,6 +798,9 @@ featured_components:
       locked: true
     id: t32m_output02
     name: t32m-output02
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output03
   component_id: switch.gpio
   fields:
@@ -654,6 +813,9 @@ featured_components:
       locked: true
     id: t32m_output03
     name: t32m-output03
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output04
   component_id: switch.gpio
   fields:
@@ -666,6 +828,9 @@ featured_components:
       locked: true
     id: t32m_output04
     name: t32m-output04
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output05
   component_id: switch.gpio
   fields:
@@ -678,6 +843,9 @@ featured_components:
       locked: true
     id: t32m_output05
     name: t32m-output05
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output06
   component_id: switch.gpio
   fields:
@@ -690,6 +858,9 @@ featured_components:
       locked: true
     id: t32m_output06
     name: t32m-output06
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output07
   component_id: switch.gpio
   fields:
@@ -702,6 +873,9 @@ featured_components:
       locked: true
     id: t32m_output07
     name: t32m-output07
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output08
   component_id: switch.gpio
   fields:
@@ -714,6 +888,9 @@ featured_components:
       locked: true
     id: t32m_output08
     name: t32m-output08
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output09
   component_id: switch.gpio
   fields:
@@ -726,6 +903,9 @@ featured_components:
       locked: true
     id: t32m_output09
     name: t32m-output09
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output10
   component_id: switch.gpio
   fields:
@@ -738,6 +918,9 @@ featured_components:
       locked: true
     id: t32m_output10
     name: t32m-output10
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output11
   component_id: switch.gpio
   fields:
@@ -750,6 +933,9 @@ featured_components:
       locked: true
     id: t32m_output11
     name: t32m-output11
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output12
   component_id: switch.gpio
   fields:
@@ -762,6 +948,9 @@ featured_components:
       locked: true
     id: t32m_output12
     name: t32m-output12
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output13
   component_id: switch.gpio
   fields:
@@ -774,6 +963,9 @@ featured_components:
       locked: true
     id: t32m_output13
     name: t32m-output13
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output14
   component_id: switch.gpio
   fields:
@@ -786,6 +978,9 @@ featured_components:
       locked: true
     id: t32m_output14
     name: t32m-output14
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output15
   component_id: switch.gpio
   fields:
@@ -798,6 +993,9 @@ featured_components:
       locked: true
     id: t32m_output15
     name: t32m-output15
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output16
   component_id: switch.gpio
   fields:
@@ -810,6 +1008,9 @@ featured_components:
       locked: true
     id: t32m_output16
     name: t32m-output16
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: t32m_output17
   component_id: switch.gpio
   fields:
@@ -822,6 +1023,9 @@ featured_components:
       locked: true
     id: t32m_output17
     name: t32m-output17
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output18
   component_id: switch.gpio
   fields:
@@ -834,6 +1038,9 @@ featured_components:
       locked: true
     id: t32m_output18
     name: t32m-output18
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output19
   component_id: switch.gpio
   fields:
@@ -846,6 +1053,9 @@ featured_components:
       locked: true
     id: t32m_output19
     name: t32m-output19
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output20
   component_id: switch.gpio
   fields:
@@ -858,6 +1068,9 @@ featured_components:
       locked: true
     id: t32m_output20
     name: t32m-output20
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output21
   component_id: switch.gpio
   fields:
@@ -870,6 +1083,9 @@ featured_components:
       locked: true
     id: t32m_output21
     name: t32m-output21
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output22
   component_id: switch.gpio
   fields:
@@ -882,6 +1098,9 @@ featured_components:
       locked: true
     id: t32m_output22
     name: t32m-output22
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output23
   component_id: switch.gpio
   fields:
@@ -894,6 +1113,9 @@ featured_components:
       locked: true
     id: t32m_output23
     name: t32m-output23
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output24
   component_id: switch.gpio
   fields:
@@ -906,6 +1128,9 @@ featured_components:
       locked: true
     id: t32m_output24
     name: t32m-output24
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output25
   component_id: switch.gpio
   fields:
@@ -918,6 +1143,9 @@ featured_components:
       locked: true
     id: t32m_output25
     name: t32m-output25
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output26
   component_id: switch.gpio
   fields:
@@ -930,6 +1158,9 @@ featured_components:
       locked: true
     id: t32m_output26
     name: t32m-output26
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output27
   component_id: switch.gpio
   fields:
@@ -942,6 +1173,9 @@ featured_components:
       locked: true
     id: t32m_output27
     name: t32m-output27
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output28
   component_id: switch.gpio
   fields:
@@ -954,6 +1188,9 @@ featured_components:
       locked: true
     id: t32m_output28
     name: t32m-output28
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output29
   component_id: switch.gpio
   fields:
@@ -966,6 +1203,9 @@ featured_components:
       locked: true
     id: t32m_output29
     name: t32m-output29
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output30
   component_id: switch.gpio
   fields:
@@ -978,6 +1218,9 @@ featured_components:
       locked: true
     id: t32m_output30
     name: t32m-output30
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output31
   component_id: switch.gpio
   fields:
@@ -990,6 +1233,9 @@ featured_components:
       locked: true
     id: t32m_output31
     name: t32m-output31
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: t32m_output32
   component_id: switch.gpio
   fields:
@@ -1002,6 +1248,9 @@ featured_components:
       locked: true
     id: t32m_output32
     name: t32m-output32
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 source:
   type: esphome-devices
   remote_id: KinCony-T32M

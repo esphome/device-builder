@@ -15,54 +15,18 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: a128-light113
-- gpio: 1
-  available: false
-  occupied_by: a128-light114
-- gpio: 2
-  available: false
-  occupied_by: a128-light115
-- gpio: 3
-  available: false
-  occupied_by: a128-light116
 - gpio: 4
   available: false
-  occupied_by: a128-light117
+  occupied_by: bus_b
 - gpio: 5
   available: false
-  occupied_by: a128-light118
-- gpio: 6
-  available: false
-  occupied_by: a128-light119
-- gpio: 7
-  available: false
-  occupied_by: a128-light120
-- gpio: 8
-  available: false
-  occupied_by: a128-light121
-- gpio: 9
-  available: false
-  occupied_by: a128-light122
-- gpio: 10
-  available: false
-  occupied_by: a128-light123
-- gpio: 11
-  available: false
-  occupied_by: a128-light124
-- gpio: 12
-  available: false
-  occupied_by: a128-light125
-- gpio: 13
-  available: false
-  occupied_by: a128-light126
-- gpio: 14
-  available: false
-  occupied_by: a128-light127
+  occupied_by: bus_a
 - gpio: 15
   available: false
-  occupied_by: a128-light128
+  occupied_by: bus_b
+- gpio: 16
+  available: false
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -74,6 +38,242 @@ pins:
   occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A128/
 featured_components:
+- id: bus_b
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 4
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_b
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_2
+  component_id: pcf8574
+  fields:
+    address: 37
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_2
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_3
+  component_id: pcf8574
+  fields:
+    address: 33
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_3
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_4
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_4
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_5
+  component_id: pcf8574
+  fields:
+    address: 38
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_5
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_6
+  component_id: pcf8574
+  fields:
+    address: 39
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_6
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_7
+  component_id: pcf8574
+  fields:
+    address: 32
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_7
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_8
+  component_id: pcf8574
+  fields:
+    address: 35
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_8
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 5
+      locked: true
+    scl:
+      value: 16
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_2
+  component_id: pcf8574
+  fields:
+    address: 37
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_3
+  component_id: pcf8574
+  fields:
+    address: 33
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_3
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_4
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_4
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_5
+  component_id: pcf8574
+  fields:
+    address: 38
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_5
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_6
+  component_id: pcf8574
+  fields:
+    address: 39
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_6
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_7
+  component_id: pcf8574
+  fields:
+    address: 32
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_7
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_8
+  component_id: pcf8574
+  fields:
+    address: 35
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_8
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -105,6 +305,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: a128-input1
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -117,6 +320,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: a128-input2
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -129,6 +335,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: a128-input3
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -141,6 +350,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: a128-input4
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -153,6 +365,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: a128-input5
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -165,6 +380,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: a128-input6
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -177,6 +395,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: a128-input7
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -189,6 +410,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: a128-input8
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -201,6 +425,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: a128-input9
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -213,6 +440,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: a128-input10
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -225,6 +455,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: a128-input11
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -237,6 +470,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: a128-input12
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -249,6 +485,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: a128-input13
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -261,6 +500,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: a128-input14
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -273,6 +515,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: a128-input15
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -285,6 +530,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: a128-input16
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
   fields:
@@ -297,6 +545,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_17
     name: a128-input17
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
   fields:
@@ -309,6 +560,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_18
     name: a128-input18
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
   fields:
@@ -321,6 +575,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_19
     name: a128-input19
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
   fields:
@@ -333,6 +590,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_20
     name: a128-input20
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
   fields:
@@ -345,6 +605,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_21
     name: a128-input21
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
   fields:
@@ -357,6 +620,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_22
     name: a128-input22
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
   fields:
@@ -369,6 +635,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_23
     name: a128-input23
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
   fields:
@@ -381,6 +650,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: a128-input24
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
   fields:
@@ -393,6 +665,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_25
     name: a128-input25
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
   fields:
@@ -405,6 +680,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: a128-input26
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
   fields:
@@ -417,6 +695,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_27
     name: a128-input27
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
   fields:
@@ -429,6 +710,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_28
     name: a128-input28
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
   fields:
@@ -441,6 +725,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_29
     name: a128-input29
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
   fields:
@@ -453,6 +740,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_30
     name: a128-input30
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
   fields:
@@ -465,6 +755,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_31
     name: a128-input31
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
   fields:
@@ -477,6 +770,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_32
     name: a128-input32
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
   fields:
@@ -489,6 +785,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_33
     name: a128-input33
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_34
   component_id: binary_sensor.gpio
   fields:
@@ -501,6 +800,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_34
     name: a128-input34
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_35
   component_id: binary_sensor.gpio
   fields:
@@ -513,6 +815,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_35
     name: a128-input35
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_36
   component_id: binary_sensor.gpio
   fields:
@@ -525,6 +830,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_36
     name: a128-input36
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_37
   component_id: binary_sensor.gpio
   fields:
@@ -537,6 +845,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_37
     name: a128-input37
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_38
   component_id: binary_sensor.gpio
   fields:
@@ -549,6 +860,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_38
     name: a128-input38
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_39
   component_id: binary_sensor.gpio
   fields:
@@ -561,6 +875,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_39
     name: a128-input39
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_40
   component_id: binary_sensor.gpio
   fields:
@@ -573,6 +890,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_40
     name: a128-input40
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_41
   component_id: binary_sensor.gpio
   fields:
@@ -585,6 +905,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_41
     name: a128-input41
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_42
   component_id: binary_sensor.gpio
   fields:
@@ -597,6 +920,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_42
     name: a128-input42
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_43
   component_id: binary_sensor.gpio
   fields:
@@ -609,6 +935,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_43
     name: a128-input43
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_44
   component_id: binary_sensor.gpio
   fields:
@@ -621,6 +950,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_44
     name: a128-input44
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_45
   component_id: binary_sensor.gpio
   fields:
@@ -633,6 +965,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_45
     name: a128-input45
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_46
   component_id: binary_sensor.gpio
   fields:
@@ -645,6 +980,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_46
     name: a128-input46
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_47
   component_id: binary_sensor.gpio
   fields:
@@ -657,6 +995,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_47
     name: a128-input47
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_48
   component_id: binary_sensor.gpio
   fields:
@@ -669,6 +1010,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_48
     name: a128-input48
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_49
   component_id: binary_sensor.gpio
   fields:
@@ -681,6 +1025,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_49
     name: a128-input49
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_50
   component_id: binary_sensor.gpio
   fields:
@@ -693,6 +1040,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_50
     name: a128-input50
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_51
   component_id: binary_sensor.gpio
   fields:
@@ -705,6 +1055,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_51
     name: a128-input51
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_52
   component_id: binary_sensor.gpio
   fields:
@@ -717,6 +1070,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_52
     name: a128-input52
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_53
   component_id: binary_sensor.gpio
   fields:
@@ -729,6 +1085,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_53
     name: a128-input53
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_54
   component_id: binary_sensor.gpio
   fields:
@@ -741,6 +1100,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_54
     name: a128-input54
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_55
   component_id: binary_sensor.gpio
   fields:
@@ -753,6 +1115,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_55
     name: a128-input55
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_56
   component_id: binary_sensor.gpio
   fields:
@@ -765,6 +1130,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_56
     name: a128-input56
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_57
   component_id: binary_sensor.gpio
   fields:
@@ -777,6 +1145,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_57
     name: a128-input57
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_58
   component_id: binary_sensor.gpio
   fields:
@@ -789,6 +1160,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_58
     name: a128-input58
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_59
   component_id: binary_sensor.gpio
   fields:
@@ -801,6 +1175,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_59
     name: a128-input59
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_60
   component_id: binary_sensor.gpio
   fields:
@@ -813,6 +1190,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_60
     name: a128-input60
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_61
   component_id: binary_sensor.gpio
   fields:
@@ -825,6 +1205,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_61
     name: a128-input61
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_62
   component_id: binary_sensor.gpio
   fields:
@@ -837,6 +1220,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_62
     name: a128-input62
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_63
   component_id: binary_sensor.gpio
   fields:
@@ -849,6 +1235,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_63
     name: a128-input63
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_64
   component_id: binary_sensor.gpio
   fields:
@@ -861,6 +1250,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_64
     name: a128-input64
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_65
   component_id: binary_sensor.gpio
   fields:
@@ -873,6 +1265,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_65
     name: a128-input65
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_66
   component_id: binary_sensor.gpio
   fields:
@@ -885,6 +1280,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_66
     name: a128-input66
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_67
   component_id: binary_sensor.gpio
   fields:
@@ -897,6 +1295,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_67
     name: a128-input67
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_68
   component_id: binary_sensor.gpio
   fields:
@@ -909,6 +1310,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_68
     name: a128-input68
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_69
   component_id: binary_sensor.gpio
   fields:
@@ -921,6 +1325,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_69
     name: a128-input69
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_70
   component_id: binary_sensor.gpio
   fields:
@@ -933,6 +1340,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_70
     name: a128-input70
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_71
   component_id: binary_sensor.gpio
   fields:
@@ -945,6 +1355,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_71
     name: a128-input71
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_72
   component_id: binary_sensor.gpio
   fields:
@@ -957,6 +1370,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_72
     name: a128-input72
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_73
   component_id: binary_sensor.gpio
   fields:
@@ -969,6 +1385,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_73
     name: a128-input73
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_74
   component_id: binary_sensor.gpio
   fields:
@@ -981,6 +1400,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_74
     name: a128-input74
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_75
   component_id: binary_sensor.gpio
   fields:
@@ -993,6 +1415,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_75
     name: a128-input75
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_76
   component_id: binary_sensor.gpio
   fields:
@@ -1005,6 +1430,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_76
     name: a128-input76
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_77
   component_id: binary_sensor.gpio
   fields:
@@ -1017,6 +1445,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_77
     name: a128-input77
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_78
   component_id: binary_sensor.gpio
   fields:
@@ -1029,6 +1460,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_78
     name: a128-input78
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_79
   component_id: binary_sensor.gpio
   fields:
@@ -1041,6 +1475,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_79
     name: a128-input79
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_80
   component_id: binary_sensor.gpio
   fields:
@@ -1053,6 +1490,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_80
     name: a128-input80
+  requires:
+  - bus_b
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_81
   component_id: binary_sensor.gpio
   fields:
@@ -1065,6 +1505,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_81
     name: a128-input81
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_82
   component_id: binary_sensor.gpio
   fields:
@@ -1077,6 +1520,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_82
     name: a128-input82
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_83
   component_id: binary_sensor.gpio
   fields:
@@ -1089,6 +1535,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_83
     name: a128-input83
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_84
   component_id: binary_sensor.gpio
   fields:
@@ -1101,6 +1550,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_84
     name: a128-input84
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_85
   component_id: binary_sensor.gpio
   fields:
@@ -1113,6 +1565,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_85
     name: a128-input85
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_86
   component_id: binary_sensor.gpio
   fields:
@@ -1125,6 +1580,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_86
     name: a128-input86
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_87
   component_id: binary_sensor.gpio
   fields:
@@ -1137,6 +1595,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_87
     name: a128-input87
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_88
   component_id: binary_sensor.gpio
   fields:
@@ -1149,6 +1610,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_88
     name: a128-input88
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_89
   component_id: binary_sensor.gpio
   fields:
@@ -1161,6 +1625,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_89
     name: a128-input89
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_90
   component_id: binary_sensor.gpio
   fields:
@@ -1173,6 +1640,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_90
     name: a128-input90
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_91
   component_id: binary_sensor.gpio
   fields:
@@ -1185,6 +1655,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_91
     name: a128-input91
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_92
   component_id: binary_sensor.gpio
   fields:
@@ -1197,6 +1670,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_92
     name: a128-input92
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_93
   component_id: binary_sensor.gpio
   fields:
@@ -1209,6 +1685,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_93
     name: a128-input93
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_94
   component_id: binary_sensor.gpio
   fields:
@@ -1221,6 +1700,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_94
     name: a128-input94
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_95
   component_id: binary_sensor.gpio
   fields:
@@ -1233,6 +1715,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_95
     name: a128-input95
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_96
   component_id: binary_sensor.gpio
   fields:
@@ -1245,6 +1730,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_96
     name: a128-input96
+  requires:
+  - bus_b
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_97
   component_id: binary_sensor.gpio
   fields:
@@ -1257,6 +1745,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_97
     name: a128-input97
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_98
   component_id: binary_sensor.gpio
   fields:
@@ -1269,6 +1760,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_98
     name: a128-input98
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_99
   component_id: binary_sensor.gpio
   fields:
@@ -1281,6 +1775,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_99
     name: a128-input99
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_100
   component_id: binary_sensor.gpio
   fields:
@@ -1293,6 +1790,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_100
     name: a128-input100
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_101
   component_id: binary_sensor.gpio
   fields:
@@ -1305,6 +1805,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_101
     name: a128-input101
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_102
   component_id: binary_sensor.gpio
   fields:
@@ -1317,6 +1820,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_102
     name: a128-input102
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_103
   component_id: binary_sensor.gpio
   fields:
@@ -1329,6 +1835,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_103
     name: a128-input103
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_104
   component_id: binary_sensor.gpio
   fields:
@@ -1341,6 +1850,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_104
     name: a128-input104
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_105
   component_id: binary_sensor.gpio
   fields:
@@ -1353,6 +1865,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_105
     name: a128-input105
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_106
   component_id: binary_sensor.gpio
   fields:
@@ -1365,6 +1880,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_106
     name: a128-input106
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_107
   component_id: binary_sensor.gpio
   fields:
@@ -1377,6 +1895,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_107
     name: a128-input107
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_108
   component_id: binary_sensor.gpio
   fields:
@@ -1389,6 +1910,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_108
     name: a128-input108
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_109
   component_id: binary_sensor.gpio
   fields:
@@ -1401,6 +1925,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_109
     name: a128-input109
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_110
   component_id: binary_sensor.gpio
   fields:
@@ -1413,6 +1940,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_110
     name: a128-input110
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_111
   component_id: binary_sensor.gpio
   fields:
@@ -1425,6 +1955,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_111
     name: a128-input111
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_112
   component_id: binary_sensor.gpio
   fields:
@@ -1437,6 +1970,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_112
     name: a128-input112
+  requires:
+  - bus_b
+  - pcf8574_hub_in_7
 - id: binary_sensor_gpio_113
   component_id: binary_sensor.gpio
   fields:
@@ -1449,6 +1985,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_113
     name: a128-input113
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_114
   component_id: binary_sensor.gpio
   fields:
@@ -1461,6 +2000,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_114
     name: a128-input114
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_115
   component_id: binary_sensor.gpio
   fields:
@@ -1473,6 +2015,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_115
     name: a128-input115
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_116
   component_id: binary_sensor.gpio
   fields:
@@ -1485,6 +2030,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_116
     name: a128-input116
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_117
   component_id: binary_sensor.gpio
   fields:
@@ -1497,6 +2045,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_117
     name: a128-input117
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_118
   component_id: binary_sensor.gpio
   fields:
@@ -1509,6 +2060,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_118
     name: a128-input118
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_119
   component_id: binary_sensor.gpio
   fields:
@@ -1521,6 +2075,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_119
     name: a128-input119
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_120
   component_id: binary_sensor.gpio
   fields:
@@ -1533,6 +2090,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_120
     name: a128-input120
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_121
   component_id: binary_sensor.gpio
   fields:
@@ -1545,6 +2105,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_121
     name: a128-input121
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_122
   component_id: binary_sensor.gpio
   fields:
@@ -1557,6 +2120,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_122
     name: a128-input122
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_123
   component_id: binary_sensor.gpio
   fields:
@@ -1569,6 +2135,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_123
     name: a128-input123
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_124
   component_id: binary_sensor.gpio
   fields:
@@ -1581,6 +2150,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_124
     name: a128-input124
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_125
   component_id: binary_sensor.gpio
   fields:
@@ -1593,6 +2165,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_125
     name: a128-input125
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_126
   component_id: binary_sensor.gpio
   fields:
@@ -1605,6 +2180,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_126
     name: a128-input126
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_127
   component_id: binary_sensor.gpio
   fields:
@@ -1617,6 +2195,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_127
     name: a128-input127
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: binary_sensor_gpio_128
   component_id: binary_sensor.gpio
   fields:
@@ -1629,6 +2210,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_128
     name: a128-input128
+  requires:
+  - bus_b
+  - pcf8574_hub_in_8
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -1641,6 +2225,9 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: a128-light1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -1653,6 +2240,9 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: a128-light2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -1665,6 +2255,9 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: a128-light3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -1677,6 +2270,9 @@ featured_components:
       locked: true
     id: switch_gpio_4
     name: a128-light4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -1689,6 +2285,9 @@ featured_components:
       locked: true
     id: switch_gpio_5
     name: a128-light5
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -1701,6 +2300,9 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: a128-light6
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_7
   component_id: switch.gpio
   fields:
@@ -1713,6 +2315,9 @@ featured_components:
       locked: true
     id: switch_gpio_7
     name: a128-light7
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_8
   component_id: switch.gpio
   fields:
@@ -1725,6 +2330,9 @@ featured_components:
       locked: true
     id: switch_gpio_8
     name: a128-light8
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_9
   component_id: switch.gpio
   fields:
@@ -1737,6 +2345,9 @@ featured_components:
       locked: true
     id: switch_gpio_9
     name: a128-light9
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_10
   component_id: switch.gpio
   fields:
@@ -1749,6 +2360,9 @@ featured_components:
       locked: true
     id: switch_gpio_10
     name: a128-light10
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_11
   component_id: switch.gpio
   fields:
@@ -1761,6 +2375,9 @@ featured_components:
       locked: true
     id: switch_gpio_11
     name: a128-light11
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_12
   component_id: switch.gpio
   fields:
@@ -1773,6 +2390,9 @@ featured_components:
       locked: true
     id: switch_gpio_12
     name: a128-light12
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_13
   component_id: switch.gpio
   fields:
@@ -1785,6 +2405,9 @@ featured_components:
       locked: true
     id: switch_gpio_13
     name: a128-light13
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_14
   component_id: switch.gpio
   fields:
@@ -1797,6 +2420,9 @@ featured_components:
       locked: true
     id: switch_gpio_14
     name: a128-light14
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_15
   component_id: switch.gpio
   fields:
@@ -1809,6 +2435,9 @@ featured_components:
       locked: true
     id: switch_gpio_15
     name: a128-light15
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_16
   component_id: switch.gpio
   fields:
@@ -1821,6 +2450,9 @@ featured_components:
       locked: true
     id: switch_gpio_16
     name: a128-light16
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_17
   component_id: switch.gpio
   fields:
@@ -1833,6 +2465,9 @@ featured_components:
       locked: true
     id: switch_gpio_17
     name: a128-light17
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_18
   component_id: switch.gpio
   fields:
@@ -1845,6 +2480,9 @@ featured_components:
       locked: true
     id: switch_gpio_18
     name: a128-light18
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_19
   component_id: switch.gpio
   fields:
@@ -1857,6 +2495,9 @@ featured_components:
       locked: true
     id: switch_gpio_19
     name: a128-light19
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_20
   component_id: switch.gpio
   fields:
@@ -1869,6 +2510,9 @@ featured_components:
       locked: true
     id: switch_gpio_20
     name: a128-light20
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_21
   component_id: switch.gpio
   fields:
@@ -1881,6 +2525,9 @@ featured_components:
       locked: true
     id: switch_gpio_21
     name: a128-light21
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_22
   component_id: switch.gpio
   fields:
@@ -1893,6 +2540,9 @@ featured_components:
       locked: true
     id: switch_gpio_22
     name: a128-light22
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_23
   component_id: switch.gpio
   fields:
@@ -1905,6 +2555,9 @@ featured_components:
       locked: true
     id: switch_gpio_23
     name: a128-light23
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_24
   component_id: switch.gpio
   fields:
@@ -1917,6 +2570,9 @@ featured_components:
       locked: true
     id: switch_gpio_24
     name: a128-light24
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_25
   component_id: switch.gpio
   fields:
@@ -1929,6 +2585,9 @@ featured_components:
       locked: true
     id: switch_gpio_25
     name: a128-light25
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_26
   component_id: switch.gpio
   fields:
@@ -1941,6 +2600,9 @@ featured_components:
       locked: true
     id: switch_gpio_26
     name: a128-light26
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_27
   component_id: switch.gpio
   fields:
@@ -1953,6 +2615,9 @@ featured_components:
       locked: true
     id: switch_gpio_27
     name: a128-light27
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_28
   component_id: switch.gpio
   fields:
@@ -1965,6 +2630,9 @@ featured_components:
       locked: true
     id: switch_gpio_28
     name: a128-light28
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_29
   component_id: switch.gpio
   fields:
@@ -1977,6 +2645,9 @@ featured_components:
       locked: true
     id: switch_gpio_29
     name: a128-light29
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_30
   component_id: switch.gpio
   fields:
@@ -1989,6 +2660,9 @@ featured_components:
       locked: true
     id: switch_gpio_30
     name: a128-light30
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_31
   component_id: switch.gpio
   fields:
@@ -2001,6 +2675,9 @@ featured_components:
       locked: true
     id: switch_gpio_31
     name: a128-light31
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_32
   component_id: switch.gpio
   fields:
@@ -2013,6 +2690,9 @@ featured_components:
       locked: true
     id: switch_gpio_32
     name: a128-light32
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_33
   component_id: switch.gpio
   fields:
@@ -2025,6 +2705,9 @@ featured_components:
       locked: true
     id: switch_gpio_33
     name: a128-light33
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_34
   component_id: switch.gpio
   fields:
@@ -2037,6 +2720,9 @@ featured_components:
       locked: true
     id: switch_gpio_34
     name: a128-light34
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_35
   component_id: switch.gpio
   fields:
@@ -2049,6 +2735,9 @@ featured_components:
       locked: true
     id: switch_gpio_35
     name: a128-light35
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_36
   component_id: switch.gpio
   fields:
@@ -2061,6 +2750,9 @@ featured_components:
       locked: true
     id: switch_gpio_36
     name: a128-light36
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_37
   component_id: switch.gpio
   fields:
@@ -2073,6 +2765,9 @@ featured_components:
       locked: true
     id: switch_gpio_37
     name: a128-light37
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_38
   component_id: switch.gpio
   fields:
@@ -2085,6 +2780,9 @@ featured_components:
       locked: true
     id: switch_gpio_38
     name: a128-light38
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_39
   component_id: switch.gpio
   fields:
@@ -2097,6 +2795,9 @@ featured_components:
       locked: true
     id: switch_gpio_39
     name: a128-light39
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_40
   component_id: switch.gpio
   fields:
@@ -2109,6 +2810,9 @@ featured_components:
       locked: true
     id: switch_gpio_40
     name: a128-light40
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_41
   component_id: switch.gpio
   fields:
@@ -2121,6 +2825,9 @@ featured_components:
       locked: true
     id: switch_gpio_41
     name: a128-light41
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_42
   component_id: switch.gpio
   fields:
@@ -2133,6 +2840,9 @@ featured_components:
       locked: true
     id: switch_gpio_42
     name: a128-light42
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_43
   component_id: switch.gpio
   fields:
@@ -2145,6 +2855,9 @@ featured_components:
       locked: true
     id: switch_gpio_43
     name: a128-light43
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_44
   component_id: switch.gpio
   fields:
@@ -2157,6 +2870,9 @@ featured_components:
       locked: true
     id: switch_gpio_44
     name: a128-light44
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_45
   component_id: switch.gpio
   fields:
@@ -2169,6 +2885,9 @@ featured_components:
       locked: true
     id: switch_gpio_45
     name: a128-light45
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_46
   component_id: switch.gpio
   fields:
@@ -2181,6 +2900,9 @@ featured_components:
       locked: true
     id: switch_gpio_46
     name: a128-light46
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_47
   component_id: switch.gpio
   fields:
@@ -2193,6 +2915,9 @@ featured_components:
       locked: true
     id: switch_gpio_47
     name: a128-light47
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_48
   component_id: switch.gpio
   fields:
@@ -2205,6 +2930,9 @@ featured_components:
       locked: true
     id: switch_gpio_48
     name: a128-light48
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_49
   component_id: switch.gpio
   fields:
@@ -2217,6 +2945,9 @@ featured_components:
       locked: true
     id: switch_gpio_49
     name: a128-light49
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_50
   component_id: switch.gpio
   fields:
@@ -2229,6 +2960,9 @@ featured_components:
       locked: true
     id: switch_gpio_50
     name: a128-light50
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_51
   component_id: switch.gpio
   fields:
@@ -2241,6 +2975,9 @@ featured_components:
       locked: true
     id: switch_gpio_51
     name: a128-light51
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_52
   component_id: switch.gpio
   fields:
@@ -2253,6 +2990,9 @@ featured_components:
       locked: true
     id: switch_gpio_52
     name: a128-light52
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_53
   component_id: switch.gpio
   fields:
@@ -2265,6 +3005,9 @@ featured_components:
       locked: true
     id: switch_gpio_53
     name: a128-light53
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_54
   component_id: switch.gpio
   fields:
@@ -2277,6 +3020,9 @@ featured_components:
       locked: true
     id: switch_gpio_54
     name: a128-light54
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_55
   component_id: switch.gpio
   fields:
@@ -2289,6 +3035,9 @@ featured_components:
       locked: true
     id: switch_gpio_55
     name: a128-light55
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_56
   component_id: switch.gpio
   fields:
@@ -2301,6 +3050,9 @@ featured_components:
       locked: true
     id: switch_gpio_56
     name: a128-light56
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_57
   component_id: switch.gpio
   fields:
@@ -2313,6 +3065,9 @@ featured_components:
       locked: true
     id: switch_gpio_57
     name: a128-light57
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_58
   component_id: switch.gpio
   fields:
@@ -2325,6 +3080,9 @@ featured_components:
       locked: true
     id: switch_gpio_58
     name: a128-light58
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_59
   component_id: switch.gpio
   fields:
@@ -2337,6 +3095,9 @@ featured_components:
       locked: true
     id: switch_gpio_59
     name: a128-light59
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_60
   component_id: switch.gpio
   fields:
@@ -2349,6 +3110,9 @@ featured_components:
       locked: true
     id: switch_gpio_60
     name: a128-light60
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_61
   component_id: switch.gpio
   fields:
@@ -2361,6 +3125,9 @@ featured_components:
       locked: true
     id: switch_gpio_61
     name: a128-light61
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_62
   component_id: switch.gpio
   fields:
@@ -2373,6 +3140,9 @@ featured_components:
       locked: true
     id: switch_gpio_62
     name: a128-light62
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_63
   component_id: switch.gpio
   fields:
@@ -2385,6 +3155,9 @@ featured_components:
       locked: true
     id: switch_gpio_63
     name: a128-light63
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_64
   component_id: switch.gpio
   fields:
@@ -2397,6 +3170,9 @@ featured_components:
       locked: true
     id: switch_gpio_64
     name: a128-light64
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_65
   component_id: switch.gpio
   fields:
@@ -2409,6 +3185,9 @@ featured_components:
       locked: true
     id: switch_gpio_65
     name: a128-light65
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_66
   component_id: switch.gpio
   fields:
@@ -2421,6 +3200,9 @@ featured_components:
       locked: true
     id: switch_gpio_66
     name: a128-light66
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_67
   component_id: switch.gpio
   fields:
@@ -2433,6 +3215,9 @@ featured_components:
       locked: true
     id: switch_gpio_67
     name: a128-light67
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_68
   component_id: switch.gpio
   fields:
@@ -2445,6 +3230,9 @@ featured_components:
       locked: true
     id: switch_gpio_68
     name: a128-light68
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_69
   component_id: switch.gpio
   fields:
@@ -2457,6 +3245,9 @@ featured_components:
       locked: true
     id: switch_gpio_69
     name: a128-light69
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_70
   component_id: switch.gpio
   fields:
@@ -2469,6 +3260,9 @@ featured_components:
       locked: true
     id: switch_gpio_70
     name: a128-light70
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_71
   component_id: switch.gpio
   fields:
@@ -2481,6 +3275,9 @@ featured_components:
       locked: true
     id: switch_gpio_71
     name: a128-light71
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_72
   component_id: switch.gpio
   fields:
@@ -2493,6 +3290,9 @@ featured_components:
       locked: true
     id: switch_gpio_72
     name: a128-light72
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_73
   component_id: switch.gpio
   fields:
@@ -2505,6 +3305,9 @@ featured_components:
       locked: true
     id: switch_gpio_73
     name: a128-light73
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_74
   component_id: switch.gpio
   fields:
@@ -2517,6 +3320,9 @@ featured_components:
       locked: true
     id: switch_gpio_74
     name: a128-light74
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_75
   component_id: switch.gpio
   fields:
@@ -2529,6 +3335,9 @@ featured_components:
       locked: true
     id: switch_gpio_75
     name: a128-light75
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_76
   component_id: switch.gpio
   fields:
@@ -2541,6 +3350,9 @@ featured_components:
       locked: true
     id: switch_gpio_76
     name: a128-light76
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_77
   component_id: switch.gpio
   fields:
@@ -2553,6 +3365,9 @@ featured_components:
       locked: true
     id: switch_gpio_77
     name: a128-light77
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_78
   component_id: switch.gpio
   fields:
@@ -2565,6 +3380,9 @@ featured_components:
       locked: true
     id: switch_gpio_78
     name: a128-light78
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_79
   component_id: switch.gpio
   fields:
@@ -2577,6 +3395,9 @@ featured_components:
       locked: true
     id: switch_gpio_79
     name: a128-light79
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_80
   component_id: switch.gpio
   fields:
@@ -2589,6 +3410,9 @@ featured_components:
       locked: true
     id: switch_gpio_80
     name: a128-light80
+  requires:
+  - bus_a
+  - pcf8574_hub_out_5
 - id: switch_gpio_81
   component_id: switch.gpio
   fields:
@@ -2601,6 +3425,9 @@ featured_components:
       locked: true
     id: switch_gpio_81
     name: a128-light81
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_82
   component_id: switch.gpio
   fields:
@@ -2613,6 +3440,9 @@ featured_components:
       locked: true
     id: switch_gpio_82
     name: a128-light82
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_83
   component_id: switch.gpio
   fields:
@@ -2625,6 +3455,9 @@ featured_components:
       locked: true
     id: switch_gpio_83
     name: a128-light83
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_84
   component_id: switch.gpio
   fields:
@@ -2637,6 +3470,9 @@ featured_components:
       locked: true
     id: switch_gpio_84
     name: a128-light84
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_85
   component_id: switch.gpio
   fields:
@@ -2649,6 +3485,9 @@ featured_components:
       locked: true
     id: switch_gpio_85
     name: a128-light85
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_86
   component_id: switch.gpio
   fields:
@@ -2661,6 +3500,9 @@ featured_components:
       locked: true
     id: switch_gpio_86
     name: a128-light86
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_87
   component_id: switch.gpio
   fields:
@@ -2673,6 +3515,9 @@ featured_components:
       locked: true
     id: switch_gpio_87
     name: a128-light87
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_88
   component_id: switch.gpio
   fields:
@@ -2685,6 +3530,9 @@ featured_components:
       locked: true
     id: switch_gpio_88
     name: a128-light88
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_89
   component_id: switch.gpio
   fields:
@@ -2697,6 +3545,9 @@ featured_components:
       locked: true
     id: switch_gpio_89
     name: a128-light89
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_90
   component_id: switch.gpio
   fields:
@@ -2709,6 +3560,9 @@ featured_components:
       locked: true
     id: switch_gpio_90
     name: a128-light90
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_91
   component_id: switch.gpio
   fields:
@@ -2721,6 +3575,9 @@ featured_components:
       locked: true
     id: switch_gpio_91
     name: a128-light91
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_92
   component_id: switch.gpio
   fields:
@@ -2733,6 +3590,9 @@ featured_components:
       locked: true
     id: switch_gpio_92
     name: a128-light92
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_93
   component_id: switch.gpio
   fields:
@@ -2745,6 +3605,9 @@ featured_components:
       locked: true
     id: switch_gpio_93
     name: a128-light93
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_94
   component_id: switch.gpio
   fields:
@@ -2757,6 +3620,9 @@ featured_components:
       locked: true
     id: switch_gpio_94
     name: a128-light94
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_95
   component_id: switch.gpio
   fields:
@@ -2769,6 +3635,9 @@ featured_components:
       locked: true
     id: switch_gpio_95
     name: a128-light95
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_96
   component_id: switch.gpio
   fields:
@@ -2781,6 +3650,9 @@ featured_components:
       locked: true
     id: switch_gpio_96
     name: a128-light96
+  requires:
+  - bus_a
+  - pcf8574_hub_out_6
 - id: switch_gpio_97
   component_id: switch.gpio
   fields:
@@ -2793,6 +3665,9 @@ featured_components:
       locked: true
     id: switch_gpio_97
     name: a128-light97
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_98
   component_id: switch.gpio
   fields:
@@ -2805,6 +3680,9 @@ featured_components:
       locked: true
     id: switch_gpio_98
     name: a128-light98
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_99
   component_id: switch.gpio
   fields:
@@ -2817,6 +3695,9 @@ featured_components:
       locked: true
     id: switch_gpio_99
     name: a128-light99
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_100
   component_id: switch.gpio
   fields:
@@ -2829,6 +3710,9 @@ featured_components:
       locked: true
     id: switch_gpio_100
     name: a128-light100
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_101
   component_id: switch.gpio
   fields:
@@ -2841,6 +3725,9 @@ featured_components:
       locked: true
     id: switch_gpio_101
     name: a128-light101
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_102
   component_id: switch.gpio
   fields:
@@ -2853,6 +3740,9 @@ featured_components:
       locked: true
     id: switch_gpio_102
     name: a128-light102
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_103
   component_id: switch.gpio
   fields:
@@ -2865,6 +3755,9 @@ featured_components:
       locked: true
     id: switch_gpio_103
     name: a128-light103
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_104
   component_id: switch.gpio
   fields:
@@ -2877,6 +3770,9 @@ featured_components:
       locked: true
     id: switch_gpio_104
     name: a128-light104
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_105
   component_id: switch.gpio
   fields:
@@ -2889,6 +3785,9 @@ featured_components:
       locked: true
     id: switch_gpio_105
     name: a128-light105
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_106
   component_id: switch.gpio
   fields:
@@ -2901,6 +3800,9 @@ featured_components:
       locked: true
     id: switch_gpio_106
     name: a128-light106
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_107
   component_id: switch.gpio
   fields:
@@ -2913,6 +3815,9 @@ featured_components:
       locked: true
     id: switch_gpio_107
     name: a128-light107
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_108
   component_id: switch.gpio
   fields:
@@ -2925,6 +3830,9 @@ featured_components:
       locked: true
     id: switch_gpio_108
     name: a128-light108
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_109
   component_id: switch.gpio
   fields:
@@ -2937,6 +3845,9 @@ featured_components:
       locked: true
     id: switch_gpio_109
     name: a128-light109
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_110
   component_id: switch.gpio
   fields:
@@ -2949,6 +3860,9 @@ featured_components:
       locked: true
     id: switch_gpio_110
     name: a128-light110
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_111
   component_id: switch.gpio
   fields:
@@ -2961,6 +3875,9 @@ featured_components:
       locked: true
     id: switch_gpio_111
     name: a128-light111
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_112
   component_id: switch.gpio
   fields:
@@ -2973,6 +3890,9 @@ featured_components:
       locked: true
     id: switch_gpio_112
     name: a128-light112
+  requires:
+  - bus_a
+  - pcf8574_hub_out_7
 - id: switch_gpio_113
   component_id: switch.gpio
   fields:
@@ -2985,6 +3905,9 @@ featured_components:
       locked: true
     id: switch_gpio_113
     name: a128-light113
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_114
   component_id: switch.gpio
   fields:
@@ -2997,6 +3920,9 @@ featured_components:
       locked: true
     id: switch_gpio_114
     name: a128-light114
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_115
   component_id: switch.gpio
   fields:
@@ -3009,6 +3935,9 @@ featured_components:
       locked: true
     id: switch_gpio_115
     name: a128-light115
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_116
   component_id: switch.gpio
   fields:
@@ -3021,6 +3950,9 @@ featured_components:
       locked: true
     id: switch_gpio_116
     name: a128-light116
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_117
   component_id: switch.gpio
   fields:
@@ -3033,6 +3965,9 @@ featured_components:
       locked: true
     id: switch_gpio_117
     name: a128-light117
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_118
   component_id: switch.gpio
   fields:
@@ -3045,6 +3980,9 @@ featured_components:
       locked: true
     id: switch_gpio_118
     name: a128-light118
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_119
   component_id: switch.gpio
   fields:
@@ -3057,6 +3995,9 @@ featured_components:
       locked: true
     id: switch_gpio_119
     name: a128-light119
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_120
   component_id: switch.gpio
   fields:
@@ -3069,6 +4010,9 @@ featured_components:
       locked: true
     id: switch_gpio_120
     name: a128-light120
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_121
   component_id: switch.gpio
   fields:
@@ -3081,6 +4025,9 @@ featured_components:
       locked: true
     id: switch_gpio_121
     name: a128-light121
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_122
   component_id: switch.gpio
   fields:
@@ -3093,6 +4040,9 @@ featured_components:
       locked: true
     id: switch_gpio_122
     name: a128-light122
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_123
   component_id: switch.gpio
   fields:
@@ -3105,6 +4055,9 @@ featured_components:
       locked: true
     id: switch_gpio_123
     name: a128-light123
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_124
   component_id: switch.gpio
   fields:
@@ -3117,6 +4070,9 @@ featured_components:
       locked: true
     id: switch_gpio_124
     name: a128-light124
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_125
   component_id: switch.gpio
   fields:
@@ -3129,6 +4085,9 @@ featured_components:
       locked: true
     id: switch_gpio_125
     name: a128-light125
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_126
   component_id: switch.gpio
   fields:
@@ -3141,6 +4100,9 @@ featured_components:
       locked: true
     id: switch_gpio_126
     name: a128-light126
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_127
   component_id: switch.gpio
   fields:
@@ -3153,6 +4115,9 @@ featured_components:
       locked: true
     id: switch_gpio_127
     name: a128-light127
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 - id: switch_gpio_128
   component_id: switch.gpio
   fields:
@@ -3165,6 +4130,9 @@ featured_components:
       locked: true
     id: switch_gpio_128
     name: a128-light128
+  requires:
+  - bus_a
+  - pcf8574_hub_out_8
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A128

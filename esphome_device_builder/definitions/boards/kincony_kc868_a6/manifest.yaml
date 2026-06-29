@@ -14,27 +14,22 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A6/KC868-A6.jpg
 tags:
 - relay
-pins:
-- gpio: 0
-  available: false
-  occupied_by: KC868-A6-RELAY-1
-- gpio: 1
-  available: false
-  occupied_by: KC868-A6-RELAY-2
-- gpio: 2
-  available: false
-  occupied_by: KC868-A6-RELAY-3
-- gpio: 3
-  available: false
-  occupied_by: KC868-A6-RELAY-4
-- gpio: 4
-  available: false
-  occupied_by: KC868-A6-RELAY-5
-- gpio: 5
-  available: false
-  occupied_by: KC868-A6-RELAY-6
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6/
 featured_components:
+- id: inputs
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: inputs
+      locked: true
+- id: outputs
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: outputs
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -47,6 +42,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: KC868-A6-IN-1
+  requires:
+  - inputs
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -59,6 +56,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: KC868-A6-IN-2
+  requires:
+  - inputs
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -71,6 +70,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: KC868-A6-IN-3
+  requires:
+  - inputs
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -83,6 +84,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: KC868-A6-IN-4
+  requires:
+  - inputs
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -95,6 +98,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: KC868-A6-IN-5
+  requires:
+  - inputs
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -107,6 +112,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: KC868-A6-IN-6
+  requires:
+  - inputs
 - id: relay_1
   component_id: switch.gpio
   fields:
@@ -119,6 +126,8 @@ featured_components:
       locked: true
     id: relay_1
     name: KC868-A6-RELAY-1
+  requires:
+  - outputs
 - id: relay_2
   component_id: switch.gpio
   fields:
@@ -131,6 +140,8 @@ featured_components:
       locked: true
     id: relay_2
     name: KC868-A6-RELAY-2
+  requires:
+  - outputs
 - id: relay_3
   component_id: switch.gpio
   fields:
@@ -143,6 +154,8 @@ featured_components:
       locked: true
     id: relay_3
     name: KC868-A6-RELAY-3
+  requires:
+  - outputs
 - id: relay_4
   component_id: switch.gpio
   fields:
@@ -155,6 +168,8 @@ featured_components:
       locked: true
     id: relay_4
     name: KC868-A6-RELAY-4
+  requires:
+  - outputs
 - id: relay_5
   component_id: switch.gpio
   fields:
@@ -167,6 +182,8 @@ featured_components:
       locked: true
     id: relay_5
     name: KC868-A6-RELAY-5
+  requires:
+  - outputs
 - id: relay_6
   component_id: switch.gpio
   fields:
@@ -179,6 +196,8 @@ featured_components:
       locked: true
     id: relay_6
     name: KC868-A6-RELAY-6
+  requires:
+  - outputs
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A6

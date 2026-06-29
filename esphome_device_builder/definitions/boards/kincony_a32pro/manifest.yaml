@@ -19,52 +19,31 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: A32 Pro Switch17
+  occupied_by: A32 Pro DL
 - gpio: 1
   available: false
-  occupied_by: A32 Pro Switch18
+  occupied_by: A32 Pro TMP1
 - gpio: 2
   available: false
-  occupied_by: A32 Pro Switch19
-- gpio: 3
-  available: false
-  occupied_by: A32 Pro Switch20
+  occupied_by: A32 Pro TMP2
 - gpio: 4
   available: false
-  occupied_by: A32 Pro Switch21
+  occupied_by: A32 Pro A4 Current
 - gpio: 5
   available: false
-  occupied_by: A32 Pro Switch22
+  occupied_by: A32 Pro A3 Current
 - gpio: 6
   available: false
-  occupied_by: A32 Pro Switch23
+  occupied_by: A32 Pro A2 Voltage
 - gpio: 7
   available: false
-  occupied_by: A32 Pro Switch24
+  occupied_by: A32 Pro A1 Voltage
 - gpio: 10
   available: false
-  occupied_by: A32 Pro Switch25
+  occupied_by: bus_a
 - gpio: 11
   available: false
-  occupied_by: A32 Pro Switch26
-- gpio: 12
-  available: false
-  occupied_by: A32 Pro Switch27
-- gpio: 13
-  available: false
-  occupied_by: A32 Pro Switch28
-- gpio: 14
-  available: false
-  occupied_by: A32 Pro Switch29
-- gpio: 15
-  available: false
-  occupied_by: A32 Pro Switch30
-- gpio: 16
-  available: false
-  occupied_by: A32 Pro Switch31
-- gpio: 17
-  available: false
-  occupied_by: A32 Pro Switch32
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: A32 Pro DTUYA
@@ -91,6 +70,65 @@ pins:
   occupied_by: LED
 docs_url: https://devices.esphome.io/devices/KinCony-A32Pro/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 11
+      locked: true
+    scl:
+      value: 10
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: xl9535_hub_in1
+  component_id: xl9535
+  fields:
+    address: 36
+    id:
+      value: xl9535_hub_in1
+      locked: true
+  requires:
+  - bus_a
+- id: xl9535_hub_in2
+  component_id: xl9535
+  fields:
+    address: 37
+    id:
+      value: xl9535_hub_in2
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_in_3
+  component_id: pcf8574
+  fields:
+    address: 35
+    id:
+      value: pcf8574_in_3
+      locked: true
+  requires:
+  - bus_a
+- id: xl9535_hub_out1
+  component_id: xl9535
+  fields:
+    address: 33
+    id:
+      value: xl9535_hub_out1
+      locked: true
+  requires:
+  - bus_a
+- id: xl9535_hub_out2
+  component_id: xl9535
+  fields:
+    address: 34
+    id:
+      value: xl9535_hub_out2
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -128,6 +166,9 @@ featured_components:
       locked: true
     id: a32_pro_di01
     name: A32 Pro DI01
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: a32_pro_di02
   component_id: binary_sensor.gpio
   fields:
@@ -140,6 +181,9 @@ featured_components:
       locked: true
     id: a32_pro_di02
     name: A32 Pro DI02
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: a32_pro_di03
   component_id: binary_sensor.gpio
   fields:
@@ -152,6 +196,9 @@ featured_components:
       locked: true
     id: a32_pro_di03
     name: A32 Pro DI03
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: a32_pro_di04
   component_id: binary_sensor.gpio
   fields:
@@ -164,6 +211,9 @@ featured_components:
       locked: true
     id: a32_pro_di04
     name: A32 Pro DI04
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -176,6 +226,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: A32 Pro DI05
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -188,6 +241,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: A32 Pro DI06
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -200,6 +256,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: A32 Pro DI07
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -212,6 +271,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: A32 Pro DI08
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -224,6 +286,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: A32 Pro DI09
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -236,6 +301,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: A32 Pro DI10
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -248,6 +316,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: A32 Pro DI11
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -260,6 +331,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: A32 Pro DI12
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -272,6 +346,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: A32 Pro DI13
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -284,6 +361,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: A32 Pro DI14
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -296,6 +376,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: A32 Pro DI15
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -308,6 +391,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: A32 Pro DI16
+  requires:
+  - bus_a
+  - xl9535_hub_in1
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
   fields:
@@ -360,6 +446,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_21
     name: A32 Pro DI17
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
   fields:
@@ -372,6 +461,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_22
     name: A32 Pro DI18
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
   fields:
@@ -384,6 +476,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_23
     name: A32 Pro DI19
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
   fields:
@@ -396,6 +491,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: A32 Pro DI20
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
   fields:
@@ -408,6 +506,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_25
     name: A32 Pro DI21
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
   fields:
@@ -420,6 +521,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: A32 Pro DI22
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
   fields:
@@ -432,6 +536,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_27
     name: A32 Pro DI23
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
   fields:
@@ -444,6 +551,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_28
     name: A32 Pro DI24
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
   fields:
@@ -456,6 +566,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_29
     name: A32 Pro DI25
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
   fields:
@@ -468,6 +581,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_30
     name: A32 Pro DI26
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
   fields:
@@ -480,6 +596,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_31
     name: A32 Pro DI27
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
   fields:
@@ -492,6 +611,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_32
     name: A32 Pro DI28
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
   fields:
@@ -504,6 +626,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_33
     name: A32 Pro DI29
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_34
   component_id: binary_sensor.gpio
   fields:
@@ -516,6 +641,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_34
     name: A32 Pro DI30
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_35
   component_id: binary_sensor.gpio
   fields:
@@ -528,6 +656,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_35
     name: A32 Pro DI31
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_36
   component_id: binary_sensor.gpio
   fields:
@@ -540,6 +671,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_36
     name: A32 Pro DI32
+  requires:
+  - bus_a
+  - xl9535_hub_in2
 - id: binary_sensor_gpio_37
   component_id: binary_sensor.gpio
   fields:
@@ -552,6 +686,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_37
     name: A32 Pro DI33
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_38
   component_id: binary_sensor.gpio
   fields:
@@ -564,6 +701,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_38
     name: A32 Pro DI34
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_39
   component_id: binary_sensor.gpio
   fields:
@@ -576,6 +716,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_39
     name: A32 Pro DI35
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_40
   component_id: binary_sensor.gpio
   fields:
@@ -588,6 +731,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_40
     name: A32 Pro DI36
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_41
   component_id: binary_sensor.gpio
   fields:
@@ -600,6 +746,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_41
     name: A32 Pro DI37
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_42
   component_id: binary_sensor.gpio
   fields:
@@ -612,6 +761,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_42
     name: A32 Pro DI38
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_43
   component_id: binary_sensor.gpio
   fields:
@@ -624,6 +776,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_43
     name: A32 Pro DI39
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: binary_sensor_gpio_44
   component_id: binary_sensor.gpio
   fields:
@@ -636,6 +791,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_44
     name: A32 Pro DI40
+  requires:
+  - bus_a
+  - pcf8574_in_3
 - id: a32_pro_dac_0
   component_id: light.monochromatic
   fields:
@@ -722,6 +880,9 @@ featured_components:
       locked: true
     id: a32_pro_switch01
     name: A32 Pro Switch01
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch02
   component_id: switch.gpio
   fields:
@@ -734,6 +895,9 @@ featured_components:
       locked: true
     id: a32_pro_switch02
     name: A32 Pro Switch02
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch03
   component_id: switch.gpio
   fields:
@@ -746,6 +910,9 @@ featured_components:
       locked: true
     id: a32_pro_switch03
     name: A32 Pro Switch03
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch04
   component_id: switch.gpio
   fields:
@@ -758,6 +925,9 @@ featured_components:
       locked: true
     id: a32_pro_switch04
     name: A32 Pro Switch04
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch05
   component_id: switch.gpio
   fields:
@@ -770,6 +940,9 @@ featured_components:
       locked: true
     id: a32_pro_switch05
     name: A32 Pro Switch05
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch06
   component_id: switch.gpio
   fields:
@@ -782,6 +955,9 @@ featured_components:
       locked: true
     id: a32_pro_switch06
     name: A32 Pro Switch06
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch07
   component_id: switch.gpio
   fields:
@@ -794,6 +970,9 @@ featured_components:
       locked: true
     id: a32_pro_switch07
     name: A32 Pro Switch07
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch08
   component_id: switch.gpio
   fields:
@@ -806,6 +985,9 @@ featured_components:
       locked: true
     id: a32_pro_switch08
     name: A32 Pro Switch08
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch09
   component_id: switch.gpio
   fields:
@@ -818,6 +1000,9 @@ featured_components:
       locked: true
     id: a32_pro_switch09
     name: A32 Pro Switch09
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch10
   component_id: switch.gpio
   fields:
@@ -830,6 +1015,9 @@ featured_components:
       locked: true
     id: a32_pro_switch10
     name: A32 Pro Switch10
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch11
   component_id: switch.gpio
   fields:
@@ -842,6 +1030,9 @@ featured_components:
       locked: true
     id: a32_pro_switch11
     name: A32 Pro Switch11
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch12
   component_id: switch.gpio
   fields:
@@ -854,6 +1045,9 @@ featured_components:
       locked: true
     id: a32_pro_switch12
     name: A32 Pro Switch12
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch13
   component_id: switch.gpio
   fields:
@@ -866,6 +1060,9 @@ featured_components:
       locked: true
     id: a32_pro_switch13
     name: A32 Pro Switch13
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch14
   component_id: switch.gpio
   fields:
@@ -878,6 +1075,9 @@ featured_components:
       locked: true
     id: a32_pro_switch14
     name: A32 Pro Switch14
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch15
   component_id: switch.gpio
   fields:
@@ -890,6 +1090,9 @@ featured_components:
       locked: true
     id: a32_pro_switch15
     name: A32 Pro Switch15
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch16
   component_id: switch.gpio
   fields:
@@ -902,6 +1105,9 @@ featured_components:
       locked: true
     id: a32_pro_switch16
     name: A32 Pro Switch16
+  requires:
+  - bus_a
+  - xl9535_hub_out1
 - id: a32_pro_switch17
   component_id: switch.gpio
   fields:
@@ -914,6 +1120,9 @@ featured_components:
       locked: true
     id: a32_pro_switch17
     name: A32 Pro Switch17
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch18
   component_id: switch.gpio
   fields:
@@ -926,6 +1135,9 @@ featured_components:
       locked: true
     id: a32_pro_switch18
     name: A32 Pro Switch18
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch19
   component_id: switch.gpio
   fields:
@@ -938,6 +1150,9 @@ featured_components:
       locked: true
     id: a32_pro_switch19
     name: A32 Pro Switch19
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch20
   component_id: switch.gpio
   fields:
@@ -950,6 +1165,9 @@ featured_components:
       locked: true
     id: a32_pro_switch20
     name: A32 Pro Switch20
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch21
   component_id: switch.gpio
   fields:
@@ -962,6 +1180,9 @@ featured_components:
       locked: true
     id: a32_pro_switch21
     name: A32 Pro Switch21
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch22
   component_id: switch.gpio
   fields:
@@ -974,6 +1195,9 @@ featured_components:
       locked: true
     id: a32_pro_switch22
     name: A32 Pro Switch22
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch23
   component_id: switch.gpio
   fields:
@@ -986,6 +1210,9 @@ featured_components:
       locked: true
     id: a32_pro_switch23
     name: A32 Pro Switch23
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch24
   component_id: switch.gpio
   fields:
@@ -998,6 +1225,9 @@ featured_components:
       locked: true
     id: a32_pro_switch24
     name: A32 Pro Switch24
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch25
   component_id: switch.gpio
   fields:
@@ -1010,6 +1240,9 @@ featured_components:
       locked: true
     id: a32_pro_switch25
     name: A32 Pro Switch25
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch26
   component_id: switch.gpio
   fields:
@@ -1022,6 +1255,9 @@ featured_components:
       locked: true
     id: a32_pro_switch26
     name: A32 Pro Switch26
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch27
   component_id: switch.gpio
   fields:
@@ -1034,6 +1270,9 @@ featured_components:
       locked: true
     id: a32_pro_switch27
     name: A32 Pro Switch27
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch28
   component_id: switch.gpio
   fields:
@@ -1046,6 +1285,9 @@ featured_components:
       locked: true
     id: a32_pro_switch28
     name: A32 Pro Switch28
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch29
   component_id: switch.gpio
   fields:
@@ -1058,6 +1300,9 @@ featured_components:
       locked: true
     id: a32_pro_switch29
     name: A32 Pro Switch29
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch30
   component_id: switch.gpio
   fields:
@@ -1070,6 +1315,9 @@ featured_components:
       locked: true
     id: a32_pro_switch30
     name: A32 Pro Switch30
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch31
   component_id: switch.gpio
   fields:
@@ -1082,6 +1330,9 @@ featured_components:
       locked: true
     id: a32_pro_switch31
     name: A32 Pro Switch31
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 - id: a32_pro_switch32
   component_id: switch.gpio
   fields:
@@ -1094,6 +1345,9 @@ featured_components:
       locked: true
     id: a32_pro_switch32
     name: A32 Pro Switch32
+  requires:
+  - bus_a
+  - xl9535_hub_out2
 featured_bundles:
 - id: a32_pro_dac_0_setup
   name: A32 Pro-DAC-0 (full setup)

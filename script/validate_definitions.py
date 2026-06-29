@@ -28,7 +28,14 @@ try:
 except ImportError:
     HAS_JSONSCHEMA = False
 
-DEFINITIONS_DIR = Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+# Imported from the stdlib-only constants module so this script stays light.
+from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
+
+DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
 COMPONENTS_INDEX_JSON = DEFINITIONS_DIR / "components.index.json"
 COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
@@ -41,7 +48,8 @@ _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
 # ``core`` category — auto-pulled in place of wifi: when a board has onboard
 # wired/Thread networking. Runtime counterpart is
 # ``NETWORK_PROVIDER_COMPONENT_IDS`` in helpers/device_yaml/_generation.py;
-# keep both in sync when adding a provider (this script stays import-free).
+# keep both in sync when adding a provider (that module pulls the heavy helper
+# layer, so it's mirrored here rather than imported).
 _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 
 # Required shape for featured-component ids: lowercase letters, digits, and
@@ -404,6 +412,11 @@ def _is_entity_base_universal(fkey: str, category: str | None) -> bool:
     return fkey == "name" and category in _HA_ENTITY_CATEGORIES
 
 
+def _is_expander_pin(raw: object) -> bool:
+    """Whether *raw* is a long-form pin sitting on an I/O-expander hub."""
+    return isinstance(raw, dict) and bool(raw.keys() - BOARD_PIN_KEYS)
+
+
 def _validate_field_preset(
     path: str,
     fkey: str,
@@ -426,6 +439,11 @@ def _validate_field_preset(
         # fail every plain-GPIO recommendation.
         required_features = {f for f in (ce.get("pin_features") or []) if f in _BOARD_PIN_FEATURES}
         for raw in _pin_values_to_check(value, suggestions):
+            if _is_expander_pin(raw):
+                # The pin sits on an I/O expander; its ``number`` is an
+                # expander channel, not a board GPIO, so it isn't checked
+                # against the board pins.
+                continue
             gpio = _extract_gpio(raw)
             if gpio is None:
                 # Best-effort: rich pin specs without a recognisable

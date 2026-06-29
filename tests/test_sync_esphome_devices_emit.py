@@ -61,3 +61,29 @@ def test_overwrites_imported_manifest(tmp_path: Path, monkeypatch: pytest.Monkey
 
     assert result is not None
     assert yaml.safe_load(manifest.read_text(encoding="utf-8"))["name"] == "New"
+
+
+def test_preserves_full_config_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hand-curated ``full_config`` opt-out on an import survives re-import."""
+    monkeypatch.setattr("script.sync_esphome_devices._BOARDS_DIR", tmp_path)
+    prior = yaml.safe_dump(
+        {
+            "id": "myboard",
+            "name": "Old",
+            "full_config": False,
+            "source": {"type": "esphome-devices", "remote_id": "X"},
+        }
+    )
+    manifest = _write_board(tmp_path, "myboard", prior)
+    record: dict[str, Any] = {
+        "id": "myboard",
+        "name": "New",
+        "esphome": {"platform": "esp32", "board": "esp32dev"},
+        "source": {"type": "esphome-devices", "remote_id": "X"},
+    }
+
+    result = _emit_manifest(record, MagicMock())
+
+    assert result is not None
+    written = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+    assert written["full_config"] is False

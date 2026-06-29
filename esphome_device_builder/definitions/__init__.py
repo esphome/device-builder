@@ -23,11 +23,12 @@ from __future__ import annotations
 import logging
 from functools import cache
 from pathlib import Path
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import orjson
 import yaml
 
+from ..constants import DEVICE_IMPORT_SOURCE_TYPE
 from ..helpers.lazy_catalog import is_unsafe_catalog_id
 from ..helpers.yaml import FastestSafeLoader
 from ..models import (
@@ -54,6 +55,7 @@ _DEFINITIONS_DIR = Path(__file__).parent
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
 _BOARDS_INDEX_JSON = _DEFINITIONS_DIR / "boards.index.json"
 _BOARDS_BODIES_DIR = _DEFINITIONS_DIR / "board_bodies"
+_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
 _FEATURED_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 _PIN_REGISTRY_MODES_INDEX_JSON = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
 _PLATFORM_CAPABILITIES_INDEX_JSON = _DEFINITIONS_DIR / "platform_capabilities.index.json"
@@ -218,7 +220,23 @@ def _resolve_featured_image(raw: object, board_dir: Path) -> str:
     return ""
 
 
-def _load_featured_component(data: dict, board_dir: Path) -> FeaturedComponent:
+def _load_component_multi_conf(*, strict: bool = False) -> dict[str, bool]:
+    """Map each component id to its ``multi_conf`` from the component index."""
+    try:
+        components = orjson.loads(_COMPONENTS_INDEX_JSON.read_bytes())["components"]
+        return {c["id"]: c.get("multi_conf", False) for c in components}
+    except (OSError, ValueError, KeyError, TypeError):
+        # Featured components fall back to multi-conf (won't false-collapse);
+        # strict (sync/CI) surfaces a corrupt index instead.
+        _LOGGER.exception("Failed to load components.index.json for featured multi_conf")
+        if strict:
+            raise
+        return {}
+
+
+def _load_featured_component(
+    data: dict, board_dir: Path, multi_conf_by_id: dict[str, bool] | None = None
+) -> FeaturedComponent:
     """Load a FeaturedComponent from its YAML dict form."""
     raw_fields = data.get("fields") or {}
     fields = {key: _coerce_field_preset(val) for key, val in raw_fields.items()}
@@ -229,6 +247,9 @@ def _load_featured_component(data: dict, board_dir: Path) -> FeaturedComponent:
         description=data.get("description"),
         fields=fields,
         image_url=_resolve_featured_image(data.get("image_url"), board_dir),
+        # Unknown underlying id defaults to multi-conf (won't false-collapse).
+        multi_conf=(multi_conf_by_id or {}).get(data["component_id"], True),
+        requires=list(data.get("requires") or []),
     )
 
 
@@ -278,6 +299,21 @@ def _load_hardware(data: dict | None, board_id: str) -> BoardHardware:
     )
 
 
+def _resolve_full_config(data: dict[str, Any]) -> bool:
+    """
+    Whether a board's featured components are a complete onboard config.
+
+    The manifest's optional ``full_config`` overrides; absent it, defaults to
+    "is a devices.esphome.io import" (so imports opt in, hand-curated boards
+    opt out, and either can be hand-curated the other way).
+    """
+    override = data.get("full_config")
+    if isinstance(override, bool):
+        return override
+    source = data.get("source")
+    return isinstance(source, dict) and source.get("type") == DEVICE_IMPORT_SOURCE_TYPE
+
+
 def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogResponse:
     """
     Build the board catalog by parsing every ``manifest.yaml`` on disk.
@@ -287,6 +323,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
     failure is logged.
     """
     boards: list[BoardCatalogEntry] = []
+    multi_conf_by_id = _load_component_multi_conf(strict=strict)
 
     for manifest in sorted(_BOARDS_DIR.glob("*/manifest.yaml")):
         try:
@@ -303,6 +340,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
 
             esphome_cfg = _load_esphome_config(data["esphome"], board_id)
             images = _resolve_images(board_dir, data.get("images"))
+            full_config = _resolve_full_config(data)
 
             # Fall back to generic chip image when no specific image exists
             if not images:
@@ -328,8 +366,9 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     product_url=data.get("product_url", ""),
                     featured=data.get("featured", False),
                     is_generic=data.get("is_generic", False),
+                    full_config=full_config,
                     featured_components=[
-                        _load_featured_component(fc, board_dir)
+                        _load_featured_component(fc, board_dir, multi_conf_by_id)
                         for fc in data.get("featured_components", [])
                     ],
                     featured_bundles=[

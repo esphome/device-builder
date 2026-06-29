@@ -19,6 +19,7 @@ once at startup by the components controller). These tests pin:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import orjson
 
@@ -53,6 +54,8 @@ from script.sync_boards import (
     _backfill_esp32_variants,
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
+    _stamp_featured_locked_pins,
+    _synthesize_full_setup_bundles,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -62,7 +65,14 @@ _FEATURED_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 
 # Body-only fields — must be absent from every slim index entry.
 _BODY_ONLY_KEYS = frozenset(
-    {"hardware", "pins", "featured_components", "featured_bundles", "default_components"}
+    {
+        "hardware",
+        "pins",
+        "featured_components",
+        "featured_bundles",
+        "default_components",
+        "full_config",
+    }
 )
 
 
@@ -88,6 +98,8 @@ def test_split_artefacts_match_manifests() -> None:
     _backfill_rp2040_mcu(from_yaml.boards)
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
+    _stamp_featured_locked_pins(from_yaml.boards)
+    _synthesize_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
@@ -229,6 +241,143 @@ def test_featured_index_matches_per_board_bodies() -> None:
     body = load_board_body_from_disk(board_id)
     assert body is not None
     assert body.featured_components == expected
+
+
+def test_featured_locked_pins_from_schema() -> None:
+    """``locked_pins`` carries the schema-derived GPIO for each locked PIN field."""
+    body = load_board_body_from_disk("apollo-esk-1")
+    assert body is not None
+    by_id = {fc.id: fc for fc in body.featured_components}
+    # i2c bus: scl/sda are PIN entries, both locked to bare ints.
+    assert by_id["i2c_bus"].locked_pins == {"scl": 0, "sda": 1}
+    # A locked pin given as the long-form mapping reduces to its bare GPIO.
+    assert by_id["boot_button"].locked_pins == {"pin": 9}
+    # A featured component with no locked pins ships an empty (omitted) map.
+    assert by_id["aht20"].locked_pins == {}
+
+
+def test_featured_locked_pins_namespace_io_expander_pins() -> None:
+    """An expander channel is a ``provider:hub_id:channel`` token, not a board GPIO."""
+    body = load_board_body_from_disk("kincony_b16")
+    assert body is not None
+    by_id = {fc.id: fc for fc in body.featured_components}
+    # pcf8574 expander channel — namespaced so it never aliases board GPIO 0.
+    assert by_id["b16_input01"].locked_pins == {"pin": "pcf8574:pcf8574_hub_in_1:0"}
+    # A real board GPIO on the same board is still recorded as an int.
+    assert by_id["binary_sensor_gpio_17"].locked_pins == {"pin": 48}
+
+
+def test_full_setup_bundle_synthesized_for_independent_components() -> None:
+    """A full-config board of independent featured components gets an ``all_recommended`` bundle."""
+    body = load_board_body_from_disk("esp32_relay_x4")
+    assert body is not None
+    assert body.full_config is True
+    by_id = {b.id: b for b in body.featured_bundles}
+    assert "all_recommended" in by_id
+    assert by_id["all_recommended"].component_ids == [
+        "switch_gpio_1",
+        "switch_gpio_2",
+        "switch_gpio_3",
+        "switch_gpio_4",
+    ]
+
+
+def test_full_setup_bundle_skipped_for_curated_optional_board() -> None:
+    """A hand-curated board (optional components) gets no synthesized ``all_recommended``."""
+    body = load_board_body_from_disk("apollo-esk-1")
+    assert body is not None
+    assert body.full_config is False
+    assert "all_recommended" not in {b.id for b in body.featured_bundles}
+
+
+def test_full_setup_bundle_skipped_when_existing_bundle_covers_all() -> None:
+    """No duplicate ``all_recommended`` when the importer's bundle already covers everything."""
+    body = load_board_body_from_disk("arlec_grid_connect_smart_led_globe_cwww")
+    assert body is not None
+    bundle_ids = {b.id for b in body.featured_bundles}
+    assert "all_recommended" not in bundle_ids
+    # The one derived bundle already lists every featured component.
+    (bundle,) = body.featured_bundles
+    assert set(bundle.component_ids) == {fc.id for fc in body.featured_components}
+
+
+def test_synthesize_full_setup_bundle_gating_and_ordering() -> None:
+    """Synthesis is gated on full_config, skips <2 featured, orders existing members first."""
+
+    def _board(
+        fids: list[str],
+        bundles: tuple[tuple[str, list[str]], ...] = (),
+        *,
+        full_config: bool = True,
+    ) -> BoardCatalogEntry:
+        return BoardCatalogEntry(
+            id="b",
+            name="Board",
+            description="d",
+            manufacturer="m",
+            esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+            full_config=full_config,
+            featured_components=[FeaturedComponent(id=f, component_id="switch.gpio") for f in fids],
+            featured_bundles=[
+                FeaturedBundle(id=bid, name=bid, component_ids=members) for bid, members in bundles
+            ],
+        )
+
+    # Optional-component board (full_config False) is never synthesized into.
+    optional = _board(["a", "b"], full_config=False)
+    _synthesize_full_setup_bundles([optional])
+    assert optional.featured_bundles == []
+
+    # A single featured component needs no bundle.
+    single = _board(["only"])
+    _synthesize_full_setup_bundles([single])
+    assert single.featured_bundles == []
+
+    # A partial dependency bundle: its members come first, standalone after.
+    board = _board(["dep", "consumer", "extra"], bundles=(("c_setup", ["dep", "consumer"]),))
+    _synthesize_full_setup_bundles([board])
+    by_id = {b.id: b for b in board.featured_bundles}
+    assert by_id["all_recommended"].component_ids == ["dep", "consumer", "extra"]
+    assert by_id["all_recommended"].name == "Board (full setup)"
+
+
+def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
+    """Two members claiming the same board GPIO get no bundle unless allow_other_uses."""
+
+    def _fc(fid: str, gpio: int, *, allow_other_uses: bool = False) -> FeaturedComponent:
+        value: Any = {"number": gpio, "allow_other_uses": True} if allow_other_uses else gpio
+        return FeaturedComponent(
+            id=fid,
+            component_id="switch.gpio",
+            fields={"pin": FieldPreset(value=value, locked=True)},
+            locked_pins={"pin": gpio},
+        )
+
+    def _board(components: list[FeaturedComponent]) -> BoardCatalogEntry:
+        return BoardCatalogEntry(
+            id="b",
+            name="Board",
+            description="d",
+            manufacturer="m",
+            esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+            full_config=True,
+            featured_components=components,
+        )
+
+    # Two plain locked GPIO 13s would fail ESPHome pin validation — no bundle.
+    conflict = _board([_fc("a", 13), _fc("b", 13)])
+    _synthesize_full_setup_bundles([conflict])
+    assert conflict.featured_bundles == []
+
+    # The same pin shared on purpose (allow_other_uses) is fine — bundle stands.
+    shared = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13, allow_other_uses=True)])
+    _synthesize_full_setup_bundles([shared])
+    assert {b.id for b in shared.featured_bundles} == {"all_recommended"}
+
+    # ESPHome needs *every* usage to allow it; one plain usage still conflicts.
+    mixed = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13)])
+    _synthesize_full_setup_bundles([mixed])
+    assert mixed.featured_bundles == []
 
 
 def test_omit_default_preserves_meaningful_falsy() -> None:

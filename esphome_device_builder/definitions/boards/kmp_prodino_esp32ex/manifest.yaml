@@ -15,35 +15,27 @@ pins:
 - gpio: 0
   available: false
   occupied_by: LED WS2812B
-- gpio: 1
-  available: false
-  occupied_by: INPUT3
-- gpio: 2
-  available: false
-  occupied_by: INPUT2
-- gpio: 3
-  available: false
-  occupied_by: INPUT1
-- gpio: 4
-  available: false
-  occupied_by: RELAY4
-- gpio: 5
-  available: false
-  occupied_by: RELAY3
-- gpio: 6
-  available: false
-  occupied_by: RELAY2
-- gpio: 7
-  available: false
-  occupied_by: RELAY1
 - gpio: 21
   available: false
   occupied_by: sensor.dht
 - gpio: 22
   available: false
   occupied_by: sensor.dht
+- gpio: 32
+  available: false
+  occupied_by: mcp23s08_hub
 docs_url: https://devices.esphome.io/devices/KMP-PRODINo-ESP32EX/
 featured_components:
+- id: mcp23s08_hub
+  component_id: mcp23s08
+  fields:
+    cs_pin:
+      value: 32
+      locked: true
+    deviceaddress: 0
+    id:
+      value: mcp23s08_hub
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -56,6 +48,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: INPUT1
+  requires:
+  - mcp23s08_hub
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -68,6 +62,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: INPUT2
+  requires:
+  - mcp23s08_hub
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -80,6 +76,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: INPUT3
+  requires:
+  - mcp23s08_hub
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -92,6 +90,8 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: INPUT4
+  requires:
+  - mcp23s08_hub
 - id: light_esp32_rmt_led_strip_1
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -135,6 +135,8 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: RELAY4
+  requires:
+  - mcp23s08_hub
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -147,6 +149,8 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: RELAY3
+  requires:
+  - mcp23s08_hub
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -159,6 +163,8 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: RELAY2
+  requires:
+  - mcp23s08_hub
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -171,6 +177,8 @@ featured_components:
       locked: true
     id: switch_gpio_4
     name: RELAY1
+  requires:
+  - mcp23s08_hub
 source:
   type: esphome-devices
   remote_id: KMP-PRODINo-ESP32EX
