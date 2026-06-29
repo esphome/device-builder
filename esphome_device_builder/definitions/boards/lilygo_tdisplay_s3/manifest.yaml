@@ -52,7 +52,6 @@ featured_components:
     rotation: 270
     show_test_card: true
     id: display_mipi_spi_1
-    name: Mipi Spi 1
 - id: led
   component_id: light.monochromatic
   fields:

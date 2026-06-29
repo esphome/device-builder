@@ -295,18 +295,6 @@ _IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp",
 # editing.
 _SKIPPED_FIELDS: frozenset[str] = frozenset({"platform", "id", "name"})
 
-# Platform-list domains that aren't HA entities — they're referenced
-# by entity wrappers (``light:`` / ``switch:`` reference an ``output:``
-# entry by id) rather than surfaced directly, and emitting a top-level
-# ``name:`` on one of these produces a config ESPHome rejects. Kept
-# explicit so adding a new entry to ``_PLATFORM_LIST_DOMAINS`` doesn't
-# silently flip its name-injection behaviour.
-_NON_ENTITY_PLATFORM_DOMAINS: frozenset[str] = frozenset({"output"})
-
-# HA-entity subset of ``_PLATFORM_LIST_DOMAINS`` — derived so a new
-# entity domain added upstream doesn't get forgotten here.
-_HA_ENTITY_DOMAINS: frozenset[str] = _PLATFORM_LIST_DOMAINS - _NON_ENTITY_PLATFORM_DOMAINS
-
 
 # ---------------------------------------------------------------------------
 # Records
@@ -767,7 +755,6 @@ class _Candidate:
     """One inline-yaml item that survived filtering, ready to render."""
 
     item: dict[str, Any]
-    domain: str
     platform: str
     component_id: str
     component: dict[str, Any]
@@ -860,6 +847,11 @@ def _select_survivors(candidates: list[_Candidate]) -> list[_Candidate]:
     return [c for c in candidates if c.local_id in survivor_locals]
 
 
+def _component_takes_name(component: dict[str, Any]) -> bool:
+    """Whether the component's schema declares a top-level ``name`` config entry."""
+    return any(ce.get("key") == "name" for ce in component.get("config_entries") or [])
+
+
 def _entry_has_useful_preset(candidate: _Candidate, entry: dict[str, Any]) -> bool:
     """
     Return True when *entry* carries a real preset beyond the auto-injected ``id`` / ``name``.
@@ -870,7 +862,7 @@ def _entry_has_useful_preset(candidate: _Candidate, entry: dict[str, Any]) -> bo
     the latter is worth keeping in the manifest.
     """
     fields = entry["fields"]
-    auto_keys = {"id", "name"} if candidate.domain in _HA_ENTITY_DOMAINS else {"id"}
+    auto_keys = {"id", "name"} if _component_takes_name(candidate.component) else {"id"}
     return any(key not in auto_keys for key in fields)
 
 
@@ -941,7 +933,6 @@ def _build_candidate(  # noqa: PLR0911 — distinct skip reasons each get their 
     local_id = _assign_local_id(item, domain, platform, used_ids, counters[component_id])
     return _Candidate(
         item=item,
-        domain=domain,
         platform=platform,
         component_id=component_id,
         component=component,
@@ -1025,12 +1016,12 @@ def _finalize_entry(candidate: _Candidate, id_map: dict[str, str]) -> dict[str, 
 
     Resolves cross-component ``type: "id"`` references through *id_map*
     (dropping refs whose target wasn't kept), then injects the standard
-    ``id`` and (for HA entity domains) ``name`` fields.
+    ``id`` and (for components whose schema takes one) ``name`` fields.
     """
     fields = dict(candidate.fields)
     _apply_id_references(fields, candidate.item, candidate.component, id_map)
     fields["id"] = candidate.local_id
-    if candidate.domain in _HA_ENTITY_DOMAINS:
+    if _component_takes_name(candidate.component):
         fields["name"] = _clean_entity_name(candidate.item) or (
             f"{candidate.platform.replace('_', ' ').title()} {candidate.counter}"
         )
@@ -1245,6 +1236,8 @@ def _coerce_field_preset(  # noqa: PLR0911 — distinct field shapes each get th
     """
     ce_type = config_entry.get("type")
     if ce_type == "pin":
+        if isinstance(raw_value, list):
+            return _coerce_pin_list(raw_value, inline_item, gpio_occupancy, component_id)
         normalized = _normalize_pin_value(raw_value)
         if _expander_keys(normalized):
             # Pin on an I/O expander: ``number`` is an expander channel, not a
@@ -1269,6 +1262,30 @@ def _coerce_field_preset(  # noqa: PLR0911 — distinct field shapes each get th
     if _looks_lockable(field_name):
         return {"value": raw_value, "locked": True}
     return raw_value
+
+
+def _coerce_pin_list(
+    raw_value: list[Any],
+    inline_item: dict[str, Any],
+    gpio_occupancy: dict[int, str],
+    component_id: str,
+) -> dict[str, Any] | None:
+    """
+    Lock a list-valued pin field (octal SPI ``data_pins``, parallel buses).
+
+    The whole list is hardware-fixed, so it locks as a list and records every
+    GPIO it occupies; a scalar ``_gpio_number`` would reject the list outright.
+    ``None`` for an empty list.
+    """
+    normalized = [_normalize_pin_value(value) for value in raw_value]
+    if not normalized:
+        return None
+    label = _occupancy_label(inline_item, component_id)
+    for value in normalized:
+        gpio = _gpio_number(value)
+        if gpio is not None:
+            gpio_occupancy.setdefault(gpio, label)
+    return {"value": normalized, "locked": True}
 
 
 def _occupancy_label(inline_item: dict[str, Any], component_id: str) -> str:
@@ -1515,12 +1532,17 @@ def _ensure_buses(
 
 
 def _wire_consumer_requires(
-    consumers: list[tuple[dict[str, Any], list[tuple[str, str]]]],
-    hub_prereqs: dict[tuple[str, str], list[str]],
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    hub_prereqs: dict[tuple[str, str | None], list[str]],
 ) -> None:
-    """Stamp each consumer's ``requires`` with its hubs' prerequisite chains, deduped."""
+    """
+    Merge each consumer's prerequisite chains into its ``requires``, deduped.
+
+    Seeds from any existing ``requires`` so a later pass adds to an earlier pass's
+    stamp rather than clobbering it (a leaf can need both a hub and a bus).
+    """
     for entry, refs in consumers:
-        requires: list[str] = []
+        requires: list[str] = list(entry.get("requires") or [])
         for ref in refs:
             for prereq in hub_prereqs.get(ref, []):
                 if prereq not in requires:
@@ -1812,6 +1834,111 @@ def _extract_driver_hubs(
     )
 
 
+def _find_consumer_block(config: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Re-find a featured leaf's upstream source block to recover its ``<bus>_id`` ref.
+
+    The finalized entry drops ``type: "id"`` cross-references (``spi_id``), so the
+    bus a consumer binds is read back from the source. Prefers the sole block of
+    the entry's platform; else the block whose sanitized ``id`` equals the entry's
+    local id. ``None`` when ambiguous — the bus then falls back to the sole/none
+    resolution in ``_materialize_bus``.
+    """
+    domain, _, platform = entry["component_id"].partition(".")
+    blocks = [b for b in _block_mappings(config.get(domain)) if b.get("platform") == platform]
+    if len(blocks) == 1:
+        return blocks[0]
+    for block in blocks:
+        if _sanitize_local_id(str(block.get("id") or "")) == entry["id"]:
+            return block
+    return None
+
+
+def _collect_bus_dep_refs(
+    config: dict[str, Any],
+    featured: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+) -> tuple[
+    list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
+    list[tuple[str, str | None]],
+]:
+    """Find the buses featured leaves depend on directly via catalog dependencies.
+
+    Returns the consumers paired with their ``(bus_component_id, instance_id)``
+    refs, plus the de-duplicated refs in first-seen order. A bus already present
+    as a featured entry (lifted by an earlier pass, or featured in its own right)
+    is skipped via ``existing_cids`` so it isn't materialized twice.
+    """
+    existing_cids = {entry["component_id"] for entry in featured}
+    consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
+    for entry in featured:
+        # Infra entries lifted by an earlier pass (bus / hub / ethernet) have a
+        # bare component id; only platform leaves (``<domain>.<platform>``) bind a
+        # bus by catalog dependency.
+        if "." not in entry["component_id"]:
+            continue
+        component = components_index.get(entry["component_id"])
+        if component is None:
+            continue
+        block = _find_consumer_block(config, entry)
+        refs: list[tuple[str, str | None]] = []
+        for dep in component.get("dependencies") or []:
+            if not isinstance(dep, str) or dep in existing_cids:
+                continue
+            bus = components_index.get(dep)
+            if bus is None or bus.get("category") != "bus":
+                continue
+            instance = block.get(f"{dep}_id") if block else None
+            instance = instance if isinstance(instance, str) and instance else None
+            refs.append((dep, instance))
+        if refs:
+            consumers.append((entry, refs))
+    ordered_refs = list(dict.fromkeys(ref for _, refs in consumers for ref in refs))
+    return consumers, ordered_refs
+
+
+def _extract_bus_deps(
+    config: dict[str, Any],
+    featured: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[int, str]]:
+    """
+    Lift each bus a featured leaf depends on directly (display→spi, sensor→i2c).
+
+    The platform-list extraction drops the top-level ``spi:`` / ``i2c:`` block, so
+    a leaf binding a bus by catalog dependency lands with empty bus pins and an
+    unsatisfied ``requires component <bus>``. This lifts each such bus as a locked
+    entry (pins pre-filled) and stamps ``requires`` on the consumers so the
+    dashboard adds the bus first; a bus shared by several leaves lifts once.
+
+    Mutates *featured*: merges (does not overwrite) ``requires`` on resolved
+    consumers, so a leaf that also needs a hub keeps both. An unresolved bus
+    (absent / ambiguous) leaves ``requires`` unstamped — the add-dialog's
+    missing-dependency banner still covers it; a bus already lifted by an earlier
+    pass and depended on by a different leaf is not re-stamped (matches
+    ``_collect_driver_hub_refs``).
+    """
+    consumers, ordered_refs = _collect_bus_dep_refs(config, featured, components_index)
+    if not ordered_refs:
+        return [], {}
+    used_ids = {entry["id"] for entry in featured}
+    extra: list[dict[str, Any]] = []
+    occupancy: dict[int, str] = {}
+    bus_local: dict[tuple[str, str | None], str] = {}
+    for dep, instance in ordered_refs:
+        bus_entry, local, bus_occ = _materialize_bus(
+            dep, instance, config, components_index, used_ids
+        )
+        if bus_entry is None:
+            continue
+        used_ids.add(local)
+        bus_local[(dep, instance)] = local
+        occupancy.update(bus_occ)
+        extra.append(bus_entry)
+    _wire_consumer_requires(consumers, {ref: [local] for ref, local in bus_local.items()})
+    return extra, occupancy
+
+
 def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each get their own early exit
     src: _DeviceSource,
     components_index: dict[str, dict[str, Any]],
@@ -1851,22 +1978,18 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
     if eth_entry is not None:
         featured = [eth_entry, *featured]
         gpio_occupancy = {**eth_occupancy, **gpio_occupancy}
-    # Lift the I/O-expander hubs (and their bus) that featured pins reference, so
-    # an expander-backed gpio preset lands a working config instead of a dangling
-    # ``pcf8574: <id>`` reference. Stamps ``requires`` on the consumers.
-    hub_entries, hub_occupancy = _extract_expander_hubs(src.config_yaml, featured, components_index)
-    if hub_entries:
-        featured = [*hub_entries, *featured]
-        gpio_occupancy = {**hub_occupancy, **gpio_occupancy}
-    # Lift output-driver hubs (bp5758d, sm2135, ...) bound by an output platform's
-    # catalog dependency — the hub owns the board pins the user can't guess, and
-    # ``requires`` makes the dashboard add it (pins pre-filled) before the output.
-    driver_entries, driver_occupancy = _extract_driver_hubs(
-        src.config_yaml, featured, components_index
-    )
-    if driver_entries:
-        featured = [*driver_entries, *featured]
-        gpio_occupancy = {**driver_occupancy, **gpio_occupancy}
+    # Lift the prerequisites a featured leaf needs but the platform-list
+    # extraction drops, each stamping ``requires`` so the dashboard adds them
+    # first with pins pre-filled: I/O-expander hubs referenced by a featured
+    # pin (else a dangling ``pcf8574: <id>``), output-driver hubs (bp5758d, ...)
+    # bound by an output platform's catalog dependency, and the bus (spi/i2c/
+    # uart) a display/sensor depends on directly. Order matters — each pass
+    # dedups against the entries already lifted.
+    for _lift in (_extract_expander_hubs, _extract_driver_hubs, _extract_bus_deps):
+        lift_entries, lift_occupancy = _lift(src.config_yaml, featured, components_index)
+        if lift_entries:
+            featured = [*lift_entries, *featured]
+            gpio_occupancy = {**lift_occupancy, **gpio_occupancy}
     # The per-consumer bundle is built from id references before hubs are
     # lifted, so fold each member's ``requires`` (bus/hub) back in — otherwise a
     # "full setup" lands the light + outputs without the driver hub they need.

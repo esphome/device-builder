@@ -64,7 +64,6 @@ featured_components:
       locked: true
     data_rate: 40MHz
     id: display_st7701s_1
-    name: St7701S 1
 - id: backlight
   component_id: output.ledc
   fields:

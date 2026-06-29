@@ -82,7 +82,6 @@ featured_components:
     change_mode_every: 1
     current_resistor: 0.001 Ohm
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: relay
   component_id: switch.gpio
   fields:

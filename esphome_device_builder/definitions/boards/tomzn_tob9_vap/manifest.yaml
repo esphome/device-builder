@@ -68,7 +68,6 @@ featured_components:
     line_frequency: 50Hz
     update_interval: 10s
     id: sensor_bl0942_1
-    name: Bl0942 1
 - id: main_switch
   component_id: switch.hbridge
   fields:

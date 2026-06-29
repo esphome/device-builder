@@ -4788,6 +4788,8 @@ _NON_INTROSPECTABLE_UNITS: dict[str, list[str]] = {
     "data_size": ["B", "kB", "MB", "GB"],
     "temperature": ["°C", "°F", "K"],
     "temperature_delta": ["°C", "°F", "K"],
+    # Canonical mireds first (cv.color_temperature stores mireds; "6500 K" coerces).
+    "color_temperature": ["mireds", "K"],
 }
 
 # Normalisation applied to every discovered unit symbol. Only matters for
@@ -4978,7 +4980,6 @@ def _collect_refined_types(  # noqa: C901
     add("lambda_", RefinedType("lambda"), "lambda_")
     add("returning_lambda", RefinedType("lambda"), "returning_lambda")
     add("mac_address", RefinedType("mac_address"), "mac_address")
-    add("color_temperature", RefinedType("string"), "color_temperature")
 
     out: dict[tuple[str, ...], RefinedType] = {}
 

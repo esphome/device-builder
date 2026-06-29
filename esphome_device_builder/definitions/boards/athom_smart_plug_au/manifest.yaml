@@ -62,7 +62,6 @@ featured_components:
     change_mode_every: 1
     update_interval: 5s
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: sensor_total_daily_energy_1
   component_id: sensor.total_daily_energy
   fields:

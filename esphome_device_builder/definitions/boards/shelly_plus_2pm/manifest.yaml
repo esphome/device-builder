@@ -97,7 +97,6 @@ featured_components:
       locked: true
     update_interval: 10s
     id: sensor_ade7953_i2c_1
-    name: Ade7953 I2C 1
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:

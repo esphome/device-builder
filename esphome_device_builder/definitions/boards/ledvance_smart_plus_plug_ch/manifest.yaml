@@ -86,7 +86,6 @@ featured_components:
     voltage_divider: 800
     current_resistor: 0.001
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: switch_1
   component_id: switch.gpio
   fields:
