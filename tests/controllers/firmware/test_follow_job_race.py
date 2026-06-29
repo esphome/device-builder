@@ -54,7 +54,12 @@ async def test_terminal_job_replays_full_history_and_returns(
     result_events = [(StreamEvent.RESULT, d) for d in client.events_for(StreamEvent.RESULT)]
     assert [d for _e, d in output_events] == ["line a\n", "line b\n", "line c\n"]
     assert len(result_events) == 1
-    assert result_events[0][1] == {"status": "completed", "exit_code": 0, "error": None}
+    assert result_events[0][1] == {
+        "status": "completed",
+        "exit_code": 0,
+        "error": None,
+        "is_deferred_install": False
+    }
 
 
 async def test_history_lines_arrive_before_live_lines_in_order(
@@ -424,6 +429,7 @@ async def test_failed_terminal_event_carries_job_error_text(
         "status": "failed",
         "exit_code": None,
         "error": "remote build: peer-link session lost (transport_error: …)",
+        "is_deferred_install": False,
     }
 
 
@@ -457,4 +463,5 @@ async def test_send_initial_replays_error_for_already_terminal_failed_job(
         "status": "failed",
         "exit_code": 1,
         "error": "Process exited 1",
+        "is_deferred_install": False,
     }
