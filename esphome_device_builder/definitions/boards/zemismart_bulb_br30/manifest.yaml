@@ -84,6 +84,7 @@ featured_bundles:
 - id: light_01_setup
   name: light (full setup)
   component_ids:
+  - my9231_hub
   - output_red
   - output_green
   - output_blue

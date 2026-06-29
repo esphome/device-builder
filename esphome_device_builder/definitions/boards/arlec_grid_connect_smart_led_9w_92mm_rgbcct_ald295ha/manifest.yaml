@@ -97,6 +97,7 @@ featured_bundles:
 - id: id_name_setup
   name: None (full setup)
   component_ids:
+  - bp5758d_hub
   - output_red
   - output_green
   - output_blue

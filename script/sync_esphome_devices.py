@@ -1074,6 +1074,31 @@ def _apply_id_references(
             fields[fkey] = mapped
 
 
+def _fold_requires_into_bundles(
+    bundles: list[dict[str, Any]], featured: list[dict[str, Any]]
+) -> None:
+    """
+    Prepend each bundle member's ``requires`` prerequisites to the bundle.
+
+    Bundles are derived from id references before hubs are lifted, so a member's
+    ``requires`` (bus then hub) isn't reflected yet. Folding them in — ahead of
+    the members, deduped, order-preserving — makes a full-setup bundle a
+    complete config and lets the synthesized ``all_recommended`` bundle collapse
+    into it instead of shipping a near-duplicate.
+    """
+    by_id = {entry["id"]: entry for entry in featured}
+    for bundle in bundles:
+        members = bundle["component_ids"]
+        member_set = set(members)
+        prereqs: list[str] = []
+        for member in members:
+            for req in by_id.get(member, {}).get("requires") or []:
+                if req not in prereqs and req not in member_set:
+                    prereqs.append(req)
+        if prereqs:
+            bundle["component_ids"] = [*prereqs, *members]
+
+
 def _build_bundles(candidates: list[_Candidate], id_map: dict[str, str]) -> list[dict[str, Any]]:
     """
     Derive ``featured_bundles`` from id-reference dependencies.
@@ -1847,6 +1872,10 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
     if driver_entries:
         featured = [*driver_entries, *featured]
         gpio_occupancy = {**driver_occupancy, **gpio_occupancy}
+    # The per-consumer bundle is built from id references before hubs are
+    # lifted, so fold each member's ``requires`` (bus/hub) back in — otherwise a
+    # "full setup" lands the light + outputs without the driver hub they need.
+    _fold_requires_into_bundles(bundles, featured)
     if not featured:
         return None, "no extractable featured components"
 

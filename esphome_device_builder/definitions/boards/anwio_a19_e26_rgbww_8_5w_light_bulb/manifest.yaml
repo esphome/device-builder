@@ -90,6 +90,7 @@ featured_bundles:
 - id: device_setup
   name: Light (full setup)
   component_ids:
+  - sm2135_hub
   - output_red
   - output_green
   - output_blue

@@ -6,6 +6,7 @@ from typing import Any
 
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
     _extract_driver_hubs,
+    _fold_requires_into_bundles,
     _gpio_number,
 )
 
@@ -137,3 +138,37 @@ def test_scalar_fields_dont_rescue_a_missing_required_pin() -> None:
     )
     assert extra == []
     assert all("requires" not in e for e in featured)
+
+
+def test_fold_prepends_required_hub_ahead_of_members() -> None:
+    """A bundle gains its members' required hub (bus then hub), deduped, hub-first."""
+    bundles = [{"id": "b", "name": "x", "component_ids": ["output_red", "id_name"]}]
+    featured = [
+        {"id": "output_red", "component_id": "output.bp5758d", "requires": ["bp5758d_hub"]},
+        {"id": "id_name", "component_id": "light.rgbww"},
+        {"id": "bp5758d_hub", "component_id": "bp5758d"},
+    ]
+    _fold_requires_into_bundles(bundles, featured)
+    assert bundles[0]["component_ids"] == ["bp5758d_hub", "output_red", "id_name"]
+
+
+def test_fold_is_a_noop_without_requires() -> None:
+    """A bundle whose members carry no ``requires`` is left untouched."""
+    bundles = [{"id": "b", "name": "x", "component_ids": ["a", "b"]}]
+    featured = [
+        {"id": "a", "component_id": "light.binary"},
+        {"id": "b", "component_id": "output.gpio"},
+    ]
+    _fold_requires_into_bundles(bundles, featured)
+    assert bundles[0]["component_ids"] == ["a", "b"]
+
+
+def test_fold_does_not_duplicate_a_prereq_already_in_the_bundle() -> None:
+    """A required hub already listed as a member isn't prepended again."""
+    bundles = [{"id": "b", "name": "x", "component_ids": ["bp5758d_hub", "output_red"]}]
+    featured = [
+        {"id": "output_red", "component_id": "output.bp5758d", "requires": ["bp5758d_hub"]},
+        {"id": "bp5758d_hub", "component_id": "bp5758d"},
+    ]
+    _fold_requires_into_bundles(bundles, featured)
+    assert bundles[0]["component_ids"] == ["bp5758d_hub", "output_red"]

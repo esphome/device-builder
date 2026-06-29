@@ -81,6 +81,7 @@ featured_bundles:
 - id: light_rgbww_setup
   name: Light (full setup)
   component_ids:
+  - bp1658cj_hub
   - output_red
   - output_green
   - output_blue

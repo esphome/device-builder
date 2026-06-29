@@ -87,6 +87,7 @@ featured_bundles:
 - id: light_rgbww_1_setup
   name: Light (full setup)
   component_ids:
+  - bp5758d_hub
   - output_red
   - output_green
   - output_blue

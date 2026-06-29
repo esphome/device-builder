@@ -2054,81 +2054,97 @@ featured_bundles:
 - id: ai1_setup
   name: aio--AI-16 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai1
 - id: ai2_setup
   name: aio--AI-15 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai2
 - id: ai3_setup
   name: aio--AI-14 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai3
 - id: ai4_setup
   name: aio--AI-13 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai4
 - id: ai5_setup
   name: aio--AI-12 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai5
 - id: ai6_setup
   name: aio--AI-11 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai6
 - id: ai7_setup
   name: aio--AI-10 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai7
 - id: ai8_setup
   name: aio--AI-9 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai8
 - id: ai9_setup
   name: aio--AI-8 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai9
 - id: ai10_setup
   name: aio--AI-7 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai10
 - id: ai11_setup
   name: aio--AI-6 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai11
 - id: ai12_setup
   name: aio--AI-5 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai12
 - id: ai13_setup
   name: aio--AI-4 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai13
 - id: ai14_setup
   name: aio--AI-3 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai14
 - id: ai15_setup
   name: aio--AI-2 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai15
 - id: ai16_setup
   name: aio--AI-1 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai16
 source:
