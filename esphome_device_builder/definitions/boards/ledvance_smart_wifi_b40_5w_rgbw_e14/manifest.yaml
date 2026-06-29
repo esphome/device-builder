@@ -9,8 +9,26 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/image.png
+pins:
+- gpio: 8
+  available: false
+  occupied_by: bp1658cj
+- gpio: 9
+  available: false
+  occupied_by: bp1658cj
 docs_url: https://devices.esphome.io/devices/LEDVANCE-SMART-WIFI-B40-5W-RGBW-E14/
 featured_components:
+- id: bp1658cj_hub
+  component_id: bp1658cj
+  fields:
+    clock_pin:
+      value: 9
+      locked: true
+    data_pin:
+      value: 8
+      locked: true
+    max_power_color_channels: 4
+    max_power_white_channels: 3
 - id: light_rgbww
   component_id: light.rgbww
   fields:
@@ -29,30 +47,41 @@ featured_components:
   fields:
     channel: 2
     id: output_red
+  requires:
+  - bp1658cj_hub
 - id: output_green
   component_id: output.bp1658cj
   fields:
     channel: 1
     id: output_green
+  requires:
+  - bp1658cj_hub
 - id: output_blue
   component_id: output.bp1658cj
   fields:
     channel: 0
     id: output_blue
+  requires:
+  - bp1658cj_hub
 - id: output_cold
   component_id: output.bp1658cj
   fields:
     channel: 4
     id: output_cold
+  requires:
+  - bp1658cj_hub
 - id: output_warm
   component_id: output.bp1658cj
   fields:
     channel: 3
     id: output_warm
+  requires:
+  - bp1658cj_hub
 featured_bundles:
 - id: light_rgbww_setup
   name: Light (full setup)
   component_ids:
+  - bp1658cj_hub
   - output_red
   - output_green
   - output_blue

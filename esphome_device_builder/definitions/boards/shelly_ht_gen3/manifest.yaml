@@ -68,7 +68,6 @@ featured_components:
     address: 68
     update_interval: 60s
     id: sensor_sht3xd_1
-    name: Sht3Xd 1
 - id: wifi_rssi
   component_id: sensor.wifi_signal
   fields:

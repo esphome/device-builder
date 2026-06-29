@@ -79,7 +79,6 @@ featured_components:
       value: 5
       locked: true
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: relay
   component_id: switch.gpio
   fields:

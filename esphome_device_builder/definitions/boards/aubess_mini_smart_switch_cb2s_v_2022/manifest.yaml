@@ -13,14 +13,70 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-bottom.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-Pinout1.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/Aubess-Mini-Smart-Switch-V2022-Pinout2.jpg
+pins:
+- gpio: 7
+  available: false
+  occupied_by: Switch state
+- gpio: 8
+  available: false
+  occupied_by: relayoutput
+- gpio: 10
+  available: false
+  occupied_by: button_back
+- gpio: 26
+  available: false
+  occupied_by: Switch S1-S2
 docs_url: https://devices.esphome.io/devices/Aubess-Mini-Smart-Switch-CB2S-V-2022/
 featured_components:
+- id: button_back
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: button_back
+    name: button_back
+- id: binary_sensor_gpio_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: binary_sensor_gpio_2
+    name: Switch S1-S2
+- id: led
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
+    id: led
+    name: Switch state
+- id: relayoutput
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: relayoutput
 - id: relay
   component_id: switch.output
   fields:
     restore_mode: ALWAYS_OFF
+    output: relayoutput
     id: relay
     name: Relay
+featured_bundles:
+- id: relay_setup
+  name: Relay (full setup)
+  component_ids:
+  - relayoutput
+  - relay
 source:
   type: esphome-devices
   remote_id: Aubess-Mini-Smart-Switch-CB2S-V-2022

@@ -9,8 +9,26 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Bulb-BR30/inside.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: my9231
+- gpio: 15
+  available: false
+  occupied_by: my9231
 docs_url: https://devices.esphome.io/devices/Zemismart-Bulb-BR30/
 featured_components:
+- id: my9231_hub
+  component_id: my9231
+  fields:
+    data_pin:
+      value: 13
+      locked: true
+    clock_pin:
+      value: 15
+      locked: true
+    num_channels: 4
+    num_chips: 1
 - id: light_01
   component_id: light.rgbw
   fields:
@@ -27,21 +45,29 @@ featured_components:
   fields:
     channel: 0
     id: output_white
+  requires:
+  - my9231_hub
 - id: output_blue
   component_id: output.my9231
   fields:
     channel: 1
     id: output_blue
+  requires:
+  - my9231_hub
 - id: output_green
   component_id: output.my9231
   fields:
     channel: 2
     id: output_green
+  requires:
+  - my9231_hub
 - id: output_red
   component_id: output.my9231
   fields:
     channel: 3
     id: output_red
+  requires:
+  - my9231_hub
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -58,6 +84,7 @@ featured_bundles:
 - id: light_01_setup
   name: light (full setup)
   component_ids:
+  - my9231_hub
   - output_red
   - output_green
   - output_blue

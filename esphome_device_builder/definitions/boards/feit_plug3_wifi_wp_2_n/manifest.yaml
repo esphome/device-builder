@@ -1,0 +1,62 @@
+id: feit_plug3_wifi_wp_2_n
+name: Feit Electric PLUG3/WIFI/WP/2-N
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Feit-PLUG3-WIFI-WP-2-N/box.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Feit-PLUG3-WIFI-WP-2-N/bottom.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Feit-PLUG3-WIFI-WP-2-N/board.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 15
+  available: false
+  occupied_by: relay
+- gpio: 17
+  available: false
+  occupied_by: led_status
+- gpio: 26
+  available: false
+  occupied_by: button
+docs_url: https://devices.esphome.io/devices/Feit-PLUG3-WIFI-WP-2-N/
+featured_components:
+- id: button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
+    id: button
+    name: button
+- id: led_status
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: true
+      locked: true
+    id: led_status
+    name: led_status
+- id: relay
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: relay
+    name: relay
+source:
+  type: esphome-devices
+  remote_id: Feit-PLUG3-WIFI-WP-2-N
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Feit-PLUG3-WIFI-WP-2-N/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 6c44edc985a84e042c3bd3090479db39d123ca7a39a6a5f721b3e7c89a92b52d

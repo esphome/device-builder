@@ -119,7 +119,6 @@ featured_components:
       locked: true
     use_accumulated_energy_registers: true
     id: ade7953_id
-    name: ade7953_id
 - id: relay_id
   component_id: switch.gpio
   fields:

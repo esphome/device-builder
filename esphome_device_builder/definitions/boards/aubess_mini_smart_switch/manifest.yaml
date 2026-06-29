@@ -1,0 +1,63 @@
+id: aubess_mini_smart_switch
+name: Aubess Mini Smart Switch
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-Mini-Smart-Switch/aubess_mini_smart_switch_photo.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-Mini-Smart-Switch/aubess-mini-smart-switch-internals.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-Mini-Smart-Switch/aubess-mini-smart-switch-uart-pinout.jpg
+pins:
+- gpio: 8
+  available: false
+  occupied_by: AubessMini01_button
+- gpio: 14
+  available: false
+  occupied_by: AubessMini01_switch
+- gpio: 26
+  available: false
+  occupied_by: Relay
+docs_url: https://devices.esphome.io/devices/Aubess-Mini-Smart-Switch/
+featured_components:
+- id: aubessmini01_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: aubessmini01_button
+    name: AubessMini01_button
+- id: aubessmini01_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: aubessmini01_switch
+    name: AubessMini01_switch
+- id: aubesmini01
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: aubesmini01
+    name: Relay
+source:
+  type: esphome-devices
+  remote_id: Aubess-Mini-Smart-Switch
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Aubess-Mini-Smart-Switch/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 127b6eba0f3ef7ff152d33c47402900401acc5f0993d0658540eab56d6e85acd

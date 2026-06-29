@@ -54,8 +54,9 @@ from script.sync_boards import (
     _backfill_esp32_variants,
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
+    _consolidate_full_setup_bundles,
+    _has_pin_conflict,
     _stamp_featured_locked_pins,
-    _synthesize_full_setup_bundles,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -99,7 +100,7 @@ def test_split_artefacts_match_manifests() -> None:
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
-    _synthesize_full_setup_bundles(from_yaml.boards)
+    _consolidate_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
@@ -325,20 +326,34 @@ def test_synthesize_full_setup_bundle_gating_and_ordering() -> None:
 
     # Optional-component board (full_config False) is never synthesized into.
     optional = _board(["a", "b"], full_config=False)
-    _synthesize_full_setup_bundles([optional])
+    _consolidate_full_setup_bundles([optional])
     assert optional.featured_bundles == []
 
     # A single featured component needs no bundle.
     single = _board(["only"])
-    _synthesize_full_setup_bundles([single])
+    _consolidate_full_setup_bundles([single])
     assert single.featured_bundles == []
 
-    # A partial dependency bundle: its members come first, standalone after.
+    # A partial dependency bundle is replaced by the single all_recommended:
+    # its members come first, standalone after, and the sub-bundle is dropped.
     board = _board(["dep", "consumer", "extra"], bundles=(("c_setup", ["dep", "consumer"]),))
-    _synthesize_full_setup_bundles([board])
-    by_id = {b.id: b for b in board.featured_bundles}
-    assert by_id["all_recommended"].component_ids == ["dep", "consumer", "extra"]
-    assert by_id["all_recommended"].name == "Board (full setup)"
+    _consolidate_full_setup_bundles([board])
+    (only,) = board.featured_bundles
+    assert only.id == "all_recommended"
+    assert only.component_ids == ["dep", "consumer", "extra"]
+    assert only.name == "Board (full setup)"
+
+    # When a derived bundle already covers every featured component it stays as
+    # the single bundle; sibling subset bundles are pruned and no all_recommended
+    # is synthesized.
+    covered = _board(
+        ["dep", "consumer"],
+        bundles=(("c_setup", ["dep", "consumer"]), ("d_setup", ["dep"])),
+    )
+    _consolidate_full_setup_bundles([covered])
+    (kept,) = covered.featured_bundles
+    assert kept.id == "c_setup"
+    assert kept.component_ids == ["dep", "consumer"]
 
 
 def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
@@ -366,18 +381,74 @@ def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
 
     # Two plain locked GPIO 13s would fail ESPHome pin validation — no bundle.
     conflict = _board([_fc("a", 13), _fc("b", 13)])
-    _synthesize_full_setup_bundles([conflict])
+    _consolidate_full_setup_bundles([conflict])
     assert conflict.featured_bundles == []
 
     # The same pin shared on purpose (allow_other_uses) is fine — bundle stands.
     shared = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13, allow_other_uses=True)])
-    _synthesize_full_setup_bundles([shared])
+    _consolidate_full_setup_bundles([shared])
     assert {b.id for b in shared.featured_bundles} == {"all_recommended"}
 
     # ESPHome needs *every* usage to allow it; one plain usage still conflicts.
     mixed = _board([_fc("a", 13, allow_other_uses=True), _fc("b", 13)])
-    _synthesize_full_setup_bundles([mixed])
+    _consolidate_full_setup_bundles([mixed])
     assert mixed.featured_bundles == []
+
+    # The pin-conflict carve-out wins over the covering-bundle collapse: a
+    # bundle that lists every (conflicting) component would not compile, so the
+    # partial bundles are kept untouched rather than collapsed onto it.
+    conflict_covered = _board([_fc("a", 13), _fc("b", 13)])
+    conflict_covered.featured_bundles = [
+        FeaturedBundle(id="all_setup", name="x", component_ids=["a", "b"]),
+        FeaturedBundle(id="a_setup", name="y", component_ids=["a"]),
+    ]
+    _consolidate_full_setup_bundles([conflict_covered])
+    assert [b.id for b in conflict_covered.featured_bundles] == ["all_setup", "a_setup"]
+
+
+def test_has_pin_conflict_folds_in_list_valued_pins() -> None:
+    """A board GPIO claimed by a list-valued pin (octal SPI ``data_pins``) is detected."""
+    # ``locked_pins`` holds one canonical pin per key, so an octal ``data_pins``
+    # list never lands there; the detector must read the raw fields to see it.
+    spi = FeaturedComponent(
+        id="bus",
+        component_id="spi",
+        fields={"data_pins": FieldPreset(value=[6, 7, 15], locked=True)},
+        locked_pins={},
+    )
+    clash = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value=7, locked=True)},
+        locked_pins={"pin": 7},
+    )
+    assert _has_pin_conflict([spi, clash]) is True
+
+    no_clash = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value=21, locked=True)},
+        locked_pins={"pin": 21},
+    )
+    assert _has_pin_conflict([spi, no_clash]) is False
+
+    # A list item that opts into allow_other_uses isn't a conflict when the
+    # colliding usage also allows it (tracked per item, not hardcoded False).
+    spi_shared = FeaturedComponent(
+        id="bus",
+        component_id="spi",
+        fields={
+            "data_pins": FieldPreset(value=[{"number": 7, "allow_other_uses": True}], locked=True)
+        },
+        locked_pins={},
+    )
+    clash_shared = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value={"number": 7, "allow_other_uses": True}, locked=True)},
+        locked_pins={"pin": 7},
+    )
+    assert _has_pin_conflict([spi_shared, clash_shared]) is False
 
 
 def test_omit_default_preserves_meaningful_falsy() -> None:

@@ -16,6 +16,22 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/wb3l_wifi_module.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/programmin.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/bulb_without_cup.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: output_temperature
+- gpio: 7
+  available: false
+  occupied_by: output_brightness
+- gpio: 8
+  available: false
+  occupied_by: output_red
+- gpio: 24
+  available: false
+  occupied_by: output_green
+- gpio: 26
+  available: false
+  occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/
 product_url: https://github.com/kprasadvnsi/Avita_Domus_AS-SB-10W-5C_RGBCCT_10Watt_Light_Bulb-esphome
 featured_components:
@@ -25,12 +41,47 @@ featured_components:
     color_interlock: true
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
+    red: output_red
+    green: output_green
+    blue: output_blue
+    white_brightness: output_brightness
     color_temperature: output_temperature
     id: light_rgbct
     name: Light
+- id: output_red
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: output_red
+- id: output_green
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_green
+- id: output_blue
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_blue
+- id: output_brightness
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: output_brightness
 - id: output_temperature
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 6
+      locked: true
     inverted:
       value: true
       locked: true
@@ -39,6 +90,10 @@ featured_bundles:
 - id: light_rgbct_setup
   name: Light (full setup)
   component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_brightness
   - output_temperature
   - light_rgbct
 source:

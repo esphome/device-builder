@@ -1,0 +1,70 @@
+id: arlec_pb4ksha_4_outlet_powerboard
+name: Arlec PB4KSHA 4 outlet powerboard
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231t-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-PB4KSHA-4-outlet-powerboard/arlec_PB4KSHA.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: relay_status_led_output
+- gpio: 11
+  available: false
+  occupied_by: binary_switch_1
+- gpio: 26
+  available: false
+  occupied_by: Relay 1
+docs_url: https://devices.esphome.io/devices/Arlec-PB4KSHA-4-outlet-powerboard/
+featured_components:
+- id: binary_switch_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: false
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_1
+    name: binary_switch_1
+- id: relay_status_led
+  component_id: light.binary
+  fields:
+    output: relay_status_led_output
+    id: relay_status_led
+    name: relay_status_led
+- id: relay_status_led_output
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: relay_status_led_output
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_1
+    name: Relay 1
+featured_bundles:
+- id: relay_status_led_setup
+  name: relay_status_led (full setup)
+  component_ids:
+  - relay_status_led_output
+  - relay_status_led
+source:
+  type: esphome-devices
+  remote_id: Arlec-PB4KSHA-4-outlet-powerboard
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-PB4KSHA-4-outlet-powerboard/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: 07dd45cde5ec809035f372ff823eac6c250652f445064c4851f2143b5b61c17f

@@ -11,11 +11,18 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_top.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_bottom.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/LSC_OCLS26_traced.jpg
+pins:
+- gpio: 16
+  available: false
+  occupied_by: Color Light
 docs_url: https://devices.esphome.io/devices/LSC-Battletron-Desk-Strip-3-meter-3206528/
 featured_components:
 - id: color_light
   component_id: light.beken_spi_led_strip
   fields:
+    pin:
+      value: 16
+      locked: true
     chipset: WS2812
     num_leds: 36
     rgb_order: GRB

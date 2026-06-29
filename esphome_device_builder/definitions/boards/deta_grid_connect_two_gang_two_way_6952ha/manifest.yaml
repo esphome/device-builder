@@ -10,41 +10,90 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-packet.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/6952HA-manual-flashing.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: relay_2
+- gpio: 7
+  available: false
+  occupied_by: activation_status_1
+- gpio: 8
+  available: false
+  occupied_by: activation_status_2
+- gpio: 14
+  available: false
+  occupied_by: relay_1
+- gpio: 23
+  available: false
+  occupied_by: button_2
+- gpio: 26
+  available: false
+  occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/DETA-Grid-Connect-Two-Gang-Two-Way-6952HA/
 featured_components:
 - id: button_1
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
     internal: true
     id: button_1
     name: button_1
 - id: button_2
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 23
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
     internal: true
     id: button_2
     name: button_2
 - id: activation_status_1
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 7
+        mode: INPUT
+        inverted: true
+      locked: true
     internal: true
     id: activation_status_1
     name: activation_status_1
 - id: activation_status_2
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 8
+        mode: INPUT
+        inverted: true
+      locked: true
     internal: true
     id: activation_status_2
     name: activation_status_2
 - id: relay_1
   component_id: switch.gpio
   fields:
+    pin:
+      value: 14
+      locked: true
     internal: true
     id: relay_1
     name: relay_1
 - id: relay_2
   component_id: switch.gpio
   fields:
+    pin:
+      value: 6
+      locked: true
     internal: true
     id: relay_2
     name: relay_2

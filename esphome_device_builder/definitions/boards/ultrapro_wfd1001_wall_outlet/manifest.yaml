@@ -13,8 +13,23 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 23
+  available: false
+  occupied_by: input_button
 docs_url: https://devices.esphome.io/devices/UltraPro-WFD1001-Wall-Outlet/
 featured_components:
+- id: input_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 23
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: input_button
+    name: input_button
 - id: blue_led
   component_id: light.status_led
   fields:

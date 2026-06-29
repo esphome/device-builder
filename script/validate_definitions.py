@@ -57,40 +57,6 @@ _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 # as a valid identifier and what the sync script's auto-id format produces.
 _FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
-# Categories whose ESPHome schema accepts a top-level ``name:`` field
-# (entity-base universals). Used to gate the ``fields.name`` exception
-# below — without this, a manifest could attach ``fields.name`` to an
-# ``output.*`` component and still validate, then later compile-fail
-# because ``output:`` doesn't carry a ``name`` field.
-_HA_ENTITY_CATEGORIES: frozenset[str] = frozenset(
-    {
-        "alarm_control_panel",
-        "binary_sensor",
-        "button",
-        "camera",
-        "climate",
-        "cover",
-        "datetime",
-        "display",
-        "event",
-        "fan",
-        "light",
-        "lock",
-        "media_player",
-        "microphone",
-        "number",
-        "select",
-        "sensor",
-        "speaker",
-        "switch",
-        "text",
-        "text_sensor",
-        "touchscreen",
-        "update",
-        "valve",
-    }
-)
-
 # Pin features the board manifest can declare (mirrors the JSON Schema enum
 # in board.schema.json). Components.json sometimes carries pin_features
 # values like "input" / "output" that the board side doesn't model — we
@@ -384,10 +350,12 @@ def _validate_featured_component(  # noqa: C901
         if isinstance(key, str):
             entries_by_key[key] = ce
 
-    component_category = component.get("category")
     for fkey, fval in (entry.get("fields") or {}).items():
         if fkey not in entries_by_key:
-            if _is_entity_base_universal(fkey, component_category):
+            # ``id`` is universal across every component; every other field —
+            # including ``name`` — must be a declared config entry, mirroring the
+            # importer, which injects ``name`` only when the schema declares it.
+            if fkey == "id":
                 continue
             errors.append(f"{path}.fields.{fkey}: not a config_entry on {component_id}")
             continue
@@ -395,21 +363,6 @@ def _validate_featured_component(  # noqa: C901
         errors.extend(_validate_field_preset(path, fkey, fval, ce, pins_by_gpio, is_imported))
 
     return errors
-
-
-def _is_entity_base_universal(fkey: str, category: str | None) -> bool:
-    """
-    Return ``True`` for fields ESPHome accepts beyond the catalog schema.
-
-    ``id`` is universal across every component. ``name`` is part of
-    ENTITY_BASE_SCHEMA, inherited by every HA-entity-domain platform —
-    but the schema sync misses it for several entity components
-    (binary_sensor.gpio, sensor.aht10, ...), so a manifest setting
-    ``fields.name`` on those would otherwise trip the unknown-key gate.
-    """
-    if fkey == "id":
-        return True
-    return fkey == "name" and category in _HA_ENTITY_CATEGORIES
 
 
 def _is_expander_pin(raw: object) -> bool:

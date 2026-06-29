@@ -2,9 +2,10 @@
 Tests for ``_extract_featured_components`` in ``script/sync_esphome_devices.py``.
 
 Focuses on the explicit-fields contract: every emitted featured-component
-entry must carry ``fields.id`` and, for HA entity domains, ``fields.name``
-— so the imported manifests are self-contained and the runtime never
-has to auto-derive these from the local id / display name.
+entry must carry ``fields.id`` and, for components whose schema declares a
+``name`` (HA entities, not hub/bus platforms), ``fields.name`` — so the
+imported manifests are self-contained and the runtime never has to
+auto-derive these from the local id / display name.
 
 Also covers the safety filters that drop upstream items the dashboard
 can't usefully surface — placeholder addresses, lambda-driven
@@ -29,9 +30,13 @@ def test_expander_keys_treats_board_pin_id_as_a_board_key() -> None:
 
 # Minimal fake components index — only the keys the extractor reads
 # (``config_entries[*].key`` / ``type``). The pin entries make the
-# extractor accept the values as ``locked`` presets.
+# extractor accept the values as ``locked`` presets. A ``name`` entry marks
+# an HA entity (so ``name`` is auto-injected); hub/bus platforms like
+# ``sensor.dht`` and ``output.gpio`` omit it and get no ``name``.
 _INDEX = {
-    "binary_sensor.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
+    "binary_sensor.gpio": {
+        "config_entries": [{"key": "pin", "type": "pin"}, {"key": "name", "type": "string"}]
+    },
     "output.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
     "sensor.dht": {
         "config_entries": [
@@ -49,6 +54,7 @@ _INDEX = {
         "config_entries": [
             {"key": "pin", "type": "pin"},
             {"key": "inverted", "type": "boolean"},
+            {"key": "name", "type": "string"},
         ]
     },
     "switch.template": {
@@ -66,6 +72,7 @@ _INDEX = {
         "config_entries": [
             {"key": "output", "type": "id"},
             {"key": "restore_mode", "type": "string"},
+            {"key": "name", "type": "string"},
         ]
     },
 }
@@ -98,18 +105,29 @@ def test_extract_uses_upstream_name_for_entities() -> None:
 def test_extract_derives_name_default_when_upstream_omits() -> None:
     """Entity platforms without an upstream ``name:`` fall back to a derived default."""
     inline = {
-        "sensor": [{"platform": "dht", "pin": 14, "model": "DHT22"}],
+        "binary_sensor": [{"platform": "gpio", "pin": 4}],
     }
     featured, _, _ = _extract_featured_components(inline, _INDEX)
     # ``<Platform> <counter>`` — keeps the entity surfaced in HA without
     # the user having to fill in a name first.
-    assert featured[0]["fields"]["name"] == "Dht 1"
+    assert featured[0]["fields"]["name"] == "Gpio 1"
 
 
 def test_extract_skips_name_for_non_entity_platforms() -> None:
     """Non-entity platforms (``output:``) get only ``id``, never ``name``."""
     inline = {
         "output": [{"platform": "gpio", "name": "ignored upstream", "pin": 5}],
+    }
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    fields = featured[0]["fields"]
+    assert "id" in fields
+    assert "name" not in fields
+
+
+def test_extract_skips_name_for_hub_component_without_name_schema() -> None:
+    """A hub-style platform whose schema declares no ``name`` (``sensor.dht``) gets none."""
+    inline = {
+        "sensor": [{"platform": "dht", "pin": 14, "model": "DHT22"}],
     }
     featured, _, _ = _extract_featured_components(inline, _INDEX)
     fields = featured[0]["fields"]

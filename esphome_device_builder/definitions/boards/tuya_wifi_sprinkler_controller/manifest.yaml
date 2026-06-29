@@ -10,41 +10,123 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/disassembled.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-WIFI-Sprinkler-Controller/assembled.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: touch_sensor_2
+- gpio: 7
+  available: false
+  occupied_by: touch_sensor_1
+- gpio: 8
+  available: false
+  occupied_by: touch_sensor_3
+- gpio: 9
+  available: false
+  occupied_by: led_sn74hc595
+- gpio: 14
+  available: false
+  occupied_by: Rain sensor
+- gpio: 15
+  available: false
+  occupied_by: led_sn74hc595
+- gpio: 16
+  available: false
+  occupied_by: valve_sn74hc595
+- gpio: 17
+  available: false
+  occupied_by: led_sn74hc595
+- gpio: 20
+  available: false
+  occupied_by: valve_sn74hc595
+- gpio: 22
+  available: false
+  occupied_by: valve_sn74hc595
+- gpio: 26
+  available: false
+  occupied_by: touch_sensor_4
 docs_url: https://devices.esphome.io/devices/Tuya-WIFI-Sprinkler-Controller/
 featured_components:
 - id: led_sn74hc595
   component_id: sn74hc595
   fields:
+    data_pin:
+      value: 9
+      locked: true
+    clock_pin:
+      value: 15
+      locked: true
+    latch_pin:
+      value: 17
+      locked: true
     id:
       value: led_sn74hc595
       locked: true
 - id: valve_sn74hc595
   component_id: sn74hc595
   fields:
+    data_pin:
+      value: 16
+      locked: true
+    clock_pin:
+      value: 22
+      locked: true
+    latch_pin:
+      value: 20
+      locked: true
     id:
       value: valve_sn74hc595
       locked: true
+- id: rain_sensor
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        inverted: false
+      locked: true
+    id: rain_sensor
+    name: Rain sensor
 - id: touch_sensor_1
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
     internal: true
     id: touch_sensor_1
     name: touch_sensor_1
 - id: touch_sensor_2
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
     internal: true
     id: touch_sensor_2
     name: touch_sensor_2
 - id: touch_sensor_3
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
     internal: true
     id: touch_sensor_3
     name: touch_sensor_3
 - id: touch_sensor_4
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
     internal: true
     id: touch_sensor_4
     name: touch_sensor_4

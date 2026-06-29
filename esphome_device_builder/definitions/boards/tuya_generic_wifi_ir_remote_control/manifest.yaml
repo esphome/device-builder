@@ -1,0 +1,47 @@
+id: tuya_generic_wifi_ir_remote_control
+name: Tuya Generic WiFI IR Remote Control
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Generic-WiFi-IR-Remote-Control/tuya-generic-wifi-ir-remote-control.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: binary_sensor.gpio
+- gpio: 8
+  available: false
+  occupied_by: light.status_led
+docs_url: https://devices.esphome.io/devices/Tuya-Generic-WiFi-IR-Remote-Control/
+featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Gpio 1
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: light_status_led_1
+    name: Status Led 1
+source:
+  type: esphome-devices
+  remote_id: Tuya-Generic-WiFi-IR-Remote-Control
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-Generic-WiFi-IR-Remote-Control/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: f5972f6465be01a72812f94eedd8d83267eb01d9b27522dd7bc7928aad57aa74

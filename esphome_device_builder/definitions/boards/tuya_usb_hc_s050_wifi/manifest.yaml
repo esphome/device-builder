@@ -12,18 +12,49 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/tuya-hc-s050-wifi-pcb-flashing.jpg
 tags:
 - relay
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Status LED
+- gpio: 7
+  available: false
+  occupied_by: Relay
+- gpio: 8
+  available: false
+  occupied_by: Side button
 docs_url: https://devices.esphome.io/devices/Tuya-USB-HC-S050-WIFI/
 featured_components:
+- id: btn
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: btn
+    name: Side button
 - id: light_status_led_1
   component_id: light.status_led
   fields:
     disabled_by_default: true
     entity_category: diagnostic
+    pin:
+      value:
+        number: 6
+        inverted: true
+      locked: true
     id: light_status_led_1
     name: Status LED
 - id: relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: 7
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: relay
     name: Relay

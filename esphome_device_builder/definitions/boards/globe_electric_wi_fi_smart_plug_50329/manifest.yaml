@@ -14,12 +14,37 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 7
+  available: false
+  occupied_by: led
+- gpio: 24
+  available: false
+  occupied_by: Outlet
+- gpio: 26
+  available: false
+  occupied_by: button1
 docs_url: https://devices.esphome.io/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/
 featured_components:
+- id: button1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
+    id: button1
+    name: button1
 - id: led
   component_id: light.status_led
   fields:
     internal: true
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
     id: led
     name: led
 - id: sensor_uptime_1
@@ -37,6 +62,9 @@ featured_components:
 - id: outlet
   component_id: switch.gpio
   fields:
+    pin:
+      value: 24
+      locked: true
     icon: mdi:power-socket-us
     id: outlet
     name: Outlet

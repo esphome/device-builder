@@ -52,7 +52,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_1
-    name: Ina226 1
 - id: sensor_ina226_2
   component_id: sensor.ina226
   fields:
@@ -61,7 +60,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_2
-    name: Ina226 2
 - id: sensor_ina226_3
   component_id: sensor.ina226
   fields:
@@ -70,7 +68,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_3
-    name: Ina226 3
 - id: sensor_ina226_4
   component_id: sensor.ina226
   fields:
@@ -79,7 +76,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_4
-    name: Ina226 4
 - id: sensor_ina226_5
   component_id: sensor.ina226
   fields:
@@ -88,7 +84,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_5
-    name: Ina226 5
 - id: sensor_ina226_6
   component_id: sensor.ina226
   fields:
@@ -97,7 +92,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_6
-    name: Ina226 6
 - id: sensor_ina226_7
   component_id: sensor.ina226
   fields:
@@ -106,7 +100,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_7
-    name: Ina226 7
 - id: sensor_ina226_8
   component_id: sensor.ina226
   fields:
@@ -115,7 +108,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_8
-    name: Ina226 8
 - id: sensor_ina226_9
   component_id: sensor.ina226
   fields:
@@ -124,7 +116,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_9
-    name: Ina226 9
 - id: sensor_ina226_10
   component_id: sensor.ina226
   fields:
@@ -133,7 +124,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_10
-    name: Ina226 10
 - id: sensor_ina226_11
   component_id: sensor.ina226
   fields:
@@ -142,7 +132,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_11
-    name: Ina226 11
 - id: sensor_ina226_12
   component_id: sensor.ina226
   fields:
@@ -151,7 +140,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_12
-    name: Ina226 12
 - id: sensor_ina226_13
   component_id: sensor.ina226
   fields:
@@ -160,7 +148,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_13
-    name: Ina226 13
 - id: sensor_ina226_14
   component_id: sensor.ina226
   fields:
@@ -169,7 +156,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_14
-    name: Ina226 14
 - id: sensor_ina226_15
   component_id: sensor.ina226
   fields:
@@ -178,7 +164,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_15
-    name: Ina226 15
 - id: sensor_ina226_16
   component_id: sensor.ina226
   fields:
@@ -187,7 +172,6 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_16
-    name: Ina226 16
 source:
   type: esphome-devices
   remote_id: KinCony-MB

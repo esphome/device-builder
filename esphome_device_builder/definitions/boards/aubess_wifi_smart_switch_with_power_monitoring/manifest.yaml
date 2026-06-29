@@ -9,8 +9,42 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aubess-WiFi-Smart-Switch-with-Power-Monitoring/Aubess-WiFi-Smart-Switch-with-Power-Monitoring.jpg
+pins:
+- gpio: 23
+  available: false
+  occupied_by: AubessPM01_button
+- gpio: 24
+  available: false
+  occupied_by: AubessPM01_switch
+- gpio: 26
+  available: false
+  occupied_by: Geyser
 docs_url: https://devices.esphome.io/devices/Aubess-WiFi-Smart-Switch-with-Power-Monitoring/
 featured_components:
+- id: aubesspm01_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 23
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: aubesspm01_button
+    name: AubessPM01_button
+- id: aubesspm01_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: aubesspm01_switch
+    name: AubessPM01_switch
 - id: wifi_signal_db
   component_id: sensor.wifi_signal
   fields:
@@ -20,6 +54,9 @@ featured_components:
 - id: aubespm01
   component_id: switch.gpio
   fields:
+    pin:
+      value: 26
+      locked: true
     icon: mdi:water-boiler
     restore_mode: RESTORE_DEFAULT_OFF
     id: aubespm01

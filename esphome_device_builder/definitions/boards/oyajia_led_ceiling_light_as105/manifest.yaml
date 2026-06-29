@@ -10,6 +10,10 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/AS105.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Oyajia-LED-Ceiling-light-AS105/pinout.png
+pins:
+- gpio: 16
+  available: false
+  occupied_by: Color Light
 docs_url: https://devices.esphome.io/devices/Oyajia-LED-Ceiling-light-AS105/
 featured_components:
 - id: white_light
@@ -23,6 +27,9 @@ featured_components:
 - id: color_light
   component_id: light.beken_spi_led_strip
   fields:
+    pin:
+      value: 16
+      locked: true
     chipset: WS2812
     num_leds: 60
     rgb_order: GRB

@@ -45,6 +45,40 @@ pins:
   occupied_by: aio--AI-17
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AIO/
 featured_components:
+- id: cd74hc4067_1
+  component_id: cd74hc4067
+  fields:
+    pin_s0:
+      value:
+        pcf8574: pcf8574_hub_out_in_3
+        number: 8
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    pin_s1:
+      value:
+        pcf8574: pcf8574_hub_out_in_3
+        number: 9
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    pin_s2:
+      value:
+        pcf8574: pcf8574_hub_out_in_3
+        number: 10
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    pin_s3:
+      value:
+        pcf8574: pcf8574_hub_out_in_3
+        number: 11
+        mode: OUTPUT
+        inverted: true
+      locked: true
+    id:
+      value: cd74hc4067_1
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -1266,6 +1300,8 @@ featured_components:
     sensor: adc36
     id: ai1
     name: aio--AI-16
+  requires:
+  - cd74hc4067_1
 - id: ai2
   component_id: sensor.cd74hc4067
   fields:
@@ -1274,6 +1310,8 @@ featured_components:
     sensor: adc36
     id: ai2
     name: aio--AI-15
+  requires:
+  - cd74hc4067_1
 - id: ai3
   component_id: sensor.cd74hc4067
   fields:
@@ -1282,6 +1320,8 @@ featured_components:
     sensor: adc36
     id: ai3
     name: aio--AI-14
+  requires:
+  - cd74hc4067_1
 - id: ai4
   component_id: sensor.cd74hc4067
   fields:
@@ -1290,6 +1330,8 @@ featured_components:
     sensor: adc36
     id: ai4
     name: aio--AI-13
+  requires:
+  - cd74hc4067_1
 - id: ai5
   component_id: sensor.cd74hc4067
   fields:
@@ -1298,6 +1340,8 @@ featured_components:
     sensor: adc36
     id: ai5
     name: aio--AI-12
+  requires:
+  - cd74hc4067_1
 - id: ai6
   component_id: sensor.cd74hc4067
   fields:
@@ -1306,6 +1350,8 @@ featured_components:
     sensor: adc36
     id: ai6
     name: aio--AI-11
+  requires:
+  - cd74hc4067_1
 - id: ai7
   component_id: sensor.cd74hc4067
   fields:
@@ -1314,6 +1360,8 @@ featured_components:
     sensor: adc36
     id: ai7
     name: aio--AI-10
+  requires:
+  - cd74hc4067_1
 - id: ai8
   component_id: sensor.cd74hc4067
   fields:
@@ -1322,6 +1370,8 @@ featured_components:
     sensor: adc36
     id: ai8
     name: aio--AI-9
+  requires:
+  - cd74hc4067_1
 - id: ai9
   component_id: sensor.cd74hc4067
   fields:
@@ -1330,6 +1380,8 @@ featured_components:
     sensor: adc36
     id: ai9
     name: aio--AI-8
+  requires:
+  - cd74hc4067_1
 - id: ai10
   component_id: sensor.cd74hc4067
   fields:
@@ -1338,6 +1390,8 @@ featured_components:
     sensor: adc36
     id: ai10
     name: aio--AI-7
+  requires:
+  - cd74hc4067_1
 - id: ai11
   component_id: sensor.cd74hc4067
   fields:
@@ -1346,6 +1400,8 @@ featured_components:
     sensor: adc36
     id: ai11
     name: aio--AI-6
+  requires:
+  - cd74hc4067_1
 - id: ai12
   component_id: sensor.cd74hc4067
   fields:
@@ -1354,6 +1410,8 @@ featured_components:
     sensor: adc36
     id: ai12
     name: aio--AI-5
+  requires:
+  - cd74hc4067_1
 - id: ai13
   component_id: sensor.cd74hc4067
   fields:
@@ -1362,6 +1420,8 @@ featured_components:
     sensor: adc36
     id: ai13
     name: aio--AI-4
+  requires:
+  - cd74hc4067_1
 - id: ai14
   component_id: sensor.cd74hc4067
   fields:
@@ -1370,6 +1430,8 @@ featured_components:
     sensor: adc36
     id: ai14
     name: aio--AI-3
+  requires:
+  - cd74hc4067_1
 - id: ai15
   component_id: sensor.cd74hc4067
   fields:
@@ -1378,6 +1440,8 @@ featured_components:
     sensor: adc36
     id: ai15
     name: aio--AI-2
+  requires:
+  - cd74hc4067_1
 - id: ai16
   component_id: sensor.cd74hc4067
   fields:
@@ -1386,6 +1450,8 @@ featured_components:
     sensor: adc36
     id: ai16
     name: aio--AI-1
+  requires:
+  - cd74hc4067_1
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -1988,81 +2054,97 @@ featured_bundles:
 - id: ai1_setup
   name: aio--AI-16 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai1
 - id: ai2_setup
   name: aio--AI-15 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai2
 - id: ai3_setup
   name: aio--AI-14 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai3
 - id: ai4_setup
   name: aio--AI-13 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai4
 - id: ai5_setup
   name: aio--AI-12 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai5
 - id: ai6_setup
   name: aio--AI-11 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai6
 - id: ai7_setup
   name: aio--AI-10 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai7
 - id: ai8_setup
   name: aio--AI-9 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai8
 - id: ai9_setup
   name: aio--AI-8 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai9
 - id: ai10_setup
   name: aio--AI-7 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai10
 - id: ai11_setup
   name: aio--AI-6 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai11
 - id: ai12_setup
   name: aio--AI-5 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai12
 - id: ai13_setup
   name: aio--AI-4 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai13
 - id: ai14_setup
   name: aio--AI-3 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai14
 - id: ai15_setup
   name: aio--AI-2 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai15
 - id: ai16_setup
   name: aio--AI-1 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc36
   - ai16
 source:

@@ -1,0 +1,123 @@
+id: girier_switch_4gang
+name: GIRIER Switch 4 Gang ZS-TYT1-SM-41W-W
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GIRIER-Switch-4gang/front.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GIRIER-Switch-4gang/back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GIRIER-Switch-4gang/box.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GIRIER-Switch-4gang/pcb.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: binary_switch_3
+- gpio: 7
+  available: false
+  occupied_by: Relay 4
+- gpio: 8
+  available: false
+  occupied_by: Relay 3
+- gpio: 9
+  available: false
+  occupied_by: Relay 2
+- gpio: 14
+  available: false
+  occupied_by: Relay 1
+- gpio: 23
+  available: false
+  occupied_by: binary_switch_4
+- gpio: 24
+  available: false
+  occupied_by: binary_switch_2
+- gpio: 26
+  available: false
+  occupied_by: binary_switch_1
+docs_url: https://devices.esphome.io/devices/GIRIER-Switch-4gang/
+featured_components:
+- id: binary_switch_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_1
+    name: binary_switch_1
+- id: binary_switch_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_2
+    name: binary_switch_2
+- id: binary_switch_3
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_3
+    name: binary_switch_3
+- id: binary_switch_4
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 23
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_4
+    name: binary_switch_4
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: switch_1
+    name: Relay 1
+- id: switch_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: switch_2
+    name: Relay 2
+- id: switch_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: switch_3
+    name: Relay 3
+- id: switch_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: switch_4
+    name: Relay 4
+source:
+  type: esphome-devices
+  remote_id: GIRIER-Switch-4gang
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/GIRIER-Switch-4gang/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: f2598252982cc1c65343ecd2889be08ef9f598b13520f1cd1716f55506316110
