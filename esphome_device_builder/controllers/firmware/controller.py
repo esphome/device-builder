@@ -71,6 +71,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # overtaken by a newer one (which would let a stale snapshot
         # overwrite fresher state on disk).
         self._persist_lock = asyncio.Lock()
+        self._armed_deferred_installs: set[str] = set()
 
         self.bus.add_listener(EventType.DEVICE_STATE_CHANGED, self._handle_device_wake)
 
@@ -96,13 +97,16 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         config = event.data["configuration"]
+
+        # Fast-path bypass to avoid O(n) device scans on every ONLINE event
+        if config not in self._armed_deferred_installs:
+            return
+
         device = self._device_for_configuration(config)
 
         if device and device.queued_update:
             _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
-            if self._db.devices:
-                self._db.devices.set_queued_update(device.name, is_queued=False)
-
+            # Flag is cleared on upload success in _execute_job so it survives failed OTAs
             create_eager_task(self.upload(configuration=config, port="OTA"))
 
     # ------------------------------------------------------------------
@@ -205,6 +209,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         device = self._device_for_configuration(configuration)
         if device and device.queued_update and self._db.devices:
             self._db.devices.set_queued_update(device.name, is_queued=False)
+            self._armed_deferred_installs.discard(configuration)
             _LOGGER.info("Queued update cleared for device %s", configuration)
 
     @api_command("firmware/reset_build_env")
@@ -446,8 +451,24 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         if is_comp and is_done and is_deferred:
             device = self._device_for_configuration(job.configuration)
-            if device and device.state == DeviceState.OFFLINE and self._db.devices:
-                self._db.devices.set_queued_update(device.name, is_queued=True)
+            if device and self._db.devices:
+                if device.state == DeviceState.OFFLINE:
+                    self._db.devices.set_queued_update(device.name, is_queued=True)
+                    self._armed_deferred_installs.add(job.configuration)
+                elif device.state == DeviceState.ONLINE:
+                    _LOGGER.info(
+                        "Device %s is online after deferred compile. Triggering upload now.",
+                        job.configuration
+                    )
+                    create_eager_task(self.upload(configuration=job.configuration, port="OTA"))
+
+        # Clear queued flag on a successful upload so failures can be retried
+        is_upload = job.job_type == JobType.UPLOAD
+        if is_upload and is_done:
+            device = self._device_for_configuration(job.configuration)
+            if device and getattr(device, "queued_update", False) and self._db.devices:
+                self._db.devices.set_queued_update(device.name, is_queued=False)
+                self._armed_deferred_installs.discard(job.configuration)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)

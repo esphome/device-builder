@@ -36,6 +36,7 @@ def firmware_controller(mock_device):
     controller._db.settings = MagicMock()
     controller._db.settings.config_dir = Path(__file__).parent
     controller.state = FirmwareState()
+    controller._armed_deferred_installs = set()
     return controller
 
 
@@ -70,6 +71,7 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
     """Test that clear_queued_update command resets the queued_update flag."""
     mock_device.state = DeviceState.OFFLINE
     mock_device.queued_update = True
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
 
     firmware_controller._db.devices.set_queued_update = MagicMock()
 
@@ -78,6 +80,7 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
     firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device", is_queued=False
     )
+    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
 
 
 @pytest.mark.asyncio
@@ -95,6 +98,7 @@ async def test_queued_update_not_cleared_if_device_missing(firmware_controller):
     """Test that the command handles missing device objects gracefully."""
     # Setup: Force _db.devices to None
     firmware_controller._db.devices = None
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
 
     # Should not raise exception, just return None
     result = await firmware_controller.clear_queued_update(configuration="test_device.yaml")
@@ -109,6 +113,7 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
     mock_device.name = "test_device"
 
     firmware_controller._db.devices.set_queued_update = MagicMock()
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
 
     with (
         patch(
@@ -125,15 +130,15 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
         )
         firmware_controller._handle_device_wake(event)
 
-        firmware_controller._db.devices.set_queued_update.assert_called_with(
-            "test_device", is_queued=False
-        )
+        # Flag shouldn't clear here (now handled post-upload).
+        firmware_controller._db.devices.set_queued_update.assert_not_called()
         mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
         mock_eager.assert_called_once()
 
 
 def test_handle_device_wake_ignored_if_offline(firmware_controller, mock_device):
     """Test that non-ONLINE state changes are ignored."""
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
     with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
         event = Event(
             EventType.DEVICE_STATE_CHANGED,
@@ -149,6 +154,7 @@ def test_handle_device_wake_ignored_if_offline(firmware_controller, mock_device)
 def test_handle_device_wake_ignored_if_no_flag(firmware_controller, mock_device):
     """Test that online devices without the queued_update flag are ignored."""
     mock_device.queued_update = False
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
     with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
         event = Event(
             EventType.DEVICE_STATE_CHANGED,
@@ -164,6 +170,7 @@ def test_handle_device_wake_ignored_if_no_flag(firmware_controller, mock_device)
 def test_handle_device_wake_no_devices(firmware_controller):
     """Test that the handler safely bails if the devices controller is None."""
     firmware_controller._db.devices = None
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
     event = Event(
         EventType.DEVICE_STATE_CHANGED,
         data={
@@ -200,6 +207,7 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device", is_queued=True
     )
+    assert "test_device.yaml" in firmware_controller._armed_deferred_installs
 
 
 @pytest.mark.asyncio
@@ -226,11 +234,12 @@ async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device)
 
     # Ensure the arming path was skipped
     firmware_controller._db.devices.set_queued_update.assert_not_called()
+    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
 
 
 @pytest.mark.asyncio
 async def test_execute_job_ignores_online_device(firmware_controller, mock_device):
-    """Test that a successful compile for an online device does not set the flag."""
+    """Test that a successful compile for an online device triggers immediate upload instead of queueing."""
     mock_device.state = DeviceState.ONLINE
     mock_device.configuration = "test_device.yaml"
     firmware_controller._db.devices.set_queued_update = MagicMock()
@@ -241,6 +250,67 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
     job.configuration = "test_device.yaml"
     job.is_deferred_install = True
 
+    with (
+        patch(
+            "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
+            new_callable=AsyncMock,
+        ),
+        patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload,
+        patch("esphome_device_builder.controllers.firmware.controller.create_eager_task") as mock_eager
+    ):
+        await firmware_controller._execute_job(job, MagicMock())
+
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
+    mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
+    mock_eager.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_job_clears_queued_flag_on_upload(firmware_controller, mock_device):
+    """Test that a successful upload clears the queued update flag and arming set."""
+    mock_device.queued_update = True
+    mock_device.configuration = "test_device.yaml"
+    mock_device.name = "test_device"
+
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.UPLOAD
+    job.status = JobStatus.COMPLETED
+    job.configuration = "test_device.yaml"
+    job.is_deferred_install = False
+
+    with patch(
+        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
+        new_callable=AsyncMock,
+    ):
+        await firmware_controller._execute_job(job, MagicMock())
+
+    firmware_controller._db.devices.set_queued_update.assert_called_with(
+        "test_device", is_queued=False
+    )
+    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
+
+
+@pytest.mark.asyncio
+async def test_execute_job_preserves_queued_flag_on_failed_upload(firmware_controller, mock_device):
+    """Test that a failed upload does NOT clear the queued update flag."""
+    mock_device.queued_update = True
+    mock_device.configuration = "test_device.yaml"
+    mock_device.name = "test_device"
+
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+    firmware_controller._armed_deferred_installs.add("test_device.yaml")
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.UPLOAD
+    # Mocking any status other than COMPLETED
+    job.status = MagicMock()
+    job.configuration = "test_device.yaml"
+    job.is_deferred_install = False
+
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
         new_callable=AsyncMock,
@@ -248,6 +318,7 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
         await firmware_controller._execute_job(job, MagicMock())
 
     firmware_controller._db.devices.set_queued_update.assert_not_called()
+    assert "test_device.yaml" in firmware_controller._armed_deferred_installs
 
 
 def test_device_for_configuration_handles_none(firmware_controller):
