@@ -58,7 +58,7 @@ async def test_terminal_job_replays_full_history_and_returns(
         "status": "completed",
         "exit_code": 0,
         "error": None,
-        "is_deferred_install": False
+        "is_deferred_install": False,
     }
 
 
