@@ -34,6 +34,12 @@ pins:
 - gpio: 4
   available: false
   occupied_by: ade7953_id
+- gpio: 6
+  available: false
+  occupied_by: i2c
+- gpio: 7
+  available: false
+  occupied_by: i2c
 - gpio: 9
   available: false
   occupied_by: Status LED
@@ -42,6 +48,16 @@ pins:
   occupied_by: Header GPIO
 docs_url: https://devices.esphome.io/devices/Shelly-EM-Gen3/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    scl:
+      value: 6
+      locked: true
+    sda:
+      value: 7
+      locked: true
+    scan: true
 - id: shelly_button_id
   component_id: binary_sensor.gpio
   fields:
@@ -119,6 +135,8 @@ featured_components:
       locked: true
     use_accumulated_energy_registers: true
     id: ade7953_id
+  requires:
+  - i2c_bus
 - id: relay_id
   component_id: switch.gpio
   fields:

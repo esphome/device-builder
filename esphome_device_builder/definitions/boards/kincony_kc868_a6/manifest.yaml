@@ -14,8 +14,26 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-A6/KC868-A6.jpg
 tags:
 - relay
+pins:
+- gpio: 4
+  available: false
+  occupied_by: i2c
+- gpio: 15
+  available: false
+  occupied_by: i2c
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A6/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value:
+        number: 15
+        ignore_strapping_warning: true
+      locked: true
 - id: inputs
   component_id: pcf8574
   fields:
@@ -23,6 +41,8 @@ featured_components:
     id:
       value: inputs
       locked: true
+  requires:
+  - i2c_bus
 - id: outputs
   component_id: pcf8574
   fields:
@@ -30,6 +50,8 @@ featured_components:
     id:
       value: outputs
       locked: true
+  requires:
+  - i2c_bus
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -43,6 +65,7 @@ featured_components:
     id: binary_sensor_gpio_1
     name: KC868-A6-IN-1
   requires:
+  - i2c_bus
   - inputs
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -57,6 +80,7 @@ featured_components:
     id: binary_sensor_gpio_2
     name: KC868-A6-IN-2
   requires:
+  - i2c_bus
   - inputs
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
@@ -71,6 +95,7 @@ featured_components:
     id: binary_sensor_gpio_3
     name: KC868-A6-IN-3
   requires:
+  - i2c_bus
   - inputs
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
@@ -85,6 +110,7 @@ featured_components:
     id: binary_sensor_gpio_4
     name: KC868-A6-IN-4
   requires:
+  - i2c_bus
   - inputs
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -99,6 +125,7 @@ featured_components:
     id: binary_sensor_gpio_5
     name: KC868-A6-IN-5
   requires:
+  - i2c_bus
   - inputs
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
@@ -113,6 +140,7 @@ featured_components:
     id: binary_sensor_gpio_6
     name: KC868-A6-IN-6
   requires:
+  - i2c_bus
   - inputs
 - id: relay_1
   component_id: switch.gpio
@@ -127,6 +155,7 @@ featured_components:
     id: relay_1
     name: KC868-A6-RELAY-1
   requires:
+  - i2c_bus
   - outputs
 - id: relay_2
   component_id: switch.gpio
@@ -141,6 +170,7 @@ featured_components:
     id: relay_2
     name: KC868-A6-RELAY-2
   requires:
+  - i2c_bus
   - outputs
 - id: relay_3
   component_id: switch.gpio
@@ -155,6 +185,7 @@ featured_components:
     id: relay_3
     name: KC868-A6-RELAY-3
   requires:
+  - i2c_bus
   - outputs
 - id: relay_4
   component_id: switch.gpio
@@ -169,6 +200,7 @@ featured_components:
     id: relay_4
     name: KC868-A6-RELAY-4
   requires:
+  - i2c_bus
   - outputs
 - id: relay_5
   component_id: switch.gpio
@@ -183,6 +215,7 @@ featured_components:
     id: relay_5
     name: KC868-A6-RELAY-5
   requires:
+  - i2c_bus
   - outputs
 - id: relay_6
   component_id: switch.gpio
@@ -197,6 +230,7 @@ featured_components:
     id: relay_6
     name: KC868-A6-RELAY-6
   requires:
+  - i2c_bus
   - outputs
 source:
   type: esphome-devices

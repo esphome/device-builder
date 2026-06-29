@@ -15,17 +15,38 @@ pins:
 - gpio: 0
   available: false
   occupied_by: LED WS2812B
+- gpio: 18
+  available: false
+  occupied_by: spi
+- gpio: 19
+  available: false
+  occupied_by: spi
 - gpio: 21
   available: false
   occupied_by: sensor.dht
 - gpio: 22
   available: false
   occupied_by: sensor.dht
+- gpio: 23
+  available: false
+  occupied_by: spi
 - gpio: 32
   available: false
   occupied_by: mcp23s08_hub
 docs_url: https://devices.esphome.io/devices/KMP-PRODINo-ESP32EX/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
+    miso_pin:
+      value: 19
+      locked: true
 - id: mcp23s08_hub
   component_id: mcp23s08
   fields:
@@ -36,6 +57,8 @@ featured_components:
     id:
       value: mcp23s08_hub
       locked: true
+  requires:
+  - spi_bus
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -49,6 +72,7 @@ featured_components:
     id: binary_sensor_gpio_1
     name: INPUT1
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
@@ -63,6 +87,7 @@ featured_components:
     id: binary_sensor_gpio_2
     name: INPUT2
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
@@ -77,6 +102,7 @@ featured_components:
     id: binary_sensor_gpio_3
     name: INPUT3
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
@@ -91,6 +117,7 @@ featured_components:
     id: binary_sensor_gpio_4
     name: INPUT4
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: light_esp32_rmt_led_strip_1
   component_id: light.esp32_rmt_led_strip
@@ -134,6 +161,7 @@ featured_components:
     id: switch_gpio_1
     name: RELAY4
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: switch_gpio_2
   component_id: switch.gpio
@@ -148,6 +176,7 @@ featured_components:
     id: switch_gpio_2
     name: RELAY3
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: switch_gpio_3
   component_id: switch.gpio
@@ -162,6 +191,7 @@ featured_components:
     id: switch_gpio_3
     name: RELAY2
   requires:
+  - spi_bus
   - mcp23s08_hub
 - id: switch_gpio_4
   component_id: switch.gpio
@@ -176,6 +206,7 @@ featured_components:
     id: switch_gpio_4
     name: RELAY1
   requires:
+  - spi_bus
   - mcp23s08_hub
 source:
   type: esphome-devices

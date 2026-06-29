@@ -19,6 +19,12 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Button
+- gpio: 1
+  available: false
+  occupied_by: i2c
+- gpio: 3
+  available: false
+  occupied_by: i2c
 - gpio: 4
   available: false
   occupied_by: batt_adc
@@ -30,6 +36,17 @@ pins:
   occupied_by: batt_power_en
 docs_url: https://devices.esphome.io/devices/Shelly-HT-Gen3/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 1
+      locked: true
+    scl:
+      value: 3
+      locked: true
+    scan: false
+    frequency: 100kHz
 - id: batt_presence
   component_id: binary_sensor.gpio
   fields:
@@ -68,6 +85,8 @@ featured_components:
     address: 68
     update_interval: 60s
     id: sensor_sht3xd_1
+  requires:
+  - i2c_bus
 - id: wifi_rssi
   component_id: sensor.wifi_signal
   fields:

@@ -22,6 +22,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: builtin_led
+- gpio: 13
+  available: false
+  occupied_by: spi
+- gpio: 15
+  available: false
+  occupied_by: spi
 - gpio: 18
   available: false
   occupied_by: display.st7789v
@@ -43,6 +49,15 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS/
 product_url: https://docs.m5stack.com/en/core/m5stickc_plus
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 13
+      locked: true
+    mosi_pin:
+      value: 15
+      locked: true
 - id: bus_i2s
   component_id: i2s_audio
   fields:
@@ -91,6 +106,8 @@ featured_components:
     rotation: 270
     show_test_card: true
     id: display_st7789v_1
+  requires:
+  - spi_bus
 - id: led1
   component_id: light.monochromatic
   fields:

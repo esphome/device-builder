@@ -1602,15 +1602,14 @@ def _materialize_bus(
     Lift the bus a consumer depends on into a featured entry, both bus shapes.
 
     Mapping-style buses (``i2c:`` / ``spi:`` / ``uart:`` / ``modbus:``) resolve to
-    a top-level component and carry an explicit ``id`` we lock onto. Platform-style
-    buses (``one_wire: - platform: gpio`` / ``canbus:``) resolve to a
-    ``<domain>.<platform>`` component and may omit an ``id`` (a sole bus is
-    auto-detected), so the id is optional there. *instance_id* names the specific
-    bus when the consumer pins one (``i2c_id: bus_a``); otherwise the sole bus.
-    Returns ``(None, "", {})`` when the bus is absent, ambiguous (no ``*_id`` and
-    more than one bus), placeholder, or a mapping-style bus without an upstream
-    ``id`` — the catalog component's own ``dependencies`` then surfaces the bare
-    bus via the add-dialog's missing-dependency banner instead.
+    a top-level component; platform-style buses (``one_wire: - platform: gpio`` /
+    ``canbus:``) resolve to a ``<domain>.<platform>`` component. The ``id`` is
+    optional for both: a sole bus with no ``id`` is auto-detected by its consumers,
+    so it is lifted with only its pins locked, and its local id falls back to
+    ``<domain>_bus``. *instance_id* names the specific bus when the consumer pins
+    one (``i2c_id: bus_a``); otherwise the sole bus. Returns ``(None, "", {})``
+    when the bus is absent, ambiguous (no ``*_id`` and more than one bus), or a
+    platform-style block has no resolvable ``platform:``.
     """
     blocks = _block_mappings(config.get(bus_domain))
     if instance_id is not None:
@@ -1624,19 +1623,20 @@ def _materialize_bus(
     component = components_index.get(bus_domain)
     if component is not None:
         component_id = bus_domain
-        bus_inst = block.get("id")
-        if not isinstance(bus_inst, str) or not bus_inst:
-            return None, "", {}
     else:
         platform = block.get("platform")
         if not isinstance(platform, str) or not platform:
             return None, "", {}
         component_id = f"{bus_domain}.{platform}"
         component = components_index.get(component_id)
-        if component is None or not _is_bus_category(component):
+        if component is None:
             return None, "", {}
-        bus_inst = block.get("id")
-        bus_inst = bus_inst if isinstance(bus_inst, str) and bus_inst else None
+    # A hub binds several deps and ``_ensure_buses`` calls this for each, so confirm
+    # the resolved component is a bus (the id was never the filter).
+    if not _is_bus_category(component):
+        return None, "", {}
+    bus_inst = block.get("id")
+    bus_inst = bus_inst if isinstance(bus_inst, str) and bus_inst else None
     occupancy: dict[int, str] = {}
     fields = _extract_fields(block, component, occupancy, component_id)
     if fields is None:

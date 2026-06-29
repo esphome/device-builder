@@ -324,6 +324,7 @@ _EXPANDER_INDEX = {
         ],
     },
     "i2c": {
+        "category": "bus",
         "config_entries": [
             {"key": "id", "type": "id"},
             {"key": "sda", "type": "pin"},
@@ -476,15 +477,17 @@ def test_extract_expander_ambiguous_multi_hub_is_skipped() -> None:
     assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
 
 
-def test_extract_expander_bus_without_id_not_materialized() -> None:
-    """An i2c bus with no upstream id isn't locked; the hub still lands, requiring only itself."""
+def test_extract_expander_bus_without_id_is_materialized() -> None:
+    """An id-less sole i2c bus is lifted (fallback local id, no id field); the hub requires it."""
     config = _expander_config(i2c=[{"sda": 9, "scl": 10}])  # no id to lock onto
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
-    assert not any(e["component_id"] == "i2c" for e in extra)
-    assert any(e["component_id"] == "pcf8574" for e in extra)
+    by_id = {e["id"]: e for e in extra}
+    assert by_id["i2c_bus"]["component_id"] == "i2c"
+    assert "id" not in by_id["i2c_bus"]["fields"]
+    assert by_id["pcf8574_hub_in_1"]["requires"] == ["i2c_bus"]
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
-    assert consumer["requires"] == ["pcf8574_hub_in_1"]
+    assert consumer["requires"] == ["i2c_bus", "pcf8574_hub_in_1"]
 
 
 def test_extract_expander_picks_the_bus_the_hub_pins_via_i2c_id() -> None:

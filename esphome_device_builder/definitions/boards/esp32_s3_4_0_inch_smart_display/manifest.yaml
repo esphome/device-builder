@@ -41,8 +41,23 @@ pins:
 - gpio: 40
   available: false
   occupied_by: $device_name Relay 1
+- gpio: 47
+  available: false
+  occupied_by: spi
+- gpio: 48
+  available: false
+  occupied_by: spi
 docs_url: https://devices.esphome.io/devices/ESP32-S3-4.0-Inch-Smart-Display/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    mosi_pin:
+      value: 47
+      locked: true
+    clk_pin:
+      value: 48
+      locked: true
 - id: display_st7701s_1
   component_id: display.st7701s
   fields:
@@ -64,6 +79,8 @@ featured_components:
       locked: true
     data_rate: 40MHz
     id: display_st7701s_1
+  requires:
+  - spi_bus
 - id: backlight
   component_id: output.ledc
   fields:

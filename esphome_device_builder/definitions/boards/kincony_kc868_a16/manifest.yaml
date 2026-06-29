@@ -16,6 +16,12 @@ images:
 tags:
 - relay
 pins:
+- gpio: 4
+  available: false
+  occupied_by: i2c
+- gpio: 5
+  available: false
+  occupied_by: i2c
 - gpio: 14
   available: false
   occupied_by: KC868-A16-HT3
@@ -36,6 +42,17 @@ pins:
   occupied_by: KC868-A16-HT2
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A16/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value:
+        number: 5
+        ignore_strapping_warning: true
+      locked: true
 - id: inputs_1_8
   component_id: pcf8574
   fields:
@@ -44,6 +61,8 @@ featured_components:
     id:
       value: inputs_1_8
       locked: true
+  requires:
+  - i2c_bus
 - id: inputs_9_16
   component_id: pcf8574
   fields:
@@ -52,6 +71,8 @@ featured_components:
     id:
       value: inputs_9_16
       locked: true
+  requires:
+  - i2c_bus
 - id: outputs_1_8
   component_id: pcf8574
   fields:
@@ -60,6 +81,8 @@ featured_components:
     id:
       value: outputs_1_8
       locked: true
+  requires:
+  - i2c_bus
 - id: outputs_9_16
   component_id: pcf8574
   fields:
@@ -68,6 +91,8 @@ featured_components:
     id:
       value: outputs_9_16
       locked: true
+  requires:
+  - i2c_bus
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -132,6 +157,7 @@ featured_components:
     id: binary_sensor_gpio_4
     name: KC868-A16-X01
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
@@ -146,6 +172,7 @@ featured_components:
     id: binary_sensor_gpio_5
     name: KC868-A16-X02
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
@@ -160,6 +187,7 @@ featured_components:
     id: binary_sensor_gpio_6
     name: KC868-A16-X03
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
@@ -174,6 +202,7 @@ featured_components:
     id: binary_sensor_gpio_7
     name: KC868-A16-X04
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
@@ -188,6 +217,7 @@ featured_components:
     id: binary_sensor_gpio_8
     name: KC868-A16-X05
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
@@ -202,6 +232,7 @@ featured_components:
     id: binary_sensor_gpio_9
     name: KC868-A16-X06
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
@@ -216,6 +247,7 @@ featured_components:
     id: binary_sensor_gpio_10
     name: KC868-A16-X07
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
@@ -230,6 +262,7 @@ featured_components:
     id: binary_sensor_gpio_11
     name: KC868-A16-X08
   requires:
+  - i2c_bus
   - inputs_1_8
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
@@ -244,6 +277,7 @@ featured_components:
     id: binary_sensor_gpio_12
     name: KC868-A16-X09
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
@@ -258,6 +292,7 @@ featured_components:
     id: binary_sensor_gpio_13
     name: KC868-A16-X10
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
@@ -272,6 +307,7 @@ featured_components:
     id: binary_sensor_gpio_14
     name: KC868-A16-X11
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
@@ -286,6 +322,7 @@ featured_components:
     id: binary_sensor_gpio_15
     name: KC868-A16-X12
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
@@ -300,6 +337,7 @@ featured_components:
     id: binary_sensor_gpio_16
     name: KC868-A16-X13
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
@@ -314,6 +352,7 @@ featured_components:
     id: binary_sensor_gpio_17
     name: KC868-A16-X14
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
@@ -328,6 +367,7 @@ featured_components:
     id: binary_sensor_gpio_18
     name: KC868-A16-X15
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
@@ -342,6 +382,7 @@ featured_components:
     id: binary_sensor_gpio_19
     name: KC868-A16-X16
   requires:
+  - i2c_bus
   - inputs_9_16
 - id: out_y01
   component_id: switch.gpio
@@ -356,6 +397,7 @@ featured_components:
     id: out_y01
     name: KC868-A16-Y01
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y02
   component_id: switch.gpio
@@ -370,6 +412,7 @@ featured_components:
     id: out_y02
     name: KC868-A16-Y02
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y03
   component_id: switch.gpio
@@ -384,6 +427,7 @@ featured_components:
     id: out_y03
     name: KC868-A16-Y03
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y04
   component_id: switch.gpio
@@ -398,6 +442,7 @@ featured_components:
     id: out_y04
     name: KC868-A16-Y04
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y05
   component_id: switch.gpio
@@ -412,6 +457,7 @@ featured_components:
     id: out_y05
     name: KC868-A16-Y05
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y06
   component_id: switch.gpio
@@ -426,6 +472,7 @@ featured_components:
     id: out_y06
     name: KC868-A16-Y06
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y07
   component_id: switch.gpio
@@ -440,6 +487,7 @@ featured_components:
     id: out_y07
     name: KC868-A16-Y07
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y08
   component_id: switch.gpio
@@ -454,6 +502,7 @@ featured_components:
     id: out_y08
     name: KC868-A16-Y08
   requires:
+  - i2c_bus
   - outputs_1_8
 - id: out_y09
   component_id: switch.gpio
@@ -468,6 +517,7 @@ featured_components:
     id: out_y09
     name: KC868-A16-Y09
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y10
   component_id: switch.gpio
@@ -482,6 +532,7 @@ featured_components:
     id: out_y10
     name: KC868-A16-Y10
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y11
   component_id: switch.gpio
@@ -496,6 +547,7 @@ featured_components:
     id: out_y11
     name: KC868-A16-Y11
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y12
   component_id: switch.gpio
@@ -510,6 +562,7 @@ featured_components:
     id: out_y12
     name: KC868-A16-Y12
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y13
   component_id: switch.gpio
@@ -524,6 +577,7 @@ featured_components:
     id: out_y13
     name: KC868-A16-Y13
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y14
   component_id: switch.gpio
@@ -538,6 +592,7 @@ featured_components:
     id: out_y14
     name: KC868-A16-Y14
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y15
   component_id: switch.gpio
@@ -552,6 +607,7 @@ featured_components:
     id: out_y15
     name: KC868-A16-Y15
   requires:
+  - i2c_bus
   - outputs_9_16
 - id: out_y16
   component_id: switch.gpio
@@ -566,6 +622,7 @@ featured_components:
     id: out_y16
     name: KC868-A16-Y16
   requires:
+  - i2c_bus
   - outputs_9_16
 source:
   type: esphome-devices

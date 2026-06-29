@@ -43,6 +43,12 @@ pins:
 - gpio: 15
   available: false
   occupied_by: my_display
+- gpio: 17
+  available: false
+  occupied_by: spi
+- gpio: 18
+  available: false
+  occupied_by: spi
 - gpio: 38
   available: false
   occupied_by: button_up
@@ -61,6 +67,15 @@ pins:
 docs_url: https://devices.esphome.io/devices/Lilka/
 product_url: https://docs.lilka.dev/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 17
+      locked: true
 - id: i2s_out
   component_id: i2s_audio
   fields:
@@ -199,6 +214,8 @@ featured_components:
     pixel_mode: 16bit
     auto_clear_enabled: false
     id: my_display
+  requires:
+  - spi_bus
 - id: lilka_speaker
   component_id: speaker.i2s_audio
   fields:

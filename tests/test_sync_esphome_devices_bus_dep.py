@@ -325,6 +325,30 @@ def test_octal_spi_materializes_both_clk_and_data_pins() -> None:
     assert set(occ) == {21, 6, 7, 15}
 
 
+def test_lifts_mapping_bus_without_id() -> None:
+    """A sole i2c bus with no source id lifts (pins locked, no id field, fallback local id)."""
+    featured = [{"id": "temp", "component_id": "sensor.bme280", "fields": {"id": "temp"}}]
+    config = {
+        "i2c": {"scl": "GPIO5", "sda": "GPIO4"},
+        "sensor": [{"platform": "bme280", "id": "temp"}],
+    }
+    extra, occ = _extract_bus_deps(config, featured, _COMPONENTS)
+    assert len(extra) == 1
+    bus = extra[0]
+    assert bus["component_id"] == "i2c"
+    assert bus["id"] == "i2c_bus"
+    assert "id" not in bus["fields"]
+    assert bus["fields"]["scl"] == {"value": 5, "locked": True}
+    assert featured[0]["requires"] == ["i2c_bus"]
+    assert set(occ) == {5, 4}
+
+
+def test_materialize_bus_rejects_non_bus_component() -> None:
+    """A non-bus dep (a hub also lists, e.g. esp32/output) is never lifted as a bus."""
+    entry, _, _ = _materialize_bus("output", None, {"output": {"x": "y"}}, _COMPONENTS, set())
+    assert entry is None
+
+
 def test_is_bus_dep_matches_all_known_buses() -> None:
     """All six ESPHome buses match, both styles; non-bus deps do not."""
     for dep in ("i2c", "spi", "uart", "modbus", "one_wire", "canbus"):
