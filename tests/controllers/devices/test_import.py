@@ -43,6 +43,20 @@ def _seed_import_state(controller: DevicesController) -> None:
     controller.state.import_result = {}
 
 
+def _write_wifi_secrets(config_dir: Path, *, standard: bool = True) -> None:
+    """Seed ``secrets.yaml``; *standard* writes ``wifi_ssid`` / ``wifi_password``.
+
+    When False, only a custom-named key is written so ``wifi_secrets_defined``
+    reports the shared secrets as absent (the #1742 scenario).
+    """
+    body = (
+        "wifi_ssid: my-network\nwifi_password: hunter2\n"
+        if standard
+        else "wifi_0_ssid: my-network\nwifi_0_key: hunter2\n"
+    )
+    (config_dir / "secrets.yaml").write_text(body, encoding="utf-8")
+
+
 def _import_config_stub(
     captured: dict[str, Any] | None = None,
 ) -> Callable[..., None]:
@@ -94,6 +108,7 @@ async def test_import_device_invokes_import_config_and_returns_path(
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
+    _write_wifi_secrets(tmp_path)
 
     result = await ctrl.import_device(
         name="kitchen-1a2b3c",
@@ -252,11 +267,83 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
         network="",  # field absent / empty in TXT
         ignored=False,
     )
+    _write_wifi_secrets(tmp_path)
 
     await ctrl.import_device(
         name="legacy-bulb",
         project_name="vendor.old",
         package_import_url="github://vendor/old.yaml",
+    )
+
+    assert captured["args"][5] == "wifi"
+
+
+async def test_import_device_suppresses_default_wifi_when_secrets_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """No ``wifi_ssid`` secret → don't append the default ``!secret`` block (#1742).
+
+    A user running ``wifi.networks`` with custom secret names has no
+    shared ``wifi_ssid`` / ``wifi_password``. Appending the default block
+    would fail import validation; suppress it (pass a non-wifi network so
+    upstream skips it) and land a config the user completes in the editor.
+    """
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    _write_wifi_secrets(tmp_path, standard=False)
+    ctrl.state.import_result["athom-rgbct-9ade7c"] = AdoptableDevice(
+        name="athom-rgbct-9ade7c",
+        friendly_name="Athom RGBCCT",
+        package_import_url="github://athom-tech/athom-configs/athom-rgbct-light.yaml",
+        project_name="athom.rgbct-light",
+        project_version="1.0.0",
+        network="wifi",
+        ignored=False,
+    )
+
+    result = await ctrl.import_device(
+        name="athom-rgbct-9ade7c",
+        project_name="athom.rgbct-light",
+        package_import_url="github://athom-tech/athom-configs/athom-rgbct-light.yaml",
+    )
+
+    assert result == {"configuration": "athom-rgbct-9ade7c.yaml"}
+    assert captured["args"][5] != "wifi"
+
+
+async def test_import_device_keeps_default_wifi_when_secrets_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Shared ``wifi_ssid`` / ``wifi_password`` defined → emit the default block."""
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    _write_wifi_secrets(tmp_path)
+    ctrl.state.import_result["athom-rgbct-9ade7c"] = AdoptableDevice(
+        name="athom-rgbct-9ade7c",
+        friendly_name="Athom RGBCCT",
+        package_import_url="github://athom-tech/athom-configs/athom-rgbct-light.yaml",
+        project_name="athom.rgbct-light",
+        project_version="1.0.0",
+        network="wifi",
+        ignored=False,
+    )
+
+    await ctrl.import_device(
+        name="athom-rgbct-9ade7c",
+        project_name="athom.rgbct-light",
+        package_import_url="github://athom-tech/athom-configs/athom-rgbct-light.yaml",
     )
 
     assert captured["args"][5] == "wifi"

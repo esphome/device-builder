@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from esphome import const
 from esphome.storage_json import ignored_devices_storage_path
@@ -13,6 +13,7 @@ from esphome.storage_json import ignored_devices_storage_path
 from ...helpers.api import CommandError
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
+from ...helpers.secrets_state import read_secrets_yaml, wifi_secrets_defined
 from ...models import (
     AdoptableDevice,
     DeviceState,
@@ -27,6 +28,11 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+# import_config only special-cases ``network == CONF_WIFI``, so any other
+# value suppresses its default `!secret wifi_ssid` block; "" reads as
+# "scaffold no network block". Revisit if upstream gains an explicit flag.
+_NO_DEFAULT_WIFI_BLOCK: Final = ""
 
 
 async def import_device(
@@ -59,6 +65,16 @@ async def import_device(
     )
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     loop = asyncio.get_running_loop()
+    if network == const.CONF_WIFI:
+        secrets = await loop.run_in_executor(
+            None, read_secrets_yaml, controller._db.settings.config_dir
+        )
+        if not wifi_secrets_defined(secrets):
+            # No wifi_ssid/wifi_password in secrets.yaml; import_config would
+            # otherwise append a `!secret wifi_ssid` block that fails validation
+            # (#1742). Skip it so adoption lands a config the user can complete
+            # in the editor (e.g. their own wifi.networks).
+            network = _NO_DEFAULT_WIFI_BLOCK
     # ``esphome.components.dashboard_import`` pulls in ~14 MB of
     # upstream code; load it through ``async_import_module`` so
     # the first adoption pays the cost on the dedicated import
