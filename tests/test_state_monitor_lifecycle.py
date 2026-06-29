@@ -27,7 +27,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from zeroconf import ServiceStateChange
 
-from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor, shared
 from esphome_device_builder.controllers._device_state_monitor import importable as importable_module
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
@@ -837,11 +837,11 @@ async def test_dispatch_added_cache_miss_resolves_and_applies(
 async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``async_request`` False (no record arrived in time) → no apply, device unchanged.
+    """``async_request`` False (no record arrived in time) → no apply, no ONLINE claim.
 
     Pins the ``if not await info.async_request: return`` branch in
-    ``_resolve_then`` from the public side: the device's version
-    stays empty because no apply ever ran.
+    ``_resolve_then``: a PTR that never resolves leaves the device
+    UNKNOWN and unclaimed by mDNS, so the ICMP sweep still owns it.
     """
     device = _device()
     monitor, _callbacks = _make_monitor([device])
@@ -861,6 +861,8 @@ async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
         )
         await asyncio.gather(*list(monitor._tasks))
         assert device.deployed_version == ""
+        assert device.state == DeviceState.UNKNOWN
+        assert "kitchen" not in monitor.state.state_source
     finally:
         await _stop_and_drain(monitor)
 
@@ -891,8 +893,45 @@ async def test_dispatch_added_cache_miss_swallows_resolve_exception(
             ServiceStateChange.Added,
         )
         await asyncio.gather(*list(monitor._tasks), return_exceptions=True)
-        # No raise reached the test, and the device wasn't updated.
+        # No raise reached the test; an unresolved announce doesn't claim ONLINE.
         assert device.deployed_version == ""
+        assert device.state == DeviceState.UNKNOWN
+        assert "kitchen" not in monitor.state.state_source
+    finally:
+        await _stop_and_drain(monitor)
+
+
+async def test_dispatch_added_phantom_ptr_does_not_revive_ping_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale PTR whose SRV/A won't resolve must not flip a ping-OFFLINE device ONLINE (#1748).
+
+    Reflector re-serves a dead device's PTR; the resolve fails, so
+    the device stays OFFLINE under ``ping`` and remains ping-eligible
+    rather than latching ONLINE and locking out the sweep.
+    """
+    device = _device()
+    monitor, _callbacks = _make_monitor([device])
+    monitor.apply("kitchen", DeviceState.OFFLINE, "ping")
+    assert device.state == DeviceState.OFFLINE
+
+    fake_info = MagicMock()
+    fake_info.load_from_cache.return_value = False
+    fake_info.async_request = AsyncMock(return_value=False)
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    try:
+        dispatch(
+            monitor._mdns._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Added,
+        )
+        await asyncio.gather(*list(monitor._tasks))
+        assert device.state == DeviceState.OFFLINE
+        assert monitor.state.state_source["kitchen"] == "ping"
+        assert shared.should_ping(monitor, device) is True
     finally:
         await _stop_and_drain(monitor)
 
