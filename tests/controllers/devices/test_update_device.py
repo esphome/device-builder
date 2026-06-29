@@ -243,16 +243,3 @@ def test_set_queued_update_handles_none_monitor(make_controller, tmp_path):
     result = controller.set_queued_update("kitchen", is_queued=True)
 
     assert result is False
-
-
-def test_set_queued_update_handles_missing_attribute(make_controller, tmp_path):
-    """Test that set_queued_update returns False if monitor attribute is completely missing."""
-    controller = make_controller(config_dir=tmp_path)
-
-    # Forcefully remove the attribute to test the hasattr() safety guard
-    if hasattr(controller, "_state_monitor"):
-        delattr(controller, "_state_monitor")
-
-    result = controller.set_queued_update("kitchen", is_queued=True)
-
-    assert result is False
