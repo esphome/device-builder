@@ -26,6 +26,13 @@ pins:
   occupied_by: button_1
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-EU_BL0942/
 featured_components:
+- id: bl0942_uart
+  component_id: uart
+  fields:
+    baud_rate: 4800
+    id:
+      value: bl0942_uart
+      locked: true
 - id: button_1
   component_id: binary_sensor.gpio
   fields:
@@ -65,6 +72,8 @@ featured_components:
     line_frequency: 50Hz
     id: sensor_bl0942_1
     name: Bl0942 1
+  requires:
+  - bl0942_uart
 featured_bundles:
 - id: status_light_setup
   name: Status LED (full setup)

@@ -13,6 +13,18 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/Waveshare-ESP32-S3-Touch-AMOLED-1.75.png
 pins:
+- gpio: 4
+  available: false
+  occupied_by: display_qspi
+- gpio: 5
+  available: false
+  occupied_by: display_qspi
+- gpio: 6
+  available: false
+  occupied_by: display_qspi
+- gpio: 7
+  available: false
+  occupied_by: display_qspi
 - gpio: 8
   available: false
   occupied_by: speaker_a
@@ -22,6 +34,9 @@ pins:
 - gpio: 12
   available: false
   occupied_by: disp1
+- gpio: 38
+  available: false
+  occupied_by: display_qspi
 - gpio: 39
   available: false
   occupied_by: disp1
@@ -30,6 +45,23 @@ pins:
   occupied_by: Speaker Enable
 docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-S3-Touch-AMOLED-1.75/
 featured_components:
+- id: display_qspi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 38
+      locked: true
+    data_pins:
+      value:
+      - 4
+      - 5
+      - 6
+      - 7
+      locked: true
+    id:
+      value: display_qspi
+      locked: true
 - id: disp1
   component_id: display.mipi_spi
   fields:
@@ -43,6 +75,8 @@ featured_components:
       locked: true
     id: disp1
     name: disp1
+  requires:
+  - display_qspi
 - id: display_backlight
   component_id: light.monochromatic
   fields:

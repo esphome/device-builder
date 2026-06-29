@@ -15,26 +15,95 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Lanbon-L9/lanbon-l9-header.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Lanbon-L9/lanbon-l9-esphome.png
 pins:
+- gpio: 0
+  available: false
+  occupied_by: touchscreen_i2c
+- gpio: 3
+  available: false
+  occupied_by: display_spi
 - gpio: 4
   available: false
   occupied_by: my_display
 - gpio: 5
   available: false
   occupied_by: Power
+- gpio: 6
+  available: false
+  occupied_by: display_spi
+- gpio: 7
+  available: false
+  occupied_by: display_spi
+- gpio: 9
+  available: false
+  occupied_by: display_spi
+- gpio: 10
+  available: false
+  occupied_by: display_spi
 - gpio: 11
   available: false
   occupied_by: Proximity Sensor
+- gpio: 15
+  available: false
+  occupied_by: display_spi
+- gpio: 16
+  available: false
+  occupied_by: display_spi
 - gpio: 17
   available: false
   occupied_by: my_display
+- gpio: 21
+  available: false
+  occupied_by: display_spi
+- gpio: 35
+  available: false
+  occupied_by: touchscreen_i2c
 - gpio: 36
   available: false
   occupied_by: Relay
 - gpio: 42
   available: false
   occupied_by: lcd_backlight_output
+- gpio: 46
+  available: false
+  occupied_by: display_spi
 docs_url: https://devices.esphome.io/devices/Lanbon-L9/
 featured_components:
+- id: display_spi
+  component_id: spi
+  fields:
+    type: octal
+    clk_pin:
+      value: 21
+      locked: true
+    data_pins:
+      value:
+      - 6
+      - 7
+      - 15
+      - 16
+      - 10
+      - 9
+      - 46
+      - 3
+      locked: true
+    id:
+      value: display_spi
+      locked: true
+- id: touchscreen_i2c
+  component_id: i2c
+  fields:
+    scl:
+      value:
+        number: 0
+        ignore_strapping_warning: true
+      locked: true
+    sda:
+      value:
+        number: 35
+      locked: true
+    id:
+      value: touchscreen_i2c
+      locked: true
 - id: proximity_sensor
   component_id: binary_sensor.gpio
   fields:
@@ -63,6 +132,8 @@ featured_components:
     update_interval: 250ms
     id: my_display
     name: my_display
+  requires:
+  - display_spi
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -107,6 +178,8 @@ featured_components:
     display: my_display
     id: my_touchscreen
     name: my_touchscreen
+  requires:
+  - touchscreen_i2c
 featured_bundles:
 - id: display_backlight_setup
   name: Display Backlight (full setup)
@@ -116,6 +189,8 @@ featured_bundles:
 - id: my_touchscreen_setup
   name: my_touchscreen (full setup)
   component_ids:
+  - display_spi
+  - touchscreen_i2c
   - my_display
   - my_touchscreen
 source:

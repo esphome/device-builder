@@ -38,6 +38,15 @@ pins:
 - gpio: 10
   available: false
   occupied_by: ade7953_1
+- gpio: 11
+  available: false
+  occupied_by: spi_bus
+- gpio: 12
+  available: false
+  occupied_by: spi_bus
+- gpio: 13
+  available: false
+  occupied_by: spi_bus
 - gpio: 15
   available: false
   occupied_by: ade7953_0
@@ -58,6 +67,21 @@ pins:
   occupied_by: Button 3
 docs_url: https://devices.esphome.io/devices/Shelly-Power-Strip-4-Gen4/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 13
+      locked: true
+    mosi_pin:
+      value: 11
+      locked: true
+    miso_pin:
+      value: 12
+      locked: true
+    id:
+      value: spi_bus
+      locked: true
 - id: button_0
   component_id: binary_sensor.gpio
   fields:
@@ -127,6 +151,8 @@ featured_components:
     update_interval: 10s
     id: ade7953_0
     name: ade7953_0
+  requires:
+  - spi_bus
 - id: ade7953_1
   component_id: sensor.ade7953_spi
   fields:
@@ -139,6 +165,8 @@ featured_components:
     update_interval: 10s
     id: ade7953_1
     name: ade7953_1
+  requires:
+  - spi_bus
 - id: relay_0
   component_id: switch.gpio
   fields:

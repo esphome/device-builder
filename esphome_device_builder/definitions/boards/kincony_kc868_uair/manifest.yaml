@@ -13,6 +13,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-Uair/kc868-uair.jpg
 pins:
+- gpio: 4
+  available: false
+  occupied_by: bus_a
+- gpio: 16
+  available: false
+  occupied_by: bus_a
 - gpio: 32
   available: false
   occupied_by: Uair-Bottom-LED
@@ -21,6 +27,19 @@ pins:
   occupied_by: Uair-VVertical-LED
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-Uair/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 16
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: light_esp32_rmt_led_strip_1
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -56,6 +75,8 @@ featured_components:
     update_interval: 15s
     id: sensor_sht3xd_1
     name: Sht3Xd 1
+  requires:
+  - bus_a
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-Uair

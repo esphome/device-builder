@@ -13,12 +13,31 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/M5Stack-Core2/core2_01.png
 pins:
+- gpio: 21
+  available: false
+  occupied_by: bus_a
+- gpio: 22
+  available: false
+  occupied_by: bus_a
 - gpio: 39
   available: false
   occupied_by: touchscreen.ft63x6
 docs_url: https://devices.esphome.io/devices/M5Stack-Core2/
 product_url: https://docs.m5stack.com/en/core/core2
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: binary_sensor_touchscreen_1
   component_id: binary_sensor.touchscreen
   fields:
@@ -63,6 +82,8 @@ featured_components:
     update_interval: 1s
     id: sensor_mpu6886_1
     name: Mpu6886 1
+  requires:
+  - bus_a
 - id: touchscreen_ft63x6_1
   component_id: touchscreen.ft63x6
   fields:
@@ -71,6 +92,8 @@ featured_components:
       locked: true
     id: touchscreen_ft63x6_1
     name: Ft63X6 1
+  requires:
+  - bus_a
 source:
   type: esphome-devices
   remote_id: M5Stack-Core2

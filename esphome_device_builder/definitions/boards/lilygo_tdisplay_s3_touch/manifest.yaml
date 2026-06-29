@@ -22,6 +22,12 @@ pins:
 - gpio: 16
   available: false
   occupied_by: my_touchscreen
+- gpio: 17
+  available: false
+  occupied_by: i2c_onboard
+- gpio: 18
+  available: false
+  occupied_by: i2c_onboard
 - gpio: 21
   available: false
   occupied_by: my_touchscreen
@@ -31,6 +37,20 @@ pins:
 docs_url: https://devices.esphome.io/devices/Lilygo-TDisplay-S3-Touch/
 product_url: https://www.lilygo.cc/en-ca/products/t-display-s3
 featured_components:
+- id: i2c_onboard
+  component_id: i2c
+  fields:
+    scl:
+      value: 17
+      locked: true
+    sda:
+      value: 18
+      locked: true
+    scan: false
+    frequency: 400kHz
+    id:
+      value: i2c_onboard
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -87,6 +107,8 @@ featured_components:
     skip_probe: false
     id: my_touchscreen
     name: my_touchscreen
+  requires:
+  - i2c_onboard
 featured_bundles:
 - id: led_setup
   name: LCD Backlight (full setup)

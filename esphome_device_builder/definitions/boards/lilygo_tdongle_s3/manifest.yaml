@@ -22,15 +22,51 @@ pins:
 - gpio: 2
   available: false
   occupied_by: display.st7735
+- gpio: 3
+  available: false
+  occupied_by: spi_lcd
 - gpio: 4
   available: false
   occupied_by: display.st7735
+- gpio: 5
+  available: false
+  occupied_by: spi_lcd
 - gpio: 38
   available: false
   occupied_by: backlight_output
+- gpio: 39
+  available: false
+  occupied_by: spi_led
+- gpio: 40
+  available: false
+  occupied_by: spi_led
 docs_url: https://devices.esphome.io/devices/Lilygo-TDongle-S3/
 product_url: https://lilygo.cc/products/t-dongle-s3
 featured_components:
+- id: spi_lcd
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 5
+      locked: true
+    mosi_pin:
+      value: 3
+      locked: true
+    id:
+      value: spi_lcd
+      locked: true
+- id: spi_led
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 39
+      locked: true
+    mosi_pin:
+      value: 40
+      locked: true
+    id:
+      value: spi_led
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -63,6 +99,8 @@ featured_components:
     auto_clear_enabled: false
     id: display_st7735_1
     name: St7735 1
+  requires:
+  - spi_lcd
 - id: lcd_backlight
   component_id: light.monochromatic
   fields:
@@ -77,6 +115,8 @@ featured_components:
     data_rate: 1MHz
     id: light_spi_led_strip_1
     name: FastLED SPI Light
+  requires:
+  - spi_led
 - id: backlight_output
   component_id: output.ledc
   fields:

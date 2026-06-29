@@ -22,6 +22,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: enable
+- gpio: 11
+  available: false
+  occupied_by: bus_a
+- gpio: 12
+  available: false
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: LED
@@ -33,6 +39,20 @@ pins:
   occupied_by: Button Hold
 docs_url: https://devices.esphome.io/devices/M5Stack-AirQ/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 11
+      locked: true
+    scl:
+      value: 12
+      locked: true
+    scan: true
+    frequency: 50kHz
+    id:
+      value: bus_a
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -111,6 +131,8 @@ featured_components:
     update_interval: $sensor_interval
     id: sensor_scd4x_1
     name: Scd4X 1
+  requires:
+  - bus_a
 - id: wifi_signal_db
   component_id: sensor.wifi_signal
   fields:
@@ -127,6 +149,8 @@ featured_components:
     update_interval: $sensor_interval
     id: sen55
     name: sen55
+  requires:
+  - bus_a
 source:
   type: esphome-devices
   remote_id: M5Stack-AirQ

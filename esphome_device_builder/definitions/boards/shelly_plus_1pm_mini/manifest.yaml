@@ -22,11 +22,31 @@ pins:
 - gpio: 5
   available: false
   occupied_by: relay_output
+- gpio: 6
+  available: false
+  occupied_by: uart_bus
+- gpio: 7
+  available: false
+  occupied_by: uart_bus
 - gpio: 10
   available: false
   occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1PM-Mini/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 6
+      locked: true
+    rx_pin:
+      value: 7
+      locked: true
+    baud_rate: 9600
+    stop_bits: 1
+    id:
+      value: uart_bus
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -81,6 +101,8 @@ featured_components:
     update_interval: 5s
     id: sensor_bl0942_1
     name: Bl0942 1
+  requires:
+  - uart_bus
 featured_bundles:
 - id: lightid_setup
   name: Light (full setup)

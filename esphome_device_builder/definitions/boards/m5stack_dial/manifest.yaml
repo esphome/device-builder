@@ -19,6 +19,12 @@ pins:
 - gpio: 4
   available: false
   occupied_by: round_display
+- gpio: 5
+  available: false
+  occupied_by: spi_bus
+- gpio: 6
+  available: false
+  occupied_by: spi_bus
 - gpio: 7
   available: false
   occupied_by: round_display
@@ -28,6 +34,12 @@ pins:
 - gpio: 9
   available: false
   occupied_by: backlight_output
+- gpio: 11
+  available: false
+  occupied_by: internal_i2c
+- gpio: 12
+  available: false
+  occupied_by: internal_i2c
 - gpio: 40
   available: false
   occupied_by: encoder
@@ -43,6 +55,30 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-Dial/
 product_url: https://docs.m5stack.com/en/core/M5Dial
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    mosi_pin:
+      value: 5
+      locked: true
+    clk_pin:
+      value: 6
+      locked: true
+    id:
+      value: spi_bus
+      locked: true
+- id: internal_i2c
+  component_id: i2c
+  fields:
+    sda:
+      value: 11
+      locked: true
+    scl:
+      value: 12
+      locked: true
+    id:
+      value: internal_i2c
+      locked: true
 - id: front_button
   component_id: binary_sensor.gpio
   fields:
@@ -74,6 +110,8 @@ featured_components:
       locked: true
     id: round_display
     name: round_display
+  requires:
+  - spi_bus
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -112,6 +150,8 @@ featured_components:
     address: 56
     id: touch
     name: touch
+  requires:
+  - internal_i2c
 featured_bundles:
 - id: display_backlight_setup
   name: Backlight (full setup)

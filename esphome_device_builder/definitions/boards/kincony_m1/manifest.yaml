@@ -13,6 +13,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-M1/M1-2_01.jpg
 pins:
+- gpio: 13
+  available: false
+  occupied_by: uart_bus
+- gpio: 14
+  available: false
+  occupied_by: uart_bus
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -30,6 +36,20 @@ pins:
   occupied_by: M1-relay
 docs_url: https://devices.esphome.io/devices/KinCony-M1/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 13
+      locked: true
+    rx_pin:
+      value: 14
+      locked: true
+    baud_rate: 9600
+    stop_bits: 1
+    id:
+      value: uart_bus
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -63,6 +83,8 @@ featured_components:
     update_interval: 3s
     id: sensor_bl0942_1
     name: Bl0942 1
+  requires:
+  - uart_bus
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

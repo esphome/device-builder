@@ -13,9 +13,24 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/JC3636K518C.webp
 pins:
+- gpio: 13
+  available: false
+  occupied_by: display_qspi
 - gpio: 14
   available: false
   occupied_by: display.qspi_dbi
+- gpio: 15
+  available: false
+  occupied_by: display_qspi
+- gpio: 16
+  available: false
+  occupied_by: display_qspi
+- gpio: 17
+  available: false
+  occupied_by: display_qspi
+- gpio: 18
+  available: false
+  occupied_by: display_qspi
 - gpio: 21
   available: false
   occupied_by: display.qspi_dbi
@@ -30,6 +45,23 @@ pins:
   occupied_by: backlight_pwm
 docs_url: https://devices.esphome.io/devices/ESP32S3-1.8-inch-JC3636K518C/
 featured_components:
+- id: display_qspi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 13
+      locked: true
+    data_pins:
+      value:
+      - 15
+      - 16
+      - 17
+      - 18
+      locked: true
+    id:
+      value: display_qspi
+      locked: true
 - id: i2s_in
   component_id: i2s_audio
   fields:
@@ -55,6 +87,8 @@ featured_components:
     auto_clear_enabled: false
     id: display_qspi_dbi_1
     name: Qspi Dbi 1
+  requires:
+  - display_qspi
 - id: display_backlight
   component_id: light.monochromatic
   fields:

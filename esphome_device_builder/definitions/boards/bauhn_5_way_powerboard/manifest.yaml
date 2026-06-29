@@ -39,6 +39,14 @@ pins:
   occupied_by: Status LED
 docs_url: https://devices.esphome.io/devices/bauhn-5-way-powerboard/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    baud_rate: 4800
+    stop_bits: 1
+    id:
+      value: uart_bus
+      locked: true
 - id: button1
   component_id: binary_sensor.gpio
   fields:
@@ -68,6 +76,8 @@ featured_components:
     update_interval: 10s
     id: sensor_bl0942_1
     name: Bl0942 1
+  requires:
+  - uart_bus
 - id: relay_1
   component_id: switch.gpio
   fields:

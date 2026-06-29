@@ -23,6 +23,15 @@ pins:
 - gpio: 4
   available: false
   occupied_by: tft_display
+- gpio: 6
+  available: false
+  occupied_by: touchscreen_bus
+- gpio: 7
+  available: false
+  occupied_by: touchscreen_bus
+- gpio: 15
+  available: false
+  occupied_by: lcd_spi
 - gpio: 38
   available: false
   occupied_by: tft_display
@@ -44,8 +53,39 @@ pins:
 - gpio: 46
   available: false
   occupied_by: Relay 2
+- gpio: 48
+  available: false
+  occupied_by: lcd_spi
 docs_url: https://devices.esphome.io/devices/Tuya-T3E-ESP32-S3/
 featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value:
+        number: 15
+        allow_other_uses: true
+      locked: true
+    mosi_pin:
+      value:
+        number: 48
+        allow_other_uses: true
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: touchscreen_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 7
+      locked: true
+    scl:
+      value: 6
+      locked: true
+    id:
+      value: touchscreen_bus
+      locked: true
 - id: tft_display
   component_id: display.st7701s
   fields:
@@ -87,6 +127,8 @@ featured_components:
       locked: true
     id: tft_display
     name: tft_display
+  requires:
+  - lcd_spi
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -142,6 +184,8 @@ featured_components:
     display: tft_display
     id: tft_touch
     name: tft_touch
+  requires:
+  - touchscreen_bus
 featured_bundles:
 - id: display_backlight_setup
   name: Backlight (full setup)
@@ -151,6 +195,8 @@ featured_bundles:
 - id: tft_touch_setup
   name: tft_touch (full setup)
   component_ids:
+  - lcd_spi
+  - touchscreen_bus
   - tft_display
   - tft_touch
 source:

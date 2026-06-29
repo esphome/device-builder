@@ -21,6 +21,12 @@ pins:
 - gpio: 10
   available: false
   occupied_by: builtin_led
+- gpio: 21
+  available: false
+  occupied_by: bus_a
+- gpio: 22
+  available: false
+  occupied_by: bus_a
 - gpio: 26
   available: false
   occupied_by: bus_i2s
@@ -42,6 +48,19 @@ pins:
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS2/
 product_url: https://docs.m5stack.com/en/core/M5StickC%20PLUS2
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 21
+      locked: true
+    scl:
+      value: 22
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: bus_i2s
   component_id: i2s_audio
   fields:
@@ -145,6 +164,8 @@ featured_components:
     update_interval: 10s
     id: sensor_mpu6886_1
     name: Mpu6886 1
+  requires:
+  - bus_a
 featured_bundles:
 - id: led1_setup
   name: Led (full setup)

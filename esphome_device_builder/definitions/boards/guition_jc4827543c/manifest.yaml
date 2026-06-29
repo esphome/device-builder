@@ -20,11 +20,30 @@ pins:
 - gpio: 3
   available: false
   occupied_by: my_touchscreen
+- gpio: 4
+  available: false
+  occupied_by: bus_a
+- gpio: 8
+  available: false
+  occupied_by: bus_a
 - gpio: 38
   available: false
   occupied_by: my_touchscreen
 docs_url: https://devices.esphome.io/devices/Guition-JC4827543C/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 4
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -55,6 +74,8 @@ featured_components:
       locked: true
     id: my_touchscreen
     name: my_touchscreen
+  requires:
+  - bus_a
 featured_bundles:
 - id: display_backlight_setup
   name: Display Backlight (full setup)
