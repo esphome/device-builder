@@ -129,6 +129,13 @@ jobs:
         # re-stamps it and the opened PR lands red on every esphome patch.
         run: python script/sync_boards.py
 
+      - name: Validate definitions
+        # Re-validate every board (curated + imported) against the JSON Schema
+        # and the component catalog cross-references before the PR opens, so a
+        # re-stamp that regenerated an invalid board catalog never gets proposed
+        # for merge. Mirrors the device-catalog sync.
+        run: python script/validate_definitions.py
+
       - name: Bump esphome pin
         # CI's lint job installs esphome from esphome-constraints.txt so a new
         # release doesn't red main on the sync-boards hook. Move the pin in

@@ -97,10 +97,19 @@ jobs:
         # stamp matches the committed catalog rather than drifting.
         run: |
           python script/sync_boards.py
-          git diff --exit-code -- \
-            esphome_device_builder/definitions/boards.index.json \
+          # ``git diff --exit-code`` only sees tracked modifications and would
+          # miss a newly generated *untracked* body file (a manifest added
+          # without regenerating), so gate on porcelain status (tracked +
+          # untracked) and surface the drift for debugging.
+          paths="esphome_device_builder/definitions/boards.index.json \
             esphome_device_builder/definitions/board_bodies/ \
-            esphome_device_builder/definitions/featured_components.index.json
+            esphome_device_builder/definitions/featured_components.index.json"
+          if [ -n "$(git status --porcelain -- $paths)" ]; then
+            git status --porcelain -- $paths
+            git diff -- $paths
+            echo "::error::Board catalog is out of sync with manifests; run script/sync_boards.py and commit."
+            exit 1
+          fi
 
       - name: Smoke-test component catalog
         run: python script/check_catalog.py
