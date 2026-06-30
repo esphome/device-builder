@@ -407,13 +407,7 @@ def compute_has_pending_changes(
 
 
 def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: str) -> bool:
-    """
-    Report whether ``has_pending_changes`` came from the config-hash compare.
-
-    Both hashes known and differing means the verdict used the mDNS-sourced
-    deployed hash, not the local mtime fallback; the frontend gates only this
-    (mDNS-dependent) case on a live mDNS, so a local edit still cues "install".
-    """
+    """Report whether the pending verdict is hash-driven: both hashes known and differing."""
     return bool(
         expected_config_hash
         and deployed_config_hash
