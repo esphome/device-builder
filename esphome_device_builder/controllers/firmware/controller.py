@@ -73,8 +73,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self._persist_lock = asyncio.Lock()
         self._armed_deferred_installs: set[str] = set()
 
-        self.bus.add_listener(EventType.DEVICE_STATE_CHANGED, self._handle_device_wake)
-
         self._unsub_device_wake = self.bus.add_listener(
             EventType.DEVICE_STATE_CHANGED, self._handle_device_wake
         )
@@ -164,7 +162,16 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 detail,
             )
         await self._load_jobs()
+        self._rehydrate_armed_deferred_installs()
         self._runner_task = self._db.create_background_task(self._run_queue())
+
+    def _rehydrate_armed_deferred_installs(self) -> None:
+        """Re-arm devices whose ``queued_update`` survived a restart."""
+        if self._db.devices is None:
+            return
+        for device in self._db.devices.get_devices():
+            if device.queued_update:
+                self._armed_deferred_installs.add(device.configuration)
 
     # ------------------------------------------------------------------
     # API commands — job submission
@@ -462,10 +469,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if is_comp and is_done and is_deferred:
             device = self._device_for_configuration(job.configuration)
             if device and self._db.devices:
-                if device.state == DeviceState.OFFLINE:
-                    self._db.devices.set_queued_update(device.name, is_queued=True)
-                    self._armed_deferred_installs.add(job.configuration)
-                elif device.state == DeviceState.ONLINE:
+                if device.state == DeviceState.ONLINE:
                     _LOGGER.info(
                         "Device %s is online after deferred compile. Triggering upload now.",
                         job.configuration,
@@ -473,6 +477,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                     self._db.create_background_task(
                         self.upload(configuration=job.configuration, port="OTA")
                     )
+                else:
+                    # Anything short of confirmed ONLINE — OFFLINE, or the
+                    # narrow UNKNOWN window from a scanner rebuild with
+                    # previous=None (atomic-save churn, REMOVED+re-ADDED) —
+                    # arms for the next wake rather than silently dropping
+                    # the queued install.
+                    self._db.devices.set_queued_update(device.name, is_queued=True)
+                    self._armed_deferred_installs.add(job.configuration)
 
         # Clear queued flag on a successful upload so failures can be retried
         is_upload = job.job_type == JobType.UPLOAD

@@ -105,6 +105,53 @@ async def test_queued_update_not_cleared_if_device_missing(firmware_controller):
     assert result is None
 
 
+# --- _rehydrate_armed_deferred_installs tests ---
+def test_rehydrate_armed_deferred_installs_arms_queued_devices(firmware_controller):
+    """Devices with a persisted queued_update are added to the armed set."""
+    queued_device = MagicMock(configuration="kitchen.yaml", queued_update=True)
+    not_queued_device = MagicMock(configuration="living_room.yaml", queued_update=False)
+    firmware_controller._db.devices.get_devices.return_value = [
+        queued_device,
+        not_queued_device,
+    ]
+
+    firmware_controller._rehydrate_armed_deferred_installs()
+
+    assert firmware_controller._armed_deferred_installs == {"kitchen.yaml"}
+
+
+def test_rehydrate_armed_deferred_installs_handles_no_devices_controller(firmware_controller):
+    """A None devices controller (e.g. unexpected boot ordering) must not raise."""
+    firmware_controller._db.devices = None
+
+    firmware_controller._rehydrate_armed_deferred_installs()
+
+    assert firmware_controller._armed_deferred_installs == set()
+
+
+def test_rehydrate_armed_deferred_installs_handles_empty_device_list(firmware_controller):
+    """No devices at all is a no-op, not an error."""
+    firmware_controller._db.devices.get_devices.return_value = []
+
+    firmware_controller._rehydrate_armed_deferred_installs()
+
+    assert firmware_controller._armed_deferred_installs == set()
+
+
+def test_rehydrate_armed_deferred_installs_preserves_existing_entries(firmware_controller):
+    """Rehydration adds to, rather than replaces, any pre-existing armed entries."""
+    firmware_controller._armed_deferred_installs.add("already_armed.yaml")
+    queued_device = MagicMock(configuration="kitchen.yaml", queued_update=True)
+    firmware_controller._db.devices.get_devices.return_value = [queued_device]
+
+    firmware_controller._rehydrate_armed_deferred_installs()
+
+    assert firmware_controller._armed_deferred_installs == {
+        "already_armed.yaml",
+        "kitchen.yaml",
+    }
+
+
 # --- _handle_device tests ---
 def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
     """Test that an online event for a device with a queued update triggers the upload."""
