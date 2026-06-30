@@ -15,6 +15,7 @@ from typing import Any
 
 import orjson
 from aiohttp import web
+from esphome.core import Lambda
 
 from .origin import request_origin_allowed
 
@@ -38,6 +39,21 @@ def dumps(obj: Any) -> bytes:
     return orjson.dumps(obj)
 
 
+def _json_default(obj: Any) -> Any:
+    """Orjson fallback for ESPHome's ``yaml_util`` types orjson rejects.
+
+    orjson serialises ``str`` / ``int`` / ``dict`` / ``list`` subclasses
+    natively but rejects ``float`` subclasses (``EFloat``) and ``Lambda``,
+    so a config with a float or a ``!lambda`` would 500 ``/json-config``.
+    Downcast ``EFloat`` to ``float`` and render ``Lambda`` as its source.
+    """
+    if isinstance(obj, float):
+        return float(obj)
+    if isinstance(obj, Lambda):
+        return str(obj)
+    raise TypeError
+
+
 def dumps_str_non_str_keys(obj: Any) -> str:
     """
     Serialise *obj* allowing dict keys whose type isn't *exactly* ``str``.
@@ -48,7 +64,9 @@ def dumps_str_non_str_keys(obj: Any) -> str:
     Dict key must be str``. ESPHome's ``yaml_util`` returns dicts
     whose keys are ``EStr`` (a ``str`` subclass that carries
     source-position info), which is what the legacy
-    ``/json-config`` endpoint feeds in.
+    ``/json-config`` endpoint feeds in. The ``_json_default`` hook
+    additionally tolerates the ``yaml_util`` value types orjson rejects
+    — ``EFloat`` (a ``float`` subclass) and ``Lambda`` (#1765).
 
     Use this helper for that endpoint (and only there); the strict
     default of ``dumps`` still catches the more common bug shape —
@@ -59,7 +77,7 @@ def dumps_str_non_str_keys(obj: Any) -> str:
     ``web.json_response(dumps=...)`` (which expects a ``str``-
     returning callable, like ``dumps_str``).
     """
-    return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS).decode()
+    return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS, default=_json_default).decode()
 
 
 def dumps_str(obj: Any) -> str:

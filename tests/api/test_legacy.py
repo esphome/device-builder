@@ -400,6 +400,50 @@ async def test_json_config_returns_parsed_yaml(
     assert body["esphome"]["platform"] == "ESP32"
 
 
+async def test_json_config_serialises_float_values(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """A float in the YAML round-trips instead of 500ing the endpoint.
+
+    ``yaml_util.load_yaml`` wraps scalars in ``EFloat`` (a ``float``
+    subclass orjson won't serialise natively); HA's encryption-key
+    detection broke on the resulting 500 (#1765).
+    """
+    (tmp_path / "floaty.yaml").write_text(
+        "sensor:\n  - platform: adc\n    pin: GPIO01\n    filters:\n      - delta: 0.1\n",
+        encoding="utf-8",
+    )
+    client = await aiohttp_client(_make_app(tmp_path))
+
+    resp = await client.get("/json-config", params={"configuration": "floaty.yaml"})
+
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["sensor"][0]["filters"][0]["delta"] == 0.1
+
+
+async def test_json_config_serialises_lambda_values(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """A ``!lambda`` renders as its source instead of 500ing the endpoint.
+
+    Raw ``load_yaml`` yields an ``esphome.core.Lambda`` orjson can't
+    serialise; the same HA encryption-key detection breaks if any
+    pervasive ``!lambda`` 500s the config fetch (#1765).
+    """
+    (tmp_path / "lammy.yaml").write_text(
+        "sensor:\n  - platform: template\n    lambda: !lambda 'return 1.0;'\n",
+        encoding="utf-8",
+    )
+    client = await aiohttp_client(_make_app(tmp_path))
+
+    resp = await client.get("/json-config", params={"configuration": "lammy.yaml"})
+
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["sensor"][0]["lambda"] == "return 1.0;"
+
+
 @pytest.mark.parametrize(
     "payload",
     ["../etc/passwd", "../../etc/passwd", "/absolute/path"],

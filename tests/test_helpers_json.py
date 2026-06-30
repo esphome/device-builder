@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from aiohttp import web
+from esphome.core import Lambda
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.helpers.json import (
@@ -25,6 +26,12 @@ from esphome_device_builder.helpers.json import (
 
 class _StrSubclass(str):
     """Stand-in for ESPHome's ``EStr`` (a ``str`` subclass)."""
+
+    __slots__ = ()
+
+
+class _FloatSubclass(float):
+    """Stand-in for ESPHome's ``EFloat`` (a ``float`` subclass)."""
 
     __slots__ = ()
 
@@ -68,6 +75,36 @@ def test_dumps_str_non_str_keys_serialises_plain_str_keys() -> None:
     out = dumps_str_non_str_keys({"plain": 1, "nested": {"x": 2}})
     assert isinstance(out, str)
     assert loads(out) == {"plain": 1, "nested": {"x": 2}}
+
+
+def test_dumps_str_non_str_keys_serialises_float_subclass_values() -> None:
+    """``dumps_str_non_str_keys`` tolerates ``float``-subclass values.
+
+    orjson serialises ``str``/``int`` subclasses natively but rejects
+    ``float`` ones, so a YAML config with a float (``EFloat``) 500'd
+    ``/json-config`` until the ``_json_default`` hook downcast it (#1765).
+    """
+    out = dumps_str_non_str_keys({_StrSubclass("delta"): _FloatSubclass(0.1)})
+    assert isinstance(out, str)
+    assert loads(out) == {"delta": 0.1}
+
+
+def test_dumps_str_non_str_keys_serialises_lambda_values() -> None:
+    """``dumps_str_non_str_keys`` renders a ``!lambda`` as its source string.
+
+    Raw ``load_yaml`` turns ``!lambda`` into an ``esphome.core.Lambda``,
+    which orjson can't serialise; ``_json_default`` stringifies it so a
+    config with a lambda doesn't 500 ``/json-config`` either (#1765).
+    """
+    out = dumps_str_non_str_keys({_StrSubclass("lambda"): Lambda("return 1.0;")})
+    assert isinstance(out, str)
+    assert loads(out) == {"lambda": "return 1.0;"}
+
+
+def test_dumps_str_non_str_keys_rejects_unhandled_type() -> None:
+    """``_json_default`` re-raises for genuinely unknown types, keeping orjson strict."""
+    with pytest.raises(TypeError):
+        dumps_str_non_str_keys({"x": object()})
 
 
 # ---------------------------------------------------------------------------
