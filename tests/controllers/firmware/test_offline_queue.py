@@ -261,6 +261,23 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
     firmware_controller._db.create_background_task.assert_called_once()
 
 
+def test_handle_device_wake_ignored_if_not_armed(firmware_controller, mock_device):
+    """Test that an online event is ignored if the config is not in armed deferred installs."""
+    mock_device.queued_update = True
+    # Deliberately NOT adding 'test_device.yaml' to firmware_controller._armed_deferred_installs
+    
+    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
+        event = Event(
+            EventType.DEVICE_STATE_CHANGED,
+            data={
+                "state": DeviceState.ONLINE.value,
+                "configuration": "test_device.yaml",
+            },
+        )
+        firmware_controller._handle_device_wake(event)
+        mock_upload.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_execute_job_clears_queued_flag_on_upload(firmware_controller, mock_device):
     """Test that a successful upload clears the queued update flag and arming set."""
