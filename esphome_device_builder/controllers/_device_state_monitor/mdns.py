@@ -10,6 +10,7 @@ cache-inspection accessors the drawer's reachability snapshot reads.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from operator import attrgetter
@@ -35,6 +36,7 @@ from .helpers import (
     _decode_mdns_txt_records,
     device_name_from_service,
 )
+from .interface_monitor import monitor_interfaces
 from .shared import _MDNS_HOSTNAME_RESOLVE_TIMEOUT, apply_resolved_addresses
 
 if TYPE_CHECKING:
@@ -59,6 +61,7 @@ class MdnsSource:
         # and ``_http._tcp.local.``; halves the zeroconf
         # bookkeeping versus two parallel browsers.
         self._mdns_browser: AsyncServiceBrowser | None = None
+        self._interface_monitor_task: asyncio.Task[None] | None = None
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
@@ -104,6 +107,11 @@ class MdnsSource:
         except Exception:
             _LOGGER.exception("Could not start mDNS browser — device discovery limited to ping")
 
+        # Keep the responder bound to the live interface set (VPN / Wi-Fi /
+        # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
+        if self._zeroconf is not None:
+            self._interface_monitor_task = asyncio.create_task(monitor_interfaces(self._zeroconf))
+
     async def cancel_browser(self) -> None:
         """
         Cancel the ``AsyncServiceBrowser``.
@@ -121,6 +129,12 @@ class MdnsSource:
 
     async def close_zeroconf(self) -> None:
         """Close the zeroconf responder, bounded so a wedged socket can't stall shutdown."""
+        # Stop the interface monitor first so it can't reconcile a closing instance.
+        if self._interface_monitor_task is not None:
+            self._interface_monitor_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._interface_monitor_task
+            self._interface_monitor_task = None
         if self._zeroconf is not None:
             try:
                 await asyncio.wait_for(self._zeroconf.async_close(), _MDNS_CLOSE_TIMEOUT)

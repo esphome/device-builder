@@ -221,6 +221,28 @@ async def test_stop_cancels_every_async_resource(monkeypatch: pytest.MonkeyPatch
     assert in_flight.cancelled() or in_flight.done()
 
 
+async def test_start_spawns_interface_monitor_and_stop_cancels_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """start() spawns the zeroconf interface monitor; close_zeroconf cancels and clears it.
+
+    Pins the lifecycle the poller depends on: the task comes up with the
+    responder and is torn down before ``async_close`` so it can't reconcile a
+    closing instance or leak past shutdown.
+    """
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    task = monitor._mdns._interface_monitor_task
+    assert task is not None
+    assert not task.done()
+    monitor._mdns._zeroconf.async_close = AsyncMock()
+
+    await _stop_and_drain(monitor)
+
+    assert monitor._mdns._interface_monitor_task is None
+    assert task.cancelled() or task.done()
+
+
 async def test_stop_swallows_browser_cancel_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
