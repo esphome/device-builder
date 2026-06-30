@@ -1,0 +1,144 @@
+name: 📡 Device status looks wrong (online/offline, out of sync, not detected)
+description: A device's online/offline, sync/update, or detection state in the dashboard doesn't match reality.
+title: "[Status] "
+type: "Question"
+labels: ["device-status"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Thanks for helping us improve the dashboard! 🙏
+
+
+        Use this template when the dashboard shows the **wrong state for a
+        device**: online vs offline, "out of sync" or "update available" after
+        you already updated it, or a device that isn't detected at all.
+
+
+        **Please read first; most of these come down to the local network.**
+        The dashboard decides a device's status from what it can hear on your
+        network (mDNS announcements plus an ICMP ping). When that picture is
+        wrong, it is usually the network rather than the dashboard:
+
+
+        - an **mDNS reflector** (Home Assistant's own reflector, or a router
+        such as a FritzBox) re-serving a stale record for a device that is
+        actually gone, so it still reads online;
+
+        - the device on a **different subnet or VLAN** from the dashboard, so
+        its mDNS never arrives (it reads offline or undetected even though it
+        works);
+
+        - a **firewall** or **Docker bridge networking** blocking mDNS or ICMP,
+        so announcements never reach the dashboard (devices read offline or
+        stay "out of sync" after a CLI update).
+
+
+        We cannot debug your specific network setup, so those are out of scope.
+        The **device drawer** shows exactly what the dashboard is hearing,
+        which lets us spot a real bug quickly, so please include a screenshot
+        of it below.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What's wrong, and for which device?
+      description: |
+        Name the specific device and what the dashboard shows versus what is
+        actually true (for example "shows online but it is unplugged", "out of
+        sync after I ran esphome run", "not detected, but it works in Home
+        Assistant").
+    validations:
+      required: true
+
+  - type: textarea
+    id: drawer-screenshot
+    attributes:
+      label: Device drawer screenshot (required)
+      description: |
+        Open the drawer for the affected device by clicking its row in the
+        dashboard list; it slides in from the right. Scroll to the
+        "Reachability" section and screenshot it, including:
+
+        - the per-source rows (mDNS, Ping, MQTT) and their last-seen times,
+        - the mDNS "Expires in ..." countdown (when a lingering mDNS record
+          will clear),
+        - the IP Address, Hostname, and Current / Deployed Version above it.
+
+        Paste the image directly into this box.
+    validations:
+      required: true
+
+  - type: input
+    id: mdns-expiry
+    attributes:
+      label: What does the mDNS row say?
+      description: |
+        From the drawer's Reachability section for the affected device: the
+        mDNS line text (for example "Expires in 1h 14m" or "Expires soon"), or
+        "no mDNS row" if there is no mDNS signal at all.
+      placeholder: 'e.g. "Expires in 1h 14m" or "no mDNS row"'
+    validations:
+      required: true
+
+  - type: textarea
+    id: network
+    attributes:
+      label: Network setup
+      description: |
+        Is the device on the same subnet/VLAN as the dashboard? Are you running
+        an mDNS reflector (Home Assistant's, or a router)? Is the dashboard on a
+        Docker bridge network? Anything relevant to whether mDNS and ICMP can
+        reach the device.
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Dashboard version
+      description: Output of `esphome-device-builder --version`, or the release tag you installed from.
+      placeholder: "e.g. 1.0.21"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How did you install it?
+      multiple: false
+      options:
+        - PyPI
+        - Wheel from a GitHub release
+        - From source (script/setup)
+        - ESPHome container (preview toggle)
+        - Home Assistant App (preview toggle)
+        - Desktop app
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where is it running?
+      multiple: false
+      options:
+        - Local — Linux
+        - Local — macOS
+        - Local — Windows
+        - Docker container
+        - Home Assistant App
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Server log lines for the device; the status-transition lines are ideal
+        (for example `Device foo (foo.yaml): offline -> online (via mdns)`). Run
+        with `--log-level debug` for more detail.
+      render: shell
