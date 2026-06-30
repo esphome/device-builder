@@ -14,6 +14,18 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-MB/MB-1_05.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-MB/MB-1_06.jpg
 pins:
+- gpio: 4
+  available: false
+  occupied_by: bus_a
+- gpio: 5
+  available: false
+  occupied_by: bus_b
+- gpio: 15
+  available: false
+  occupied_by: bus_a
+- gpio: 16
+  available: false
+  occupied_by: bus_b
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -25,6 +37,34 @@ pins:
   occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/KinCony-MB/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 4
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: bus_b
+  component_id: i2c
+  fields:
+    sda:
+      value: 5
+      locked: true
+    scl:
+      value: 16
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_b
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -52,6 +92,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_1
+  requires:
+  - bus_a
 - id: sensor_ina226_2
   component_id: sensor.ina226
   fields:
@@ -60,6 +102,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_2
+  requires:
+  - bus_a
 - id: sensor_ina226_3
   component_id: sensor.ina226
   fields:
@@ -68,6 +112,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_3
+  requires:
+  - bus_a
 - id: sensor_ina226_4
   component_id: sensor.ina226
   fields:
@@ -76,6 +122,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_4
+  requires:
+  - bus_a
 - id: sensor_ina226_5
   component_id: sensor.ina226
   fields:
@@ -84,6 +132,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_5
+  requires:
+  - bus_a
 - id: sensor_ina226_6
   component_id: sensor.ina226
   fields:
@@ -92,6 +142,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_6
+  requires:
+  - bus_a
 - id: sensor_ina226_7
   component_id: sensor.ina226
   fields:
@@ -100,6 +152,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_7
+  requires:
+  - bus_a
 - id: sensor_ina226_8
   component_id: sensor.ina226
   fields:
@@ -108,6 +162,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_8
+  requires:
+  - bus_a
 - id: sensor_ina226_9
   component_id: sensor.ina226
   fields:
@@ -116,6 +172,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_9
+  requires:
+  - bus_b
 - id: sensor_ina226_10
   component_id: sensor.ina226
   fields:
@@ -124,6 +182,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_10
+  requires:
+  - bus_b
 - id: sensor_ina226_11
   component_id: sensor.ina226
   fields:
@@ -132,6 +192,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_11
+  requires:
+  - bus_b
 - id: sensor_ina226_12
   component_id: sensor.ina226
   fields:
@@ -140,6 +202,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_12
+  requires:
+  - bus_b
 - id: sensor_ina226_13
   component_id: sensor.ina226
   fields:
@@ -148,6 +212,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_13
+  requires:
+  - bus_b
 - id: sensor_ina226_14
   component_id: sensor.ina226
   fields:
@@ -156,6 +222,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_14
+  requires:
+  - bus_b
 - id: sensor_ina226_15
   component_id: sensor.ina226
   fields:
@@ -164,6 +232,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_15
+  requires:
+  - bus_b
 - id: sensor_ina226_16
   component_id: sensor.ina226
   fields:
@@ -172,6 +242,8 @@ featured_components:
     max_current: 15A
     update_interval: 5s
     id: sensor_ina226_16
+  requires:
+  - bus_b
 source:
   type: esphome-devices
   remote_id: KinCony-MB

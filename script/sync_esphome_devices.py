@@ -1030,6 +1030,12 @@ def _finalize_entry(candidate: _Candidate, id_map: dict[str, str]) -> dict[str, 
         "id": candidate.local_id,
         "component_id": candidate.component_id,
         "fields": fields,
+        # Transient: the bus-dep pass reads the consumer's ``<bus>_id`` from the
+        # source block here (it's dropped from ``fields`` as an unresolved
+        # cross-ref). Disambiguates multiple id-less same-platform consumers that
+        # ``_find_consumer_block`` can't tell apart; popped when consumed in
+        # ``_collect_bus_dep_refs`` so it never reaches the manifest.
+        "_source_block": candidate.item,
     }
 
 
@@ -1922,6 +1928,10 @@ def _collect_bus_dep_refs(
     existing_cids = {entry["component_id"] for entry in featured}
     consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
     for entry in featured:
+        # Consume the source block stashed at finalize — popped here (the sole
+        # reader) so the transient key never reaches the serialized manifest, no
+        # matter how the entries are later dumped.
+        source_block = entry.pop("_source_block", None)
         # Infra entries lifted by an earlier pass (bus / hub / ethernet) have a
         # bare component id; only platform leaves (``<domain>.<platform>``) bind a
         # bus by catalog dependency.
@@ -1930,7 +1940,9 @@ def _collect_bus_dep_refs(
         component = components_index.get(entry["component_id"])
         if component is None:
             continue
-        block = _find_consumer_block(config, entry)
+        # The stashed block is authoritative; fall back to re-finding it for
+        # entries built outside the extractor (e.g. unit tests).
+        block = source_block or _find_consumer_block(config, entry)
         refs: list[tuple[str, str | None]] = []
         for dep in component.get("dependencies") or []:
             if not isinstance(dep, str) or dep in existing_cids:

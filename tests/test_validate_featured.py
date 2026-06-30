@@ -451,20 +451,27 @@ def test_featured_dep_not_checked_for_non_imported(_index: dict | None) -> None:
     )
 
 
-def test_featured_dep_allowlisted_board_is_skipped(_index: dict | None) -> None:
-    """An allow-listed board's known-unsatisfied dep does not fail validation."""
+def test_featured_dep_allowlisted_pair_is_skipped(
+    _index: dict | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An allow-listed ``(board, bus)`` pair's known-unsatisfied dep does not fail."""
+    monkeypatch.setattr(
+        "script.validate_definitions._UNSATISFIED_BUS_ALLOW_LIST", frozenset({("demo", "i2c")})
+    )
     assert (
-        _validate_featured_dependencies("kincony_mb", [_leaf("sensor.sht3xd", "t")], _index, True)
-        == []
+        _validate_featured_dependencies("demo", [_leaf("sensor.sht3xd", "t")], _index, True) == []
     )
 
 
-def test_featured_dep_allowlist_is_per_bus_not_per_board(_index: dict | None) -> None:
-    """An allow-listed board still fails for a *different* unsatisfied bus."""
-    # kincony_mb is waived for i2c only; an spi leaf with no spi bus must still fail.
-    errors = _validate_featured_dependencies(
-        "kincony_mb", [_leaf("display.mipi_spi", "d")], _index, True
+def test_featured_dep_allowlist_is_per_bus_not_per_board(
+    _index: dict | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An allow-listed pair waives only that bus; a different bus on the board still fails."""
+    monkeypatch.setattr(
+        "script.validate_definitions._UNSATISFIED_BUS_ALLOW_LIST", frozenset({("demo", "i2c")})
     )
+    # demo is waived for i2c; an spi leaf with no spi bus must still fail.
+    errors = _validate_featured_dependencies("demo", [_leaf("display.mipi_spi", "d")], _index, True)
     assert any("depends on bus 'spi'" in e for e in errors)
 
 

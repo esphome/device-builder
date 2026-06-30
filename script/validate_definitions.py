@@ -61,15 +61,10 @@ _FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 # featured leaf's dependency on that bus is knowingly unsatisfied (the full-setup
 # config won't compile) pending a source-level fix. Keyed on the specific bus, not
 # the whole board, so a *different* unsatisfied bus on the same board still fails.
-# This is an allow list, not a silent skip: removing a pair must be paired with a
-# fix in script/sync_esphome_devices.py.
-_UNSATISFIED_BUS_ALLOW_LIST = frozenset(
-    {
-        ("kincony_ag8", "uart"),  # 2 id-less switch.uart consumers; bus ref not recovered
-        ("kincony_kc868_e8t", "uart"),  # 2 id-less bl0939 consumers; bus ref not recovered
-        ("kincony_mb", "i2c"),  # 16 id-less ina226 consumers; bus ref not recovered
-    }
-)
+# This is an allow list, not a silent skip: adding a pair needs a tracking note,
+# removing one a fix in script/sync_esphome_devices.py.
+# Currently empty — every imported board's featured bus dependencies are lifted.
+_UNSATISFIED_BUS_ALLOW_LIST: frozenset[tuple[str, str]] = frozenset()
 
 # Pin features the board manifest can declare (mirrors the JSON Schema enum
 # in board.schema.json). Components.json sometimes carries pin_features

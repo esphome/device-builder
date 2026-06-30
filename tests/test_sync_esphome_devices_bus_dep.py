@@ -190,6 +190,40 @@ def test_two_consumers_share_one_bus() -> None:
     assert set(occ) == {5, 4}
 
 
+def test_recovers_bus_id_from_stashed_source_block() -> None:
+    """Id-less same-platform consumers disambiguate their bus via the stashed source block."""
+    featured = [
+        {
+            "id": "sensor_bme280_1",
+            "component_id": "sensor.bme280",
+            "fields": {"id": "sensor_bme280_1"},
+            "_source_block": {"platform": "bme280", "i2c_id": "bus_a"},
+        },
+        {
+            "id": "sensor_bme280_2",
+            "component_id": "sensor.bme280",
+            "fields": {"id": "sensor_bme280_2"},
+            "_source_block": {"platform": "bme280", "i2c_id": "bus_b"},
+        },
+    ]
+    config = {
+        "i2c": [
+            {"id": "bus_a", "scl": "GPIO5", "sda": "GPIO4"},
+            {"id": "bus_b", "scl": "GPIO22", "sda": "GPIO21"},
+        ],
+        # The source blocks carry no id, so _find_consumer_block alone can't tell
+        # them apart; the stashed _source_block recovers each one's i2c_id.
+        "sensor": [
+            {"platform": "bme280", "i2c_id": "bus_a"},
+            {"platform": "bme280", "i2c_id": "bus_b"},
+        ],
+    }
+    extra, _ = _extract_bus_deps(config, featured, _COMPONENTS)
+    assert {e["id"] for e in extra} == {"bus_a", "bus_b"}
+    assert featured[0]["requires"] == ["bus_a"]
+    assert featured[1]["requires"] == ["bus_b"]
+
+
 def test_multi_bus_disambiguates_via_bus_id() -> None:
     """Two i2c buses + two sensors pinning distinct ``i2c_id`` lift both, each wired right."""
     featured = [
