@@ -99,3 +99,13 @@ BOARD_PIN_KEYS: frozenset[str] = frozenset(
 # ``source`` block. Shared so the importer (writer) and the loader (reader)
 # can't drift.
 DEVICE_IMPORT_SOURCE_TYPE = "esphome-devices"
+
+# Generated catalog categories for ESPHome's buses (the ``_CATEGORY_OVERRIDES``
+# bus entries in script/sync_components.py). Mapping-style buses (i2c/spi/uart/
+# modbus) collapse to ``"bus"``; platform-style buses (one_wire/canbus) keep
+# their domain name as the category because they are ``IS_PLATFORM_COMPONENT``
+# and have no top-level component, so the dep name itself equals the category.
+# Shared so the importer (script/sync_esphome_devices.py, which lifts buses) and
+# the validator (script/validate_definitions.py, which checks they were lifted)
+# can't drift. Stdlib-only home, so neither script pulls in ``esphome``.
+BUS_CATEGORIES: frozenset[str] = frozenset({"bus", "one_wire", "canbus"})

@@ -490,7 +490,14 @@ against legacy behaviour before assuming the simpler version suffices.
     subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
     directions**: `AsyncServiceBrowser` delivers a `Removed` event on
     TTL expiry, the canonical "device gone" signal. ONLINE → mdns,
-    OFFLINE → mdns, no ICMP.
+    OFFLINE → mdns, no ICMP. ONLINE is claimed **only once the service
+    resolves** (cache hit or wire resolve, both via
+    `_apply_service_info`), never off a bare PTR. An announce whose
+    SRV/A won't resolve (a node that died mid-handshake, a reflector
+    re-serving a stale PTR for a long-gone device) claims nothing and
+    falls through to the ICMP sweep, same as the active-resolve path
+    below; claiming on the PTR alone latched dead devices ONLINE
+    forever (#1748).
   - **One-off active resolve** (`_resolve_non_api_mdns_targets`, for
     non-API devices not on `_esphomelib._tcp.local.`). Trust mDNS for
     **ONLINE only** (priority 3, locks out ICMP — once mDNS answers,

@@ -80,16 +80,28 @@ jobs:
         # 60 req/hr unauthenticated cap on shared runner IPs.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Read the dispatch input via env, never inline ``${{ inputs.version }}``
+          # into the script: it's attacker-controllable and a textual splice
+          # would run as shell. ``$INPUT_VERSION`` is data, not code.
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "source=manual dispatch" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
+            SOURCE="manual dispatch"
           else
             VERSION=$(python -c "import sys; sys.path.insert(0, 'script'); from sync_components import resolve_latest_release; print(resolve_latest_release(include_prereleases=True))")
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            echo "source=latest schema release (incl. prereleases)" >> "$GITHUB_OUTPUT"
+            SOURCE="latest schema release (incl. prereleases)"
           fi
+          # Validate before any downstream step installs / pins / interpolates
+          # it; a value constrained to an esphome version string carries no
+          # shell or sed metacharacters, so the later uses can't be injected.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(b[0-9]+)?$'; then
+            echo "::error::Refusing unexpected esphome version '$VERSION'"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
 
       - name: Align esphome to the schema version
         # Install the exact esphome the resolved schema came from so
@@ -109,6 +121,32 @@ jobs:
       - name: Run sync_components
         run: python script/sync_components.py --version "${{ steps.version.outputs.version }}"
 
+      - name: Re-stamp board catalog
+        # boards.index.json carries an ``esphome_version`` stamp from the
+        # installed esphome. The catalog is one logical unit per esphome
+        # version, so re-stamp boards against the same esphome the align step
+        # pinned; otherwise the Test job's ``sync-boards`` pre-commit hook
+        # re-stamps it and the opened PR lands red on every esphome patch.
+        run: python script/sync_boards.py
+
+      - name: Validate definitions
+        # Re-validate every board (curated + imported) against the JSON Schema
+        # and the component catalog cross-references before the PR opens, so a
+        # re-stamp that regenerated an invalid board catalog never gets proposed
+        # for merge. Mirrors the device-catalog sync.
+        run: python script/validate_definitions.py
+
+      - name: Bump esphome pin
+        # CI's lint job installs esphome from esphome-constraints.txt so a new
+        # release doesn't red main on the sync-boards hook. Move the pin in
+        # lockstep with the catalog this run just regenerated, so the opened PR
+        # ships a self-consistent version (pinned esphome == catalog stamp).
+        # ``$VERSION`` comes through env (not inline) and is validated to an
+        # esphome version above, so it carries no sed metacharacters.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: sed -i "s/^esphome==.*/esphome==$VERSION/" esphome-constraints.txt
+
       - name: Smoke-test catalog
         # Catches regressions in popular components (missing fields,
         # type flips, id-vs-reference confusion). Runs BEFORE the
@@ -123,7 +161,11 @@ jobs:
           if git diff --quiet -- \
               esphome_device_builder/definitions/components.index.json \
               esphome_device_builder/definitions/components/ \
-            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/)" ]; then
+              esphome_device_builder/definitions/boards.index.json \
+              esphome_device_builder/definitions/board_bodies/ \
+              esphome_device_builder/definitions/featured_components.index.json \
+              esphome-constraints.txt \
+            && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/board_bodies/)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

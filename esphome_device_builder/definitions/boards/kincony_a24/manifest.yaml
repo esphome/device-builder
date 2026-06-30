@@ -19,6 +19,12 @@ pins:
 - gpio: 5
   available: false
   occupied_by: bus_a
+- gpio: 12
+  available: false
+  occupied_by: spi_bus0
+- gpio: 14
+  available: false
+  occupied_by: spi_bus0
 - gpio: 16
   available: false
   occupied_by: bus_a
@@ -45,6 +51,18 @@ pins:
   occupied_by: A24 A3 Current
 docs_url: https://devices.esphome.io/devices/KinCony-A24/
 featured_components:
+- id: spi_bus0
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 14
+      locked: true
+    miso_pin:
+      value: 12
+      locked: true
+    id:
+      value: spi_bus0
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -570,6 +588,7 @@ featured_components:
   requires:
   - bus_a
   - pcf8574_hub_out_1
+  - spi_bus0
 - id: sensor_max31855_2
   component_id: sensor.max31855
   fields:
@@ -586,6 +605,7 @@ featured_components:
   requires:
   - bus_a
   - pcf8574_hub_out_1
+  - spi_bus0
 - id: sensor_max31855_3
   component_id: sensor.max31855
   fields:
@@ -602,6 +622,7 @@ featured_components:
   requires:
   - bus_a
   - pcf8574_hub_out_1
+  - spi_bus0
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

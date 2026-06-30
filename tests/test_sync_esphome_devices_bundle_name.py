@@ -13,7 +13,6 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
 def _cand(item: dict[str, Any], platform: str = "rgbww") -> _Candidate:
     return _Candidate(
         item=item,
-        domain="light",
         platform=platform,
         component_id=f"light.{platform}",
         component={},

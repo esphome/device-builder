@@ -314,19 +314,48 @@ def test_resistance_sensor_resistor_refines_to_float_with_unit(loader) -> None:
     assert resistor.unit_options is not None and "Ω" in resistor.unit_options
 
 
+def test_non_introspectable_units_include_color_temperature(cv) -> None:
+    """`cv.color_temperature` is a hand-rolled `def` (no regex), curated as mireds/K."""
+    present = _present_non_introspectable_units(cv)
+    assert present["color_temperature"] == ["mireds", "K"]
+
+
+def test_rgbww_color_temperature_refines_to_float_with_unit(loader) -> None:
+    """Rgbww's cold/warm white color_temperature refine to float_with_unit (mireds/K).
+
+    A featured "6500 K" preset must validate in the add form, so the
+    `cv.color_temperature` setpoints ship as `float_with_unit`, not plain `float`.
+    """
+    refined = {}
+    for platform_manifest in _enumerate_platform_manifests(loader, "rgbww"):
+        refined.update(_collect_refined_types(platform_manifest))
+    cold = refined.get(("cold_white_color_temperature",))
+    warm = refined.get(("warm_white_color_temperature",))
+    if cold is None or warm is None:
+        pytest.skip(
+            "esphome version doesn't expose rgbww.light color temperature setpoints "
+            "via the live-introspection walker — guard, not a regression"
+        )
+    assert cold.type == "float_with_unit"
+    assert cold.unit_options == ["mireds", "K"]
+    assert warm.type == "float_with_unit"
+    assert warm.unit_options == ["mireds", "K"]
+
+
 def test_missing_non_introspectable_validator_warns(caplog) -> None:
     """A removed hand-maintained validator warns and is dropped, not silently missing."""
 
     class _StubCV:
         data_size = object()
         temperature = object()
+        color_temperature = object()
         # temperature_delta removed
 
     with caplog.at_level(logging.WARNING, logger="sync_components"):
         present = _present_non_introspectable_units(_StubCV())
     assert "temperature_delta" in caplog.text
     assert "temperature_delta" not in present
-    assert {"data_size", "temperature"} <= present.keys()
+    assert {"data_size", "temperature", "color_temperature"} <= present.keys()
 
 
 def test_walk_descends_typed_schema_branches(cv) -> None:

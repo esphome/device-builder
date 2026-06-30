@@ -2,9 +2,10 @@
 Tests for ``_extract_featured_components`` in ``script/sync_esphome_devices.py``.
 
 Focuses on the explicit-fields contract: every emitted featured-component
-entry must carry ``fields.id`` and, for HA entity domains, ``fields.name``
-— so the imported manifests are self-contained and the runtime never
-has to auto-derive these from the local id / display name.
+entry must carry ``fields.id`` and, for components whose schema declares a
+``name`` (HA entities, not hub/bus platforms), ``fields.name`` — so the
+imported manifests are self-contained and the runtime never has to
+auto-derive these from the local id / display name.
 
 Also covers the safety filters that drop upstream items the dashboard
 can't usefully surface — placeholder addresses, lambda-driven
@@ -29,9 +30,13 @@ def test_expander_keys_treats_board_pin_id_as_a_board_key() -> None:
 
 # Minimal fake components index — only the keys the extractor reads
 # (``config_entries[*].key`` / ``type``). The pin entries make the
-# extractor accept the values as ``locked`` presets.
+# extractor accept the values as ``locked`` presets. A ``name`` entry marks
+# an HA entity (so ``name`` is auto-injected); hub/bus platforms like
+# ``sensor.dht`` and ``output.gpio`` omit it and get no ``name``.
 _INDEX = {
-    "binary_sensor.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
+    "binary_sensor.gpio": {
+        "config_entries": [{"key": "pin", "type": "pin"}, {"key": "name", "type": "string"}]
+    },
     "output.gpio": {"config_entries": [{"key": "pin", "type": "pin"}]},
     "sensor.dht": {
         "config_entries": [
@@ -49,6 +54,7 @@ _INDEX = {
         "config_entries": [
             {"key": "pin", "type": "pin"},
             {"key": "inverted", "type": "boolean"},
+            {"key": "name", "type": "string"},
         ]
     },
     "switch.template": {
@@ -66,6 +72,7 @@ _INDEX = {
         "config_entries": [
             {"key": "output", "type": "id"},
             {"key": "restore_mode", "type": "string"},
+            {"key": "name", "type": "string"},
         ]
     },
 }
@@ -98,18 +105,29 @@ def test_extract_uses_upstream_name_for_entities() -> None:
 def test_extract_derives_name_default_when_upstream_omits() -> None:
     """Entity platforms without an upstream ``name:`` fall back to a derived default."""
     inline = {
-        "sensor": [{"platform": "dht", "pin": 14, "model": "DHT22"}],
+        "binary_sensor": [{"platform": "gpio", "pin": 4}],
     }
     featured, _, _ = _extract_featured_components(inline, _INDEX)
     # ``<Platform> <counter>`` — keeps the entity surfaced in HA without
     # the user having to fill in a name first.
-    assert featured[0]["fields"]["name"] == "Dht 1"
+    assert featured[0]["fields"]["name"] == "Gpio 1"
 
 
 def test_extract_skips_name_for_non_entity_platforms() -> None:
     """Non-entity platforms (``output:``) get only ``id``, never ``name``."""
     inline = {
         "output": [{"platform": "gpio", "name": "ignored upstream", "pin": 5}],
+    }
+    featured, _, _ = _extract_featured_components(inline, _INDEX)
+    fields = featured[0]["fields"]
+    assert "id" in fields
+    assert "name" not in fields
+
+
+def test_extract_skips_name_for_hub_component_without_name_schema() -> None:
+    """A hub-style platform whose schema declares no ``name`` (``sensor.dht``) gets none."""
+    inline = {
+        "sensor": [{"platform": "dht", "pin": 14, "model": "DHT22"}],
     }
     featured, _, _ = _extract_featured_components(inline, _INDEX)
     fields = featured[0]["fields"]
@@ -306,6 +324,7 @@ _EXPANDER_INDEX = {
         ],
     },
     "i2c": {
+        "category": "bus",
         "config_entries": [
             {"key": "id", "type": "id"},
             {"key": "sda", "type": "pin"},
@@ -458,15 +477,17 @@ def test_extract_expander_ambiguous_multi_hub_is_skipped() -> None:
     assert not any(e["component_id"] == "binary_sensor.gpio" for e in featured)
 
 
-def test_extract_expander_bus_without_id_not_materialized() -> None:
-    """An i2c bus with no upstream id isn't locked; the hub still lands, requiring only itself."""
+def test_extract_expander_bus_without_id_is_materialized() -> None:
+    """An id-less sole i2c bus is lifted (fallback local id, no id field); the hub requires it."""
     config = _expander_config(i2c=[{"sda": 9, "scl": 10}])  # no id to lock onto
     featured, _, _ = _extract_featured_components(config, _EXPANDER_INDEX)
     extra, _ = _extract_expander_hubs(config, featured, _EXPANDER_INDEX)
-    assert not any(e["component_id"] == "i2c" for e in extra)
-    assert any(e["component_id"] == "pcf8574" for e in extra)
+    by_id = {e["id"]: e for e in extra}
+    assert by_id["i2c_bus"]["component_id"] == "i2c"
+    assert "id" not in by_id["i2c_bus"]["fields"]
+    assert by_id["pcf8574_hub_in_1"]["requires"] == ["i2c_bus"]
     consumer = next(e for e in featured if e["component_id"] == "binary_sensor.gpio")
-    assert consumer["requires"] == ["pcf8574_hub_in_1"]
+    assert consumer["requires"] == ["i2c_bus", "pcf8574_hub_in_1"]
 
 
 def test_extract_expander_picks_the_bus_the_hub_pins_via_i2c_id() -> None:

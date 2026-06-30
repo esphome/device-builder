@@ -22,6 +22,9 @@ pins:
 - gpio: 5
   available: false
   occupied_by: bus_a
+- gpio: 14
+  available: false
+  occupied_by: one_wire.gpio
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -33,6 +36,12 @@ pins:
   occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/Hankerila-EA8/
 featured_components:
+- id: one_wire_bus
+  component_id: one_wire.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -243,6 +252,8 @@ featured_components:
     address: 2017612637948700553
     id: sensor_dallas_temp_1
     name: ds18b20-1
+  requires:
+  - one_wire_bus
 - id: relay1
   component_id: switch.gpio
   fields:

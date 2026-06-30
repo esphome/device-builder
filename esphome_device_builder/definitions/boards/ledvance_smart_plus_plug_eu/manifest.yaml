@@ -79,7 +79,6 @@ featured_components:
     voltage_divider: '4456'
     current_resistor: '0.00045'
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:

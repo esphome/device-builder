@@ -93,7 +93,6 @@ featured_components:
         inverted: true
       locked: true
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: switch_1
   component_id: switch.gpio
   fields:

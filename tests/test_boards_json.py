@@ -55,6 +55,7 @@ from script.sync_boards import (
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
     _consolidate_full_setup_bundles,
+    _has_pin_conflict,
     _stamp_featured_locked_pins,
 )
 
@@ -403,6 +404,51 @@ def test_synthesize_full_setup_bundle_skips_pin_conflict() -> None:
     ]
     _consolidate_full_setup_bundles([conflict_covered])
     assert [b.id for b in conflict_covered.featured_bundles] == ["all_setup", "a_setup"]
+
+
+def test_has_pin_conflict_folds_in_list_valued_pins() -> None:
+    """A board GPIO claimed by a list-valued pin (octal SPI ``data_pins``) is detected."""
+    # ``locked_pins`` holds one canonical pin per key, so an octal ``data_pins``
+    # list never lands there; the detector must read the raw fields to see it.
+    spi = FeaturedComponent(
+        id="bus",
+        component_id="spi",
+        fields={"data_pins": FieldPreset(value=[6, 7, 15], locked=True)},
+        locked_pins={},
+    )
+    clash = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value=7, locked=True)},
+        locked_pins={"pin": 7},
+    )
+    assert _has_pin_conflict([spi, clash]) is True
+
+    no_clash = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value=21, locked=True)},
+        locked_pins={"pin": 21},
+    )
+    assert _has_pin_conflict([spi, no_clash]) is False
+
+    # A list item that opts into allow_other_uses isn't a conflict when the
+    # colliding usage also allows it (tracked per item, not hardcoded False).
+    spi_shared = FeaturedComponent(
+        id="bus",
+        component_id="spi",
+        fields={
+            "data_pins": FieldPreset(value=[{"number": 7, "allow_other_uses": True}], locked=True)
+        },
+        locked_pins={},
+    )
+    clash_shared = FeaturedComponent(
+        id="relay",
+        component_id="switch.gpio",
+        fields={"pin": FieldPreset(value={"number": 7, "allow_other_uses": True}, locked=True)},
+        locked_pins={"pin": 7},
+    )
+    assert _has_pin_conflict([spi_shared, clash_shared]) is False
 
 
 def test_omit_default_preserves_meaningful_falsy() -> None:

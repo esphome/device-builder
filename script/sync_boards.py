@@ -45,6 +45,7 @@ import logging
 import re
 import shutil
 import sys
+from collections.abc import Iterator
 from dataclasses import replace
 from functools import cache
 from operator import attrgetter
@@ -928,18 +929,38 @@ def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
     ``allow_other_uses``; a single plain usage of a shared pin fails validation.
     Mirror that: a board GPIO used by more than one locked pin is a conflict
     unless all of those usages allow it. Namespaced expander channels are string
-    tokens, not board GPIOs, so they're ignored.
+    tokens, not board GPIOs, so they're ignored. List-valued pins (octal SPI
+    ``data_pins``) are folded in from the raw fields — ``locked_pins`` only holds
+    one canonical pin per key, so it drops them.
     """
     usages: dict[int, list[bool]] = {}
     for fc in components:
         for key, gpio in fc.locked_pins.items():
-            if not isinstance(gpio, int):
-                continue
-            preset = fc.fields.get(key)
-            value = preset.value if preset is not None else None
-            allows = isinstance(value, dict) and bool(value.get("allow_other_uses"))
+            if isinstance(gpio, int):
+                preset = fc.fields.get(key)
+                usages.setdefault(gpio, []).append(
+                    _pin_allows_reuse(preset.value if preset is not None else None)
+                )
+        for gpio, allows in _list_pin_gpios(fc):
             usages.setdefault(gpio, []).append(allows)
     return any(len(uses) > 1 and not all(uses) for uses in usages.values())
+
+
+def _pin_allows_reuse(value: Any) -> bool:
+    """Whether a pin value opts into ``allow_other_uses`` (long-form pin mappings only)."""
+    return isinstance(value, dict) and bool(value.get("allow_other_uses"))
+
+
+def _list_pin_gpios(fc: FeaturedComponent) -> Iterator[tuple[int, bool]]:
+    """Yield each ``(board GPIO, allow_other_uses)`` a component locks via a list pin field."""
+    for key in _component_pin_keys(fc.component_id):
+        preset = fc.fields.get(key)
+        if preset is None or not preset.locked or not isinstance(preset.value, list):
+            continue
+        for item in preset.value:
+            gpio = _canonical_gpio(item)
+            if gpio is not None:
+                yield gpio, _pin_allows_reuse(item)
 
 
 def build_catalog() -> BoardCatalogResponse:

@@ -31,11 +31,20 @@ pins:
 - gpio: 21
   available: false
   occupied_by: $friendly_name
+- gpio: 25
+  available: false
+  occupied_by: one_wire.gpio
 - gpio: 27
   available: false
   occupied_by: sensor_power
 docs_url: https://devices.esphome.io/devices/Sonoff-THR316/
 featured_components:
+- id: one_wire_bus
+  component_id: one_wire.gpio
+  fields:
+    pin:
+      value: 25
+      locked: true
 - id: reset
   component_id: binary_sensor.gpio
   fields:
@@ -107,6 +116,8 @@ featured_components:
     index: 0
     id: temp
     name: $friendly_name Temperature
+  requires:
+  - one_wire_bus
 - id: relay
   component_id: switch.gpio
   fields:
@@ -129,6 +140,7 @@ featured_bundles:
 - id: climate_control_setup
   name: $friendly_name Climate Control (full setup)
   component_ids:
+  - one_wire_bus
   - temp
   - climate_control
 source:

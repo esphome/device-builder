@@ -889,15 +889,14 @@ async def test_add_component_featured_resets_dashed_id(
         },
     )
 
-    # Auto-id from the manifest's ``fields.name: HLW8012 Power Monitor``;
-    # ``_generate_id`` dedups the leading chip stem so we get
-    # ``hlw8012_power_monitor`` rather than ``hlw8012_hlw8012_power_monitor``.
-    assert "id: hlw8012_power_monitor" in response.yaml
+    # The dashed featured suggestion is reset; hlw8012 takes no top-level
+    # ``name``, so the auto-id falls back to the bare chip stem.
+    assert "\n    id: hlw8012\n" in response.yaml
     assert "featured_athom-smart-plug-v3" not in response.yaml
-    assert "name: HLW8012 Power Monitor" in response.yaml
+    assert "name: HLW8012 Power Monitor" not in response.yaml
     # Sub-entity autofill rides through the merge step.
     assert "name: Current" in response.yaml
-    assert "id: hlw8012_power_monitor_current" in response.yaml
+    assert "id: hlw8012_current" in response.yaml
 
 
 async def test_add_component_featured_keeps_user_typed_id(
