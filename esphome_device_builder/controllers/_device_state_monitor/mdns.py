@@ -140,13 +140,13 @@ class MdnsSource:
         # Stop the interface monitor first so it can't reconcile a closing instance.
         if self._interface_monitor_task is not None:
             self._interface_monitor_task.cancel()
-            try:
-                await self._interface_monitor_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
+            # gather(return_exceptions=True) captures the child's CancelledError —
+            # and any crash — without swallowing a cancellation aimed at *this*
+            # coroutine, mirroring the drain in ``DeviceStateMonitor.stop``.
+            result = await asyncio.gather(self._interface_monitor_task, return_exceptions=True)
+            if isinstance(result[0], Exception):
                 # A crashed monitor task must not abort shutdown before zeroconf closes.
-                _LOGGER.debug("interface monitor task errored during shutdown", exc_info=True)
+                _LOGGER.debug("interface monitor task errored during shutdown", exc_info=result[0])
             self._interface_monitor_task = None
         if self._zeroconf is not None:
             try:
