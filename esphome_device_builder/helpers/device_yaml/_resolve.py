@@ -20,6 +20,14 @@ _LOGGER = logging.getLogger(__name__)
 # forever on a wedged subprocess.
 _ESPHOME_CONFIG_TIMEOUT = 60.0
 
+# Each spawn imports ``esphome.components`` (~70 MiB RSS). Cap concurrent
+# subprocesses so a burst — HA adding several devices, a fleet key-resolve —
+# can't stack N×70 MiB on a low-RAM host (HA Green). Callers queue past the cap.
+# The process runs a single event loop for its lifetime, so one module-level
+# semaphore gates every call site.
+_MAX_CONCURRENT_CONFIG = 3
+_config_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CONFIG)
+
 
 class _SafeLoaderIgnoreUnknown(FastestSafeLoader):
     """SafeLoader that renders unknown ESPHome tags (``!lambda``) as strings."""
@@ -51,37 +59,41 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
     required: without it ESPHome conceal-wraps secret values in an ANSI SGR.
 
     Failure detail is logged here (never the resolved-secret-bearing stderr)
-    rather than returned, so callers only branch on ``None``.
+    rather than returned, so callers only branch on ``None``. Concurrent runs
+    are capped (:data:`_MAX_CONCURRENT_CONFIG`); excess callers queue.
     """
     cmd = [*esphome_cmd, "--dashboard", "config", str(config_path), "--show-secrets"]
-    try:
-        proc = await create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-    except OSError as exc:
-        # Infrastructure failure (missing binary, FD exhaustion), not a user
-        # config error — warn so it's visible at the default log level.
-        _LOGGER.warning("esphome config spawn failed for %s: %s", config_path, exc)
-        return None
-    try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
-    except TimeoutError:
-        kill_quietly(proc)
-        await proc.wait()
-        _LOGGER.warning(
-            "esphome config timed out after %ss for %s", _ESPHOME_CONFIG_TIMEOUT, config_path
-        )
-        return None
-    except asyncio.CancelledError:
-        kill_quietly(proc)
-        raise
-    if proc.returncode != 0:
-        # Usually a genuinely invalid config the caller surfaces as 422 / empty
-        # key — debug, so a user mid-edit doesn't spam the operator's log.
-        _LOGGER.debug("esphome config returned %s for %s", proc.returncode, config_path)
-        return None
+    # Hold the gate only across the subprocess (where the RAM lives); the
+    # parse below runs once it's released.
+    async with _config_semaphore:
+        try:
+            proc = await create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            # Infrastructure failure (missing binary, FD exhaustion), not a user
+            # config error — warn so it's visible at the default log level.
+            _LOGGER.warning("esphome config spawn failed for %s: %s", config_path, exc)
+            return None
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
+        except TimeoutError:
+            kill_quietly(proc)
+            await proc.wait()
+            _LOGGER.warning(
+                "esphome config timed out after %ss for %s", _ESPHOME_CONFIG_TIMEOUT, config_path
+            )
+            return None
+        except asyncio.CancelledError:
+            kill_quietly(proc)
+            raise
+        if proc.returncode != 0:
+            # Usually a genuinely invalid config the caller surfaces as 422 /
+            # empty key — debug, so a user mid-edit doesn't spam the log.
+            _LOGGER.debug("esphome config returned %s for %s", proc.returncode, config_path)
+            return None
     return _parse_resolved_config(stdout)
 
 

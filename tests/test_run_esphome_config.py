@@ -123,3 +123,47 @@ async def test_cancellation_kills_proc_and_reraises(monkeypatch: pytest.MonkeyPa
     with pytest.raises(asyncio.CancelledError):
         await run_esphome_config(["esphome"], Path("kitchen.yaml"))
     assert killed == [True]
+
+
+async def test_caps_concurrent_subprocesses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No more than ``_MAX_CONCURRENT_CONFIG`` subprocesses run at once."""
+    # A contended ``asyncio.Semaphore`` binds to its loop; give this test its
+    # own gate so it doesn't bind the shared module-level one to a test loop.
+    monkeypatch.setattr(
+        resolve_mod, "_config_semaphore", asyncio.Semaphore(resolve_mod._MAX_CONCURRENT_CONFIG)
+    )
+    gate = asyncio.Event()
+    active = 0
+    peak = 0
+
+    async def _communicate() -> tuple[bytes, bytes]:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await gate.wait()
+        active -= 1
+        return b"esphome:\n  name: x\n", b""
+
+    async def _spawn(*_args: Any, **_kwargs: Any) -> Any:
+        proc = MagicMock()
+        proc.communicate = _communicate
+        proc.returncode = 0
+        return proc
+
+    monkeypatch.setattr(resolve_mod, "create_subprocess_exec", _spawn)
+    cap = resolve_mod._MAX_CONCURRENT_CONFIG
+    tasks = [
+        asyncio.create_task(run_esphome_config(["esphome"], Path("x.yaml"))) for _ in range(cap + 3)
+    ]
+    # Let the first batch acquire the gate and pile up against the cap.
+    for _ in range(100):
+        if peak >= cap:
+            break
+        await asyncio.sleep(0)
+
+    assert peak == cap  # the cap was reached...
+    gate.set()
+    results = await asyncio.gather(*tasks)
+
+    assert peak == cap  # ...and never exceeded, even as the rest drained
+    assert all(r == {"esphome": {"name": "x"}} for r in results)
