@@ -49,6 +49,12 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Upload-job statuses that end an OTA-upload attempt — gates the
+# queued-update bookkeeping (clear on success, re-arm on failure/cancel)
+# so a still-running job can't trip either branch.
+_TERMINAL_UPLOAD_STATUSES = frozenset(
+    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
+)
 
 class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
@@ -464,52 +470,72 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)
+        self._handle_deferred_compile_completion(job)
+        self._handle_ota_upload_completion(job)
 
-        is_comp = job.job_type == JobType.COMPILE
-        is_done = job.status == JobStatus.COMPLETED
-        is_deferred = job.is_deferred_install
+    def _handle_deferred_compile_completion(self, job: FirmwareJob) -> None:
+        """After a deferred-install COMPILE finishes, upload now or arm for later.
 
-        if is_comp and is_done and is_deferred:
-            device = self._device_for_configuration(job.configuration)
-            if device and self._db.devices:
-                if device.state == DeviceState.ONLINE:
-                    _LOGGER.info(
-                        "Device %s is online after deferred compile. Triggering upload now.",
-                        job.configuration,
-                    )
-                    self._db.create_background_task(
-                        self.upload(configuration=job.configuration, port="OTA")
-                    )
-                else:
-                    # Anything short of confirmed ONLINE — OFFLINE, or the
-                    # narrow UNKNOWN window from a scanner rebuild with
-                    # previous=None (atomic-save churn, REMOVED+re-ADDED) —
-                    # arms for the next wake rather than silently dropping
-                    # the queued install.
-                    self._db.devices.set_queued_update(device.name, is_queued=True)
-                    self._armed_deferred_installs.add(job.configuration)
+        Only a successfully-completed COMPILE queued via the offline-install
+        path (``is_deferred_install``) does anything here — a plain compile,
+        or one that failed, has nothing to act on.
+        """
+        is_deferred_compile_success = (
+            job.job_type == JobType.COMPILE
+            and job.status == JobStatus.COMPLETED
+            and job.is_deferred_install
+        )
+        if not is_deferred_compile_success:
+            return
 
-        # Clear queued flag on a successful upload so failures can be retried
-        is_upload = job.job_type == JobType.UPLOAD
-        if (
-            is_upload
-            and job.port == "OTA"
-            and job.status
-            in (
-                JobStatus.COMPLETED,
-                JobStatus.FAILED,
-                JobStatus.CANCELLED,
+        device = self._device_for_configuration(job.configuration)
+        if not device or not self._db.devices:
+            return
+
+        if device.state == DeviceState.ONLINE:
+            _LOGGER.info(
+                "Device %s is online after deferred compile. Triggering upload now.",
+                job.configuration,
             )
-        ):
-            device = self._device_for_configuration(job.configuration)
-            if device and device.queued_update and self._db.devices:
-                if job.status == JobStatus.COMPLETED:
-                    self._db.devices.set_queued_update(device.name, is_queued=False)
-                    self._armed_deferred_installs.discard(job.configuration)
-                else:
-                    # Attempt failed or got cancelled (e.g. by a manual
-                    # retry) while still queued — re-arm for the next wake.
-                    self._armed_deferred_installs.add(job.configuration)
+            self._db.create_background_task(
+                self.upload(configuration=job.configuration, port="OTA")
+            )
+            return
+
+        # Anything short of confirmed ONLINE — OFFLINE, or the narrow UNKNOWN
+        # window from a scanner rebuild with previous=None (atomic-save churn,
+        # REMOVED+re-ADDED) — arms for the next wake rather than silently
+        # dropping the queued install.
+        self._db.devices.set_queued_update(device.name, is_queued=True)
+        self._armed_deferred_installs.add(job.configuration)
+
+    def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
+        """Clear (on success) or re-arm (on failure/cancel) a queued OTA upload.
+
+        Scoped to OTA specifically — a failed server-serial upload shouldn't
+        touch the offline-queue machinery just because the device happens to
+        also have ``queued_update`` set for an unrelated reason.
+        """
+        is_terminal_ota_upload = (
+            job.job_type == JobType.UPLOAD
+            and job.port == "OTA"
+            and job.status in _TERMINAL_UPLOAD_STATUSES
+        )
+        if not is_terminal_ota_upload:
+            return
+
+        device = self._device_for_configuration(job.configuration)
+        if not device or not device.queued_update or not self._db.devices:
+            return
+
+        if job.status == JobStatus.COMPLETED:
+            self._db.devices.set_queued_update(device.name, is_queued=False)
+            self._armed_deferred_installs.discard(job.configuration)
+            return
+
+        # Attempt failed or got cancelled (e.g. by a manual retry) while
+        # still queued — re-arm for the next wake.
+        self._armed_deferred_installs.add(job.configuration)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)
