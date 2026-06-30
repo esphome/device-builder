@@ -24,6 +24,12 @@ pins:
 - gpio: 15
   available: false
   occupied_by: IO15
+- gpio: 16
+  available: false
+  occupied_by: uart_232
+- gpio: 17
+  available: false
+  occupied_by: uart_232
 - gpio: 38
   available: false
   occupied_by: IO38
@@ -47,6 +53,19 @@ pins:
   occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-AG8/
 featured_components:
+- id: uart_232
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    tx_pin:
+      value: 17
+      locked: true
+    rx_pin:
+      value: 16
+      locked: true
+    id:
+      value: uart_232
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -130,6 +149,8 @@ featured_components:
     data: RS232-test
     id: switch_uart_2
     name: RS232 Button
+  requires:
+  - uart_232
 source:
   type: esphome-devices
   remote_id: KinCony-AG8

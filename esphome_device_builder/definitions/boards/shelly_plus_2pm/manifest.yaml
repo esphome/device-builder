@@ -31,6 +31,12 @@ pins:
 - gpio: 18
   available: false
   occupied_by: binary_sensor.gpio
+- gpio: 25
+  available: false
+  occupied_by: i2c
+- gpio: 26
+  available: false
+  occupied_by: i2c
 - gpio: 27
   available: false
   occupied_by: sensor.ade7953_i2c
@@ -39,6 +45,15 @@ pins:
   occupied_by: temp_analog_reading
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-2PM/
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 26
+      locked: true
+    scl:
+      value: 25
+      locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -97,6 +112,8 @@ featured_components:
       locked: true
     update_interval: 10s
     id: sensor_ade7953_i2c_1
+  requires:
+  - i2c_bus
 - id: sensor_ntc_1
   component_id: sensor.ntc
   fields:

@@ -116,6 +116,15 @@ def test_rp2040_no_ethernet_yields_empty() -> None:
     assert bluetooth == ""
 
 
+def test_rp2_renamed_platform_follows_single_mac_scheme() -> None:
+    """The renamed ``rp2`` key derives like ``rp2040``."""
+    ethernet, bluetooth = derive_interface_macs("94:C9:60:1F:8C:F0", "rp2", ["ethernet"])
+    assert ethernet == "94:C9:60:1F:8C:F0"
+    assert bluetooth == ""
+    no_eth, _ = derive_interface_macs("94:C9:60:1F:8C:F0", "rp2", ["api", "wifi"])
+    assert no_eth == ""
+
+
 # ----------------------------------------------------------------------
 # Edge cases — empty / malformed / unknown inputs
 # ----------------------------------------------------------------------

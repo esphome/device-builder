@@ -21,6 +21,9 @@ pins:
 - gpio: 5
   available: false
   occupied_by: bus_a
+- gpio: 12
+  available: false
+  occupied_by: uart_1
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -30,8 +33,47 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
+- gpio: 33
+  available: false
+  occupied_by: uart_2
+- gpio: 36
+  available: false
+  occupied_by: uart_2
+- gpio: 39
+  available: false
+  occupied_by: uart_1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-E8T/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 12
+      locked: true
+    rx_pin:
+      value: 39
+      locked: true
+    baud_rate: 4800
+    parity: NONE
+    stop_bits: 2
+    id:
+      value: uart_1
+      locked: true
+- id: uart_2
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 33
+      locked: true
+    rx_pin:
+      value: 36
+      locked: true
+    baud_rate: 4800
+    parity: NONE
+    stop_bits: 2
+    id:
+      value: uart_2
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -207,11 +249,15 @@ featured_components:
   fields:
     update_interval: 10s
     id: sensor_bl0939_1
+  requires:
+  - uart_1
 - id: sensor_bl0939_2
   component_id: sensor.bl0939
   fields:
     update_interval: 10s
     id: sensor_bl0939_2
+  requires:
+  - uart_2
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

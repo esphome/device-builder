@@ -13,6 +13,12 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Button
+- gpio: 4
+  available: false
+  occupied_by: i2c
+- gpio: 5
+  available: false
+  occupied_by: i2c
 - gpio: 12
   available: false
   occupied_by: mmWave Sensor
@@ -25,6 +31,16 @@ pins:
 docs_url: https://devices.esphome.io/devices/Athom-Human-Presence-Sensor/
 product_url: https://github.com/athom-tech/athom-configs/blob/main/athom-presence-sensor.yaml
 featured_components:
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -100,6 +116,8 @@ featured_components:
     update_interval: 5s
     id: sensor_bh1750_1
     name: Light Sensor
+  requires:
+  - i2c_bus
 source:
   type: esphome-devices
   remote_id: Athom-Human-Presence-Sensor

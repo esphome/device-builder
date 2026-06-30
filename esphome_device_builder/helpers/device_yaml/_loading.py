@@ -12,6 +12,7 @@ from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
 from ...models import Device, DeviceState
+from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_storage_path
 from ._parsing import (
@@ -208,6 +209,7 @@ def load_device_from_storage(
         expected_config_hash=expected_config_hash,
         deployed_config_hash=deployed_config_hash,
     )
+    pending_via_hash = pending_changes_via_hash(expected_config_hash, deployed_config_hash)
 
     update_available = bool(deployed_version and deployed_version != const.__version__)
 
@@ -244,6 +246,7 @@ def load_device_from_storage(
             target_platform = core_platform.lower()
     if not target_platform:
         target_platform = detect_platform_from_yaml(yaml_content, resolved_config)
+    target_platform = normalize_platform(target_platform)
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     # Subset of loaded_integrations the user directly wrote — top-
@@ -338,6 +341,7 @@ def load_device_from_storage(
         directly_referenced_integrations=directly_referenced_integrations,
         state=state,
         has_pending_changes=has_pending,
+        pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
         queued_update=queued_update,
         # ``uses_mqtt`` keeps its prior shape — the resolved config
@@ -405,6 +409,15 @@ def compute_has_pending_changes(
     if bin_mtime is None:
         return True
     return yaml_mtime is not None and yaml_mtime > bin_mtime
+
+
+def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: str) -> bool:
+    """Report whether the pending verdict is hash-driven: both hashes known and differing."""
+    return bool(
+        expected_config_hash
+        and deployed_config_hash
+        and expected_config_hash != deployed_config_hash
+    )
 
 
 def load_device_yaml(path: Path) -> dict | None:

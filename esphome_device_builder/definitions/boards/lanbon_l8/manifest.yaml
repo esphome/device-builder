@@ -23,6 +23,15 @@ pins:
 - gpio: 14
   available: false
   occupied_by: relay_2
+- gpio: 19
+  available: false
+  occupied_by: spi
+- gpio: 23
+  available: false
+  occupied_by: spi
+- gpio: 25
+  available: false
+  occupied_by: spi
 - gpio: 26
   available: false
   occupied_by: moodRed
@@ -37,11 +46,25 @@ pins:
   occupied_by: moodBlue
 docs_url: https://devices.esphome.io/devices/lanbon_l8/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 19
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
+    miso_pin:
+      value: 25
+      locked: true
 - id: display_mipi_spi_1
   component_id: display.mipi_spi
   fields:
     model: LANBON-L8
     id: display_mipi_spi_1
+  requires:
+  - spi_bus
 - id: backlight
   component_id: light.monochromatic
   fields:

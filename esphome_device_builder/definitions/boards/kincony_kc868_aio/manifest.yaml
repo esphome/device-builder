@@ -19,6 +19,9 @@ pins:
 - gpio: 4
   available: false
   occupied_by: bus_a
+- gpio: 5
+  available: false
+  occupied_by: one_wire.gpio
 - gpio: 16
   available: false
   occupied_by: bus_a
@@ -45,6 +48,12 @@ pins:
   occupied_by: aio--AI-17
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AIO/
 featured_components:
+- id: one_wire_bus
+  component_id: one_wire.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
 - id: cd74hc4067_1
   component_id: cd74hc4067
   fields:
@@ -1252,6 +1261,8 @@ featured_components:
     address: 17008162028057714984
     id: sensor_dallas_temp_1
     name: aio--ds18b20
+  requires:
+  - one_wire_bus
 - id: adc36
   component_id: sensor.adc
   fields:

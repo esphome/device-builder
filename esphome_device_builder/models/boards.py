@@ -48,6 +48,16 @@ class Platform(StrEnum):
     HOST = "host"
 
 
+# Inbound platform strings may use the renamed ``rp2`` key; the catalog stays
+# keyed on ``rp2040``, so both names fold to it at every ingestion boundary.
+RP2_PLATFORM_ALIASES: frozenset[str] = frozenset({"rp2", "rp2040"})
+
+
+def normalize_platform(name: str) -> str:
+    """Fold the renamed ``rp2`` platform key onto the catalog's ``rp2040``."""
+    return "rp2040" if name.lower() == "rp2" else name
+
+
 class Esp32Variant(StrEnum):
     """ESP32 chip variants."""
 

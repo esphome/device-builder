@@ -32,15 +32,13 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from aiohttp import web
-from esphome import yaml_util
-from esphome.core import EsphomeError
 
 from ..helpers.api import CommandError
+from ..helpers.device_yaml import EsphomeConfigUnavailableError, run_esphome_config
 from ..helpers.event_bus import Event, StreamControls, stream_events
 from ..helpers.json import (
     JSONDecodeError,
     dumps_str,
-    dumps_str_non_str_keys,
     json_response,
     loads,
 )
@@ -293,6 +291,39 @@ async def _handle_spawn(
     await _stream_job_to_legacy_ws(ws, bus, job)
 
 
+async def _json_config_response(db: DeviceBuilder, configuration: str) -> web.Response:
+    """Resolve *configuration* via ``esphome config`` and return it as JSON.
+
+    403 traversal, 404 missing file, 500 no esphome, 503 infra fault, 422 invalid.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        # ``rel_path`` calls ``Path.resolve``, a blocking syscall — run it in
+        # the executor so blockbuster doesn't fault the request on CI.
+        config_path = await loop.run_in_executor(None, db.settings.rel_path, configuration)
+    except CommandError:
+        return json_response({"error": "Forbidden"}, status=403)
+
+    if not await loop.run_in_executor(None, config_path.is_file):
+        return json_response({"error": "Not found"}, status=404)
+
+    devices = db.devices
+    esphome_cmd = devices.state.esphome_cmd if devices is not None else []
+    if not esphome_cmd:
+        return json_response({"error": "esphome unavailable"}, status=500)
+
+    # 503 (retryable) for an infra fault vs 422 for a config that ran and failed;
+    # the body stays generic either way — an invalid config's error can carry
+    # resolved secrets (``--show-secrets``).
+    try:
+        config = await run_esphome_config(esphome_cmd, config_path)
+    except EsphomeConfigUnavailableError:
+        return json_response({"error": "esphome config unavailable"}, status=503)
+    if config is None:
+        return json_response({"error": "Configuration is invalid"}, status=422)
+    return json_response(config)
+
+
 def create_legacy_routes() -> web.RouteTableDef:
     """Create backward-compatible REST + WS routes for HA."""
     routes = web.RouteTableDef()
@@ -339,35 +370,15 @@ def create_legacy_routes() -> web.RouteTableDef:
 
     @routes.get("/json-config")
     async def legacy_json_config(request: web.Request) -> web.Response:
-        """Legacy GET /json-config — parsed YAML config as JSON."""
-        configuration = request.query.get("configuration", "")
+        """Legacy GET /json-config — fully-resolved config as JSON.
+
+        Resolves substitutions / packages / includes / secrets via
+        ``esphome config --show-secrets`` (same path HA's encryption-key
+        detection needs), so a raw ``load_yaml`` can't leak unresolved
+        ``${vars}`` / unmerged packages or 500 on ``EFloat`` / ``!lambda``.
+        """
         db = request.app["device_builder"]
-        loop = asyncio.get_running_loop()
-        try:
-            # ``rel_path`` calls ``Path.resolve``, a blocking syscall —
-            # run it in the executor so blockbuster doesn't fault the
-            # request on CI.
-            config_path = await loop.run_in_executor(None, db.settings.rel_path, configuration)
-        except CommandError:
-            return json_response({"error": "Forbidden"}, status=403)
-
-        try:
-            # ``yaml_util.load_yaml`` expects a ``Path`` (it calls
-            # ``fname.open(...)``); a string would raise
-            # ``AttributeError`` deep in the loader, which falls
-            # past the ``EsphomeError`` catch below and surfaces as
-            # the default aiohttp 500 instead of our diagnostic
-            # ``{"error": ...}`` body. Keep the real ``Path`` here.
-            config = await loop.run_in_executor(None, yaml_util.load_yaml, config_path)
-        except EsphomeError as exc:
-            return json_response({"error": str(exc)}, status=500)
-
-        # ESPHome's ``yaml_util.load_yaml`` returns an ``OrderedDict``
-        # whose keys are ``EStr`` (a ``str`` subclass that carries
-        # source-position info). orjson's strict default rejects
-        # non-exact-``str`` keys; ``dumps_str_non_str_keys`` flips
-        # the ``OPT_NON_STR_KEYS`` option just for this endpoint.
-        return web.json_response(config, dumps=dumps_str_non_str_keys)
+        return await _json_config_response(db, request.query.get("configuration", ""))
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:

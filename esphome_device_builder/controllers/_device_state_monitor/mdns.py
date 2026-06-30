@@ -273,12 +273,12 @@ class MdnsSource:
                 monitor.state.reachability.clear(device_name)
             return
 
-        # ``claim=True`` so mDNS takes ownership even when ping
-        # or MQTT already labelled the device, blocking the
-        # lower-priority sources from clobbering the now-
-        # authoritative mDNS view.
-        monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
-
+        # Don't claim ONLINE off a bare PTR — only once the service
+        # actually resolves (cache hit below, or the wire resolve).
+        # A PTR with no resolvable SRV/A is not a reachable device
+        # (a node that died mid-handshake, or a reflector re-serving
+        # a stale PTR for a long-gone device); claiming here latched
+        # it ONLINE forever with no IP, locking out the ICMP sweep.
         info = AsyncServiceInfo(service_type, name)
         if info.load_from_cache(zeroconf):
             self._apply_service_info(device_name, info)
@@ -319,10 +319,10 @@ class MdnsSource:
         """
         Pull IP / version / config_hash / encryption off a populated ``AsyncServiceInfo``.
 
-        Claims ONLINE under the mDNS source — the browser-
-        callback path has already claimed but ``probe_device``
-        skips that prelude, so the dedupe-vs-fresh-claim happens
-        here.
+        The single ONLINE-claim point for the mDNS source: reached
+        only once a service actually resolved (browser cache hit,
+        wire resolve, or ``probe_device``), so an unresolvable
+        announce never claims.
         """
         monitor = self._monitor
         monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)

@@ -9,6 +9,7 @@ from typing import NamedTuple
 from esphome import const
 from esphome.const import CONF_PACKAGES
 
+from ...models.boards import RP2_PLATFORM_ALIASES
 from ..yaml import _split_value_and_comment, _strip_yaml_quotes
 
 _LOGGER = logging.getLogger(__name__)
@@ -27,7 +28,9 @@ class EsphomeMeta(NamedTuple):
     area: str | None
 
 
-_PLATFORM_KEYS = frozenset({"esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52"})
+_PLATFORM_KEYS = (
+    frozenset({"esp32", "esp8266", "bk72xx", "rtl87xx", "ln882x", "nrf52"}) | RP2_PLATFORM_ALIASES
+)
 
 
 _SUBSTITUTION_RE = re.compile(r"\$(\{[a-zA-Z0-9_]*\}|[a-zA-Z0-9_]+)")

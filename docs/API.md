@@ -129,7 +129,9 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 
 `Device.state`: `DeviceState` — `unknown`, `online`, or `offline` (discovered via mDNS + ping).
 `Device.has_pending_changes`: `true` = config changed since last compile, `false` = up to date, `null` = never compiled.
+`Device.pending_changes_via_hash`: `true` when `has_pending_changes` came from the mDNS-sourced config-hash compare (vs the local mtime fallback). The frontend gates only this case on a live mDNS, so a local YAML edit still cues "install" when mDNS is dark.
 `Device.update_available`: `true` = device was compiled with a different ESPHome version than the server.
+`Device.active_source`: `ReachabilitySource` — channel currently driving online state (`mdns` > `mqtt` > `ping`); `unknown` until a source claims it (also the transient default after a restart). The frontend gates the mDNS-sourced out-of-sync / update indicators on `active_source == "mdns"`, since `deployed_version` / `deployed_config_hash` come only from the mDNS broadcast.
 
 ### Firmware
 
@@ -474,6 +476,6 @@ For Home Assistant ESPHome integration backward compat only.
 |----------|-------------|
 | `GET /devices` | List devices |
 | `GET /ping` | Online-status map `{<config>.yaml: true\|false\|null}` (third-party widgets, e.g. homepage) |
-| `GET /json-config?configuration=...` | Get parsed YAML as JSON |
+| `GET /json-config?configuration=...` | Fully-resolved config (substitutions/packages/includes/secrets) as JSON, via `esphome config`; 404 missing, 422 invalid, 503 unavailable, 403 traversal |
 | `GET /compile` (WebSocket) | Compile via spawn protocol |
 | `GET /upload` (WebSocket) | Upload via spawn protocol |

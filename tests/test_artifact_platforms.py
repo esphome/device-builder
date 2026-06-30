@@ -103,6 +103,13 @@ def test_lookup_returns_empty_for_unknown_platform() -> None:
     assert build_files_for_platform("nonexistent_platform") == ()
 
 
+@pytest.mark.parametrize("alias", ["rp2", "RP2"])
+def test_rp2_folds_to_rp2040_build_files(alias: str) -> None:
+    """The renamed ``rp2`` platform resolves to the rp2040 BUILD_FILES."""
+    assert build_files_for_platform(alias) == build_files_for_platform("rp2040")
+    assert build_files_for_platform(alias)
+
+
 def test_esp32_variant_folds_to_esp32_when_index_degraded(monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty (degraded) index still folds esp32 variants to the esp32 build set.
 

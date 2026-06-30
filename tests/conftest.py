@@ -58,6 +58,7 @@ from esphome_device_builder.models import (
     DeviceState,
     EventType,
     QueueStatus,
+    ReachabilitySource,
 )
 
 if TYPE_CHECKING:
@@ -876,6 +877,10 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_state_change", name, state, source))
         self._flip(name, "state", state)
 
+    def on_source_change(self, name: str, source: ReachabilitySource) -> None:
+        self.calls.append(("on_source_change", name, source))
+        self._flip(name, "active_source", source)
+
     def on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
         self.calls.append(("on_ip_change", name, ip, list(addresses)))
         self._flip(name, "ip", ip)
@@ -919,6 +924,7 @@ def make_state_monitor_with_callbacks(
         get_devices=lambda: devices,
         on_state_change=callbacks.on_state_change,
         on_ip_change=callbacks.on_ip_change,
+        on_source_change=callbacks.on_source_change,
         on_importable_added=callbacks.on_importable_added,
         on_importable_removed=callbacks.on_importable_removed,
         on_version_change=callbacks.on_version_change,

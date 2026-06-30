@@ -29,6 +29,7 @@ from ._loading import (
     compute_has_pending_changes,
     load_device_from_storage,
     load_device_yaml,
+    pending_changes_via_hash,
 )
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
@@ -52,11 +53,13 @@ from ._parsing import (
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
+from ._resolve import EsphomeConfigUnavailableError, run_esphome_config
 
 __all__ = [
     "DEFAULT_API_PORT",
     "NETWORK_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",
+    "EsphomeConfigUnavailableError",
     "EsphomeMeta",
     "StorageJSON",
     "_extract_resolved_substitutions",
@@ -83,6 +86,8 @@ __all__ = [
     "load_device_yaml",
     "parse_esphome_meta",
     "parse_platform_from_yaml",
+    "pending_changes_via_hash",
+    "run_esphome_config",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",
 ]

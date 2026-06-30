@@ -16,6 +16,9 @@ pins:
 - gpio: 0
   available: false
   occupied_by: Button 1
+- gpio: 8
+  available: false
+  occupied_by: spi
 - gpio: 14
   available: false
   occupied_by: Button 2
@@ -34,9 +37,53 @@ pins:
 - gpio: 38
   available: false
   occupied_by: backlight_output
+- gpio: 39
+  available: false
+  occupied_by: spi
+- gpio: 40
+  available: false
+  occupied_by: spi
+- gpio: 41
+  available: false
+  occupied_by: spi
+- gpio: 42
+  available: false
+  occupied_by: spi
+- gpio: 45
+  available: false
+  occupied_by: spi
+- gpio: 46
+  available: false
+  occupied_by: spi
+- gpio: 47
+  available: false
+  occupied_by: spi
+- gpio: 48
+  available: false
+  occupied_by: spi
 docs_url: https://devices.esphome.io/devices/Lilygo-TDisplay-S3-Touch/
 product_url: https://www.lilygo.cc/en-ca/products/t-display-s3
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    type: octal
+    clk_pin:
+      value: 8
+      locked: true
+    data_pins:
+      value:
+      - 39
+      - 40
+      - 41
+      - 42
+      - ignore_strapping_warning: true
+        number: 45
+      - ignore_strapping_warning: true
+        number: 46
+      - 47
+      - 48
+      locked: true
 - id: i2c_onboard
   component_id: i2c
   fields:
@@ -78,6 +125,8 @@ featured_components:
     rotation: 270
     show_test_card: true
     id: display_mipi_spi_1
+  requires:
+  - spi_bus
 - id: led
   component_id: light.monochromatic
   fields:

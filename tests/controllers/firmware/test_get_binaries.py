@@ -332,6 +332,8 @@ async def test_get_binaries_logs_and_returns_empty_on_helper_failure(
         ("esp32c3", {"firmware.factory.bin", "firmware.ota.bin"}),
         ("esp8266", {"firmware.bin"}),
         ("rp2040", {"firmware.uf2", "firmware.ota.bin"}),
+        # rp2 folds to the rp2040-keyed index entries.
+        ("rp2", {"firmware.uf2", "firmware.ota.bin"}),
     ],
 )
 async def test_get_binaries_static_platform_uses_precomputed_index(

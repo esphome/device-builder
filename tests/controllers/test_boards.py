@@ -280,6 +280,18 @@ async def test_get_boards_filters_by_mcu_splitting_the_rp2040_platform() -> None
     assert {b.id for b in rp2040.boards} == {"rpipico"}
 
 
+async def test_get_boards_folds_renamed_rp2_platform() -> None:
+    """A ``platform="rp2"`` filter matches the rp2040 catalog."""
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [_board(board_id="rpipico", platform=Platform.RP2040, pio_board="rpipico", mcu="rp2040")],
+    )
+
+    result = await cat.get_boards(platform="rp2")
+    assert {b.id for b in result.boards} == {"rpipico"}
+
+
 async def test_get_boards_query_searches_name_description_manufacturer_id_tags(
     catalog: BoardCatalog,
 ) -> None:
@@ -790,6 +802,18 @@ def test_find_by_platform_variant_matches_uppercase_variant(
 
     assert board is not None
     assert board.id == "generic-esp32s3"
+
+
+def test_find_by_platform_variant_folds_renamed_rp2() -> None:
+    """``find_by_platform_variant("rp2")`` resolves against the rp2040 catalog."""
+    cat = BoardCatalog()
+    _seed_catalog(
+        cat,
+        [_board(board_id="rpipico", platform=Platform.RP2040, pio_board="rpipico", mcu="rp2040")],
+    )
+
+    assert cat.find_by_platform_variant("rp2") == cat.find_by_platform_variant("rp2040")
+    assert cat.find_by_platform_variant("rp2") is not None
 
 
 def test_find_by_platform_variant_without_variant_falls_through(

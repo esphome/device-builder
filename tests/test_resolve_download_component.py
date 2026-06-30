@@ -76,6 +76,12 @@ def test_uppercase_first_class_platform_lowercased() -> None:
     assert _resolve_download_component("Rp2040") == "rp2040"
 
 
+def test_rp2_folds_to_rp2040() -> None:
+    """The renamed ``rp2`` platform routes to the rp2040 download component."""
+    assert _resolve_download_component("rp2") == "rp2040"
+    assert _resolve_download_component("RP2") == "rp2040"
+
+
 def test_unknown_platform_passes_through_lowercased() -> None:
     """Unknown platforms pass through lowercased.
 

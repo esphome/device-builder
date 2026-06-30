@@ -193,6 +193,7 @@ async def test_apply_service_info_claims_online() -> None:
     callbacks = RecordingMonitorCallbacks([device])
     monitor._on_state_change = callbacks.on_state_change
     monitor._on_ip_change = callbacks.on_ip_change
+    monitor._on_source_change = callbacks.on_source_change
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change
@@ -234,6 +235,7 @@ async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
     callbacks = RecordingMonitorCallbacks([device])
     monitor._on_state_change = callbacks.on_state_change
     monitor._on_ip_change = callbacks.on_ip_change
+    monitor._on_source_change = callbacks.on_source_change
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change

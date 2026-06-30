@@ -13,18 +13,33 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/M5Stack-Core2/core2_01.png
 pins:
+- gpio: 18
+  available: false
+  occupied_by: spi
 - gpio: 21
   available: false
   occupied_by: bus_a
 - gpio: 22
   available: false
   occupied_by: bus_a
+- gpio: 23
+  available: false
+  occupied_by: spi
 - gpio: 39
   available: false
   occupied_by: touchscreen.ft63x6
 docs_url: https://devices.esphome.io/devices/M5Stack-Core2/
 product_url: https://docs.m5stack.com/en/core/core2
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -74,6 +89,8 @@ featured_components:
     model: M5CORE2
     show_test_card: true
     id: display_mipi_spi_1
+  requires:
+  - spi_bus
 - id: sensor_mpu6886_1
   component_id: sensor.mpu6886
   fields:

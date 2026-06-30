@@ -38,30 +38,6 @@ def dumps(obj: Any) -> bytes:
     return orjson.dumps(obj)
 
 
-def dumps_str_non_str_keys(obj: Any) -> str:
-    """
-    Serialise *obj* allowing dict keys whose type isn't *exactly* ``str``.
-
-    Wraps orjson's ``OPT_NON_STR_KEYS`` — keys that are ``str``
-    subclasses, ``int``, ``float``, ``bool``, ``datetime``,
-    ``UUID``, etc. all serialise instead of raising ``TypeError:
-    Dict key must be str``. ESPHome's ``yaml_util`` returns dicts
-    whose keys are ``EStr`` (a ``str`` subclass that carries
-    source-position info), which is what the legacy
-    ``/json-config`` endpoint feeds in.
-
-    Use this helper for that endpoint (and only there); the strict
-    default of ``dumps`` still catches the more common bug shape —
-    a dict with non-string keys leaking into a response — for
-    every other call site.
-
-    Returns ``str`` so it can be passed straight to aiohttp's
-    ``web.json_response(dumps=...)`` (which expects a ``str``-
-    returning callable, like ``dumps_str``).
-    """
-    return orjson.dumps(obj, option=orjson.OPT_NON_STR_KEYS).decode()
-
-
 def dumps_str(obj: Any) -> str:
     """Serialise *obj* to a compact JSON ``str``.
 

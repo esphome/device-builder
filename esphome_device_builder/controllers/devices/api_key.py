@@ -3,22 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING
 
-import yaml
-
 from ...helpers.device_yaml import (
+    EsphomeConfigUnavailableError,
     get_api_port,
     get_resolved_api_encryption_key,
     load_device_yaml,
+    run_esphome_config,
 )
-from ...helpers.subprocess import create_subprocess_exec
 
 if TYPE_CHECKING:
     from .controller import DevicesController
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def get_api_key(controller: DevicesController, configuration: str) -> dict[str, str]:
@@ -62,47 +58,22 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
 
 
 async def resolve_via_esphome_config(controller: DevicesController, configuration: str) -> str:
-    r"""
+    """
     Subprocess fallback for :func:`get_api_key`.
 
-    ``--show-secrets`` is required: without it ESPHome wraps each
-    secret value in the ANSI conceal SGR (``\x1b[8m...\x1b[28m``)
-    and ``yaml.safe_load`` would treat the wrapped string as the
-    key. Returns ``""`` on every failure path.
+    Delegates to :func:`helpers.device_yaml.run_esphome_config`, which fully
+    resolves substitutions / packages / secrets. Returns ``""`` on every
+    failure path — an infra fault and a keyless config both collapse to the
+    "open the editor and check" sentinel the UI already handles.
     """
     esphome_cmd = controller.state.esphome_cmd
     if not esphome_cmd:
         return ""
-    config_path = str(controller._db.settings.rel_path(configuration))
-    cmd = [*esphome_cmd, "--dashboard", "config", config_path, "--show-secrets"]
+    config_path = controller._db.settings.rel_path(configuration)
     try:
-        proc = await create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout_bytes, _ = await proc.communicate()
-    except OSError as exc:
-        _LOGGER.debug("esphome config subprocess failed for %s: %s", configuration, exc)
+        config = await run_esphome_config(esphome_cmd, config_path)
+    except EsphomeConfigUnavailableError:
         return ""
-    if proc.returncode != 0:
-        _LOGGER.debug(
-            "esphome config returned %s for %s; key extraction skipped",
-            proc.returncode,
-            configuration,
-        )
+    if config is None:
         return ""
-    try:
-        resolved = yaml.safe_load(stdout_bytes.decode("utf-8", errors="replace"))
-    except yaml.YAMLError as exc:
-        # Log the exception class only; ``str(yaml.YAMLError)``
-        # includes context lines from the ``--show-secrets``
-        # output, which carry resolved Wi-Fi passwords / API
-        # keys verbatim and would leak into log scrapes.
-        _LOGGER.debug(
-            "esphome config output for %s did not parse as YAML (%s)",
-            configuration,
-            type(exc).__name__,
-        )
-        return ""
-    return get_resolved_api_encryption_key(resolved)
+    return get_resolved_api_encryption_key(config)

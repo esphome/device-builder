@@ -48,6 +48,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
+    BUS_CATEGORIES,
     DEVICE_IMPORT_SOURCE_TYPE,
 )
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
@@ -1029,6 +1030,12 @@ def _finalize_entry(candidate: _Candidate, id_map: dict[str, str]) -> dict[str, 
         "id": candidate.local_id,
         "component_id": candidate.component_id,
         "fields": fields,
+        # Transient: the bus-dep pass reads the consumer's ``<bus>_id`` from the
+        # source block here (it's dropped from ``fields`` as an unresolved
+        # cross-ref). Disambiguates multiple id-less same-platform consumers that
+        # ``_find_consumer_block`` can't tell apart; popped when consumed in
+        # ``_collect_bus_dep_refs`` so it never reaches the manifest.
+        "_source_block": candidate.item,
     }
 
 
@@ -1584,6 +1591,20 @@ def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
     return f"{candidate}_{counter}"
 
 
+def _block_platform(bus_domain: str, block: dict[str, Any]) -> str | None:
+    """
+    Return the platform of a platform-style bus block, or ``None`` when unresolvable.
+
+    Infers ``gpio`` for a bare ``one_wire: - pin: X`` block: older
+    devices.esphome.io configs omit the now-required ``platform: gpio``, and gpio
+    is the only pin-driven one_wire platform (ds2484 is i2c-bridged, no raw pin).
+    """
+    platform = block.get("platform")
+    if not platform and bus_domain == "one_wire" and "pin" in block:
+        platform = "gpio"
+    return platform if isinstance(platform, str) and platform else None
+
+
 def _materialize_bus(
     bus_domain: str,
     instance_id: str | None,
@@ -1592,19 +1613,19 @@ def _materialize_bus(
     used_ids: set[str],
 ) -> tuple[dict[str, Any] | None, str, dict[int, str]]:
     """
-    Lift the top-level ``i2c:`` / ``spi:`` bus a hub depends on into a featured entry.
+    Lift the bus a consumer depends on into a featured entry, both bus shapes.
 
-    *instance_id* names the specific bus when the hub pins one (``i2c_id:
-    bus_a``); otherwise the sole bus is used. Returns ``(entry, local_id,
-    occupancy)`` or ``(None, "", {})`` when the bus is absent, ambiguous (no
-    ``*_id`` and more than one bus), placeholder, or has no upstream ``id`` to
-    lock onto (the catalog component's own ``dependencies`` then surfaces the
-    bare bus via the add-dialog's missing-dependency banner instead).
+    Mapping-style buses (``i2c:`` / ``spi:`` / ``uart:`` / ``modbus:``) resolve to
+    a top-level component; platform-style buses (``one_wire: - platform: gpio`` /
+    ``canbus:``) resolve to a ``<domain>.<platform>`` component. The ``id`` is
+    optional for both: a sole bus with no ``id`` is auto-detected by its consumers,
+    so it is lifted with only its pins locked, and its local id falls back to
+    ``<domain>_bus``. *instance_id* names the specific bus when the consumer pins
+    one (``i2c_id: bus_a``); otherwise the sole bus. Returns ``(None, "", {})``
+    when the bus is absent, ambiguous (no ``*_id`` and more than one bus), or a
+    platform-style block has no resolvable ``platform:``.
     """
-    component = components_index.get(bus_domain)
     blocks = _block_mappings(config.get(bus_domain))
-    if component is None:
-        return None, "", {}
     if instance_id is not None:
         block = next((b for b in blocks if b.get("id") == instance_id), None)
     elif len(blocks) == 1:
@@ -1613,16 +1634,31 @@ def _materialize_bus(
         block = None
     if block is None:
         return None, "", {}
-    bus_inst = block.get("id")
-    if not isinstance(bus_inst, str) or not bus_inst:
+    component = components_index.get(bus_domain)
+    if component is not None:
+        component_id = bus_domain
+    else:
+        platform = _block_platform(bus_domain, block)
+        if platform is None:
+            return None, "", {}
+        component_id = f"{bus_domain}.{platform}"
+        component = components_index.get(component_id)
+        if component is None:
+            return None, "", {}
+    # A hub binds several deps and ``_ensure_buses`` calls this for each, so confirm
+    # the resolved component is a bus (the id was never the filter).
+    if not _is_bus_category(component):
         return None, "", {}
+    bus_inst = block.get("id")
+    bus_inst = bus_inst if isinstance(bus_inst, str) and bus_inst else None
     occupancy: dict[int, str] = {}
-    fields = _extract_fields(block, component, occupancy, bus_domain)
+    fields = _extract_fields(block, component, occupancy, component_id)
     if fields is None:
         return None, "", {}
-    fields["id"] = {"value": bus_inst, "locked": True}
-    local_id = _unique_local_id(_sanitize_local_id(bus_inst), used_ids, f"{bus_domain}_bus")
-    return {"id": local_id, "component_id": bus_domain, "fields": fields}, local_id, occupancy
+    if bus_inst:
+        fields["id"] = {"value": bus_inst, "locked": True}
+    local_id = _unique_local_id(_sanitize_local_id(bus_inst or ""), used_ids, f"{bus_domain}_bus")
+    return {"id": local_id, "component_id": component_id, "fields": fields}, local_id, occupancy
 
 
 def _extract_expander_hubs(
@@ -1854,6 +1890,26 @@ def _find_consumer_block(config: dict[str, Any], entry: dict[str, Any]) -> dict[
     return None
 
 
+def _is_bus_category(component: dict[str, Any]) -> bool:
+    """Whether a resolved catalog component is a bus (mapping- or platform-style)."""
+    return component.get("category") in BUS_CATEGORIES
+
+
+def _is_bus_dep(dep: str, components_index: dict[str, dict[str, Any]]) -> bool:
+    """
+    Whether *dep* names one of ESPHome's buses, mapping- or platform-style.
+
+    Mapping-style buses (i2c/spi/uart/modbus) resolve to a top-level component
+    whose category is ``"bus"``. Platform-style buses (one_wire/canbus) have no
+    top-level component; their schema lives under ``<dep>.<platform>`` and the
+    dep name itself equals the bus category, so it is matched against the set.
+    """
+    component = components_index.get(dep)
+    if component is not None:
+        return _is_bus_category(component)
+    return dep in BUS_CATEGORIES
+
+
 def _collect_bus_dep_refs(
     config: dict[str, Any],
     featured: list[dict[str, Any]],
@@ -1872,6 +1928,10 @@ def _collect_bus_dep_refs(
     existing_cids = {entry["component_id"] for entry in featured}
     consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]] = []
     for entry in featured:
+        # Consume the source block stashed at finalize — popped here (the sole
+        # reader) so the transient key never reaches the serialized manifest, no
+        # matter how the entries are later dumped.
+        source_block = entry.pop("_source_block", None)
         # Infra entries lifted by an earlier pass (bus / hub / ethernet) have a
         # bare component id; only platform leaves (``<domain>.<platform>``) bind a
         # bus by catalog dependency.
@@ -1880,13 +1940,14 @@ def _collect_bus_dep_refs(
         component = components_index.get(entry["component_id"])
         if component is None:
             continue
-        block = _find_consumer_block(config, entry)
+        # The stashed block is authoritative; fall back to re-finding it for
+        # entries built outside the extractor (e.g. unit tests).
+        block = source_block or _find_consumer_block(config, entry)
         refs: list[tuple[str, str | None]] = []
         for dep in component.get("dependencies") or []:
             if not isinstance(dep, str) or dep in existing_cids:
                 continue
-            bus = components_index.get(dep)
-            if bus is None or bus.get("category") != "bus":
+            if not _is_bus_dep(dep, components_index):
                 continue
             instance = block.get(f"{dep}_id") if block else None
             instance = instance if isinstance(instance, str) and instance else None
@@ -1903,13 +1964,15 @@ def _extract_bus_deps(
     components_index: dict[str, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[int, str]]:
     """
-    Lift each bus a featured leaf depends on directly (display→spi, sensor→i2c).
+    Lift each bus a featured leaf depends on directly, both bus shapes.
 
-    The platform-list extraction drops the top-level ``spi:`` / ``i2c:`` block, so
-    a leaf binding a bus by catalog dependency lands with empty bus pins and an
-    unsatisfied ``requires component <bus>``. This lifts each such bus as a locked
-    entry (pins pre-filled) and stamps ``requires`` on the consumers so the
-    dashboard adds the bus first; a bus shared by several leaves lifts once.
+    Covers mapping-style (display→spi, sensor→i2c) and platform-style
+    (dallas_temp→one_wire) buses. The platform-list extraction drops the top-level
+    ``spi:`` / ``one_wire:`` block, so a leaf binding a bus by catalog dependency
+    lands with empty bus pins and an unsatisfied ``requires component <bus>``. This
+    lifts each such bus as a locked entry (pins pre-filled) and stamps ``requires``
+    on the consumers so the dashboard adds the bus first; a bus shared by several
+    leaves lifts once.
 
     Mutates *featured*: merges (does not overwrite) ``requires`` on resolved
     consumers, so a leaf that also needs a hub keeps both. An unresolved bus

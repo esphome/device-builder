@@ -26,6 +26,11 @@ pins:
   occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Tomzn-TOB9-VAP/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    baud_rate: 4800
+    stop_bits: 1
 - id: power_button
   component_id: binary_sensor.gpio
   fields:
@@ -68,6 +73,8 @@ featured_components:
     line_frequency: 50Hz
     update_interval: 10s
     id: sensor_bl0942_1
+  requires:
+  - uart_bus
 - id: main_switch
   component_id: switch.hbridge
   fields:
