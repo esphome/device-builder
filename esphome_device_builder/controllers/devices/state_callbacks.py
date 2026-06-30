@@ -7,7 +7,13 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.mac_addresses import derive_interface_macs
-from ...models import Device, DeviceState, DeviceStateChangedData, EventType
+from ...models import (
+    Device,
+    DeviceState,
+    DeviceStateChangedData,
+    EventType,
+    ReachabilitySource,
+)
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -70,6 +76,21 @@ def on_state_change(
                 state=state.value,
             ),
         )
+
+
+def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
+    """
+    Track the device's active reachability source on the snapshot.
+
+    The frontend gates the mDNS-sourced out-of-sync / update indicators on
+    ``active_source == mdns``; runtime-only, so it fires ``DEVICE_UPDATED``
+    without persisting.
+    """
+    for device in controller._devices_by_name(name):
+        if device.active_source == source:
+            continue
+        device.active_source = source
+        controller._fire_device_updated(device)
 
 
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:

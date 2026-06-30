@@ -107,6 +107,7 @@ def _make_monitor(
     monitor.state.reachability = tracker
     monitor._on_state_change = _flip_state(devices)
     monitor._on_ip_change = lambda _n, _i, _l: None
+    monitor._on_source_change = None
     monitor._on_version_change = None
     monitor._on_config_hash_change = None
     monitor._on_api_encryption_change = None

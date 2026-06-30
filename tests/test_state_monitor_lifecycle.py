@@ -95,6 +95,7 @@ def _make_monitor(
     callbacks = RecordingMonitorCallbacks(devices)
     monitor._on_state_change = callbacks.on_state_change
     monitor._on_ip_change = callbacks.on_ip_change
+    monitor._on_source_change = callbacks.on_source_change
     monitor._on_version_change = callbacks.on_version_change
     monitor._on_config_hash_change = callbacks.on_config_hash_change
     monitor._on_api_encryption_change = callbacks.on_api_encryption_change

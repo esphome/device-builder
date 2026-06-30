@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
 
 from .conftest import (
     close_scheduled_coro,
@@ -166,4 +166,9 @@ def test_apply_state_repairs_stale_sibling_when_first_match_is_in_sync() -> None
     assert monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True) is True
     assert primary.state == DeviceState.ONLINE
     assert sibling.state == DeviceState.ONLINE
-    assert callbacks.calls == [("on_state_change", "kitchen", DeviceState.ONLINE, "mdns")]
+    # The claim also flips the authoritative source UNKNOWN → mdns, which fires
+    # first; the state fan-out follows.
+    assert callbacks.calls == [
+        ("on_source_change", "kitchen", ReachabilitySource.MDNS),
+        ("on_state_change", "kitchen", DeviceState.ONLINE, "mdns"),
+    ]
