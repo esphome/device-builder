@@ -13,14 +13,13 @@ Routes covered:
   ``ignored_devices``. Upstream:
   ``ListDevicesHandler`` /
   ``build_device_list_response``.
-- ``GET /json-config`` — parsed YAML config as JSON. Upstream:
-  ``JsonConfigRequestHandler``. **Note**: upstream spawns
-  ``esphome config`` for substitution / package resolution
-  and returns 422 with stderr on parse failure / 404 on
-  missing file. Our impl loads raw YAML directly and surfaces
-  parse errors as 500. The deviation is documented in the
-  tests below — pin our actual contract so a future refactor
-  to match upstream surfaces.
+- ``GET /json-config`` — fully-resolved config as JSON. Like
+  upstream's ``JsonConfigRequestHandler``, it spawns ``esphome
+  config --show-secrets`` (via ``run_esphome_config``) so
+  substitutions / packages / includes / secrets all resolve —
+  the data HA's encryption-key detection needs. Returns 404 on
+  a missing file, 422 on an invalid config, 403 on a traversal
+  (our hardening over upstream's 404).
 - ``GET /compile`` and ``GET /upload`` — WebSocket spawn
   protocol. Frame shapes match upstream verbatim:
   ``{event: "line", data: <text>}`` per output chunk,
@@ -378,19 +377,33 @@ async def test_ping_triggers_poll(tmp_path: Path, aiohttp_client: AiohttpClient)
 # ---------------------------------------------------------------------------
 
 
-async def test_json_config_returns_parsed_yaml(
-    tmp_path: Path, aiohttp_client: AiohttpClient
-) -> None:
-    """Happy path: valid YAML → JSON-serialised dict response.
+def _make_json_config_app(
+    tmp_path: Path, *, esphome_cmd: list[str] | None = None
+) -> web.Application:
+    """``_make_app`` plus a devices stub carrying ``state.esphome_cmd``.
 
-    HA reads device metadata (esphome.name, esphome.platform,
-    etc.) off this endpoint to populate the integration UI.
+    ``legacy_json_config`` reads ``db.devices.state.esphome_cmd`` to spawn
+    ``esphome config``; the resolution itself is patched per-test via
+    ``legacy.run_esphome_config``.
     """
-    (tmp_path / "kitchen.yaml").write_text(
-        "esphome:\n  name: kitchen\n  platform: ESP32\n",
-        encoding="utf-8",
-    )
-    client = await aiohttp_client(_make_app(tmp_path))
+    devices = MagicMock()
+    devices.state.esphome_cmd = ["esphome"] if esphome_cmd is None else esphome_cmd
+    return _make_app(tmp_path, devices=devices)
+
+
+async def test_json_config_returns_resolved_config(
+    tmp_path: Path, aiohttp_client: AiohttpClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Happy path: ``esphome config`` output → JSON-serialised dict response.
+
+    HA reads device metadata + the resolved ``api.encryption.key`` off this
+    endpoint; the resolved config is what carries it (substitutions expanded,
+    packages merged).
+    """
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    resolved = {"esphome": {"name": "kitchen", "platform": "ESP32"}, "sensor": [{"delta": 0.1}]}
+    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=(0, resolved, "")))
+    client = await aiohttp_client(_make_json_config_app(tmp_path))
 
     resp = await client.get("/json-config", params={"configuration": "kitchen.yaml"})
 
@@ -398,6 +411,7 @@ async def test_json_config_returns_parsed_yaml(
     body = await resp.json()
     assert body["esphome"]["name"] == "kitchen"
     assert body["esphome"]["platform"] == "ESP32"
+    assert body["sensor"][0]["delta"] == 0.1
 
 
 @pytest.mark.parametrize(
@@ -422,46 +436,45 @@ async def test_json_config_rejects_traversal(
     assert body == {"error": "Forbidden"}
 
 
-async def test_json_config_returns_500_on_yaml_parse_failure(
-    tmp_path: Path, aiohttp_client: AiohttpClient
+async def test_json_config_returns_422_on_invalid_config(
+    tmp_path: Path, aiohttp_client: AiohttpClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Malformed YAML → 500 with the parser's error message in the body.
+    """``esphome config`` failure (rc!=0 → ``config=None``) surfaces as 422.
 
-    Note: upstream returns 422 with the ``esphome config``
-    subprocess's stderr (which carries a richer error message
-    because it's run through the substitution / package
-    resolver). Our impl loads raw YAML directly and surfaces
-    the parser exception verbatim — pin the 500 contract so a
-    refactor toward the upstream "422 + spawn" shape surfaces
-    here.
+    The body is generic — ``--show-secrets`` stderr carries resolved
+    secrets and must not echo back.
     """
-    (tmp_path / "broken.yaml").write_text(
-        "esphome:\n  name: kitchen\n  invalid: [unclosed list\n",
-        encoding="utf-8",
-    )
-    client = await aiohttp_client(_make_app(tmp_path))
+    (tmp_path / "broken.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=(2, None, "boom")))
+    client = await aiohttp_client(_make_json_config_app(tmp_path))
 
     resp = await client.get("/json-config", params={"configuration": "broken.yaml"})
 
-    assert resp.status == 500
+    assert resp.status == 422
     body = await resp.json()
     assert "error" in body
+    assert "boom" not in body["error"]
 
 
-async def test_json_config_returns_500_on_missing_file(
+async def test_json_config_returns_404_on_missing_file(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
-    """A missing YAML file surfaces as 500 (not 404).
-
-    Upstream returns 404 in this case; our impl lets the YAML
-    loader's ``FileNotFoundError`` bubble through the
-    ``except Exception`` and lands as 500. Documented as a
-    deviation — HA's library treats both as "request failed,
-    retry".
-    """
-    client = await aiohttp_client(_make_app(tmp_path))
+    """A missing YAML file surfaces as 404 before any subprocess spawn."""
+    client = await aiohttp_client(_make_json_config_app(tmp_path))
 
     resp = await client.get("/json-config", params={"configuration": "ghost.yaml"})
+
+    assert resp.status == 404
+
+
+async def test_json_config_returns_500_when_esphome_unavailable(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """No resolved ``esphome`` binary (empty ``esphome_cmd``) → 500."""
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    client = await aiohttp_client(_make_json_config_app(tmp_path, esphome_cmd=[]))
+
+    resp = await client.get("/json-config", params={"configuration": "kitchen.yaml"})
 
     assert resp.status == 500
 

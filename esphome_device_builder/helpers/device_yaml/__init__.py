@@ -53,6 +53,7 @@ from ._parsing import (
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
+from ._resolve import run_esphome_config
 
 __all__ = [
     "DEFAULT_API_PORT",
@@ -85,6 +86,7 @@ __all__ = [
     "parse_esphome_meta",
     "parse_platform_from_yaml",
     "pending_changes_via_hash",
+    "run_esphome_config",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",
 ]

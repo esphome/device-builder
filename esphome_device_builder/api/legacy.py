@@ -32,15 +32,13 @@ from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from aiohttp import web
-from esphome import yaml_util
-from esphome.core import EsphomeError
 
 from ..helpers.api import CommandError
+from ..helpers.device_yaml import run_esphome_config
 from ..helpers.event_bus import Event, StreamControls, stream_events
 from ..helpers.json import (
     JSONDecodeError,
     dumps_str,
-    dumps_str_non_str_keys,
     json_response,
     loads,
 )
@@ -339,7 +337,13 @@ def create_legacy_routes() -> web.RouteTableDef:
 
     @routes.get("/json-config")
     async def legacy_json_config(request: web.Request) -> web.Response:
-        """Legacy GET /json-config — parsed YAML config as JSON."""
+        """Legacy GET /json-config — fully-resolved config as JSON.
+
+        Resolves substitutions / packages / includes / secrets via
+        ``esphome config --show-secrets`` (same path HA's encryption-key
+        detection needs), so a raw ``load_yaml`` can't leak unresolved
+        ``${vars}`` / unmerged packages or 500 on ``EFloat`` / ``!lambda``.
+        """
         configuration = request.query.get("configuration", "")
         db = request.app["device_builder"]
         loop = asyncio.get_running_loop()
@@ -351,23 +355,19 @@ def create_legacy_routes() -> web.RouteTableDef:
         except CommandError:
             return json_response({"error": "Forbidden"}, status=403)
 
-        try:
-            # ``yaml_util.load_yaml`` expects a ``Path`` (it calls
-            # ``fname.open(...)``); a string would raise
-            # ``AttributeError`` deep in the loader, which falls
-            # past the ``EsphomeError`` catch below and surfaces as
-            # the default aiohttp 500 instead of our diagnostic
-            # ``{"error": ...}`` body. Keep the real ``Path`` here.
-            config = await loop.run_in_executor(None, yaml_util.load_yaml, config_path)
-        except EsphomeError as exc:
-            return json_response({"error": str(exc)}, status=500)
+        if not await loop.run_in_executor(None, config_path.is_file):
+            return json_response({"error": "Not found"}, status=404)
 
-        # ESPHome's ``yaml_util.load_yaml`` returns an ``OrderedDict``
-        # whose keys are ``EStr`` (a ``str`` subclass that carries
-        # source-position info). orjson's strict default rejects
-        # non-exact-``str`` keys; ``dumps_str_non_str_keys`` flips
-        # the ``OPT_NON_STR_KEYS`` option just for this endpoint.
-        return web.json_response(config, dumps=dumps_str_non_str_keys)
+        esphome_cmd = db.devices.state.esphome_cmd
+        if not esphome_cmd:
+            return json_response({"error": "esphome unavailable"}, status=500)
+
+        # Generic 422 body on failure — ``esphome config`` stderr carries
+        # resolved secrets under ``--show-secrets`` and must not echo back.
+        _rc, config, _stderr = await run_esphome_config(esphome_cmd, config_path)
+        if config is None:
+            return json_response({"error": "Configuration is invalid"}, status=422)
+        return web.json_response(config, dumps=dumps_str)
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:
