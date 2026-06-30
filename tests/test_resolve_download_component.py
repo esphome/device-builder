@@ -77,13 +77,7 @@ def test_uppercase_first_class_platform_lowercased() -> None:
 
 
 def test_rp2_folds_to_rp2040() -> None:
-    """The renamed ``rp2`` platform routes to the rp2040 download component.
-
-    esphome#17145 renames the platform key to ``rp2``; the catalog index stays
-    keyed on ``rp2040`` until a coordinated esphome bump, so an ``rp2`` device
-    must fold rather than spawn a helper importing a nonexistent
-    ``esphome.components.rp2``.
-    """
+    """The renamed ``rp2`` platform routes to the rp2040 download component."""
     assert _resolve_download_component("rp2") == "rp2040"
     assert _resolve_download_component("RP2") == "rp2040"
 

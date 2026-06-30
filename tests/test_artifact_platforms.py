@@ -105,12 +105,7 @@ def test_lookup_returns_empty_for_unknown_platform() -> None:
 
 @pytest.mark.parametrize("alias", ["rp2", "RP2"])
 def test_rp2_folds_to_rp2040_build_files(alias: str) -> None:
-    """The renamed ``rp2`` platform resolves to the rp2040 BUILD_FILES.
-
-    Firmware compiled by a newer esphome reports ``target_platform == "rp2"``;
-    the artifact module stays registered under ``rp2040``, so the registry must
-    fold or a remote-build pack raises "no artifact_platforms module".
-    """
+    """The renamed ``rp2`` platform resolves to the rp2040 BUILD_FILES."""
     assert build_files_for_platform(alias) == build_files_for_platform("rp2040")
     assert build_files_for_platform(alias)
 

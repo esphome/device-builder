@@ -332,8 +332,7 @@ async def test_get_binaries_logs_and_returns_empty_on_helper_failure(
         ("esp32c3", {"firmware.factory.bin", "firmware.ota.bin"}),
         ("esp8266", {"firmware.bin"}),
         ("rp2040", {"firmware.uf2", "firmware.ota.bin"}),
-        # esphome#17145 renames rp2040 -> rp2; the index stays keyed on rp2040,
-        # so the renamed platform must fold to the same precomputed entries.
+        # rp2 folds to the rp2040-keyed index entries.
         ("rp2", {"firmware.uf2", "firmware.ota.bin"}),
     ],
 )

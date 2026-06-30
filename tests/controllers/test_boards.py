@@ -281,7 +281,7 @@ async def test_get_boards_filters_by_mcu_splitting_the_rp2040_platform() -> None
 
 
 async def test_get_boards_folds_renamed_rp2_platform() -> None:
-    """A ``platform="rp2"`` filter (esphome#17145) matches the rp2040 catalog."""
+    """A ``platform="rp2"`` filter matches the rp2040 catalog."""
     cat = BoardCatalog()
     _seed_catalog(
         cat,

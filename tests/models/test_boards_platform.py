@@ -1,4 +1,4 @@
-"""Platform-key alias handling for the rp2040 -> rp2 rename (esphome#17145)."""
+"""Platform-key alias handling for the rp2040 -> rp2 rename."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ from esphome_device_builder.models.boards import (
 )
 
 
-def test_rp2_folds_to_rp2040() -> None:
-    assert normalize_platform("rp2") == "rp2040"
+@pytest.mark.parametrize("name", ["rp2", "RP2", "Rp2"])
+def test_rp2_folds_to_rp2040(name: str) -> None:
+    assert normalize_platform(name) == "rp2040"
 
 
 @pytest.mark.parametrize("name", ["rp2040", "esp32", "esp8266", "bk72xx", "nrf52", ""])

@@ -900,7 +900,7 @@ esp8266:
 
 
 def test_parse_platform_recognizes_renamed_rp2_key() -> None:
-    """esphome#17145's renamed ``rp2:`` top-level block is detected as a platform."""
+    """The renamed ``rp2:`` top-level block is detected as a platform."""
     yaml_content = """
 rp2:
   board: rpipico
@@ -2227,12 +2227,7 @@ def test_load_device_uses_storage_core_platform_over_yaml(tmp_path: Path) -> Non
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
 def test_load_device_folds_renamed_rp2_core_platform_to_rp2040(tmp_path: Path) -> None:
-    """A newer esphome writes ``core_platform == "rp2"``; fold it to the catalog key.
-
-    The catalog stays keyed on ``rp2040`` until a coordinated esphome bump, so
-    ``Device.target_platform`` must normalize the renamed platform key
-    (esphome#17145) to keep the PLATFORM column and MAC derivation consistent.
-    """
+    """A newer esphome's ``core_platform == "rp2"`` folds to the rp2040 catalog key."""
     yaml_path = tmp_path / "pico.yaml"
     yaml_path.write_text(
         "esphome:\n  name: pico\nrp2:\n  board: rpipico\n",
