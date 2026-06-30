@@ -13,8 +13,15 @@ import pytest
 from script.validate_definitions import (  # type: ignore[import-not-found]
     _build_components_index,
     _validate_featured,
+    _validate_featured_dependencies,
     _validate_field_preset,
 )
+
+
+def _leaf(component_id: str, fid: str) -> dict:
+    """Return a minimal finalized featured-component entry."""
+    return {"id": fid, "component_id": component_id, "fields": {"id": {"value": fid}}}
+
 
 # Co-locate with the rest of the catalog-heavy suite so we don't burn a
 # second xdist worker re-reading ``components.index.json``.
@@ -417,3 +424,69 @@ def test_default_components_object_form_missing_id_flagged(_index: dict | None) 
         _index,
     )
     assert any("missing 'id'" in e for e in errors)
+
+
+def test_featured_dep_unsatisfied_bus_is_flagged(_index: dict | None) -> None:
+    """An imported board featuring an i2c sensor with no i2c bus is flagged."""
+    errors = _validate_featured_dependencies("demo", [_leaf("sensor.sht3xd", "t")], _index, True)
+    assert any("depends on bus 'i2c'" in e for e in errors)
+
+
+def test_featured_dep_satisfied_by_featured_bus(_index: dict | None) -> None:
+    """The board passes once the i2c bus is also featured."""
+    featured = [_leaf("i2c", "bus"), _leaf("sensor.sht3xd", "t")]
+    assert _validate_featured_dependencies("demo", featured, _index, True) == []
+
+
+def test_featured_dep_platform_bus_satisfied_by_domain(_index: dict | None) -> None:
+    """A one_wire dep is satisfied by a featured one_wire.gpio (domain match)."""
+    featured = [_leaf("one_wire.gpio", "ow"), _leaf("sensor.dallas_temp", "t")]
+    assert _validate_featured_dependencies("demo", featured, _index, True) == []
+
+
+def test_featured_dep_not_checked_for_non_imported(_index: dict | None) -> None:
+    """Curated (non-imported) boards are exempt; their featured set is à la carte."""
+    assert (
+        _validate_featured_dependencies("demo", [_leaf("sensor.sht3xd", "t")], _index, False) == []
+    )
+
+
+def test_featured_dep_allowlisted_board_is_skipped(_index: dict | None) -> None:
+    """An allow-listed board's known-unsatisfied dep does not fail validation."""
+    assert (
+        _validate_featured_dependencies("kincony_mb", [_leaf("sensor.sht3xd", "t")], _index, True)
+        == []
+    )
+
+
+def test_featured_dep_allowlist_is_per_bus_not_per_board(_index: dict | None) -> None:
+    """An allow-listed board still fails for a *different* unsatisfied bus."""
+    # kincony_mb is waived for i2c only; an spi leaf with no spi bus must still fail.
+    errors = _validate_featured_dependencies(
+        "kincony_mb", [_leaf("display.mipi_spi", "d")], _index, True
+    )
+    assert any("depends on bus 'spi'" in e for e in errors)
+
+
+def test_featured_dep_satisfied_by_default_component(_index: dict | None) -> None:
+    """A bus provided through default_components counts as present."""
+    errors = _validate_featured_dependencies(
+        "demo", [_leaf("sensor.sht3xd", "t")], _index, True, defaults=["i2c"]
+    )
+    assert errors == []
+
+
+def test_featured_dep_dual_mode_top_level_hub_not_flagged(_index: dict | None) -> None:
+    """A bare dual-mode hub (sn74hc595 bit-banged over GPIO) is not flagged for spi."""
+    # sn74hc595 declares dependencies: ["spi"] but here drives GPIO pins, so the
+    # bus dep is conditional; the platform-leaf scoping intentionally skips it
+    # rather than false-positive on every dual-mode hub.
+    featured = [{"id": "sr", "component_id": "sn74hc595", "fields": {"data_pin": {"value": 1}}}]
+    assert _validate_featured_dependencies("demo", featured, _index, True) == []
+
+
+def test_featured_dep_non_string_component_id_does_not_crash(_index: dict | None) -> None:
+    """A malformed non-string component_id is skipped (no unhashable-type crash)."""
+    featured = [{"id": "x", "component_id": ["bad"]}, _leaf("sensor.sht3xd", "t")]
+    errors = _validate_featured_dependencies("demo", featured, _index, True)
+    assert any("depends on bus 'i2c'" in e for e in errors)

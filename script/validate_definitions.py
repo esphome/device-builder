@@ -33,7 +33,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # Imported from the stdlib-only constants module so this script stays light.
-from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
+from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
 
 DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
@@ -56,6 +56,22 @@ _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
 # as a valid identifier and what the sync script's auto-id format produces.
 _FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+# ``(board_id, bus)`` pairs whose source can't yet express a lift-able bus, so a
+# featured leaf's dependency on that bus is knowingly unsatisfied (the full-setup
+# config won't compile) pending a source-level fix. Keyed on the specific bus, not
+# the whole board, so a *different* unsatisfied bus on the same board still fails.
+# This is an allow list, not a silent skip: removing a pair must be paired with a
+# fix in script/sync_esphome_devices.py.
+_UNSATISFIED_BUS_ALLOW_LIST = frozenset(
+    {
+        ("kincony_ag8", "uart"),  # switch.uart: source has no top-level uart: block
+        ("kincony_kc868_aio", "one_wire"),  # dallas_temp: one_wire: block omits platform:
+        ("kincony_kc868_e8t", "uart"),  # sensor.bl0939: source has no top-level uart: block
+        ("kincony_kc868_uair", "one_wire"),  # dallas_temp: one_wire: block omits platform:
+        ("kincony_mb", "i2c"),  # sensor.ina226: source has no top-level i2c: block
+    }
+)
 
 # Pin features the board manifest can declare (mirrors the JSON Schema enum
 # in board.schema.json). Components.json sometimes carries pin_features
@@ -253,6 +269,9 @@ def _validate_featured(  # noqa: C901
         )
 
     errors.extend(_validate_default_components(board_id, defaults, seen_fc_ids, components_index))
+    errors.extend(
+        _validate_featured_dependencies(board_id, featured, components_index, is_imported, defaults)
+    )
     return errors
 
 
@@ -283,6 +302,80 @@ def _validate_default_components(
             f"{board_id}.default_components[{idx}]: '{ref}' does not match any "
             f"featured_components[].id or known component_id"
         )
+    return out
+
+
+def _is_bus_dep(dep: str, components_index: dict) -> bool:
+    """Whether *dep* names a bus, mapping- (top-level, category bus) or platform-style."""
+    component = components_index.get(dep)
+    if component is not None:
+        return component.get("category") in BUS_CATEGORIES
+    return dep in BUS_CATEGORIES
+
+
+def _ref_ids(entries: list) -> set[str]:
+    """Component ids/refs named by a featured or default-components list."""
+    ids: set[str] = set()
+    for entry in entries:
+        if isinstance(entry, str):
+            ids.add(entry)
+        elif isinstance(entry, dict) and isinstance(entry.get("component_id"), str):
+            ids.add(entry["component_id"])
+        elif isinstance(entry, dict) and isinstance(entry.get("id"), str):
+            ids.add(entry["id"])
+    return ids
+
+
+def _validate_featured_dependencies(
+    board_id: str,
+    featured: list,
+    components_index: dict | None,
+    is_imported: bool,
+    defaults: list | None = None,
+) -> list[str]:
+    """
+    Flag a featured leaf whose bus dependency no component on the board provides.
+
+    An imported board ships its featured components as a complete config, so a
+    leaf binding a bus (i2c/spi/uart/modbus/one_wire/canbus) by catalog dependency
+    won't compile unless the bus is provided too (lifted by the sync script into
+    featured or default components). Only imported boards are checked; a
+    ``(board, bus)`` pair in the allow list — a known source-level gap — is waived
+    while any *other* unsatisfied bus on the same board still fails.
+    """
+    if not is_imported or components_index is None:
+        return []
+    present = _ref_ids(featured) | _ref_ids(defaults or [])
+    present_domains = {cid.split(".")[0] for cid in present}
+    out: list[str] = []
+    for idx, entry in enumerate(featured):
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("component_id")
+        # Only platform leaves (``<domain>.<platform>`` — sensors, displays,
+        # touchscreens) bind a bus unconditionally; their bus is their sole
+        # connection. Bare top-level components are buses themselves (no bus dep)
+        # or dual-mode hubs whose bus dependency is conditional (``sn74hc595``
+        # bit-bangs over GPIO *or* runs on spi), so the catalog ``dependencies``
+        # over-declares the bus and checking them here would false-positive.
+        if not isinstance(cid, str) or "." not in cid:
+            continue
+        component = components_index.get(cid)
+        if not component:
+            continue
+        for dep in component.get("dependencies") or []:
+            if not isinstance(dep, str) or not _is_bus_dep(dep, components_index):
+                continue
+            if dep in present or dep in present_domains:
+                continue
+            if (board_id, dep) in _UNSATISFIED_BUS_ALLOW_LIST:
+                continue
+            out.append(
+                f"{board_id}.featured_components[{idx}]({entry.get('id')}): depends on bus "
+                f"'{dep}' but no featured component provides it; the full-setup config won't "
+                f"compile. Lift the bus in script/sync_esphome_devices.py, or add "
+                f"({board_id!r}, {dep!r}) to _UNSATISFIED_BUS_ALLOW_LIST with the source reason."
+            )
     return out
 
 

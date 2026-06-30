@@ -48,6 +48,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
+    BUS_CATEGORIES,
     DEVICE_IMPORT_SOURCE_TYPE,
 )
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
@@ -176,13 +177,6 @@ _PLATFORM_LIST_DOMAINS: frozenset[str] = frozenset(
         "valve",
     }
 )
-
-# Generated catalog categories for ESPHome's buses (script/sync_components.py
-# ``_CATEGORY_OVERRIDES``). Mapping-style buses (i2c/spi/uart/modbus) collapse
-# to ``"bus"``; platform-style buses (one_wire/canbus) keep their domain name as
-# the category because they are ``IS_PLATFORM_COMPONENT`` and have no top-level
-# component, so the dep name itself equals the category.
-_BUS_CATEGORIES: frozenset[str] = frozenset({"bus", "one_wire", "canbus"})
 
 # Tag mapping from frontmatter ``type:`` to BoardTag values. Most
 # upstream types map to no tag because our enum is about *hardware*
@@ -1878,7 +1872,7 @@ def _find_consumer_block(config: dict[str, Any], entry: dict[str, Any]) -> dict[
 
 def _is_bus_category(component: dict[str, Any]) -> bool:
     """Whether a resolved catalog component is a bus (mapping- or platform-style)."""
-    return component.get("category") in _BUS_CATEGORIES
+    return component.get("category") in BUS_CATEGORIES
 
 
 def _is_bus_dep(dep: str, components_index: dict[str, dict[str, Any]]) -> bool:
@@ -1893,7 +1887,7 @@ def _is_bus_dep(dep: str, components_index: dict[str, dict[str, Any]]) -> bool:
     component = components_index.get(dep)
     if component is not None:
         return _is_bus_category(component)
-    return dep in _BUS_CATEGORIES
+    return dep in BUS_CATEGORIES
 
 
 def _collect_bus_dep_refs(
