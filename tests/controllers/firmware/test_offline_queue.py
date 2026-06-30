@@ -239,7 +239,7 @@ async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device)
 
 @pytest.mark.asyncio
 async def test_execute_job_ignores_online_device(firmware_controller, mock_device):
-    """Test that a successful compile for an online device triggers immediate upload instead of queueing."""
+    """Test successful compile for an online device triggers upload instead of queueing."""
     mock_device.state = DeviceState.ONLINE
     mock_device.configuration = "test_device.yaml"
     firmware_controller._db.devices.set_queued_update = MagicMock()
