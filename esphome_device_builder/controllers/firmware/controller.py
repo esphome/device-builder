@@ -52,9 +52,8 @@ _LOGGER = logging.getLogger(__name__)
 # Upload-job statuses that end an OTA-upload attempt — gates the
 # queued-update bookkeeping (clear on success, re-arm on failure/cancel)
 # so a still-running job can't trip either branch.
-_TERMINAL_UPLOAD_STATUSES = frozenset(
-    {JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED}
-)
+_TERMINAL_UPLOAD_STATUSES = frozenset({JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED})
+
 
 class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
