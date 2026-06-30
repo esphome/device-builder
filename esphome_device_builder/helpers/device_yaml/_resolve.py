@@ -26,7 +26,12 @@ class _SafeLoaderIgnoreUnknown(FastestSafeLoader):
 
 
 def _ignore_unknown(loader: yaml.Loader, node: yaml.Node) -> str:
-    return f"{node.tag} {node.value}"
+    # esphome config output emits only scalar custom tags (``!lambda``);
+    # a non-scalar node's ``value`` is a node-pair list, so fall back to
+    # the bare tag rather than stringifying that into the result.
+    if isinstance(node, yaml.ScalarNode):
+        return f"{node.tag} {node.value}"
+    return node.tag
 
 
 # ``esphome config`` output still carries ``!lambda`` (and any future
@@ -56,19 +61,25 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
             stderr=asyncio.subprocess.DEVNULL,
         )
     except OSError as exc:
-        _LOGGER.debug("esphome config spawn failed for %s: %s", config_path, exc)
+        # Infrastructure failure (missing binary, FD exhaustion), not a user
+        # config error — warn so it's visible at the default log level.
+        _LOGGER.warning("esphome config spawn failed for %s: %s", config_path, exc)
         return None
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
     except TimeoutError:
         kill_quietly(proc)
         await proc.wait()
-        _LOGGER.debug("esphome config timed out for %s", config_path)
+        _LOGGER.warning(
+            "esphome config timed out after %ss for %s", _ESPHOME_CONFIG_TIMEOUT, config_path
+        )
         return None
     except asyncio.CancelledError:
         kill_quietly(proc)
         raise
     if proc.returncode != 0:
+        # Usually a genuinely invalid config the caller surfaces as 422 / empty
+        # key — debug, so a user mid-edit doesn't spam the operator's log.
         _LOGGER.debug("esphome config returned %s for %s", proc.returncode, config_path)
         return None
     return _parse_resolved_config(stdout)
@@ -83,4 +94,7 @@ def _parse_resolved_config(stdout: bytes) -> dict[str, Any] | None:
         # lines from ``--show-secrets`` output, which carry resolved secrets.
         _LOGGER.debug("esphome config output did not parse as YAML (%s)", type(exc).__name__)
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        _LOGGER.debug("esphome config output parsed to %s, not a mapping", type(data).__name__)
+        return None
+    return data

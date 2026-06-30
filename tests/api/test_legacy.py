@@ -452,7 +452,9 @@ async def test_json_config_returns_422_on_invalid_config(
 
     assert resp.status == 422
     body = await resp.json()
-    assert "error" in body
+    # Pin the generic body: a future refactor that echoes esphome's stderr
+    # (which carries resolved secrets under --show-secrets) must fail here.
+    assert body == {"error": "Configuration is invalid"}
 
 
 async def test_json_config_returns_404_on_missing_file(

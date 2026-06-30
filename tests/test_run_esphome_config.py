@@ -7,6 +7,7 @@ The subprocess primitive behind ``/json-config`` and the
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -45,6 +46,17 @@ async def test_parses_resolved_output_and_stringifies_unknown_tags(
     assert config["esphome"]["name"] == "kitchen"
     # Unknown tag rendered as a string → JSON-native, serialises cleanly.
     assert isinstance(config["lambda_value"], str)
+    assert dumps_str(config)
+
+
+async def test_non_scalar_unknown_tag_falls_back_to_tag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-scalar unknown tag yields the bare tag, not a node-pair-list repr."""
+    stdout = b"top: !weird\n  a: 1\n  b: 2\n"
+    _patch_spawn(monkeypatch, _fake_proc(stdout, b"", 0))
+
+    config = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
+
+    assert config == {"top": "!weird"}
     assert dumps_str(config)
 
 
@@ -97,4 +109,17 @@ async def test_timeout_kills_and_returns_none(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(resolve_mod.asyncio, "wait_for", _instant_timeout)
 
     assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
+    assert killed == [True]
+
+
+async def test_cancellation_kills_proc_and_reraises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """External cancellation during the wait kills the proc and propagates."""
+    proc = MagicMock()
+    proc.communicate = AsyncMock(side_effect=asyncio.CancelledError)
+    killed: list[bool] = []
+    _patch_spawn(monkeypatch, proc)
+    monkeypatch.setattr(resolve_mod, "kill_quietly", lambda _p: killed.append(True))
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_esphome_config(["esphome"], Path("kitchen.yaml"))
     assert killed == [True]
