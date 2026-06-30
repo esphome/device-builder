@@ -20,6 +20,7 @@ manual attribute assignment to avoid spinning up a real
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -241,6 +242,48 @@ async def test_start_spawns_interface_monitor_and_stop_cancels_it(
 
     assert monitor._mdns._interface_monitor_task is None
     assert task.cancelled() or task.done()
+
+
+async def test_interface_monitor_done_callback_logs_unexpected_crash(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unexpected monitor exit is surfaced via the done-callback, not lost.
+
+    Mirrors ``_log_api_info_task_exit``: a cancelled task is silent, a crashed
+    one logs at error so a dead reconciler is operator-visible.
+    """
+
+    async def _boom() -> None:
+        raise RuntimeError("monitor crashed")
+
+    task = asyncio.create_task(_boom())
+    with contextlib.suppress(RuntimeError):
+        await task
+
+    with caplog.at_level(logging.ERROR):
+        MdnsSource._log_interface_monitor_exit(task)
+
+    assert "Interface monitor loop crashed" in caplog.text
+
+
+async def test_interface_monitor_done_callback_silent_on_cancel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A cancelled monitor task (normal shutdown) logs nothing."""
+
+    async def _forever() -> None:
+        await asyncio.sleep(60)
+
+    task = asyncio.create_task(_forever())
+    await asyncio.sleep(0)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    with caplog.at_level(logging.ERROR):
+        MdnsSource._log_interface_monitor_exit(task)
+
+    assert caplog.text == ""
 
 
 async def test_close_zeroconf_swallows_crashed_interface_monitor() -> None:

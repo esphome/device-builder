@@ -41,6 +41,11 @@ dependencies = [
   # lean envs (the sync-boards pre-commit hook, any future
   # esphome-less install path) don't drop it.
   "voluptuous>=0.13.1",
+  # The device-state monitor imports zeroconf directly (browser, responder,
+  # interface reconcile). ``async_update_interfaces`` — used to keep mDNS bound
+  # across interface changes — landed in 0.150.0, so pin that floor rather than
+  # rely on whatever version esphome / aiohttp-asyncmdnsresolver happen to bring.
+  "zeroconf>=0.150.0",
 ]
 description = "ESPHome Device Builder"
 license = "Apache-2.0"

@@ -110,6 +110,15 @@ class MdnsSource:
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
             self._interface_monitor_task = asyncio.create_task(monitor_interfaces(self._zeroconf))
+            self._interface_monitor_task.add_done_callback(self._log_interface_monitor_exit)
+
+    @staticmethod
+    def _log_interface_monitor_exit(task: asyncio.Task[None]) -> None:
+        """Surface an unexpected interface-monitor crash instead of a silent death."""
+        if task.cancelled():
+            return
+        if (exc := task.exception()) is not None:
+            _LOGGER.error("Interface monitor loop crashed: %s", exc, exc_info=exc)
 
     async def cancel_browser(self) -> None:
         """

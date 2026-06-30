@@ -17,10 +17,11 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 _LOGGER = logging.getLogger(__name__)
 
-# Interface changes are rare, so a relaxed poll keeps steady-state wakeups low;
-# 2 min still reflects a VPN/Wi-Fi/Docker change well before a user would
-# investigate why a device isn't showing up.
-_INTERFACE_POLL_INTERVAL = 120.0
+# Interface changes are rare, so a relaxed poll keeps steady-state wakeups low.
+# Matches DashboardAdvertiser's _REFRESH_INTERVAL_SECONDS (the existing adapter
+# poll) so the two share one cadence; a change still reconciles well before a
+# user would investigate why a device isn't showing up.
+_INTERFACE_POLL_INTERVAL = 300.0
 
 
 def address_snapshot() -> frozenset[tuple[str, int]]:
