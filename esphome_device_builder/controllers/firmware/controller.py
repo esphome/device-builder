@@ -75,6 +75,14 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         self.bus.add_listener(EventType.DEVICE_STATE_CHANGED, self._handle_device_wake)
 
+        self._unsub_device_wake = self.bus.add_listener(
+            EventType.DEVICE_STATE_CHANGED, self._handle_device_wake
+        )
+
+    def stop(self) -> None:
+        """Tear down bus subscriptions registered in __init__."""
+        self._unsub_device_wake()
+
     @property
     def bus(self) -> EventBus:
         """The event bus for lifecycle / output events — read-only shorthand for ``_db.bus``."""
@@ -98,7 +106,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         config = event.data["configuration"]
 
-        # Fast-path bypass to avoid O(n) device scans on every ONLINE event
         if config not in self._armed_deferred_installs:
             return
 
@@ -106,8 +113,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         if device and device.queued_update:
             _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
-            # Flag is cleared on upload success in _execute_job so it survives failed OTAs
-            create_eager_task(self.upload(configuration=config, port="OTA"))
+            # Disarm immediately — a flap mid-flash must not re-enter this
+            # handler and supersede the upload that's already running.
+            # _execute_job re-arms below if this attempt fails.
+            self._armed_deferred_installs.discard(config)
+            self._db.create_background_task(self.upload(configuration=config, port="OTA"))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -460,15 +470,26 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                         "Device %s is online after deferred compile. Triggering upload now.",
                         job.configuration,
                     )
-                    create_eager_task(self.upload(configuration=job.configuration, port="OTA"))
+                    self._db.create_background_task(self.upload(
+                        configuration=job.configuration, port="OTA"
+                    ))
 
         # Clear queued flag on a successful upload so failures can be retried
         is_upload = job.job_type == JobType.UPLOAD
-        if is_upload and is_done:
+        if is_upload and job.port == "OTA" and job.status in (
+            JobStatus.COMPLETED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+        ):
             device = self._device_for_configuration(job.configuration)
-            if device and getattr(device, "queued_update", False) and self._db.devices:
-                self._db.devices.set_queued_update(device.name, is_queued=False)
-                self._armed_deferred_installs.discard(job.configuration)
+            if device and device.queued_update and self._db.devices:
+                if job.status == JobStatus.COMPLETED:
+                    self._db.devices.set_queued_update(device.name, is_queued=False)
+                    self._armed_deferred_installs.discard(job.configuration)
+                else:
+                    # Attempt failed or got cancelled (e.g. by a manual
+                    # retry) while still queued — re-arm for the next wake.
+                    self._armed_deferred_installs.add(job.configuration)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)
