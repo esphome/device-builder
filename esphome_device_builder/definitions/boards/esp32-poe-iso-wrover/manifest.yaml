@@ -129,13 +129,8 @@ pins:
   notes: SPI Flash CMD — do not use
 - gpio: 12
   label: GPIO12
-  features:
-  - adc
-  - touch
-  - pwm
-  - strapping
-  available: null
-  notes: ADC2_CH5, Touch5 — strapping pin (must be LOW during boot for correct flash voltage)
+  available: false
+  occupied_by: Ethernet Power
 - gpio: 13
   label: GPIO13
   features:
@@ -173,11 +168,8 @@ pins:
   notes: WROVER PSRAM — do not use
 - gpio: 18
   label: GPIO18
-  features:
-  - pwm
-  - spi_clk
-  available: null
-  notes: Default VSPI CLK
+  available: false
+  occupied_by: Ethernet MDIO
 - gpio: 19
   label: GPIO19
   features:
@@ -201,11 +193,8 @@ pins:
   notes: Default I2C SCL
 - gpio: 23
   label: GPIO23
-  features:
-  - pwm
-  - spi_mosi
-  available: null
-  notes: Default VSPI MOSI
+  available: false
+  occupied_by: Ethernet MDC
 - gpio: 25
   label: GPIO25
   features:
