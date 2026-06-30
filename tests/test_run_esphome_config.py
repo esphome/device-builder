@@ -35,13 +35,12 @@ def _patch_spawn(mp: pytest.MonkeyPatch, proc: MagicMock) -> None:
 async def test_parses_resolved_output_and_stringifies_unknown_tags(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Rc 0 → parsed dict; ``!lambda`` survives as a plain string, not a raise."""
+    """Exit 0 returns a parsed dict; ``!lambda`` survives as a string, not a raise."""
     stdout = b"esphome:\n  name: kitchen\nlambda_value: !lambda 'return 1;'\n"
     _patch_spawn(monkeypatch, _fake_proc(stdout, b"", 0))
 
-    rc, config, _stderr = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
+    config = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
 
-    assert rc == 0
     assert config is not None
     assert config["esphome"]["name"] == "kitchen"
     # Unknown tag rendered as a string → JSON-native, serialises cleanly.
@@ -49,35 +48,25 @@ async def test_parses_resolved_output_and_stringifies_unknown_tags(
     assert dumps_str(config)
 
 
-async def test_nonzero_exit_returns_none_config_with_stderr(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A validation failure (rc!=0) yields ``(rc, None, stderr)``."""
+async def test_nonzero_exit_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A validation failure (rc!=0) yields ``None``."""
     _patch_spawn(monkeypatch, _fake_proc(b"Failed config\n", b"boom", 2))
 
-    rc, config, stderr = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
-
-    assert rc == 2
-    assert config is None
-    assert stderr == "boom"
+    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
 
 
 async def test_unparsable_output_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Rc 0 but malformed stdout degrades to ``None`` rather than raising."""
+    """Exit 0 but malformed stdout degrades to ``None`` rather than raising."""
     _patch_spawn(monkeypatch, _fake_proc(b"not yaml: [unterminated", b"", 0))
 
-    _rc, config, _stderr = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
-
-    assert config is None
+    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
 
 
 async def test_non_mapping_output_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
     """Output that parses to a list/scalar (not a mapping) returns ``None``."""
     _patch_spawn(monkeypatch, _fake_proc(b"- one\n- two\n", b"", 0))
 
-    _rc, config, _stderr = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
-
-    assert config is None
+    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
 
 
 async def test_spawn_oserror_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,10 +77,7 @@ async def test_spawn_oserror_returns_none(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(resolve_mod, "create_subprocess_exec", _boom)
 
-    rc, config, _stderr = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
-
-    assert rc is None
-    assert config is None
+    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
 
 
 async def test_timeout_kills_and_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -110,7 +96,5 @@ async def test_timeout_kills_and_returns_none(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(resolve_mod.asyncio, "wait_for", _instant_timeout)
 
-    _rc, config, _stderr = await run_esphome_config(["esphome"], Path("kitchen.yaml"))
-
-    assert config is None
+    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
     assert killed == [True]

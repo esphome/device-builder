@@ -35,41 +35,43 @@ def _ignore_unknown(loader: yaml.Loader, node: yaml.Node) -> str:
 _SafeLoaderIgnoreUnknown.add_constructor(None, _ignore_unknown)
 
 
-async def run_esphome_config(
-    esphome_cmd: list[str], config_path: Path
-) -> tuple[int | None, dict[str, Any] | None, str]:
+async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[str, Any] | None:
     """
-    Run ``esphome config <path> --show-secrets``; return ``(rc, parsed, stderr)``.
+    Run ``esphome config <path> --show-secrets``; return the resolved config.
 
     Fully resolves substitutions, packages, includes, and secrets — the
     output is plain YAML (no ESPHome ``EFloat`` / ``Lambda`` / ``IncludeFile``
-    wrappers). ``parsed`` is ``None`` when the spawn failed, the command
-    exited non-zero, or the output didn't parse to a mapping. ``--show-secrets``
-    is required: without it ESPHome conceal-wraps secret values in an ANSI SGR.
+    wrappers). Returns ``None`` when the spawn failed, the command exited
+    non-zero, or the output didn't parse to a mapping. ``--show-secrets`` is
+    required: without it ESPHome conceal-wraps secret values in an ANSI SGR.
+
+    Failure detail is logged here (never the resolved-secret-bearing stderr)
+    rather than returned, so callers only branch on ``None``.
     """
     cmd = [*esphome_cmd, "--dashboard", "config", str(config_path), "--show-secrets"]
     try:
         proc = await create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
     except OSError as exc:
         _LOGGER.debug("esphome config spawn failed for %s: %s", config_path, exc)
-        return None, None, str(exc)
+        return None
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
     except TimeoutError:
         kill_quietly(proc)
         await proc.wait()
-        return None, None, "esphome config timed out"
+        _LOGGER.debug("esphome config timed out for %s", config_path)
+        return None
     except asyncio.CancelledError:
         kill_quietly(proc)
         raise
-    stderr_text = stderr.decode("utf-8", errors="replace")
     if proc.returncode != 0:
-        return proc.returncode, None, stderr_text
-    return proc.returncode, _parse_resolved_config(stdout), stderr_text
+        _LOGGER.debug("esphome config returned %s for %s", proc.returncode, config_path)
+        return None
+    return _parse_resolved_config(stdout)
 
 
 def _parse_resolved_config(stdout: bytes) -> dict[str, Any] | None:

@@ -362,12 +362,12 @@ def create_legacy_routes() -> web.RouteTableDef:
         if not esphome_cmd:
             return json_response({"error": "esphome unavailable"}, status=500)
 
-        # Generic 422 body on failure — ``esphome config`` stderr carries
-        # resolved secrets under ``--show-secrets`` and must not echo back.
-        _rc, config, _stderr = await run_esphome_config(esphome_cmd, config_path)
+        # Generic 422 body — an invalid config's error can carry resolved
+        # secrets (``--show-secrets``), so it never reaches the response.
+        config = await run_esphome_config(esphome_cmd, config_path)
         if config is None:
             return json_response({"error": "Configuration is invalid"}, status=422)
-        return web.json_response(config, dumps=dumps_str)
+        return json_response(config)
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:

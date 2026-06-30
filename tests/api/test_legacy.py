@@ -402,7 +402,7 @@ async def test_json_config_returns_resolved_config(
     """
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     resolved = {"esphome": {"name": "kitchen", "platform": "ESP32"}, "sensor": [{"delta": 0.1}]}
-    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=(0, resolved, "")))
+    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=resolved))
     client = await aiohttp_client(_make_json_config_app(tmp_path))
 
     resp = await client.get("/json-config", params={"configuration": "kitchen.yaml"})
@@ -439,13 +439,13 @@ async def test_json_config_rejects_traversal(
 async def test_json_config_returns_422_on_invalid_config(
     tmp_path: Path, aiohttp_client: AiohttpClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``esphome config`` failure (rc!=0 → ``config=None``) surfaces as 422.
+    """``esphome config`` failure (``None``) surfaces as a generic 422.
 
-    The body is generic — ``--show-secrets`` stderr carries resolved
-    secrets and must not echo back.
+    The body is generic; an invalid config's error can carry resolved
+    secrets, so the helper's detail never reaches the response.
     """
     (tmp_path / "broken.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=(2, None, "boom")))
+    monkeypatch.setattr(legacy, "run_esphome_config", AsyncMock(return_value=None))
     client = await aiohttp_client(_make_json_config_app(tmp_path))
 
     resp = await client.get("/json-config", params={"configuration": "broken.yaml"})
@@ -453,7 +453,6 @@ async def test_json_config_returns_422_on_invalid_config(
     assert resp.status == 422
     body = await resp.json()
     assert "error" in body
-    assert "boom" not in body["error"]
 
 
 async def test_json_config_returns_404_on_missing_file(

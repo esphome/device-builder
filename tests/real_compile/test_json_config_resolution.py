@@ -39,12 +39,9 @@ async def test_run_esphome_config_resolves_substitutions_packages_and_secrets(
         encoding="utf-8",
     )
 
-    rc, config, _stderr = await run_esphome_config(
-        [sys.executable, "-m", "esphome"], tmp_path / "test.yaml"
-    )
+    config = await run_esphome_config([sys.executable, "-m", "esphome"], tmp_path / "test.yaml")
 
-    assert rc == 0, "esphome config should validate the repro"
-    assert config is not None
+    assert config is not None, "esphome config should validate and resolve the repro"
     assert config["esphome"]["name"] == "livingroom"  # substitution expanded
     assert config["api"]["encryption"]["key"] == key  # package merged + secret resolved
     assert config["sensor"][0]["filters"][0]["delta"] == 0.1  # float, not a 500

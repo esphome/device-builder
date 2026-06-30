@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.device_yaml import (
@@ -15,8 +14,6 @@ from ...helpers.device_yaml import (
 
 if TYPE_CHECKING:
     from .controller import DevicesController
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def get_api_key(controller: DevicesController, configuration: str) -> dict[str, str]:
@@ -71,7 +68,7 @@ async def resolve_via_esphome_config(controller: DevicesController, configuratio
     if not esphome_cmd:
         return ""
     config_path = controller._db.settings.rel_path(configuration)
-    _rc, config, _stderr = await run_esphome_config(esphome_cmd, config_path)
+    config = await run_esphome_config(esphome_cmd, config_path)
     if config is None:
         return ""
     return get_resolved_api_encryption_key(config)
