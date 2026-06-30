@@ -243,6 +243,30 @@ async def test_start_spawns_interface_monitor_and_stop_cancels_it(
     assert task.cancelled() or task.done()
 
 
+async def test_close_zeroconf_swallows_crashed_interface_monitor() -> None:
+    """A monitor task that died on a non-cancellation error can't abort shutdown.
+
+    ``close_zeroconf`` awaits the cancelled monitor task; if that task had
+    already crashed, the await re-raises. Shutdown must swallow it and still
+    close zeroconf rather than leaking the error into aiohttp's cleanup.
+    """
+    monitor, _callbacks = _make_monitor()
+
+    async def _boom() -> None:
+        raise RuntimeError("monitor crashed")
+
+    task = asyncio.create_task(_boom())
+    await asyncio.sleep(0)  # let it crash before we hand it to close_zeroconf
+    monitor._mdns._interface_monitor_task = task
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.async_close = AsyncMock()
+
+    await monitor._mdns.close_zeroconf()  # must not raise
+
+    assert monitor._mdns._interface_monitor_task is None
+    assert monitor._mdns._zeroconf is None
+
+
 async def test_stop_swallows_browser_cancel_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

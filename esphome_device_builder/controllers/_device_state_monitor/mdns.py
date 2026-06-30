@@ -10,7 +10,6 @@ cache-inspection accessors the drawer's reachability snapshot reads.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import Callable
 from operator import attrgetter
@@ -132,8 +131,13 @@ class MdnsSource:
         # Stop the interface monitor first so it can't reconcile a closing instance.
         if self._interface_monitor_task is not None:
             self._interface_monitor_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
+            try:
                 await self._interface_monitor_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                # A crashed monitor task must not abort shutdown before zeroconf closes.
+                _LOGGER.debug("interface monitor task errored during shutdown", exc_info=True)
             self._interface_monitor_task = None
         if self._zeroconf is not None:
             try:

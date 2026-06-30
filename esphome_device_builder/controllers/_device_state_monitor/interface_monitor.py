@@ -26,7 +26,9 @@ _INTERFACE_POLL_INTERVAL = 120.0
 def address_snapshot() -> frozenset[tuple[str, int]]:
     """Return the host's current (address, prefix) set; a change triggers a reconcile."""
     return frozenset(
-        (str(ip.ip), ip.network_prefix) for adapter in ifaddr.get_adapters() for ip in adapter.ips
+        (_ip_to_str(ip.ip), ip.network_prefix)
+        for adapter in ifaddr.get_adapters()
+        for ip in adapter.ips
     )
 
 
@@ -35,13 +37,13 @@ async def monitor_interfaces(
 ) -> None:
     """Reconcile zeroconf sockets whenever the host's addresses change, until cancelled."""
     loop = asyncio.get_running_loop()
-    # ``ifaddr.get_adapters`` is blocking (reads /proc/net; GetAdaptersAddresses
-    # on Windows) — keep it off the WS event loop, per helpers/network_interfaces.
-    previous = await loop.run_in_executor(None, address_snapshot)
+    previous = await _safe_snapshot(loop)
     while True:
         await asyncio.sleep(interval)
-        current = await loop.run_in_executor(None, address_snapshot)
-        if current == previous:
+        current = await _safe_snapshot(loop)
+        # ``None`` is a failed snapshot, not "no addresses" — skip so a transient
+        # ifaddr error can't be read as every interface disappearing.
+        if current is None or current == previous:
             continue
         try:
             # No-arg reuses the construction-time ``InterfaceChoice.All``, so this
@@ -53,3 +55,30 @@ async def monitor_interfaces(
         else:
             _LOGGER.info("Network interfaces changed; reconciled zeroconf sockets")
             previous = current
+
+
+def _ip_to_str(ip: str | tuple[str, int, int]) -> str:
+    """Normalize an ``ifaddr`` IP (v4 string / v6 ``(addr, flowinfo, scope)`` tuple).
+
+    Mirrors ``helpers.network_interfaces.resolve_bind_host``: keep the ``%scope``
+    on link-local v6, drop flowinfo so a benign flowinfo change isn't read as
+    churn (and so the snapshot is a stable string, not a tuple repr).
+    """
+    if isinstance(ip, str):
+        return ip
+    address, _flowinfo, scope_id = ip
+    return f"{address}%{scope_id}" if scope_id else address
+
+
+async def _safe_snapshot(loop: asyncio.AbstractEventLoop) -> frozenset[tuple[str, int]] | None:
+    """Snapshot host addresses off the event loop; ``None`` on failure so the loop retries.
+
+    ``ifaddr.get_adapters`` is blocking (reads /proc/net; GetAdaptersAddresses on
+    Windows) and can raise on a transient OS hiccup; swallow it so one bad scan
+    can't kill the reconciler for the rest of the process's life.
+    """
+    try:
+        return await loop.run_in_executor(None, address_snapshot)
+    except Exception:
+        _LOGGER.exception("host address snapshot failed; will retry")
+        return None

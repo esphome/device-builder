@@ -8,6 +8,7 @@ and tears it down before closing zeroconf.
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,6 +21,9 @@ from esphome_device_builder.controllers._device_state_monitor.interface_monitor 
 
 _A = frozenset({("10.0.0.5", 24)})
 _B = frozenset({("10.0.0.5", 24), ("192.168.1.2", 24)})
+
+# Sentinel a scripted snapshot yields to make ``address_snapshot`` raise that tick.
+_RAISE = object()
 
 
 def _snapshots(monkeypatch: pytest.MonkeyPatch, values: list[frozenset[tuple[str, int]]]) -> None:
@@ -113,3 +117,45 @@ async def test_snapshot_is_hashable_and_order_independent() -> None:
     assert isinstance(snap, frozenset)
     # Reversing the underlying iteration order must not change equality.
     assert frozenset(reversed(list(snap))) == snap
+
+
+async def test_snapshot_failure_does_not_kill_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A raising ``address_snapshot`` is swallowed; the loop keeps polling and reconciles later.
+
+    A transient ``ifaddr`` error on one tick must not terminate the reconciler
+    for the rest of the process; the next good snapshot still drives a change.
+    """
+    # previous=_A; tick1 snapshot raises (skipped), tick2 sees _B → reconcile.
+    seq = iter([_A, _RAISE, _B, _B])
+
+    def _next() -> frozenset[tuple[str, int]]:
+        value = next(seq, _B)
+        if value is _RAISE:
+            raise OSError("adapters momentarily unavailable")
+        return value  # type: ignore[return-value]
+
+    monkeypatch.setattr(im, "address_snapshot", _next)
+    zeroconf = MagicMock()
+    zeroconf.async_update_interfaces = AsyncMock()
+
+    await _run_ticks(zeroconf, ticks=3)
+
+    zeroconf.async_update_interfaces.assert_awaited_once()
+
+
+def test_address_snapshot_normalizes_ipv4_and_ipv6_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    """v4 stays a plain string; link-local v6 keeps ``%scope`` and drops flowinfo; no tuple repr."""
+    v4 = SimpleNamespace(ip="10.0.0.5", network_prefix=24)
+    # ifaddr renders v6 as ``(addr, flowinfo, scope_id)``.
+    v6_link_local = SimpleNamespace(ip=("fe80::1", 0, 7), network_prefix=64)
+    v6_global = SimpleNamespace(ip=("2001:db8::1", 0, 0), network_prefix=64)
+    adapter = SimpleNamespace(ips=[v4, v6_link_local, v6_global])
+    monkeypatch.setattr(im.ifaddr, "get_adapters", lambda: [adapter])
+
+    snap = im.address_snapshot()
+
+    assert ("10.0.0.5", 24) in snap
+    assert ("fe80::1%7", 64) in snap  # scope kept, flowinfo dropped
+    assert ("2001:db8::1", 64) in snap  # scope 0 → no suffix
+    # No raw ``(addr, flowinfo, scope)`` tuple leaked into the snapshot.
+    assert all(isinstance(addr, str) and "(" not in addr for addr, _prefix in snap)
