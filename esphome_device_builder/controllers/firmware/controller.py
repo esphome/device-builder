@@ -108,14 +108,15 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         device = self._device_for_configuration(config)
+        if not device or not device.queued_update:
+            return
 
-        if device and device.queued_update:
-            _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
-            # Disarm immediately — a flap mid-flash must not re-enter this
-            # handler and supersede the upload that's already running.
-            # _execute_job re-arms below if this attempt fails.
-            self._armed_deferred_installs.discard(config)
-            self._db.create_background_task(self.upload(configuration=config, port="OTA"))
+        _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
+        # Disarm immediately — a flap mid-flash must not re-enter this
+        # handler and supersede the upload that's already running.
+        # _execute_job re-arms below if this attempt fails.
+        self._armed_deferred_installs.discard(config)
+        self._db.create_background_task(self.upload(configuration=config, port="OTA"))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -224,10 +225,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await self._validate_configuration_boundary(configuration)
 
         device = self._device_for_configuration(configuration)
-        if device and device.queued_update and self._db.devices:
-            self._db.devices.set_queued_update(device.name, is_queued=False)
-            self._armed_deferred_installs.discard(configuration)
-            _LOGGER.info("Queued update cleared for device %s", configuration)
+        if not device or not device.queued_update or not self._db.devices:
+            return
+
+        self._db.devices.set_queued_update(device.name, is_queued=False)
+        self._armed_deferred_installs.discard(configuration)
+        _LOGGER.info("Queued update cleared for device %s", configuration)
 
     @api_command("firmware/reset_build_env")
     async def reset_build_env(self, **kwargs: Any) -> FirmwareJob:
