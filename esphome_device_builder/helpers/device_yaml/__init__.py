@@ -53,12 +53,13 @@ from ._parsing import (
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
-from ._resolve import run_esphome_config
+from ._resolve import EsphomeConfigUnavailableError, run_esphome_config
 
 __all__ = [
     "DEFAULT_API_PORT",
     "NETWORK_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",
+    "EsphomeConfigUnavailableError",
     "EsphomeMeta",
     "StorageJSON",
     "_extract_resolved_substitutions",

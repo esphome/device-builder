@@ -81,19 +81,28 @@ async def test_non_mapping_output_returns_none(monkeypatch: pytest.MonkeyPatch) 
     assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
 
 
-async def test_spawn_oserror_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A spawn failure (binary missing / FD exhaustion) degrades to ``None``."""
+async def test_spawn_oserror_raises_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A spawn failure (binary missing / FD exhaustion) is a retryable infra fault."""
 
     async def _boom(*_args: Any, **_kwargs: Any) -> Any:
         raise OSError("simulated spawn failure")
 
     monkeypatch.setattr(resolve_mod, "create_subprocess_exec", _boom)
 
-    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
+    with pytest.raises(resolve_mod.EsphomeConfigUnavailableError):
+        await run_esphome_config(["esphome"], Path("kitchen.yaml"))
 
 
-async def test_timeout_kills_and_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A wedged subprocess past the timeout is killed and returns ``None``."""
+async def test_signal_kill_raises_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A negative return code (killed by a signal) is infra, not invalid config."""
+    _patch_spawn(monkeypatch, _fake_proc(b"", b"", -9))
+
+    with pytest.raises(resolve_mod.EsphomeConfigUnavailableError):
+        await run_esphome_config(["esphome"], Path("kitchen.yaml"))
+
+
+async def test_timeout_kills_and_raises_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wedged subprocess past the timeout is killed and surfaces as infra fault."""
     proc = MagicMock()
     proc.communicate = AsyncMock(side_effect=TimeoutError)
     proc.wait = AsyncMock()
@@ -108,7 +117,8 @@ async def test_timeout_kills_and_returns_none(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(resolve_mod.asyncio, "wait_for", _instant_timeout)
 
-    assert await run_esphome_config(["esphome"], Path("kitchen.yaml")) is None
+    with pytest.raises(resolve_mod.EsphomeConfigUnavailableError):
+        await run_esphome_config(["esphome"], Path("kitchen.yaml"))
     assert killed == [True]
 
 

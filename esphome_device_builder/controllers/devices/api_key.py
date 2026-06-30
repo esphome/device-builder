@@ -6,6 +6,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from ...helpers.device_yaml import (
+    EsphomeConfigUnavailableError,
     get_api_port,
     get_resolved_api_encryption_key,
     load_device_yaml,
@@ -62,13 +63,17 @@ async def resolve_via_esphome_config(controller: DevicesController, configuratio
 
     Delegates to :func:`helpers.device_yaml.run_esphome_config`, which fully
     resolves substitutions / packages / secrets. Returns ``""`` on every
-    failure path.
+    failure path — an infra fault and a keyless config both collapse to the
+    "open the editor and check" sentinel the UI already handles.
     """
     esphome_cmd = controller.state.esphome_cmd
     if not esphome_cmd:
         return ""
     config_path = controller._db.settings.rel_path(configuration)
-    config = await run_esphome_config(esphome_cmd, config_path)
+    try:
+        config = await run_esphome_config(esphome_cmd, config_path)
+    except EsphomeConfigUnavailableError:
+        return ""
     if config is None:
         return ""
     return get_resolved_api_encryption_key(config)

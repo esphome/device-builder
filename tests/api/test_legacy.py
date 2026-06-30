@@ -457,6 +457,27 @@ async def test_json_config_returns_422_on_invalid_config(
     assert body == {"error": "Configuration is invalid"}
 
 
+async def test_json_config_returns_503_on_infra_fault(
+    tmp_path: Path, aiohttp_client: AiohttpClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An infra fault (spawn fail / timeout) is a retryable 503, not a 422.
+
+    HA must keep retrying a config that would resolve once esphome is reachable,
+    rather than treating a transient backend fault as a permanent config error.
+    """
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    monkeypatch.setattr(
+        legacy,
+        "run_esphome_config",
+        AsyncMock(side_effect=legacy.EsphomeConfigUnavailableError("timed out")),
+    )
+    client = await aiohttp_client(_make_json_config_app(tmp_path))
+
+    resp = await client.get("/json-config", params={"configuration": "kitchen.yaml"})
+
+    assert resp.status == 503
+
+
 async def test_json_config_returns_404_on_missing_file(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:

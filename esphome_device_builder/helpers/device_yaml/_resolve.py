@@ -29,6 +29,14 @@ _MAX_CONCURRENT_CONFIG = 3
 _config_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_CONFIG)
 
 
+class EsphomeConfigUnavailableError(Exception):
+    """``esphome config`` could not run to completion.
+
+    A retryable infrastructure fault (spawn failure, timeout, signal kill),
+    distinct from a config that ran and failed validation (returns ``None``).
+    """
+
+
 class _SafeLoaderIgnoreUnknown(FastestSafeLoader):
     """SafeLoader that renders unknown ESPHome tags (``!lambda``) as strings."""
 
@@ -54,13 +62,16 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
 
     Fully resolves substitutions, packages, includes, and secrets — the
     output is plain YAML (no ESPHome ``EFloat`` / ``Lambda`` / ``IncludeFile``
-    wrappers). Returns ``None`` when the spawn failed, the command exited
-    non-zero, or the output didn't parse to a mapping. ``--show-secrets`` is
-    required: without it ESPHome conceal-wraps secret values in an ANSI SGR.
+    wrappers). ``--show-secrets`` is required: without it ESPHome conceal-wraps
+    secret values in an ANSI SGR.
 
-    Failure detail is logged here (never the resolved-secret-bearing stderr)
-    rather than returned, so callers only branch on ``None``. Concurrent runs
-    are capped (:data:`_MAX_CONCURRENT_CONFIG`); excess callers queue.
+    Returns the resolved dict on success, ``None`` when the config ran but was
+    invalid (non-zero exit) or its output wasn't a mapping, and raises
+    :class:`EsphomeConfigUnavailableError` on an infrastructure fault (spawn failure,
+    timeout, signal kill) so a caller can answer "retry later" rather than
+    "your config is wrong". Failure detail is logged here (never the
+    resolved-secret-bearing stderr). Concurrent runs are capped
+    (:data:`_MAX_CONCURRENT_CONFIG`); excess callers queue.
     """
     cmd = [*esphome_cmd, "--dashboard", "config", str(config_path), "--show-secrets"]
     # Hold the gate only across the subprocess (where the RAM lives); the
@@ -73,26 +84,33 @@ async def run_esphome_config(esphome_cmd: list[str], config_path: Path) -> dict[
                 stderr=asyncio.subprocess.DEVNULL,
             )
         except OSError as exc:
-            # Infrastructure failure (missing binary, FD exhaustion), not a user
-            # config error — warn so it's visible at the default log level.
             _LOGGER.warning("esphome config spawn failed for %s: %s", config_path, exc)
-            return None
+            raise EsphomeConfigUnavailableError(f"spawn failed: {exc}") from exc
         try:
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=_ESPHOME_CONFIG_TIMEOUT)
-        except TimeoutError:
+        except TimeoutError as exc:
             kill_quietly(proc)
             await proc.wait()
             _LOGGER.warning(
                 "esphome config timed out after %ss for %s", _ESPHOME_CONFIG_TIMEOUT, config_path
             )
-            return None
+            raise EsphomeConfigUnavailableError("timed out") from exc
         except asyncio.CancelledError:
+            # Don't await proc.wait() here: it would suppress / delay the
+            # cancellation propagation. The SIGKILL'd child is reaped by
+            # asyncio's watcher (matches helpers.subprocess.run_subprocess_capture).
             kill_quietly(proc)
             raise
-        if proc.returncode != 0:
-            # Usually a genuinely invalid config the caller surfaces as 422 /
-            # empty key — debug, so a user mid-edit doesn't spam the log.
-            _LOGGER.debug("esphome config returned %s for %s", proc.returncode, config_path)
+        returncode = proc.returncode
+        if returncode and returncode < 0:
+            # Negative == terminated by a signal (crash / OOM kill), not a
+            # validation failure — an infrastructure fault, surface it.
+            _LOGGER.warning("esphome config killed by signal %s for %s", -returncode, config_path)
+            raise EsphomeConfigUnavailableError(f"killed by signal {-returncode}")
+        if returncode != 0:
+            # A genuinely invalid config the caller surfaces as 422 / empty key —
+            # debug, so a user mid-edit doesn't spam the operator's log.
+            _LOGGER.debug("esphome config returned %s for %s", returncode, config_path)
             return None
     return _parse_resolved_config(stdout)
 

@@ -475,6 +475,6 @@ For Home Assistant ESPHome integration backward compat only.
 |----------|-------------|
 | `GET /devices` | List devices |
 | `GET /ping` | Online-status map `{<config>.yaml: true\|false\|null}` (third-party widgets, e.g. homepage) |
-| `GET /json-config?configuration=...` | Get parsed YAML as JSON |
+| `GET /json-config?configuration=...` | Fully-resolved config (substitutions/packages/includes/secrets) as JSON, via `esphome config`; 404 missing, 422 invalid, 503 unavailable, 403 traversal |
 | `GET /compile` (WebSocket) | Compile via spawn protocol |
 | `GET /upload` (WebSocket) | Upload via spawn protocol |
