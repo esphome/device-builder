@@ -99,13 +99,9 @@ class Device(DashboardModel):
     # whole ``loaded_integrations`` list flat.
     directly_referenced_integrations: list[str] = field(default_factory=list)
     state: DeviceState = DeviceState.UNKNOWN
-    # Reachability channel currently driving the device's online state
-    # (``mdns`` > ``mqtt`` > ``ping``). The deployed version / config-hash
-    # come only from the mDNS broadcast, so the frontend gates the
-    # out-of-sync / update indicators on ``active_source == mdns``: when
-    # mDNS is dark (a ping/MQTT-only "odd setup") those values are stale,
-    # so it hides them rather than showing a false "out of sync". Runtime-
-    # only, not persisted; UNKNOWN until a source claims the device.
+    # Reachability channel currently driving online state
+    # (``mdns`` > ``mqtt`` > ``ping``). Runtime-only, not persisted;
+    # UNKNOWN until a source claims the device.
     active_source: ReachabilitySource = ReachabilitySource.UNKNOWN
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     update_available: bool = False  # True if compiled with older ESPHome version

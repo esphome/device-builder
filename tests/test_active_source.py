@@ -1,9 +1,4 @@
-"""Track ``Device.active_source`` for the UI's out-of-sync gating.
-
-The frontend hides the out-of-sync / update indicators when mDNS is not the
-live source, so a ping/MQTT-only ("mDNS dark") device stops showing a false
-"out of sync" from stale mDNS-sourced deployed version / config hash.
-"""
+"""Tests for ``Device.active_source`` tracking on the device snapshot."""
 
 from __future__ import annotations
 

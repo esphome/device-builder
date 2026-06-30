@@ -79,13 +79,7 @@ def on_state_change(
 
 
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
-    """
-    Track the device's active reachability source on the snapshot.
-
-    The frontend gates the mDNS-sourced out-of-sync / update indicators on
-    ``active_source == mdns``; runtime-only, so it fires ``DEVICE_UPDATED``
-    without persisting.
-    """
+    """Update ``active_source`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
     for device in controller._devices_by_name(name):
         if device.active_source == source:
             continue
