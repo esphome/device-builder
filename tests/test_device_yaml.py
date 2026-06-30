@@ -36,6 +36,7 @@ from esphome_device_builder.helpers.device_yaml import (
     load_device_from_storage,
     parse_esphome_meta,
     parse_platform_from_yaml,
+    pending_changes_via_hash,
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
     _is_valid_esphome_name,
@@ -496,6 +497,14 @@ def test_in_sync_when_only_one_hash_known() -> None:
         )
         is False
     )
+
+
+def test_pending_changes_via_hash_only_when_both_hashes_known_and_differ() -> None:
+    """True only on a hash-driven verdict; mtime-driven / unknown reads False."""
+    assert pending_changes_via_hash("abc", "def") is True
+    assert pending_changes_via_hash("abc", "abc") is False  # in sync
+    assert pending_changes_via_hash("abc", "") is False  # device not broadcasting
+    assert pending_changes_via_hash("", "def") is False  # never compiled
 
 
 # ----------------------------------------------------------------------

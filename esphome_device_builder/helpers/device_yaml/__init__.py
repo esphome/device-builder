@@ -29,6 +29,7 @@ from ._loading import (
     compute_has_pending_changes,
     load_device_from_storage,
     load_device_yaml,
+    pending_changes_via_hash,
 )
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
@@ -83,6 +84,7 @@ __all__ = [
     "load_device_yaml",
     "parse_esphome_meta",
     "parse_platform_from_yaml",
+    "pending_changes_via_hash",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",
 ]

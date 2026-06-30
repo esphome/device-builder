@@ -104,6 +104,10 @@ class Device(DashboardModel):
     # UNKNOWN until a source claims the device.
     active_source: ReachabilitySource = ReachabilitySource.UNKNOWN
     has_pending_changes: bool = True  # True until successfully compiled + deployed
+    # True when ``has_pending_changes`` came from the mDNS-sourced config-hash
+    # compare (vs the local mtime fallback). The frontend gates only this case
+    # on a live mDNS, so a local YAML edit still cues "install" when mDNS is dark.
+    pending_changes_via_hash: bool = False
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
     # Native API surface flags — drive the lock-icon indicator in

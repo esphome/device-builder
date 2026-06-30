@@ -6,6 +6,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.device_yaml import pending_changes_via_hash
 from ...helpers.mac_addresses import derive_interface_macs
 from ...models import (
     Device,
@@ -170,6 +171,9 @@ def on_config_hash_change(controller: DevicesController, name: str, config_hash:
     def _flip_pending(device: Device) -> None:
         if device.expected_config_hash:
             device.has_pending_changes = device.expected_config_hash != config_hash
+            device.pending_changes_via_hash = pending_changes_via_hash(
+                device.expected_config_hash, config_hash
+            )
 
     _apply_logged_observation(
         controller,
