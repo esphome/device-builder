@@ -186,10 +186,12 @@ class FeaturedComponent(DashboardModel):
     # the single-instance exceptions serialise (omit_default).
     multi_conf: bool = True
     # Canonical occupied-pin identity per locked pin field, computed at sync time
-    # from the underlying component's PIN config_entries. A board GPIO is an int
-    # (``{"scl": 0, "sda": 1}``); an I/O-expander channel is a namespaced token
-    # ``"<provider>:<hub_id>:<channel>"`` so it never aliases a board GPIO of the
-    # same number. Lets the catalog hide this card when an existing same-domain
+    # from the underlying component's PIN config_entries. The key is the dot-joined
+    # config-entry path to the pin: flat for a top-level pin (``mdc_pin``), dotted
+    # for one nested under a composite field (ethernet ``clk.pin``). A board GPIO is
+    # an int (``{"scl": 0, "sda": 1}``); an I/O-expander channel is a namespaced
+    # token ``"<provider>:<hub_id>:<channel>"`` so it never aliases a board GPIO of
+    # the same number. Lets the catalog hide this card when an existing same-domain
     # instance already occupies these exact pins. Empty (omitted) for non-pin
     # components.
     locked_pins: dict[str, int | str] = field(default_factory=dict)

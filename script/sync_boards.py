@@ -809,14 +809,42 @@ def _augment_rmii_data_pins(boards: list[BoardCatalogEntry]) -> None:
 
 
 @cache
-def _component_pin_keys(component_id: str) -> frozenset[str]:
-    """Top-level config_entry keys of ``type: pin`` for *component_id* (empty if unknown)."""
+def _component_body(component_id: str) -> dict[str, Any]:
+    """Load and parse ``<component_id>.json``; an empty dict when missing/unreadable."""
     path = _COMPONENTS_DIR / f"{component_id}.json"
     try:
-        body = orjson.loads(path.read_bytes())
+        return orjson.loads(path.read_bytes())
     except (OSError, ValueError):
-        return frozenset()
-    return frozenset(e["key"] for e in body.get("config_entries", []) if e.get("type") == "pin")
+        return {}
+
+
+@cache
+def _component_pin_keys(component_id: str) -> frozenset[str]:
+    """Top-level config_entry keys of ``type: pin`` for *component_id* (empty if unknown)."""
+    entries = _component_body(component_id).get("config_entries", [])
+    return frozenset(e["key"] for e in entries if e.get("type") == "pin")
+
+
+@cache
+def _component_pin_paths(component_id: str) -> tuple[tuple[str, ...], ...]:
+    """Config-entry paths of every ``type: pin`` field for *component_id*, nested pins included."""
+    paths: list[tuple[str, ...]] = []
+
+    def _walk(entries: list[dict[str, Any]] | None, prefix: tuple[str, ...]) -> None:
+        for entry in entries or []:
+            key = entry.get("key")
+            if key is None:
+                continue
+            here = (*prefix, key)
+            if entry.get("type") == "pin":
+                # A pin field's own children are long-form flags (mode / inverted),
+                # never nested pins — stop here.
+                paths.append(here)
+            else:
+                _walk(entry.get("config_entries"), here)
+
+    _walk(_component_body(component_id).get("config_entries"), ())
+    return tuple(paths)
 
 
 def _canonical_gpio(value: Any) -> int | None:
@@ -854,18 +882,33 @@ def _canonical_pin(value: Any) -> int | str | None:
     return _canonical_gpio(value)
 
 
+def _locked_pin_value(fc: FeaturedComponent, pin_path: tuple[str, ...]) -> Any:
+    """
+    Locked preset value of *fc* at *pin_path*, descending nested fields.
+
+    ``None`` when the top-level field is absent or unlocked, or the path
+    doesn't resolve — e.g. ethernet ``("clk", "pin")`` reads ``GPIO0`` out of
+    ``clk: {mode, pin: GPIO0}``.
+    """
+    preset = fc.fields.get(pin_path[0])
+    if preset is None or not preset.locked:
+        return None
+    value: Any = preset.value
+    for sub in pin_path[1:]:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(sub)
+    return value
+
+
 def _stamp_featured_locked_pins(boards: list[BoardCatalogEntry]) -> None:
     """Fill each featured component's ``locked_pins`` from the underlying PIN schema."""
     for board in boards:
         for fc in board.featured_components:
-            pin_keys = _component_pin_keys(fc.component_id)
-            if not pin_keys:
-                continue
-            for key, preset in fc.fields.items():
-                if key in pin_keys and preset.locked:
-                    pin = _canonical_pin(preset.value)
-                    if pin is not None:
-                        fc.locked_pins[key] = pin
+            for pin_path in _component_pin_paths(fc.component_id):
+                pin = _canonical_pin(_locked_pin_value(fc, pin_path))
+                if pin is not None:
+                    fc.locked_pins[".".join(pin_path)] = pin
 
 
 _ALL_RECOMMENDED_BUNDLE_ID = "all_recommended"
@@ -937,10 +980,8 @@ def _has_pin_conflict(components: list[FeaturedComponent]) -> bool:
     for fc in components:
         for key, gpio in fc.locked_pins.items():
             if isinstance(gpio, int):
-                preset = fc.fields.get(key)
-                usages.setdefault(gpio, []).append(
-                    _pin_allows_reuse(preset.value if preset is not None else None)
-                )
+                value = _locked_pin_value(fc, tuple(key.split(".")))
+                usages.setdefault(gpio, []).append(_pin_allows_reuse(value))
         for gpio, allows in _list_pin_gpios(fc):
             usages.setdefault(gpio, []).append(allows)
     return any(len(uses) > 1 and not all(uses) for uses in usages.values())
