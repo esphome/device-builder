@@ -265,7 +265,7 @@ def test_handle_device_wake_ignored_if_not_armed(firmware_controller, mock_devic
     """Test that an online event is ignored if the config is not in armed deferred installs."""
     mock_device.queued_update = True
     # Deliberately NOT adding 'test_device.yaml' to firmware_controller._armed_deferred_installs
-    
+
     with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
         event = Event(
             EventType.DEVICE_STATE_CHANGED,
