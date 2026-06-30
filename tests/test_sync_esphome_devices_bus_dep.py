@@ -375,6 +375,21 @@ def test_lifts_platform_style_one_wire_without_id() -> None:
     assert set(occ) == {4}
 
 
+def test_infers_gpio_platform_for_platform_less_one_wire() -> None:
+    """A ``one_wire: - pin: X`` block with no platform lifts as one_wire.gpio."""
+    featured = [_dallas()]
+    config = {
+        "one_wire": [{"pin": "GPIO4"}],  # no platform: key (older source syntax)
+        "sensor": [{"platform": "dallas_temp", "id": "sensor_dallas_temp_1"}],
+    }
+    extra, occ = _extract_bus_deps(config, featured, _COMPONENTS)
+    assert len(extra) == 1
+    assert extra[0]["component_id"] == "one_wire.gpio"
+    assert extra[0]["fields"]["pin"] == {"value": 4, "locked": True}
+    assert featured[0]["requires"] == ["one_wire_bus"]
+    assert set(occ) == {4}
+
+
 def test_two_consumers_share_one_platform_bus() -> None:
     """Two dallas_temp sensors on one one_wire bus lift a single entry; both gain requires."""
     featured = [_dallas("d1"), _dallas("d2")]

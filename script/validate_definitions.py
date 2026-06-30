@@ -65,11 +65,9 @@ _FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 # fix in script/sync_esphome_devices.py.
 _UNSATISFIED_BUS_ALLOW_LIST = frozenset(
     {
-        ("kincony_ag8", "uart"),  # switch.uart: source has no top-level uart: block
-        ("kincony_kc868_aio", "one_wire"),  # dallas_temp: one_wire: block omits platform:
-        ("kincony_kc868_e8t", "uart"),  # sensor.bl0939: source has no top-level uart: block
-        ("kincony_kc868_uair", "one_wire"),  # dallas_temp: one_wire: block omits platform:
-        ("kincony_mb", "i2c"),  # sensor.ina226: source has no top-level i2c: block
+        ("kincony_ag8", "uart"),  # 2 id-less switch.uart consumers; bus ref not recovered
+        ("kincony_kc868_e8t", "uart"),  # 2 id-less bl0939 consumers; bus ref not recovered
+        ("kincony_mb", "i2c"),  # 16 id-less ina226 consumers; bus ref not recovered
     }
 )
 

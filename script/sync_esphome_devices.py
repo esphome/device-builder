@@ -1585,6 +1585,20 @@ def _unique_local_id(base: str, used: set[str], fallback: str) -> str:
     return f"{candidate}_{counter}"
 
 
+def _block_platform(bus_domain: str, block: dict[str, Any]) -> str | None:
+    """
+    Return the platform of a platform-style bus block, or ``None`` when unresolvable.
+
+    Infers ``gpio`` for a bare ``one_wire: - pin: X`` block: older
+    devices.esphome.io configs omit the now-required ``platform: gpio``, and gpio
+    is the only pin-driven one_wire platform (ds2484 is i2c-bridged, no raw pin).
+    """
+    platform = block.get("platform")
+    if not platform and bus_domain == "one_wire" and "pin" in block:
+        platform = "gpio"
+    return platform if isinstance(platform, str) and platform else None
+
+
 def _materialize_bus(
     bus_domain: str,
     instance_id: str | None,
@@ -1618,8 +1632,8 @@ def _materialize_bus(
     if component is not None:
         component_id = bus_domain
     else:
-        platform = block.get("platform")
-        if not isinstance(platform, str) or not platform:
+        platform = _block_platform(bus_domain, block)
+        if platform is None:
             return None, "", {}
         component_id = f"{bus_domain}.{platform}"
         component = components_index.get(component_id)
