@@ -470,16 +470,21 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                         "Device %s is online after deferred compile. Triggering upload now.",
                         job.configuration,
                     )
-                    self._db.create_background_task(self.upload(
-                        configuration=job.configuration, port="OTA"
-                    ))
+                    self._db.create_background_task(
+                        self.upload(configuration=job.configuration, port="OTA")
+                    )
 
         # Clear queued flag on a successful upload so failures can be retried
         is_upload = job.job_type == JobType.UPLOAD
-        if is_upload and job.port == "OTA" and job.status in (
-            JobStatus.COMPLETED,
-            JobStatus.FAILED,
-            JobStatus.CANCELLED,
+        if (
+            is_upload
+            and job.port == "OTA"
+            and job.status
+            in (
+                JobStatus.COMPLETED,
+                JobStatus.FAILED,
+                JobStatus.CANCELLED,
+            )
         ):
             device = self._device_for_configuration(job.configuration)
             if device and device.queued_update and self._db.devices:
