@@ -2,6 +2,8 @@ id: esp32-c3-devkit-lipo
 name: OLIMEX ESP32-C3-DevKit-LiPo
 description: Olimex ESP32-C3-DevKit-LiPo with ESP32-C3 (RISC-V), Wi-Fi, Bluetooth LE, a UEXT connector, and a LiPo battery charger. Onboard user LED on GPIO8 and button on GPIO9.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-C3/ESP32-C3-DevKit-Lipo/images/thumbs/310x230/ESP32-C3-DevKit-Lipo-1.jpg
 esphome:
   platform: esp32
   board: esp32-c3-devkitm-1

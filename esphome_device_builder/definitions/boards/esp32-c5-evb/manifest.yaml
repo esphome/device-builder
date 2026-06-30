@@ -2,6 +2,8 @@ id: esp32-c5-evb
 name: OLIMEX ESP32-C5-EVB
 description: Olimex ESP32-C5-EVB with two 250V/10A relays, two opto-isolated inputs, dual-band Wi-Fi 6 (2.4GHz + 5GHz), Bluetooth 5, and 802.15.4 (Zigbee/Thread). UEXT connector and LiPo UPS support.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-C5/ESP32-C5-EVB/images/thumbs/310x230/esp32-c5-evb-1.jpg
 esphome:
   platform: esp32
   board: esp32-c5-devkitc1-n8r4

@@ -2,6 +2,8 @@ id: esp32-p4-pc
 name: OLIMEX ESP32-P4-PC
 description: Olimex ESP32-P4-PC with ESP32-P4NRW32 (16MB flash, 32MB PSRAM), 10/100 Ethernet (IP101 PHY), MIPI CSI camera and DSI display interfaces, HDMI output, and microSD. The ESP32-P4 has no built-in wireless; Ethernet provides networking.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-P4/ESP32-P4-PC/images/thumbs/310x230/ESP32-P4-PC-1.jpg
 esphome:
   platform: esp32
   board: esp32-p4

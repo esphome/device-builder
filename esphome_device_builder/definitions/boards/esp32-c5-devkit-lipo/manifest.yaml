@@ -2,6 +2,8 @@ id: esp32-c5-devkit-lipo
 name: OLIMEX ESP32-C5-DevKit-LiPo
 description: Olimex ESP32-C5-DevKit-LiPo with ESP32-C5 (RISC-V), dual-band Wi-Fi 6, Bluetooth 5, 802.15.4 (Zigbee/Thread), PSRAM, a UEXT connector, and a LiPo charger. Onboard user LED on GPIO27 and boot button on GPIO28.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-C5/ESP32-C5-DevKit-Lipo/images/thumbs/310x230/ESP32-C5-DevKit-1.jpg
 esphome:
   platform: esp32
   board: esp32-c5-devkitc-1

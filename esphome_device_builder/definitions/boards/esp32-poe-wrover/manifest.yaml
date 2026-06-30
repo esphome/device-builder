@@ -2,6 +2,8 @@ id: esp32-poe-wrover
 name: OLIMEX ESP32-PoE (WROVER)
 description: Olimex ESP32-PoE with ESP32-WROVER-E (N4R8), 8MB PSRAM, and Ethernet with Power over Ethernet (802.3af). The WROVER variant routes the Ethernet clock to GPIO0 and uses GPIO16/17 for PSRAM.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32/ESP32-POE/images/thumbs/310x230/ESP32-POE-EA-16.jpg
 esphome:
   platform: esp32
   board: esp32-poe

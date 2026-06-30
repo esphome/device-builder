@@ -2,6 +2,8 @@ id: esp32-s2-devkit-lipo
 name: OLIMEX ESP32-S2-DevKit-LiPo
 description: Olimex ESP32-S2-DevKit-LiPo with ESP32-S2, Wi-Fi, a WS2812 RGB LED on GPIO18, a UEXT connector, and a LiPo charger with battery and external-power sensing. User button on GPIO0.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-S2/ESP32-S2-DevKit-Lipo/images/thumbs/310x230/ESP32-S2-DevKit-Lipo-A.jpg
 esphome:
   platform: esp32
   board: esp32-s2-saola-1

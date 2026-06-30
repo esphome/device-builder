@@ -2,6 +2,8 @@ id: esp32-poe2
 name: OLIMEX ESP32-PoE2
 description: Olimex ESP32-PoE2 with ESP32-WROVER-E (N4R8), 8MB PSRAM, USB-C, microSD slot, and Ethernet with Power over Ethernet (802.3af). The WROVER module routes the Ethernet clock to GPIO0 and uses GPIO16/17 for PSRAM.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32/ESP32-POE2/images/thumbs/310x230/ESP32-POE2-1w.jpg
 esphome:
   platform: esp32
   board: esp32-poe

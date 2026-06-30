@@ -2,6 +2,8 @@ id: esp32-c6-evb
 name: OLIMEX ESP32-C6-EVB
 description: Olimex ESP32-C6-EVB with four 10A/240VAC relays, four opto-isolated DC inputs, Wi-Fi 6, Bluetooth LE, and 802.15.4 (Zigbee/Thread). UEXT connector for expansion.
 manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-C6/ESP32-C6-EVB/images/thumbs/310x230/ESP32-C6-EVB-1.jpg
 esphome:
   platform: esp32
   board: esp32-c6-devkitc-1
