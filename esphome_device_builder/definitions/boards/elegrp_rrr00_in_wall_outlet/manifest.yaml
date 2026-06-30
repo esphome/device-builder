@@ -15,8 +15,53 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Button 1
+- gpio: 7
+  available: false
+  occupied_by: Relay 2
+- gpio: 8
+  available: false
+  occupied_by: Button 2
+- gpio: 9
+  available: false
+  occupied_by: Relay 1
+- gpio: 14
+  available: false
+  occupied_by: upper_white_led
+- gpio: 28
+  available: false
+  occupied_by: lower_white_led
 docs_url: https://devices.esphome.io/devices/Elegrp-RRR00-in-wall-outlet/
 featured_components:
+- id: button_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 6
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: button_1
+    name: Button 1
+- id: button_2
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        mode:
+          input: true
+          pullup: true
+        inverted: true
+      locked: true
+    id: button_2
+    name: Button 2
 - id: factory_reset_button
   component_id: button.factory_reset
   fields:
@@ -42,6 +87,9 @@ featured_components:
 - id: upper_white_led
   component_id: output.gpio
   fields:
+    pin:
+      value: 14
+      locked: true
     inverted:
       value: false
       locked: true
@@ -49,6 +97,9 @@ featured_components:
 - id: lower_white_led
   component_id: output.gpio
   fields:
+    pin:
+      value: 28
+      locked: true
     inverted:
       value: false
       locked: true
@@ -77,12 +128,18 @@ featured_components:
 - id: relay_1
   component_id: switch.gpio
   fields:
+    pin:
+      value: 9
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: relay_1
     name: Relay 1
 - id: relay_2
   component_id: switch.gpio
   fields:
+    pin:
+      value: 7
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: relay_2
     name: Relay 2

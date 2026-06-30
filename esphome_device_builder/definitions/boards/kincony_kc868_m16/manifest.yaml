@@ -14,6 +14,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-M16/kc868-m16.jpg
 pins:
+- gpio: 13
+  available: false
+  occupied_by: cd74hc4067_1
+- gpio: 16
+  available: false
+  occupied_by: cd74hc4067_1
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -23,6 +29,12 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
+- gpio: 32
+  available: false
+  occupied_by: cd74hc4067_1
+- gpio: 33
+  available: false
+  occupied_by: cd74hc4067_1
 - gpio: 34
   available: false
   occupied_by: m16--AI-2
@@ -37,6 +49,24 @@ pins:
   occupied_by: m16--AI-3
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-M16/
 featured_components:
+- id: cd74hc4067_1
+  component_id: cd74hc4067
+  fields:
+    pin_s0:
+      value: 32
+      locked: true
+    pin_s1:
+      value: 33
+      locked: true
+    pin_s2:
+      value: 13
+      locked: true
+    pin_s3:
+      value: 16
+      locked: true
+    id:
+      value: cd74hc4067_1
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -104,6 +134,8 @@ featured_components:
     sensor: adc35
     id: ai1
     name: ai1
+  requires:
+  - cd74hc4067_1
 - id: ai2
   component_id: sensor.cd74hc4067
   fields:
@@ -112,6 +144,8 @@ featured_components:
     sensor: adc35
     id: ai2
     name: ai2
+  requires:
+  - cd74hc4067_1
 - id: ai3
   component_id: sensor.cd74hc4067
   fields:
@@ -120,6 +154,8 @@ featured_components:
     sensor: adc35
     id: ai3
     name: ai3
+  requires:
+  - cd74hc4067_1
 - id: ai4
   component_id: sensor.cd74hc4067
   fields:
@@ -128,6 +164,8 @@ featured_components:
     sensor: adc35
     id: ai4
     name: ai4
+  requires:
+  - cd74hc4067_1
 - id: ai5
   component_id: sensor.cd74hc4067
   fields:
@@ -136,6 +174,8 @@ featured_components:
     sensor: adc35
     id: ai5
     name: ai5
+  requires:
+  - cd74hc4067_1
 - id: ai6
   component_id: sensor.cd74hc4067
   fields:
@@ -144,6 +184,8 @@ featured_components:
     sensor: adc35
     id: ai6
     name: ai6
+  requires:
+  - cd74hc4067_1
 - id: ai7
   component_id: sensor.cd74hc4067
   fields:
@@ -152,6 +194,8 @@ featured_components:
     sensor: adc35
     id: ai7
     name: ai7
+  requires:
+  - cd74hc4067_1
 - id: ai8
   component_id: sensor.cd74hc4067
   fields:
@@ -160,6 +204,8 @@ featured_components:
     sensor: adc35
     id: ai8
     name: ai8
+  requires:
+  - cd74hc4067_1
 - id: ai9
   component_id: sensor.cd74hc4067
   fields:
@@ -168,6 +214,8 @@ featured_components:
     sensor: adc35
     id: ai9
     name: ai9
+  requires:
+  - cd74hc4067_1
 - id: ai10
   component_id: sensor.cd74hc4067
   fields:
@@ -176,6 +224,8 @@ featured_components:
     sensor: adc35
     id: ai10
     name: ai10
+  requires:
+  - cd74hc4067_1
 - id: ai11
   component_id: sensor.cd74hc4067
   fields:
@@ -184,6 +234,8 @@ featured_components:
     sensor: adc35
     id: ai11
     name: ai11
+  requires:
+  - cd74hc4067_1
 - id: ai12
   component_id: sensor.cd74hc4067
   fields:
@@ -192,6 +244,8 @@ featured_components:
     sensor: adc35
     id: ai12
     name: ai12
+  requires:
+  - cd74hc4067_1
 - id: ai13
   component_id: sensor.cd74hc4067
   fields:
@@ -200,6 +254,8 @@ featured_components:
     sensor: adc35
     id: ai13
     name: ai13
+  requires:
+  - cd74hc4067_1
 - id: ai14
   component_id: sensor.cd74hc4067
   fields:
@@ -208,6 +264,8 @@ featured_components:
     sensor: adc35
     id: ai14
     name: ai14
+  requires:
+  - cd74hc4067_1
 - id: ai15
   component_id: sensor.cd74hc4067
   fields:
@@ -216,6 +274,8 @@ featured_components:
     sensor: adc35
     id: ai15
     name: ai15
+  requires:
+  - cd74hc4067_1
 - id: ai16
   component_id: sensor.cd74hc4067
   fields:
@@ -224,6 +284,8 @@ featured_components:
     sensor: adc35
     id: ai16
     name: ai16
+  requires:
+  - cd74hc4067_1
 - id: sensor_ct_clamp_1
   component_id: sensor.ct_clamp
   fields:
@@ -340,161 +402,193 @@ featured_bundles:
 - id: ai1_setup
   name: ai1 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai1
 - id: ai2_setup
   name: ai2 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai2
 - id: ai3_setup
   name: ai3 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai3
 - id: ai4_setup
   name: ai4 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai4
 - id: ai5_setup
   name: ai5 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai5
 - id: ai6_setup
   name: ai6 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai6
 - id: ai7_setup
   name: ai7 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai7
 - id: ai8_setup
   name: ai8 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai8
 - id: ai9_setup
   name: ai9 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai9
 - id: ai10_setup
   name: ai10 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai10
 - id: ai11_setup
   name: ai11 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai11
 - id: ai12_setup
   name: ai12 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai12
 - id: ai13_setup
   name: ai13 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai13
 - id: ai14_setup
   name: ai14 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai14
 - id: ai15_setup
   name: ai15 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai15
 - id: ai16_setup
   name: ai16 (full setup)
   component_ids:
+  - cd74hc4067_1
   - adc35
   - ai16
 - id: sensor_ct_clamp_1_setup
   name: Measured Current-1 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai1
   - sensor_ct_clamp_1
 - id: sensor_ct_clamp_2_setup
   name: Measured Current-2 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai2
   - sensor_ct_clamp_2
 - id: sensor_ct_clamp_3_setup
   name: Measured Current-3 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai3
   - sensor_ct_clamp_3
 - id: sensor_ct_clamp_4_setup
   name: Measured Current-4 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai4
   - sensor_ct_clamp_4
 - id: sensor_ct_clamp_5_setup
   name: Measured Current-5 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai5
   - sensor_ct_clamp_5
 - id: sensor_ct_clamp_6_setup
   name: Measured Current-6 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai6
   - sensor_ct_clamp_6
 - id: sensor_ct_clamp_7_setup
   name: Measured Current-7 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai7
   - sensor_ct_clamp_7
 - id: sensor_ct_clamp_8_setup
   name: Measured Current-8 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai8
   - sensor_ct_clamp_8
 - id: sensor_ct_clamp_9_setup
   name: Measured Current-9 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai9
   - sensor_ct_clamp_9
 - id: sensor_ct_clamp_10_setup
   name: Measured Current-10 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai10
   - sensor_ct_clamp_10
 - id: sensor_ct_clamp_11_setup
   name: Measured Current-11 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai11
   - sensor_ct_clamp_11
 - id: sensor_ct_clamp_12_setup
   name: Measured Current-12 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai12
   - sensor_ct_clamp_12
 - id: sensor_ct_clamp_13_setup
   name: Measured Current-13 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai13
   - sensor_ct_clamp_13
 - id: sensor_ct_clamp_14_setup
   name: Measured Current-14 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai14
   - sensor_ct_clamp_14
 - id: sensor_ct_clamp_15_setup
   name: Measured Current-15 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai15
   - sensor_ct_clamp_15
 - id: sensor_ct_clamp_16_setup
   name: Measured Current-16 (full setup)
   component_ids:
+  - cd74hc4067_1
   - ai16
   - sensor_ct_clamp_16
 source:

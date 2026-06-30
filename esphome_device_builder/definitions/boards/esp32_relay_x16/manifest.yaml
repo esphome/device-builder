@@ -14,56 +14,39 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: Relay01
-- gpio: 1
-  available: false
-  occupied_by: Relay02
-- gpio: 2
-  available: false
-  occupied_by: Relay03
-- gpio: 3
-  available: false
-  occupied_by: Relay04
-- gpio: 4
-  available: false
-  occupied_by: Relay05
 - gpio: 5
   available: false
-  occupied_by: Relay06
-- gpio: 6
-  available: false
-  occupied_by: Relay07
-- gpio: 7
-  available: false
-  occupied_by: Relay08
-- gpio: 8
-  available: false
-  occupied_by: Relay09
-- gpio: 9
-  available: false
-  occupied_by: Relay10
-- gpio: 10
-  available: false
-  occupied_by: Relay11
-- gpio: 11
-  available: false
-  occupied_by: Relay12
+  occupied_by: sn74hc595_hub
 - gpio: 12
   available: false
-  occupied_by: Relay13
+  occupied_by: sn74hc595_hub
 - gpio: 13
   available: false
-  occupied_by: Relay14
+  occupied_by: sn74hc595_hub
 - gpio: 14
   available: false
-  occupied_by: Relay15
-- gpio: 15
-  available: false
-  occupied_by: Relay16
+  occupied_by: sn74hc595_hub
 docs_url: https://devices.esphome.io/devices/ESP32-Relay-X16/
 featured_components:
+- id: sn74hc595_hub
+  component_id: sn74hc595
+  fields:
+    data_pin:
+      value: 14
+      locked: true
+    clock_pin:
+      value: 13
+      locked: true
+    latch_pin:
+      value: 12
+      locked: true
+    oe_pin:
+      value: 5
+      locked: true
+    sr_count: 2
+    id:
+      value: sn74hc595_hub
+      locked: true
 - id: relay01
   component_id: switch.gpio
   fields:
@@ -74,6 +57,8 @@ featured_components:
       locked: true
     id: relay01
     name: Relay01
+  requires:
+  - sn74hc595_hub
 - id: relay02
   component_id: switch.gpio
   fields:
@@ -84,6 +69,8 @@ featured_components:
       locked: true
     id: relay02
     name: Relay02
+  requires:
+  - sn74hc595_hub
 - id: relay03
   component_id: switch.gpio
   fields:
@@ -94,6 +81,8 @@ featured_components:
       locked: true
     id: relay03
     name: Relay03
+  requires:
+  - sn74hc595_hub
 - id: relay04
   component_id: switch.gpio
   fields:
@@ -104,6 +93,8 @@ featured_components:
       locked: true
     id: relay04
     name: Relay04
+  requires:
+  - sn74hc595_hub
 - id: relay05
   component_id: switch.gpio
   fields:
@@ -114,6 +105,8 @@ featured_components:
       locked: true
     id: relay05
     name: Relay05
+  requires:
+  - sn74hc595_hub
 - id: relay06
   component_id: switch.gpio
   fields:
@@ -124,6 +117,8 @@ featured_components:
       locked: true
     id: relay06
     name: Relay06
+  requires:
+  - sn74hc595_hub
 - id: relay07
   component_id: switch.gpio
   fields:
@@ -134,6 +129,8 @@ featured_components:
       locked: true
     id: relay07
     name: Relay07
+  requires:
+  - sn74hc595_hub
 - id: relay08
   component_id: switch.gpio
   fields:
@@ -144,6 +141,8 @@ featured_components:
       locked: true
     id: relay08
     name: Relay08
+  requires:
+  - sn74hc595_hub
 - id: relay09
   component_id: switch.gpio
   fields:
@@ -154,6 +153,8 @@ featured_components:
       locked: true
     id: relay09
     name: Relay09
+  requires:
+  - sn74hc595_hub
 - id: relay10
   component_id: switch.gpio
   fields:
@@ -164,6 +165,8 @@ featured_components:
       locked: true
     id: relay10
     name: Relay10
+  requires:
+  - sn74hc595_hub
 - id: relay11
   component_id: switch.gpio
   fields:
@@ -174,6 +177,8 @@ featured_components:
       locked: true
     id: relay11
     name: Relay11
+  requires:
+  - sn74hc595_hub
 - id: relay12
   component_id: switch.gpio
   fields:
@@ -184,6 +189,8 @@ featured_components:
       locked: true
     id: relay12
     name: Relay12
+  requires:
+  - sn74hc595_hub
 - id: relay13
   component_id: switch.gpio
   fields:
@@ -194,6 +201,8 @@ featured_components:
       locked: true
     id: relay13
     name: Relay13
+  requires:
+  - sn74hc595_hub
 - id: relay14
   component_id: switch.gpio
   fields:
@@ -204,6 +213,8 @@ featured_components:
       locked: true
     id: relay14
     name: Relay14
+  requires:
+  - sn74hc595_hub
 - id: relay15
   component_id: switch.gpio
   fields:
@@ -214,6 +225,8 @@ featured_components:
       locked: true
     id: relay15
     name: Relay15
+  requires:
+  - sn74hc595_hub
 - id: relay16
   component_id: switch.gpio
   fields:
@@ -224,6 +237,8 @@ featured_components:
       locked: true
     id: relay16
     name: Relay16
+  requires:
+  - sn74hc595_hub
 source:
   type: esphome-devices
   remote_id: ESP32-Relay-X16

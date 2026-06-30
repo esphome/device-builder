@@ -2113,6 +2113,15 @@ def build_component_entry(
     if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
         dependencies.append(stem)
 
+    # A device that cross-references a bus hub (``spi_id`` / ``i2c_id`` /
+    # ``uart_id``) needs that bus block to exist; ESPHome enforces it at config
+    # time but doesn't always list it in ``DEPENDENCIES`` (atm90e32, max6675,
+    # i2c touchscreens), so the schema index ships them bus-less and the
+    # frontend never prompts to add the bus. Union the referenced bus back in.
+    for bus in sorted(_referenced_buses(config_entries)):
+        if bus not in dependencies:
+            dependencies.append(bus)
+
     # Drop deps the chosen networking transport will auto-load. See
     # ``_implicit_dependencies``.
     implicit = _implicit_dependencies()
@@ -4779,6 +4788,8 @@ _NON_INTROSPECTABLE_UNITS: dict[str, list[str]] = {
     "data_size": ["B", "kB", "MB", "GB"],
     "temperature": ["°C", "°F", "K"],
     "temperature_delta": ["°C", "°F", "K"],
+    # Canonical mireds first (cv.color_temperature stores mireds; "6500 K" coerces).
+    "color_temperature": ["mireds", "K"],
 }
 
 # Normalisation applied to every discovered unit symbol. Only matters for
@@ -4969,7 +4980,6 @@ def _collect_refined_types(  # noqa: C901
     add("lambda_", RefinedType("lambda"), "lambda_")
     add("returning_lambda", RefinedType("lambda"), "returning_lambda")
     add("mac_address", RefinedType("mac_address"), "mac_address")
-    add("color_temperature", RefinedType("string"), "color_temperature")
 
     out: dict[tuple[str, ...], RefinedType] = {}
 
@@ -5173,6 +5183,19 @@ def _references_own_hub(config_entries: list[dict], stem: str) -> bool:
 
     _walk_catalog_entries(config_entries, visit)
     return found
+
+
+def _referenced_buses(config_entries: list[dict]) -> set[str]:
+    """Bus components (``i2c`` / ``spi`` / ``uart`` / ...) a config var cross-references via use_id."""
+    buses: set[str] = set()
+
+    def visit(entry: dict, _path: tuple[str, ...]) -> None:
+        ref = entry.get("references_component")
+        if ref is not None and _CATEGORY_OVERRIDES.get(ref) == "bus":
+            buses.add(ref)
+
+    _walk_catalog_entries(config_entries, visit)
+    return buses
 
 
 # Capability validators ESPHome wraps a pin field in when the pin must
@@ -6683,7 +6706,8 @@ def _libretiny_families() -> tuple[str, ...]:
     from esphome.components.libretiny.const import FAMILY_COMPONENT
 
     families = tuple(sorted(set(FAMILY_COMPONENT.values())))
-    assert families, "esphome FAMILY_COMPONENT yielded no libretiny families"
+    if not families:
+        raise RuntimeError("esphome FAMILY_COMPONENT yielded no libretiny families")
     return families
 
 

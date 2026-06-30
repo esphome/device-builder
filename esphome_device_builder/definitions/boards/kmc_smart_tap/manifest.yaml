@@ -61,7 +61,6 @@ featured_components:
       locked: true
     update_interval: 30s
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

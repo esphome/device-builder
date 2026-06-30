@@ -18,52 +18,28 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: b24-output09
+  occupied_by: b24-W1-io0
 - gpio: 1
   available: false
-  occupied_by: b24-output10
+  occupied_by: Ethernet CLK
 - gpio: 2
   available: false
-  occupied_by: b24-output11
-- gpio: 3
-  available: false
-  occupied_by: b24-output12
-- gpio: 4
-  available: false
-  occupied_by: b24-output13
-- gpio: 5
-  available: false
-  occupied_by: b24-output14
-- gpio: 6
-  available: false
-  occupied_by: b24-output15
+  occupied_by: Ethernet MOSI
 - gpio: 7
   available: false
-  occupied_by: b24-output16
+  occupied_by: b24-W1-io7
 - gpio: 8
   available: false
-  occupied_by: b24-output17
-- gpio: 9
-  available: false
-  occupied_by: b24-output18
-- gpio: 10
-  available: false
-  occupied_by: b24-output19
-- gpio: 11
-  available: false
-  occupied_by: b24-output20
-- gpio: 12
-  available: false
-  occupied_by: b24-output21
+  occupied_by: bus_a
 - gpio: 13
   available: false
-  occupied_by: b24-output22
+  occupied_by: b24-W1-io13
 - gpio: 14
   available: false
-  occupied_by: b24-output23
-- gpio: 15
+  occupied_by: b24-W1-io14
+- gpio: 18
   available: false
-  occupied_by: b24-output24
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: b24-W1-io21
@@ -90,6 +66,59 @@ pins:
   occupied_by: b24-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-B24M/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_out_1
+  component_id: pcf8574
+  fields:
+    address: 37
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -127,6 +156,9 @@ featured_components:
       locked: true
     id: b24_input01
     name: b24-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input02
   component_id: binary_sensor.gpio
   fields:
@@ -139,6 +171,9 @@ featured_components:
       locked: true
     id: b24_input02
     name: b24-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input03
   component_id: binary_sensor.gpio
   fields:
@@ -151,6 +186,9 @@ featured_components:
       locked: true
     id: b24_input03
     name: b24-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input04
   component_id: binary_sensor.gpio
   fields:
@@ -163,6 +201,9 @@ featured_components:
       locked: true
     id: b24_input04
     name: b24-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input05
   component_id: binary_sensor.gpio
   fields:
@@ -175,6 +216,9 @@ featured_components:
       locked: true
     id: b24_input05
     name: b24-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input06
   component_id: binary_sensor.gpio
   fields:
@@ -187,6 +231,9 @@ featured_components:
       locked: true
     id: b24_input06
     name: b24-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input07
   component_id: binary_sensor.gpio
   fields:
@@ -199,6 +246,9 @@ featured_components:
       locked: true
     id: b24_input07
     name: b24-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input08
   component_id: binary_sensor.gpio
   fields:
@@ -211,6 +261,9 @@ featured_components:
       locked: true
     id: b24_input08
     name: b24-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input09
   component_id: binary_sensor.gpio
   fields:
@@ -223,6 +276,9 @@ featured_components:
       locked: true
     id: b24_input09
     name: b24-input09
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input10
   component_id: binary_sensor.gpio
   fields:
@@ -235,6 +291,9 @@ featured_components:
       locked: true
     id: b24_input10
     name: b24-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input11
   component_id: binary_sensor.gpio
   fields:
@@ -247,6 +306,9 @@ featured_components:
       locked: true
     id: b24_input11
     name: b24-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input12
   component_id: binary_sensor.gpio
   fields:
@@ -259,6 +321,9 @@ featured_components:
       locked: true
     id: b24_input12
     name: b24-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input13
   component_id: binary_sensor.gpio
   fields:
@@ -271,6 +336,9 @@ featured_components:
       locked: true
     id: b24_input13
     name: b24-input13
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input14
   component_id: binary_sensor.gpio
   fields:
@@ -283,6 +351,9 @@ featured_components:
       locked: true
     id: b24_input14
     name: b24-input14
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input15
   component_id: binary_sensor.gpio
   fields:
@@ -295,6 +366,9 @@ featured_components:
       locked: true
     id: b24_input15
     name: b24-input15
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input16
   component_id: binary_sensor.gpio
   fields:
@@ -307,6 +381,9 @@ featured_components:
       locked: true
     id: b24_input16
     name: b24-input16
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: b24_input17
   component_id: binary_sensor.gpio
   fields:
@@ -319,6 +396,9 @@ featured_components:
       locked: true
     id: b24_input17
     name: b24-input17
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input18
   component_id: binary_sensor.gpio
   fields:
@@ -331,6 +411,9 @@ featured_components:
       locked: true
     id: b24_input18
     name: b24-input18
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input19
   component_id: binary_sensor.gpio
   fields:
@@ -343,6 +426,9 @@ featured_components:
       locked: true
     id: b24_input19
     name: b24-input19
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input20
   component_id: binary_sensor.gpio
   fields:
@@ -355,6 +441,9 @@ featured_components:
       locked: true
     id: b24_input20
     name: b24-input20
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input21
   component_id: binary_sensor.gpio
   fields:
@@ -367,6 +456,9 @@ featured_components:
       locked: true
     id: b24_input21
     name: b24-input21
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input22
   component_id: binary_sensor.gpio
   fields:
@@ -379,6 +471,9 @@ featured_components:
       locked: true
     id: b24_input22
     name: b24-input22
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input23
   component_id: binary_sensor.gpio
   fields:
@@ -391,6 +486,9 @@ featured_components:
       locked: true
     id: b24_input23
     name: b24-input23
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_input24
   component_id: binary_sensor.gpio
   fields:
@@ -403,6 +501,9 @@ featured_components:
       locked: true
     id: b24_input24
     name: b24-input24
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
   fields:
@@ -528,6 +629,9 @@ featured_components:
       locked: true
     id: b24_output01
     name: b24-output01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output02
   component_id: switch.gpio
   fields:
@@ -540,6 +644,9 @@ featured_components:
       locked: true
     id: b24_output02
     name: b24-output02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output03
   component_id: switch.gpio
   fields:
@@ -552,6 +659,9 @@ featured_components:
       locked: true
     id: b24_output03
     name: b24-output03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output04
   component_id: switch.gpio
   fields:
@@ -564,6 +674,9 @@ featured_components:
       locked: true
     id: b24_output04
     name: b24-output04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output05
   component_id: switch.gpio
   fields:
@@ -576,6 +689,9 @@ featured_components:
       locked: true
     id: b24_output05
     name: b24-output05
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output06
   component_id: switch.gpio
   fields:
@@ -588,6 +704,9 @@ featured_components:
       locked: true
     id: b24_output06
     name: b24-output06
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output07
   component_id: switch.gpio
   fields:
@@ -600,6 +719,9 @@ featured_components:
       locked: true
     id: b24_output07
     name: b24-output07
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output08
   component_id: switch.gpio
   fields:
@@ -612,6 +734,9 @@ featured_components:
       locked: true
     id: b24_output08
     name: b24-output08
+  requires:
+  - bus_a
+  - pcf8574_hub_in_out_1
 - id: b24_output09
   component_id: switch.gpio
   fields:
@@ -624,6 +749,9 @@ featured_components:
       locked: true
     id: b24_output09
     name: b24-output09
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output10
   component_id: switch.gpio
   fields:
@@ -636,6 +764,9 @@ featured_components:
       locked: true
     id: b24_output10
     name: b24-output10
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output11
   component_id: switch.gpio
   fields:
@@ -648,6 +779,9 @@ featured_components:
       locked: true
     id: b24_output11
     name: b24-output11
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output12
   component_id: switch.gpio
   fields:
@@ -660,6 +794,9 @@ featured_components:
       locked: true
     id: b24_output12
     name: b24-output12
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output13
   component_id: switch.gpio
   fields:
@@ -672,6 +809,9 @@ featured_components:
       locked: true
     id: b24_output13
     name: b24-output13
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output14
   component_id: switch.gpio
   fields:
@@ -684,6 +824,9 @@ featured_components:
       locked: true
     id: b24_output14
     name: b24-output14
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output15
   component_id: switch.gpio
   fields:
@@ -696,6 +839,9 @@ featured_components:
       locked: true
     id: b24_output15
     name: b24-output15
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output16
   component_id: switch.gpio
   fields:
@@ -708,6 +854,9 @@ featured_components:
       locked: true
     id: b24_output16
     name: b24-output16
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output17
   component_id: switch.gpio
   fields:
@@ -720,6 +869,9 @@ featured_components:
       locked: true
     id: b24_output17
     name: b24-output17
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output18
   component_id: switch.gpio
   fields:
@@ -732,6 +884,9 @@ featured_components:
       locked: true
     id: b24_output18
     name: b24-output18
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output19
   component_id: switch.gpio
   fields:
@@ -744,6 +899,9 @@ featured_components:
       locked: true
     id: b24_output19
     name: b24-output19
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output20
   component_id: switch.gpio
   fields:
@@ -756,6 +914,9 @@ featured_components:
       locked: true
     id: b24_output20
     name: b24-output20
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output21
   component_id: switch.gpio
   fields:
@@ -768,6 +929,9 @@ featured_components:
       locked: true
     id: b24_output21
     name: b24-output21
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output22
   component_id: switch.gpio
   fields:
@@ -780,6 +944,9 @@ featured_components:
       locked: true
     id: b24_output22
     name: b24-output22
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output23
   component_id: switch.gpio
   fields:
@@ -792,6 +959,9 @@ featured_components:
       locked: true
     id: b24_output23
     name: b24-output23
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b24_output24
   component_id: switch.gpio
   fields:
@@ -804,6 +974,9 @@ featured_components:
       locked: true
     id: b24_output24
     name: b24-output24
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 source:
   type: esphome-devices
   remote_id: KinCony-B24M

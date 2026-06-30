@@ -13,30 +13,12 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-KC868-AI/kc868-ai.jpg
 pins:
-- gpio: 0
-  available: false
-  occupied_by: ai-input41
-- gpio: 1
-  available: false
-  occupied_by: ai-input42
-- gpio: 2
-  available: false
-  occupied_by: ai-input43
-- gpio: 3
-  available: false
-  occupied_by: ai-input44
 - gpio: 4
   available: false
-  occupied_by: ai-input45
+  occupied_by: bus_a
 - gpio: 5
   available: false
-  occupied_by: ai-input46
-- gpio: 6
-  available: false
-  occupied_by: ai-input47
-- gpio: 7
-  available: false
-  occupied_by: ai-input48
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -48,6 +30,73 @@ pins:
   occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AI/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_2
+  component_id: pcf8574
+  fields:
+    address: 37
+    id:
+      value: pcf8574_hub_in_2
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_3
+  component_id: pcf8574
+  fields:
+    address: 33
+    id:
+      value: pcf8574_hub_in_3
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_4
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: pcf8574_hub_in_4
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_5
+  component_id: pcf8574
+  fields:
+    address: 38
+    id:
+      value: pcf8574_hub_in_5
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_in_6
+  component_id: pcf8574
+  fields:
+    address: 35
+    id:
+      value: pcf8574_hub_in_6
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -79,6 +128,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: ai-input1
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -91,6 +143,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: ai-input2
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -103,6 +158,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: ai-input3
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -115,6 +173,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: ai-input4
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -127,6 +188,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: ai-input5
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -139,6 +203,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: ai-input6
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -151,6 +218,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: ai-input7
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -163,6 +233,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: ai-input8
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -175,6 +248,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: ai-input9
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -187,6 +263,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: ai-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -199,6 +278,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: ai-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -211,6 +293,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: ai-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -223,6 +308,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: ai-input13
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -235,6 +323,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: ai-input14
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -247,6 +338,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: ai-input15
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -259,6 +353,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: ai-input16
+  requires:
+  - bus_a
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
   fields:
@@ -271,6 +368,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_17
     name: ai-input17
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
   fields:
@@ -283,6 +383,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_18
     name: ai-input18
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
   fields:
@@ -295,6 +398,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_19
     name: ai-input19
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
   fields:
@@ -307,6 +413,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_20
     name: ai-input20
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
   fields:
@@ -319,6 +428,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_21
     name: ai-input21
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
   fields:
@@ -331,6 +443,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_22
     name: ai-input22
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
   fields:
@@ -343,6 +458,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_23
     name: ai-input23
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
   fields:
@@ -355,6 +473,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: ai-input24
+  requires:
+  - bus_a
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
   fields:
@@ -367,6 +488,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_25
     name: ai-input25
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
   fields:
@@ -379,6 +503,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: ai-input26
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
   fields:
@@ -391,6 +518,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_27
     name: ai-input27
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
   fields:
@@ -403,6 +533,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_28
     name: ai-input28
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
   fields:
@@ -415,6 +548,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_29
     name: ai-input29
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
   fields:
@@ -427,6 +563,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_30
     name: ai-input30
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
   fields:
@@ -439,6 +578,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_31
     name: ai-input31
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
   fields:
@@ -451,6 +593,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_32
     name: ai-input32
+  requires:
+  - bus_a
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_33
   component_id: binary_sensor.gpio
   fields:
@@ -463,6 +608,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_33
     name: ai-input33
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_34
   component_id: binary_sensor.gpio
   fields:
@@ -475,6 +623,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_34
     name: ai-input34
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_35
   component_id: binary_sensor.gpio
   fields:
@@ -487,6 +638,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_35
     name: ai-input35
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_36
   component_id: binary_sensor.gpio
   fields:
@@ -499,6 +653,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_36
     name: ai-input36
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_37
   component_id: binary_sensor.gpio
   fields:
@@ -511,6 +668,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_37
     name: ai-input37
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_38
   component_id: binary_sensor.gpio
   fields:
@@ -523,6 +683,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_38
     name: ai-input38
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_39
   component_id: binary_sensor.gpio
   fields:
@@ -535,6 +698,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_39
     name: ai-input39
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_40
   component_id: binary_sensor.gpio
   fields:
@@ -547,6 +713,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_40
     name: ai-input40
+  requires:
+  - bus_a
+  - pcf8574_hub_in_5
 - id: binary_sensor_gpio_41
   component_id: binary_sensor.gpio
   fields:
@@ -559,6 +728,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_41
     name: ai-input41
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_42
   component_id: binary_sensor.gpio
   fields:
@@ -571,6 +743,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_42
     name: ai-input42
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_43
   component_id: binary_sensor.gpio
   fields:
@@ -583,6 +758,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_43
     name: ai-input43
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_44
   component_id: binary_sensor.gpio
   fields:
@@ -595,6 +773,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_44
     name: ai-input44
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_45
   component_id: binary_sensor.gpio
   fields:
@@ -607,6 +788,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_45
     name: ai-input45
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_46
   component_id: binary_sensor.gpio
   fields:
@@ -619,6 +803,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_46
     name: ai-input46
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_47
   component_id: binary_sensor.gpio
   fields:
@@ -631,6 +818,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_47
     name: ai-input47
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 - id: binary_sensor_gpio_48
   component_id: binary_sensor.gpio
   fields:
@@ -643,6 +833,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_48
     name: ai-input48
+  requires:
+  - bus_a
+  - pcf8574_hub_in_6
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-AI

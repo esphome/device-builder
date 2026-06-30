@@ -16,6 +16,9 @@ pins:
 - gpio: 0
   available: false
   occupied_by: button_select
+- gpio: 1
+  available: false
+  occupied_by: i2s_out
 - gpio: 2
   available: false
   occupied_by: lilka_speaker
@@ -40,6 +43,12 @@ pins:
 - gpio: 15
   available: false
   occupied_by: my_display
+- gpio: 17
+  available: false
+  occupied_by: spi
+- gpio: 18
+  available: false
+  occupied_by: spi
 - gpio: 38
   available: false
   occupied_by: button_up
@@ -52,9 +61,33 @@ pins:
 - gpio: 41
   available: false
   occupied_by: button_down
+- gpio: 42
+  available: false
+  occupied_by: i2s_out
 docs_url: https://devices.esphome.io/devices/Lilka/
 product_url: https://docs.lilka.dev/
 featured_components:
+- id: spi_bus
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 17
+      locked: true
+- id: i2s_out
+  component_id: i2s_audio
+  fields:
+    i2s_lrclk_pin:
+      value: 1
+      locked: true
+    i2s_bclk_pin:
+      value: 42
+      locked: true
+    id:
+      value: i2s_out
+      locked: true
 - id: button_up
   component_id: binary_sensor.gpio
   fields:
@@ -181,7 +214,8 @@ featured_components:
     pixel_mode: 16bit
     auto_clear_enabled: false
     id: my_display
-    name: my_display
+  requires:
+  - spi_bus
 - id: lilka_speaker
   component_id: speaker.i2s_audio
   fields:
@@ -193,7 +227,8 @@ featured_components:
     sample_rate: 16000
     bits_per_sample: 16bit
     id: lilka_speaker
-    name: lilka_speaker
+  requires:
+  - i2s_out
 source:
   type: esphome-devices
   remote_id: Lilka

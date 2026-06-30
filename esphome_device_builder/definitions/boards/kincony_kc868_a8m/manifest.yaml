@@ -15,30 +15,12 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: light1
-- gpio: 1
-  available: false
-  occupied_by: light2
-- gpio: 2
-  available: false
-  occupied_by: light3
-- gpio: 3
-  available: false
-  occupied_by: light4
 - gpio: 4
   available: false
-  occupied_by: curtain1-up
+  occupied_by: bus_a
 - gpio: 5
   available: false
-  occupied_by: curtain1-down
-- gpio: 6
-  available: false
-  occupied_by: curtain2-up
-- gpio: 7
-  available: false
-  occupied_by: curtain2-down
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -50,6 +32,37 @@ pins:
   occupied_by: Ethernet MDC
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A8M/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 5
+      locked: true
+    scl:
+      value: 4
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -81,6 +94,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: input1
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -93,6 +109,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: input2
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -105,6 +124,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: input3
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -117,6 +139,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: input4
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -129,6 +154,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: input5
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -141,6 +169,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: input6
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -153,6 +184,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: input7
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -165,6 +199,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: input8
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: light1
   component_id: switch.gpio
   fields:
@@ -177,6 +214,9 @@ featured_components:
       locked: true
     id: light1
     name: light1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: light2
   component_id: switch.gpio
   fields:
@@ -189,6 +229,9 @@ featured_components:
       locked: true
     id: light2
     name: light2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: light3
   component_id: switch.gpio
   fields:
@@ -201,6 +244,9 @@ featured_components:
       locked: true
     id: light3
     name: light3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: light4
   component_id: switch.gpio
   fields:
@@ -213,6 +259,9 @@ featured_components:
       locked: true
     id: light4
     name: light4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay5
   component_id: switch.gpio
   fields:
@@ -225,6 +274,9 @@ featured_components:
       locked: true
     id: relay5
     name: curtain1-up
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay6
   component_id: switch.gpio
   fields:
@@ -237,6 +289,9 @@ featured_components:
       locked: true
     id: relay6
     name: curtain1-down
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay7
   component_id: switch.gpio
   fields:
@@ -249,6 +304,9 @@ featured_components:
       locked: true
     id: relay7
     name: curtain2-up
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: relay8
   component_id: switch.gpio
   fields:
@@ -261,6 +319,9 @@ featured_components:
       locked: true
     id: relay8
     name: curtain2-down
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A8M

@@ -120,7 +120,6 @@ featured_components:
       locked: true
     update_interval: 10s
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: cu9kw_socket_1
   component_id: switch.output
   fields:

@@ -15,30 +15,18 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: a32-light25
-- gpio: 1
-  available: false
-  occupied_by: a32-light26
-- gpio: 2
-  available: false
-  occupied_by: a32-light27
-- gpio: 3
-  available: false
-  occupied_by: a32-light28
 - gpio: 4
   available: false
-  occupied_by: a32-light29
+  occupied_by: bus_b
 - gpio: 5
   available: false
-  occupied_by: a32-light30
-- gpio: 6
+  occupied_by: bus_b
+- gpio: 13
   available: false
-  occupied_by: a32-light31
-- gpio: 7
+  occupied_by: bus_a
+- gpio: 15
   available: false
-  occupied_by: a32-light32
+  occupied_by: bus_a
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -62,6 +50,128 @@ pins:
   occupied_by: analog-1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A32/
 featured_components:
+- id: bus_b
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    id:
+      value: bus_b
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_2
+  component_id: pcf8574
+  fields:
+    address: 37
+    id:
+      value: pcf8574_hub_in_2
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_3
+  component_id: pcf8574
+  fields:
+    address: 33
+    id:
+      value: pcf8574_hub_in_3
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: pcf8574_hub_in_4
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: pcf8574_hub_in_4
+      locked: true
+    i2c_id:
+      value: bus_b
+      locked: true
+  requires:
+  - bus_b
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 13
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_2
+  component_id: pcf8574
+  fields:
+    address: 37
+    id:
+      value: pcf8574_hub_out_2
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_3
+  component_id: pcf8574
+  fields:
+    address: 33
+    id:
+      value: pcf8574_hub_out_3
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_4
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: pcf8574_hub_out_4
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -93,6 +203,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: a32-input1
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -105,6 +218,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: a32-input2
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -117,6 +233,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: a32-input3
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -129,6 +248,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: a32-input4
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -141,6 +263,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: a32-input5
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -153,6 +278,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: a32-input6
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -165,6 +293,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: a32-input7
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -177,6 +308,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: a32-input8
+  requires:
+  - bus_b
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -189,6 +323,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: a32-input9
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -201,6 +338,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: a32-input10
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -213,6 +353,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: a32-input11
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -225,6 +368,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: a32-input12
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -237,6 +383,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: a32-input13
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -249,6 +398,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: a32-input14
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -261,6 +413,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: a32-input15
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -273,6 +428,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: a32-input16
+  requires:
+  - bus_b
+  - pcf8574_hub_in_2
 - id: binary_sensor_gpio_17
   component_id: binary_sensor.gpio
   fields:
@@ -285,6 +443,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_17
     name: a32-input17
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_18
   component_id: binary_sensor.gpio
   fields:
@@ -297,6 +458,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_18
     name: a32-input18
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_19
   component_id: binary_sensor.gpio
   fields:
@@ -309,6 +473,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_19
     name: a32-input19
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_20
   component_id: binary_sensor.gpio
   fields:
@@ -321,6 +488,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_20
     name: a32-input20
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_21
   component_id: binary_sensor.gpio
   fields:
@@ -333,6 +503,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_21
     name: a32-input21
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_22
   component_id: binary_sensor.gpio
   fields:
@@ -345,6 +518,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_22
     name: a32-input22
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_23
   component_id: binary_sensor.gpio
   fields:
@@ -357,6 +533,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_23
     name: a32-input23
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_24
   component_id: binary_sensor.gpio
   fields:
@@ -369,6 +548,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: a32-input24
+  requires:
+  - bus_b
+  - pcf8574_hub_in_3
 - id: binary_sensor_gpio_25
   component_id: binary_sensor.gpio
   fields:
@@ -381,6 +563,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_25
     name: a32-input25
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_26
   component_id: binary_sensor.gpio
   fields:
@@ -393,6 +578,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: a32-input26
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_27
   component_id: binary_sensor.gpio
   fields:
@@ -405,6 +593,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_27
     name: a32-input27
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_28
   component_id: binary_sensor.gpio
   fields:
@@ -417,6 +608,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_28
     name: a32-input28
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_29
   component_id: binary_sensor.gpio
   fields:
@@ -429,6 +623,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_29
     name: a32-input29
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_30
   component_id: binary_sensor.gpio
   fields:
@@ -441,6 +638,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_30
     name: a32-input30
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_31
   component_id: binary_sensor.gpio
   fields:
@@ -453,6 +653,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_31
     name: a32-input31
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: binary_sensor_gpio_32
   component_id: binary_sensor.gpio
   fields:
@@ -465,6 +668,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_32
     name: a32-input32
+  requires:
+  - bus_b
+  - pcf8574_hub_in_4
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -517,6 +723,9 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: a32-light1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -529,6 +738,9 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: a32-light2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -541,6 +753,9 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: a32-light3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -553,6 +768,9 @@ featured_components:
       locked: true
     id: switch_gpio_4
     name: a32-light4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -565,6 +783,9 @@ featured_components:
       locked: true
     id: switch_gpio_5
     name: a32-light5
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -577,6 +798,9 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: a32-light6
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_7
   component_id: switch.gpio
   fields:
@@ -589,6 +813,9 @@ featured_components:
       locked: true
     id: switch_gpio_7
     name: a32-light7
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_8
   component_id: switch.gpio
   fields:
@@ -601,6 +828,9 @@ featured_components:
       locked: true
     id: switch_gpio_8
     name: a32-light8
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_9
   component_id: switch.gpio
   fields:
@@ -613,6 +843,9 @@ featured_components:
       locked: true
     id: switch_gpio_9
     name: a32-light9
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_10
   component_id: switch.gpio
   fields:
@@ -625,6 +858,9 @@ featured_components:
       locked: true
     id: switch_gpio_10
     name: a32-light10
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_11
   component_id: switch.gpio
   fields:
@@ -637,6 +873,9 @@ featured_components:
       locked: true
     id: switch_gpio_11
     name: a32-light11
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_12
   component_id: switch.gpio
   fields:
@@ -649,6 +888,9 @@ featured_components:
       locked: true
     id: switch_gpio_12
     name: a32-light12
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_13
   component_id: switch.gpio
   fields:
@@ -661,6 +903,9 @@ featured_components:
       locked: true
     id: switch_gpio_13
     name: a32-light13
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_14
   component_id: switch.gpio
   fields:
@@ -673,6 +918,9 @@ featured_components:
       locked: true
     id: switch_gpio_14
     name: a32-light14
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_15
   component_id: switch.gpio
   fields:
@@ -685,6 +933,9 @@ featured_components:
       locked: true
     id: switch_gpio_15
     name: a32-light15
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_16
   component_id: switch.gpio
   fields:
@@ -697,6 +948,9 @@ featured_components:
       locked: true
     id: switch_gpio_16
     name: a32-light16
+  requires:
+  - bus_a
+  - pcf8574_hub_out_2
 - id: switch_gpio_17
   component_id: switch.gpio
   fields:
@@ -709,6 +963,9 @@ featured_components:
       locked: true
     id: switch_gpio_17
     name: a32-light17
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_18
   component_id: switch.gpio
   fields:
@@ -721,6 +978,9 @@ featured_components:
       locked: true
     id: switch_gpio_18
     name: a32-light18
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_19
   component_id: switch.gpio
   fields:
@@ -733,6 +993,9 @@ featured_components:
       locked: true
     id: switch_gpio_19
     name: a32-light19
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_20
   component_id: switch.gpio
   fields:
@@ -745,6 +1008,9 @@ featured_components:
       locked: true
     id: switch_gpio_20
     name: a32-light20
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_21
   component_id: switch.gpio
   fields:
@@ -757,6 +1023,9 @@ featured_components:
       locked: true
     id: switch_gpio_21
     name: a32-light21
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_22
   component_id: switch.gpio
   fields:
@@ -769,6 +1038,9 @@ featured_components:
       locked: true
     id: switch_gpio_22
     name: a32-light22
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_23
   component_id: switch.gpio
   fields:
@@ -781,6 +1053,9 @@ featured_components:
       locked: true
     id: switch_gpio_23
     name: a32-light23
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_24
   component_id: switch.gpio
   fields:
@@ -793,6 +1068,9 @@ featured_components:
       locked: true
     id: switch_gpio_24
     name: a32-light24
+  requires:
+  - bus_a
+  - pcf8574_hub_out_3
 - id: switch_gpio_25
   component_id: switch.gpio
   fields:
@@ -805,6 +1083,9 @@ featured_components:
       locked: true
     id: switch_gpio_25
     name: a32-light25
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_26
   component_id: switch.gpio
   fields:
@@ -817,6 +1098,9 @@ featured_components:
       locked: true
     id: switch_gpio_26
     name: a32-light26
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_27
   component_id: switch.gpio
   fields:
@@ -829,6 +1113,9 @@ featured_components:
       locked: true
     id: switch_gpio_27
     name: a32-light27
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_28
   component_id: switch.gpio
   fields:
@@ -841,6 +1128,9 @@ featured_components:
       locked: true
     id: switch_gpio_28
     name: a32-light28
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_29
   component_id: switch.gpio
   fields:
@@ -853,6 +1143,9 @@ featured_components:
       locked: true
     id: switch_gpio_29
     name: a32-light29
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_30
   component_id: switch.gpio
   fields:
@@ -865,6 +1158,9 @@ featured_components:
       locked: true
     id: switch_gpio_30
     name: a32-light30
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_31
   component_id: switch.gpio
   fields:
@@ -877,6 +1173,9 @@ featured_components:
       locked: true
     id: switch_gpio_31
     name: a32-light31
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 - id: switch_gpio_32
   component_id: switch.gpio
   fields:
@@ -889,6 +1188,9 @@ featured_components:
       locked: true
     id: switch_gpio_32
     name: a32-light32
+  requires:
+  - bus_a
+  - pcf8574_hub_out_4
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A32

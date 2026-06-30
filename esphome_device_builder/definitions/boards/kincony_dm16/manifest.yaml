@@ -14,54 +14,18 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-DM16/DM16-1.jpg
 pins:
-- gpio: 0
-  available: false
-  occupied_by: dm16-input09
 - gpio: 1
   available: false
-  occupied_by: dm16-input10
+  occupied_by: Ethernet CLK
 - gpio: 2
   available: false
-  occupied_by: dm16-input11
-- gpio: 3
-  available: false
-  occupied_by: dm16-input12
-- gpio: 4
-  available: false
-  occupied_by: dm16-input13
-- gpio: 5
-  available: false
-  occupied_by: dm16-input14
-- gpio: 6
-  available: false
-  occupied_by: dm16-input15
-- gpio: 7
-  available: false
-  occupied_by: dm16-input16
+  occupied_by: Ethernet MOSI
 - gpio: 8
   available: false
-  occupied_by: dm16-input01
-- gpio: 9
+  occupied_by: bus_a
+- gpio: 18
   available: false
-  occupied_by: dm16-input02
-- gpio: 10
-  available: false
-  occupied_by: dm16-input03
-- gpio: 11
-  available: false
-  occupied_by: dm16-input04
-- gpio: 12
-  available: false
-  occupied_by: dm16-input05
-- gpio: 13
-  available: false
-  occupied_by: dm16-input06
-- gpio: 14
-  available: false
-  occupied_by: dm16-input07
-- gpio: 15
-  available: false
-  occupied_by: dm16-input08
+  occupied_by: bus_a
 - gpio: 41
   available: false
   occupied_by: Ethernet MISO
@@ -76,6 +40,33 @@ pins:
   occupied_by: Ethernet RESET
 docs_url: https://devices.esphome.io/devices/KinCony-DM16/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -113,6 +104,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: dm16-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -125,6 +119,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: dm16-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -137,6 +134,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: dm16-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -149,6 +149,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: dm16-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -161,6 +164,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: dm16-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -173,6 +179,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: dm16-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -185,6 +194,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: dm16-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -197,6 +209,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: dm16-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -209,6 +224,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_9
     name: dm16-input09
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_10
   component_id: binary_sensor.gpio
   fields:
@@ -221,6 +239,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_10
     name: dm16-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_11
   component_id: binary_sensor.gpio
   fields:
@@ -233,6 +254,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_11
     name: dm16-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_12
   component_id: binary_sensor.gpio
   fields:
@@ -245,6 +269,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_12
     name: dm16-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -257,6 +284,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_13
     name: dm16-input13
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_14
   component_id: binary_sensor.gpio
   fields:
@@ -269,6 +299,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_14
     name: dm16-input14
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_15
   component_id: binary_sensor.gpio
   fields:
@@ -281,6 +314,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_15
     name: dm16-input15
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_16
   component_id: binary_sensor.gpio
   fields:
@@ -293,6 +329,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_16
     name: dm16-input16
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:

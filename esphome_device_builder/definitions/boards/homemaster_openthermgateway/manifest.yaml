@@ -17,6 +17,12 @@ images:
 tags:
 - relay
 pins:
+- gpio: 4
+  available: false
+  occupied_by: ow_bus_1
+- gpio: 5
+  available: false
+  occupied_by: ow_bus_2
 - gpio: 32
   available: false
   occupied_by: Relay
@@ -26,6 +32,24 @@ pins:
 docs_url: https://devices.esphome.io/devices/Homemaster-OpenthermGateway/
 product_url: https://github.com/isystemsautomation/homemaster-dev/tree/main/OpenthermGateway
 featured_components:
+- id: ow_bus_1
+  component_id: one_wire.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    id:
+      value: ow_bus_1
+      locked: true
+- id: ow_bus_2
+  component_id: one_wire.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    id:
+      value: ow_bus_2
+      locked: true
 - id: esp_status
   component_id: binary_sensor.status
   fields:
@@ -71,12 +95,16 @@ featured_components:
     unit_of_measurement: °C
     id: ow_bus_1_temperature
     name: 1-Wire Bus 1 Temperature
+  requires:
+  - ow_bus_1
 - id: ow_bus_2_temperature
   component_id: sensor.dallas_temp
   fields:
     unit_of_measurement: °C
     id: ow_bus_2_temperature
     name: 1-Wire Bus 2 Temperature
+  requires:
+  - ow_bus_2
 - id: relay_1
   component_id: switch.gpio
   fields:

@@ -3,7 +3,12 @@ name: Sync device catalog
 # Re-runs ``script/sync_esphome_devices.py`` against the
 # devices.esphome.io upstream and opens a pull request when imported
 # manifests under ``definitions/boards/`` change. Introspects against
-# the latest prerelease esphome so new chip variants surface early.
+# the pinned esphome (``esphome-constraints.txt``), the same version CI
+# and the committed catalog use: ``sync_boards.py`` re-stamps
+# boards.index.json from the installed esphome, so a newer prerelease
+# here would commit a stamp the pinned Test job can't match. The catalog
+# advances to a new esphome as one unit when the component sync bumps the
+# pin on release, so new chip variants surface then rather than mid-beta.
 #
 # Triggers
 # --------
@@ -55,12 +60,13 @@ jobs:
         # ``sync_boards.py`` introspects ESPHome's per-platform board
         # modules to regenerate board pins, so the esphome extra is
         # required; ``test`` carries jsonschema for validate_definitions.
-        # The second install tracks the latest prerelease esphome so
-        # board-pin introspection picks up new chip variants as soon as
-        # a beta ships.
-        run: |
-          uv pip install --system -e '.[esphome,test]'
-          uv pip install --system --upgrade --prerelease=allow esphome
+        # ``-c esphome-constraints.txt`` pins esphome to the same version
+        # the committed catalog (and CI) use: ``sync_boards.py`` re-stamps
+        # boards.index.json from the installed esphome, so introspecting a
+        # newer prerelease here would commit a stamp the Test job's pinned
+        # lint can't match. The catalog advances to a new esphome as one
+        # unit when the component sync bumps the pin on release.
+        run: uv pip install --system -c esphome-constraints.txt -e '.[esphome,test]'
 
       - name: Run sync_esphome_devices
         run: python script/sync_esphome_devices.py
@@ -77,7 +83,7 @@ jobs:
         # JSON Schema and the component catalog cross-references.
         run: python script/validate_definitions.py
 
-      - name: Regenerate boards.json
+      - name: Regenerate board catalog
         # The opened PR needs to ship the regenerated catalog
         # alongside the imported manifests — without this, a merge
         # would land new YAMLs the dashboard never sees.
@@ -92,7 +98,7 @@ jobs:
           # script writes untracked manifests that diff would silently miss,
           # so we'd never open a PR. ``git status --porcelain`` covers
           # added / modified / deleted in one go.
-          if [ -z "$(git status --porcelain -- esphome_device_builder/definitions/boards/ esphome_device_builder/definitions/boards.json)" ]; then
+          if [ -z "$(git status --porcelain -- esphome_device_builder/definitions/boards/ esphome_device_builder/definitions/boards.index.json esphome_device_builder/definitions/board_bodies/ esphome_device_builder/definitions/featured_components.index.json)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

@@ -60,7 +60,6 @@ featured_components:
       locked: true
     update_interval: 60s
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: analog_button
   component_id: sensor.adc
   fields:

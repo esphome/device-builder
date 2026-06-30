@@ -4,8 +4,9 @@
 # escape hatch so reporters always pick one of the curated paths
 # below — most of which redirect them to a more appropriate venue
 # (esphome core repo, org-wide discussions, the project backlog,
-# Discord) before they end up filing here. The single real template
-# (``bug_report.yml``) is reserved for actual dashboard bugs.
+# Discord) before they end up filing here. The two real templates
+# (``bug_report.yml`` for dashboard bugs, ``device_status.yml`` for
+# online/offline/sync/detection reports) are reserved for actual issues.
 
 blank_issues_enabled: false
 contact_links:

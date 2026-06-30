@@ -28,7 +28,14 @@ try:
 except ImportError:
     HAS_JSONSCHEMA = False
 
-DEFINITIONS_DIR = Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+# Imported from the stdlib-only constants module so this script stays light.
+from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
+
+DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
 COMPONENTS_INDEX_JSON = DEFINITIONS_DIR / "components.index.json"
 COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
@@ -41,7 +48,8 @@ _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
 # ``core`` category — auto-pulled in place of wifi: when a board has onboard
 # wired/Thread networking. Runtime counterpart is
 # ``NETWORK_PROVIDER_COMPONENT_IDS`` in helpers/device_yaml/_generation.py;
-# keep both in sync when adding a provider (this script stays import-free).
+# keep both in sync when adding a provider (that module pulls the heavy helper
+# layer, so it's mirrored here rather than imported).
 _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 
 # Required shape for featured-component ids: lowercase letters, digits, and
@@ -49,39 +57,14 @@ _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 # as a valid identifier and what the sync script's auto-id format produces.
 _FEATURED_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
-# Categories whose ESPHome schema accepts a top-level ``name:`` field
-# (entity-base universals). Used to gate the ``fields.name`` exception
-# below — without this, a manifest could attach ``fields.name`` to an
-# ``output.*`` component and still validate, then later compile-fail
-# because ``output:`` doesn't carry a ``name`` field.
-_HA_ENTITY_CATEGORIES: frozenset[str] = frozenset(
-    {
-        "alarm_control_panel",
-        "binary_sensor",
-        "button",
-        "camera",
-        "climate",
-        "cover",
-        "datetime",
-        "display",
-        "event",
-        "fan",
-        "light",
-        "lock",
-        "media_player",
-        "microphone",
-        "number",
-        "select",
-        "sensor",
-        "speaker",
-        "switch",
-        "text",
-        "text_sensor",
-        "touchscreen",
-        "update",
-        "valve",
-    }
-)
+# ``(board_id, bus)`` pairs whose source can't yet express a lift-able bus, so a
+# featured leaf's dependency on that bus is knowingly unsatisfied (the full-setup
+# config won't compile) pending a source-level fix. Keyed on the specific bus, not
+# the whole board, so a *different* unsatisfied bus on the same board still fails.
+# This is an allow list, not a silent skip: adding a pair needs a tracking note,
+# removing one a fix in script/sync_esphome_devices.py.
+# Currently empty — every imported board's featured bus dependencies are lifted.
+_UNSATISFIED_BUS_ALLOW_LIST: frozenset[tuple[str, str]] = frozenset()
 
 # Pin features the board manifest can declare (mirrors the JSON Schema enum
 # in board.schema.json). Components.json sometimes carries pin_features
@@ -279,6 +262,9 @@ def _validate_featured(  # noqa: C901
         )
 
     errors.extend(_validate_default_components(board_id, defaults, seen_fc_ids, components_index))
+    errors.extend(
+        _validate_featured_dependencies(board_id, featured, components_index, is_imported, defaults)
+    )
     return errors
 
 
@@ -309,6 +295,80 @@ def _validate_default_components(
             f"{board_id}.default_components[{idx}]: '{ref}' does not match any "
             f"featured_components[].id or known component_id"
         )
+    return out
+
+
+def _is_bus_dep(dep: str, components_index: dict) -> bool:
+    """Whether *dep* names a bus, mapping- (top-level, category bus) or platform-style."""
+    component = components_index.get(dep)
+    if component is not None:
+        return component.get("category") in BUS_CATEGORIES
+    return dep in BUS_CATEGORIES
+
+
+def _ref_ids(entries: list) -> set[str]:
+    """Component ids/refs named by a featured or default-components list."""
+    ids: set[str] = set()
+    for entry in entries:
+        if isinstance(entry, str):
+            ids.add(entry)
+        elif isinstance(entry, dict) and isinstance(entry.get("component_id"), str):
+            ids.add(entry["component_id"])
+        elif isinstance(entry, dict) and isinstance(entry.get("id"), str):
+            ids.add(entry["id"])
+    return ids
+
+
+def _validate_featured_dependencies(
+    board_id: str,
+    featured: list,
+    components_index: dict | None,
+    is_imported: bool,
+    defaults: list | None = None,
+) -> list[str]:
+    """
+    Flag a featured leaf whose bus dependency no component on the board provides.
+
+    An imported board ships its featured components as a complete config, so a
+    leaf binding a bus (i2c/spi/uart/modbus/one_wire/canbus) by catalog dependency
+    won't compile unless the bus is provided too (lifted by the sync script into
+    featured or default components). Only imported boards are checked; a
+    ``(board, bus)`` pair in the allow list — a known source-level gap — is waived
+    while any *other* unsatisfied bus on the same board still fails.
+    """
+    if not is_imported or components_index is None:
+        return []
+    present = _ref_ids(featured) | _ref_ids(defaults or [])
+    present_domains = {cid.split(".")[0] for cid in present}
+    out: list[str] = []
+    for idx, entry in enumerate(featured):
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("component_id")
+        # Only platform leaves (``<domain>.<platform>`` — sensors, displays,
+        # touchscreens) bind a bus unconditionally; their bus is their sole
+        # connection. Bare top-level components are buses themselves (no bus dep)
+        # or dual-mode hubs whose bus dependency is conditional (``sn74hc595``
+        # bit-bangs over GPIO *or* runs on spi), so the catalog ``dependencies``
+        # over-declares the bus and checking them here would false-positive.
+        if not isinstance(cid, str) or "." not in cid:
+            continue
+        component = components_index.get(cid)
+        if not component:
+            continue
+        for dep in component.get("dependencies") or []:
+            if not isinstance(dep, str) or not _is_bus_dep(dep, components_index):
+                continue
+            if dep in present or dep in present_domains:
+                continue
+            if (board_id, dep) in _UNSATISFIED_BUS_ALLOW_LIST:
+                continue
+            out.append(
+                f"{board_id}.featured_components[{idx}]({entry.get('id')}): depends on bus "
+                f"'{dep}' but no featured component provides it; the full-setup config won't "
+                f"compile. Lift the bus in script/sync_esphome_devices.py, or add "
+                f"({board_id!r}, {dep!r}) to _UNSATISFIED_BUS_ALLOW_LIST with the source reason."
+            )
     return out
 
 
@@ -376,10 +436,12 @@ def _validate_featured_component(  # noqa: C901
         if isinstance(key, str):
             entries_by_key[key] = ce
 
-    component_category = component.get("category")
     for fkey, fval in (entry.get("fields") or {}).items():
         if fkey not in entries_by_key:
-            if _is_entity_base_universal(fkey, component_category):
+            # ``id`` is universal across every component; every other field —
+            # including ``name`` — must be a declared config entry, mirroring the
+            # importer, which injects ``name`` only when the schema declares it.
+            if fkey == "id":
                 continue
             errors.append(f"{path}.fields.{fkey}: not a config_entry on {component_id}")
             continue
@@ -389,19 +451,9 @@ def _validate_featured_component(  # noqa: C901
     return errors
 
 
-def _is_entity_base_universal(fkey: str, category: str | None) -> bool:
-    """
-    Return ``True`` for fields ESPHome accepts beyond the catalog schema.
-
-    ``id`` is universal across every component. ``name`` is part of
-    ENTITY_BASE_SCHEMA, inherited by every HA-entity-domain platform —
-    but the schema sync misses it for several entity components
-    (binary_sensor.gpio, sensor.aht10, ...), so a manifest setting
-    ``fields.name`` on those would otherwise trip the unknown-key gate.
-    """
-    if fkey == "id":
-        return True
-    return fkey == "name" and category in _HA_ENTITY_CATEGORIES
+def _is_expander_pin(raw: object) -> bool:
+    """Whether *raw* is a long-form pin sitting on an I/O-expander hub."""
+    return isinstance(raw, dict) and bool(raw.keys() - BOARD_PIN_KEYS)
 
 
 def _validate_field_preset(
@@ -426,6 +478,11 @@ def _validate_field_preset(
         # fail every plain-GPIO recommendation.
         required_features = {f for f in (ce.get("pin_features") or []) if f in _BOARD_PIN_FEATURES}
         for raw in _pin_values_to_check(value, suggestions):
+            if _is_expander_pin(raw):
+                # The pin sits on an I/O expander; its ``number`` is an
+                # expander channel, not a board GPIO, so it isn't checked
+                # against the board pins.
+                continue
             gpio = _extract_gpio(raw)
             if gpio is None:
                 # Best-effort: rich pin specs without a recognisable

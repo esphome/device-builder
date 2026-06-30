@@ -1,0 +1,7 @@
+# Pinned esphome for CI's catalog-enforcement (the lint job's sync-boards hook
+# re-stamps boards.index.json from the installed esphome). Kept here so a new
+# esphome release does not spontaneously red main and every PR; the catalog
+# sync workflows bump this line when they regenerate the catalog against a new
+# esphome. Not the package's runtime dependency (that stays esphome>=… in
+# pyproject); this only constrains CI installs via uv pip install -c.
+esphome==2026.6.3

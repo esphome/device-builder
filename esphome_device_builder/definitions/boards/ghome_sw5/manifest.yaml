@@ -1,0 +1,71 @@
+id: ghome_sw5
+name: GHome SW5
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Ghome-SW5/ghome-sw5.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Ghome-SW5/pogo-mounted.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Ghome-SW5/pogo-clip.png
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Ghome-SW5/janky.png
+pins:
+- gpio: 8
+  available: false
+  occupied_by: button1
+- gpio: 14
+  available: false
+  occupied_by: Relay Switch
+- gpio: 16
+  available: false
+  occupied_by: red_led
+docs_url: https://devices.esphome.io/devices/Ghome-SW5/
+featured_components:
+- id: button1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        mode: INPUT_PULLUP
+      locked: true
+    id: button1
+    name: button1
+- id: led
+  component_id: light.binary
+  fields:
+    output: red_led
+    id: led
+    name: Red LED
+- id: red_led
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 16
+        inverted: false
+      locked: true
+    id: red_led
+- id: relay1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    id: relay1
+    name: Relay Switch
+featured_bundles:
+- id: led_setup
+  name: Red LED (full setup)
+  component_ids:
+  - red_led
+  - led
+source:
+  type: esphome-devices
+  remote_id: Ghome-SW5
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Ghome-SW5/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: df97ff471449e4454453a0d0eb7a124c6f6c89db638fb1ab95799d446a0cfb82

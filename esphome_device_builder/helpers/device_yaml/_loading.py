@@ -207,6 +207,7 @@ def load_device_from_storage(
         expected_config_hash=expected_config_hash,
         deployed_config_hash=deployed_config_hash,
     )
+    pending_via_hash = pending_changes_via_hash(expected_config_hash, deployed_config_hash)
 
     update_available = bool(deployed_version and deployed_version != const.__version__)
 
@@ -338,6 +339,7 @@ def load_device_from_storage(
         directly_referenced_integrations=directly_referenced_integrations,
         state=state,
         has_pending_changes=has_pending,
+        pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
         # ``uses_mqtt`` keeps its prior shape — the resolved config
         # wins, raw-text fills in mid-edit, and we don't have a
@@ -404,6 +406,15 @@ def compute_has_pending_changes(
     if bin_mtime is None:
         return True
     return yaml_mtime is not None and yaml_mtime > bin_mtime
+
+
+def pending_changes_via_hash(expected_config_hash: str, deployed_config_hash: str) -> bool:
+    """Report whether the pending verdict is hash-driven: both hashes known and differing."""
+    return bool(
+        expected_config_hash
+        and deployed_config_hash
+        and expected_config_hash != deployed_config_hash
+    )
 
 
 def load_device_yaml(path: Path) -> dict | None:

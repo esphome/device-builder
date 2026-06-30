@@ -9,8 +9,34 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter/LSC-Smart-Connect-XXL-LED-Stripe-3202086.png
+pins:
+- gpio: 7
+  available: false
+  occupied_by: Button
+- gpio: 9
+  available: false
+  occupied_by: output_cw
+- gpio: 16
+  available: false
+  occupied_by: Color Light
+- gpio: 24
+  available: false
+  occupied_by: output_ww
 docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-XXL-LED-Stripe-10Meter/
 featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 7
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
 - id: white_light
   component_id: light.cwww
   fields:
@@ -23,6 +49,9 @@ featured_components:
 - id: color_light
   component_id: light.beken_spi_led_strip
   fields:
+    pin:
+      value: 16
+      locked: true
     chipset: WS2812
     num_leds: 40
     rgb_order: RBG
@@ -31,10 +60,16 @@ featured_components:
 - id: output_cw
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 9
+      locked: true
     id: output_cw
 - id: output_ww
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 24
+      locked: true
     id: output_ww
 featured_bundles:
 - id: white_light_setup

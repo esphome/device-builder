@@ -1,0 +1,31 @@
+id: antsig_grid_connect_smart_ir_universal_remote
+name: Antsig Smart Wi-Fi IR Universal Remote (HUBIR01HA)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Antsig-Grid-Connect-Smart-IR-Universal-Remote/Antsig-Grid-Connect-Smart-IR-Universal-Remote.jpg
+pins:
+- gpio: 8
+  available: false
+  occupied_by: Status
+docs_url: https://devices.esphome.io/devices/Antsig-Grid-Connect-Smart-IR-Universal-Remote/
+featured_components:
+- id: light_status_led_1
+  component_id: light.status_led
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: light_status_led_1
+    name: Status
+source:
+  type: esphome-devices
+  remote_id: Antsig-Grid-Connect-Smart-IR-Universal-Remote
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Antsig-Grid-Connect-Smart-IR-Universal-Remote/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: cd0b04d92ee877babf38b2b12c9115985cf24e299700487a52edd22a56fe0b5a

@@ -14,15 +14,41 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 10
+  available: false
+  occupied_by: input_button
+- gpio: 11
+  available: false
+  occupied_by: output_green_led
 docs_url: https://devices.esphome.io/devices/Topeler-YSW102-Wall-Outlet/
 featured_components:
+- id: input_button
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: input_button
+    name: input_button
 - id: green_led
   component_id: light.status_led
   fields:
     disabled_by_default: true
     restore_mode: RESTORE_DEFAULT_OFF
+    output: output_green_led
     id: green_led
     name: Green LED
+- id: output_green_led
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 11
+      locked: true
+    id: output_green_led
 - id: upper_relay
   component_id: switch.gpio
   fields:
@@ -37,6 +63,12 @@ featured_components:
     device_class: outlet
     id: lower_relay
     name: Lower Socket
+featured_bundles:
+- id: green_led_setup
+  name: Green LED (full setup)
+  component_ids:
+  - output_green_led
+  - green_led
 source:
   type: esphome-devices
   remote_id: Topeler-YSW102-Wall-Outlet

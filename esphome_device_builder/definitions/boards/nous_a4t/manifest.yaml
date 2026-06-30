@@ -75,7 +75,6 @@ featured_components:
     change_mode_every: 4
     update_interval: 3s
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: relay_1
   component_id: switch.gpio
   fields:

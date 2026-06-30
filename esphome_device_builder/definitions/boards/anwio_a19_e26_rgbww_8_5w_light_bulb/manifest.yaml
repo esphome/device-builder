@@ -11,8 +11,27 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-top-down.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/anwio-a19-board-view-2.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: sm2135
+- gpio: 7
+  available: false
+  occupied_by: sm2135
 docs_url: https://devices.esphome.io/devices/Anwio-A19-E26-RGBWW-8.5W-Light-Bulb/
 featured_components:
+- id: sm2135_hub
+  component_id: sm2135
+  fields:
+    data_pin:
+      value: 6
+      locked: true
+    clock_pin:
+      value: 7
+      locked: true
+    separate_modes: false
+    cw_current: 30mA
+    rgb_current: 20mA
 - id: device
   component_id: light.rgbww
   fields:
@@ -31,26 +50,36 @@ featured_components:
   fields:
     channel: 0
     id: output_blue
+  requires:
+  - sm2135_hub
 - id: output_green
   component_id: output.sm2135
   fields:
     channel: 1
     id: output_green
+  requires:
+  - sm2135_hub
 - id: output_red
   component_id: output.sm2135
   fields:
     channel: 2
     id: output_red
+  requires:
+  - sm2135_hub
 - id: warm_white
   component_id: output.sm2135
   fields:
     channel: 3
     id: warm_white
+  requires:
+  - sm2135_hub
 - id: cold_white
   component_id: output.sm2135
   fields:
     channel: 4
     id: cold_white
+  requires:
+  - sm2135_hub
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
@@ -61,6 +90,7 @@ featured_bundles:
 - id: device_setup
   name: Light (full setup)
   component_ids:
+  - sm2135_hub
   - output_red
   - output_green
   - output_blue

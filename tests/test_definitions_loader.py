@@ -21,6 +21,7 @@ from esphome_device_builder.definitions import (
     _parse_connectivity,
     _parse_pin_features,
     _parse_tags,
+    _resolve_full_config,
     build_board_catalog_from_manifests,
     load_board_body_from_disk,
     load_board_catalog,
@@ -38,6 +39,19 @@ from esphome_device_builder.models import (
 )
 
 _DEFS_MOD = "esphome_device_builder.definitions"
+
+
+def test_resolve_full_config_derives_from_source_and_honours_override() -> None:
+    """``full_config`` defaults to a devices.esphome.io import, overridable either way."""
+    # Default: derived from source.type.
+    assert _resolve_full_config({"source": {"type": "esphome-devices"}}) is True
+    assert _resolve_full_config({}) is False
+    assert _resolve_full_config({"source": {"type": "other"}}) is False
+    # Manifest override wins in both directions.
+    assert _resolve_full_config({"full_config": True}) is True
+    assert (
+        _resolve_full_config({"source": {"type": "esphome-devices"}, "full_config": False}) is False
+    )
 
 
 def test_generic_image_url_returns_empty_when_no_match(monkeypatch: pytest.MonkeyPatch) -> None:

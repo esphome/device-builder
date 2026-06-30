@@ -190,6 +190,11 @@ built path to verify the bundle the user actually receives.
 
 ### Driving the browser headlessly (CDP + puppeteer)
 
+Full walkthrough (bringing up both servers, shadow-DOM helpers, the create
+wizard, the recommended-add flow, save + validate):
+[docs/how_to_drive_editor.md](docs/how_to_drive_editor.md). The non-obvious
+bits to keep in mind:
+
 `npm i puppeteer` (downloads its own browser, no OS-specific path) and
 drive the dashboard with `headless:true`. The non-obvious bits:
 
@@ -485,7 +490,14 @@ against legacy behaviour before assuming the simpler version suffices.
     subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
     directions**: `AsyncServiceBrowser` delivers a `Removed` event on
     TTL expiry, the canonical "device gone" signal. ONLINE → mdns,
-    OFFLINE → mdns, no ICMP.
+    OFFLINE → mdns, no ICMP. ONLINE is claimed **only once the service
+    resolves** (cache hit or wire resolve, both via
+    `_apply_service_info`), never off a bare PTR. An announce whose
+    SRV/A won't resolve (a node that died mid-handshake, a reflector
+    re-serving a stale PTR for a long-gone device) claims nothing and
+    falls through to the ICMP sweep, same as the active-resolve path
+    below; claiming on the PTR alone latched dead devices ONLINE
+    forever (#1748).
   - **One-off active resolve** (`_resolve_non_api_mdns_targets`, for
     non-API devices not on `_esphomelib._tcp.local.`). Trust mDNS for
     **ONLINE only** (priority 3, locks out ICMP — once mDNS answers,
@@ -690,6 +702,7 @@ When changing the sync script or catalog handling, watch for these:
 | `script/validate_definitions.py` | Lint board manifests |
 | `docs/ARCHITECTURE.md` | Full architecture + deployment + CI overview |
 | `docs/API.md` | Every WS command + payload shape + event |
+| `docs/how_to_drive_editor.md` | Headless CDP + puppeteer walkthrough for driving the live dashboard editor (create wizard, recommended-add flow, save + validate) |
 
 ## Things not to do
 

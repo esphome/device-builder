@@ -56,6 +56,12 @@ _MDNS_REFRESH_PADDING_SECONDS = 1.0
 # back to its owner.
 StateChangeCallback = Callable[[str, DeviceState, str], None]
 
+# Authoritative-source change: fired when the winning ``priority_for``
+# source for a device flips (e.g. mDNS goes dark and ping takes over, or
+# mDNS claims a ping-only device). Lets the owner surface ``active_source``
+# on the device snapshot so the UI can gate mDNS-sourced indicators.
+SourceChangeCallback = Callable[[str, ReachabilitySource], None]
+
 # mDNS IP resolution callback. ``primary`` is the IPv4 we lock onto
 # for ICMP / OTA cache args (or the first scoped IPv6 when no V4 is
 # present); ``addresses`` is the announced set in zeroconf's
@@ -119,6 +125,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
         presence: SubscriberPresence | None = None,
         resolve_api_connection: ApiConnectionResolver | None = None,
+        on_source_change: SourceChangeCallback | None = None,
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
@@ -133,6 +140,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         )
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
+        self._on_source_change = on_source_change
         self._on_version_change = on_version_change
         self._on_config_hash_change = on_config_hash_change
         self._on_api_encryption_change = on_api_encryption_change
@@ -237,7 +245,14 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
 
     def forget(self, name: str) -> None:
         """Drop the source-precedence ledger entry for *name*."""
-        self.state.state_source.pop(name, None)
+        old = self.state.state_source.pop(name, None)
+        if old is not None:
+            self._emit_source_change(name, old, ReachabilitySource.UNKNOWN)
+
+    def _emit_source_change(self, name: str, old: str, new: str) -> None:
+        """Notify the owner when *name*'s authoritative source actually flips."""
+        if self._on_source_change is not None and old != new:
+            self._on_source_change(name, ReachabilitySource(new))
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
@@ -292,9 +307,11 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         if all_match:
             if claim:
                 self.state.state_source[name] = source
+                self._emit_source_change(name, current_source, source)
             return False
 
         self.state.state_source[name] = source
+        self._emit_source_change(name, current_source, source)
         self._on_state_change(name, state, source)
         return True
 

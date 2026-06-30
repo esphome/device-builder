@@ -18,12 +18,41 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Relay 1
+- gpio: 7
+  available: false
+  occupied_by: Relay 2
+- gpio: 24
+  available: false
+  occupied_by: binary_switch_all
+- gpio: 26
+  available: false
+  occupied_by: led
 docs_url: https://devices.esphome.io/devices/Geeni-6W8007-Smart-Wi-Fi-Outlet/
 featured_components:
+- id: binary_switch_all
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 24
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_all
+    name: binary_switch_all
 - id: led
   component_id: light.status_led
   fields:
     internal: true
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
     id: led
     name: led
 - id: sensor_uptime_1
@@ -38,6 +67,22 @@ featured_components:
     update_interval: 60s
     id: sensor_wifi_signal_1
     name: Signal
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: switch_1
+    name: Relay 1
+- id: switch_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: switch_2
+    name: Relay 2
 source:
   type: esphome-devices
   remote_id: Geeni-6W8007-Smart-Wi-Fi-Outlet

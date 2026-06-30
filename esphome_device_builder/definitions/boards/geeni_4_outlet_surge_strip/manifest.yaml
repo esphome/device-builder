@@ -13,29 +13,80 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Outlet 1
+- gpio: 7
+  available: false
+  occupied_by: Outlet 2
+- gpio: 10
+  available: false
+  occupied_by: Button
+- gpio: 11
+  available: false
+  occupied_by: Status LED
+- gpio: 24
+  available: false
+  occupied_by: Outlet 4
+- gpio: 26
+  available: false
+  occupied_by: Outlet 3
 docs_url: https://devices.esphome.io/devices/Geeni-4-outlet-surge-strip/
 featured_components:
+- id: bp10
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 10
+        inverted: true
+      locked: true
+    id: bp10
+    name: Button
+- id: led
+  component_id: light.status_led
+  fields:
+    pin:
+      value:
+        number: 11
+        inverted: true
+      locked: true
+    id: led
+    name: Status LED
 - id: switch_1
   component_id: switch.gpio
   fields:
+    pin:
+      value: 6
+      locked: true
     restore_mode: ALWAYS_ON
     id: switch_1
     name: Outlet 1
 - id: switch_2
   component_id: switch.gpio
   fields:
+    pin:
+      value: 7
+      locked: true
     restore_mode: ALWAYS_ON
     id: switch_2
     name: Outlet 2
 - id: switch_3
   component_id: switch.gpio
   fields:
+    pin:
+      value: 26
+      locked: true
     restore_mode: ALWAYS_ON
     id: switch_3
     name: Outlet 3
 - id: switch_4
   component_id: switch.gpio
   fields:
+    pin:
+      value: 24
+      locked: true
     restore_mode: ALWAYS_ON
     id: switch_4
     name: Outlet 4

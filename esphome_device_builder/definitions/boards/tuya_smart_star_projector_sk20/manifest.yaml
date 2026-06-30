@@ -9,8 +9,44 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Star-Projector-SK20/SK20.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: button_led0_gpio
+- gpio: 6
+  available: false
+  occupied_by: motor_pwm
+- gpio: 7
+  available: false
+  occupied_by: button_led1_pwm
+- gpio: 8
+  available: false
+  occupied_by: laser_pwm
+- gpio: 9
+  available: false
+  occupied_by: red
+- gpio: 14
+  available: false
+  occupied_by: Button
+- gpio: 24
+  available: false
+  occupied_by: green
+- gpio: 26
+  available: false
+  occupied_by: blue
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Star-Projector-SK20/
 featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 14
+        mode: INPUT_PULLDOWN_16
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
 - id: rgb_light
   component_id: light.rgb
   fields:
@@ -46,6 +82,9 @@ featured_components:
 - id: red
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 9
+      locked: true
     inverted:
       value: true
       locked: true
@@ -53,6 +92,9 @@ featured_components:
 - id: green
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 24
+      locked: true
     inverted:
       value: true
       locked: true
@@ -60,6 +102,9 @@ featured_components:
 - id: blue
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 26
+      locked: true
     inverted:
       value: true
       locked: true
@@ -67,6 +112,9 @@ featured_components:
 - id: laser_pwm
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 8
+      locked: true
     inverted:
       value: true
       locked: true
@@ -74,11 +122,17 @@ featured_components:
 - id: motor_pwm
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 6
+      locked: true
     min_power: 15%
     id: motor_pwm
 - id: button_led0_gpio
   component_id: output.gpio
   fields:
+    pin:
+      value: 1
+      locked: true
     inverted:
       value: true
       locked: true
@@ -86,6 +140,9 @@ featured_components:
 - id: button_led1_pwm
   component_id: output.libretiny_pwm
   fields:
+    pin:
+      value: 7
+      locked: true
     inverted:
       value: true
       locked: true

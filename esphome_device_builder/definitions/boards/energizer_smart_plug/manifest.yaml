@@ -13,14 +13,47 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Relay
+- gpio: 24
+  available: false
+  occupied_by: status_light
+- gpio: 26
+  available: false
+  occupied_by: Button
 docs_url: https://devices.esphome.io/devices/Energizer-Smart-Plug/
 featured_components:
+- id: binary_sensor_gpio_1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 26
+        inverted: true
+      locked: true
+    id: binary_sensor_gpio_1
+    name: Button
 - id: status_light
   component_id: light.status_led
   fields:
+    pin:
+      value:
+        number: 24
+        inverted: true
+      locked: true
     internal: true
     id: status_light
     name: status_light
+- id: relay
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: relay
+    name: Relay
 source:
   type: esphome-devices
   remote_id: Energizer-Smart-Plug

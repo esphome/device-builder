@@ -21,31 +21,34 @@ pins:
   occupied_by: f4-io0
 - gpio: 1
   available: false
-  occupied_by: f4-input02
+  occupied_by: Ethernet RESET
 - gpio: 2
   available: false
-  occupied_by: f4-input03
-- gpio: 3
-  available: false
-  occupied_by: f4-input04
+  occupied_by: Ethernet INT
 - gpio: 4
   available: false
-  occupied_by: f4-output01
+  occupied_by: f4 A4 Current
 - gpio: 5
   available: false
-  occupied_by: f4-output02
+  occupied_by: f4 A1 Voltage
 - gpio: 6
   available: false
-  occupied_by: f4-output03
+  occupied_by: f4 A3 Current
 - gpio: 7
   available: false
-  occupied_by: f4-output04
+  occupied_by: f4 A2 Voltage
+- gpio: 8
+  available: false
+  occupied_by: bus_a
 - gpio: 14
   available: false
   occupied_by: f4-W1-io14
 - gpio: 15
   available: false
   occupied_by: f4-W1-io15
+- gpio: 18
+  available: false
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: f4-W1-io21
@@ -72,6 +75,32 @@ pins:
   occupied_by: f4-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-F4/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -109,6 +138,9 @@ featured_components:
       locked: true
     id: f4_input01
     name: f4-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: f4_input02
   component_id: binary_sensor.gpio
   fields:
@@ -121,6 +153,9 @@ featured_components:
       locked: true
     id: f4_input02
     name: f4-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: f4_input03
   component_id: binary_sensor.gpio
   fields:
@@ -133,6 +168,9 @@ featured_components:
       locked: true
     id: f4_input03
     name: f4-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: f4_input04
   component_id: binary_sensor.gpio
   fields:
@@ -145,6 +183,9 @@ featured_components:
       locked: true
     id: f4_input04
     name: f4-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -269,6 +310,9 @@ featured_components:
       locked: true
     id: f4_output01
     name: f4-output01
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: f4_output02
   component_id: switch.gpio
   fields:
@@ -281,6 +325,9 @@ featured_components:
       locked: true
     id: f4_output02
     name: f4-output02
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: f4_output03
   component_id: switch.gpio
   fields:
@@ -293,6 +340,9 @@ featured_components:
       locked: true
     id: f4_output03
     name: f4-output03
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: f4_output04
   component_id: switch.gpio
   fields:
@@ -305,6 +355,9 @@ featured_components:
       locked: true
     id: f4_output04
     name: f4-output04
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 source:
   type: esphome-devices
   remote_id: KinCony-F4

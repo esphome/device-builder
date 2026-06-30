@@ -22,37 +22,28 @@ pins:
   occupied_by: AIO_hybrid-io0
 - gpio: 1
   available: false
-  occupied_by: AIO_hybrid-input02
+  occupied_by: Ethernet RESET
 - gpio: 2
   available: false
-  occupied_by: AIO_hybrid-input03
-- gpio: 3
-  available: false
-  occupied_by: AIO_hybrid-output01
+  occupied_by: Ethernet INT
 - gpio: 4
   available: false
-  occupied_by: AIO_hybrid-output02
+  occupied_by: AIO_hybrid A4 Current
 - gpio: 5
   available: false
-  occupied_by: AIO_hybrid-output03
+  occupied_by: AIO_hybrid A1 Voltage
 - gpio: 6
   available: false
-  occupied_by: AIO_hybrid-output04
+  occupied_by: AIO_hybrid A3 Current
 - gpio: 7
   available: false
-  occupied_by: AIO_hybrid-output05
+  occupied_by: AIO_hybrid A2 Voltage
 - gpio: 8
   available: false
-  occupied_by: AIO_hybrid-input09
-- gpio: 9
+  occupied_by: bus_a
+- gpio: 18
   available: false
-  occupied_by: AIO_hybrid-input10
-- gpio: 10
-  available: false
-  occupied_by: AIO_hybrid-input11
-- gpio: 11
-  available: false
-  occupied_by: AIO_hybrid-input12
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: My Light IO21
@@ -73,6 +64,45 @@ pins:
   occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-AIO/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_input_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    pcf8575: true
+    id:
+      value: pcf8574_hub_input_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_output_1
+  component_id: pcf8574
+  fields:
+    address: 38
+    id:
+      value: pcf8574_hub_output_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -110,6 +140,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input01
     name: AIO_hybrid-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input02
   component_id: binary_sensor.gpio
   fields:
@@ -122,6 +155,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input02
     name: AIO_hybrid-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input03
   component_id: binary_sensor.gpio
   fields:
@@ -134,6 +170,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input03
     name: AIO_hybrid-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input04
   component_id: binary_sensor.gpio
   fields:
@@ -146,6 +185,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input04
     name: AIO_hybrid-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input05
   component_id: binary_sensor.gpio
   fields:
@@ -158,6 +200,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input05
     name: AIO_hybrid-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input06
   component_id: binary_sensor.gpio
   fields:
@@ -170,6 +215,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input06
     name: AIO_hybrid-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input07
   component_id: binary_sensor.gpio
   fields:
@@ -182,6 +230,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input07
     name: AIO_hybrid-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input08
   component_id: binary_sensor.gpio
   fields:
@@ -194,6 +245,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input08
     name: AIO_hybrid-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input09
   component_id: binary_sensor.gpio
   fields:
@@ -206,6 +260,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input09
     name: AIO_hybrid-input09
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input10
   component_id: binary_sensor.gpio
   fields:
@@ -218,6 +275,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input10
     name: AIO_hybrid-input10
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input11
   component_id: binary_sensor.gpio
   fields:
@@ -230,6 +290,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input11
     name: AIO_hybrid-input11
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: aio_hybrid_input12
   component_id: binary_sensor.gpio
   fields:
@@ -242,6 +305,9 @@ featured_components:
       locked: true
     id: aio_hybrid_input12
     name: AIO_hybrid-input12
+  requires:
+  - bus_a
+  - pcf8574_hub_input_1
 - id: binary_sensor_gpio_13
   component_id: binary_sensor.gpio
   fields:
@@ -383,6 +449,9 @@ featured_components:
       locked: true
     id: aio_hybrid_output01
     name: AIO_hybrid-output01
+  requires:
+  - bus_a
+  - pcf8574_hub_output_1
 - id: aio_hybrid_output02
   component_id: switch.gpio
   fields:
@@ -395,6 +464,9 @@ featured_components:
       locked: true
     id: aio_hybrid_output02
     name: AIO_hybrid-output02
+  requires:
+  - bus_a
+  - pcf8574_hub_output_1
 - id: aio_hybrid_output03
   component_id: switch.gpio
   fields:
@@ -407,6 +479,9 @@ featured_components:
       locked: true
     id: aio_hybrid_output03
     name: AIO_hybrid-output03
+  requires:
+  - bus_a
+  - pcf8574_hub_output_1
 - id: aio_hybrid_output04
   component_id: switch.gpio
   fields:
@@ -419,6 +494,9 @@ featured_components:
       locked: true
     id: aio_hybrid_output04
     name: AIO_hybrid-output04
+  requires:
+  - bus_a
+  - pcf8574_hub_output_1
 - id: aio_hybrid_output05
   component_id: switch.gpio
   fields:
@@ -431,6 +509,9 @@ featured_components:
       locked: true
     id: aio_hybrid_output05
     name: AIO_hybrid-output05
+  requires:
+  - bus_a
+  - pcf8574_hub_output_1
 featured_bundles:
 - id: light_monochromatic_1_setup
   name: dimmer-1 (full setup)

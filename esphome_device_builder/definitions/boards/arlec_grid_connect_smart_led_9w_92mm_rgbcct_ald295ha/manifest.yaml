@@ -16,8 +16,24 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/B.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/C.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/D.jpg
+pins:
+- gpio: 24
+  available: false
+  occupied_by: bp5758d
+- gpio: 26
+  available: false
+  occupied_by: bp5758d
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA/
 featured_components:
+- id: bp5758d_hub
+  component_id: bp5758d
+  fields:
+    clock_pin:
+      value: 26
+      locked: true
+    data_pin:
+      value: 24
+      locked: true
 - id: id_name
   component_id: light.rgbww
   fields:
@@ -41,18 +57,24 @@ featured_components:
     channel: 3
     current: 14
     id: output_red
+  requires:
+  - bp5758d_hub
 - id: output_green
   component_id: output.bp5758d
   fields:
     channel: 2
     current: 14
     id: output_green
+  requires:
+  - bp5758d_hub
 - id: output_blue
   component_id: output.bp5758d
   fields:
     channel: 1
     current: 14
     id: output_blue
+  requires:
+  - bp5758d_hub
 - id: output_cold
   component_id: output.bp5758d
   fields:
@@ -60,6 +82,8 @@ featured_components:
     current: 24
     max_power: 0.8
     id: output_cold
+  requires:
+  - bp5758d_hub
 - id: output_warm
   component_id: output.bp5758d
   fields:
@@ -67,10 +91,13 @@ featured_components:
     current: 24
     max_power: 0.8
     id: output_warm
+  requires:
+  - bp5758d_hub
 featured_bundles:
 - id: id_name_setup
-  name: None (full setup)
+  name: Rgbww (full setup)
   component_ids:
+  - bp5758d_hub
   - output_red
   - output_green
   - output_blue

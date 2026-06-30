@@ -9,11 +9,24 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/image.png
+pins:
+- gpio: 16
+  available: false
+  occupied_by: Outer RGB
+- gpio: 24
+  available: false
+  occupied_by: output_warm
+- gpio: 26
+  available: false
+  occupied_by: output_cold
 docs_url: https://devices.esphome.io/devices/LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp/
 featured_components:
 - id: light_beken_spi_led_strip_1
   component_id: light.beken_spi_led_strip
   fields:
+    pin:
+      value: 16
+      locked: true
     chipset: SM16703
     num_leds: 120
     rgb_order: RGB
@@ -26,8 +39,31 @@ featured_components:
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
     restore_mode: RESTORE_DEFAULT_ON
+    cold_white: output_cold
+    warm_white: output_warm
     id: light_cwww
     name: Main
+- id: output_cold
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: output_cold
+- id: output_warm
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_warm
+featured_bundles:
+- id: light_cwww_setup
+  name: Main (full setup)
+  component_ids:
+  - output_cold
+  - output_warm
+  - light_cwww
 source:
   type: esphome-devices
   remote_id: LSC-Smart-Connect-1500lm-22W-Ceiling-Lamp

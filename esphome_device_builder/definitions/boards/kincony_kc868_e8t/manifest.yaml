@@ -15,30 +15,15 @@ images:
 tags:
 - relay
 pins:
-- gpio: 0
-  available: false
-  occupied_by: e8t-light1
-- gpio: 1
-  available: false
-  occupied_by: e8t-light2
-- gpio: 2
-  available: false
-  occupied_by: e8t-light3
-- gpio: 3
-  available: false
-  occupied_by: e8t-light4
 - gpio: 4
   available: false
-  occupied_by: e8t-light5
+  occupied_by: bus_a
 - gpio: 5
   available: false
-  occupied_by: e8t-light6
-- gpio: 6
+  occupied_by: bus_a
+- gpio: 12
   available: false
-  occupied_by: e8t-light7
-- gpio: 7
-  available: false
-  occupied_by: e8t-light8
+  occupied_by: uart_1
 - gpio: 17
   available: false
   occupied_by: Ethernet CLK
@@ -48,8 +33,78 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
+- gpio: 33
+  available: false
+  occupied_by: uart_2
+- gpio: 36
+  available: false
+  occupied_by: uart_2
+- gpio: 39
+  available: false
+  occupied_by: uart_1
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-E8T/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 12
+      locked: true
+    rx_pin:
+      value: 39
+      locked: true
+    baud_rate: 4800
+    parity: NONE
+    stop_bits: 2
+    id:
+      value: uart_1
+      locked: true
+- id: uart_2
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 33
+      locked: true
+    rx_pin:
+      value: 36
+      locked: true
+    baud_rate: 4800
+    parity: NONE
+    stop_bits: 2
+    id:
+      value: uart_2
+      locked: true
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_in_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    id:
+      value: pcf8574_hub_in_1
+      locked: true
+  requires:
+  - bus_a
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 36
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -81,6 +136,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_1
     name: e8t-input1
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -93,6 +151,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: e8t-input2
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -105,6 +166,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_3
     name: e8t-input3
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -117,6 +181,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: e8t-input4
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -129,6 +196,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_5
     name: e8t-input5
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_6
   component_id: binary_sensor.gpio
   fields:
@@ -141,6 +211,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_6
     name: e8t-input6
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_7
   component_id: binary_sensor.gpio
   fields:
@@ -153,6 +226,9 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_7
     name: e8t-input7
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: binary_sensor_gpio_8
   component_id: binary_sensor.gpio
   fields:
@@ -165,18 +241,23 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_8
     name: e8t-input8
+  requires:
+  - bus_a
+  - pcf8574_hub_in_1
 - id: sensor_bl0939_1
   component_id: sensor.bl0939
   fields:
     update_interval: 10s
     id: sensor_bl0939_1
-    name: Bl0939 1
+  requires:
+  - uart_1
 - id: sensor_bl0939_2
   component_id: sensor.bl0939
   fields:
     update_interval: 10s
     id: sensor_bl0939_2
-    name: Bl0939 2
+  requires:
+  - uart_2
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:
@@ -189,6 +270,9 @@ featured_components:
       locked: true
     id: switch_gpio_1
     name: e8t-light1
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_2
   component_id: switch.gpio
   fields:
@@ -201,6 +285,9 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: e8t-light2
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_3
   component_id: switch.gpio
   fields:
@@ -213,6 +300,9 @@ featured_components:
       locked: true
     id: switch_gpio_3
     name: e8t-light3
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_4
   component_id: switch.gpio
   fields:
@@ -225,6 +315,9 @@ featured_components:
       locked: true
     id: switch_gpio_4
     name: e8t-light4
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_5
   component_id: switch.gpio
   fields:
@@ -237,6 +330,9 @@ featured_components:
       locked: true
     id: switch_gpio_5
     name: e8t-light5
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_6
   component_id: switch.gpio
   fields:
@@ -249,6 +345,9 @@ featured_components:
       locked: true
     id: switch_gpio_6
     name: e8t-light6
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_7
   component_id: switch.gpio
   fields:
@@ -261,6 +360,9 @@ featured_components:
       locked: true
     id: switch_gpio_7
     name: e8t-light7
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: switch_gpio_8
   component_id: switch.gpio
   fields:
@@ -273,6 +375,9 @@ featured_components:
       locked: true
     id: switch_gpio_8
     name: e8t-light8
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-E8T

@@ -99,7 +99,14 @@ class Device(DashboardModel):
     # whole ``loaded_integrations`` list flat.
     directly_referenced_integrations: list[str] = field(default_factory=list)
     state: DeviceState = DeviceState.UNKNOWN
+    # Reachability channel currently driving online state
+    # (``mdns`` > ``mqtt`` > ``ping``). Runtime-only, not persisted;
+    # UNKNOWN until a source claims the device.
+    active_source: ReachabilitySource = ReachabilitySource.UNKNOWN
     has_pending_changes: bool = True  # True until successfully compiled + deployed
+    # True when ``has_pending_changes`` came from the mDNS-sourced config-hash
+    # compare (vs the local mtime fallback).
+    pending_changes_via_hash: bool = False
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
     # Native API surface flags — drive the lock-icon indicator in

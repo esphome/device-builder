@@ -1,0 +1,75 @@
+name: Device Status Followup
+
+# When an issue carries the ``device-status`` label (auto-applied by the
+# device_status.yml issue form at creation, or added by hand during
+# triage), post a friendly followup: these are usually local-network /
+# mDNS visibility problems, point at the device drawer's expiry
+# countdown, and send the reporter to Discord for hands-on network
+# debugging.
+#
+# Triggers on both ``opened`` and ``labeled`` because a form-created
+# issue may not emit a separate ``labeled`` event for its template
+# labels. A hidden marker in the comment body makes the post idempotent
+# so re-labelling (or both events firing for one issue) never double-
+# posts; the per-issue concurrency group serialises the two so the
+# second run sees the first's comment.
+
+on:
+  issues:
+    types: [opened, labeled]
+
+permissions:
+  issues: write  # issues.createComment
+
+concurrency:
+  group: device-status-followup-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  followup:
+    name: Advise Discord for network triage
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event.action == 'opened'
+        && contains(github.event.issue.labels.*.name, 'device-status'))
+      || (github.event.action == 'labeled'
+        && github.event.label.name == 'device-status')
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const issueNumber = context.payload.issue.number;
+            const author = context.payload.issue.user.login;
+
+            // Idempotency marker — bail if we've already posted, so a
+            // re-applied label (or opened+labeled both firing) doesn't
+            // post the followup twice.
+            const MARKER = '<!-- device-status-followup -->';
+            const existing = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+            if (existing.some((c) => c.body && c.body.includes(MARKER))) {
+              return;
+            }
+
+            const body = [
+              MARKER,
+              `Thanks for the report, @${author}! 🙏`,
+              ``,
+              `A device's status (online/offline, out of sync, not detected) is derived from what the dashboard can hear over mDNS and ICMP on your network, and most reports in this category turn out to be a local network or mDNS visibility issue rather than a dashboard bug: an mDNS reflector re-serving a stale record, a device on a different subnet or VLAN, or a firewall / Docker bridge that mDNS and ICMP can't cross.`,
+              ``,
+              `The device drawer's **Reachability** section (click the device's row) shows what the dashboard is actually hearing. The mDNS row's "Expires in ..." countdown is when a lingering record will clear, and the device drops offline at that point.`,
+              ``,
+              `For hands-on help figuring out whether something on your network is causing this, the [ESPHome Discord](https://discord.gg/Rf2jWGVjaK) is the fastest place to get a back and forth with the community. If your drawer screenshot shows the dashboard genuinely mishearing a device that is reachable, we will dig in here.`,
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              body,
+            });

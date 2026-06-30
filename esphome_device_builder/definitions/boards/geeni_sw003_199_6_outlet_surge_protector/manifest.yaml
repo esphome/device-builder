@@ -1,0 +1,106 @@
+id: geeni_sw003_199_6_outlet_surge_protector
+name: Geeni SW003-199 6-Outlet Surge Protector
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: cb3s
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/image.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/back.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/opened.jpg
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/cb3s.jpg
+tags:
+- relay
+- compact
+pins:
+- gpio: 6
+  available: false
+  occupied_by: Outlet 1
+- gpio: 7
+  available: false
+  occupied_by: Outlet 5
+- gpio: 8
+  available: false
+  occupied_by: Outlet 4
+- gpio: 9
+  available: false
+  occupied_by: Outlet 6
+- gpio: 23
+  available: false
+  occupied_by: binary_switch_all
+- gpio: 24
+  available: false
+  occupied_by: Outlet 2
+- gpio: 26
+  available: false
+  occupied_by: Outlet 3
+docs_url: https://devices.esphome.io/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/
+featured_components:
+- id: binary_switch_all
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 23
+        inverted: true
+        mode: INPUT_PULLUP
+      locked: true
+    id: binary_switch_all
+    name: binary_switch_all
+- id: switch_1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: switch_1
+    name: Outlet 1
+- id: switch_2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: switch_2
+    name: Outlet 2
+- id: switch_3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    id: switch_3
+    name: Outlet 3
+- id: switch_4
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: switch_4
+    name: Outlet 4
+- id: switch_5
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: switch_5
+    name: Outlet 5
+- id: switch_6
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: switch_6
+    name: Outlet 6
+source:
+  type: esphome-devices
+  remote_id: Geeni-SW003-199-6-Outlet-Surge-Protector
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Geeni-SW003-199-6-Outlet-Surge-Protector/index.md
+  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  content_hash: d43ca3472d05183e2c58a69eed43aeb23b366923ceb14deff24419c050f961df

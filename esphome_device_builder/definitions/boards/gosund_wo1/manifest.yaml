@@ -73,7 +73,6 @@ featured_components:
       locked: true
     change_mode_every: 1
     id: sensor_hlw8012_1
-    name: Hlw8012 1
 - id: analog_buttons
   component_id: sensor.adc
   fields:

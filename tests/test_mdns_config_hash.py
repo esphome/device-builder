@@ -175,6 +175,8 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None
 
     assert device.deployed_config_hash == "deadbeef"
     assert device.has_pending_changes is True
+    # The verdict came from the hash compare, so the frontend gates it on mDNS.
+    assert device.pending_changes_via_hash is True
 
 
 async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
@@ -183,6 +185,7 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
         expected_config_hash="abc12345",
         deployed_config_hash="",
         has_pending_changes=True,
+        pending_changes_via_hash=True,
     )
     controller, _captured = make_devices_controller_with_bus([device])
 
@@ -190,6 +193,7 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
 
     assert device.deployed_config_hash == "abc12345"
     assert device.has_pending_changes is False
+    assert device.pending_changes_via_hash is False
 
 
 async def test_on_config_hash_change_leaves_pending_alone_without_expected_hash() -> None:

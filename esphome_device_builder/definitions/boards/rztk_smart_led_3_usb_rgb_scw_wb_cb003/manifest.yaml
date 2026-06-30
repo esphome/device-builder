@@ -10,6 +10,19 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/chip.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/image.png
+pins:
+- gpio: 6
+  available: false
+  occupied_by: output_blue
+- gpio: 8
+  available: false
+  occupied_by: output_a
+- gpio: 24
+  available: false
+  occupied_by: output_green
+- gpio: 26
+  available: false
+  occupied_by: output_red
 docs_url: https://devices.esphome.io/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/
 featured_components:
 - id: rgb_lightstrip1
@@ -26,21 +39,33 @@ featured_components:
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
+    pin:
+      value: 8
+      locked: true
     id: output_a
 - id: output_blue
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
+    pin:
+      value: 6
+      locked: true
     id: output_blue
 - id: output_green
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
+    pin:
+      value: 24
+      locked: true
     id: output_green
 - id: output_red
   component_id: output.libretiny_pwm
   fields:
     frequency: 1000 Hz
+    pin:
+      value: 26
+      locked: true
     id: output_red
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal

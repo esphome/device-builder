@@ -11,8 +11,24 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/Havells-Glamax-Smart-WiFi-RGB-LED-Bulb-Music-Sync-9W-B22-08.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/bulb-dismantled.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/chip-wired.jpg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: bp5758d
+- gpio: 7
+  available: false
+  occupied_by: bp5758d
 docs_url: https://devices.esphome.io/devices/Havells-Glamax-9W-B22-WiFi-LED-RGB-CCT-Bulb/
 featured_components:
+- id: bp5758d_hub
+  component_id: bp5758d
+  fields:
+    data_pin:
+      value: 7
+      locked: true
+    clock_pin:
+      value: 6
+      locked: true
 - id: light_rgbww_1
   component_id: light.rgbww
   fields:
@@ -33,34 +49,45 @@ featured_components:
     channel: 3
     current: 40
     id: output_red
+  requires:
+  - bp5758d_hub
 - id: output_green
   component_id: output.bp5758d
   fields:
     channel: 2
     current: 40
     id: output_green
+  requires:
+  - bp5758d_hub
 - id: output_blue
   component_id: output.bp5758d
   fields:
     channel: 1
     current: 40
     id: output_blue
+  requires:
+  - bp5758d_hub
 - id: output_cold_white
   component_id: output.bp5758d
   fields:
     channel: 5
     current: 30
     id: output_cold_white
+  requires:
+  - bp5758d_hub
 - id: output_warm_white
   component_id: output.bp5758d
   fields:
     channel: 4
     current: 30
     id: output_warm_white
+  requires:
+  - bp5758d_hub
 featured_bundles:
 - id: light_rgbww_1_setup
   name: Light (full setup)
   component_ids:
+  - bp5758d_hub
   - output_red
   - output_green
   - output_blue

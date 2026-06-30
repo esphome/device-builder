@@ -12,8 +12,28 @@ images:
 tags:
 - relay
 - compact
+pins:
+- gpio: 7
+  available: false
+  occupied_by: led
+- gpio: 8
+  available: false
+  occupied_by: button1
+- gpio: 24
+  available: false
+  occupied_by: Outlet
 docs_url: https://devices.esphome.io/devices/Minoston-Outdoor-Smart-Plug-MP22W/
 featured_components:
+- id: button1
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 8
+        inverted: true
+      locked: true
+    id: button1
+    name: button1
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
@@ -29,6 +49,9 @@ featured_components:
 - id: outlet
   component_id: switch.gpio
   fields:
+    pin:
+      value: 24
+      locked: true
     icon: mdi:power-socket-us
     id: outlet
     name: Outlet
@@ -36,6 +59,11 @@ featured_components:
   component_id: switch.gpio
   fields:
     internal: true
+    pin:
+      value:
+        number: 7
+        inverted: true
+      locked: true
     id: led
     name: led
 source:

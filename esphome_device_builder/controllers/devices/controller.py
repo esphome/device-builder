@@ -46,6 +46,7 @@ from ...models import (
     EventType,
     ImportBundleResponse,
     JobLifecycleData,
+    ReachabilitySource,
     UpdateDeviceResponse,
     WizardResponse,
 )
@@ -199,6 +200,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             get_devices_by_name=self._scanner.get_by_name,
             on_state_change=self._on_state_change,
             on_ip_change=self._on_ip_change,
+            on_source_change=self._on_source_change,
             on_version_change=self._on_version_change,
             on_config_hash_change=self._on_config_hash_change,
             on_api_encryption_change=self._on_api_encryption_change,
@@ -1099,6 +1101,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
         state_callbacks.on_ip_change(self, name, ip, addresses)
+
+    def _on_source_change(self, name: str, source: ReachabilitySource) -> None:
+        state_callbacks.on_source_change(self, name, source)
 
     def _on_version_change(self, name: str, version: str) -> None:
         state_callbacks.on_version_change(self, name, version)

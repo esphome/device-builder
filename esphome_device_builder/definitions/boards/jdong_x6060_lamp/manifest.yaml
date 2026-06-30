@@ -9,6 +9,22 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/JDONG-X6060-lamp/jdong_x6060.jpeg
+pins:
+- gpio: 6
+  available: false
+  occupied_by: output_cold
+- gpio: 7
+  available: false
+  occupied_by: output_blue
+- gpio: 8
+  available: false
+  occupied_by: output_red
+- gpio: 9
+  available: false
+  occupied_by: output_green
+- gpio: 24
+  available: false
+  occupied_by: output_warm
 docs_url: https://devices.esphome.io/devices/JDONG-X6060-lamp/
 featured_components:
 - id: light_rgbww
@@ -17,14 +33,64 @@ featured_components:
     color_interlock: true
     cold_white_color_temperature: 6500 K
     warm_white_color_temperature: 2700 K
+    red: output_red
+    green: output_green
+    blue: output_blue
+    cold_white: output_cold
+    warm_white: output_warm
     id: light_rgbww
     name: light_rgbww
+- id: output_red
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 8
+      locked: true
+    id: output_red
+- id: output_green
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 9
+      locked: true
+    id: output_green
+- id: output_blue
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 7
+      locked: true
+    id: output_blue
+- id: output_cold
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 6
+      locked: true
+    id: output_cold
+- id: output_warm
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: 24
+      locked: true
+    id: output_warm
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     type: seconds
     id: sensor_uptime_1
     name: Uptime Sensor
+featured_bundles:
+- id: light_rgbww_setup
+  name: light_rgbww (full setup)
+  component_ids:
+  - output_red
+  - output_green
+  - output_blue
+  - output_cold
+  - output_warm
+  - light_rgbww
 source:
   type: esphome-devices
   remote_id: JDONG-X6060-lamp

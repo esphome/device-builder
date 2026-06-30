@@ -19,52 +19,28 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: b8m-output01
+  occupied_by: b8m-0
 - gpio: 1
   available: false
-  occupied_by: b8m-output02
+  occupied_by: Ethernet CLK
 - gpio: 2
   available: false
-  occupied_by: b8m-output03
-- gpio: 3
-  available: false
-  occupied_by: b8m-output04
-- gpio: 4
-  available: false
-  occupied_by: b8m-output05
-- gpio: 5
-  available: false
-  occupied_by: b8m-output06
-- gpio: 6
-  available: false
-  occupied_by: b8m-output07
+  occupied_by: Ethernet MOSI
 - gpio: 7
   available: false
-  occupied_by: b8m-output08
+  occupied_by: b8m-W1-io7
 - gpio: 8
   available: false
-  occupied_by: b8m-input01
-- gpio: 9
-  available: false
-  occupied_by: b8m-input02
-- gpio: 10
-  available: false
-  occupied_by: b8m-input03
-- gpio: 11
-  available: false
-  occupied_by: b8m-input04
-- gpio: 12
-  available: false
-  occupied_by: b8m-input05
+  occupied_by: bus_a
 - gpio: 13
   available: false
   occupied_by: b8m-13
 - gpio: 14
   available: false
   occupied_by: b8m-14
-- gpio: 15
+- gpio: 18
   available: false
-  occupied_by: b8m-input08
+  occupied_by: bus_a
 - gpio: 21
   available: false
   occupied_by: b8m-21
@@ -91,6 +67,33 @@ pins:
   occupied_by: b8m-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-B8M/
 featured_components:
+- id: bus_a
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: pcf8574_hub_out_1
+  component_id: pcf8574
+  fields:
+    address: 34
+    pcf8575: true
+    id:
+      value: pcf8574_hub_out_1
+      locked: true
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -128,6 +131,9 @@ featured_components:
       locked: true
     id: b8m_input01
     name: b8m-input01
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input02
   component_id: binary_sensor.gpio
   fields:
@@ -140,6 +146,9 @@ featured_components:
       locked: true
     id: b8m_input02
     name: b8m-input02
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input03
   component_id: binary_sensor.gpio
   fields:
@@ -152,6 +161,9 @@ featured_components:
       locked: true
     id: b8m_input03
     name: b8m-input03
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input04
   component_id: binary_sensor.gpio
   fields:
@@ -164,6 +176,9 @@ featured_components:
       locked: true
     id: b8m_input04
     name: b8m-input04
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input05
   component_id: binary_sensor.gpio
   fields:
@@ -176,6 +191,9 @@ featured_components:
       locked: true
     id: b8m_input05
     name: b8m-input05
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input06
   component_id: binary_sensor.gpio
   fields:
@@ -188,6 +206,9 @@ featured_components:
       locked: true
     id: b8m_input06
     name: b8m-input06
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input07
   component_id: binary_sensor.gpio
   fields:
@@ -200,6 +221,9 @@ featured_components:
       locked: true
     id: b8m_input07
     name: b8m-input07
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_input08
   component_id: binary_sensor.gpio
   fields:
@@ -212,6 +236,9 @@ featured_components:
       locked: true
     id: b8m_input08
     name: b8m-input08
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: binary_sensor_gpio_9
   component_id: binary_sensor.gpio
   fields:
@@ -337,6 +364,9 @@ featured_components:
       locked: true
     id: b8m_output01
     name: b8m-output01
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output02
   component_id: switch.gpio
   fields:
@@ -349,6 +379,9 @@ featured_components:
       locked: true
     id: b8m_output02
     name: b8m-output02
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output03
   component_id: switch.gpio
   fields:
@@ -361,6 +394,9 @@ featured_components:
       locked: true
     id: b8m_output03
     name: b8m-output03
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output04
   component_id: switch.gpio
   fields:
@@ -373,6 +409,9 @@ featured_components:
       locked: true
     id: b8m_output04
     name: b8m-output04
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output05
   component_id: switch.gpio
   fields:
@@ -385,6 +424,9 @@ featured_components:
       locked: true
     id: b8m_output05
     name: b8m-output05
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output06
   component_id: switch.gpio
   fields:
@@ -397,6 +439,9 @@ featured_components:
       locked: true
     id: b8m_output06
     name: b8m-output06
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output07
   component_id: switch.gpio
   fields:
@@ -409,6 +454,9 @@ featured_components:
       locked: true
     id: b8m_output07
     name: b8m-output07
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 - id: b8m_output08
   component_id: switch.gpio
   fields:
@@ -421,6 +469,9 @@ featured_components:
       locked: true
     id: b8m_output08
     name: b8m-output08
+  requires:
+  - bus_a
+  - pcf8574_hub_out_1
 source:
   type: esphome-devices
   remote_id: KinCony-B8M
