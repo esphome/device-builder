@@ -10,7 +10,7 @@ from ...models import AddComponentResponse, ErrorCode
 from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields
 
 if TYPE_CHECKING:
-    from ...models import ConfigEntry
+    from ...models import ComponentCatalogEntry, ConfigEntry
     from .controller import DevicesController
 
 
@@ -43,8 +43,9 @@ async def add_component(
 
     fields = dict(fields or {})
     underlying_component_id = component_id
+    is_featured = component_id.startswith("featured.")
 
-    if component_id.startswith("featured."):
+    if is_featured:
         record = controller._db.components.get_featured_record(component_id)
         if record is None:
             msg = f"Unknown featured component: {component_id}"
@@ -68,10 +69,15 @@ async def add_component(
         msg = f"Unknown component: {underlying_component_id}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    for entry in component.config_entries:
-        if entry.required and _entry_gate_active(entry, fields) and entry.key not in fields:
-            msg = f"Missing required field: {entry.label or entry.key}"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # The required-field gate catches a user-driven form add that omitted a
+    # required field. Featured presets come from the board manifest instead
+    # (curated, locked, already validated by ``create`` + compile), and the
+    # catalog can't model ESPHome's type-conditional either-or fields — an
+    # ethernet ``LAN8720`` preset legitimately sets ``clk_mode`` where the
+    # schema marks ``clk`` required, so re-gating rejects a valid recommended
+    # add. Trust the manifest; ESPHome validation at compile is the real gate.
+    if not is_featured:
+        _require_present_fields(component, fields)
 
     if yaml is None:
         config_path = controller._db.settings.rel_path(configuration)
@@ -93,6 +99,14 @@ async def add_component(
         )
 
     return AddComponentResponse(yaml=new_yaml)
+
+
+def _require_present_fields(component: ComponentCatalogEntry, fields: dict[str, Any]) -> None:
+    """Raise ``INVALID_ARGS`` for a required field whose variant gate is active but absent."""
+    for entry in component.config_entries:
+        if entry.required and _entry_gate_active(entry, fields) and entry.key not in fields:
+            msg = f"Missing required field: {entry.label or entry.key}"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
 def _entry_gate_active(entry: ConfigEntry, fields: dict[str, Any]) -> bool:

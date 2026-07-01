@@ -29,6 +29,7 @@ from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.components._resolve import _apply_preset_value
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._state import DevicesState
+from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.controllers.devices.helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
@@ -513,6 +514,30 @@ async def _apply(
     body = await catalog.get_body(record.underlying_id)
     assert body is not None
     return _apply_featured_presets(record, user_fields, body)
+
+
+async def test_shipped_onboard_ethernet_preset_would_trip_required_gate(
+    catalog: ComponentCatalog,
+) -> None:
+    """The KC868-A128 ethernet preset omits the schema-required ``clk`` (it sets ``clk_mode``).
+
+    Pins the real trigger the featured-add gate-skip fixes: pre-fix
+    ``add_component`` raised "Missing required field: clk" for this
+    recommended component.
+    """
+    record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
+    assert record is not None
+    body = await catalog.get_body(record.underlying_id)
+    assert body is not None
+    fields = _apply_featured_presets(record, {}, body)
+    component = await catalog.get_component(component_id=record.underlying_id)
+    assert component is not None
+    missing = [
+        e.key
+        for e in component.config_entries
+        if e.required and _entry_gate_active(e, fields) and e.key not in fields
+    ]
+    assert "clk" in missing
 
 
 async def test_bundle_reincluded_ethernet_provider_is_idempotent(
