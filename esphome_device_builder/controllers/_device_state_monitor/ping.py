@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
 from . import shared
+from .helpers import _pick_ipv4
 
 try:
     from icmplib import async_ping as icmp_ping
@@ -211,7 +212,12 @@ class PingSource:
             if not addresses:
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 return
-            target = addresses[0]
+            # Ping the IPv4 primary, not ``addresses[0]`` — a resolve/cache
+            # hit can order a scoped IPv6 first even when an IPv4 is present,
+            # and ICMP across subnets is friendlier on V4. ``_pick_ipv4`` is
+            # the same chooser ``apply_ip_addresses`` uses for ``device.ip``,
+            # so the pinged IP and the drawer's primary stay in lockstep.
+            target = _pick_ipv4(addresses)
             # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
             # and the full ``device.ip_addresses`` list for ``.local`` hosts
             # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome

@@ -299,6 +299,44 @@ async def test_ping_sweep_applies_ip_for_local_hosts(fake_resolver) -> None:
     assert ip_changes == [("kitchen", "192.168.1.50", ["192.168.1.50"])]
 
 
+async def test_ping_sweep_targets_ipv4_primary_over_scoped_v6(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A multi-address resolve pings the IPv4 primary, not a scoped V6 ordered first.
+
+    ``device.ip`` and the ping target must be the same IPv4 primary
+    ``_pick_ipv4`` selects; the full set still reaches ``ip_addresses``.
+    """
+    devices = [_device(address="winefridge.local", name="winefridge")]
+    ip_changes: list[tuple[str, str, list[str]]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda n, ip, addrs: ip_changes.append((n, ip, list(addrs))),
+    )
+
+    resolver = fake_resolver(["fe80::1%en0", "10.0.0.5"])
+    pinged: list[str] = []
+
+    async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
+        pinged.append(target)
+
+        class _R:
+            is_alive = True
+            min_rtt = 1.5
+
+        return _R()
+
+    with (
+        patch.object(dns_cache_mod, "async_resolve", resolver),
+        patch.object(ping_module, "icmp_ping", fake_ping),
+    ):
+        await monitor._ping._ping_sweep()
+
+    assert pinged == ["10.0.0.5"]
+    assert ip_changes[0] == ("winefridge", "10.0.0.5", ["fe80::1%en0", "10.0.0.5"])
+
+
 async def test_ping_sweep_prefers_system_resolver_over_zeroconf_cache(
     fake_resolver: FakeResolverFactory,
 ) -> None:
