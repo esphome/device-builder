@@ -1069,11 +1069,7 @@ def test_merge_component_yaml_appends_non_platform_component() -> None:
 
 
 def test_merge_component_yaml_noops_when_singleton_already_present() -> None:
-    """A singleton top-level block already present is left untouched (#1776-adjacent).
-
-    Re-adding a network provider a board bundle re-lists after ``create``
-    injected it must not emit a second ``ethernet:`` key.
-    """
+    """A singleton whose block already exists is left untouched, not duplicated."""
     component = _component(component_id="ethernet", category=ComponentCategory.CORE)
     existing = "ethernet:\n  type: LAN8720\n  phy_addr: 0\n"
 

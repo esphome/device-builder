@@ -519,12 +519,7 @@ async def _apply(
 async def test_shipped_onboard_ethernet_preset_would_trip_required_gate(
     catalog: ComponentCatalog,
 ) -> None:
-    """The KC868-A128 ethernet preset omits the schema-required ``clk`` (it sets ``clk_mode``).
-
-    Pins the real trigger the featured-add gate-skip fixes: pre-fix
-    ``add_component`` raised "Missing required field: clk" for this
-    recommended component.
-    """
+    """KC868-A128 ethernet preset omits gated-required ``clk`` (sets ``clk_mode``)."""
     record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
     assert record is not None
     body = await catalog.get_body(record.underlying_id)
@@ -543,12 +538,7 @@ async def test_shipped_onboard_ethernet_preset_would_trip_required_gate(
 async def test_bundle_reincluded_ethernet_provider_is_idempotent(
     catalog: ComponentCatalog,
 ) -> None:
-    """Re-adding a board's onboard ethernet over a config that already has it is a no-op.
-
-    KC868 boards list ``onboard_ethernet`` in ``all_recommended`` even
-    though ``create`` injects it as the network provider; the bundle's
-    second add must not emit a duplicate ``ethernet:`` block.
-    """
+    """Re-adding a board's onboard ethernet over a config that already has it is a no-op."""
     record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
     assert record is not None
     body = await catalog.get_body(record.underlying_id)

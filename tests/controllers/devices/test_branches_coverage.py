@@ -686,12 +686,7 @@ async def test_add_component_featured_skips_required_field_gate(
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A featured add trusts curated presets and skips the required-field gate.
-
-    A board's onboard-ethernet preset sets ``clk_mode`` where the schema marks
-    the gated ``clk`` required, so re-gating wrongly rejected the recommended
-    add; the same non-featured add (above) still raises.
-    """
+    """A featured add skips the required-field gate a non-featured add still enforces."""
     controller = make_controller(tmp_path)
     component = MagicMock()
     component.id = "ethernet"
