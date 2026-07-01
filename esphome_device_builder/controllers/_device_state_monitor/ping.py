@@ -164,14 +164,17 @@ class PingSource:
         for device in monitor._get_devices():
             if not device.address or not shared.should_ping(monitor, device):
                 continue
-            if is_local_hostname(device.address) and (
-                cached := monitor.get_cached_addresses(device.address)
-            ):
-                monitor.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                # Forward every cached IP so the dashboard shows all
-                # of them; ``apply_ip_addresses`` picks the IPv4
-                # primary for ICMP / OTA targeting.
-                monitor.apply_ip_addresses(device.name, cached)
+            if is_local_hostname(device.address) and monitor.get_cached_addresses(device.address):
+                # zeroconf has this ``.local`` host in its mDNS cache. Ping it
+                # (``_resolve_and_ping`` resolves, then falls back to the cached
+                # address) rather than claiming ONLINE off cache presence: a
+                # stale or reflected cache entry for a dead device would
+                # otherwise latch it ONLINE forever, since ``mdns`` priority
+                # locks out the sweep and there is no browser ``Removed`` for a
+                # cache-only claim (#1776). Routed here ahead of the DNS-failure
+                # branch so a cached lookup failure can't strand a device we
+                # still hold an mDNS address for.
+                pingable.append(device)
                 continue
             if monitor.state.dns_cache.has_cached_failure(device.address) and (
                 not device.ip_addresses
@@ -193,6 +196,13 @@ class PingSource:
         monitor = self._monitor
         async with self._concurrency:
             addresses = await monitor.state.dns_cache.async_resolve(device.address)
+            if not addresses and is_local_hostname(device.address):
+                # System resolver couldn't resolve the ``.local`` (no nss-mdns
+                # in most container images). Fall back to zeroconf's own mDNS
+                # cache, kept fresh by the ``AsyncServiceBrowser``, rather than
+                # giving up — but ping still decides liveness, so a stale or
+                # reflected entry demotes instead of latching ONLINE (#1776).
+                addresses = monitor.get_cached_addresses(device.address)
             if not addresses:
                 # mDNS-less devices: the ``.local`` won't resolve but a
                 # prior MQTT/DNS observation left a usable IP. Ping that so
