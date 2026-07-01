@@ -40,7 +40,7 @@ from esphome_device_builder.definitions import (
     _load_featured_component,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.yaml import generate_component_yaml
+from esphome_device_builder.helpers.yaml import generate_component_yaml, merge_component_yaml
 from esphome_device_builder.models import ComponentCategory, ConfigEntry, ConfigEntryType, ErrorCode
 from esphome_device_builder.models.boards import FeaturedComponent
 from esphome_device_builder.models.common import FieldPreset
@@ -513,6 +513,30 @@ async def _apply(
     body = await catalog.get_body(record.underlying_id)
     assert body is not None
     return _apply_featured_presets(record, user_fields, body)
+
+
+async def test_bundle_reincluded_ethernet_provider_is_idempotent(
+    catalog: ComponentCatalog,
+) -> None:
+    """Re-adding a board's onboard ethernet over a config that already has it is a no-op.
+
+    KC868 boards list ``onboard_ethernet`` in ``all_recommended`` even
+    though ``create`` injects it as the network provider; the bundle's
+    second add must not emit a duplicate ``ethernet:`` block.
+    """
+    record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
+    assert record is not None
+    body = await catalog.get_body(record.underlying_id)
+    assert body is not None
+    assert not body.multi_conf  # routes through the singleton no-op path
+    fields = _apply_featured_presets(record, {}, body)
+    # ``create`` already emitted the ethernet block for this board.
+    existing = "ethernet:\n  type: LAN8720\n  phy_addr: 0\n"
+
+    result = merge_component_yaml(existing, body, fields)
+
+    assert result == existing
+    assert result.count("ethernet:") == 1
 
 
 async def test_apply_presets_locked_fills_in(catalog: ComponentCatalog) -> None:

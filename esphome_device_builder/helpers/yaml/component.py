@@ -82,7 +82,10 @@ def merge_component_yaml(
     ``multi_conf`` non-platform components (``rtttl:``, ``i2c:``,
     ``uart:``, ...) splice the new entry under an existing top-level
     block — without this, repeated adds emit duplicate top-level keys,
-    which ESPHome rejects. Singletons fall through to a plain append.
+    which ESPHome rejects. A singleton (``ethernet:``, ``wifi:``, ...)
+    already present is a no-op — re-adding it (a board bundle re-listing
+    the network provider ``create`` already injected) can't splice, so
+    an append would duplicate the key. Absent singletons append.
     """
     block = generate_component_yaml(component, fields)
     is_platform = component.category in _ENTITY_CATEGORIES
@@ -94,6 +97,8 @@ def merge_component_yaml(
         spliced = _splice_into_multi_conf_block(existing, component.id, block)
         if spliced is not None:
             return spliced
+    elif _find_top_level_block_bounds(existing.splitlines(keepends=True), component.id):
+        return existing
     return _append_block(existing, block)
 
 
