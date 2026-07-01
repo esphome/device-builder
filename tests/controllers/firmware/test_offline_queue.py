@@ -32,8 +32,8 @@ def firmware_controller(mock_device):
     # Mock devices as a container with both get_devices() and the new get_by_configuration()
     devices_mock = MagicMock()
     devices_mock.get_devices.return_value = [mock_device]
-    devices_mock.get_by_configuration.side_effect = (
-        lambda c: mock_device if c == mock_device.configuration else None
+    devices_mock.get_by_configuration.side_effect = lambda c: (
+        mock_device if c == mock_device.configuration else None
     )
     controller._db.devices = devices_mock
 
