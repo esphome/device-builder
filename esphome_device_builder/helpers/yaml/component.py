@@ -10,6 +10,8 @@ from .scalar import (
     ESPHOME_YAML_INDENT,
     _quote,
     _safe_yaml_scalar,
+    _split_value_and_comment,
+    _strip_yaml_quotes,
     block_body_is_list,
     is_lambda_sentinel,
 )
@@ -86,8 +88,16 @@ def merge_component_yaml(
     already present is a no-op — re-adding it (a board bundle re-listing
     the network provider ``create`` already injected) can't splice, so
     an append would duplicate the key. Absent singletons append.
+
+    Idempotent on the entry ``id``: a block whose id is already defined
+    is a no-op, so a bundle re-listing a component the user already added
+    (its onboard buzzer, an i2c bus) can't emit a second definition of
+    the same id (``ID redefined``). ESPHome ids are config-global, so the
+    check spans domains.
     """
     block = generate_component_yaml(component, fields)
+    if _defined_ids(block) & _defined_ids(existing):
+        return existing
     is_platform = component.category in _ENTITY_CATEGORIES
     if is_platform:
         spliced = _splice_into_domain_block(existing, str(component.category), block)
@@ -239,6 +249,28 @@ def _coerce_map_scalar_to_string(value: Any) -> str:
     if value is None:
         return "null"
     return str(value)
+
+
+def _defined_ids(text: str) -> set[str]:
+    """
+    Ids defined by an ``id:`` key anywhere in *text* (any indent, dash-led or not).
+
+    A reference key (``output:``, ``i2c_id:``, ``sensor_id:``) doesn't
+    start with the bare ``id:`` token, so it's never read as a
+    definition. Reuses the scalar splitter/unquoter so a trailing
+    comment or quotes round-trip the same way the writer emits them.
+    """
+    ids: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            stripped = stripped[2:].lstrip()
+        if not stripped.startswith("id:"):
+            continue
+        value, _ = _split_value_and_comment(stripped[len("id:") :])
+        if ident := _strip_yaml_quotes(value.strip()):
+            ids.add(ident)
+    return ids
 
 
 def _append_block(existing: str, block: str) -> str:
