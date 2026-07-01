@@ -30,9 +30,11 @@ from .conftest import (
     record_scheduled_coros,
 )
 
+FakeResolverFactory = Callable[..., Callable[[str], Awaitable[list[str]]]]
+
 
 @pytest.fixture
-def fake_resolver() -> Callable[..., Callable[[str], Awaitable[list[str]]]]:
+def fake_resolver() -> FakeResolverFactory:
     """Build a stub for ``icmplib.async_resolve``.
 
     The factory captures call counts and returns successive results
@@ -297,26 +299,141 @@ async def test_ping_sweep_applies_ip_for_local_hosts(fake_resolver) -> None:
     assert ip_changes == [("kitchen", "192.168.1.50", ["192.168.1.50"])]
 
 
-async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
-    """A ``.local`` device in zeroconf's cache short-circuits before ping.
+async def test_ping_sweep_targets_ipv4_primary_over_scoped_v6(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A multi-address resolve pings the IPv4 primary, not a scoped V6 ordered first.
 
-    Catches the case where the ``AsyncServiceBrowser`` ``Added``
-    callback didn't fire for us (multicast packet drop or startup race)
-    but zeroconf's underlying cache has the entry from the periodic
-    PTR queries. Without this rescue the ping sweep falls through to
-    the bare-hostname DNS fallback, which can resolve to an
-    unreachable IP on a different subnet and report a phantom OFFLINE
-    for a device that's actually right there.
+    ``device.ip`` and the ping target must be the same IPv4 primary
+    ``_pick_ipv4`` selects; the full set still reaches ``ip_addresses``.
     """
     devices = [_device(address="winefridge.local", name="winefridge")]
-    state_changes: list[tuple[str, object, str]] = []
     ip_changes: list[tuple[str, str, list[str]]] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,
-        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
+        on_state_change=lambda *_: None,
         on_ip_change=lambda n, ip, addrs: ip_changes.append((n, ip, list(addrs))),
     )
 
+    resolver = fake_resolver(["fe80::1%en0", "10.0.0.5"])
+    pinged: list[str] = []
+
+    async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
+        pinged.append(target)
+
+        class _R:
+            is_alive = True
+            min_rtt = 1.5
+
+        return _R()
+
+    with (
+        patch.object(dns_cache_mod, "async_resolve", resolver),
+        patch.object(ping_module, "icmp_ping", fake_ping),
+    ):
+        await monitor._ping._ping_sweep()
+
+    assert pinged == ["10.0.0.5"]
+    assert ip_changes[0] == ("winefridge", "10.0.0.5", ["fe80::1%en0", "10.0.0.5"])
+
+
+async def test_ping_sweep_prefers_system_resolver_over_zeroconf_cache(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A resolvable ``.local`` is pinged at the freshly resolved IP, not the zeroconf cache.
+
+    The zeroconf cache is a fallback; when the system resolver answers,
+    its fresher address wins.
+    """
+    devices = [_device(address="winefridge.local", name="winefridge")]
+    ip_changes: list[tuple[str, str, list[str]]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda n, ip, addrs: ip_changes.append((n, ip, list(addrs))),
+    )
+
+    resolver = fake_resolver(["10.0.0.7"])
+    pinged: list[str] = []
+
+    async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
+        pinged.append(target)
+
+        class _R:
+            is_alive = True
+            min_rtt = 1.5
+
+        return _R()
+
+    with (
+        patch.object(monitor, "get_cached_addresses", lambda host: ["192.168.213.11"]),
+        patch.object(dns_cache_mod, "async_resolve", resolver),
+        patch.object(ping_module, "icmp_ping", fake_ping),
+    ):
+        await monitor._ping._ping_sweep()
+
+    assert pinged == ["10.0.0.7"]
+    assert ip_changes[0] == ("winefridge", "10.0.0.7", ["10.0.0.7"])
+
+
+async def test_ping_sweep_falls_back_to_zeroconf_cache_when_resolver_fails(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """Unresolvable ``.local`` falls back to the zeroconf-cached IP.
+
+    A live host answers that ping and goes ONLINE via ``ping``.
+    """
+    devices = [_device(address="winefridge.local", name="winefridge")]
+    state_changes: list[tuple[str, object, str]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
+        on_ip_change=lambda *_: None,
+    )
+
+    resolver = fake_resolver(dns_cache_mod.NameLookupError, dns_cache_mod.NameLookupError)
+    pinged: list[str] = []
+
+    async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
+        pinged.append(target)
+
+        class _R:
+            is_alive = True
+            min_rtt = 1.5
+
+        return _R()
+
+    with (
+        patch.object(monitor, "get_cached_addresses", lambda host: ["192.168.213.11"]),
+        patch.object(dns_cache_mod, "async_resolve", resolver),
+        patch.object(ping_module, "icmp_ping", fake_ping),
+    ):
+        await monitor._ping._ping_sweep()
+
+    assert pinged == ["192.168.213.11"]
+    assert state_changes[-1] == ("winefridge", DeviceState.ONLINE, "ping")
+    assert monitor.priority_for("winefridge") == "ping"
+
+
+async def test_ping_sweep_demotes_dead_zeroconf_cached_local(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A dead ``.local`` lingering in zeroconf's cache is demoted, not latched ONLINE (#1776).
+
+    A stale or reflected cached A record (a router mDNS cache still
+    answering for a powered-off device) must not hold it ONLINE: the
+    cached IP is pinged, fails, and the device goes OFFLINE via ``ping``
+    and stays ping-eligible instead of latching ONLINE via ``mdns``.
+    """
+    devices = [_device(address="winefridge.local", name="winefridge")]
+    state_changes: list[tuple[str, object, str]] = []
+    monitor = DeviceStateMonitor(
+        get_devices=lambda: devices,
+        on_state_change=lambda n, s, src: state_changes.append((n, s, src)),
+        on_ip_change=lambda *_: None,
+    )
+
+    resolver = fake_resolver(dns_cache_mod.NameLookupError, dns_cache_mod.NameLookupError)
     pinged: list[str] = []
 
     async def fake_ping(target, **_kwargs):  # type: ignore[no-untyped-def]
@@ -329,14 +446,14 @@ async def test_ping_sweep_rescues_local_device_from_zeroconf_cache() -> None:
 
     with (
         patch.object(monitor, "get_cached_addresses", lambda host: ["192.168.213.11"]),
+        patch.object(dns_cache_mod, "async_resolve", resolver),
         patch.object(ping_module, "icmp_ping", fake_ping),
     ):
         await monitor._ping._ping_sweep()
 
-    assert pinged == []
-    assert state_changes == [("winefridge", DeviceState.ONLINE, "mdns")]
-    assert ip_changes == [("winefridge", "192.168.213.11", ["192.168.213.11"])]
-    assert monitor.priority_for("winefridge") == "mdns"
+    assert pinged and set(pinged) == {"192.168.213.11"}
+    assert state_changes[-1] == ("winefridge", DeviceState.OFFLINE, "ping")
+    assert monitor.priority_for("winefridge") == "ping"
 
 
 async def test_ping_sweep_marks_offline_directly_on_dns_failure(fake_resolver) -> None:

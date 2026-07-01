@@ -681,6 +681,47 @@ async def test_add_component_gated_active_required_field_demanded(
     assert exc.value.code is ErrorCode.INVALID_ARGS
 
 
+async def test_add_component_featured_skips_required_field_gate(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A featured add skips the required-field gate a non-featured add still enforces."""
+    controller = make_controller(tmp_path)
+    component = MagicMock()
+    component.id = "ethernet"
+    component.config_entries = [
+        ConfigEntry(key="type", type=ConfigEntryType.STRING, label="Type", required=True),
+        ConfigEntry(
+            key="clk",
+            type=ConfigEntryType.NESTED,
+            label="Clk",
+            required=True,
+            depends_on="type",
+            depends_on_value_any=["LAN8720", "DP83848"],
+        ),
+    ]
+    controller._db.components = MagicMock()
+    controller._db.components.get_featured_record = MagicMock(
+        return_value=MagicMock(underlying_id="ethernet")
+    )
+    controller._db.components.get_body = AsyncMock(return_value=MagicMock())
+    controller._db.components.get_component = AsyncMock(return_value=component)
+    monkeypatch.setattr(
+        add_component_mod,
+        "_apply_featured_presets",
+        lambda record, fields, body: {"type": "LAN8720"},
+    )
+    monkeypatch.setattr(add_component_mod, "merge_component_yaml", lambda *a, **k: "merged: ok\n")
+
+    response = await controller.add_component(
+        configuration="kitchen.yaml",
+        component_id="featured.kincony_kc868_a128.onboard_ethernet",
+        yaml="ethernet:\n  type: LAN8720\n",
+    )
+    assert response.yaml == "merged: ok\n"
+
+
 # ---------------------------------------------------------------------------
 # add_component draft vs disk
 # ---------------------------------------------------------------------------

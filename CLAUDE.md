@@ -506,6 +506,15 @@ against legacy behaviour before assuming the simpler version suffices.
     "slow", and "packet loss", and there's no subscription delivering
     TTL-expiry here. Wait for the ICMP sweep in the same loop to decide
     OFFLINE.
+  - **Ping-sweep address-cache path** (`PingSource._select_ping_targets`,
+    for a `.local` host with a zeroconf A/AAAA cache hit). Do **not** claim
+    ONLINE off cache presence — **ping** the cached address (system
+    resolver first, `get_cached_addresses` fallback) and let ICMP decide.
+    A cache hit can be a stale or reflected answer (a router/AP mDNS cache
+    still serving a powered-off device); a `claim=True` `mdns` claim here
+    has no browser `Removed` counterpart, so it locks out `should_ping` and
+    latches the device ONLINE forever (#1776). The `ping`-source result
+    (priority 1) stays sweep-eligible so a dead entry demotes.
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE

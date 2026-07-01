@@ -29,6 +29,7 @@ from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.controllers.components._resolve import _apply_preset_value
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._state import DevicesState
+from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.controllers.devices.helpers import (
     _apply_featured_presets,
     _drop_unconfigured_dependent_fields,
@@ -40,7 +41,7 @@ from esphome_device_builder.definitions import (
     _load_featured_component,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.yaml import generate_component_yaml
+from esphome_device_builder.helpers.yaml import generate_component_yaml, merge_component_yaml
 from esphome_device_builder.models import ComponentCategory, ConfigEntry, ConfigEntryType, ErrorCode
 from esphome_device_builder.models.boards import FeaturedComponent
 from esphome_device_builder.models.common import FieldPreset
@@ -513,6 +514,44 @@ async def _apply(
     body = await catalog.get_body(record.underlying_id)
     assert body is not None
     return _apply_featured_presets(record, user_fields, body)
+
+
+async def test_shipped_onboard_ethernet_preset_would_trip_required_gate(
+    catalog: ComponentCatalog,
+) -> None:
+    """KC868-A128 ethernet preset omits gated-required ``clk`` (sets ``clk_mode``)."""
+    record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
+    assert record is not None
+    body = await catalog.get_body(record.underlying_id)
+    assert body is not None
+    fields = _apply_featured_presets(record, {}, body)
+    component = await catalog.get_component(component_id=record.underlying_id)
+    assert component is not None
+    missing = [
+        e.key
+        for e in component.config_entries
+        if e.required and _entry_gate_active(e, fields) and e.key not in fields
+    ]
+    assert "clk" in missing
+
+
+async def test_bundle_reincluded_ethernet_provider_is_idempotent(
+    catalog: ComponentCatalog,
+) -> None:
+    """Re-adding a board's onboard ethernet over a config that already has it is a no-op."""
+    record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
+    assert record is not None
+    body = await catalog.get_body(record.underlying_id)
+    assert body is not None
+    assert not body.multi_conf  # routes through the singleton no-op path
+    fields = _apply_featured_presets(record, {}, body)
+    # ``create`` already emitted the ethernet block for this board.
+    existing = "ethernet:\n  type: LAN8720\n  phy_addr: 0\n"
+
+    result = merge_component_yaml(existing, body, fields)
+
+    assert result == existing
+    assert result.count("ethernet:") == 1
 
 
 async def test_apply_presets_locked_fills_in(catalog: ComponentCatalog) -> None:

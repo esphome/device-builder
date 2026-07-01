@@ -1068,6 +1068,29 @@ def test_merge_component_yaml_appends_non_platform_component() -> None:
     assert result.startswith("esphome:\n  name: kitchen\n")
 
 
+def test_merge_component_yaml_noops_when_singleton_already_present() -> None:
+    """A singleton whose block already exists is left untouched, not duplicated."""
+    component = _component(component_id="ethernet", category=ComponentCategory.CORE)
+    existing = "ethernet:\n  type: LAN8720\n  phy_addr: 0\n"
+
+    result = merge_component_yaml(existing, component, {"type": "W5500"})
+
+    assert result == existing
+    assert result.count("ethernet:") == 1
+
+
+def test_merge_component_yaml_appends_singleton_when_absent() -> None:
+    """An absent singleton is appended once."""
+    component = _component(component_id="ethernet", category=ComponentCategory.CORE)
+    existing = "esphome:\n  name: kitchen\n"
+
+    result = merge_component_yaml(existing, component, {"type": "LAN8720"})
+
+    assert result.count("ethernet:") == 1
+    assert "ethernet:\n  type: LAN8720\n" in result
+    assert result.startswith("esphome:\n  name: kitchen\n")
+
+
 def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     """Splice keeps the trailing blank line(s) before the next block.
 
@@ -1309,16 +1332,14 @@ def test_merge_component_yaml_multi_conf(
         assert expected_suffix in result
 
 
-def test_merge_component_yaml_singleton_without_multi_conf_falls_through() -> None:
-    """A ``multi_conf=False`` non-platform component skips the splice."""
+def test_merge_component_yaml_singleton_without_multi_conf_is_noop_when_present() -> None:
+    """A ``multi_conf=False`` non-platform component already present is a no-op."""
     component = _component(component_id="wifi", category=ComponentCategory.MISC, multi_conf=False)
-    result = merge_component_yaml(
-        "esphome:\n  name: kitchen\n\nwifi:\n  ssid: other\n",
-        component,
-        {"ssid": "home"},
-    )
+    existing = "esphome:\n  name: kitchen\n\nwifi:\n  ssid: other\n"
+    result = merge_component_yaml(existing, component, {"ssid": "home"})
 
-    assert result.count("wifi:\n") == 2
+    assert result == existing
+    assert result.count("wifi:\n") == 1
 
 
 def test_splice_into_multi_conf_block_rejects_mismatched_header() -> None:

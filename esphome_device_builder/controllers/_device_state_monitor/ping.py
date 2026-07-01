@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
 from . import shared
+from .helpers import _pick_ipv4
 
 try:
     from icmplib import async_ping as icmp_ping
@@ -164,14 +165,17 @@ class PingSource:
         for device in monitor._get_devices():
             if not device.address or not shared.should_ping(monitor, device):
                 continue
-            if is_local_hostname(device.address) and (
-                cached := monitor.get_cached_addresses(device.address)
-            ):
-                monitor.apply(device.name, DeviceState.ONLINE, "mdns", claim=True)
-                # Forward every cached IP so the dashboard shows all
-                # of them; ``apply_ip_addresses`` picks the IPv4
-                # primary for ICMP / OTA targeting.
-                monitor.apply_ip_addresses(device.name, cached)
+            if is_local_hostname(device.address) and monitor.get_cached_addresses(device.address):
+                # zeroconf has this ``.local`` host in its mDNS cache. Ping it
+                # (``_resolve_and_ping`` resolves, then falls back to the cached
+                # address) rather than claiming ONLINE off cache presence: a
+                # stale or reflected cache entry for a dead device would
+                # otherwise latch it ONLINE forever, since ``mdns`` priority
+                # locks out the sweep and there is no browser ``Removed`` for a
+                # cache-only claim (#1776). Routed here ahead of the DNS-failure
+                # branch so a cached lookup failure can't strand a device we
+                # still hold an mDNS address for.
+                pingable.append(device)
                 continue
             if monitor.state.dns_cache.has_cached_failure(device.address) and (
                 not device.ip_addresses
@@ -193,6 +197,13 @@ class PingSource:
         monitor = self._monitor
         async with self._concurrency:
             addresses = await monitor.state.dns_cache.async_resolve(device.address)
+            if not addresses and is_local_hostname(device.address):
+                # System resolver couldn't resolve the ``.local`` (no nss-mdns
+                # in most container images). Fall back to zeroconf's own mDNS
+                # cache, kept fresh by the ``AsyncServiceBrowser``, rather than
+                # giving up — but ping still decides liveness, so a stale or
+                # reflected entry demotes instead of latching ONLINE (#1776).
+                addresses = monitor.get_cached_addresses(device.address)
             if not addresses:
                 # mDNS-less devices: the ``.local`` won't resolve but a
                 # prior MQTT/DNS observation left a usable IP. Ping that so
@@ -201,13 +212,19 @@ class PingSource:
             if not addresses:
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 return
-            target = addresses[0]
-            # ``apply_ip`` is the only path that populates
-            # ``device.ip`` for ``.local`` hosts that don't broadcast
-            # ``_esphomelib._tcp`` (non-API ESPHome devices); without
-            # it those devices would show an em-dash in the drawer's
-            # IP row even after successful pings.
-            monitor.apply_ip(device.name, target)
+            # Ping the IPv4 primary, not ``addresses[0]`` — a resolve/cache
+            # hit can order a scoped IPv6 first even when an IPv4 is present,
+            # and ICMP across subnets is friendlier on V4. ``_pick_ipv4`` is
+            # the same chooser ``apply_ip_addresses`` uses for ``device.ip``,
+            # so the pinged IP and the drawer's primary stay in lockstep.
+            target = _pick_ipv4(addresses)
+            # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
+            # and the full ``device.ip_addresses`` list for ``.local`` hosts
+            # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome
+            # devices); without it those devices show an em-dash in the
+            # drawer's IP row even after successful pings, and forwarding the
+            # whole set keeps a cached multi-IP device's secondary addresses.
+            monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
     async def _ping_device(self, device: Device, target: str) -> None:

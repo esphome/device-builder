@@ -1720,18 +1720,19 @@ def test_get_cached_addresses_returns_none_when_addresses_empty(
 async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``.local`` device whose mDNS cache only carries V6 still gets an IP.
+    """A ``.local`` device whose mDNS cache only carries V6 is pinged at that V6 address.
 
     Drives the V4-preference helper's fallback branch through the
-    public ping pipeline: the device is ``.local``, the zeroconf
-    cache resolves it but only to a scoped V6 address, and the
-    monitor still claims it ONLINE under the mDNS source and pushes
-    the V6 address into ``Device.ip``. Without the fallback the
+    public ping pipeline: the system resolver can't resolve the
+    ``.local``, so the zeroconf cache supplies a scoped V6 address;
+    the ping targets it and the device goes ONLINE under ``ping``
+    with the V6 address in ``Device.ip``. Without the fallback the
     device would get ``apply_ip("")`` and the dashboard wouldn't
     have an IP to OTA against.
     """
     device = _device(address="kitchen.local", state=DeviceState.UNKNOWN)
     monitor, _callbacks = _make_monitor([device])
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=None)
 
     cached_info = MagicMock()
     cached_info.load_from_cache.return_value = True
@@ -1739,9 +1740,10 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: cached_info)
 
     async def _icmp(*_a: Any, **_kw: Any) -> Any:
-        # Should not be reached — the cached-addresses path
-        # claims ONLINE and skips the icmp probe.
-        raise AssertionError("icmp_ping must not be called for cached-mdns devices")
+        result = MagicMock()
+        result.is_alive = True
+        result.min_rtt = 1.5
+        return result
 
     monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
     _shrink_ping_intervals(monkeypatch)
