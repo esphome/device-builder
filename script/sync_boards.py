@@ -826,6 +826,21 @@ def _component_pin_keys(component_id: str) -> frozenset[str]:
 
 
 @cache
+def _component_reference_keys(component_id: str) -> frozenset[str]:
+    """Config-entry keys (any depth) that cross-reference another component by id."""
+    keys: set[str] = set()
+
+    def _walk(entries: list[dict[str, Any]] | None) -> None:
+        for entry in entries or []:
+            if entry.get("references_component") and entry.get("key"):
+                keys.add(entry["key"])
+            _walk(entry.get("config_entries"))
+
+    _walk(_component_body(component_id).get("config_entries"))
+    return frozenset(keys)
+
+
+@cache
 def _component_pin_paths(component_id: str) -> tuple[tuple[str, ...], ...]:
     """Config-entry paths of every ``type: pin`` field for *component_id*, nested pins included."""
     paths: list[tuple[str, ...]] = []
@@ -940,8 +955,12 @@ def _direct_featured_requires(
     direct: dict[str, list[str]] = {}
     for fc in components:
         deps = list(fc.requires)
+        # Only a genuine cross-reference field (``output``, ``i2c_id``, a light's
+        # colour channels) points at a sibling; a free-text field whose value
+        # happens to match an id (a ``name``) must not infer a dependency.
+        reference_keys = _component_reference_keys(fc.component_id)
         for key, preset in fc.fields.items():
-            if key == "id" or not isinstance(preset.value, str):
+            if key not in reference_keys or not isinstance(preset.value, str):
                 continue
             target = by_emitted_id.get(preset.value)
             if target is not None and target != fc.id and target not in deps:
