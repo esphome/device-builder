@@ -466,3 +466,24 @@ def test_device_for_configuration_handles_unknown_stub(firmware_controller):
 
     firmware_controller._db.devices = StubDevices()
     assert firmware_controller._device_for_configuration("kitchen.yaml") is None
+
+
+def test_handle_deferred_compile_completion_no_op_when_device_not_found(
+    firmware_controller,
+):
+    """Return early without arming when the configuration has no matching device."""
+    # Setup: The O(1) shadow index lookup returns None (device not found)
+    firmware_controller._db.devices.get_by_configuration.return_value = None
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.COMPILE
+    job.status = JobStatus.COMPLETED
+    job.is_deferred_install = True
+    job.configuration = "missing_device.yaml"
+
+    firmware_controller._handle_deferred_compile_completion(job)
+
+    # Assert we bailed out safely before trying to update or arm anything
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+    assert "missing_device.yaml" not in firmware_controller._armed_deferred_installs

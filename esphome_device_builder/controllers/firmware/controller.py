@@ -484,7 +484,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         device = self._device_for_configuration(job.configuration)
-        if not device or not self._db.devices:
+        if not device:
             return
 
         if device.state == DeviceState.ONLINE:
