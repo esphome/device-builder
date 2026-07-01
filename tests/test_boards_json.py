@@ -57,6 +57,7 @@ from script.sync_boards import (
     _consolidate_full_setup_bundles,
     _has_pin_conflict,
     _stamp_featured_locked_pins,
+    _stamp_featured_requires,
 )
 
 _DEFINITIONS_DIR = Path(__file__).parent.parent / "esphome_device_builder" / "definitions"
@@ -100,6 +101,7 @@ def test_split_artefacts_match_manifests() -> None:
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
+    _stamp_featured_requires(from_yaml.boards)
     _consolidate_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
     generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
