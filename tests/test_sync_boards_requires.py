@@ -1,10 +1,9 @@
 """
 Pin the sync-time ``requires`` inference for featured components.
 
-A featured *reference* field whose value equals a sibling's emitted id is a
-prerequisite; the stamp fills ``requires`` (transitively) so the frontend adds
-the sibling first. The committed-catalog test guards every manifest against the
-same undefined-id-reference bug that shipped for apollo-esk-1's rtttl player.
+A featured *reference* field pointing at a sibling's emitted id becomes a
+prerequisite, flattened transitively. The committed-catalog test asserts every
+such reference in the shipped index is declared in that component's ``requires``.
 """
 
 from __future__ import annotations

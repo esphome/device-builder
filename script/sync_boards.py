@@ -946,7 +946,7 @@ def _stamp_featured_requires(boards: list[BoardCatalogEntry]) -> None:
 def _direct_featured_requires(
     components: list[FeaturedComponent],
 ) -> dict[str, list[str]]:
-    """Map each featured local id to its direct prereqs: hand-authored first, then inferred sibling references."""
+    """Direct prereqs per featured id: hand-authored first, then inferred sibling references."""
     by_emitted_id: dict[str, str] = {}
     for fc in components:
         preset = fc.fields.get("id")
@@ -970,7 +970,7 @@ def _direct_featured_requires(
 
 
 def _flatten_requires(local_id: str, direct: dict[str, list[str]]) -> list[str]:
-    """Transitive prereq closure of *local_id*, each dep ordered after its own deps (cycle-safe, deduped)."""
+    """Transitive prereq closure of *local_id*, deps ordered before dependents (cycle-safe)."""
     ordered: list[str] = []
     seen: set[str] = set()
 
