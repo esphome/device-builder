@@ -420,6 +420,11 @@ class StubDevices:
         """Return an empty list to satisfy the offline queue discovery checks."""
         return []
 
+    def get_by_configuration(self, configuration: str) -> Any | None:
+        """Test double for the O(1) shadow index lookup."""
+        # The stub holds no devices (get_devices returns []), so lookups safely yield None.
+        return None
+
 
 def wire_devices(controller: FirmwareController) -> None:
     """Attach a no-op ``DevicesController`` stub for ``_build_cache_args``."""

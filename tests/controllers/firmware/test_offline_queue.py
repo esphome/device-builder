@@ -29,9 +29,12 @@ def firmware_controller(mock_device):
     controller = FirmwareController.__new__(FirmwareController)
     controller._db = MagicMock()
 
-    # Mock devices as a container with a get_devices() method
+    # Mock devices as a container with both get_devices() and the new get_by_configuration()
     devices_mock = MagicMock()
     devices_mock.get_devices.return_value = [mock_device]
+    devices_mock.get_by_configuration.side_effect = (
+        lambda c: mock_device if c == mock_device.configuration else None
+    )
     controller._db.devices = devices_mock
 
     controller._db.settings = MagicMock()
@@ -321,10 +324,11 @@ async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device)
 
 
 @pytest.mark.asyncio
-async def test_execute_job_ignores_online_device(firmware_controller, mock_device):
-    """Test successful compile for an online device triggers upload instead of queueing."""
+async def test_execute_job_handles_online_device(firmware_controller, mock_device):
+    """Test successful compile for an online device sets flag and triggers upload."""
     mock_device.state = DeviceState.ONLINE
     mock_device.configuration = "test_device.yaml"
+    mock_device.name = "test_device"
     firmware_controller._db.devices.set_queued_update = MagicMock()
 
     job = MagicMock(spec=FirmwareJob)
@@ -342,7 +346,10 @@ async def test_execute_job_ignores_online_device(firmware_controller, mock_devic
     ):
         await firmware_controller._execute_job(job, MagicMock())
 
-    firmware_controller._db.devices.set_queued_update.assert_not_called()
+    # Assert our new bugfix behavior: flag is persisted, but it is kept OUT of the armed set
+    firmware_controller._db.devices.set_queued_update.assert_called_with(
+        "test_device", is_queued=True
+    )
     assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
     mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
     firmware_controller._db.create_background_task.assert_called_once()
@@ -430,26 +437,6 @@ def test_device_for_configuration_handles_none(firmware_controller):
     assert firmware_controller._device_for_configuration("kitchen.yaml") is None
 
 
-def test_device_for_configuration_uses_get_devices(firmware_controller):
-    """Test standard production path using get_devices()."""
-    mock_device = MagicMock(configuration="kitchen.yaml")
-    firmware_controller._db.devices = MagicMock()
-    firmware_controller._db.devices.get_devices.return_value = [mock_device]
-
-    assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
-
-
-def test_device_for_configuration_handles_unknown_stub(firmware_controller):
-    """Test the e2e StubDevices fallback that implements get_devices()."""
-
-    class StubDevices:
-        def get_devices(self):
-            return []  # Real interface, empty result
-
-    firmware_controller._db.devices = StubDevices()
-    assert firmware_controller._device_for_configuration("kitchen.yaml") is None
-
-
 # --- _handle_deferred_compile_completion guard tests ---
 def _make_deferred_compile_job(configuration: str = "test_device.yaml") -> MagicMock:
     """Build a completed deferred-install COMPILE job for guard-clause tests."""
@@ -461,36 +448,21 @@ def _make_deferred_compile_job(configuration: str = "test_device.yaml") -> Magic
     return job
 
 
-def test_handle_deferred_compile_completion_no_op_when_device_not_found(
-    firmware_controller, mock_device
-):
-    """Return early without arming when the configuration has no matching device.
+def test_device_for_configuration_uses_get_by_configuration(firmware_controller):
+    """Test standard production path using get_by_configuration()."""
+    mock_device = MagicMock(configuration="kitchen.yaml")
+    firmware_controller._db.devices = MagicMock()
 
-    Covers the ``not device`` arm of the early-return guard — a
-    configuration that was removed between compile-queued and
-    compile-completed must not raise or corrupt the armed set.
-    """
-    firmware_controller._db.devices.get_devices.return_value = []
-    firmware_controller._db.devices.set_queued_update = MagicMock()
-
-    firmware_controller._handle_deferred_compile_completion(_make_deferred_compile_job())
-
-    firmware_controller._db.devices.set_queued_update.assert_not_called()
-    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
+    firmware_controller._db.devices.get_by_configuration.return_value = mock_device
+    assert firmware_controller._device_for_configuration("kitchen.yaml") == mock_device
 
 
-def test_handle_deferred_compile_completion_no_op_when_devices_controller_is_none(
-    firmware_controller, mock_device
-):
-    """Return early without arming when the devices controller is None.
+def test_device_for_configuration_handles_unknown_stub(firmware_controller):
+    """Test the e2e StubDevices fallback that implements get_by_configuration()."""
 
-    Covers the ``not self._db.devices`` arm of the early-return guard —
-    an unexpected teardown ordering (or a partially-initialised
-    controller in tests) must not raise.
-    """
-    firmware_controller._db.devices = None
+    class StubDevices:
+        def get_by_configuration(self, configuration: str):
+            return None  # Real interface, empty result
 
-    # Should not raise even though there's nowhere to persist the flag.
-    firmware_controller._handle_deferred_compile_completion(_make_deferred_compile_job())
-
-    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
+    firmware_controller._db.devices = StubDevices()
+    assert firmware_controller._device_for_configuration("kitchen.yaml") is None

@@ -96,11 +96,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if self._db.devices is None:
             return None
 
-        # Direct, typed call. Test stubs must implement get_devices().
-        return next(
-            (d for d in self._db.devices.get_devices() if d.configuration == configuration),
-            None,
-        )
+        return self._db.devices.get_by_configuration(configuration)
 
     def _handle_device_wake(self, event: Event) -> None:
         """Intercept device wake to trigger queued updates and prevent flapping."""
@@ -496,6 +492,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 "Device %s is online after deferred compile. Triggering upload now.",
                 job.configuration,
             )
+            self._db.devices.set_queued_update(device.name, is_queued=True)
             self._db.create_background_task(
                 self.upload(configuration=job.configuration, port="OTA")
             )
