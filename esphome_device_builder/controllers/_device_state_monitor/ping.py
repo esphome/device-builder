@@ -212,12 +212,13 @@ class PingSource:
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 return
             target = addresses[0]
-            # ``apply_ip`` is the only path that populates
-            # ``device.ip`` for ``.local`` hosts that don't broadcast
-            # ``_esphomelib._tcp`` (non-API ESPHome devices); without
-            # it those devices would show an em-dash in the drawer's
-            # IP row even after successful pings.
-            monitor.apply_ip(device.name, target)
+            # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
+            # and the full ``device.ip_addresses`` list for ``.local`` hosts
+            # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome
+            # devices); without it those devices show an em-dash in the
+            # drawer's IP row even after successful pings, and forwarding the
+            # whole set keeps a cached multi-IP device's secondary addresses.
+            monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
     async def _ping_device(self, device: Device, target: str) -> None:
