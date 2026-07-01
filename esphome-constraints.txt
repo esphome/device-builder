@@ -4,4 +4,4 @@
 # sync workflows bump this line when they regenerate the catalog against a new
 # esphome. Not the package's runtime dependency (that stays esphome>=… in
 # pyproject); this only constrains CI installs via uv pip install -c.
-esphome==2026.6.3
+esphome==2026.6.4
