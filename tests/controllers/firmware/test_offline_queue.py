@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from esphome_device_builder.controllers.devices.controller import DevicesController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.controller import FirmwareController
 from esphome_device_builder.helpers.event_bus import Event
@@ -103,6 +104,44 @@ async def test_queued_update_not_cleared_if_device_missing(firmware_controller):
     # Should not raise exception, just return None
     result = await firmware_controller.clear_queued_update(configuration="test_device.yaml")
     assert result is None
+
+
+def test_on_queued_update_change_matches_device(mock_device):
+    """Test that a matching device is updated, persisted, and an event is fired."""
+    # Initialize a mock DevicesController without running __init__
+    controller = DevicesController.__new__(DevicesController)
+    controller.get_devices = MagicMock(return_value=[mock_device])
+    controller._metadata_store = MagicMock()
+    controller._fire_device_updated = MagicMock()
+
+    controller._on_queued_update_change("test_device", True)
+
+    # Verify the device flag was updated
+    assert mock_device.queued_update is True
+
+    # Verify the metadata store was instructed to persist the change
+    controller._metadata_store.update.assert_called_once_with(
+        "test_device.yaml", queued_update=True
+    )
+
+    # Verify the updated event was fired for the UI/bus
+    controller._fire_device_updated.assert_called_once_with(mock_device)
+
+def test_on_queued_update_change_skips_unmatched(mock_device):
+    """Test that devices with a different name are skipped."""
+    controller = DevicesController.__new__(DevicesController)
+    controller.get_devices = MagicMock(return_value=[mock_device])
+    controller._metadata_store = MagicMock()
+    controller._fire_device_updated = MagicMock()
+
+    controller._on_queued_update_change("other_device", True)
+
+    # Verify the device flag remains untouched
+    assert mock_device.queued_update is False
+
+    # Verify persistence and events were not triggered
+    controller._metadata_store.update.assert_not_called()
+    controller._fire_device_updated.assert_not_called()
 
 
 # --- _rehydrate_armed_deferred_installs tests ---
@@ -408,3 +447,49 @@ def test_device_for_configuration_handles_unknown_stub(firmware_controller):
 
     firmware_controller._db.devices = StubDevices()
     assert firmware_controller._device_for_configuration("kitchen.yaml") is None
+
+
+# --- _handle_deferred_compile_completion guard tests ---
+def _make_deferred_compile_job(configuration: str = "test_device.yaml") -> MagicMock:
+    """Build a completed deferred-install COMPILE job for guard-clause tests."""
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.COMPILE
+    job.status = JobStatus.COMPLETED
+    job.is_deferred_install = True
+    job.configuration = configuration
+    return job
+
+
+def test_handle_deferred_compile_completion_no_op_when_device_not_found(
+    firmware_controller, mock_device
+):
+    """Return early without arming when the configuration has no matching device.
+
+    Covers the ``not device`` arm of the early-return guard — a
+    configuration that was removed between compile-queued and
+    compile-completed must not raise or corrupt the armed set.
+    """
+    firmware_controller._db.devices.get_devices.return_value = []
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+
+    firmware_controller._handle_deferred_compile_completion(_make_deferred_compile_job())
+
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
+
+
+def test_handle_deferred_compile_completion_no_op_when_devices_controller_is_none(
+    firmware_controller, mock_device
+):
+    """Return early without arming when the devices controller is None.
+
+    Covers the ``not self._db.devices`` arm of the early-return guard —
+    an unexpected teardown ordering (or a partially-initialised
+    controller in tests) must not raise.
+    """
+    firmware_controller._db.devices = None
+
+    # Should not raise even though there's nowhere to persist the flag.
+    firmware_controller._handle_deferred_compile_completion(_make_deferred_compile_job())
+
+    assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
