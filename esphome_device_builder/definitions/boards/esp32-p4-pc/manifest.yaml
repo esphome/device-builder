@@ -1,0 +1,385 @@
+id: esp32-p4-pc
+name: OLIMEX ESP32-P4-PC
+description: Olimex ESP32-P4-PC with ESP32-P4NRW32 (16MB flash, 32MB PSRAM), 10/100 Ethernet (IP101 PHY), MIPI CSI camera and DSI display interfaces, HDMI output, and microSD. The ESP32-P4 has no built-in wireless; Ethernet provides networking.
+manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-P4/ESP32-P4-PC/images/thumbs/310x230/ESP32-P4-PC-1.jpg
+esphome:
+  platform: esp32
+  board: esp32-p4
+  variant: esp32p4
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  cpu_frequency: 400MHz
+  connectivity:
+  - ethernet
+tags:
+- dev-kit
+- sd-card
+docs_url: https://esphome.io/components/ethernet.html
+product_url: https://www.olimex.com/Products/IoT/ESP32-P4/ESP32-P4-PC/open-source-hardware
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  description: Built-in IP101 Ethernet PHY (RMII) — wired networking, no wireless co-processor needed.
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO31
+      locked: true
+    mdio_pin:
+      value: GPIO52
+      locked: true
+    clk:
+      value:
+        pin: GPIO50
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO51
+      locked: true
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - pwm
+  available: null
+- gpio: 1
+  label: GPIO1
+  features:
+  - pwm
+  available: null
+- gpio: 2
+  label: GPIO2
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 3
+  label: GPIO3
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 4
+  label: GPIO4
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 5
+  label: GPIO5
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 6
+  label: GPIO6
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 7
+  label: GPIO7
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 8
+  label: GPIO8
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 9
+  label: GPIO9
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 10
+  label: GPIO10
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 11
+  label: GPIO11
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 12
+  label: GPIO12
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 13
+  label: GPIO13
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 14
+  label: GPIO14
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 15
+  label: GPIO15
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 16
+  label: GPIO16
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH0
+- gpio: 17
+  label: GPIO17
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH1
+- gpio: 18
+  label: GPIO18
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH2
+- gpio: 19
+  label: GPIO19
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH3
+- gpio: 20
+  label: GPIO20
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH4
+- gpio: 21
+  label: GPIO21
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH5
+- gpio: 22
+  label: GPIO22
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH6
+- gpio: 23
+  label: GPIO23
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH7
+- gpio: 24
+  label: GPIO24
+  features:
+  - adc
+  - pwm
+  - usb_dm
+  available: null
+  notes: ADC1_CH8 — USB OTG D-
+- gpio: 25
+  label: GPIO25
+  features:
+  - adc
+  - pwm
+  - usb_dp
+  available: null
+  notes: ADC1_CH9 — USB OTG D+
+- gpio: 26
+  label: GPIO26
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH10
+- gpio: 27
+  label: GPIO27
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH11
+- gpio: 28
+  label: GPIO28
+  features:
+  - pwm
+  available: null
+- gpio: 29
+  label: GPIO29
+  features:
+  - pwm
+  available: null
+- gpio: 30
+  label: GPIO30
+  features:
+  - pwm
+  available: null
+- gpio: 31
+  label: GPIO31
+  available: false
+  occupied_by: Ethernet MDC
+- gpio: 32
+  label: GPIO32
+  features:
+  - pwm
+  available: null
+- gpio: 33
+  label: GPIO33
+  features:
+  - pwm
+  available: null
+- gpio: 34
+  label: GPIO34
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 35
+  label: GPIO35
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 36
+  label: GPIO36
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 37
+  label: GPIO37
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 38
+  label: GPIO38
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 39
+  label: GPIO39
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 40
+  label: GPIO40
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 41
+  label: GPIO41
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 42
+  label: GPIO42
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 43
+  label: GPIO43
+  features:
+  - pwm
+  available: null
+- gpio: 44
+  label: GPIO44
+  features:
+  - pwm
+  available: null
+- gpio: 45
+  label: GPIO45
+  features:
+  - pwm
+  available: null
+- gpio: 46
+  label: GPIO46
+  features:
+  - pwm
+  available: null
+- gpio: 47
+  label: GPIO47
+  features:
+  - pwm
+  available: null
+- gpio: 48
+  label: GPIO48
+  features:
+  - pwm
+  available: null
+- gpio: 49
+  label: GPIO49
+  features:
+  - pwm
+  available: null
+- gpio: 50
+  label: GPIO50
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 51
+  label: GPIO51
+  available: false
+  occupied_by: Ethernet Power/Reset
+- gpio: 52
+  label: GPIO52
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 53
+  label: GPIO53
+  features:
+  - pwm
+  available: null
+- gpio: 54
+  label: GPIO54
+  features:
+  - pwm
+  available: null

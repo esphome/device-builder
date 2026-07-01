@@ -70,13 +70,35 @@ jobs:
             echo "::error::pin 'esphome-device-builder==' not found in $file; update this workflow."
             exit 1
           fi
+          # The version esphome currently ships is the compare base for the
+          # changelog link — grab it before sed overwrites it.
+          previous=$(sed -nE 's/.*esphome-device-builder==([A-Za-z0-9._-]+).*/\1/p' "$file" | head -n1)
           sed -i -E "s/(esphome-device-builder==)[A-Za-z0-9._-]+/\1${VERSION}/" "$file"
           if git diff --quiet -- "$file"; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "::notice::esphome already pins esphome-device-builder==${VERSION}; no PR opened."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "previous=${previous}" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Build release links
+        id: links
+        if: steps.bump.outputs.changed == 'true'
+        # Release page + a compare link from the version esphome was shipping to
+        # this one. A non-empty diff guarantees previous != VERSION.
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          PREVIOUS: ${{ steps.bump.outputs.previous }}
+        run: |
+          set -euo pipefail
+          {
+            echo "body<<LINKS_EOF"
+            echo "- [Release notes](${RELEASE_URL})"
+            echo "- [Changes](${{ github.server_url }}/${{ github.repository }}/compare/${PREVIOUS}...${VERSION})"
+            echo "LINKS_EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Open / update pull request
         if: steps.bump.outputs.changed == 'true'
@@ -93,3 +115,5 @@ jobs:
             Bumps the bundled `esphome-device-builder` in the Docker image to `${{ github.event.release.tag_name }}`, released in esphome/device-builder.
 
             Opened automatically by device-builder's release workflow.
+
+            ${{ steps.links.outputs.body }}

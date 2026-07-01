@@ -20,6 +20,7 @@ manual attribute assignment to avoid spinning up a real
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -219,6 +220,94 @@ async def test_stop_cancels_every_async_resource(monkeypatch: pytest.MonkeyPatch
     assert monitor._mdns._zeroconf is None
     assert monitor._tasks == set()
     assert in_flight.cancelled() or in_flight.done()
+
+
+async def test_start_spawns_interface_monitor_and_stop_cancels_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """start() spawns the zeroconf interface monitor; close_zeroconf cancels and clears it.
+
+    Pins the lifecycle the poller depends on: the task comes up with the
+    responder and is torn down before ``async_close`` so it can't reconcile a
+    closing instance or leak past shutdown.
+    """
+    monitor, _callbacks = _make_monitor()
+    await _start_with_captured_dispatch(monitor, monkeypatch)
+    task = monitor._mdns._interface_monitor_task
+    assert task is not None
+    assert not task.done()
+    monitor._mdns._zeroconf.async_close = AsyncMock()
+
+    await _stop_and_drain(monitor)
+
+    assert monitor._mdns._interface_monitor_task is None
+    assert task.cancelled() or task.done()
+
+
+async def test_interface_monitor_done_callback_logs_unexpected_crash(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unexpected monitor exit is surfaced via the done-callback, not lost.
+
+    Mirrors ``_log_api_info_task_exit``: a cancelled task is silent, a crashed
+    one logs at error so a dead reconciler is operator-visible.
+    """
+
+    async def _boom() -> None:
+        raise RuntimeError("monitor crashed")
+
+    task = asyncio.create_task(_boom())
+    with contextlib.suppress(RuntimeError):
+        await task
+
+    with caplog.at_level(logging.ERROR):
+        MdnsSource._log_interface_monitor_exit(task)
+
+    assert "Interface monitor loop crashed" in caplog.text
+
+
+async def test_interface_monitor_done_callback_silent_on_cancel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A cancelled monitor task (normal shutdown) logs nothing."""
+
+    async def _forever() -> None:
+        await asyncio.sleep(60)
+
+    task = asyncio.create_task(_forever())
+    await asyncio.sleep(0)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+    with caplog.at_level(logging.ERROR):
+        MdnsSource._log_interface_monitor_exit(task)
+
+    assert caplog.text == ""
+
+
+async def test_close_zeroconf_swallows_crashed_interface_monitor() -> None:
+    """A monitor task that died on a non-cancellation error can't abort shutdown.
+
+    ``close_zeroconf`` awaits the cancelled monitor task; if that task had
+    already crashed, the await re-raises. Shutdown must swallow it and still
+    close zeroconf rather than leaking the error into aiohttp's cleanup.
+    """
+    monitor, _callbacks = _make_monitor()
+
+    async def _boom() -> None:
+        raise RuntimeError("monitor crashed")
+
+    task = asyncio.create_task(_boom())
+    await asyncio.sleep(0)  # let it crash before we hand it to close_zeroconf
+    monitor._mdns._interface_monitor_task = task
+    monitor._mdns._zeroconf = MagicMock()
+    monitor._mdns._zeroconf.async_close = AsyncMock()
+
+    await monitor._mdns.close_zeroconf()  # must not raise
+
+    assert monitor._mdns._interface_monitor_task is None
+    assert monitor._mdns._zeroconf is None
 
 
 async def test_stop_swallows_browser_cancel_exception(

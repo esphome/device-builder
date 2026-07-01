@@ -1,0 +1,167 @@
+id: esp32-c3-devkit-lipo
+name: OLIMEX ESP32-C3-DevKit-LiPo
+description: Olimex ESP32-C3-DevKit-LiPo with ESP32-C3 (RISC-V), Wi-Fi, Bluetooth LE, a UEXT connector, and a LiPo battery charger. Onboard user LED on GPIO8 and button on GPIO9.
+manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-C3/ESP32-C3-DevKit-Lipo/images/thumbs/310x230/ESP32-C3-DevKit-Lipo-1.jpg
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- dev-kit
+- lipo
+docs_url: https://esphome.io/components/esp32.html
+product_url: https://www.olimex.com/Products/IoT/ESP32-C3/ESP32-C3-DevKit-Lipo/open-source-hardware
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH0
+- gpio: 1
+  label: GPIO1
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH1
+- gpio: 2
+  label: GPIO2
+  features:
+  - adc
+  - pwm
+  - strapping
+  available: null
+  notes: ADC1_CH2 — strapping pin
+- gpio: 3
+  label: GPIO3
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH3
+- gpio: 4
+  label: GPIO4
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH4
+- gpio: 5
+  label: GPIO5
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC2_CH0
+- gpio: 6
+  label: GPIO6
+  features:
+  - pwm
+  available: null
+  notes: Default FSPI CLK
+- gpio: 7
+  label: GPIO7
+  features:
+  - pwm
+  available: null
+  notes: Default FSPI MOSI
+- gpio: 8
+  label: GPIO8
+  features:
+  - pwm
+  - i2c_sda
+  - strapping
+  available: null
+  notes: Default I2C SDA — strapping pin; commonly used for onboard RGB LED
+- gpio: 9
+  label: GPIO9
+  features:
+  - pwm
+  - i2c_scl
+  - strapping
+  available: null
+  notes: Default I2C SCL — strapping pin (boot mode select)
+- gpio: 10
+  label: GPIO10
+  features:
+  - pwm
+  available: null
+- gpio: 11
+  label: GPIO11
+  features:
+  - pwm
+  available: null
+- gpio: 12
+  label: GPIO12
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 13
+  label: GPIO13
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 14
+  label: GPIO14
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 15
+  label: GPIO15
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 16
+  label: GPIO16
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 17
+  label: GPIO17
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 18
+  label: GPIO18
+  features:
+  - pwm
+  - usb_dm
+  available: null
+  notes: USB Serial/JTAG D-
+- gpio: 19
+  label: GPIO19
+  features:
+  - pwm
+  - usb_dp
+  available: null
+  notes: USB Serial/JTAG D+
+- gpio: 20
+  label: GPIO20
+  features:
+  - pwm
+  - uart_rx
+  available: null
+  notes: Default UART0 RX
+- gpio: 21
+  label: GPIO21
+  features:
+  - pwm
+  - uart_tx
+  available: null
+  notes: Default UART0 TX

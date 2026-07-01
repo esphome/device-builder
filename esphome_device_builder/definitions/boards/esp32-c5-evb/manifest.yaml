@@ -1,0 +1,252 @@
+id: esp32-c5-evb
+name: OLIMEX ESP32-C5-EVB
+description: Olimex ESP32-C5-EVB with two 250V/10A relays, two opto-isolated inputs, dual-band Wi-Fi 6 (2.4GHz + 5GHz), Bluetooth 5, and 802.15.4 (Zigbee/Thread). UEXT connector and LiPo UPS support.
+manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-C5/ESP32-C5-EVB/images/thumbs/310x230/esp32-c5-evb-1.jpg
+esphome:
+  platform: esp32
+  board: esp32-c5-devkitc1-n8r4
+  variant: esp32c5
+  framework: esp-idf
+hardware:
+  flash_size: 8MB
+  cpu_frequency: 240MHz
+  connectivity:
+  - wifi
+  - bluetooth
+  - thread
+  - zigbee
+tags:
+- dev-kit
+- relay
+- lipo
+docs_url: https://esphome.io/components/esp32.html
+product_url: https://www.olimex.com/Products/IoT/ESP32-C5/ESP32-C5-EVB/open-source-hardware
+featured_components:
+- id: relay_1
+  component_id: switch.gpio
+  name: Relay 1
+  description: Onboard relay Relay 1.
+  fields:
+    pin:
+      value: 24
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id:
+      value: relay_1
+    name:
+      value: Relay 1
+- id: relay_2
+  component_id: switch.gpio
+  name: Relay 2
+  description: Onboard relay Relay 2.
+  fields:
+    pin:
+      value: 23
+      locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    id:
+      value: relay_2
+    name:
+      value: Relay 2
+- id: opto_input_1
+  component_id: binary_sensor.gpio
+  name: IN1 Opto
+  description: Opto-isolated input IN1 Opto.
+  fields:
+    pin:
+      value:
+        number: 4
+      locked: true
+    id:
+      value: opto_input_1
+    name:
+      value: IN1 Opto
+- id: opto_input_2
+  component_id: binary_sensor.gpio
+  name: IN2 Opto
+  description: Opto-isolated input IN2 Opto.
+  fields:
+    pin:
+      value:
+        number: 5
+      locked: true
+    id:
+      value: opto_input_2
+    name:
+      value: IN2 Opto
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH0
+- gpio: 1
+  label: GPIO1
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH1
+- gpio: 2
+  label: GPIO2
+  features:
+  - adc
+  - pwm
+  - strapping
+  available: null
+  notes: ADC1_CH2 — strapping pin
+- gpio: 3
+  label: GPIO3
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH3
+- gpio: 4
+  label: GPIO4
+  available: false
+  occupied_by: Opto Input IN1
+- gpio: 5
+  label: GPIO5
+  available: false
+  occupied_by: Opto Input IN2
+- gpio: 6
+  label: GPIO6
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH6
+- gpio: 7
+  label: GPIO7
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 8
+  label: GPIO8
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 9
+  label: GPIO9
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin (boot mode select)
+- gpio: 10
+  label: GPIO10
+  features:
+  - pwm
+  available: null
+- gpio: 11
+  label: GPIO11
+  features:
+  - pwm
+  available: null
+- gpio: 12
+  label: GPIO12
+  features:
+  - pwm
+  - usb_dm
+  available: null
+  notes: USB Serial/JTAG D-
+- gpio: 13
+  label: GPIO13
+  features:
+  - pwm
+  - usb_dp
+  available: null
+  notes: USB Serial/JTAG D+
+- gpio: 14
+  label: GPIO14
+  features:
+  - pwm
+  available: null
+- gpio: 15
+  label: GPIO15
+  features:
+  - pwm
+  available: null
+- gpio: 16
+  label: GPIO16
+  features:
+  - pwm
+  available: null
+- gpio: 17
+  label: GPIO17
+  features:
+  - pwm
+  available: null
+- gpio: 18
+  label: GPIO18
+  features:
+  - pwm
+  available: null
+- gpio: 19
+  label: GPIO19
+  features:
+  - pwm
+  available: null
+- gpio: 20
+  label: GPIO20
+  features:
+  - pwm
+  available: null
+- gpio: 21
+  label: GPIO21
+  features:
+  - pwm
+  available: null
+- gpio: 22
+  label: GPIO22
+  features:
+  - pwm
+  available: null
+- gpio: 23
+  label: GPIO23
+  available: false
+  occupied_by: Relay 2
+- gpio: 24
+  label: GPIO24
+  available: false
+  occupied_by: Relay 1
+- gpio: 25
+  label: GPIO25
+  features:
+  - pwm
+  available: null
+  notes: UEXT UART RX (default)
+- gpio: 26
+  label: GPIO26
+  features:
+  - pwm
+  available: null
+  notes: UEXT UART TX (default)
+- gpio: 27
+  label: GPIO27
+  available: false
+  occupied_by: User LED
+  notes: Strapping pin
+- gpio: 28
+  label: GPIO28
+  available: false
+  occupied_by: User button (USER1)
+- gpio: 29
+  label: GPIO29
+  features:
+  - pwm
+  available: null
+- gpio: 30
+  label: GPIO30
+  features:
+  - pwm
+  available: null

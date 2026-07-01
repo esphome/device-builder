@@ -1,0 +1,352 @@
+id: esp32-s3-devkit-lipo
+name: OLIMEX ESP32-S3-DevKit-LiPo
+description: Olimex ESP32-S3-DevKit-LiPo with ESP32-S3, Wi-Fi, Bluetooth LE, PSRAM, a UEXT connector, and a LiPo charger with battery and external-power sensing. Onboard status LED on GPIO38 and user button on GPIO0.
+manufacturer: OLIMEX
+images:
+- https://www.olimex.com/Products/IoT/ESP32-S3/ESP32-S3-DevKit-Lipo/images/thumbs/310x230/ESP32-S3-DevKit-Lipo-EA.jpg
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 8MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- dev-kit
+- lipo
+docs_url: https://esphome.io/components/esp32.html
+product_url: https://www.olimex.com/Products/IoT/ESP32-S3/ESP32-S3-DevKit-Lipo/open-source-hardware
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin (boot mode select)
+- gpio: 1
+  label: GPIO1
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH0, Touch1
+- gpio: 2
+  label: GPIO2
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH1, Touch2
+- gpio: 3
+  label: GPIO3
+  features:
+  - adc
+  - touch
+  - pwm
+  - strapping
+  available: null
+  notes: ADC1_CH2, Touch3 — strapping pin
+- gpio: 4
+  label: GPIO4
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH3, Touch4
+- gpio: 5
+  label: GPIO5
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH4, Touch5
+- gpio: 6
+  label: GPIO6
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH5, Touch6
+- gpio: 7
+  label: GPIO7
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH6, Touch7
+- gpio: 8
+  label: GPIO8
+  features:
+  - adc
+  - touch
+  - pwm
+  - i2c_sda
+  available: null
+  notes: ADC1_CH7, Touch8 — default I2C SDA
+- gpio: 9
+  label: GPIO9
+  features:
+  - adc
+  - touch
+  - pwm
+  - i2c_scl
+  available: null
+  notes: ADC1_CH8, Touch9 — default I2C SCL
+- gpio: 10
+  label: GPIO10
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH9, Touch10
+- gpio: 11
+  label: GPIO11
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC2_CH0, Touch11
+- gpio: 12
+  label: GPIO12
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC2_CH1, Touch12
+- gpio: 13
+  label: GPIO13
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC2_CH2, Touch13
+- gpio: 14
+  label: GPIO14
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC2_CH3, Touch14
+- gpio: 15
+  label: GPIO15
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC2_CH4
+- gpio: 16
+  label: GPIO16
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC2_CH5
+- gpio: 17
+  label: GPIO17
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC2_CH6
+- gpio: 18
+  label: GPIO18
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC2_CH7
+- gpio: 19
+  label: GPIO19
+  features:
+  - adc
+  - pwm
+  - usb_dm
+  available: null
+  notes: ADC2_CH8, USB D- (USB-OTG)
+- gpio: 20
+  label: GPIO20
+  features:
+  - adc
+  - pwm
+  - usb_dp
+  available: null
+  notes: ADC2_CH9, USB D+ (USB-OTG)
+- gpio: 21
+  label: GPIO21
+  features:
+  - pwm
+  available: null
+- gpio: 22
+  label: GPIO22
+  features:
+  - pwm
+  available: null
+- gpio: 23
+  label: GPIO23
+  features:
+  - pwm
+  available: null
+- gpio: 24
+  label: GPIO24
+  features:
+  - pwm
+  available: null
+- gpio: 25
+  label: GPIO25
+  features:
+  - pwm
+  available: null
+- gpio: 26
+  label: GPIO26
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 27
+  label: GPIO27
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 28
+  label: GPIO28
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 29
+  label: GPIO29
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 30
+  label: GPIO30
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 31
+  label: GPIO31
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 32
+  label: GPIO32
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 33
+  label: GPIO33
+  features:
+  - pwm
+  available: null
+- gpio: 34
+  label: GPIO34
+  features:
+  - pwm
+  - spi_cs
+  available: null
+  notes: Default SPI2 CS
+- gpio: 35
+  label: GPIO35
+  features:
+  - pwm
+  - spi_mosi
+  available: null
+  notes: Default SPI2 MOSI
+- gpio: 36
+  label: GPIO36
+  features:
+  - pwm
+  - spi_clk
+  available: null
+  notes: Default SPI2 CLK
+- gpio: 37
+  label: GPIO37
+  features:
+  - pwm
+  - spi_miso
+  available: null
+  notes: Default SPI2 MISO
+- gpio: 38
+  label: GPIO38
+  features:
+  - pwm
+  available: null
+- gpio: 39
+  label: GPIO39
+  features:
+  - pwm
+  available: null
+- gpio: 40
+  label: GPIO40
+  features:
+  - pwm
+  available: null
+- gpio: 41
+  label: GPIO41
+  features:
+  - pwm
+  available: null
+- gpio: 42
+  label: GPIO42
+  features:
+  - pwm
+  available: null
+- gpio: 43
+  label: GPIO43
+  features:
+  - pwm
+  - uart_tx
+  available: null
+  notes: Default UART0 TX
+- gpio: 44
+  label: GPIO44
+  features:
+  - pwm
+  - uart_rx
+  available: null
+  notes: Default UART0 RX
+- gpio: 45
+  label: GPIO45
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin (VDD_SPI voltage select)
+- gpio: 46
+  label: GPIO46
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin (boot mode)
+- gpio: 47
+  label: GPIO47
+  features:
+  - pwm
+  available: null
+- gpio: 48
+  label: GPIO48
+  features:
+  - pwm
+  available: null
+  notes: Commonly used for onboard RGB LED (WS2812)

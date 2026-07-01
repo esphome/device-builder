@@ -448,9 +448,9 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
     ``esphome.friendly_name`` from its local scanner at install
     time, so the receiver doesn't have to re-parse the bundled
     YAML just to render the firmware-tasks title. Stub the
-    devices controller's ``get_devices`` to return one Device
-    matching the job's configuration; assert ``submit_job`` is
-    called with both names.
+    devices controller's ``get_by_configuration`` to return one
+    Device matching the job's configuration; assert ``submit_job``
+    is called with both names.
 
     A regression that dropped the lookup (or fell back to
     parsing the YAML on the receiver) would surface here.
@@ -465,7 +465,9 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
     fake_device.name = "kitchen"
     fake_device.friendly_name = "AC Float Monitor 32"
     devices_stub = MagicMock()
-    devices_stub.get_devices.return_value = [fake_device]
+    devices_stub.get_by_configuration.side_effect = lambda cfg: (
+        fake_device if cfg == fake_device.configuration else None
+    )
     controller._db.devices = devices_stub
 
     job = _make_remote_job()
@@ -501,7 +503,9 @@ async def test_remote_compile_falls_through_when_no_device_matches(
     unrelated_device.name = "other"
     unrelated_device.friendly_name = "Other"
     devices_stub = MagicMock()
-    devices_stub.get_devices.return_value = [unrelated_device]
+    devices_stub.get_by_configuration.side_effect = lambda cfg: (
+        unrelated_device if cfg == unrelated_device.configuration else None
+    )
     controller._db.devices = devices_stub
 
     job = _make_remote_job()

@@ -164,6 +164,14 @@ def test_wiznet_w6300_resolves_to_curated_ethernet_board() -> None:
     assert any(fc.component_id == "ethernet" for fc in board.featured_components)
 
 
+def test_ethernet_locked_pins_include_nested_clk() -> None:
+    """The ethernet ``clk.pin`` (nested under ``clk``) is stamped into ``locked_pins``."""
+    hits = [b for b in load_board_catalog().boards if b.id == "esp32-poe-iso-wrover"]
+    assert len(hits) == 1
+    eth = next(fc for fc in hits[0].featured_components if fc.component_id == "ethernet")
+    assert eth.locked_pins == {"clk.pin": 0, "mdc_pin": 23, "mdio_pin": 18, "power_pin": 12}
+
+
 def test_boards_index_omits_body_fields() -> None:
     """The slim index strips ``hardware`` / ``pins`` / featured_* fields."""
     raw = _BOARDS_INDEX_JSON.read_text(encoding="utf-8")

@@ -322,10 +322,8 @@ def _local_device_display_for_job(
     devices_controller = getattr(controller._db, "devices", None)
     if devices_controller is None:
         return "", ""
-    for device in devices_controller.get_devices():
-        if device.configuration == job.configuration:
-            return device.name, device.friendly_name
-    return "", ""
+    device = devices_controller.get_by_configuration(job.configuration)
+    return (device.name, device.friendly_name) if device is not None else ("", "")
 
 
 async def _submit_job_to_receiver(

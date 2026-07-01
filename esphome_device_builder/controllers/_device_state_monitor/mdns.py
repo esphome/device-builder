@@ -35,6 +35,7 @@ from .helpers import (
     _decode_mdns_txt_records,
     device_name_from_service,
 )
+from .interface_monitor import monitor_interfaces
 from .shared import _MDNS_HOSTNAME_RESOLVE_TIMEOUT, apply_resolved_addresses
 
 if TYPE_CHECKING:
@@ -59,6 +60,7 @@ class MdnsSource:
         # and ``_http._tcp.local.``; halves the zeroconf
         # bookkeeping versus two parallel browsers.
         self._mdns_browser: AsyncServiceBrowser | None = None
+        self._interface_monitor_task: asyncio.Task[None] | None = None
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
@@ -104,6 +106,20 @@ class MdnsSource:
         except Exception:
             _LOGGER.exception("Could not start mDNS browser — device discovery limited to ping")
 
+        # Keep the responder bound to the live interface set (VPN / Wi-Fi /
+        # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
+        if self._zeroconf is not None:
+            self._interface_monitor_task = asyncio.create_task(monitor_interfaces(self._zeroconf))
+            self._interface_monitor_task.add_done_callback(self._log_interface_monitor_exit)
+
+    @staticmethod
+    def _log_interface_monitor_exit(task: asyncio.Task[None]) -> None:
+        """Surface an unexpected interface-monitor crash instead of a silent death."""
+        if task.cancelled():
+            return
+        if (exc := task.exception()) is not None:
+            _LOGGER.error("Interface monitor loop crashed: %s", exc, exc_info=exc)
+
     async def cancel_browser(self) -> None:
         """
         Cancel the ``AsyncServiceBrowser``.
@@ -121,6 +137,17 @@ class MdnsSource:
 
     async def close_zeroconf(self) -> None:
         """Close the zeroconf responder, bounded so a wedged socket can't stall shutdown."""
+        # Stop the interface monitor first so it can't reconcile a closing instance.
+        if self._interface_monitor_task is not None:
+            self._interface_monitor_task.cancel()
+            # gather(return_exceptions=True) captures the child's CancelledError —
+            # and any crash — without swallowing a cancellation aimed at *this*
+            # coroutine, mirroring the drain in ``DeviceStateMonitor.stop``.
+            result = await asyncio.gather(self._interface_monitor_task, return_exceptions=True)
+            if isinstance(result[0], Exception):
+                # A crashed monitor task must not abort shutdown before zeroconf closes.
+                _LOGGER.debug("interface monitor task errored during shutdown", exc_info=result[0])
+            self._interface_monitor_task = None
         if self._zeroconf is not None:
             try:
                 await asyncio.wait_for(self._zeroconf.async_close(), _MDNS_CLOSE_TIMEOUT)
