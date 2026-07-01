@@ -472,7 +472,6 @@ def test_handle_deferred_compile_completion_no_op_when_devices_controller_is_non
     firmware_controller,
 ):
     """Return early without arming when the devices controller is None."""
-
     # Setup: explicitly clear the devices controller
     firmware_controller._db.devices = None
 
