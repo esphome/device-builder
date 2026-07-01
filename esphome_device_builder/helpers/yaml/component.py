@@ -96,7 +96,7 @@ def merge_component_yaml(
     check spans domains.
     """
     block = generate_component_yaml(component, fields)
-    if _redefines_existing_id(existing, block):
+    if _redefines_existing_id(existing, block, fields.get("id")):
         return existing
     is_platform = component.category in _ENTITY_CATEGORIES
     if is_platform:
@@ -251,41 +251,52 @@ def _coerce_map_scalar_to_string(value: Any) -> str:
     return str(value)
 
 
-def _redefines_existing_id(existing: str, block: str) -> bool:
+def _redefines_existing_id(existing: str, block: str, id_hint: Any) -> bool:
     """
-    Whether *block* defines an id already defined in *existing*.
+    Whether the entry in *block* redefines an id already defined in *existing*.
 
-    A defined id's name appears verbatim on its ``id:`` line, so a cheap
-    substring reject skips the full parse of *existing* on the common
-    add-a-new-component path; only a name that actually occurs pays for
-    the precise ``id:``-only scan that excludes references and prefixes.
+    *id_hint* is the caller's ``fields["id"]`` when set, sparing the block
+    scan. The id appears verbatim on its ``id:`` line, so a cheap substring
+    reject skips parsing *existing* on the common add path; only a name that
+    actually occurs pays for the precise ``id:``-only scan.
     """
-    block_ids = _defined_ids(block)
-    if not block_ids or not any(ident in existing for ident in block_ids):
+    new_id = id_hint if isinstance(id_hint, str) and id_hint else _first_defined_id(block)
+    if new_id is None or new_id not in existing:
         return False
-    return bool(block_ids & _defined_ids(existing))
+    return new_id in _defined_ids(existing)
+
+
+def _first_defined_id(block: str) -> str | None:
+    """Return the id a freshly generated *block* defines at its entry level, or None."""
+    for line in block.splitlines():
+        if (ident := _line_defined_id(line)) is not None:
+            return ident
+    return None
 
 
 def _defined_ids(text: str) -> set[str]:
-    """
-    Ids defined by an ``id:`` key anywhere in *text* (any indent, dash-led or not).
+    """Every id defined via an ``id:`` key in *text* (references like ``i2c_id:`` excluded)."""
+    return {ident for line in text.splitlines() if (ident := _line_defined_id(line)) is not None}
 
-    A reference key (``output:``, ``i2c_id:``, ``sensor_id:``) doesn't
-    start with the bare ``id:`` token, so it's never read as a
-    definition. Reuses the scalar splitter/unquoter so a trailing
-    comment or quotes round-trip the same way the writer emits them.
+
+def _line_defined_id(line: str) -> str | None:
     """
-    ids: set[str] = set()
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("- "):
-            stripped = stripped[2:].lstrip()
-        if not stripped.startswith("id:"):
-            continue
-        value, _ = _split_value_and_comment(stripped[len("id:") :])
-        if ident := _strip_yaml_quotes(value.strip()):
-            ids.add(ident)
-    return ids
+    Return the id *line* defines if it is a bare ``id:`` definition, else None.
+
+    A reference key (``output:``, ``i2c_id:``) never starts with the bare
+    ``id:`` token, so it never reads as a definition. A plain identifier
+    value skips the scalar splitter; only a quoted or comment-trailing
+    value pays for it.
+    """
+    stripped = line.strip()
+    if stripped.startswith("- "):
+        stripped = stripped[2:].lstrip()
+    if not stripped.startswith("id:"):
+        return None
+    rest = stripped[len("id:") :].strip()
+    if "#" in rest or rest[:1] in ("'", '"'):
+        rest = _strip_yaml_quotes(_split_value_and_comment(rest)[0].strip())
+    return rest or None
 
 
 def _append_block(existing: str, block: str) -> str:
