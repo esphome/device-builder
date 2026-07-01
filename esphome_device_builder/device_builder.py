@@ -522,7 +522,7 @@ class DeviceBuilder:
     async def _stop_local(self) -> None:
         """Flush local state (editor, version history, settings) and drain the executor pool."""
         if self.firmware is not None:
-            self.firmware.stop() # sync — no await; see FirmwareController.stop()
+            self.firmware.stop()  # sync — no await; see FirmwareController.stop()
         if self.editor is not None:
             await self.editor.stop()
         if self.version_history is not None:

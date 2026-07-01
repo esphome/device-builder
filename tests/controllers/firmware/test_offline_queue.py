@@ -127,6 +127,7 @@ def test_on_queued_update_change_matches_device(mock_device):
     # Verify the updated event was fired for the UI/bus
     controller._fire_device_updated.assert_called_once_with(mock_device)
 
+
 def test_on_queued_update_change_skips_unmatched(mock_device):
     """Test that devices with a different name are skipped."""
     controller = DevicesController.__new__(DevicesController)
