@@ -468,6 +468,27 @@ def test_device_for_configuration_handles_unknown_stub(firmware_controller):
     assert firmware_controller._device_for_configuration("kitchen.yaml") is None
 
 
+def test_handle_deferred_compile_completion_no_op_when_devices_controller_is_none(
+    firmware_controller,
+):
+    """Return early without arming when the devices controller is None."""
+
+    # Setup: explicitly clear the devices controller
+    firmware_controller._db.devices = None
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.COMPILE
+    job.status = JobStatus.COMPLETED
+    job.is_deferred_install = True
+    job.configuration = "some_device.yaml"
+
+    # Execute: Should return safely without raising AttributeError
+    firmware_controller._handle_deferred_compile_completion(job)
+
+    # Assert: Nothing was armed
+    assert "some_device.yaml" not in firmware_controller._armed_deferred_installs
+
+
 def test_handle_deferred_compile_completion_no_op_when_device_not_found(
     firmware_controller,
 ):
