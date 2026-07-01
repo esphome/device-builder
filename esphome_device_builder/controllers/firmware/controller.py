@@ -483,6 +483,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if not is_deferred_compile_success:
             return
 
+        devices = self._db.devices
+        if not devices:
+            return
+
         device = self._device_for_configuration(job.configuration)
         if not device:
             return
@@ -492,7 +496,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 "Device %s is online after deferred compile. Triggering upload now.",
                 job.configuration,
             )
-            self._db.devices.set_queued_update(device.name, is_queued=True)
+            # Use the local 'devices' variable so Mypy knows it is not None
+            devices.set_queued_update(device.name, is_queued=True)
             self._db.create_background_task(
                 self.upload(configuration=job.configuration, port="OTA")
             )
@@ -502,7 +507,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # window from a scanner rebuild with previous=None (atomic-save churn,
         # REMOVED+re-ADDED) — arms for the next wake rather than silently
         # dropping the queued install.
-        self._db.devices.set_queued_update(device.name, is_queued=True)
+        devices.set_queued_update(device.name, is_queued=True)
         self._armed_deferred_installs.add(job.configuration)
 
     def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
