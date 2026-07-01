@@ -96,7 +96,7 @@ def merge_component_yaml(
     check spans domains.
     """
     block = generate_component_yaml(component, fields)
-    if _defined_ids(block) & _defined_ids(existing):
+    if _redefines_existing_id(existing, block):
         return existing
     is_platform = component.category in _ENTITY_CATEGORIES
     if is_platform:
@@ -249,6 +249,21 @@ def _coerce_map_scalar_to_string(value: Any) -> str:
     if value is None:
         return "null"
     return str(value)
+
+
+def _redefines_existing_id(existing: str, block: str) -> bool:
+    """
+    Whether *block* defines an id already defined in *existing*.
+
+    A defined id's name appears verbatim on its ``id:`` line, so a cheap
+    substring reject skips the full parse of *existing* on the common
+    add-a-new-component path; only a name that actually occurs pays for
+    the precise ``id:``-only scan that excludes references and prefixes.
+    """
+    block_ids = _defined_ids(block)
+    if not block_ids or not any(ident in existing for ident in block_ids):
+        return False
+    return bool(block_ids & _defined_ids(existing))
 
 
 def _defined_ids(text: str) -> set[str]:
