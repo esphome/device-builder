@@ -82,15 +82,17 @@ MetadataResolver = Callable[[Path, str], DeviceFileMetadata]
 
 class _DeviceIndex:
     """
-    Path-keyed Device store with lockstep name-keyed and cache-key indexes.
+    Path-keyed Device store with lockstep name / configuration / cache-key shadows.
 
-    The three internal maps (``_devices``, ``_devices_by_name``,
-    ``_cache_keys``) are kept in sync as a structural property of
-    this class — the only mutation entry points (:meth:`set`,
-    :meth:`pop`, :meth:`rebuild_in_path_order`) update all three
-    together. Bypassing requires reaching into the underscore-
-    prefixed attributes, which is exactly what the encapsulation
-    is meant to discourage.
+    The four internal maps (``_devices``, ``_devices_by_name``,
+    ``_devices_by_configuration``, ``_cache_keys``) are kept in sync as a
+    structural property of this class. :meth:`set` / :meth:`pop` are the
+    only entry points that add or remove entries, and they update all four
+    together; :meth:`rebuild_in_path_order` re-keys ``_devices`` /
+    ``_cache_keys`` for iteration order only, leaving the name /
+    configuration shadows' (still-valid) entries in place. Bypassing
+    requires reaching into the underscore-prefixed attributes, which is
+    exactly what the encapsulation is meant to discourage.
 
     The lockstep matters because the scanner's apply / dedupe path
     fans out an mDNS announcement to every Device sharing a
@@ -120,6 +122,12 @@ class _DeviceIndex:
         # ``foo (1).yaml`` copy, ``dashboard_import`` siblings, etc.)
         # and a single broadcast must fan out to all of them.
         self._devices_by_name: dict[str, list[Device]] = {}
+        # Configuration-keyed shadow index; firmware jobs and metadata
+        # mutations resolve a Device by its YAML filename and need an
+        # O(1) lookup instead of a linear scan of every configured YAML.
+        # Unlike the name index this is 1:1 — a ``configuration`` filename
+        # (``path.name``) is unique per tracked path.
+        self._devices_by_configuration: dict[str, Device] = {}
         self._cache_keys: dict[Path, _CacheKey] = {}
 
     @property
@@ -142,6 +150,10 @@ class _DeviceIndex:
         """Return a fresh-list snapshot of every Device whose ``name`` matches."""
         bucket = self._devices_by_name.get(name)
         return list(bucket) if bucket else []
+
+    def get_by_configuration(self, configuration: str) -> Device | None:
+        """Return the Device whose YAML filename equals *configuration*, or ``None``."""
+        return self._devices_by_configuration.get(configuration)
 
     def cache_key(self, path: Path) -> _CacheKey:
         """Return the change-detection cache key for a tracked *path*.
@@ -181,6 +193,8 @@ class _DeviceIndex:
             self._unindex_name(previous)
         self._devices[path] = device
         self._cache_keys[path] = cache_key
+        # 1:1 by filename, so a same-path in-place edit overwrites its own entry.
+        self._devices_by_configuration[device.configuration] = device
         bucket = self._devices_by_name.setdefault(device.name, [])
         insert_at = 0
         while insert_at < len(bucket) and bucket[insert_at].configuration < device.configuration:
@@ -192,6 +206,7 @@ class _DeviceIndex:
         device = self._devices.pop(path, None)
         self._cache_keys.pop(path, None)
         if device is not None:
+            self._devices_by_configuration.pop(device.configuration, None)
             self._unindex_name(device)
         return device
 
@@ -201,9 +216,9 @@ class _DeviceIndex:
         ``devices`` is a user-visible read; without this rebuild
         the post-scan iteration order is set-derived and the
         dashboard sees a different device list every restart.
-        ``_devices_by_name`` doesn't need a parallel re-sort —
-        its values are name-keyed lists whose iteration order
-        isn't user-visible.
+        ``_devices_by_name`` / ``_devices_by_configuration`` don't
+        need a parallel re-key — their iteration order isn't
+        user-visible and their entries are unchanged here.
 
         ``path_order`` may carry extra paths that were never
         indexed (a YAML that failed to load is in the scanner's
@@ -295,8 +310,7 @@ class DeviceScanner(WakeWorker[str]):
 
     def get_by_configuration(self, configuration: str) -> Device | None:
         """Return the configured device for YAML filename *configuration*, or ``None``."""
-        path = self._index.find_path_by_filename(configuration)
-        return self._index.by_path.get(path) if path is not None else None
+        return self._index.get_by_configuration(configuration)
 
     async def scan(self) -> None:
         """Refresh the device cache from disk, emitting per-file change events."""

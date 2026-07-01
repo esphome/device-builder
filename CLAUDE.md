@@ -524,7 +524,11 @@ against legacy behaviour before assuming the simpler version suffices.
   `_unindex_name`. Buckets are sorted by `configuration` filename so
   `bucket[0]` consumers and the dedupe path see a deterministic "first
   match". `scanner.get_by_name(name)` returns a fresh list snapshot, so
-  callers iterate without poisoning the index.
+  callers iterate without poisoning the index. A parallel
+  `_devices_by_configuration: dict[str, Device]` (1:1 — a `configuration`
+  filename is unique per path) backs the O(1) `scanner.get_by_configuration`
+  / `DevicesController.get_by_configuration`; prefer it over a linear scan of
+  `get_devices()` when resolving a device by YAML filename.
 - **mDNS-source dedupe must look at every matching device, not just
   `bucket[0]`.** Two YAMLs sharing an `esphome.name` (a config plus a
   `foo (1).yaml` copy, `dashboard_import` siblings) share one mDNS

@@ -80,6 +80,18 @@ def test_get_devices_returns_scanner_snapshot(
     assert [d.name for d in snapshot] == ["kitchen", "bedroom"]
 
 
+def test_get_by_configuration_resolves_a_device_by_filename(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The controller delegates a filename lookup to the scanner, ``None`` if unknown."""
+    controller = make_controller(tmp_path)
+    kitchen = _device("kitchen")
+    controller._scanner.devices = [kitchen, _device("bedroom")]
+
+    assert controller.get_by_configuration("kitchen.yaml") is kitchen
+    assert controller.get_by_configuration("ghost.yaml") is None
+
+
 async def test_get_device_states_returns_configuration_keyed_map(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

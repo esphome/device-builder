@@ -209,6 +209,71 @@ def test_find_path_by_filename_returns_none_when_missing() -> None:
 
 
 # ---------------------------------------------------------------------------
+# get_by_configuration — configuration-keyed lookup (lockstep)
+# ---------------------------------------------------------------------------
+
+
+def test_get_by_configuration_returns_the_device() -> None:
+    """``set`` makes the device resolvable by its ``configuration`` filename."""
+    index = _DeviceIndex()
+    device = _device("kitchen", "kitchen.yaml")
+    index.set(Path("/cfg/kitchen.yaml"), device, (0, 0, 0.0, 0))
+
+    assert index.get_by_configuration("kitchen.yaml") is device
+
+
+def test_get_by_configuration_returns_none_for_unknown() -> None:
+    """An untracked filename yields ``None``."""
+    index = _DeviceIndex()
+    assert index.get_by_configuration("ghost.yaml") is None
+
+
+def test_get_by_configuration_follows_in_place_update() -> None:
+    """Re-``set``-ing the same path returns the fresh Device, not the stale one."""
+    index = _DeviceIndex()
+    path = Path("/cfg/kitchen.yaml")
+    stale = _device("kitchen", "kitchen.yaml", friendly_name="Stale")
+    fresh = _device("kitchen", "kitchen.yaml", friendly_name="Fresh")
+    index.set(path, stale, (0, 0, 0.0, 0))
+    index.set(path, fresh, (1, 2, 3.0, 4))
+
+    assert index.get_by_configuration("kitchen.yaml") is fresh
+
+
+def test_get_by_configuration_survives_name_change() -> None:
+    """A same-file ``esphome.name`` edit keeps the configuration lookup valid."""
+    index = _DeviceIndex()
+    path = Path("/cfg/device.yaml")
+    index.set(path, _device("kitchen", "device.yaml"), (0, 0, 0.0, 0))
+    renamed = _device("lounge", "device.yaml")
+    index.set(path, renamed, (1, 1, 1.0, 1))
+
+    assert index.get_by_configuration("device.yaml") is renamed
+
+
+def test_get_by_configuration_returns_none_after_pop() -> None:
+    """Popping the path drops the configuration entry too."""
+    index = _DeviceIndex()
+    path = Path("/cfg/kitchen.yaml")
+    index.set(path, _device("kitchen", "kitchen.yaml"), (0, 0, 0.0, 0))
+    index.pop(path)
+
+    assert index.get_by_configuration("kitchen.yaml") is None
+
+
+def test_get_by_configuration_distinguishes_name_sharing_siblings() -> None:
+    """Two YAMLs sharing a ``name`` resolve independently by filename."""
+    index = _DeviceIndex()
+    a = _device("kitchen", "a.yaml")
+    b = _device("kitchen", "b.yaml")
+    index.set(Path("/cfg/a.yaml"), a, (0, 0, 0.0, 0))
+    index.set(Path("/cfg/b.yaml"), b, (0, 0, 0.0, 0))
+
+    assert index.get_by_configuration("a.yaml") is a
+    assert index.get_by_configuration("b.yaml") is b
+
+
+# ---------------------------------------------------------------------------
 # rebuild_in_path_order — lexicographic re-key
 # ---------------------------------------------------------------------------
 

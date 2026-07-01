@@ -54,10 +54,8 @@ async def update_device(
     # unflagged; it re-derives to the same id, so nothing is lost.
     user_set: bool | None = None
     if board_id:
-        displayed = next(
-            (d.board_id for d in controller._scanner.devices if d.configuration == configuration),
-            "",
-        )
+        current = controller.get_by_configuration(configuration)
+        displayed = current.board_id if current is not None else ""
         if board_id != displayed:
             user_set = True
     await controller._persist_device_metadata_async(
@@ -106,10 +104,7 @@ async def set_labels(
     # by the scanner (typo, deleted YAML) would otherwise leave
     # an orphaned ``.device-builder.json`` entry pinning labels
     # to a non-existent device.
-    device = next(
-        (d for d in controller._scanner.devices if d.configuration == configuration),
-        None,
-    )
+    device = controller.get_by_configuration(configuration)
     if device is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
 
@@ -132,10 +127,7 @@ async def set_labels(
 
     # Re-fetch from the scanner; reload replaces the Device in
     # the index, so the reference held above is stale.
-    refreshed = next(
-        (d for d in controller._scanner.devices if d.configuration == configuration),
-        None,
-    )
+    refreshed = controller.get_by_configuration(configuration)
     if refreshed is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
     return refreshed

@@ -295,6 +295,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Snapshot of the currently-loaded devices."""
         return self._scanner.devices
 
+    def get_by_configuration(self, configuration: str) -> Device | None:
+        """Return the configured device for YAML filename *configuration*, or ``None``."""
+        return self._scanner.get_by_configuration(configuration)
+
     async def reload_configuration(self, filename: str) -> bool:
         """
         Force-reload one device's state from disk and the metadata sidecar.
