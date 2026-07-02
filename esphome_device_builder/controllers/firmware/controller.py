@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.event_bus import Event
-
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     DeviceState,
