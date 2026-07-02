@@ -11,7 +11,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def drain_tasks(tasks: Iterable[Task[Any]], *, log_exceptions: bool = False) -> None:
-    """Cancel and await every task in *tasks*, swallowing exceptions.
+    """
+    Cancel and await every task in *tasks*, swallowing exceptions.
 
     With *log_exceptions*, a non-cancellation exception from a settled
     task is logged at WARNING (still not propagated) instead of being
