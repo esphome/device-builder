@@ -121,10 +121,19 @@ class ConfigController:
         others keep their current values.
         """
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
-        prefs = self.prefs.update(update_fields)
-        if "version_history_enabled" in update_fields and self._db.version_history is not None:
-            await self._db.version_history.set_auto_commit(enabled=prefs.version_history_enabled)
-        return prefs
+        version_history = self._db.version_history
+        if "version_history_enabled" in update_fields and version_history is not None:
+            # Reconcile the live watcher, rolling the persisted value back if it
+            # fails so the saved preference can't diverge from the repo state.
+            previous = self.prefs.snapshot().version_history_enabled
+            prefs = self.prefs.update(update_fields)
+            try:
+                await version_history.set_auto_commit(enabled=prefs.version_history_enabled)
+            except Exception:
+                self.prefs.update({"version_history_enabled": previous})
+                raise
+            return prefs
+        return self.prefs.update(update_fields)
 
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:

@@ -785,6 +785,18 @@ async def test_set_prefs_toggles_version_history(tmp_path: Path) -> None:
     assert controller.prefs.snapshot().version_history_enabled is False
 
 
+async def test_set_prefs_rolls_back_version_history_on_reconcile_failure(tmp_path: Path) -> None:
+    """A failed set_auto_commit restores the persisted preference and surfaces."""
+    controller = _make_controller(tmp_path)  # default version_history_enabled=True
+    controller._db.version_history.set_auto_commit = AsyncMock(side_effect=RuntimeError("boom"))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await controller.set_prefs(version_history_enabled=False)
+
+    # The write was rolled back, so disk stays in step with the controller.
+    assert controller.prefs.snapshot().version_history_enabled is True
+
+
 async def test_set_prefs_unrelated_update_leaves_version_history_alone(tmp_path: Path) -> None:
     """An update that omits version_history_enabled doesn't touch the controller."""
     controller = _make_controller(tmp_path)

@@ -247,7 +247,7 @@ class GitRepo:
                 self.enabled = True
         except GIT_COMMIT_ERRORS as exc:
             self._disable()
-            _LOGGER.debug("Version-history read-only discovery failed: %s", exc)
+            _LOGGER.warning("Could not read version-history git repo: %s", exc)
 
     def _disable(self) -> None:
         """Reset to the fully-disabled state (no work tree adopted or created)."""
