@@ -1,14 +1,11 @@
-id: waveshare_esp32_p4_nano
-name: Waveshare ESP32-P4-Nano
-description: Waveshare ESP32-P4-NANO with the ESP32-P4NRW32 (dual-core RISC-V @ 400MHz, 16MB
-  flash, 32MB PSRAM) and an ESP32-C6-MINI-1 co-processor. The ESP32-P4 has no built-in radio;
-  Wi-Fi 6 works out of the box through the onboard ESP32-C6 co-processor. 100M RJ45 Ethernet
-  (IP101 PHY) with a reserved PoE module header, MIPI DSI display and MIPI CSI camera connectors,
-  microSD slot, microphone + speaker header, RTC battery header, USB-A OTG and USB-C ports,
-  28 user GPIOs.
+id: waveshare_esp32_p4_module_dev_kit
+name: Waveshare ESP32-P4-Module-DEV-KIT
+description: Waveshare ESP32-P4-Module-DEV-KIT with the ESP32-P4NRW32 (dual-core RISC-V @
+  400MHz, 16MB flash, 32MB PSRAM). The ESP32-P4 has no built-in radio; Wi-Fi 6 works out of
+  the box through the onboard ESP32-C6 co-processor. 100M RJ45 Ethernet, MIPI DSI display
+  and MIPI CSI camera connectors, microSD slot, microphone + speaker header, RTC battery header,
+  USB-A OTG and USB-C ports, 28 user GPIOs.
 manufacturer: Waveshare
-images:
-- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-P4-Nano/waveshare-esp32-p4-nano.webp
 esphome:
   platform: esp32
   board: esp32-p4-evboard
@@ -27,8 +24,8 @@ tags:
 - camera
 - display
 - microphone
-docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-P4-Nano/
-product_url: https://www.waveshare.com/esp32-p4-nano.htm
+docs_url: https://www.waveshare.com/wiki/ESP32-P4-Module-DEV-KIT
+product_url: https://www.waveshare.com/esp32-p4-module-dev-kit.htm
 featured_components:
 - id: c6_wifi
   component_id: esp32_hosted

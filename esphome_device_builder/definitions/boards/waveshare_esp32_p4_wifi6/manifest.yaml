@@ -1,34 +1,30 @@
-id: waveshare_esp32_p4_nano
-name: Waveshare ESP32-P4-Nano
-description: Waveshare ESP32-P4-NANO with the ESP32-P4NRW32 (dual-core RISC-V @ 400MHz, 16MB
-  flash, 32MB PSRAM) and an ESP32-C6-MINI-1 co-processor. The ESP32-P4 has no built-in radio;
-  Wi-Fi 6 works out of the box through the onboard ESP32-C6 co-processor. 100M RJ45 Ethernet
-  (IP101 PHY) with a reserved PoE module header, MIPI DSI display and MIPI CSI camera connectors,
-  microSD slot, microphone + speaker header, RTC battery header, USB-A OTG and USB-C ports,
-  28 user GPIOs.
+id: waveshare_esp32_p4_wifi6
+name: Waveshare ESP32-P4-WIFI6
+description: Compact Waveshare ESP32-P4-WIFI6 board with the ESP32-P4NRW32 (dual-core RISC-V
+  @ 400MHz, 32MB flash, 32MB PSRAM) and an ESP32-C6-MINI-1 co-processor. The ESP32-P4 has
+  no built-in radio; Wi-Fi 6 works out of the box through the onboard ESP32-C6 co-processor.
+  MIPI DSI display and MIPI CSI camera connectors, microSD slot, microphone + speaker header,
+  USB-C port plus 4-pin USB OTG header, 27 user GPIOs.
 manufacturer: Waveshare
-images:
-- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Waveshare-ESP32-P4-Nano/waveshare-esp32-p4-nano.webp
 esphome:
   platform: esp32
   board: esp32-p4-evboard
   variant: esp32p4
   framework: esp-idf
 hardware:
-  flash_size: 16MB
+  flash_size: 32MB
   cpu_frequency: 400MHz
   connectivity:
   - wifi
-  - ethernet
 tags:
-- dev-kit
+- compact
 - sd-card
 - usb-c
 - camera
 - display
 - microphone
-docs_url: https://devices.esphome.io/devices/Waveshare-ESP32-P4-Nano/
-product_url: https://www.waveshare.com/esp32-p4-nano.htm
+docs_url: https://www.waveshare.com/wiki/ESP32-P4-WIFI6
+product_url: https://www.waveshare.com/esp32-p4-wifi6.htm
 featured_components:
 - id: c6_wifi
   component_id: esp32_hosted
@@ -66,32 +62,6 @@ featured_components:
       locked: true
     d3_pin:
       value: GPIO17
-      locked: true
-- id: onboard_ethernet
-  component_id: ethernet
-  name: Onboard Ethernet
-  description: Built-in IP101 Ethernet PHY (RMII) — selected automatically when a device is
-    created without Wi-Fi credentials.
-  fields:
-    type:
-      value: IP101
-      locked: true
-    mdc_pin:
-      value: GPIO31
-      locked: true
-    mdio_pin:
-      value: GPIO52
-      locked: true
-    clk:
-      value:
-        pin: GPIO50
-        mode: CLK_EXT_IN
-      locked: true
-    phy_addr:
-      value: 1
-      locked: true
-    power_pin:
-      value: GPIO51
       locked: true
 default_components:
 - c6_wifi
@@ -280,24 +250,24 @@ pins:
   notes: ADC1_CH11
 - gpio: 28
   label: GPIO28
-  features: []
-  available: false
-  occupied_by: Ethernet RMII CRS_DV
+  features:
+  - pwm
+  available: null
 - gpio: 29
   label: GPIO29
-  features: []
-  available: false
-  occupied_by: Ethernet RMII RXD0
+  features:
+  - pwm
+  available: null
 - gpio: 30
   label: GPIO30
-  features: []
-  available: false
-  occupied_by: Ethernet RMII RXD1
+  features:
+  - pwm
+  available: null
 - gpio: 31
   label: GPIO31
-  features: []
-  available: false
-  occupied_by: Ethernet MDC
+  features:
+  - pwm
+  available: null
 - gpio: 32
   label: GPIO32
   features:
@@ -310,14 +280,18 @@ pins:
   available: null
 - gpio: 34
   label: GPIO34
-  features: []
-  available: false
-  occupied_by: Ethernet RMII TXD0
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
 - gpio: 35
   label: GPIO35
-  features: []
-  available: false
-  occupied_by: Ethernet RMII TXD1
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
 - gpio: 36
   label: GPIO36
   features:
@@ -393,24 +367,24 @@ pins:
   available: null
 - gpio: 49
   label: GPIO49
-  features: []
-  available: false
-  occupied_by: Ethernet RMII TX_EN
+  features:
+  - pwm
+  available: null
 - gpio: 50
   label: GPIO50
-  features: []
-  available: false
-  occupied_by: Ethernet CLK
+  features:
+  - pwm
+  available: null
 - gpio: 51
   label: GPIO51
-  features: []
-  available: false
-  occupied_by: Ethernet Power
+  features:
+  - pwm
+  available: null
 - gpio: 52
   label: GPIO52
-  features: []
-  available: false
-  occupied_by: Ethernet MDIO
+  features:
+  - pwm
+  available: null
 - gpio: 53
   label: GPIO53
   features:
