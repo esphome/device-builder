@@ -166,12 +166,15 @@ def test_parse_mqtt_block_unresolved_port_substitution_falls_back_to_default() -
     assert config.port == 1883
 
 
-def test_mqtt_broker_config_key_groups_by_host_port() -> None:
+def test_mqtt_broker_config_key_groups_by_host_port_username() -> None:
     a = MqttBrokerConfig(host="broker", port=1883, username="alice")
     b = MqttBrokerConfig(host="broker", port=1883, username="bob")
     c = MqttBrokerConfig(host="broker", port=8883, username="alice")
-    assert a.key == b.key
-    assert a.key != c.key
+    d = MqttBrokerConfig(host="broker", port=1883, username="alice", password="one")
+    e = MqttBrokerConfig(host="broker", port=1883, username="alice", password="two")
+    assert a.key != b.key  # different username → its own session
+    assert a.key != c.key  # different port
+    assert d.key == e.key  # same login, password differs → shared session
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +264,66 @@ async def test_coordinator_groups_devices_with_same_broker(
     assert coord.active_brokers == 1
     assert len(stub_monitor.instances) == 1
     assert stub_monitor.instances[0].broker.host == "192.168.1.10"
+
+
+async def test_coordinator_starts_a_session_per_login_on_one_broker(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Same broker, one MQTT user per device (per-user ACLs): each login
+    # needs its own session, and it isn't a credential conflict.
+    devices = [
+        _write_device(
+            tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n  username: alpha\n  password: a\n"
+        ),
+        _write_device(
+            tmp_path, "beta", "mqtt:\n  broker: 192.168.0.1\n  username: beta\n  password: b\n"
+        ),
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        await coord.reconcile()
+    assert coord.active_brokers == 2
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert warnings == []
+
+
+async def test_coordinator_warns_once_on_same_login_different_password(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # Same host/port/username but disagreeing passwords is genuinely
+    # ambiguous; the first password wins and the WARNING is logged once.
+    devices = [
+        _write_device(
+            tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n  username: shared\n  password: a\n"
+        ),
+        _write_device(
+            tmp_path, "beta", "mqtt:\n  broker: 192.168.0.1\n  username: shared\n  password: b\n"
+        ),
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        await coord.reconcile()
+        await coord.reconcile()
+        await coord.reconcile()
+    assert coord.active_brokers == 1
+    warnings = [
+        r
+        for r in caplog.records
+        if r.name == target and r.levelname == "WARNING" and "different passwords" in r.getMessage()
+    ]
+    debugs = [
+        r
+        for r in caplog.records
+        if r.name == target and r.levelname == "DEBUG" and "different passwords" in r.getMessage()
+    ]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    assert len(debugs) >= 2
 
 
 async def test_coordinator_starts_one_monitor_per_unique_broker(
