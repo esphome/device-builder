@@ -25,11 +25,18 @@ from __future__ import annotations
 
 import errno
 import socket
-import sys
 
 import ifaddr
 
 _PORT_UNAVAILABLE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EACCES})
+
+# Windows SO_REUSEADDR lets a second bind on an actively-listened port
+# silently succeed; SO_EXCLUSIVEADDRUSE surfaces the conflict while
+# still allowing binds over TIME_WAIT remnants. POSIX SO_REUSEADDR
+# keeps a just-torn-down listener's TIME_WAIT remnant from reading as
+# "taken". SO_EXCLUSIVEADDRUSE only exists on Windows; ``getattr``
+# with the POSIX fallback doubles as the platform switch.
+_BIND_SOCKOPT: int = getattr(socket, "SO_EXCLUSIVEADDRUSE", socket.SO_REUSEADDR)
 
 
 def resolve_bind_host(host: str) -> list[str]:
@@ -71,12 +78,12 @@ def bind_available_port(
     """
     Bind the first port >= *start_port* free on every host in *hosts*.
 
-    Returns ``(port, sockets)`` with the bound (not yet listening) sockets —
-    holding them is what makes the reservation race-free against other
-    instances scanning the same range; hand them to ``web.SockSite`` or close
-    them. Scans at most *attempts* candidates; raises :class:`OSError`
-    (``EADDRINUSE``) when the scan exhausts. Blocking I/O — call off the
-    event loop.
+    Returns the actually-bound port (OS-assigned when *start_port* is 0) and
+    the bound (not yet listening) sockets — holding them is what makes the
+    reservation race-free against other instances scanning the same range;
+    hand them to ``web.SockSite`` or close them. Scans at most *attempts*
+    candidates; raises :class:`OSError` (``EADDRINUSE``) when the scan
+    exhausts. Blocking I/O — call off the event loop.
     """
     end = min(start_port + attempts, 65536)
     for candidate in range(start_port, end):
@@ -90,7 +97,7 @@ def bind_available_port(
             if err.errno in _PORT_UNAVAILABLE_ERRNOS:
                 continue
             raise
-        return candidate, sockets
+        return sockets[0].getsockname()[1], sockets
     raise OSError(
         errno.EADDRINUSE,
         f"No free port in {start_port}-{end - 1} on {hosts!r}; "
@@ -125,16 +132,7 @@ def _bind_sockets(host: str, port: int) -> list[socket.socket]:
         ):
             sock = socket.socket(family, type_, proto)
             sockets.append(sock)
-            if sys.platform == "win32":
-                # SO_EXCLUSIVEADDRUSE fails against an active listener
-                # (Windows SO_REUSEADDR would silently bind over one)
-                # while still allowing binds over TIME_WAIT remnants.
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-            else:
-                # Match what TCPSite(reuse_address=True) sets so a
-                # rotation-teardown TIME_WAIT remnant doesn't read as
-                # "taken" and churn the advertised port.
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(socket.SOL_SOCKET, _BIND_SOCKOPT, 1)
             if family == socket.AF_INET6 and hasattr(socket, "IPPROTO_IPV6"):
                 # Mirror asyncio's create_server: each v6 socket binds
                 # v6-only so a sibling v4 bind of the same port works.

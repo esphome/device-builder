@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import socket
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 
@@ -231,7 +230,7 @@ class RemoteBuildLifecycle:
 
         On disk ``enabled=True`` with the listener absent, runs the
         same path :meth:`maybe_start` does at startup (load X25519
-        peer-link identity, bind plain-TCP TCPSite, push pin + port
+        peer-link identity, bind the plain-TCP listener, push pin + port
         to mDNS). Fail-soft on bind error — the dashboard keeps
         running without a listener, and a subsequent
         ``set_settings`` retry can clear a transient port conflict
@@ -369,15 +368,12 @@ class RemoteBuildLifecycle:
         re-raising so the caller's ``except`` only has to log +
         return.
 
-        ``bound_port`` is read off the listening socket, never
-        assumed: it is the OS-assigned port for
-        ``--remote-build-port 0`` (ephemeral), and may exceed the
-        configured port when that port was taken and the bind fell
-        forward to the next free one (bounded scan of
-        ``REMOTE_BUILD_PORT_SCAN_ATTEMPTS`` candidates, each free on
-        every bind host). If the bound port can't be resolved, this
-        raises rather than returning 0 so the failure surfaces
-        instead of advertising an unusable port.
+        ``bound_port`` is read off the bound socket, never assumed:
+        it is the OS-assigned port for ``--remote-build-port 0``
+        (ephemeral), and may exceed the configured port when that
+        port was taken and the bind fell forward to the next free
+        one (bounded scan of ``REMOTE_BUILD_PORT_SCAN_ATTEMPTS``
+        candidates, each free on every bind host).
 
         Bind address comes from
         :attr:`DashboardSettings.remote_build_host` (``0.0.0.0`` by
@@ -407,31 +403,26 @@ class RemoteBuildLifecycle:
         hosts = resolve_bind_host(settings.remote_build_host)
         ensure_single_host_for_ephemeral_port(hosts, configured_port, "--remote-build-port")
 
-        # For a fixed port, bind (and keep) the sockets up front:
-        # holding them is what makes the reservation race-free
-        # against sibling instances (e.g. the stable/beta/dev add-on
-        # flavors) scanning the same range at startup. The sockets
-        # are handed to ``web.SockSite`` below; ephemeral (port 0)
-        # keeps the TCPSite path, where the OS pick can't collide.
-        bind_port = configured_port
-        bound_sockets: list[socket.socket] = []
-        if configured_port:
-            bind_port, bound_sockets = await loop.run_in_executor(
-                None,
-                bind_available_port,
-                hosts,
+        # Bind (and keep) the sockets up front: holding them is what
+        # makes the reservation race-free against sibling instances
+        # (e.g. the stable/beta/dev add-on flavors) scanning the same
+        # range at startup; ``web.SockSite`` below adopts them.
+        bind_port, bound_sockets = await loop.run_in_executor(
+            None,
+            bind_available_port,
+            hosts,
+            configured_port,
+            REMOTE_BUILD_PORT_SCAN_ATTEMPTS,
+        )
+        if configured_port and bind_port != configured_port:
+            _LOGGER.warning(
+                "Remote-build peer-link port %d is in use (likely another "
+                "dashboard instance on this host); falling forward to port "
+                "%d — peers discover the bound port via the mDNS "
+                "remote_build_port TXT record",
                 configured_port,
-                REMOTE_BUILD_PORT_SCAN_ATTEMPTS,
+                bind_port,
             )
-            if bind_port != configured_port:
-                _LOGGER.warning(
-                    "Remote-build peer-link port %d is in use (likely another "
-                    "dashboard instance on this host); falling forward to port "
-                    "%d — peers discover the bound port via the mDNS "
-                    "remote_build_port TXT record",
-                    configured_port,
-                    bind_port,
-                )
 
         runner: web.AppRunner | None = None
         try:
@@ -448,30 +439,11 @@ class RemoteBuildLifecycle:
 
             runner = web.AppRunner(app)
             await runner.setup()
-            site: web.BaseSite
-            if bound_sockets:
-                # A started SockSite hands socket ownership to the
-                # runner; the except path below closes any socket a
-                # failed start left behind (double-close is a no-op).
-                for sock in bound_sockets:
-                    site = web.SockSite(runner, sock)
-                    await site.start()
-            else:
-                # ``reuse_address=True`` is the asyncio default on POSIX
-                # but defaults to False on Windows; pin it explicitly so
-                # the rotation rebuild path
-                # (``reload_identity`` → teardown → re-bind) doesn't
-                # TIME_WAIT-block cross-platform.
-                for host in hosts:
-                    site = web.TCPSite(
-                        runner,
-                        host,
-                        bind_port,
-                        reuse_address=True,
-                    )
-                    await site.start()
-
-            port = self._resolve_bound_port(site)
+            # A started SockSite hands socket ownership to the
+            # runner; the except path below closes any socket a
+            # failed start left behind (double-close is a no-op).
+            for sock in bound_sockets:
+                await web.SockSite(runner, sock).start()
         except Exception:
             for sock in bound_sockets:
                 sock.close()
@@ -479,39 +451,4 @@ class RemoteBuildLifecycle:
                 await self._cleanup_runner(runner)
             raise
 
-        return runner, identity, port
-
-    @staticmethod
-    def _resolve_bound_port(site: web.BaseSite) -> int:
-        """
-        Read the actually-bound port off a started site's socket.
-
-        Raises ``RuntimeError`` rather than returning 0 if the bound
-        port can't be read, so an unresolvable bind fails loudly in
-        the caller's fail-soft handler instead of silently
-        advertising port 0 — the exact outcome this read exists to
-        prevent.
-        """
-        # ``site._server`` is genuinely aiohttp-private — there's no
-        # public way to get the bound port off a started site.
-        # We reach in; if aiohttp ever renames it the cast below
-        # crashes loudly.
-        server = site._server  # noqa: SLF001
-        sockets = None
-        if server is not None:
-            # typeshed's ``asyncio.AbstractServer`` doesn't expose
-            # ``sockets`` even though the concrete ``base_events.Server``
-            # does — the asyncio docs list it as part of the public
-            # contract on the returned server object. Cast at the
-            # access boundary; the alternative (``getattr`` + None
-            # checks) would obscure what's actually a stable
-            # documented attribute.
-            sockets = cast("asyncio.base_events.Server", server).sockets
-        port = sockets[0].getsockname()[1] if sockets else 0
-        if not port:
-            msg = (
-                "Remote-build peer-link bound but the port could not be "
-                "resolved off the listening socket; refusing to advertise port 0"
-            )
-            raise RuntimeError(msg)
-        return port
+        return runner, identity, bind_port

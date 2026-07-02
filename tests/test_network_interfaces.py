@@ -19,6 +19,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from aiohttp.test_utils import get_unused_port_socket
 
 from esphome_device_builder.helpers import network_interfaces
 from esphome_device_builder.helpers.network_interfaces import (
@@ -100,8 +101,7 @@ def _close_all(sockets: list[socket.socket]) -> None:
 
 def test_bind_available_port_returns_start_when_free() -> None:
     """A free start port is bound and returned with its socket held."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
+    with get_unused_port_socket("127.0.0.1") as probe:
         port = probe.getsockname()[1]
     found, sockets = bind_available_port(["127.0.0.1"], port, 10)
     try:
@@ -113,8 +113,7 @@ def test_bind_available_port_returns_start_when_free() -> None:
 
 def test_bind_available_port_skips_occupied_port() -> None:
     """An actively-listened start port falls forward within the scan range."""
-    with socket.socket() as blocker:
-        blocker.bind(("127.0.0.1", 0))
+    with get_unused_port_socket("127.0.0.1") as blocker:
         blocker.listen(1)
         port = blocker.getsockname()[1]
         found, sockets = bind_available_port(["127.0.0.1"], port, 10)
@@ -125,10 +124,25 @@ def test_bind_available_port_skips_occupied_port() -> None:
             _close_all(sockets)
 
 
+def test_bind_available_port_binds_ipv6_host() -> None:
+    """An IPv6 host gets a v6-only socket and the OS-assigned port is reported."""
+    if not socket.has_ipv6:
+        pytest.skip("IPv6 unavailable")
+    try:
+        found, sockets = bind_available_port(["::1"], 0, 1)
+    except OSError as err:
+        pytest.skip(f"IPv6 loopback unavailable: {err}")
+    try:
+        assert found == sockets[0].getsockname()[1] != 0
+        assert sockets[0].family == socket.AF_INET6
+        assert sockets[0].getsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY) == 1
+    finally:
+        _close_all(sockets)
+
+
 def test_bind_available_port_raises_when_exhausted() -> None:
     """A scan with no free candidate raises EADDRINUSE naming the range."""
-    with socket.socket() as blocker:
-        blocker.bind(("127.0.0.1", 0))
+    with get_unused_port_socket("127.0.0.1") as blocker:
         blocker.listen(1)
         port = blocker.getsockname()[1]
         with pytest.raises(OSError, match=f"No free port in {port}-{port}") as excinfo:
@@ -146,6 +160,7 @@ def test_bind_available_port_abandons_candidate_when_any_host_fails() -> None:
         if (host, port) == ("h2", 6055):
             raise OSError(errno.EADDRINUSE, "taken")
         sock = MagicMock()
+        sock.getsockname.return_value = (host, port)
         handed_out[(host, port)] = sock
         return [sock]
 
