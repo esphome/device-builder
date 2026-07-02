@@ -43,7 +43,6 @@ featured_components:
       locked: true
     active_high:
       value: true
-      locked: true
     reset_pin:
       value: GPIO54
       locked: true
