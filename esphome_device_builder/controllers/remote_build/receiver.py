@@ -10,8 +10,8 @@ submitted each remote job.
 
 Pairs with :class:`~.offloader.OffloaderController` — the two
 siblings own disjoint state and never reach across; the only
-shared coupling is :mod:`._shared` (a free
-:func:`drain_tasks` helper) and the
+shared coupling is :mod:`._shared`'s :class:`_RemoteBuildBase`
+base and the
 :class:`~esphome_device_builder.device_builder.DeviceBuilder`
 reference passed to both at construction.
 """
@@ -24,6 +24,7 @@ from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
 from ...helpers.api import api_command
+from ...helpers.async_ import drain_tasks
 from ...helpers.event_bus import Event
 from ...helpers.storage import Store
 from ...models import (
@@ -50,7 +51,7 @@ from . import (
     settings_receiver,
 )
 from ._receiver_state import ReceiverState
-from ._shared import _RemoteBuildBase, drain_tasks
+from ._shared import _RemoteBuildBase
 from ._storage_codecs import (
     RECEIVER_PEERS_FILE,
     decode_peers,

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.async_ import drain_tasks
 from ...models import ErrorCode, EventType
 from .git_repo import GIT_COMMIT_ERRORS, GitIndexLockBusyError, GitRepo
 
@@ -78,6 +79,9 @@ class VersionHistoryController:
         # Consecutive-failure tracking for the degraded signal.
         self._consecutive_failures = 0
         self._degraded = False
+        # ``version_history_enabled`` mirror; gates writes only (reads/restore
+        # key on the repo being present). Seeded at start, live via set_auto_commit.
+        self._auto_commit_enabled = True
 
     @property
     def enabled(self) -> bool:
@@ -95,12 +99,32 @@ class VersionHistoryController:
         return self._degraded
 
     async def start(self) -> None:
-        """Probe for git, adopt / init the repo, and watch for disk changes."""
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._repo.discover_or_init)
-        if not self._repo.enabled:
+        """Probe for git, adopt / init the repo, and watch for disk changes.
+
+        A no-op that creates no repo when ``version_history_enabled`` is off.
+        """
+        assert self._db.config is not None  # type narrowing — loaded before start()
+        self._auto_commit_enabled = self._db.config.prefs.snapshot().version_history_enabled
+        if not self._auto_commit_enabled:
+            _LOGGER.info("Version history disabled by preference; not creating a repo")
             return
-        _LOGGER.info("Version history active (git work tree: %s)", self._repo.toplevel)
+        await self._activate()
+
+    async def _activate(self) -> None:
+        """
+        Init the repo if needed and (re)subscribe to external-edit events.
+
+        Idempotent: a re-enable after a disable keeps the existing repo and
+        only re-attaches the listeners a disable had torn down.
+        """
+        if not self._repo.enabled:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._repo.discover_or_init)
+            if not self._repo.enabled:
+                return
+            _LOGGER.info("Version history active (git work tree: %s)", self._repo.toplevel)
+        # Reached only with no listeners attached (start runs once; a re-enable
+        # clears them first), so this never double-subscribes.
         # Catch-all for edits made outside the dashboard. DEVICE_YAML_UPDATED
         # fires only when the scanner detects a YAML change on disk (mtime/
         # size/inode), so runtime mDNS / ping ticks and metadata reloads
@@ -108,6 +132,28 @@ class VersionHistoryController:
         # already committed by the debounced flush, so those become no-ops.
         for event_type in _EXTERNAL_MESSAGE:
             self._unsubs.append(self._db.bus.add_listener(event_type, self._on_disk_change))
+
+    async def set_auto_commit(self, *, enabled: bool) -> None:
+        """
+        Apply a live ``version_history_enabled`` change.
+
+        Off→on activates the repo lazily; on→off stops watching and drops
+        any queued commit, leaving an existing repo intact for reads.
+        """
+        if enabled == self._auto_commit_enabled:
+            return
+        self._auto_commit_enabled = enabled
+        if enabled:
+            await self._activate()
+            return
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        self._pending.clear()
+        task = self._flush_task
+        self._flush_task = None
+        if task is not None:
+            await drain_tasks((task,), log_exceptions=True)
 
     async def stop(self) -> None:
         """
@@ -134,7 +180,7 @@ class VersionHistoryController:
         ``None`` means nothing changed (or disabled); a genuine git
         failure **raises** so callers can tell the two apart.
         """
-        if not self._repo.enabled or not paths:
+        if not self._repo.enabled or not self._auto_commit_enabled or not paths:
             return None
         async with self._lock:
             backoff = _LOCK_RETRY_BACKOFF

@@ -121,7 +121,10 @@ class ConfigController:
         others keep their current values.
         """
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
-        return self.prefs.update(update_fields)
+        prefs = self.prefs.update(update_fields)
+        if "version_history_enabled" in update_fields and self._db.version_history is not None:
+            await self._db.version_history.set_auto_commit(enabled=prefs.version_history_enabled)
+        return prefs
 
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:

@@ -14,8 +14,8 @@ cross-references between them.
   (peer-link session registry, ``record_pair_request`` /
   ``approve_peer`` / ``remove_peer``, ``queue_status``
   fan-out, identity ``get`` / ``rotate``, cleanup sweep).
-- ``_shared`` — module-level helpers used by both
-  (:func:`drain_tasks`).
+- ``_shared`` — the :class:`_RemoteBuildBase` base shared by
+  both siblings.
 - ``peer_link`` — receiver-side Noise XX handler
   (:func:`make_peer_link_handler`, :class:`PeerLinkSession`,
   :class:`PeerLinkChannel`).

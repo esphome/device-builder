@@ -42,7 +42,6 @@ from esphome_device_builder.controllers.remote_build._mdns import (
     peer_from_service_info,
 )
 from esphome_device_builder.controllers.remote_build._models import PeerLinkClientHandle
-from esphome_device_builder.controllers.remote_build._shared import drain_tasks
 from esphome_device_builder.controllers.remote_build._storage_codecs import (
     decode_pairings,
     encode_pairings,
@@ -61,6 +60,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.async_ import drain_tasks
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
