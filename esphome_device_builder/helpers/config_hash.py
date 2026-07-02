@@ -31,12 +31,12 @@ mDNS TXT record shape. ``None`` on miss / parse failure;
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 
 from esphome.storage_json import StorageJSON
 
+from .async_ import run_in_executor
 from .json import JSONDecodeError, loads
 from .storage_path import resolve_storage_path
 
@@ -57,8 +57,7 @@ async def compute_yaml_config_hash(yaml_path: Path) -> str | None:
     (typically already in our metadata sidecar) rather than an
     error to propagate.
     """
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(None, read_build_info_hash, yaml_path)
+    return await run_in_executor(read_build_info_hash, yaml_path)
 
 
 def read_build_info_hash(yaml_path: Path) -> str | None:

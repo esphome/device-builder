@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import registered_stream
+from ...helpers.async_ import run_in_executor
 from ...helpers.event_bus import StreamControls, stream_events
 from ...models import (
     TERMINAL_JOB_EVENTS,
@@ -225,6 +225,5 @@ async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
     if output:
         return list(output)
     if job.is_terminal:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, read_job_output, job_id)
+        return await run_in_executor(read_job_output, job_id)
     return []

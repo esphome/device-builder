@@ -18,13 +18,12 @@ reference passed to both at construction.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
 from ...helpers.api import api_command
-from ...helpers.async_ import drain_tasks
+from ...helpers.async_ import drain_tasks, run_in_executor
 from ...helpers.event_bus import Event
 from ...helpers.storage import Store
 from ...models import (
@@ -152,10 +151,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         :attr:`ReceiverState.approved_peers` /
         :attr:`ReceiverState.pending_peers`).
         """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(
-            None, load_remote_build_settings, self._db.settings.config_dir
-        )
+        return await run_in_executor(load_remote_build_settings, self._db.settings.config_dir)
 
     def _on_firmware_queue_transition(self, event: Event[Any]) -> None:
         """Bus listener: broadcast ``queue_status`` to paired offloaders."""

@@ -61,11 +61,11 @@ collision is structurally impossible.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
     chunk_bundle,
@@ -238,11 +238,8 @@ class ArtifactsDownloadSender:
 
         self._inflight[session.dashboard_id] = _InflightDownload(job_id=job_id)
         try:
-            loop = asyncio.get_running_loop()
             try:
-                packed = await loop.run_in_executor(
-                    None, pack_build_artifacts, firmware_job.configuration
-                )
+                packed = await run_in_executor(pack_build_artifacts, firmware_job.configuration)
             except FileNotFoundError as exc:
                 # ``FileNotFoundError`` from
                 # :func:`load_build_artifacts` carries the actual

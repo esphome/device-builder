@@ -44,12 +44,12 @@ Errors:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import tempfile
 from pathlib import Path
 
 from ..controllers.firmware.helpers import _find_esphome_cmd
+from .async_ import run_in_executor
 from .subprocess import run_subprocess_capture
 
 _LOGGER = logging.getLogger(__name__)
@@ -104,8 +104,7 @@ async def build_yaml_bundle(yaml_path: Path) -> bytes:
     # stage the post-subprocess read + unlink through their own
     # hops so the dashboard's other tasks keep moving on slow
     # disks.
-    loop = asyncio.get_running_loop()
-    cmd, output_path = await loop.run_in_executor(None, _prepare_build_bundle, yaml_path)
+    cmd, output_path = await run_in_executor(_prepare_build_bundle, yaml_path)
     try:
         result = await run_subprocess_capture(
             *cmd,
@@ -123,9 +122,9 @@ async def build_yaml_bundle(yaml_path: Path) -> bytes:
         if result.returncode != 0:
             output = result.stdout.decode("utf-8", errors="replace").strip()
             raise BundleBuildError(f"esphome bundle exited {result.returncode}", output=output)
-        return await loop.run_in_executor(None, output_path.read_bytes)
+        return await run_in_executor(output_path.read_bytes)
     finally:
-        await loop.run_in_executor(None, _unlink_quietly, output_path)
+        await run_in_executor(_unlink_quietly, output_path)
 
 
 def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:

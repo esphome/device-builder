@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     EsphomeConfigUnavailableError,
     get_api_port,
@@ -28,8 +28,7 @@ async def get_api_key(controller: DevicesController, configuration: str) -> dict
     treats that as the "open the editor and check" signal.
     """
     path = controller._db.settings.rel_path(configuration)
-    loop = asyncio.get_running_loop()
-    config = await loop.run_in_executor(None, load_device_yaml, path)
+    config = await run_in_executor(load_device_yaml, path)
     key = get_resolved_api_encryption_key(config)
     if key:
         return {"key": key}
@@ -50,8 +49,7 @@ async def get_api_connection(controller: DevicesController, configuration: str) 
     plaintext/default-port connection it can't have resolved correctly.
     """
     path = controller._db.settings.rel_path(configuration)
-    loop = asyncio.get_running_loop()
-    config = await loop.run_in_executor(None, load_device_yaml, path)
+    config = await run_in_executor(load_device_yaml, path)
     if config is None:
         raise ValueError(f"could not load YAML for {configuration}")
     return get_resolved_api_encryption_key(config), get_api_port(config)

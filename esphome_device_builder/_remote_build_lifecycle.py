@@ -16,6 +16,7 @@ from .controllers.config import (
     load_remote_build_settings,
 )
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
+from .helpers.async_ import run_in_executor
 from .helpers.network_interfaces import (
     bind_available_port,
     ensure_single_host_for_ephemeral_port,
@@ -119,11 +120,10 @@ class RemoteBuildLifecycle:
         """
         if self._db.remote_build_receiver is None or self._db.loop is None:
             return
-        loop = self._db.loop
         settings = self._db.settings
         if settings.on_ha_addon:
-            persisted = await loop.run_in_executor(
-                None, has_remote_build_settings_persisted, settings.config_dir
+            persisted = await run_in_executor(
+                has_remote_build_settings_persisted, settings.config_dir
             )
             if not persisted:
                 _LOGGER.debug(
@@ -133,9 +133,7 @@ class RemoteBuildLifecycle:
                     "default; flip the toggle in Settings to override)"
                 )
                 return
-        rb_settings = await loop.run_in_executor(
-            None, load_remote_build_settings, settings.config_dir
-        )
+        rb_settings = await run_in_executor(load_remote_build_settings, settings.config_dir)
         if not rb_settings.enabled:
             _LOGGER.debug(
                 "Skipping remote-build peer-link site: disabled in settings "
@@ -244,10 +242,9 @@ class RemoteBuildLifecycle:
         """
         if self._db.loop is None:
             return self._runner is not None
-        loop = self._db.loop
         async with self._get_lock():
-            rb_settings = await loop.run_in_executor(
-                None, load_remote_build_settings, self._db.settings.config_dir
+            rb_settings = await run_in_executor(
+                load_remote_build_settings, self._db.settings.config_dir
             )
             if rb_settings.enabled:
                 if self._runner is None:
@@ -389,8 +386,6 @@ class RemoteBuildLifecycle:
         to a specific NIC can override via ``--remote-build-host`` /
         ``$ESPHOME_REMOTE_BUILD_HOST``.
         """
-        loop = self._db.loop
-        assert loop is not None  # caller-checked
         receiver = self._db.remote_build_receiver
         assert receiver is not None  # caller-checked
         settings = self._db.settings
@@ -407,8 +402,7 @@ class RemoteBuildLifecycle:
         # makes the reservation race-free against sibling instances
         # (e.g. the stable/beta/dev add-on flavors) scanning the same
         # range at startup; ``web.SockSite`` below adopts them.
-        bind_port, bound_sockets = await loop.run_in_executor(
-            None,
+        bind_port, bound_sockets = await run_in_executor(
             bind_available_port,
             hosts,
             configured_port,

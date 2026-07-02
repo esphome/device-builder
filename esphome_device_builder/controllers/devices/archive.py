@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import shutil
 from typing import TYPE_CHECKING, Any
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
@@ -30,7 +30,6 @@ _LOGGER = logging.getLogger(__name__)
 async def archive_single(controller: DevicesController, configuration: str) -> None:
     """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build artifacts."""
     config_path = controller._db.settings.rel_path(configuration)
-    loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
 
     def _archive_sync() -> None:
@@ -65,7 +64,7 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
     # archive's removal commit (same serialisation as ``_persist_yaml_mutation``).
     async with controller._yaml_write_lock(configuration):
         try:
-            await loop.run_in_executor(None, _archive_sync)
+            await run_in_executor(_archive_sync)
         except FileExistsError as exc:
             raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
         # Drop volatile fields across both stores: live mDNS state and
@@ -82,7 +81,6 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
 
 async def unarchive_single(controller: DevicesController, configuration: str) -> None:
     """Move an archived YAML back into the active config_dir; refuse on filename clash."""
-    loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
     archive_path = config_dir / "archive" / configuration
     target = controller._db.settings.rel_path(configuration)
@@ -100,7 +98,7 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
         shutil.move(str(archive_path), str(target))
 
     try:
-        await loop.run_in_executor(None, _unarchive_sync)
+        await run_in_executor(_unarchive_sync)
     except FileExistsError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
 
@@ -142,7 +140,6 @@ def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
 
 async def delete_archived_single(controller: DevicesController, configuration: str) -> None:
     """Permanently remove an archived YAML and its sidecars."""
-    loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
     archive_path = config_dir / "archive" / configuration
     active_path = controller._db.settings.rel_path(configuration)
@@ -160,7 +157,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         _unlink_compiled_config(configuration)
         return True
 
-    sidecars_purged = await loop.run_in_executor(None, _delete_all)
+    sidecars_purged = await run_in_executor(_delete_all)
     if sidecars_purged:
         # Drop the per-device metadata entry (both the store +
         # shared identity sidecar) on the event loop side and
@@ -172,7 +169,6 @@ async def delete_archived_single(controller: DevicesController, configuration: s
 async def delete_single(controller: DevicesController, configuration: str) -> None:
     """Delete a single device and all associated files."""
     config_path = controller._db.settings.rel_path(configuration)
-    loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
 
     def _delete_all() -> None:
@@ -195,7 +191,7 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
     # concurrent editor save's commit on the same config (uniform with
     # ``_persist_yaml_mutation``).
     async with controller._yaml_write_lock(configuration):
-        await loop.run_in_executor(None, _delete_all)
+        await run_in_executor(_delete_all)
         await controller._delete_device_metadata(configuration)
         # Record the removal in git so the YAML stays restorable from
         # history even though its (regenerable) build artifacts are gone.

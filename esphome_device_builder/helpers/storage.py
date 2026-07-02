@@ -60,6 +60,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from pathlib import Path
 
+from .async_ import run_in_executor
 from .atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
@@ -139,8 +140,7 @@ class Store[T]:
         consumer needs an explicit recovery decision rather
         than silently starting from empty state.
         """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._load_sync)
+        return await run_in_executor(self._load_sync)
 
     def _load_sync(self) -> T | None:
         try:
@@ -202,10 +202,9 @@ class Store[T]:
                 # Concurrent ``async_save_now`` already drained
                 # the captured func; nothing to write.
                 return
-            loop = asyncio.get_running_loop()
             try:
                 value = data_func()
-                await loop.run_in_executor(None, self._encode_and_write, value)
+                await run_in_executor(self._encode_and_write, value)
             except Exception:
                 # Background-task write failures shouldn't
                 # propagate — the consumer's mutation is still

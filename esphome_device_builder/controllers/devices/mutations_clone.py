@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import configuration_stem
 from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
@@ -61,7 +61,6 @@ async def clone_device(  # noqa: C901
             "new_name must differ from the source device name",
         )
 
-    loop = asyncio.get_running_loop()
     source_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
     if new_friendly_name is None:
@@ -82,7 +81,7 @@ async def clone_device(  # noqa: C901
         meta = controller._shared_sidecar.get_sync(configuration)
         return content, meta, False
 
-    source_content, source_meta, target_existed = await loop.run_in_executor(None, _gather)
+    source_content, source_meta, target_existed = await run_in_executor(_gather)
     if target_existed:
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
@@ -147,7 +146,7 @@ async def clone_device(  # noqa: C901
             f.write(new_content)
 
     try:
-        await loop.run_in_executor(None, _commit)
+        await run_in_executor(_commit)
     except FileExistsError as exc:
         # Race: another caller created the file between our
         # gather pass and the ``open(... "x")``. Surface as the

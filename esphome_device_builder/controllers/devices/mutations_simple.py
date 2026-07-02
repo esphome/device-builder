@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import (
@@ -201,7 +202,6 @@ async def rename_device(
     config-only since ``esphome rename`` can't keep the same filename.
     """
     new_filename = f"{new_name}.yaml"
-    loop = asyncio.get_running_loop()
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
@@ -237,7 +237,7 @@ async def rename_device(
     # Reject up-front if a *different* file already owns the target filename;
     # ``esphome rename`` doesn't check collisions and would silently overwrite
     # an unrelated device's config and OTA-flash firmware to the wrong device.
-    if not in_place and await loop.run_in_executor(None, new_path.exists):
+    if not in_place and await run_in_executor(new_path.exists):
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
@@ -279,7 +279,7 @@ async def _read_device_yaml_or_raise(controller: DevicesController, configuratio
         except FileNotFoundError:
             return None
 
-    content = await asyncio.get_running_loop().run_in_executor(None, _read)
+    content = await run_in_executor(_read)
     if content is None:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
     return content
@@ -304,7 +304,6 @@ async def _config_only_rename(
     just-written file isn't deleted.
     """
     new_filename = f"{new_name}.yaml"
-    loop = asyncio.get_running_loop()
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
@@ -342,10 +341,10 @@ async def _config_only_rename(
 
     await controller._write_yaml_atomic_async(new_path, new_content)
     if not in_place:
-        await loop.run_in_executor(None, lambda: old_path.unlink(missing_ok=True))
+        await run_in_executor(lambda: old_path.unlink(missing_ok=True))
     # The YAML is already renamed; storage migration is best-effort (logs on
     # failure) and the shared metadata-migrate-then-scan always rescans.
-    await loop.run_in_executor(None, _migrate_storage_json, configuration, new_filename, new_name)
+    await run_in_executor(_migrate_storage_json, configuration, new_filename, new_name)
     await migrate_metadata_then_scan(controller, configuration, new_filename)
     return {"configuration": new_filename, "job": None}
 

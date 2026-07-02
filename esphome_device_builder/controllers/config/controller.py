@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +11,7 @@ from esphome.util import get_serial_ports
 
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
+from ...helpers.async_ import run_in_executor
 from ...helpers.secrets_state import (
     SecretsContentError,
     is_valid_secret_key,
@@ -62,8 +62,7 @@ class ConfigController:
     @api_command("config/serial_ports")
     async def get_serial_ports_cmd(self, **kwargs: Any) -> list[dict]:
         """List available serial ports."""
-        loop = asyncio.get_running_loop()
-        ports = await loop.run_in_executor(None, get_serial_ports)
+        ports = await run_in_executor(get_serial_ports)
         return [
             {"port": p.path, "desc": p.description if p.description != "n/a" else p.path}
             for p in ports
@@ -134,9 +133,8 @@ class ConfigController:
     @api_command("config/get_secrets")
     async def get_secrets(self, **kwargs: Any) -> list[str]:
         """Get secret key names from secrets.yaml."""
-        loop = asyncio.get_running_loop()
         config_dir = self._db.settings.config_dir
-        data = await loop.run_in_executor(None, read_secrets_yaml, config_dir)
+        data = await run_in_executor(read_secrets_yaml, config_dir)
         if not data:
             return []
         # ``secrets.yaml`` could legitimately have non-string keys
@@ -204,7 +202,6 @@ class ConfigController:
     @api_command("config/get_info")
     async def get_info(self, *, configuration: str, **kwargs: Any) -> dict | None:
         """Get compiled device metadata (StorageJSON) for a configuration."""
-        loop = asyncio.get_running_loop()
 
         def _load_info() -> dict | None:
             # ``rel_path`` calls ``Path.resolve`` (an ``os.path.abspath``
@@ -231,4 +228,4 @@ class ConfigController:
                 "loaded_integrations": storage.loaded_integrations,
             }
 
-        return await loop.run_in_executor(None, _load_info)
+        return await run_in_executor(_load_info)

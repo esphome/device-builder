@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] 
     paho_mqtt = None  # type: ignore[assignment]
 
 
-from ..helpers.async_ import drain_tasks
+from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.json import JSONDecodeError, loads
 from ..models import DeviceState
 
@@ -239,7 +239,7 @@ class DeviceMqttMonitor:
         if self._broker.username:
             client.username_pw_set(self._broker.username, self._broker.password or "")
 
-        await loop.run_in_executor(None, client.connect, self._broker.host, self._broker.port)
+        await run_in_executor(client.connect, self._broker.host, self._broker.port)
         client.loop_start()
         try:
             await asyncio.wait_for(connected.wait(), timeout=_CONNECT_TIMEOUT)

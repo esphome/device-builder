@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.storage import ShutdownRegister, Store
 from ...models import UserPreferences
@@ -67,7 +67,6 @@ class PreferencesStore:
         blob isn't lost), and an undecodable legacy blob is left in place. Both
         fall back to defaults.
         """
-        loop = asyncio.get_running_loop()
         try:
             loaded = await self._store.async_load()
         except _DECODE_ERRORS:
@@ -75,21 +74,21 @@ class PreferencesStore:
                 "preferences store: %s is undecodable; preserving it and using defaults",
                 _STORE_FILENAME,
             )
-            await loop.run_in_executor(None, self._preserve_corrupt_file)
-            await self._migrate_from_sidecar(loop)
+            await run_in_executor(self._preserve_corrupt_file)
+            await self._migrate_from_sidecar()
             return
         if loaded is not None:
             self._state = loaded
             return
-        await self._migrate_from_sidecar(loop)
+        await self._migrate_from_sidecar()
 
-    async def _migrate_from_sidecar(self, loop: asyncio.AbstractEventLoop) -> None:
+    async def _migrate_from_sidecar(self) -> None:
         """Adopt the legacy ``_preferences`` blob, persist it, then strip the key.
 
         The strip is gated on a confirmed write so an unconfirmed flush can't lose
         the prefs on restart (see :meth:`_confirm_and_strip_shared_sync`).
         """
-        migrated = await loop.run_in_executor(None, self._migrate_read_shared_sync)
+        migrated = await run_in_executor(self._migrate_read_shared_sync)
         if migrated is None:
             return
         self._state = migrated
@@ -97,7 +96,7 @@ class PreferencesStore:
             return
         self._store.async_delay_save(self._snapshot, delay=0.0)
         await self._store.async_save_now()
-        stripped = await loop.run_in_executor(None, self._confirm_and_strip_shared_sync)
+        stripped = await run_in_executor(self._confirm_and_strip_shared_sync)
         if not stripped:
             _LOGGER.warning(
                 "preferences store: %s write unconfirmed; keeping %s in %s to retry",

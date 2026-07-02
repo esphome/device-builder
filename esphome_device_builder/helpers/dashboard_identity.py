@@ -32,7 +32,6 @@ the wire. Rewriting this module to delegate to
 
 from __future__ import annotations
 
-import asyncio
 import re
 import secrets
 from dataclasses import dataclass
@@ -40,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 from ..controllers.config import metadata_transaction
+from .async_ import run_in_executor
 from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
 _DASHBOARD_ID_BYTES = 24
@@ -93,9 +93,7 @@ async def get_or_create_identities(
 ) -> tuple[PeerLinkIdentity, DashboardIdentity]:
     """Load the peer-link keypair + composed dashboard identity in one shot."""
     peer_link = await identity_store.async_load()
-    dashboard_id = await asyncio.get_running_loop().run_in_executor(
-        None, _get_or_create_dashboard_id, config_dir
-    )
+    dashboard_id = await run_in_executor(_get_or_create_dashboard_id, config_dir)
     return peer_link, DashboardIdentity(
         dashboard_id=dashboard_id,
         pin_sha256=peer_link.pin_sha256,
@@ -122,9 +120,7 @@ async def rotate_identity(
     stays readable across rotations.
     """
     peer_link = await identity_store.async_rotate()
-    dashboard_id = await asyncio.get_running_loop().run_in_executor(
-        None, _get_or_create_dashboard_id, config_dir
-    )
+    dashboard_id = await run_in_executor(_get_or_create_dashboard_id, config_dir)
     return DashboardIdentity(
         dashboard_id=dashboard_id,
         pin_sha256=peer_link.pin_sha256,

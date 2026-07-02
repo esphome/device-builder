@@ -31,6 +31,7 @@ from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
 
 from ..constants import SECRETS_FILENAME
+from .async_ import run_in_executor
 from .yaml import load_yaml_fast_then_esphome
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,9 +43,8 @@ async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *arg
 
     Pre-bind keyword args with ``functools.partial``.
     """
-    loop = asyncio.get_running_loop()
     async with lock:
-        return await loop.run_in_executor(None, fn, *args)
+        return await run_in_executor(fn, *args)
 
 
 # Bootstrap placeholder strings. Upstream now exports these from

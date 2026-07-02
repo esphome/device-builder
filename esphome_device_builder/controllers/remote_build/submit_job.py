@@ -55,13 +55,13 @@ hit. Phase-6 24h TTL sweeps cold subtrees later.
 
 from __future__ import annotations
 
-import asyncio
 import binascii
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.lazy_module import async_import_module
 from ...helpers.peer_link_bundle import (
     BundleAssembler,
@@ -592,10 +592,8 @@ class SubmitJobReceiver:
         # rely on a preload-ordering invariant in this caller.
         bundle = await async_import_module("esphome.bundle")
         prepare = bundle.prepare_bundle_for_compile
-        loop = asyncio.get_running_loop()
         try:
-            configuration = await loop.run_in_executor(
-                None,
+            configuration = await run_in_executor(
                 _validate_write_extract_bundle,
                 bundle_path,
                 bundle_bytes,

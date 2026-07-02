@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
 from typing import TYPE_CHECKING
 
@@ -10,6 +9,7 @@ from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, WizardResponse
@@ -98,8 +98,7 @@ async def create_device(  # noqa: C901, PLR0912
     # frontend can offer an overwrite instead of a dead-end error. The
     # write further down is the actual race-safe path; this is a UX
     # optimisation.
-    loop_for_check = asyncio.get_running_loop()
-    file_existed = await loop_for_check.run_in_executor(None, config_path.exists)
+    file_existed = await run_in_executor(config_path.exists)
     if file_existed and not overwrite:
         msg = f"Configuration {filename} already exists"
         raise CommandError(ErrorCode.ALREADY_EXISTS, msg)
@@ -150,8 +149,6 @@ async def create_device(  # noqa: C901, PLR0912
     if not board_id:
         parsed_platform, _pio_board, _variant = parse_platform_from_yaml(yaml_content)
 
-    loop = asyncio.get_running_loop()
-
     def _write_exclusive() -> None:
         # Exclusive-create so a concurrent ``devices/create`` (or
         # any other writer) can't slip between a preflight check
@@ -163,10 +160,10 @@ async def create_device(  # noqa: C901, PLR0912
     if overwriting:
         # Atomic in-place rewrite (stage + move) so a crash can't leave a
         # half-written config; the user explicitly confirmed the overwrite.
-        await loop.run_in_executor(None, atomic_write_file, config_path, yaml_content)
+        await run_in_executor(atomic_write_file, config_path, yaml_content)
     else:
         try:
-            await loop.run_in_executor(None, _write_exclusive)
+            await run_in_executor(_write_exclusive)
         except FileExistsError as exc:
             msg = f"Configuration {filename} already exists"
             raise CommandError(ErrorCode.ALREADY_EXISTS, msg) from exc
@@ -175,7 +172,7 @@ async def create_device(  # noqa: C901, PLR0912
     # and dashboard metadata; only a fresh device gets a new sidecar.
     if not overwriting:
         platform = str(board.esphome.platform) if board else parsed_platform
-        await loop.run_in_executor(None, init_device_storage, filename, name, friendly, platform)
+        await run_in_executor(init_device_storage, filename, name, friendly, platform)
     await controller._register_new_device(
         filename,
         f"{'Overwrite' if overwriting else 'Create'} {filename}",

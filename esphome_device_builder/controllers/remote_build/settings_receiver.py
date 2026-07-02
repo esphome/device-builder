@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...models import (
     MAX_CLEANUP_TTL_SECONDS,
     MIN_CLEANUP_TTL_SECONDS,
@@ -72,8 +72,7 @@ async def modify_settings(
             mutator(settings)
             return settings
 
-    loop = asyncio.get_running_loop()
-    settings = await loop.run_in_executor(None, _txn)
+    settings = await run_in_executor(_txn)
     return to_view(controller, settings)
 
 

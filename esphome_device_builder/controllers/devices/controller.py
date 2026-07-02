@@ -20,6 +20,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
+from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import (
     board_requires_wifi,
@@ -250,12 +251,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
         self._stopped = False
         self.state.esphome_cmd = _find_esphome_cmd()
-        loop = asyncio.get_running_loop()
         # Seed the store (and migrate on first post-upgrade boot)
         # before the scanner runs — resolver reads off it.
         await self._metadata_store.async_load()
         await self.migrate_board_id_user_set()
-        await loop.run_in_executor(None, self._load_ignored_devices)
+        await run_in_executor(self._load_ignored_devices)
         await self._scanner.scan()
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
@@ -566,10 +566,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             ssid, psk = "", ""  # force the !secret path in the generator
             wifi_requested = True
         else:
-            loop = asyncio.get_running_loop()
-            secrets = await loop.run_in_executor(
-                None, read_secrets_yaml, self._db.settings.config_dir
-            )
+            secrets = await run_in_executor(read_secrets_yaml, self._db.settings.config_dir)
             wifi_secrets_available = wifi_secrets_defined(secrets)
             # A Wi-Fi-only board with no secrets would generate an unflashable
             # no-network stub (its api/ota/web_server defaults need a network).
@@ -668,8 +665,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         actions; full YAML / metadata is left on disk and is fetched
         on demand if the user opens one.
         """
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._list_archived_sync)
+        return await run_in_executor(self._list_archived_sync)
 
     @api_command("devices/delete_archived")
     async def delete_archived(self, *, configuration: str, **kwargs: Any) -> None:
@@ -968,8 +964,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ``Path.write_text`` truncates before writing and isn't
         safe for those paths.
         """
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, atomic_write_file, path, content)
+        await run_in_executor(atomic_write_file, path, content)
 
     async def _persist_yaml_mutation(
         self, configuration: str, content: str, *, message: str | None = None
@@ -1060,8 +1055,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @staticmethod
     async def _read_yaml_async(path: Path) -> str:
         """Read *path* as UTF-8 text off the executor."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, path.read_text, "utf-8")
+        return await run_in_executor(path.read_text, "utf-8")
 
     def _on_scan_change(self, kind: ScanChange, device: Device) -> None:
         scan_change.on_scan_change(self, kind, device)

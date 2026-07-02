@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.storage import ShutdownRegister, Store
 from ..config import _load_metadata, metadata_transaction
@@ -80,15 +80,14 @@ class DeviceMetadataStore:
         if loaded is not None:
             self._state = loaded
             return
-        loop = asyncio.get_running_loop()
-        migrated = await loop.run_in_executor(None, self._migrate_read_shared_sync)
+        migrated = await run_in_executor(self._migrate_read_shared_sync)
         self._state = migrated
         if not migrated:
             return
         self._store.async_delay_save(self._snapshot, delay=0.0)
         await self._store.async_save_now()
         keys = list(migrated.keys())
-        await loop.run_in_executor(None, self._migrate_strip_shared_sync, keys)
+        await run_in_executor(self._migrate_strip_shared_sync, keys)
         _LOGGER.info(
             "Migrated %d device metadata entries from %s to %s",
             len(migrated),

@@ -9,7 +9,6 @@ poll so monitors track YAML edits.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +18,7 @@ import yaml
 from esphome.core import EsphomeError
 
 from ..constants import SECRETS_FILENAME
+from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
     _extract_resolved_substitutions,
@@ -88,8 +88,7 @@ class DeviceMqttCoordinator:
                 )
             return
 
-        loop = asyncio.get_running_loop()
-        brokers = await loop.run_in_executor(None, self._collect_brokers)
+        brokers = await run_in_executor(self._collect_brokers)
         wanted_keys = {b.key for b in brokers}
         existing_keys = set(self._monitors.keys())
 

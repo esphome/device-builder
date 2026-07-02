@@ -34,6 +34,7 @@ from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
+from .async_ import run_in_executor
 from .atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
@@ -102,13 +103,13 @@ class PeerLinkIdentityStore:
         async with self._lock:
             if self._cached is not None:
                 return self._cached
-            identity = await asyncio.get_running_loop().run_in_executor(None, self._load_blocking)
+            identity = await run_in_executor(self._load_blocking)
             self._cached = identity
             return identity
 
     async def _do_rotate_locked(self) -> PeerLinkIdentity:
         async with self._lock:
-            identity = await asyncio.get_running_loop().run_in_executor(None, self._rotate_blocking)
+            identity = await run_in_executor(self._rotate_blocking)
             self._cached = identity
             return identity
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from asyncio import AbstractEventLoop, Task, gather, get_running_loop
-from collections.abc import Coroutine, Iterable
+from collections.abc import Callable, Coroutine, Iterable
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,6 +33,16 @@ async def drain_tasks(tasks: Iterable[Task[Any]], *, log_exceptions: bool = Fals
         # so the expected cancel outcome is skipped here.
         if isinstance(result, Exception):
             _LOGGER.warning("task %r failed during drain", task.get_name(), exc_info=result)
+
+
+async def run_in_executor[T](fn: Callable[..., T], *args: Any) -> T:
+    """Run ``fn(*args)`` in the default executor thread pool.
+
+    Thin wrapper over ``get_running_loop().run_in_executor(None, ...)`` so
+    callers stop re-deriving the loop for the common block-shift-to-a-thread
+    case. Pass a ``functools.partial`` / lambda when *fn* needs keywords.
+    """
+    return await get_running_loop().run_in_executor(None, fn, *args)
 
 
 def create_eager_task[T](

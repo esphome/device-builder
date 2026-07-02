@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -11,6 +10,7 @@ from esphome import const
 from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
 from ...models import (
@@ -58,7 +58,6 @@ async def import_device(
         None,
     )
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
-    loop = asyncio.get_running_loop()
     # ``esphome.components.dashboard_import`` pulls in ~14 MB of
     # upstream code; load it through ``async_import_module`` so
     # the first adoption pays the cost on the dedicated import
@@ -67,8 +66,7 @@ async def import_device(
     dashboard_import = await async_import_module("esphome.components.dashboard_import")
 
     try:
-        await loop.run_in_executor(
-            None,
+        await run_in_executor(
             dashboard_import.import_config,
             path,
             name,
@@ -93,9 +91,9 @@ async def import_device(
         path.unlink(missing_ok=True)
 
     try:
-        content = await loop.run_in_executor(None, _read)
+        content = await run_in_executor(_read)
     except (OSError, UnicodeDecodeError):
-        await loop.run_in_executor(None, _cleanup)
+        await run_in_executor(_cleanup)
         raise
     await controller._validate_rewritten_yaml_or_raise(
         configuration,
@@ -153,8 +151,7 @@ async def toggle_ignore(controller: DevicesController, *, name: str, ignore: boo
         controller.state.ignored_devices.add(name)
     else:
         controller.state.ignored_devices.discard(name)
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, controller._save_ignored_devices)
+    await run_in_executor(controller._save_ignored_devices)
     # Mirror the new flag onto the cached AdoptableDevice and
     # re-publish ADDED so subscribed frontends update the badge
     # without waiting for a full re-discovery cycle.

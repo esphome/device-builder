@@ -9,13 +9,13 @@ config-write debounce on the device editor handles that.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
 
 from ...helpers.api import CommandError, api_command
+from ...helpers.async_ import run_in_executor
 from ...models.api import ErrorCode
 from ...models.automations import (
     ApiActionLocation,
@@ -161,8 +161,7 @@ class AutomationsController:
         ``upsert`` / ``delete``).
         """
         text = yaml if yaml is not None else await self._read_config(configuration)
-        loop = asyncio.get_running_loop()
-        scoped = await loop.run_in_executor(None, _scope_from_yaml, text)
+        scoped = await run_in_executor(_scope_from_yaml, text)
         # Scope builders are catalog-free; stamp the catalog title here.
         components = self._db.components
         if components is not None:
@@ -196,8 +195,7 @@ class AutomationsController:
         the form lands empty.
         """
         text = yaml if yaml is not None else await self._read_config(configuration)
-        loop = asyncio.get_running_loop()
-        parsed = await loop.run_in_executor(None, parsing.parse_device_yaml, text)
+        parsed = await run_in_executor(parsing.parse_device_yaml, text)
         return [p.to_dict() for p in parsed]
 
     @api_command("automations/upsert")
@@ -230,9 +228,7 @@ class AutomationsController:
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        loop = asyncio.get_running_loop()
-        _new_text, diff = await loop.run_in_executor(
-            None,
+        _new_text, diff = await run_in_executor(
             lambda: writing.render_upsert(text, tree=tree, location=loc),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
@@ -254,9 +250,7 @@ class AutomationsController:
         """
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        loop = asyncio.get_running_loop()
-        _new_text, diff = await loop.run_in_executor(
-            None,
+        _new_text, diff = await run_in_executor(
             lambda: writing.render_delete(text, location=loc),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
@@ -268,8 +262,7 @@ class AutomationsController:
     async def _read_config(self, configuration: str) -> str:
         """Read a device's YAML off disk in a worker thread."""
         path = self._db.settings.rel_path(configuration)
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, path.read_text, "utf-8")
+        return await run_in_executor(path.read_text, "utf-8")
 
 
 # ---------------------------------------------------------------------------

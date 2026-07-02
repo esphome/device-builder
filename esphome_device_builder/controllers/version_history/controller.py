@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import drain_tasks
+from ...helpers.async_ import drain_tasks, run_in_executor
 from ...models import ErrorCode, EventType
 from .git_repo import GIT_COMMIT_ERRORS, GitIndexLockBusyError, GitRepo
 
@@ -108,8 +108,7 @@ class VersionHistoryController:
         assert self._db.config is not None  # type narrowing — loaded before start()
         self._auto_commit_enabled = self._db.config.prefs.snapshot().version_history_enabled
         if not self._auto_commit_enabled:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._repo.discover_existing)
+            await run_in_executor(self._repo.discover_existing)
             if self._repo.enabled:
                 _LOGGER.info(
                     "Version history read-only (auto-commit off; git work tree: %s)",
@@ -128,8 +127,7 @@ class VersionHistoryController:
         discover (from an opted-out start) into a writable adopt; idempotent
         across a re-enable, which finds the repo already set up.
         """
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._repo.discover_or_init)
+        await run_in_executor(self._repo.discover_or_init)
         if not self._repo.enabled:
             return
         _LOGGER.info("Version history active (git work tree: %s)", self._repo.toplevel)
@@ -204,7 +202,7 @@ class VersionHistoryController:
             attempts = 0
             while True:
                 try:
-                    sha = await self._in_executor(self._repo.commit_paths, paths, message)
+                    sha = await run_in_executor(self._repo.commit_paths, paths, message)
                 except GitIndexLockBusyError:
                     attempts += 1
                     if attempts > _LOCK_RETRY_ATTEMPTS:
@@ -263,7 +261,7 @@ class VersionHistoryController:
         if not self._repo.enabled:
             return []
         path = self._db.settings.rel_path(configuration)
-        commits = await self._in_executor(self._repo.log_file, path)
+        commits = await run_in_executor(self._repo.log_file, path)
         return [
             {
                 "sha": c.sha,
@@ -281,7 +279,7 @@ class VersionHistoryController:
         self._require_enabled()
         self._validate_sha(sha)
         path = self._db.settings.rel_path(configuration)
-        content = await self._in_executor(self._repo.file_at, path, sha)
+        content = await run_in_executor(self._repo.file_at, path, sha)
         if content is None:
             raise CommandError(ErrorCode.NOT_FOUND, f"{configuration} not found at {sha}")
         return {"configuration": configuration, "sha": sha, "content": content}
@@ -292,7 +290,7 @@ class VersionHistoryController:
         self._require_enabled()
         self._validate_sha(sha)
         path = self._db.settings.rel_path(configuration)
-        diff = await self._in_executor(self._repo.diff_file, path, sha)
+        diff = await run_in_executor(self._repo.diff_file, path, sha)
         return {"configuration": configuration, "sha": sha, "diff": diff}
 
     @api_command("version_history/list_deleted")
@@ -300,7 +298,7 @@ class VersionHistoryController:
         """Return configs that have history but no working-tree copy (restorable)."""
         if not self._repo.enabled:
             return []
-        deleted = await self._in_executor(self._repo.deleted_files)
+        deleted = await run_in_executor(self._repo.deleted_files)
         return [{"configuration": name} for name in deleted]
 
     @api_command("version_history/restore")
@@ -320,12 +318,12 @@ class VersionHistoryController:
         await self._flush_pending()
         if sha is not None:
             self._validate_sha(sha)
-            content = await self._in_executor(self._repo.file_at, path, sha)
+            content = await run_in_executor(self._repo.file_at, path, sha)
             if content is None:
                 raise CommandError(ErrorCode.NOT_FOUND, f"{configuration} not found at {sha}")
             restored_from = sha
         else:
-            result = await self._in_executor(self._repo.latest_content, path)
+            result = await run_in_executor(self._repo.latest_content, path)
             if result is None:
                 raise CommandError(ErrorCode.NOT_FOUND, f"no history for {configuration}")
             restored_from, content = result
@@ -334,11 +332,6 @@ class VersionHistoryController:
             raise CommandError(ErrorCode.INTERNAL_ERROR, "devices controller unavailable")
         await devices.apply_restored_yaml(configuration, content, restored_from=restored_from[:7])
         return {"configuration": configuration, "restored_from": restored_from, "content": content}
-
-    async def _in_executor[T](self, fn: Callable[..., T], *args: Any) -> T:
-        """Run a synchronous GitRepo call off the event loop."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, fn, *args)
 
     def _require_enabled(self) -> None:
         """Raise if version history isn't available for this config dir."""

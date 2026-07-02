@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 from esphome import util
 
+from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import load_device_from_storage
 from ..models import Device
 from ._wake_worker import WakeWorker
@@ -345,8 +346,7 @@ class DeviceScanner(WakeWorker[str]):
             # makes a miss here impossible since
             # ``find_path_by_filename`` just located *path*.
             previous_cache_key = self._index.cache_key(path)
-            loop = asyncio.get_running_loop()
-            loaded = await loop.run_in_executor(None, self._load_devices, {path})
+            loaded = await run_in_executor(self._load_devices, {path})
             device = loaded.get(path)
             if device is None:
                 return False
@@ -355,7 +355,7 @@ class DeviceScanner(WakeWorker[str]):
             # snapshotted previous key so the next ``_do_scan``
             # re-evaluates it.
             try:
-                stat = await loop.run_in_executor(None, path.stat)
+                stat = await run_in_executor(path.stat)
                 cache_key: _CacheKey = (
                     stat.st_ino,
                     stat.st_dev,
@@ -392,8 +392,7 @@ class DeviceScanner(WakeWorker[str]):
                 )
 
     async def _do_scan(self) -> None:
-        loop = asyncio.get_running_loop()
-        path_to_cache_key = await loop.run_in_executor(None, self._build_cache_keys)
+        path_to_cache_key = await run_in_executor(self._build_cache_keys)
 
         old_paths = set(self._index.by_path.keys())
         new_paths = set(path_to_cache_key.keys())
@@ -407,7 +406,7 @@ class DeviceScanner(WakeWorker[str]):
 
         paths_to_load = added_paths | updated_paths
         if paths_to_load:
-            loaded = await loop.run_in_executor(None, self._load_devices, paths_to_load)
+            loaded = await run_in_executor(self._load_devices, paths_to_load)
             for path, device in loaded.items():
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
                 self._index.set(path, device, path_to_cache_key[path])

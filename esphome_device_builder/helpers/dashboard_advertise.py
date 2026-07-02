@@ -64,6 +64,8 @@ from typing import TYPE_CHECKING
 import ifaddr
 from zeroconf import ServiceInfo
 
+from .async_ import run_in_executor
+
 if TYPE_CHECKING:
     from esphome.zeroconf import AsyncEsphomeZeroconf
 
@@ -512,8 +514,7 @@ class DashboardAdvertiser:
         if self._info is not None:
             _LOGGER.debug("Dashboard advertise already registered; skipping")
             return
-        loop = asyncio.get_running_loop()
-        addresses = await loop.run_in_executor(None, _local_addresses)
+        addresses = await run_in_executor(_local_addresses)
         info = self.build_service_info(addresses)
         try:
             await zeroconf.async_register_service(info, allow_name_change=True)
@@ -583,8 +584,7 @@ class DashboardAdvertiser:
         zeroconf = self._zeroconf
         if info is None or zeroconf is None:
             return False
-        loop = asyncio.get_running_loop()
-        new_addresses = await loop.run_in_executor(None, _local_addresses)
+        new_addresses = await run_in_executor(_local_addresses)
         new_info = self.build_service_info(new_addresses)
         # Preserve the instance name zeroconf actually registered.
         # ``async_register_service(allow_name_change=True)`` renames the

@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
+from ...helpers.async_ import run_in_executor
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.subprocess import create_subprocess_exec
 
@@ -114,11 +115,10 @@ async def already_failed_recently_async(controller: DevicesController, configura
     (clamped against future-dated stamps so clock skew can't
     lock the regen out indefinitely).
     """
-    loop = asyncio.get_running_loop()
     config_path = controller._db.settings.rel_path(configuration)
 
     try:
-        current_mtime = await loop.run_in_executor(None, lambda: config_path.stat().st_mtime)
+        current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
     except OSError:
         return False
     md = controller._metadata_store.get(configuration)
@@ -143,9 +143,8 @@ async def stamp_failure(controller: DevicesController, configuration: str) -> No
     instant the file's mtime was observed.
     """
     config_path = controller._db.settings.rel_path(configuration)
-    loop = asyncio.get_running_loop()
     try:
-        mtime = await loop.run_in_executor(None, lambda: config_path.stat().st_mtime)
+        mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
     except OSError:
         return  # file vanished mid-regen; nothing to stamp.
     controller._metadata_store.update(
@@ -164,8 +163,7 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     debounced disk write.
     """
     yaml_path = controller._db.settings.rel_path(configuration)
-    loop = asyncio.get_running_loop()
-    new_hash = await loop.run_in_executor(None, read_build_info_hash, yaml_path)
+    new_hash = await run_in_executor(read_build_info_hash, yaml_path)
     fields: dict[str, Any] = {
         "regen_failed_mtime": 0.0,
         "regen_failed_at": 0.0,

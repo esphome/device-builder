@@ -27,11 +27,11 @@ Design constraints driving the class shape:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
+from ..helpers.async_ import run_in_executor
 from ..helpers.build_size import (
     BuildDirSignal,
     BuildSizeRefreshResult,
@@ -95,12 +95,11 @@ class BuildSizeRefresher(WakeWorker[str]):
         CLI-compile drift across the whole catalog without
         saturating disk I/O on the cold path.
         """
-        loop = asyncio.get_running_loop()
         filenames = list(self._get_filenames())
         if not filenames:
             return
         metadata = self._get_metadata_snapshot()
-        stale = await loop.run_in_executor(None, find_stale_build_dirs, filenames, metadata)
+        stale = await run_in_executor(find_stale_build_dirs, filenames, metadata)
         for configuration in stale:
             self.request(configuration)
 
@@ -111,7 +110,6 @@ class BuildSizeRefresher(WakeWorker[str]):
             _LOGGER.exception("Initial build-size fleet sweep failed")
 
     async def _drain(self) -> None:
-        loop = asyncio.get_running_loop()
         # One snapshot per drain cycle, not per item, so the
         # per-device cached-signal lookup is O(1) on a hash
         # rather than O(N) on a fresh fleet-wide copy.
@@ -124,8 +122,7 @@ class BuildSizeRefresher(WakeWorker[str]):
                 info_mtime=coerce_sidecar_int(entry.get("build_size_info_mtime")),
             )
             try:
-                result = await loop.run_in_executor(
-                    None,
+                result = await run_in_executor(
                     refresh_build_size_if_stale,
                     configuration,
                     cached,
