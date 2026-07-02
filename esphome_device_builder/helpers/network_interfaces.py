@@ -25,10 +25,17 @@ from __future__ import annotations
 
 import errno
 import socket
+import sys
 
 import ifaddr
 
-_PORT_UNAVAILABLE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EACCES})
+# Windows raises WSAEACCES (mapped to EACCES) for Hyper-V/WinNAT
+# excluded port ranges — functionally "port unavailable, try the
+# next". POSIX EACCES means a privileged port: falling forward would
+# mask a permission misconfiguration, so it propagates instead.
+_PORT_UNAVAILABLE_ERRNOS = frozenset(
+    {errno.EADDRINUSE, errno.EACCES} if sys.platform == "win32" else {errno.EADDRINUSE}
+)
 
 # Windows SO_REUSEADDR lets a second bind on an actively-listened port
 # silently succeed; SO_EXCLUSIVEADDRUSE surfaces the conflict while

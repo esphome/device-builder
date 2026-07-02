@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import errno
 import socket
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -192,17 +193,48 @@ def test_bind_available_port_abandons_candidate_when_any_host_fails() -> None:
         sock.close.assert_not_called()
 
 
-def test_bind_available_port_propagates_unexpected_oserror() -> None:
+@pytest.mark.parametrize(
+    ("err_errno", "message"),
+    [
+        pytest.param(errno.EADDRNOTAVAIL, "bad host", id="bad_host"),
+        pytest.param(
+            errno.EACCES,
+            "denied",
+            id="privileged_port",
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="Windows EACCES means an excluded port range"
+            ),
+        ),
+    ],
+)
+def test_bind_available_port_propagates_unexpected_oserror(err_errno: int, message: str) -> None:
     """A non-availability errno aborts the scan instead of falling forward."""
     calls: list[tuple[str, int]] = []
 
     def _fake_bind(host: str, port: int) -> list[MagicMock]:
         calls.append((host, port))
-        raise OSError(errno.EADDRNOTAVAIL, "bad host")
+        raise OSError(err_errno, message)
 
     with (
         patch.object(network_interfaces, "_bind_sockets", _fake_bind),
-        pytest.raises(OSError, match="bad host"),
+        pytest.raises(OSError, match=message),
     ):
         bind_available_port(["203.0.113.1"], 6055, 10)
     assert calls == [("203.0.113.1", 6055)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows excluded-port-range semantics")
+def test_bind_available_port_skips_access_denied_on_windows() -> None:
+    """EACCES (an excluded port range) falls forward on Windows."""
+
+    def _fake_bind(host: str, port: int) -> list[MagicMock]:
+        if port == 6055:
+            raise OSError(errno.EACCES, "excluded range")
+        sock = MagicMock()
+        sock.getsockname.return_value = (host, port)
+        return [sock]
+
+    with patch.object(network_interfaces, "_bind_sockets", _fake_bind):
+        found, sockets = bind_available_port(["127.0.0.1"], 6055, 10)
+    assert found == 6056
+    assert len(sockets) == 1
