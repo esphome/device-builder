@@ -52,6 +52,7 @@ from script.sync_boards import (
     _augment_rmii_data_pins,
     _augment_rp2040_onboard_ethernet_pins,
     _backfill_esp32_variants,
+    _backfill_libretiny_mcu,
     _backfill_rp2040_mcu,
     _backfill_rp2040_wifi,
     _consolidate_full_setup_bundles,
@@ -94,10 +95,11 @@ def test_split_artefacts_match_manifests() -> None:
     from_yaml = build_board_catalog_from_manifests(strict=True)
     # Variant / wifi / mcu backfills are part of emission (sync_boards.build_catalog),
     # so apply them here too or esp32 boards carrying only a PIO board id (and rp2040
-    # boards lacking the WiFi tag or chip series) mismatch disk.
+    # / LibreTiny boards lacking the WiFi tag or chip series) mismatch disk.
     _backfill_esp32_variants(from_yaml.boards)
     _backfill_rp2040_wifi(from_yaml.boards)
     _backfill_rp2040_mcu(from_yaml.boards)
+    _backfill_libretiny_mcu(from_yaml.boards)
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
@@ -615,6 +617,29 @@ def test_rp2040_boards_carry_the_chip_mcu_other_platforms_do_not() -> None:
     assert mcu["generic-rp2040"] == "rp2040"
     # ESP32 / ESP8266 boards distinguish chips via ``variant``; mcu stays unset.
     assert mcu["generic-esp32"] is None
+
+
+def test_libretiny_boards_carry_the_chip_series_mcu() -> None:
+    """LibreTiny boards label their chip series so the picker can split the platform."""
+    mcu = {b.id: b.esphome.mcu for b in load_board_index()}
+    # BK7231N / BK7231T / BK7231Q fold into one ``bk7231`` filter.
+    assert mcu["generic-bk7231n-qfn32-tuya"] == "bk7231"
+    assert mcu["generic-bk7231t-qfn32-tuya"] == "bk7231"
+    assert mcu["cb3s"] == "bk7231"
+    assert mcu["generic-bk7238"] == "bk7238"
+    assert mcu["generic-bk7252"] == "bk7251"
+    assert mcu["generic-rtl8710bn-2mb-788k"] == "rtl8710b"
+    assert mcu["generic-rtl8720cf-2mb-896k"] == "rtl8720c"
+    assert mcu["ln-02"] == "ln882h"
+    # A board ESPHome doesn't list still gets the platform's sole token.
+    assert mcu["generic-ln882hki"] == "ln882h"
+    # Every LibreTiny board carries a token; none is stranded from the picker.
+    libretiny = {
+        b.id: b.esphome.mcu
+        for b in load_board_index()
+        if b.esphome.platform.value in _LIBRETINY_FAMILIES
+    }
+    assert all(libretiny.values()), [bid for bid, m in libretiny.items() if not m]
 
 
 def test_every_board_has_a_docs_url() -> None:
