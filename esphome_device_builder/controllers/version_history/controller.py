@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -146,32 +145,33 @@ class VersionHistoryController:
         if enabled:
             await self._activate()
             return
-        for unsub in self._unsubs:
-            unsub()
-        self._unsubs.clear()
         self._pending.clear()
-        task = self._flush_task
-        self._flush_task = None
-        if task is not None:
-            await drain_tasks((task,), log_exceptions=True)
+        await self._teardown()
 
     async def stop(self) -> None:
         """
         Detach listeners, cancel the debounce timer, and flush what's queued.
 
-        The final drain commits an edit caught in the debounce window
+        The final flush commits an edit caught in the debounce window
         rather than dropping it on shutdown.
+        """
+        await self._teardown()
+        await self._flush_pending()
+
+    async def _teardown(self) -> None:
+        """Detach the external-edit listeners and drain the debounced flush task.
+
+        Shared by ``stop`` and the disable path of ``set_auto_commit``;
+        the queue is the only thing they treat differently (flush vs drop),
+        so it stays with the callers.
         """
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
         task = self._flush_task
         self._flush_task = None
-        if task is not None and not task.done():
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-        await self._flush_pending()
+        if task is not None:
+            await drain_tasks((task,), log_exceptions=True)
 
     async def commit(self, paths: list[Path], message: str) -> str | None:
         """
