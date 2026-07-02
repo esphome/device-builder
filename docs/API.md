@@ -334,7 +334,7 @@ Git-backed history of the config directory. On startup the backend adopts an exi
 
 Commits are pathspec-scoped and never touch the user's git config (commit identity is passed per-invocation), so an automatic commit can't sweep a user's unrelated staged edits into history.
 
-The auto-commit is gated by the `version_history_enabled` preference (default on, an expert-only toggle in the UI). Setting it `false` via `config/set_preferences` stops new commits; an install that starts up opted out creates or adopts no repo, so the read commands below return empty until it is re-enabled. Toggling it off at runtime leaves the already-open repo in place, so its existing history stays readable.
+The auto-commit is gated by the `version_history_enabled` preference (default on, an expert-only toggle in the UI). Setting it `false` via `config/set_preferences` stops new commits and creates no repo, but an existing repo is still discovered read-only, so the read commands below keep serving its history — whether it was toggled off at runtime or the dashboard started up already opted out. A fresh install that has never had a repo returns empty until it is re-enabled.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|

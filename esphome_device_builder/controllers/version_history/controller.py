@@ -98,31 +98,41 @@ class VersionHistoryController:
         return self._degraded
 
     async def start(self) -> None:
-        """Probe for git, adopt / init the repo, and watch for disk changes.
+        """
+        Probe for git and watch for disk changes, honouring the preference.
 
-        A no-op that creates no repo when ``version_history_enabled`` is off.
+        Opted in: adopt or init the repo and subscribe. Opted out: discover an
+        existing repo read-only so its history stays readable, but create
+        nothing and never commit.
         """
         assert self._db.config is not None  # type narrowing — loaded before start()
         self._auto_commit_enabled = self._db.config.prefs.snapshot().version_history_enabled
         if not self._auto_commit_enabled:
-            _LOGGER.info("Version history disabled by preference; not creating a repo")
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, self._repo.discover_existing)
+            _LOGGER.info(
+                "Version history read-only (auto-commit off; git work tree: %s)"
+                if self._repo.enabled
+                else "Version history disabled by preference",
+                self._repo.toplevel,
+            )
             return
         await self._activate()
 
     async def _activate(self) -> None:
         """
-        Init the repo if needed and (re)subscribe to external-edit events.
+        Adopt or init the repo and (re)subscribe to external-edit events.
 
-        Idempotent: a re-enable after a disable keeps the existing repo and
-        only re-attaches the listeners a disable had torn down.
+        Always runs ``discover_or_init`` so enabling upgrades a read-only
+        discover (from an opted-out start) into a writable adopt; idempotent
+        across a re-enable, which finds the repo already set up.
         """
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._repo.discover_or_init)
         if not self._repo.enabled:
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._repo.discover_or_init)
-            if not self._repo.enabled:
-                return
-            _LOGGER.info("Version history active (git work tree: %s)", self._repo.toplevel)
-        # Reached only with no listeners attached (start runs once; a re-enable
+            return
+        _LOGGER.info("Version history active (git work tree: %s)", self._repo.toplevel)
+        # Reached with no listeners attached (start runs once; a re-enable
         # clears them first), so this never double-subscribes.
         # Catch-all for edits made outside the dashboard. DEVICE_YAML_UPDATED
         # fires only when the scanner detects a YAML change on disk (mtime/

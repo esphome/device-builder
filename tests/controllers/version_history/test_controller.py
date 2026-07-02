@@ -17,7 +17,10 @@ import pytest
 
 from esphome_device_builder.controllers.version_history import VersionHistoryController
 from esphome_device_builder.controllers.version_history import controller as vh_controller
-from esphome_device_builder.controllers.version_history.git_repo import GitIndexLockBusyError
+from esphome_device_builder.controllers.version_history.git_repo import (
+    GitIndexLockBusyError,
+    GitRepo,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
@@ -98,7 +101,7 @@ async def test_disabled_when_no_git(tmp_path: Path, monkeypatch: pytest.MonkeyPa
 
 
 async def test_start_disabled_by_preference_creates_no_repo(tmp_path: Path) -> None:
-    """version_history_enabled=False → no repo, commits are quiet no-ops."""
+    """version_history_enabled=False with no existing repo → nothing created."""
     controller = _make_controller(tmp_path, version_history_enabled=False)
     await controller.start()
 
@@ -106,6 +109,71 @@ async def test_start_disabled_by_preference_creates_no_repo(tmp_path: Path) -> N
     assert not (tmp_path / ".git").exists()
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
     assert await controller.record_configuration("kitchen.yaml", "Create") is None
+
+
+async def test_start_disabled_without_git_stays_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opted out with no git binary: read-only discovery is a quiet no-op."""
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert not controller.enabled
+
+
+async def test_start_disabled_swallows_discovery_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git failure during read-only discovery disables quietly, never raises."""
+
+    def _raise(self: GitRepo) -> Path | None:
+        raise OSError("git exploded")
+
+    monkeypatch.setattr(GitRepo, "_discover_toplevel", _raise)
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert not controller.enabled
+
+
+async def test_start_disabled_reads_an_existing_repo(tmp_path: Path) -> None:
+    """Opted out at startup discovers an existing repo read-only: reads, no commits."""
+    # A prior enabled run builds the repo and a first version.
+    seeded = _make_controller(tmp_path)
+    await seeded.start()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await seeded.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    await seeded.stop()
+
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert controller.enabled  # existing repo discovered read-only
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Create kitchen.yaml"]
+
+    (tmp_path / "kitchen.yaml").write_text("v2\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Edit") is None
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Create kitchen.yaml"]  # unchanged
+    await controller.stop()
+
+
+async def test_enable_after_read_only_start_commits(tmp_path: Path) -> None:
+    """Enabling after an opted-out start upgrades the read-only repo to writable."""
+    seeded = _make_controller(tmp_path)
+    await seeded.start()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await seeded.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    await seeded.stop()
+
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+
+    await controller.set_auto_commit(enabled=True)
+    (tmp_path / "kitchen.yaml").write_text("v2\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml")
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml", "Create kitchen.yaml"]
+    await controller.stop()
 
 
 async def test_set_auto_commit_on_activates_a_disabled_controller(tmp_path: Path) -> None:
