@@ -118,11 +118,19 @@ class PreferencesStore:
         """
         return self._copy()
 
+    def merged(self, fields: dict[str, Any]) -> UserPreferences:
+        """Validate *fields* against the current state and return the merge, no persist.
+
+        Lets a caller preview / validate a partial update (and read the decoded
+        result) before committing it via :meth:`update`.
+        """
+        return UserPreferences.from_dict({**self._state.to_dict(), **fields})
+
     def update(
         self, fields: dict[str, Any], *, delay: float = _DEFAULT_SAVE_DELAY
     ) -> UserPreferences:
         """Merge a validated partial dict and schedule a debounced save."""
-        self._state = UserPreferences.from_dict({**self._state.to_dict(), **fields})
+        self._state = self.merged(fields)
         self._schedule_save(delay=delay)
         return self._copy()
 

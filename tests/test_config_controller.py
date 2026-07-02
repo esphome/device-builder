@@ -785,15 +785,15 @@ async def test_set_prefs_toggles_version_history(tmp_path: Path) -> None:
     assert controller.prefs.snapshot().version_history_enabled is False
 
 
-async def test_set_prefs_rolls_back_whole_batch_on_reconcile_failure(tmp_path: Path) -> None:
-    """A failed set_auto_commit restores every field in the batch, not just the toggle."""
+async def test_set_prefs_reconcile_failure_leaves_store_untouched(tmp_path: Path) -> None:
+    """Reconcile runs before the write, so a failed set_auto_commit persists nothing."""
     controller = _make_controller(tmp_path, prefs=UserPreferences(theme=Theme.DARK))
     controller._db.version_history.set_auto_commit = AsyncMock(side_effect=RuntimeError("boom"))
 
     with pytest.raises(RuntimeError, match="boom"):
         await controller.set_prefs(theme=Theme.LIGHT, version_history_enabled=False)
 
-    # Both fields roll back together, so no sibling field is left half-written.
+    # Neither field landed — nothing to roll back, nothing to clobber.
     snap = controller.prefs.snapshot()
     assert snap.version_history_enabled is True
     assert snap.theme is Theme.DARK

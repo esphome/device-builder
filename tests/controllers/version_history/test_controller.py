@@ -111,6 +111,17 @@ async def test_start_disabled_by_preference_creates_no_repo(tmp_path: Path) -> N
     assert await controller.record_configuration("kitchen.yaml", "Create") is None
 
 
+async def test_start_disabled_no_repo_logs_cleanly(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Opted out with no repo logs a plain INFO line (no format-arg TypeError)."""
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    with caplog.at_level(logging.INFO):
+        await controller.start()
+    # Accessing caplog.text formats every record; a stray format arg would raise here.
+    assert "Version history disabled by preference" in caplog.text
+
+
 async def test_start_disabled_without_git_stays_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -110,12 +110,13 @@ class VersionHistoryController:
         if not self._auto_commit_enabled:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._repo.discover_existing)
-            _LOGGER.info(
-                "Version history read-only (auto-commit off; git work tree: %s)"
-                if self._repo.enabled
-                else "Version history disabled by preference",
-                self._repo.toplevel,
-            )
+            if self._repo.enabled:
+                _LOGGER.info(
+                    "Version history read-only (auto-commit off; git work tree: %s)",
+                    self._repo.toplevel,
+                )
+            else:
+                _LOGGER.info("Version history disabled by preference")
             return
         await self._activate()
 

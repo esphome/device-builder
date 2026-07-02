@@ -123,17 +123,12 @@ class ConfigController:
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
         version_history = self._db.version_history
         if "version_history_enabled" in update_fields and version_history is not None:
-            # Reconcile the live watcher after persisting, restoring the whole
-            # pre-update snapshot if it fails so no field in the batch is left
-            # half-written and the saved preference can't diverge from the repo.
-            before = self.prefs.snapshot()
-            prefs = self.prefs.update(update_fields)
-            try:
-                await version_history.set_auto_commit(enabled=prefs.version_history_enabled)
-            except Exception:
-                self.prefs.update(before.to_dict())
-                raise
-            return prefs
+            # Validate the batch and decode the flag without persisting, then
+            # reconcile the watcher *before* the write lands. A bad field or a
+            # failed reconcile raises with the store untouched — no rollback that
+            # could clobber a concurrent write to another field.
+            candidate = self.prefs.merged(update_fields)
+            await version_history.set_auto_commit(enabled=candidate.version_history_enabled)
         return self.prefs.update(update_fields)
 
     @api_command("config/get_secrets")
