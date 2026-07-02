@@ -85,6 +85,10 @@ def bind_available_port(
     candidates; raises :class:`OSError` (``EADDRINUSE``) when the scan
     exhausts. Blocking I/O — call off the event loop.
     """
+    if attempts < 1:
+        raise ValueError(f"attempts must be >= 1, got {attempts}")
+    if not 0 <= start_port <= 65535:
+        raise ValueError(f"start_port must be 0-65535, got {start_port}")
     end = min(start_port + attempts, 65536)
     for candidate in range(start_port, end):
         sockets: list[socket.socket] = []

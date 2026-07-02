@@ -140,6 +140,23 @@ def test_bind_available_port_binds_ipv6_host() -> None:
         _close_all(sockets)
 
 
+@pytest.mark.parametrize(
+    ("start_port", "attempts", "match"),
+    [
+        pytest.param(6055, 0, "attempts must be >= 1", id="zero_attempts"),
+        pytest.param(6055, -3, "attempts must be >= 1", id="negative_attempts"),
+        pytest.param(-1, 10, "start_port must be 0-65535", id="negative_port"),
+        pytest.param(99999, 10, "start_port must be 0-65535", id="port_too_high"),
+    ],
+)
+def test_bind_available_port_rejects_invalid_arguments(
+    start_port: int, attempts: int, match: str
+) -> None:
+    """An empty or out-of-range scan raises ValueError instead of a nonsense range."""
+    with pytest.raises(ValueError, match=match):
+        bind_available_port(["127.0.0.1"], start_port, attempts)
+
+
 def test_bind_available_port_raises_when_exhausted() -> None:
     """A scan with no free candidate raises EADDRINUSE naming the range."""
     with get_unused_port_socket("127.0.0.1") as blocker:
