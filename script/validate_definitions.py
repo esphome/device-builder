@@ -34,7 +34,6 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Imported from the stdlib-only constants module so this script stays light.
 from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
-from esphome_device_builder.definitions import load_platform_capabilities_index  # noqa: E402
 
 DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
@@ -58,11 +57,25 @@ _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 # helpers/device_yaml/_generation.py; keep both in sync.
 _WIFI_RADIO_COMPONENT_IDS = {"esp32_hosted"}
 
-# Same snapshot the generator reads; an empty/corrupt snapshot degrades to
-# an empty set (fail-open), matching the runtime's inference behaviour.
-_ESP32_NO_WIFI_VARIANTS = frozenset(
-    str(v).lower() for v in load_platform_capabilities_index().esp32_no_wifi_variants
-)
+
+def _load_esp32_no_wifi_variants() -> frozenset[str]:
+    """
+    Read ``esp32_no_wifi_variants`` from the capabilities snapshot.
+
+    Stdlib json rather than ``load_platform_capabilities_index`` — the
+    pre-commit hook env has no ``orjson``, so the runtime loader isn't
+    importable here. An unreadable snapshot degrades to an empty set
+    (fail-open), matching the runtime loader's behaviour.
+    """
+    caps_path = DEFINITIONS_DIR / "platform_capabilities.index.json"
+    try:
+        caps = json.loads(caps_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(str(v).lower() for v in caps.get("esp32_no_wifi_variants", []))
+
+
+_ESP32_NO_WIFI_VARIANTS = _load_esp32_no_wifi_variants()
 
 # Required shape for featured-component ids: lowercase letters, digits, and
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
