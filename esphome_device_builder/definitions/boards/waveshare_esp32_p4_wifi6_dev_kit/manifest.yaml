@@ -7,6 +7,8 @@ description: Waveshare ESP32-P4-WIFI6-DEV-KIT with the ESP32-P4NRW32 (dual-core 
   I2C/I3C headers, RTC battery header, USB-A OTG (jumper-switchable) and USB-C ports, 28 user
   GPIOs.
 manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-p4-wifi6-dev-kit-1_3.jpg
 esphome:
   platform: esp32
   board: esp32-p4-evboard

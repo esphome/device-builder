@@ -6,6 +6,8 @@ description: Waveshare HUB75 RGB-matrix driver board with an ESP32-S3-N32R16 (32
   connector, ES8311 + ES7210 audio codec with dual microphones and speaker connector, microSD
   slot, USB-C port.
 manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-s3-rgb-matrix-1.jpg
 esphome:
   platform: esp32
   board: esp32-s3-devkitc-1

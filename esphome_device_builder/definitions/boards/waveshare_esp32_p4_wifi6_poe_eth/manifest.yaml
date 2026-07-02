@@ -6,6 +6,8 @@ description: Waveshare ESP32-P4-WIFI6-POE-ETH with the ESP32-P4NRW32 (dual-core 
   co-processor. 100M RJ45 Ethernet (IP101 PHY) with PoE, MIPI DSI display and MIPI CSI camera
   connectors, microSD slot, microphone + speaker header, USB-A OTG and USB-C ports.
 manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-p4-wifi6-poe-eth-1_2.jpg
 esphome:
   platform: esp32
   board: esp32-p4-evboard

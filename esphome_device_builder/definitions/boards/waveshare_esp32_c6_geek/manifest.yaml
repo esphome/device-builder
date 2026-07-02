@@ -4,6 +4,8 @@ description: USB-stick style ESP32-C6 development board (Wi-Fi 6 + BLE 5, 16MB f
   a built-in USB-A plug, onboard 1.14in 240x135 ST7789 LCD, microSD slot sharing the LCD SPI
   bus, BOOT/user button, and UART / GPIO / I2C headers.
 manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-c6-geek-1.jpg
 esphome:
   platform: esp32
   board: esp32-c6-devkitc-1

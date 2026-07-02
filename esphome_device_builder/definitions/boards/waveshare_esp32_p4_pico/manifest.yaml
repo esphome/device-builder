@@ -6,6 +6,8 @@ description: Waveshare ESP32-P4-Pico in the Raspberry Pi Pico form factor with t
   co-processor. MIPI DSI display and MIPI CSI camera connectors, microSD slot, microphone
   + speaker header, USB-C port plus 4-pin USB OTG header, 27 user GPIOs.
 manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-p4-pico-1.jpg
 esphome:
   platform: esp32
   board: esp32-p4-evboard
