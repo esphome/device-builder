@@ -621,7 +621,8 @@ def test_rp2040_boards_carry_the_chip_mcu_other_platforms_do_not() -> None:
 
 def test_libretiny_boards_carry_the_chip_series_mcu() -> None:
     """LibreTiny boards label their chip series so the picker can split the platform."""
-    mcu = {b.id: b.esphome.mcu for b in load_board_index()}
+    index = list(load_board_index())
+    mcu = {b.id: b.esphome.mcu for b in index}
     # BK7231N / BK7231T / BK7231Q fold into one ``bk7231`` filter.
     assert mcu["generic-bk7231n-qfn32-tuya"] == "bk7231"
     assert mcu["generic-bk7231t-qfn32-tuya"] == "bk7231"
@@ -634,12 +635,10 @@ def test_libretiny_boards_carry_the_chip_series_mcu() -> None:
     # A board ESPHome doesn't list still gets the platform's sole token.
     assert mcu["generic-ln882hki"] == "ln882h"
     # Every LibreTiny board carries a token; none is stranded from the picker.
-    libretiny = {
-        b.id: b.esphome.mcu
-        for b in load_board_index()
-        if b.esphome.platform.value in _LIBRETINY_FAMILIES
-    }
-    assert all(libretiny.values()), [bid for bid, m in libretiny.items() if not m]
+    stranded = [
+        b.id for b in index if b.esphome.platform.value in _LIBRETINY_FAMILIES and not b.esphome.mcu
+    ]
+    assert not stranded, stranded
 
 
 def test_every_board_has_a_docs_url() -> None:
