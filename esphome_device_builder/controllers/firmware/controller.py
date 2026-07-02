@@ -20,7 +20,7 @@ from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import create_eager_task
+from ...helpers.async_ import create_eager_task, drain_tasks
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     ErrorCode,
@@ -381,9 +381,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         try:
             await asyncio.gather(*queue_tasks)
         finally:
-            for task in queue_tasks:
-                task.cancel()
-            await asyncio.gather(*queue_tasks, return_exceptions=True)
+            await drain_tasks(queue_tasks)
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)

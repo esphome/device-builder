@@ -25,8 +25,8 @@ try:
 except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] extra
     paho_mqtt = None  # type: ignore[assignment]
 
-import contextlib
 
+from ..helpers.async_ import drain_tasks
 from ..helpers.json import JSONDecodeError, loads
 from ..models import DeviceState
 
@@ -129,9 +129,7 @@ class DeviceMqttMonitor:
         """Cancel the connect/listen task and forget all observations."""
         if self._task is None:
             return
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
+        await drain_tasks((self._task,))
         self._task = None
         self._last_seen.clear()
 
