@@ -292,7 +292,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | `config/version` | — | `{server_version, esphome_version}` | Get versions |
 | `config/serial_ports` | — | `[{port, desc}]` | List serial ports |
 | `config/get_preferences` | — | `UserPreferences` | Get user preferences |
-| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `expert` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. `device_editor_layout` is `visual` / `yaml` / `both` and `secrets_editor_layout` is `visual` / `yaml` (the secrets editor has no split view); they persist which editor panes the user keeps open. |
+| `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, version_history_enabled?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `expert` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. `version_history_enabled` (default `true`) gates the git auto-commit of config edits; setting it `false` stops new commits and skips repo creation, leaving any existing repo intact. `device_editor_layout` is `visual` / `yaml` / `both` and `secrets_editor_layout` is `visual` / `yaml` (the secrets editor has no split view); they persist which editor panes the user keeps open. |
 | `config/get_secrets` | — | `[string]` | List secret key names |
 | `config/set_secret` | `{key, value, overwrite?}` | `{created}` | Atomically set one secret in secrets.yaml under a write lock; `overwrite=false` is create-if-absent |
 | `config/set_wifi_credentials` | `{ssid, password?}` | `{}` | Set `wifi_ssid` / `wifi_password` in `secrets.yaml` via a line-based rewrite that preserves standalone and inline trailing comments and other secrets. Backs the kebab "Set up Wi-Fi" action; the create wizard's own Wi-Fi entry is persisted by `devices/create`. Validates (shared with that path) against ESPHome's length limits (32 char SSID, 64 char password) plus a control-character check; empty / whitespace-only SSID, oversize values, and control characters (other than `\t`) raise `INVALID_ARGS`. `password` is optional and defaults to the empty string for open networks. |
@@ -334,6 +334,8 @@ Renaming or recoloring a label leaves device assignments untouched — devices r
 Git-backed history of the config directory. On startup the backend adopts an existing git work tree (covering `/config/esphome` already being a repo, or sitting inside one such as `/config`) or initializes a fresh one. Every dashboard YAML mutation is committed with a descriptive message; edits made outside the dashboard (VS Code, the HA File Editor) are picked up by a debounced, scanner-driven catch-all. Deleting or archiving a config commits the removal so its pre-deletion content stays restorable. The whole feature self-disables when the `git` binary is absent — these commands then return empty lists, and the mutators raise `not_found`.
 
 Commits are pathspec-scoped and never touch the user's git config (commit identity is passed per-invocation), so an automatic commit can't sweep a user's unrelated staged edits into history.
+
+The auto-commit is gated by the `version_history_enabled` preference (default on, an expert-only toggle in the UI). Setting it `false` via `config/set_preferences` stops new commits and creates no repo, but an existing repo is still discovered read-only, so the read commands below keep serving its history — whether it was toggled off at runtime or the dashboard started up already opted out. A fresh install that has never had a repo returns empty until it is re-enabled.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
@@ -426,7 +428,7 @@ The receiver advertises the listener's port over mDNS as a TXT property:
 | `esphome_version` | `"2026.5.0"` | always |
 | `friendly_name` | human machine label (e.g. `"MacBook-Pro"`) | when a friendly name is set (always in practice) |
 | `pin_sha256` | lowercase-hex SHA-256 of the X25519 peer-link pubkey | when the peer-link listener is bound |
-| `remote_build_port` | stringified int (e.g. `"6055"`) | when the peer-link listener is bound (same condition as `pin_sha256`) |
+| `remote_build_port` | stringified int (e.g. `"6055"`) — the port actually bound, which may differ from `--remote-build-port` when a taken port fell forward to the next free one | when the peer-link listener is bound (same condition as `pin_sha256`) |
 
 The service-instance name and SRV target are stable per-install identifiers (`esphome-builder-<dashboard_id[:8]>.local`) derived from the persisted `dashboard_id`, not the OS hostname, so they don't change across reboots; `friendly_name` carries the human machine label for display.
 

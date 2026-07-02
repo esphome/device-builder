@@ -1091,6 +1091,42 @@ def test_merge_component_yaml_appends_singleton_when_absent() -> None:
     assert result.startswith("esphome:\n  name: kitchen\n")
 
 
+def test_merge_component_yaml_noops_when_platform_id_already_defined() -> None:
+    """Re-adding a platform entry whose id is already defined is a no-op (no ``ID redefined``)."""
+    component = _component(component_id="output.ledc", category=ComponentCategory.OUTPUT)
+    existing = "output:\n  - platform: ledc\n    pin: 18\n    id: buzzer_output\n"
+
+    result = merge_component_yaml(existing, component, {"pin": 18, "id": "buzzer_output"})
+
+    assert result == existing
+    assert result.count("id: buzzer_output") == 1
+
+
+def test_merge_component_yaml_noops_when_multi_conf_id_already_defined() -> None:
+    """Re-adding a multi_conf entry whose id is already defined is a no-op."""
+    component = _component(component_id="rtttl", category=ComponentCategory.CORE, multi_conf=True)
+    existing = "rtttl:\n  - output: buzzer_output\n    id: rtttl_player\n"
+
+    result = merge_component_yaml(
+        existing, component, {"output": "buzzer_output", "id": "rtttl_player"}
+    )
+
+    assert result == existing
+    assert result.count("id: rtttl_player") == 1
+
+
+def test_merge_component_yaml_splices_platform_when_id_is_new() -> None:
+    """A distinct id still splices a second entry — dedup keys on id, not on domain."""
+    component = _component(component_id="output.ledc", category=ComponentCategory.OUTPUT)
+    existing = "output:\n  - platform: ledc\n    pin: 18\n    id: buzzer_output\n"
+
+    result = merge_component_yaml(existing, component, {"pin": 19, "id": "second_output"})
+
+    assert result.count("output:\n") == 1
+    assert "id: buzzer_output" in result
+    assert "id: second_output" in result
+
+
 def test_merge_component_yaml_splice_handles_trailing_blank_lines() -> None:
     """Splice keeps the trailing blank line(s) before the next block.
 

@@ -5,17 +5,23 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 
 from .api.ws import init_ws_app
+from .constants import REMOTE_BUILD_PORT_SCAN_ATTEMPTS
 from .controllers.config import (
     has_remote_build_settings_persisted,
     load_remote_build_settings,
 )
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
-from .helpers.network_interfaces import ensure_single_host_for_ephemeral_port, resolve_bind_host
+from .helpers.async_ import run_in_executor
+from .helpers.network_interfaces import (
+    bind_available_port,
+    ensure_single_host_for_ephemeral_port,
+    resolve_bind_host,
+)
 
 if TYPE_CHECKING:
     from .device_builder import DeviceBuilder
@@ -114,11 +120,10 @@ class RemoteBuildLifecycle:
         """
         if self._db.remote_build_receiver is None or self._db.loop is None:
             return
-        loop = self._db.loop
         settings = self._db.settings
         if settings.on_ha_addon:
-            persisted = await loop.run_in_executor(
-                None, has_remote_build_settings_persisted, settings.config_dir
+            persisted = await run_in_executor(
+                has_remote_build_settings_persisted, settings.config_dir
             )
             if not persisted:
                 _LOGGER.debug(
@@ -128,9 +133,7 @@ class RemoteBuildLifecycle:
                     "default; flip the toggle in Settings to override)"
                 )
                 return
-        rb_settings = await loop.run_in_executor(
-            None, load_remote_build_settings, settings.config_dir
-        )
+        rb_settings = await run_in_executor(load_remote_build_settings, settings.config_dir)
         if not rb_settings.enabled:
             _LOGGER.debug(
                 "Skipping remote-build peer-link site: disabled in settings "
@@ -225,7 +228,7 @@ class RemoteBuildLifecycle:
 
         On disk ``enabled=True`` with the listener absent, runs the
         same path :meth:`maybe_start` does at startup (load X25519
-        peer-link identity, bind plain-TCP TCPSite, push pin + port
+        peer-link identity, bind the plain-TCP listener, push pin + port
         to mDNS). Fail-soft on bind error — the dashboard keeps
         running without a listener, and a subsequent
         ``set_settings`` retry can clear a transient port conflict
@@ -239,10 +242,9 @@ class RemoteBuildLifecycle:
         """
         if self._db.loop is None:
             return self._runner is not None
-        loop = self._db.loop
         async with self._get_lock():
-            rb_settings = await loop.run_in_executor(
-                None, load_remote_build_settings, self._db.settings.config_dir
+            rb_settings = await run_in_executor(
+                load_remote_build_settings, self._db.settings.config_dir
             )
             if rb_settings.enabled:
                 if self._runner is None:
@@ -353,7 +355,7 @@ class RemoteBuildLifecycle:
         Construct the runner and bind the peer-link Noise WS listener.
 
         Loads the X25519 peer-link identity and binds a
-        plain-TCP TCPSite serving exactly one route: the WS upgrade
+        plain-TCP listener serving exactly one route: the WS upgrade
         at ``/remote-build/peer-link``. Noise XX provides
         confidentiality + mutual auth + forward secrecy at the
         application layer, so there's no SSL context to manage.
@@ -363,13 +365,12 @@ class RemoteBuildLifecycle:
         re-raising so the caller's ``except`` only has to log +
         return.
 
-        ``bound_port`` is the OS-assigned port when the operator
-        passed ``--remote-build-port 0`` (ephemeral); otherwise the
-        configured value verbatim. Reading the real port off the
-        socket prevents mDNS / log lines from claiming port 0; if an
-        ephemeral bind can't be resolved to a real port, this raises
-        rather than returning 0 so the failure surfaces instead of
-        advertising an unusable port.
+        ``bound_port`` is read off the bound socket, never assumed:
+        it is the OS-assigned port for ``--remote-build-port 0``
+        (ephemeral), and may exceed the configured port when that
+        port was taken and the bind fell forward to the next free
+        one (bounded scan of ``REMOTE_BUILD_PORT_SCAN_ATTEMPTS``
+        candidates, each free on every bind host).
 
         Bind address comes from
         :attr:`DashboardSettings.remote_build_host` (``0.0.0.0`` by
@@ -385,8 +386,6 @@ class RemoteBuildLifecycle:
         to a specific NIC can override via ``--remote-build-host`` /
         ``$ESPHOME_REMOTE_BUILD_HOST``.
         """
-        loop = self._db.loop
-        assert loop is not None  # caller-checked
         receiver = self._db.remote_build_receiver
         assert receiver is not None  # caller-checked
         settings = self._db.settings
@@ -398,6 +397,26 @@ class RemoteBuildLifecycle:
         configured_port = settings.remote_build_port
         hosts = resolve_bind_host(settings.remote_build_host)
         ensure_single_host_for_ephemeral_port(hosts, configured_port, "--remote-build-port")
+
+        # Bind (and keep) the sockets up front: holding them is what
+        # makes the reservation race-free against sibling instances
+        # (e.g. the stable/beta/dev add-on flavors) scanning the same
+        # range at startup; ``web.SockSite`` below adopts them.
+        bind_port, bound_sockets = await run_in_executor(
+            bind_available_port,
+            hosts,
+            configured_port,
+            REMOTE_BUILD_PORT_SCAN_ATTEMPTS,
+        )
+        if configured_port and bind_port != configured_port:
+            _LOGGER.warning(
+                "Remote-build peer-link port %d is in use (likely another "
+                "dashboard instance on this host); falling forward to port "
+                "%d — peers discover the bound port via the mDNS "
+                "remote_build_port TXT record",
+                configured_port,
+                bind_port,
+            )
 
         runner: web.AppRunner | None = None
         try:
@@ -414,68 +433,16 @@ class RemoteBuildLifecycle:
 
             runner = web.AppRunner(app)
             await runner.setup()
-            # ``reuse_address=True`` is the asyncio default on POSIX
-            # but defaults to False on Windows; pin it explicitly so
-            # the rotation rebuild path
-            # (``reload_identity`` → teardown → re-bind) doesn't
-            # TIME_WAIT-block on a fixed configured port (default
-            # 6055) cross-platform. The ephemeral-port test path
-            # masks this risk because the OS picks a fresh port each
-            # rebuild; production deploys with a fixed port.
-            for host in hosts:
-                site = web.TCPSite(
-                    runner,
-                    host,
-                    configured_port,
-                    reuse_address=True,
-                )
-                await site.start()
-
-            # Resolve the actually-bound port. ``configured_port=0``
-            # tells the OS to pick an ephemeral port; the bound port
-            # lives on the started server socket.
-            port = configured_port
-            if configured_port == 0:
-                port = self._resolve_ephemeral_port(site)
+            # A started SockSite hands socket ownership to the
+            # runner; the except path below closes any socket a
+            # failed start left behind (double-close is a no-op).
+            for sock in bound_sockets:
+                await web.SockSite(runner, sock).start()
         except Exception:
+            for sock in bound_sockets:
+                sock.close()
             if runner is not None:
                 await self._cleanup_runner(runner)
             raise
 
-        return runner, identity, port
-
-    @staticmethod
-    def _resolve_ephemeral_port(site: web.TCPSite) -> int:
-        """
-        Read the OS-assigned port off an ephemeral (``port=0``) bind.
-
-        Raises ``RuntimeError`` rather than returning 0 if the bound
-        port can't be read, so an unresolvable ephemeral bind fails
-        loudly in the caller's fail-soft handler instead of silently
-        advertising port 0 — the exact outcome this read exists to
-        prevent.
-        """
-        # ``site._server`` is genuinely aiohttp-private — there's no
-        # public way to get the bound port off a ``TCPSite`` after an
-        # ephemeral-port (configured_port=0) bind. We reach in; if
-        # aiohttp ever renames it the cast below crashes loudly.
-        server = site._server  # noqa: SLF001
-        sockets = None
-        if server is not None:
-            # typeshed's ``asyncio.AbstractServer`` doesn't expose
-            # ``sockets`` even though the concrete ``base_events.Server``
-            # does — the asyncio docs list it as part of the public
-            # contract on the returned server object. Cast at the
-            # access boundary; the alternative (``getattr`` + None
-            # checks) would obscure what's actually a stable
-            # documented attribute.
-            sockets = cast("asyncio.base_events.Server", server).sockets
-        port = sockets[0].getsockname()[1] if sockets else 0
-        if not port:
-            msg = (
-                "Remote-build peer-link bound on an ephemeral port "
-                "(--remote-build-port 0) but the OS-assigned port could not be "
-                "resolved off the listening socket; refusing to advertise port 0"
-            )
-            raise RuntimeError(msg)
-        return port
+        return runner, identity, bind_port

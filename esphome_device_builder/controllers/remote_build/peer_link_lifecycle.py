@@ -22,9 +22,9 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import drain_tasks
 from ...models import ErrorCode, PeerStatus, StoredPairing
 from ._models import PeerLinkClientHandle
-from ._shared import drain_tasks
 from .peer_link_client import PeerLinkClient
 
 if TYPE_CHECKING:

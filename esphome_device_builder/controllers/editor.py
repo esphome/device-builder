@@ -8,7 +8,6 @@ schema-driven completion, etc.) will live here too.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -18,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from fnv_hash_fast import fnv1a_32
 
 from ..helpers.api import api_command
+from ..helpers.async_ import drain_tasks
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.process import kill_quietly
 from ..helpers.subprocess import create_subprocess_exec
@@ -104,9 +104,7 @@ class EditorController:
     async def stop(self) -> None:
         """Stop the controller."""
         if self._reaper_task is not None:
-            self._reaper_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._reaper_task
+            await drain_tasks((self._reaper_task,), log_exceptions=True)
             self._reaper_task = None
         sessions = list(self._sessions.values())
         self._sessions.clear()

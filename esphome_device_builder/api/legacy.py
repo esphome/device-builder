@@ -26,7 +26,6 @@ clients keep working.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +33,7 @@ import aiohttp
 from aiohttp import web
 
 from ..helpers.api import CommandError
+from ..helpers.async_ import run_in_executor
 from ..helpers.device_yaml import EsphomeConfigUnavailableError, run_esphome_config
 from ..helpers.event_bus import Event, StreamControls, stream_events
 from ..helpers.json import (
@@ -296,15 +296,14 @@ async def _json_config_response(db: DeviceBuilder, configuration: str) -> web.Re
 
     403 traversal, 404 missing file, 500 no esphome, 503 infra fault, 422 invalid.
     """
-    loop = asyncio.get_running_loop()
     try:
         # ``rel_path`` calls ``Path.resolve``, a blocking syscall — run it in
         # the executor so blockbuster doesn't fault the request on CI.
-        config_path = await loop.run_in_executor(None, db.settings.rel_path, configuration)
+        config_path = await run_in_executor(db.settings.rel_path, configuration)
     except CommandError:
         return json_response({"error": "Forbidden"}, status=403)
 
-    if not await loop.run_in_executor(None, config_path.is_file):
+    if not await run_in_executor(config_path.is_file):
         return json_response({"error": "Not found"}, status=404)
 
     devices = db.devices

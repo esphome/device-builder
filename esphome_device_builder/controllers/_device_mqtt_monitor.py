@@ -25,8 +25,8 @@ try:
 except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] extra
     paho_mqtt = None  # type: ignore[assignment]
 
-import contextlib
 
+from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.json import JSONDecodeError, loads
 from ..models import DeviceState
 
@@ -129,9 +129,7 @@ class DeviceMqttMonitor:
         """Cancel the connect/listen task and forget all observations."""
         if self._task is None:
             return
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
+        await drain_tasks((self._task,), log_exceptions=True)
         self._task = None
         self._last_seen.clear()
 
@@ -241,7 +239,7 @@ class DeviceMqttMonitor:
         if self._broker.username:
             client.username_pw_set(self._broker.username, self._broker.password or "")
 
-        await loop.run_in_executor(None, client.connect, self._broker.host, self._broker.port)
+        await run_in_executor(client.connect, self._broker.host, self._broker.port)
         client.loop_start()
         try:
             await asyncio.wait_for(connected.wait(), timeout=_CONNECT_TIMEOUT)

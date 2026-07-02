@@ -9,6 +9,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from ..helpers.api import CommandError, api_command
+from ..helpers.async_ import run_in_executor
 from ..models import ErrorCode, EventType, Label, LabelDeletedData, LabelEventData
 from .config import (
     delete_label_cascade,
@@ -102,8 +103,7 @@ class LabelsController:
     @api_command("labels/list")
     async def list_labels(self, **kwargs: Any) -> list[Label]:
         """Return every label in the global catalog."""
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, load_labels, self._db.settings.config_dir)
+        return await run_in_executor(load_labels, self._db.settings.config_dir)
 
     @api_command("labels/create")
     async def create_label(

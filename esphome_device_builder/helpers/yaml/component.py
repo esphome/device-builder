@@ -10,6 +10,8 @@ from .scalar import (
     ESPHOME_YAML_INDENT,
     _quote,
     _safe_yaml_scalar,
+    _split_value_and_comment,
+    _strip_yaml_quotes,
     block_body_is_list,
     is_lambda_sentinel,
 )
@@ -86,8 +88,16 @@ def merge_component_yaml(
     already present is a no-op — re-adding it (a board bundle re-listing
     the network provider ``create`` already injected) can't splice, so
     an append would duplicate the key. Absent singletons append.
+
+    Idempotent on the entry ``id``: a block whose id is already defined
+    is a no-op, so a bundle re-listing a component the user already added
+    (its onboard buzzer, an i2c bus) can't emit a second definition of
+    the same id (``ID redefined``). ESPHome ids are config-global, so the
+    check spans domains.
     """
     block = generate_component_yaml(component, fields)
+    if _redefines_existing_id(existing, block, fields.get("id")):
+        return existing
     is_platform = component.category in _ENTITY_CATEGORIES
     if is_platform:
         spliced = _splice_into_domain_block(existing, str(component.category), block)
@@ -239,6 +249,54 @@ def _coerce_map_scalar_to_string(value: Any) -> str:
     if value is None:
         return "null"
     return str(value)
+
+
+def _redefines_existing_id(existing: str, block: str, id_hint: Any) -> bool:
+    """
+    Whether the entry in *block* redefines an id already defined in *existing*.
+
+    *id_hint* is the caller's ``fields["id"]`` when set, sparing the block
+    scan. The id appears verbatim on its ``id:`` line, so a cheap substring
+    reject skips parsing *existing* on the common add path; only a name that
+    actually occurs pays for the precise ``id:``-only scan.
+    """
+    new_id = id_hint if isinstance(id_hint, str) and id_hint else _first_defined_id(block)
+    if new_id is None or new_id not in existing:
+        return False
+    return new_id in _defined_ids(existing)
+
+
+def _first_defined_id(block: str) -> str | None:
+    """Return the id a freshly generated *block* defines at its entry level, or None."""
+    for line in block.splitlines():
+        if (ident := _line_defined_id(line)) is not None:
+            return ident
+    return None
+
+
+def _defined_ids(text: str) -> set[str]:
+    """Every id defined via an ``id:`` key in *text* (references like ``i2c_id:`` excluded)."""
+    return {ident for line in text.splitlines() if (ident := _line_defined_id(line)) is not None}
+
+
+def _line_defined_id(line: str) -> str | None:
+    """
+    Return the id *line* defines if it is a bare ``id:`` definition, else None.
+
+    A reference key (``output:``, ``i2c_id:``) never starts with the bare
+    ``id:`` token, so it never reads as a definition. A plain identifier
+    value skips the scalar splitter; only a quoted or comment-trailing
+    value pays for it.
+    """
+    stripped = line.strip()
+    if stripped.startswith("- "):
+        stripped = stripped[2:].lstrip()
+    if not stripped.startswith("id:"):
+        return None
+    rest = stripped[len("id:") :].strip()
+    if "#" in rest or rest[:1] in ("'", '"'):
+        rest = _strip_yaml_quotes(_split_value_and_comment(rest)[0].strip())
+    return rest or None
 
 
 def _append_block(existing: str, block: str) -> str:

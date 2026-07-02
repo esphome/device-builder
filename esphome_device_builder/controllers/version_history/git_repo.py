@@ -224,6 +224,31 @@ class GitRepo:
             self._disable()
             _LOGGER.warning("Could not set up version-history git repo: %s", exc)
 
+    def discover_existing(self) -> None:
+        """
+        Locate an enclosing work tree read-only, never initialising or writing.
+
+        For the opted-out path: an existing repo (a prior run's config-local
+        one, or a user work tree enclosing the config dir) is found so history
+        reads work, but nothing is created, ownership-marked, or excluded — the
+        repo is only ever read. A dir with no usable repo stays disabled.
+        """
+        self.git_bin = shutil.which("git")
+        if self.git_bin is None:
+            return
+        try:
+            toplevel = self._discover_toplevel()
+            if (
+                toplevel is not None
+                and not _encloses_own_source(toplevel)
+                and not self._enclosing_repo_ignores_config_dir()
+            ):
+                self.toplevel = toplevel
+                self.enabled = True
+        except GIT_COMMIT_ERRORS as exc:
+            self._disable()
+            _LOGGER.warning("Could not read version-history git repo: %s", exc)
+
     def _disable(self) -> None:
         """Reset to the fully-disabled state (no work tree adopted or created)."""
         self.enabled = False

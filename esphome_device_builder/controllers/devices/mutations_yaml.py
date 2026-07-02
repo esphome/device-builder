@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
     generate_device_yaml,
@@ -183,6 +183,6 @@ async def validate_rewritten_yaml_or_raise(
             # original validation diagnostic the caller is
             # about to see.
             try:
-                await asyncio.get_running_loop().run_in_executor(None, on_error_cleanup)
+                await run_in_executor(on_error_cleanup)
             except Exception:
                 _LOGGER.exception("on_error_cleanup raised; original error preserved")

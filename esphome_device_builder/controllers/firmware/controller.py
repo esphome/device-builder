@@ -20,8 +20,9 @@ from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import create_eager_task
+from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.event_bus import Event
+
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     DeviceState,
@@ -332,8 +333,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # and flash the wrong firmware. ``new_filename`` already
         # passed ``rel_path`` so build the path directly.
         new_path = self._db.settings.config_dir / new_filename
-        loop = asyncio.get_running_loop()
-        if await loop.run_in_executor(None, new_path.exists):
+        if await run_in_executor(new_path.exists):
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 f"A device named {new_filename} already exists",
@@ -429,10 +429,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # Resolve up front so the caller learns the exact filename the download
         # will save under (so the UI's "saved as …" matches the file), and so a
         # missing artifact fails here rather than on the download navigation.
-        loop = asyncio.get_running_loop()
         try:
-            _, filename = await loop.run_in_executor(
-                None, download_mod._resolve_artifact_path, configuration, file
+            _, filename = await run_in_executor(
+                download_mod._resolve_artifact_path, configuration, file
             )
         except (FileNotFoundError, ValueError) as err:
             raise CommandError(ErrorCode.NOT_FOUND, "Firmware artifact not found") from err
@@ -459,9 +458,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         try:
             await asyncio.gather(*queue_tasks)
         finally:
-            for task in queue_tasks:
-                task.cancel()
-            await asyncio.gather(*queue_tasks, return_exceptions=True)
+            await drain_tasks(queue_tasks)
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)
@@ -597,8 +594,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     async def _validate_configuration_boundary(self, configuration: str) -> None:
         """Validate one ``configuration`` inside an executor."""
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._sync_validate_configuration_boundary, configuration)
+        await run_in_executor(self._sync_validate_configuration_boundary, configuration)
 
     async def _validate_configurations_boundary(self, configurations: list[str]) -> None:
         """
@@ -615,8 +611,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             for config in configurations:
                 self._sync_validate_configuration_boundary(config)
 
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, _validate_all)
+        await run_in_executor(_validate_all)
 
     def _create_job(
         self,

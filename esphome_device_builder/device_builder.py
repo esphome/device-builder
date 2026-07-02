@@ -41,7 +41,7 @@ from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
-from .helpers.async_ import create_eager_task
+from .helpers.async_ import create_eager_task, drain_tasks
 from .helpers.auth import HASHED_FILENAME_RE, auth_middleware, ingress_peer_guard
 from .helpers.dashboard_advertise import DashboardAdvertiser
 from .helpers.dashboard_identity import get_or_create_identity as get_or_create_dashboard_identity
@@ -485,13 +485,8 @@ class DeviceBuilder:
         if self._network_stopped:
             return
         if self._bg_task:
-            self._bg_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._bg_task
-        for task in self._background_tasks:
-            task.cancel()
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+            await drain_tasks((self._bg_task,), log_exceptions=True)
+        await drain_tasks(self._background_tasks)
         # Tear down the remote-build listener (if it was bound)
         # before the controller it depends on. Order matters less
         # here than for zeroconf, but doing it first keeps the

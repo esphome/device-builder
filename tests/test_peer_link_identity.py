@@ -225,10 +225,11 @@ async def test_cancelled_first_async_load_still_populates_cache(tmp_path: Path) 
         with pytest.raises(asyncio.CancelledError):
             await first
         load_release.set()
-        for _ in range(50):
-            if landed:
-                break
-            await asyncio.sleep(0.01)
+        # The shielded load holds the store lock until the cache is populated,
+        # so acquiring the lock waits for it deterministically instead of
+        # polling on a fixed budget (which flaked on slow CI runners).
+        async with store._lock:
+            pass
         assert landed, "executor never completed"
         cached_after = await store.async_load()
 
@@ -262,12 +263,12 @@ async def test_cancelled_async_rotate_keeps_cache_consistent_with_disk(tmp_path:
         with pytest.raises(asyncio.CancelledError):
             await rotate_task
         rotate_release.set()
-        # Wait for the shielded background rotation to finish so
-        # the cache update lands before we assert.
-        for _ in range(50):
-            if rotated_identity:
-                break
-            await asyncio.sleep(0.01)
+        # The shielded rotation holds the store lock until it has written the
+        # key and refreshed the cache, so acquiring the lock waits for it to
+        # finish deterministically rather than polling on a fixed budget (which
+        # flaked on slow CI runners).
+        async with store._lock:
+            pass
         assert rotated_identity, "executor never completed"
 
     after = await store.async_load()

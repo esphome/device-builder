@@ -17,7 +17,7 @@ from esphome.const import __version__ as esphome_version
 from ..constants import __version__
 from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
-from ..helpers.async_ import create_eager_task
+from ..helpers.async_ import create_eager_task, drain_tasks
 from ..helpers.auth import extract_bearer_token
 from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import JSONDecodeError, dumps_str, loads
@@ -193,10 +193,7 @@ class WebSocketClient:
 
     async def cleanup(self) -> None:
         """Cancel all pending tasks."""
-        for task in self._tasks:
-            task.cancel()
-        if self._tasks:
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        await drain_tasks(self._tasks)
 
     async def _handle_command(self, raw: dict[str, Any]) -> None:
         """Parse and dispatch a command."""

@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
     FirmwareJob,
@@ -105,9 +106,8 @@ async def execute_job(  # noqa: PLR0915, C901
         # end-to-end (matters even for the runner because
         # ``bus.fire`` listeners are interleaved on the loop and
         # blocking here pauses every follower's event delivery).
-        loop = asyncio.get_running_loop()
         config_path = str(
-            await loop.run_in_executor(None, controller._db.settings.rel_path, job.configuration)
+            await run_in_executor(controller._db.settings.rel_path, job.configuration)
         )
         cache_args = controller._build_cache_args(job)
         cmd = controller._build_command(

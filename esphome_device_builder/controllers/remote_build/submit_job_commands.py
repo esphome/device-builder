@@ -15,12 +15,12 @@ dispatch resolve unchanged.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...models import ErrorCode
 from ._validators import (
     download_artifacts_error_to_command_error,
@@ -52,8 +52,7 @@ async def validate_submit_job_config(
     if not isinstance(configuration, str) or not configuration:
         msg = "configuration must be a non-empty string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    loop = asyncio.get_running_loop()
-    yaml_path = await loop.run_in_executor(None, controller._db.settings.rel_path, configuration)
+    yaml_path = await run_in_executor(controller._db.settings.rel_path, configuration)
     return configuration, yaml_path
 
 
@@ -164,9 +163,7 @@ async def download_artifacts(
     except DownloadArtifactsError as exc:
         raise download_artifacts_error_to_command_error(exc) from exc
     try:
-        return await asyncio.get_running_loop().run_in_executor(
-            None, unpack_artifacts_response, packed, job_id
-        )
+        return await run_in_executor(unpack_artifacts_response, packed, job_id)
     except UnpackArtifactsError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
 

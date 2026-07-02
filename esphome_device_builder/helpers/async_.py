@@ -2,9 +2,47 @@
 
 from __future__ import annotations
 
-from asyncio import AbstractEventLoop, Task, get_running_loop
-from collections.abc import Coroutine
+import logging
+from asyncio import AbstractEventLoop, Task, gather, get_running_loop
+from collections.abc import Callable, Coroutine, Iterable
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def drain_tasks(tasks: Iterable[Task[Any]], *, log_exceptions: bool = False) -> None:
+    """
+    Cancel and await every task in *tasks*, swallowing exceptions.
+
+    With *log_exceptions*, a non-cancellation exception from a settled
+    task is logged at WARNING (still not propagated) instead of being
+    dropped silently. Snapshots *tasks* to a list so the caller's
+    post-drain ``clear`` doesn't pull tasks out from under the gather.
+    Caller owns clearing the source collection.
+    """
+    tasks_list = list(tasks)
+    if not tasks_list:
+        return
+    for task in tasks_list:
+        task.cancel()
+    results = await gather(*tasks_list, return_exceptions=True)
+    if not log_exceptions:
+        return
+    for task, result in zip(tasks_list, results, strict=True):
+        # ``CancelledError`` is a ``BaseException`` (not ``Exception``),
+        # so the expected cancel outcome is skipped here.
+        if isinstance(result, Exception):
+            _LOGGER.warning("task %r failed during drain", task.get_name(), exc_info=result)
+
+
+async def run_in_executor[T](fn: Callable[..., T], *args: Any) -> T:
+    """Run ``fn(*args)`` in the default executor thread pool.
+
+    Thin wrapper over ``get_running_loop().run_in_executor(None, ...)`` so
+    callers stop re-deriving the loop for the common block-shift-to-a-thread
+    case. Pass a ``functools.partial`` / lambda when *fn* needs keywords.
+    """
+    return await get_running_loop().run_in_executor(None, fn, *args)
 
 
 def create_eager_task[T](

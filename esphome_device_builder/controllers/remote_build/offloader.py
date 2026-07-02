@@ -11,8 +11,8 @@ reach through.
 
 Pairs with :class:`~.receiver.ReceiverController` — the two
 siblings own disjoint state and never reach across; the only
-shared coupling is :mod:`._shared` (a free
-:func:`drain_tasks` helper) and the
+shared coupling is :mod:`._shared`'s :class:`_RemoteBuildBase`
+base and the
 :class:`~esphome_device_builder.device_builder.DeviceBuilder`
 reference passed to both at construction.
 """
@@ -28,6 +28,7 @@ from zeroconf import ServiceStateChange
 from zeroconf.asyncio import AsyncServiceInfo
 
 from ...helpers.api import api_command
+from ...helpers.async_ import drain_tasks
 from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_identity import get_or_create_identities
 from ...helpers.event_bus import Event
@@ -65,7 +66,7 @@ from . import (
     submit_job_commands,
 )
 from ._models import RebindProbeResult
-from ._shared import _RemoteBuildBase, drain_tasks
+from ._shared import _RemoteBuildBase
 from ._state import OffloaderState
 from ._storage_codecs import (
     OFFLOADER_PAIRINGS_FILE,

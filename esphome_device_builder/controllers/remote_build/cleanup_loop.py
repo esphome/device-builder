@@ -7,6 +7,7 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.remote_build_cleanup import sweep_remote_builds
 from ...helpers.remote_build_layout import parse_from_configuration
 
@@ -30,7 +31,6 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
     the sleep.
     """
     config_dir = controller._db.settings.config_dir
-    loop = asyncio.get_running_loop()
     while True:
         await asyncio.sleep(_CLEANUP_SWEEP_INTERVAL_SECONDS)
         try:
@@ -45,8 +45,7 @@ async def run_cleanup_loop(controller: ReceiverController) -> None:
                 for job in firmware.active_remote_peer_jobs()
                 if (rbp := parse_from_configuration(job.configuration)) is not None
             )
-            deleted = await loop.run_in_executor(
-                None,
+            deleted = await run_in_executor(
                 partial(
                     sweep_remote_builds,
                     config_dir,

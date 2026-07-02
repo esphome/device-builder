@@ -34,7 +34,7 @@ import threading
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from esphome.util import SerialPort
@@ -771,6 +771,42 @@ async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -
     assert snap.navigator_visible is False
     assert snap.device_editor_layout is EditorLayout.YAML
     assert snap.secrets_editor_layout is SecretsEditorLayout.YAML
+
+
+async def test_set_prefs_toggles_version_history(tmp_path: Path) -> None:
+    """Setting version_history_enabled reconciles the version-history controller."""
+    controller = _make_controller(tmp_path)
+    controller._db.version_history.set_auto_commit = AsyncMock()
+
+    result = await controller.set_prefs(version_history_enabled=False)
+
+    assert result.version_history_enabled is False
+    controller._db.version_history.set_auto_commit.assert_awaited_once_with(enabled=False)
+    assert controller.prefs.snapshot().version_history_enabled is False
+
+
+async def test_set_prefs_reconcile_failure_leaves_store_untouched(tmp_path: Path) -> None:
+    """Reconcile runs before the write, so a failed set_auto_commit persists nothing."""
+    controller = _make_controller(tmp_path, prefs=UserPreferences(theme=Theme.DARK))
+    controller._db.version_history.set_auto_commit = AsyncMock(side_effect=RuntimeError("boom"))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await controller.set_prefs(theme=Theme.LIGHT, version_history_enabled=False)
+
+    # Neither field landed — nothing to roll back, nothing to clobber.
+    snap = controller.prefs.snapshot()
+    assert snap.version_history_enabled is True
+    assert snap.theme is Theme.DARK
+
+
+async def test_set_prefs_unrelated_update_leaves_version_history_alone(tmp_path: Path) -> None:
+    """An update that omits version_history_enabled doesn't touch the controller."""
+    controller = _make_controller(tmp_path)
+    controller._db.version_history.set_auto_commit = AsyncMock()
+
+    await controller.set_prefs(theme=Theme.LIGHT)
+
+    controller._db.version_history.set_auto_commit.assert_not_awaited()
 
 
 async def test_set_prefs_rejects_both_for_secrets_layout(tmp_path: Path) -> None:

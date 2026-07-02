@@ -27,6 +27,7 @@ import aiohttp
 from yarl import URL
 
 from ....helpers import json as _json
+from ....helpers.async_ import drain_tasks
 from ....helpers.peer_link_noise import (
     NOISE_ERRORS,
     PeerLinkNoiseSession,
@@ -587,13 +588,7 @@ class PeerLinkClient:
                             f"artifacts_end for job_id={pending_job_id!r}"
                         )
                     )
-            heartbeat_task.cancel()
-            # ``gather(return_exceptions=True)`` rather than
-            # ``suppress(CancelledError) + await`` — suppressing
-            # CancelledError swallows any outer cancellation that
-            # arrives during the drain (see
-            # ``feedback_no_suppress_cancelled_error``).
-            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            await drain_tasks((heartbeat_task,))
 
     def _build_sync_frame_dispatch(
         self,

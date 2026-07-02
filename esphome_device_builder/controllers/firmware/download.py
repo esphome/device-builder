@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import secrets
@@ -22,6 +21,7 @@ from ...definitions import (
     load_platform_capabilities_index,
 )
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
 from ...helpers.storage_path import resolve_storage_path
@@ -101,7 +101,6 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
     # attacker-controlled basename inside the storage tree, so the
     # validator below is the gate. Do not reorder.
     await controller._validate_configuration_boundary(configuration)
-    loop = asyncio.get_running_loop()
 
     def _get_types() -> list[dict]:
         storage_path = resolve_storage_path(configuration)
@@ -110,7 +109,7 @@ async def get_binaries(controller: FirmwareController, *, configuration: str) ->
             return []
         return collect_download_entries(storage, storage_path, label=configuration)
 
-    return await loop.run_in_executor(None, _get_types)
+    return await run_in_executor(_get_types)
 
 
 def collect_download_entries(
@@ -311,10 +310,7 @@ async def http_download(request: web.Request) -> web.StreamResponse:
     configuration, file = resolved
     try:
         await db.firmware._validate_configuration_boundary(configuration)
-        loop = asyncio.get_running_loop()
-        path, download_name = await loop.run_in_executor(
-            None, _resolve_artifact_path, configuration, file
-        )
+        path, download_name = await run_in_executor(_resolve_artifact_path, configuration, file)
     except (CommandError, FileNotFoundError, ValueError) as err:
         # Collapse "not built" / "missing" / "traversal" to a bare 404 for the
         # caller, but log so an operator debugging a failed download has a

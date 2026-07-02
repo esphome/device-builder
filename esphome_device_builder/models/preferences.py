@@ -92,6 +92,10 @@ class UserPreferences(DashboardModel):
     # Wi-Fi step and device-creation entry points are hidden.
     remote_compute_only: bool = False
 
+    # Auto-commit config edits to a git history. Off stops new commits
+    # and skips repo creation; the toggle is an expert-only surface.
+    version_history_enabled: bool = True
+
     # Highest onboarding-flow version the user has acknowledged.
     # Default 0 ⇒ never gone through onboarding; the dashboard
     # surfaces the wizard on next load. See

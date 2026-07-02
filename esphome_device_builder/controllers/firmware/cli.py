@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
 from ...helpers.storage_path import resolve_storage_path
 from ...models import FirmwareJob, JobType
@@ -120,9 +121,8 @@ async def verify_chip(controller: FirmwareController, job: FirmwareJob, lane: La
     if not job.port or job.port.upper() == "OTA" or not job.port.startswith("/dev"):
         return  # only check serial ports
 
-    loop = asyncio.get_running_loop()
-    storage = await loop.run_in_executor(
-        None, lambda: StorageJSON.load(resolve_storage_path(job.configuration))
+    storage = await run_in_executor(
+        lambda: StorageJSON.load(resolve_storage_path(job.configuration))
     )
     if storage is None or not storage.target_platform:
         return  # never compiled or no platform recorded — nothing to verify

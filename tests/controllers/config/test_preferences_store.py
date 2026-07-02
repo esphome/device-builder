@@ -309,3 +309,17 @@ async def test_round_trip_preserves_editor_layout_enum(tmp_path: Path) -> None:
     await reloaded.async_load()
     assert reloaded.snapshot().device_editor_layout is EditorLayout.YAML
     assert reloaded.snapshot().secrets_editor_layout is SecretsEditorLayout.YAML
+
+
+async def test_version_history_enabled_defaults_on_and_round_trips_off(tmp_path: Path) -> None:
+    """Defaults on; an explicit ``False`` survives the encode/decode through disk."""
+    store = _make_store(tmp_path)
+    await store.async_load()
+    assert store.snapshot().version_history_enabled is True
+
+    store.update({"version_history_enabled": False})
+    await store._store.async_save_now()
+
+    reloaded = _make_store(tmp_path)
+    await reloaded.async_load()
+    assert reloaded.snapshot().version_history_enabled is False

@@ -17,10 +17,19 @@ import pytest
 
 from esphome_device_builder.controllers.version_history import VersionHistoryController
 from esphome_device_builder.controllers.version_history import controller as vh_controller
-from esphome_device_builder.controllers.version_history.git_repo import GitIndexLockBusyError
+from esphome_device_builder.controllers.version_history.git_repo import (
+    GitIndexLockBusyError,
+    GitRepo,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import Device, DeviceEventData, ErrorCode, EventType
+from esphome_device_builder.models import (
+    Device,
+    DeviceEventData,
+    ErrorCode,
+    EventType,
+    UserPreferences,
+)
 
 
 def _rel_path(config_dir: Path):
@@ -32,8 +41,11 @@ def _rel_path(config_dir: Path):
     return _resolve
 
 
-def _make_controller(config_dir: Path) -> VersionHistoryController:
+def _make_controller(
+    config_dir: Path, *, version_history_enabled: bool = True
+) -> VersionHistoryController:
     """Build a controller against a stub DeviceBuilder rooted at *config_dir*."""
+    prefs = UserPreferences(version_history_enabled=version_history_enabled)
     db = SimpleNamespace(
         bus=EventBus(),
         devices=SimpleNamespace(apply_restored_yaml=AsyncMock()),
@@ -41,6 +53,7 @@ def _make_controller(config_dir: Path) -> VersionHistoryController:
             config_dir=config_dir,
             rel_path=_rel_path(config_dir),
         ),
+        config=SimpleNamespace(prefs=SimpleNamespace(snapshot=lambda: prefs)),
     )
     return VersionHistoryController(db)  # type: ignore[arg-type]
 
@@ -85,6 +98,221 @@ async def test_disabled_when_no_git(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert not controller.enabled
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
     assert await controller.record_configuration("kitchen.yaml", "msg") is None
+
+
+async def test_start_disabled_by_preference_creates_no_repo(tmp_path: Path) -> None:
+    """version_history_enabled=False with no existing repo → nothing created."""
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+
+    assert not controller.enabled
+    assert not (tmp_path / ".git").exists()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Create") is None
+
+
+async def test_start_disabled_no_repo_logs_cleanly(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Opted out with no repo logs a plain INFO line (no format-arg TypeError)."""
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    with caplog.at_level(logging.INFO):
+        await controller.start()
+    # Accessing caplog.text formats every record; a stray format arg would raise here.
+    assert "Version history disabled by preference" in caplog.text
+
+
+async def test_start_disabled_without_git_stays_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Opted out with no git binary: read-only discovery is a quiet no-op."""
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert not controller.enabled
+
+
+async def test_start_disabled_swallows_discovery_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A git failure during read-only discovery disables quietly, never raises."""
+
+    def _raise(self: GitRepo) -> Path | None:
+        raise OSError("git exploded")
+
+    monkeypatch.setattr(GitRepo, "_discover_toplevel", _raise)
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert not controller.enabled
+
+
+async def test_start_disabled_reads_an_existing_repo(tmp_path: Path) -> None:
+    """Opted out at startup discovers an existing repo read-only: reads, no commits."""
+    # A prior enabled run builds the repo and a first version.
+    seeded = _make_controller(tmp_path)
+    await seeded.start()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await seeded.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    await seeded.stop()
+
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert controller.enabled  # existing repo discovered read-only
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Create kitchen.yaml"]
+
+    (tmp_path / "kitchen.yaml").write_text("v2\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Edit") is None
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Create kitchen.yaml"]  # unchanged
+    await controller.stop()
+
+
+async def test_enable_after_read_only_start_commits(tmp_path: Path) -> None:
+    """Enabling after an opted-out start upgrades the read-only repo to writable."""
+    seeded = _make_controller(tmp_path)
+    await seeded.start()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await seeded.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    await seeded.stop()
+
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+
+    await controller.set_auto_commit(enabled=True)
+    (tmp_path / "kitchen.yaml").write_text("v2\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml")
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml", "Create kitchen.yaml"]
+    await controller.stop()
+
+
+async def test_set_auto_commit_on_activates_a_disabled_controller(tmp_path: Path) -> None:
+    """Toggling the preference on initialises the repo and resumes commits."""
+    controller = _make_controller(tmp_path, version_history_enabled=False)
+    await controller.start()
+    assert not controller.enabled
+
+    await controller.set_auto_commit(enabled=True)
+    assert controller.enabled
+
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    await controller.stop()
+
+
+async def test_set_auto_commit_off_stops_commits_but_keeps_history(tmp_path: Path) -> None:
+    """Off stops new commits; the existing repo stays readable."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+
+    await controller.set_auto_commit(enabled=False)
+    (tmp_path / "kitchen.yaml").write_text("v2\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Edit kitchen.yaml") is None
+
+    assert controller.enabled  # repo untouched
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Create kitchen.yaml"]
+    await controller.stop()
+
+
+async def test_set_auto_commit_restores_mirror_when_activation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If activation raises, the auto-commit mirror is restored, not left diverged."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    await controller.set_auto_commit(enabled=False)
+    assert controller._auto_commit_enabled is False
+
+    monkeypatch.setattr(controller, "_activate", AsyncMock(side_effect=RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom"):
+        await controller.set_auto_commit(enabled=True)
+
+    # Mirror rolled back so a follow-up toggle isn't a no-op and matches the pref.
+    assert controller._auto_commit_enabled is False
+    await controller.stop()
+
+
+async def test_set_auto_commit_noop_when_value_unchanged(tmp_path: Path) -> None:
+    """Setting the current value again is a no-op: listeners and repo stay put."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    unsubs_before = list(controller._unsubs)
+
+    await controller.set_auto_commit(enabled=True)  # already enabled
+
+    assert controller._unsubs == unsubs_before
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    assert await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
+    await controller.stop()
+
+
+async def test_set_auto_commit_off_drains_a_pending_flush_task(tmp_path: Path) -> None:
+    """Disabling while a debounced flush is queued cancels and drains it."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    # The default 2s debounce keeps the flush task pending until we cancel it.
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
+    assert controller._flush_task is not None
+
+    await controller.set_auto_commit(enabled=False)
+
+    assert controller._flush_task is None
+    assert not controller._pending
+    assert await controller.list_versions(configuration="kitchen.yaml") == []
+    await controller.stop()
+
+
+async def test_set_auto_commit_re_enable_resubscribes_external_edits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Off then on with an existing repo re-attaches the external-edit listeners."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    await controller.set_auto_commit(enabled=False)
+    await controller.set_auto_commit(enabled=True)  # repo already exists
+
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
+    assert controller._flush_task is not None
+    await controller._flush_task
+
+    versions = await controller.list_versions(configuration="kitchen.yaml")
+    assert [v["message"] for v in versions] == ["Edit kitchen.yaml"]
+    await controller.stop()
+
+
+async def test_set_auto_commit_off_ignores_external_edits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While off, a scanner-detected edit is neither queued nor committed."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.version_history.controller._DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    await controller.set_auto_commit(enabled=False)
+
+    (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, DeviceEventData(device=device))
+
+    assert controller._flush_task is None
+    assert not controller._pending
+    assert await controller.list_versions(configuration="kitchen.yaml") == []
+    await controller.stop()
 
 
 async def test_external_edit_committed_via_scanner_catch_all(

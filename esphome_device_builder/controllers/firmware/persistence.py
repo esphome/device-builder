@@ -12,7 +12,6 @@ from RAM. ``follow_job`` replays a terminal job's log from disk.
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
 import re
@@ -22,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from esphome.core import CORE
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write
 from ...models import (
     FirmwareJob,
@@ -169,8 +169,7 @@ async def load_jobs(controller: FirmwareController) -> None:
     first to clear per-run state. A legacy blob that still carries
     inline ``output`` on terminal jobs is migrated to sidecars here.
     """
-    loop = asyncio.get_running_loop()
-    data = await loop.run_in_executor(None, _load_metadata, controller._db.settings.config_dir)
+    data = await run_in_executor(_load_metadata, controller._db.settings.config_dir)
     to_migrate: list[FirmwareJob] = []
     # First pass restores every job into the map and flips active ones to
     # QUEUED; the second pass routes them to a lane, so a dependent's
@@ -198,7 +197,7 @@ async def load_jobs(controller: FirmwareController) -> None:
                         "Failed to migrate job %s output to sidecar", job.job_id, exc_info=True
                     )
 
-        await loop.run_in_executor(None, _migrate)
+        await run_in_executor(_migrate)
 
 
 async def persist_jobs(controller: FirmwareController) -> None:
@@ -214,7 +213,6 @@ async def persist_jobs(controller: FirmwareController) -> None:
 
 
 async def _persist_jobs_locked(controller: FirmwareController) -> None:
-    loop = asyncio.get_running_loop()
     config_dir = controller._db.settings.config_dir
     jobs = list(controller.state.jobs.values())
 
@@ -230,7 +228,7 @@ async def _persist_jobs_locked(controller: FirmwareController) -> None:
         with metadata_transaction(config_dir) as data:
             data[_JOBS_KEY] = [_metadata_dict(job) for job in jobs]
 
-    await loop.run_in_executor(None, _save)
+    await run_in_executor(_save)
 
 
 def job_dict_without_output(job: FirmwareJob) -> dict:

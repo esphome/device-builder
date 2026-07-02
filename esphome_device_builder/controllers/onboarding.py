@@ -17,7 +17,6 @@ who completed an earlier flow.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.util import list_yaml_files
 
 from ..helpers.api import api_command
+from ..helpers.async_ import run_in_executor
 from ..models import (
     ExperienceLevel,
     OnboardingState,
@@ -84,10 +84,7 @@ class OnboardingController:
             return
         has_configs = False
         if prefs.onboarding_completed_version == 0:
-            loop = asyncio.get_running_loop()
-            has_configs = await loop.run_in_executor(
-                None, _has_device_configs, self._db.settings.config_dir
-            )
+            has_configs = await run_in_executor(_has_device_configs, self._db.settings.config_dir)
         if _should_migrate_preexisting(prefs, has_device_configs=has_configs):
             self._prefs.mutate(_mark_preexisting)
 

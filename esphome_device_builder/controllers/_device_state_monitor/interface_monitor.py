@@ -15,6 +15,8 @@ import logging
 import ifaddr
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
+from ...helpers.async_ import run_in_executor
+
 _LOGGER = logging.getLogger(__name__)
 
 # Interface changes are rare, so a relaxed poll keeps steady-state wakeups low.
@@ -37,11 +39,10 @@ async def monitor_interfaces(
     zeroconf: AsyncEsphomeZeroconf, interval: float = _INTERFACE_POLL_INTERVAL
 ) -> None:
     """Reconcile zeroconf sockets whenever the host's addresses change, until cancelled."""
-    loop = asyncio.get_running_loop()
-    previous = await _safe_snapshot(loop)
+    previous = await _safe_snapshot()
     while True:
         await asyncio.sleep(interval)
-        current = await _safe_snapshot(loop)
+        current = await _safe_snapshot()
         # ``None`` is a failed snapshot, not "no addresses" — skip so a transient
         # ifaddr error can't be read as every interface disappearing.
         if current is None or current == previous:
@@ -71,7 +72,7 @@ def _ip_to_str(ip: str | tuple[str, int, int]) -> str:
     return f"{address}%{scope_id}" if scope_id else address
 
 
-async def _safe_snapshot(loop: asyncio.AbstractEventLoop) -> frozenset[tuple[str, int]] | None:
+async def _safe_snapshot() -> frozenset[tuple[str, int]] | None:
     """Snapshot host addresses off the event loop; ``None`` on failure so the loop retries.
 
     ``ifaddr.get_adapters`` is blocking (reads /proc/net; GetAdaptersAddresses on
@@ -79,7 +80,7 @@ async def _safe_snapshot(loop: asyncio.AbstractEventLoop) -> frozenset[tuple[str
     can't kill the reconciler for the rest of the process's life.
     """
     try:
-        return await loop.run_in_executor(None, address_snapshot)
+        return await run_in_executor(address_snapshot)
     except Exception:
         _LOGGER.exception("host address snapshot failed; will retry")
         return None

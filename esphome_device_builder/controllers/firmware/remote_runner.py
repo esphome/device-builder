@@ -33,6 +33,7 @@ import os
 from typing import TYPE_CHECKING, Any, Literal
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
 from ...helpers.remote_artifacts_materialise import (
     MaterialiseError,
@@ -279,10 +280,7 @@ async def _dispatch_and_drive(
 
 async def _build_bundle_or_fail(controller: FirmwareController, job: FirmwareJob) -> bytes | None:
     """Build the YAML bundle; ``None`` + ``_fail_locally`` on failure."""
-    loop = asyncio.get_running_loop()
-    yaml_path = await loop.run_in_executor(
-        None, controller._db.settings.rel_path, job.configuration
-    )
+    yaml_path = await run_in_executor(controller._db.settings.rel_path, job.configuration)
     try:
         return await build_yaml_bundle(yaml_path)
     except FileNotFoundError:
@@ -550,9 +548,7 @@ async def _fetch_and_materialise(
         return False
 
     try:
-        await asyncio.get_running_loop().run_in_executor(
-            None, materialise_remote_artifacts, packed.tarball, job.configuration
-        )
+        await run_in_executor(materialise_remote_artifacts, packed.tarball, job.configuration)
     except MaterialiseError as exc:
         _fail_locally(controller, job, reason=f"materialise failed: {exc}")
         return False
@@ -589,10 +585,7 @@ async def _fetch_and_run_local_upload(
         return
 
     bus = controller.bus
-    loop = asyncio.get_running_loop()
-    yaml_path = await loop.run_in_executor(
-        None, controller._db.settings.rel_path, job.configuration
-    )
+    yaml_path = await run_in_executor(controller._db.settings.rel_path, job.configuration)
 
     # Reset the gauge at the compile → upload seam.
     # :func:`helpers._ingest_output_line` monotonically clamps:
