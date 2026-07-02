@@ -58,12 +58,7 @@ class MqttBrokerConfig:
 
     @property
     def key(self) -> tuple[str, int, str | None]:
-        """Identifier for grouping devices to a single broker session.
-
-        Includes the username so each distinct login gets its own session:
-        a broker with per-user ACLs only lets a login see its own devices'
-        discovery topics, so one session per credential is required.
-        """
+        """Identifier for grouping devices to a single broker session (host, port, username)."""
         return (self.host, self.port, self.username)
 
 
