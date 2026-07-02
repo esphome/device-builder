@@ -96,8 +96,8 @@ class DeviceMqttCoordinator:
         existing_keys = set(self._monitors.keys())
 
         for key in existing_keys - wanted_keys:
-            host, port, _username = key
-            _LOGGER.info("Stopping MQTT monitor for %s:%s", host, port)
+            host, port, username = key
+            _LOGGER.info("Stopping MQTT monitor for %s:%s user %r", host, port, username)
             await self._monitors.pop(key).stop()
 
         for broker in brokers:
