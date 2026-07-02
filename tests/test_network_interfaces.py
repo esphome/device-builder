@@ -1,20 +1,30 @@
-"""Tests for :func:`helpers.network_interfaces.resolve_bind_host`.
+"""Tests for :mod:`helpers.network_interfaces`.
 
-Pins the contract: an IP literal or hostname is returned
-unchanged; a known interface name expands to its IPv4 + IPv6
-addresses (link-local IPv6 gets the kernel-reported zone suffix);
-a known interface with no bindable address raises ``OSError``
-rather than silently falling through to a bind on nothing.
+Pins the ``resolve_bind_host`` contract: an IP literal or hostname
+is returned unchanged; a known interface name expands to its
+IPv4 + IPv6 addresses (link-local IPv6 gets the kernel-reported
+zone suffix); a known interface with no bindable address raises
+``OSError`` rather than silently falling through to a bind on
+nothing. Plus the ``bind_available_port`` scan contract: first
+candidate free on every host wins and its sockets stay bound
+(race-free reservation), abandoned candidates close theirs,
+exhaustion and unexpected errnos raise.
 """
 
 from __future__ import annotations
 
+import errno
+import socket
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from esphome_device_builder.helpers.network_interfaces import resolve_bind_host
+from esphome_device_builder.helpers import network_interfaces
+from esphome_device_builder.helpers.network_interfaces import (
+    bind_available_port,
+    resolve_bind_host,
+)
 
 
 def _ipv4(address: str) -> SimpleNamespace:
@@ -81,3 +91,86 @@ def test_interface_without_ip_raises() -> None:
         pytest.raises(OSError, match="no bindable IPv4/IPv6"),
     ):
         resolve_bind_host("eth0")
+
+
+def _close_all(sockets: list[socket.socket]) -> None:
+    for sock in sockets:
+        sock.close()
+
+
+def test_bind_available_port_returns_start_when_free() -> None:
+    """A free start port is bound and returned with its socket held."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    found, sockets = bind_available_port(["127.0.0.1"], port, 10)
+    try:
+        assert found == port
+        assert [sock.getsockname()[1] for sock in sockets] == [port]
+    finally:
+        _close_all(sockets)
+
+
+def test_bind_available_port_skips_occupied_port() -> None:
+    """An actively-listened start port falls forward within the scan range."""
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = blocker.getsockname()[1]
+        found, sockets = bind_available_port(["127.0.0.1"], port, 10)
+        try:
+            assert found in range(port + 1, port + 10)
+            assert [sock.getsockname()[1] for sock in sockets] == [found]
+        finally:
+            _close_all(sockets)
+
+
+def test_bind_available_port_raises_when_exhausted() -> None:
+    """A scan with no free candidate raises EADDRINUSE naming the range."""
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = blocker.getsockname()[1]
+        with pytest.raises(OSError, match=f"No free port in {port}-{port}") as excinfo:
+            bind_available_port(["127.0.0.1"], port, 1)
+        assert excinfo.value.errno == errno.EADDRINUSE
+
+
+def test_bind_available_port_abandons_candidate_when_any_host_fails() -> None:
+    """A candidate taken on any host is abandoned everywhere and its sockets closed."""
+    calls: list[tuple[str, int]] = []
+    handed_out: dict[tuple[str, int], MagicMock] = {}
+
+    def _fake_bind(host: str, port: int) -> list[MagicMock]:
+        calls.append((host, port))
+        if (host, port) == ("h2", 6055):
+            raise OSError(errno.EADDRINUSE, "taken")
+        sock = MagicMock()
+        handed_out[(host, port)] = sock
+        return [sock]
+
+    with patch.object(network_interfaces, "_bind_sockets", _fake_bind):
+        found, sockets = bind_available_port(["h1", "h2"], 6055, 10)
+    assert found == 6056
+    assert calls == [("h1", 6055), ("h2", 6055), ("h1", 6056), ("h2", 6056)]
+    # The abandoned candidate's socket was closed; the winners weren't.
+    handed_out[("h1", 6055)].close.assert_called_once()
+    assert sockets == [handed_out[("h1", 6056)], handed_out[("h2", 6056)]]
+    for sock in sockets:
+        sock.close.assert_not_called()
+
+
+def test_bind_available_port_propagates_unexpected_oserror() -> None:
+    """A non-availability errno aborts the scan instead of falling forward."""
+    calls: list[tuple[str, int]] = []
+
+    def _fake_bind(host: str, port: int) -> list[MagicMock]:
+        calls.append((host, port))
+        raise OSError(errno.EADDRNOTAVAIL, "bad host")
+
+    with (
+        patch.object(network_interfaces, "_bind_sockets", _fake_bind),
+        pytest.raises(OSError, match="bad host"),
+    ):
+        bind_available_port(["203.0.113.1"], 6055, 10)
+    assert calls == [("203.0.113.1", 6055)]

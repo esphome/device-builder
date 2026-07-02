@@ -5,7 +5,8 @@ Exercises the real :func:`DeviceBuilder._maybe_start_remote_build_site`
 and :func:`DeviceBuilder.reload_remote_build_identity` hooks:
 default-skip when ``enabled=False``; bind when ``enabled=True``;
 fail-soft on bind error; advertise the OS-assigned port for
-ephemeral binds; warn on HA-addon mode; rebuild the listener
+ephemeral binds; fall forward off a taken configured port and
+advertise the bound one; warn on HA-addon mode; rebuild the listener
 (now serving the peer-link Noise WS at
 ``/remote-build/peer-link``) on identity rotation.
 
@@ -16,6 +17,8 @@ Pin-vs-handshake verification is the pairing flow's job
 from __future__ import annotations
 
 import asyncio
+import errno
+import socket
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call
 
@@ -266,11 +269,11 @@ async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path)
         pytest.param("port_zero", True, id="port_zero"),
     ],
 )
-def test_resolve_ephemeral_port_raises_when_unresolvable(
+def test_resolve_bound_port_raises_when_unresolvable(
     server: str | None, expected_call: bool
 ) -> None:
     """
-    An ephemeral bind whose port can't be read raises rather than returning 0.
+    A bind whose port can't be read raises rather than returning 0.
 
     Refusing here is what keeps the fail-soft caller from
     advertising port 0 — an unreachable port peers would dial
@@ -287,7 +290,7 @@ def test_resolve_ephemeral_port_raises_when_unresolvable(
         site._server = MagicMock(sockets=[sock])
 
     with pytest.raises(RuntimeError, match="could not be resolved"):
-        RemoteBuildLifecycle._resolve_ephemeral_port(site)
+        RemoteBuildLifecycle._resolve_bound_port(site)
     # The port-zero branch must actually read the socket back.
     if expected_call:
         site._server.sockets[0].getsockname.assert_called_once()
@@ -540,6 +543,139 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
         advertised = fake_advertiser.set_remote_build_port.call_args.args[0]
         assert advertised != 0
         assert 1024 <= advertised <= 65535
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_maybe_start_remote_build_site_falls_forward_when_port_taken(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    A taken configured port binds the next free one and advertises it.
+
+    Sibling dashboard instances (the stable/beta/dev add-on
+    flavors) share one host, so only one can hold the configured
+    port; the rest must still come up, on a port peers can
+    discover via the mDNS TXT record.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable_and_block() -> socket.socket:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+        blocker = socket.socket()
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        return blocker
+
+    blocker = await loop.run_in_executor(None, _enable_and_block)
+    taken_port = blocker.getsockname()[1]
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = taken_port
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+
+    fake_advertiser = MagicMock()
+    fake_advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = fake_advertiser
+
+    try:
+        with caplog.at_level("WARNING", logger="esphome_device_builder._remote_build_lifecycle"):
+            await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        advertised = fake_advertiser.set_remote_build_port.call_args.args[0]
+        assert advertised != taken_port
+        assert advertised in range(taken_port + 1, taken_port + 10)
+        fall_forward_logged = any(
+            str(taken_port) in rec.getMessage() and str(advertised) in rec.getMessage()
+            for rec in caplog.records
+            if rec.levelname == "WARNING"
+        )
+        assert fall_forward_logged, "expected a WARNING naming the configured and bound ports"
+    finally:
+        blocker.close()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_maybe_start_remote_build_site_fails_soft_when_scan_exhausted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exhausted port scan lands in the fail-soft path; the dashboard keeps running."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    def _exhausted(hosts: list[str], start_port: int, attempts: int) -> tuple[int, list[object]]:
+        raise OSError(errno.EADDRINUSE, "No free port (test stub)")
+
+    monkeypatch.setattr(
+        "esphome_device_builder._remote_build_lifecycle.bind_available_port",
+        _exhausted,
+    )
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = 6055
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+
+    fake_advertiser = MagicMock()
+    fake_advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = fake_advertiser
+
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None
+    fake_advertiser.set_remote_build_port.assert_not_called()
+
+
+async def test_maybe_start_remote_build_site_skips_port_scan_for_ephemeral(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``remote_build_port=0`` bypasses the scan; the OS pick can't collide."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    scan = MagicMock()
+    monkeypatch.setattr(
+        "esphome_device_builder._remote_build_lifecycle.bind_available_port",
+        scan,
+    )
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    db._remote_build_lifecycle.publish_advertise = AsyncMock()
+
+    try:
+        await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        scan.assert_not_called()
     finally:
         if db._remote_build_lifecycle._runner is not None:
             await db._remote_build_lifecycle._runner.cleanup()

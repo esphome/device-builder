@@ -425,7 +425,7 @@ The receiver advertises the listener's port over mDNS as a TXT property:
 | `esphome_version` | `"2026.5.0"` | always |
 | `friendly_name` | human machine label (e.g. `"MacBook-Pro"`) | when a friendly name is set (always in practice) |
 | `pin_sha256` | lowercase-hex SHA-256 of the X25519 peer-link pubkey | when the peer-link listener is bound |
-| `remote_build_port` | stringified int (e.g. `"6055"`) | when the peer-link listener is bound (same condition as `pin_sha256`) |
+| `remote_build_port` | stringified int (e.g. `"6055"`) — the port actually bound, which may differ from `--remote-build-port` when a taken port fell forward to the next free one | when the peer-link listener is bound (same condition as `pin_sha256`) |
 
 The service-instance name and SRV target are stable per-install identifiers (`esphome-builder-<dashboard_id[:8]>.local`) derived from the persisted `dashboard_id`, not the OS hostname, so they don't change across reboots; `friendly_name` carries the human machine label for display.
 
