@@ -167,6 +167,66 @@ def test_dict_pin_with_number_validates(_index: dict | None) -> None:
     assert errors == []
 
 
+def _reserved_pins(*gpios: int) -> dict[int, dict]:
+    return {g: {"gpio": g, "features": [], "available": False} for g in gpios}
+
+
+def test_reserved_pin_value_without_lock_is_flagged(_index: dict | None) -> None:
+    """A preset value on an available:false pin must be locked or the editor renders it blank."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "relay",
+                    "component_id": "switch.gpio",
+                    "fields": {"pin": {"value": 4}},
+                }
+            ]
+        ),
+        _reserved_pins(4),
+        _index,
+    )
+    assert any("GPIO 4 is reserved" in e for e in errors)
+
+
+def test_reserved_pin_value_locked_passes(_index: dict | None) -> None:
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "relay",
+                    "component_id": "switch.gpio",
+                    "fields": {"pin": {"value": 4, "locked": True}},
+                }
+            ]
+        ),
+        _reserved_pins(4),
+        _index,
+    )
+    assert errors == []
+
+
+def test_reserved_pin_suggestion_not_flagged(_index: dict | None) -> None:
+    """The reserved-must-lock check covers the preset value only, not suggestions."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "pir",
+                    "component_id": "binary_sensor.gpio",
+                    "fields": {"pin": {"suggestions": [4]}},
+                }
+            ]
+        ),
+        _reserved_pins(4),
+        _index,
+    )
+    assert errors == []
+
+
 def test_duplicate_featured_id(_index: dict | None) -> None:
     errors = _validate_featured(
         "demo",
