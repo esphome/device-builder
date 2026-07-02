@@ -1528,22 +1528,30 @@ def test_generate_yaml_emits_wifi_for_esp8266_without_explicit_connectivity() ->
 
 
 def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
-    """Manifest-supplied ``connectivity`` always wins over the inference.
+    """Manifest-supplied ``connectivity`` wins over the inference, gated on a real radio.
 
-    A future H2 product that ships an integrated co-processor and
-    wants the wizard to emit ``wifi:`` can opt in by listing
-    ``wifi`` in its manifest; an ESP32 board that's wired without
-    a Wi-Fi antenna can opt out by listing only ``ethernet``. The
-    inference is the *fallback*, not an override.
+    A product that ships an integrated co-processor opts in by listing
+    ``wifi`` in its manifest AND supplying the radio component through
+    *defaults* — the claim alone must not emit a ``wifi:`` block the
+    chip can't validate. An ESP32 board that's wired without a Wi-Fi
+    antenna opts out by listing only ``ethernet``.
     """
-    # Inference says no wifi (H2 in NO_WIFI_VARIANTS), explicit claim wins.
+    # Inference says no wifi (H2 in NO_WIFI_VARIANTS); the claim plus a
+    # radio provider in defaults wins.
     h2_with_wifi = _make_board(
         platform=Platform.ESP32,
         variant=Esp32Variant.ESP32H2,
         connectivity=[Connectivity.WIFI],
     )
-    yaml = generate_device_yaml("kitchen", "Kitchen", h2_with_wifi, ssid="", psk="")
+    hosted = _hosted_defaults()
+    yaml = generate_device_yaml(
+        "kitchen", "Kitchen", h2_with_wifi, ssid="", psk="", defaults=hosted
+    )
     assert "wifi:" in yaml
+
+    # The claim without the radio falls back to the no-network TODO.
+    yaml = generate_device_yaml("kitchen", "Kitchen", h2_with_wifi, ssid="", psk="")
+    assert "wifi:" not in yaml.splitlines()
 
     # Inference says wifi (plain ESP32), explicit ethernet-only opts out.
     eth_only = _make_board(
@@ -2597,6 +2605,11 @@ def _make_component(
     return ComponentCatalogEntry(id=entry_id, name=entry_id, description="", category=category)
 
 
+def _hosted_defaults() -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:
+    """``esp32_hosted`` radio-provider default, as ``resolve_default_components`` emits."""
+    return [(_make_component("esp32_hosted"), {"variant": "ESP32C6"})]
+
+
 def test_generate_device_yaml_network_default_suppresses_wifi() -> None:
     """A network-providing default (``ethernet``) drops ``wifi:`` and keeps ``api:`` / ``ota:``.
 
@@ -2648,6 +2661,90 @@ def test_generate_device_yaml_network_default_wins_over_no_wifi_secrets() -> Non
     assert "api:" in out
     assert "wifi:" not in out.splitlines()
     assert "No Wi-Fi secrets are set" not in out
+
+
+# ---------------------------------------------------------------------------
+# generate_device_yaml — esp32_hosted (wifi-radio-provider defaults)
+# ---------------------------------------------------------------------------
+
+
+def test_generate_device_yaml_hosted_radio_enables_wifi_on_p4() -> None:
+    """An ``esp32_hosted`` default makes a wifi-claiming P4 emit a real ``wifi:``."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    defaults = _hosted_defaults()
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=defaults)
+    assert "wifi:" in out
+    assert "esp32_hosted:" in out
+    assert "api:" in out
+    assert "ota:" in out
+    assert "no native Wi-Fi" not in out
+
+
+def test_generate_device_yaml_p4_wifi_claim_without_radio_gets_network_todo() -> None:
+    """A wifi-claiming P4 with no radio provider in defaults must not emit ``wifi:``.
+
+    ESPHome rejects a bare ``wifi:`` on NO_WIFI_VARIANTS ("WiFi requires
+    component esp32_hosted on ESP32P4"), so the generator falls back to
+    the no-network TODO stub instead of an invalid config.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw")
+    lines = out.splitlines()
+    assert "wifi:" not in lines
+    assert "api:" not in lines
+    assert "esp32_hosted:" in out  # named in the TODO hint
+    assert "no native Wi-Fi" in out
+
+
+def test_generate_device_yaml_ethernet_beats_hosted_radio() -> None:
+    """Ethernet + hosted defaults emit the wired path with no ``wifi:`` block.
+
+    Upstream ``ethernet`` declares ``CONFLICTS_WITH = ["wifi"]``, so the
+    dual-network boards must come out wired-first; the hosted block still
+    lands so switching to Wi-Fi is a block swap, not a pin hunt.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    defaults = [(_make_component("ethernet"), {"type": "IP101"}), *_hosted_defaults()]
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="", defaults=defaults)
+    assert "ethernet:" in out
+    assert "esp32_hosted:" in out
+    assert "wifi:" not in out.splitlines()
+    assert "api:" in out
+
+
+def test_generate_device_yaml_hosted_radio_without_secrets_gets_wifi_todo() -> None:
+    """A hosted-radio P4 with no credentials gets the no-secrets TODO, not no-network."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    defaults = _hosted_defaults()
+    out = generate_device_yaml(
+        "kitchen",
+        "Kitchen",
+        board,
+        ssid="",
+        psk="",
+        wifi_secrets_available=False,
+        defaults=defaults,
+    )
+    assert "No Wi-Fi secrets are set" in out
+    assert "api:" not in out.splitlines()
+    assert "esp32_hosted:" in out.splitlines()
+
+
+@pytest.mark.parametrize(
+    ("flash_size", "expect_flag"),
+    [
+        pytest.param("32MB", True, id="32MB"),
+        pytest.param("16MB", False, id="16MB"),
+    ],
+)
+def test_generate_device_yaml_32mb_flash_enables_idf_experimental(
+    flash_size: str, expect_flag: bool
+) -> None:
+    """32MB flash emits the experimental-features opt-in ESPHome's OTA gate requires."""
+    board = _make_esp32_board(flash_size=flash_size, framework="esp-idf")
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw")
+    assert ("enable_idf_experimental_features: true" in out) is expect_flag
+    assert "ota:" in out
 
 
 @pytest.mark.xdist_group("catalog")

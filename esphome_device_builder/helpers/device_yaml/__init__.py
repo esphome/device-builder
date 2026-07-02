@@ -18,6 +18,7 @@ from esphome.storage_json import StorageJSON
 
 from ._generation import (
     NETWORK_PROVIDER_COMPONENT_IDS,
+    WIFI_RADIO_PROVIDER_COMPONENT_IDS,
     _has_native_wifi,
     _infer_native_wifi,
     board_provides_network,
@@ -58,6 +59,7 @@ from ._resolve import EsphomeConfigUnavailableError, run_esphome_config
 __all__ = [
     "DEFAULT_API_PORT",
     "NETWORK_PROVIDER_COMPONENT_IDS",
+    "WIFI_RADIO_PROVIDER_COMPONENT_IDS",
     "_UNRESOLVED_SUBSTITUTION_RE",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",

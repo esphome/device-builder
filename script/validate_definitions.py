@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Imported from the stdlib-only constants module so this script stays light.
 from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
+from esphome_device_builder.definitions import load_platform_capabilities_index  # noqa: E402
 
 DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
@@ -51,6 +52,17 @@ _FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
 # keep both in sync when adding a provider (that module pulls the heavy helper
 # layer, so it's mirrored here rather than imported).
 _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
+
+# Components that give a no-native-Wi-Fi chip a usable Wi-Fi radio. Runtime
+# counterpart is ``WIFI_RADIO_PROVIDER_COMPONENT_IDS`` in
+# helpers/device_yaml/_generation.py; keep both in sync.
+_WIFI_RADIO_COMPONENT_IDS = {"esp32_hosted"}
+
+# Same snapshot the generator reads; an empty/corrupt snapshot degrades to
+# an empty set (fail-open), matching the runtime's inference behaviour.
+_ESP32_NO_WIFI_VARIANTS = frozenset(
+    str(v).lower() for v in load_platform_capabilities_index().esp32_no_wifi_variants
+)
 
 # Required shape for featured-component ids: lowercase letters, digits, and
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
@@ -170,6 +182,8 @@ def validate_board(manifest: Path, components_index: dict | None = None) -> list
     # the loaded component index when available.
     errors.extend(_validate_featured(board_id, data, pins_by_gpio, components_index, is_imported))
 
+    errors.extend(_validate_wifi_radio_claim(board_id, data))
+
     return errors
 
 
@@ -266,6 +280,32 @@ def _validate_featured(  # noqa: C901
         _validate_featured_dependencies(board_id, featured, components_index, is_imported, defaults)
     )
     return errors
+
+
+def _validate_wifi_radio_claim(board_id: str, data: dict) -> list[str]:
+    """Require a radio-provider default when a no-native-Wi-Fi variant claims wifi."""
+    esphome_cfg = data.get("esphome") or {}
+    variant = str(esphome_cfg.get("variant") or "").lower()
+    if esphome_cfg.get("platform") != "esp32" or variant not in _ESP32_NO_WIFI_VARIANTS:
+        return []
+    connectivity = (data.get("hardware") or {}).get("connectivity") or []
+    if "wifi" not in connectivity:
+        return []
+    featured = {
+        fc.get("id"): fc.get("component_id")
+        for fc in data.get("featured_components") or []
+        if isinstance(fc, dict)
+    }
+    for entry in data.get("default_components") or []:
+        ref = entry if isinstance(entry, str) else (entry or {}).get("id")
+        if featured.get(ref, ref) in _WIFI_RADIO_COMPONENT_IDS:
+            return []
+    return [
+        f"{board_id}: claims 'wifi' connectivity on no-native-wifi variant "
+        f"'{variant}' without a default component providing a Wi-Fi radio "
+        f"({', '.join(sorted(_WIFI_RADIO_COMPONENT_IDS))}) — the generator "
+        "would emit a wifi block the chip cannot validate"
+    ]
 
 
 def _validate_default_components(

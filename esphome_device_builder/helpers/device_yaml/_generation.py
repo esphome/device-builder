@@ -79,6 +79,15 @@ _NO_WIFI_SECRETS_TODO_LINES: tuple[str, ...] = (
 # "what to auto-pull" and "what counts as a network" sets can't diverge.
 NETWORK_PROVIDER_COMPONENT_IDS: frozenset[str] = frozenset({"ethernet"})
 
+# Catalog ids of components that give a no-native-Wi-Fi chip a usable Wi-Fi
+# radio (an ESP-Hosted co-processor). When one is supplied through
+# *defaults*, ``generate_device_yaml`` treats the board as Wi-Fi-capable and
+# emits the ``wifi:`` block — ESPHome rejects a bare ``wifi:`` on
+# ``NO_WIFI_VARIANTS`` ("WiFi requires component esp32_hosted on ESP32P4").
+# Mirrored by ``_WIFI_RADIO_COMPONENT_IDS`` in script/validate_definitions.py;
+# keep both in sync.
+WIFI_RADIO_PROVIDER_COMPONENT_IDS: frozenset[str] = frozenset({"esp32_hosted"})
+
 
 def board_provides_network(board: BoardCatalogEntry) -> bool:
     """
@@ -194,8 +203,12 @@ def generate_device_yaml(
         if hardware.flash_size:
             lines.append(f"  flash_size: {hardware.flash_size}")
         if esphome_cfg.framework:
-            lines.append("  framework:")
-            lines.append(f"    type: {esphome_cfg.framework}")
+            lines.extend(("  framework:", f"    type: {esphome_cfg.framework}"))
+            if hardware.flash_size == "32MB":
+                # ESPHome refuses ``ota:`` (emitted below whenever a
+                # network exists) with 32MB flash unless this opt-in
+                # is set.
+                lines.extend(("    advanced:", "      enable_idf_experimental_features: true"))
     else:
         # esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52 — board is required
         lines.append(f"  board: {esphome_cfg.board}")
@@ -228,10 +241,18 @@ def generate_device_yaml(
     # usable only with a literal ssid (always inlines) or resolvable
     # secrets; a bare ``!secret`` reference with no secrets defined fails
     # validation with "Secret not defined".
-    network_provided = any(
-        component.id in NETWORK_PROVIDER_COMPONENT_IDS for component, _ in (defaults or ())
+    default_ids = {component.id for component, _ in defaults or ()}
+    network_provided = not default_ids.isdisjoint(NETWORK_PROVIDER_COMPONENT_IDS)
+    # A manifest may claim ``wifi`` connectivity for a no-native-Wi-Fi chip
+    # (P4 with an onboard esp32_hosted co-processor). Emitting ``wifi:`` is
+    # only valid when the chip itself has the radio or a radio provider
+    # ships in *defaults*.
+    wifi_radio_present = has_wifi and (
+        not default_ids.isdisjoint(WIFI_RADIO_PROVIDER_COMPONENT_IDS) or _infer_native_wifi(board)
     )
-    emit_wifi = has_wifi and not network_provided and (bool(ssid) or wifi_secrets_available)
+    emit_wifi = (
+        wifi_radio_present and not network_provided and (bool(ssid) or wifi_secrets_available)
+    )
     if network_provided or emit_wifi:
         # Home Assistant API — unique encryption key per device.
         api_key = base64.b64encode(secrets.token_bytes(32)).decode()
@@ -247,12 +268,13 @@ def generate_device_yaml(
 
         if emit_wifi:
             lines.extend(_wifi_block_lines(ssid, psk, friendly_name or name, platform))
-    elif has_wifi:
-        # Native Wi-Fi but no usable credentials and no wired network →
+    elif wifi_radio_present:
+        # Usable Wi-Fi radio but no credentials and no wired network →
         # point the user at adding one (no ``api:`` / ``ota:`` yet).
         lines.extend(_NO_WIFI_SECRETS_TODO_LINES)
     else:
-        # No native Wi-Fi → leave a TODO so the user knows what they
+        # No usable Wi-Fi radio (chip has none and no radio provider in
+        # *defaults*) → leave a TODO so the user knows what they
         # need to configure before adding ``api:`` / ``ota:``. Both
         # require a ``network`` component to compile, and the right
         # network for these boards depends on the user's setup

@@ -20,16 +20,21 @@ import multiprocessing as mp
 import os
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from esphome.config import load_config
 from esphome.core import CORE, EsphomeError
 
+from esphome_device_builder.controllers.components import _load_body_from_disk
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
 )
 from esphome_device_builder.helpers.device_yaml import generate_device_yaml
+
+if TYPE_CHECKING:
+    from esphome_device_builder.models import BoardCatalogEntry, ComponentCatalogEntry
 
 pytestmark = [
     pytest.mark.timeout(600),
@@ -40,6 +45,31 @@ pytestmark = [
 ]
 
 
+def _defaults_from_disk(
+    board: BoardCatalogEntry,
+) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]]:
+    """
+    Disk-only stand-in for ``ComponentCatalog.resolve_default_components``.
+
+    Featured preset values plus inline overrides, no lock/suggestion
+    handling — enough for the generated YAML to match a real create.
+    """
+    featured = {fc.id: fc for fc in board.featured_components}
+    out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+    for entry in board.default_components:
+        fc = featured.get(entry.id)
+        body = _load_body_from_disk(fc.component_id if fc is not None else entry.id)
+        assert body is not None, f"{board.id}: default component {entry.id!r} has no catalog body"
+        fields: dict[str, Any] = {}
+        if fc is not None:
+            fields = {
+                key: preset.value for key, preset in fc.fields.items() if preset.value is not None
+            }
+        fields.update(entry.fields)
+        out.append((body, fields))
+    return out
+
+
 def _validate_board(board_id: str) -> tuple[str, list[str]]:
     """Validate one board's generated YAML in a fresh process; return its errors."""
     board = load_board_body_from_disk(board_id)
@@ -48,7 +78,14 @@ def _validate_board(board_id: str) -> tuple[str, list[str]]:
         # Inline creds keep the YAML ``!secret``-free so it validates standalone.
         yaml_path = Path(tmp) / f"{board_id}.yaml"
         yaml_path.write_text(
-            generate_device_yaml("repro", "Repro", board, ssid="ssid", psk="password"),
+            generate_device_yaml(
+                "repro",
+                "Repro",
+                board,
+                ssid="ssid",
+                psk="password",
+                defaults=_defaults_from_disk(board),
+            ),
             encoding="utf-8",
         )
         CORE.config_path = yaml_path
