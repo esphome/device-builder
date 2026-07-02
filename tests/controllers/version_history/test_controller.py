@@ -207,6 +207,24 @@ async def test_set_auto_commit_off_stops_commits_but_keeps_history(tmp_path: Pat
     await controller.stop()
 
 
+async def test_set_auto_commit_restores_mirror_when_activation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If activation raises, the auto-commit mirror is restored, not left diverged."""
+    controller = _make_controller(tmp_path)
+    await controller.start()
+    await controller.set_auto_commit(enabled=False)
+    assert controller._auto_commit_enabled is False
+
+    monkeypatch.setattr(controller, "_activate", AsyncMock(side_effect=RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom"):
+        await controller.set_auto_commit(enabled=True)
+
+    # Mirror rolled back so a follow-up toggle isn't a no-op and matches the pref.
+    assert controller._auto_commit_enabled is False
+    await controller.stop()
+
+
 async def test_set_auto_commit_noop_when_value_unchanged(tmp_path: Path) -> None:
     """Setting the current value again is a no-op: listeners and repo stay put."""
     controller = _make_controller(tmp_path)

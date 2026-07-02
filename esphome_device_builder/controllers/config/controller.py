@@ -123,14 +123,15 @@ class ConfigController:
         update_fields = {k: v for k, v in kwargs.items() if k not in ("client", "message_id")}
         version_history = self._db.version_history
         if "version_history_enabled" in update_fields and version_history is not None:
-            # Reconcile the live watcher, rolling the persisted value back if it
-            # fails so the saved preference can't diverge from the repo state.
-            previous = self.prefs.snapshot().version_history_enabled
+            # Reconcile the live watcher after persisting, restoring the whole
+            # pre-update snapshot if it fails so no field in the batch is left
+            # half-written and the saved preference can't diverge from the repo.
+            before = self.prefs.snapshot()
             prefs = self.prefs.update(update_fields)
             try:
                 await version_history.set_auto_commit(enabled=prefs.version_history_enabled)
             except Exception:
-                self.prefs.update({"version_history_enabled": previous})
+                self.prefs.update(before.to_dict())
                 raise
             return prefs
         return self.prefs.update(update_fields)

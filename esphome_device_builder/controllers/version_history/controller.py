@@ -147,16 +147,22 @@ class VersionHistoryController:
         Apply a live ``version_history_enabled`` change.
 
         Off→on activates the repo lazily; on→off stops watching and drops
-        any queued commit, leaving an existing repo intact for reads.
+        any queued commit, leaving an existing repo intact for reads. The
+        mirror is restored if activation / teardown raises, so it can't drift
+        from the persisted preference (which its caller rolls back in turn).
         """
         if enabled == self._auto_commit_enabled:
             return
         self._auto_commit_enabled = enabled
-        if enabled:
-            await self._activate()
-            return
-        self._pending.clear()
-        await self._teardown()
+        try:
+            if enabled:
+                await self._activate()
+            else:
+                self._pending.clear()
+                await self._teardown()
+        except Exception:
+            self._auto_commit_enabled = not enabled
+            raise
 
     async def stop(self) -> None:
         """
