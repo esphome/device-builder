@@ -248,7 +248,9 @@ def main() -> None:
             f"Plain-TCP port for the remote-build peer-link Noise WS "
             f"(default {DEFAULT_REMOTE_BUILD_PORT} or "
             f"$ESPHOME_REMOTE_BUILD_PORT; only bound when remote-build "
-            "is enabled in Settings)"
+            "is enabled in Settings). If the port is taken, e.g. by "
+            "another dashboard instance on this host, the next free "
+            "port is bound instead and advertised via mDNS"
         ),
     )
     parser.add_argument(

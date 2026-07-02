@@ -5,7 +5,8 @@ Exercises the real :func:`DeviceBuilder._maybe_start_remote_build_site`
 and :func:`DeviceBuilder.reload_remote_build_identity` hooks:
 default-skip when ``enabled=False``; bind when ``enabled=True``;
 fail-soft on bind error; advertise the OS-assigned port for
-ephemeral binds; warn on HA-addon mode; rebuild the listener
+ephemeral binds; fall forward off a taken configured port and
+advertise the bound one; warn on HA-addon mode; rebuild the listener
 (now serving the peer-link Noise WS at
 ``/remote-build/peer-link``) on identity rotation.
 
@@ -16,12 +17,14 @@ Pin-vs-handshake verification is the pairing flow's job
 from __future__ import annotations
 
 import asyncio
+import errno
+import socket
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 from aiohttp import web
-from aiohttp.test_utils import make_mocked_request
+from aiohttp.test_utils import get_unused_port_socket, make_mocked_request
 
 from esphome_device_builder._remote_build_lifecycle import (
     RemoteBuildLifecycle,
@@ -165,13 +168,13 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
 
     await loop.run_in_executor(None, _enable)
 
-    # Force the bind to fail by stubbing TCPSite.start to raise.
-    real_start = web.TCPSite.start
+    # Force the bind to fail by stubbing SockSite.start to raise.
+    real_start = web.SockSite.start
 
-    async def _failing_start(self: web.TCPSite) -> None:
+    async def _failing_start(self: web.SockSite) -> None:
         raise OSError("address in use (test stub)")
 
-    monkeypatch.setattr(web.TCPSite, "start", _failing_start)
+    monkeypatch.setattr(web.SockSite, "start", _failing_start)
 
     settings = DashboardSettings(config_dir=tmp_path)
     settings.host = "127.0.0.1"
@@ -186,7 +189,7 @@ async def test_maybe_start_remote_build_site_fails_soft_on_bind_error(
     assert db._remote_build_lifecycle._runner is None
 
     # Sanity: with the stub removed, a fresh call would succeed.
-    monkeypatch.setattr(web.TCPSite, "start", real_start)
+    monkeypatch.setattr(web.SockSite, "start", real_start)
 
 
 async def test_maybe_start_remote_build_site_refuses_port_zero_with_multi_host(
@@ -256,41 +259,6 @@ async def test_strip_server_header_middleware_overrides_to_empty(tmp_path: Path)
     request = make_mocked_request("GET", "/remote-build/peer-link", client_max_size=0)
     response = await _strip_server_header_middleware(request, _handler)
     assert response.headers["Server"] == ""
-
-
-@pytest.mark.parametrize(
-    ("server", "expected_call"),
-    [
-        pytest.param(None, False, id="server_none"),
-        pytest.param("empty_sockets", False, id="empty_sockets"),
-        pytest.param("port_zero", True, id="port_zero"),
-    ],
-)
-def test_resolve_ephemeral_port_raises_when_unresolvable(
-    server: str | None, expected_call: bool
-) -> None:
-    """
-    An ephemeral bind whose port can't be read raises rather than returning 0.
-
-    Refusing here is what keeps the fail-soft caller from
-    advertising port 0 — an unreachable port peers would dial
-    forever.
-    """
-    site = MagicMock()
-    if server is None:
-        site._server = None
-    elif server == "empty_sockets":
-        site._server = MagicMock(sockets=[])
-    else:
-        sock = MagicMock()
-        sock.getsockname.return_value = ("0.0.0.0", 0)
-        site._server = MagicMock(sockets=[sock])
-
-    with pytest.raises(RuntimeError, match="could not be resolved"):
-        RemoteBuildLifecycle._resolve_ephemeral_port(site)
-    # The port-zero branch must actually read the socket back.
-    if expected_call:
-        site._server.sockets[0].getsockname.assert_called_once()
 
 
 async def test_cleanup_runner_swallows_and_logs_failure(
@@ -545,6 +513,134 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
             await db._remote_build_lifecycle._runner.cleanup()
 
 
+async def test_maybe_start_remote_build_site_falls_forward_when_port_taken(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """
+    A taken configured port binds the next free one and advertises it.
+
+    Sibling dashboard instances (the stable/beta/dev add-on
+    flavors) share one host, so only one can hold the configured
+    port; the rest must still come up, on a port peers can
+    discover via the mDNS TXT record.
+    """
+    loop = asyncio.get_running_loop()
+
+    def _enable_and_block() -> socket.socket:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+        blocker = get_unused_port_socket("127.0.0.1")
+        blocker.listen(1)
+        return blocker
+
+    blocker = await loop.run_in_executor(None, _enable_and_block)
+    taken_port = blocker.getsockname()[1]
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = taken_port
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+
+    fake_advertiser = MagicMock()
+    fake_advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = fake_advertiser
+
+    try:
+        with caplog.at_level("WARNING", logger="esphome_device_builder._remote_build_lifecycle"):
+            await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        advertised = fake_advertiser.set_remote_build_port.call_args.args[0]
+        assert advertised != taken_port
+        assert advertised in range(taken_port + 1, taken_port + 10)
+        fall_forward_logged = any(
+            str(taken_port) in rec.getMessage() and str(advertised) in rec.getMessage()
+            for rec in caplog.records
+            if rec.levelname == "WARNING"
+        )
+        assert fall_forward_logged, "expected a WARNING naming the configured and bound ports"
+    finally:
+        blocker.close()
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
+async def test_maybe_start_remote_build_site_fails_soft_when_scan_exhausted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An exhausted port scan lands in the fail-soft path; the dashboard keeps running."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    def _exhausted(hosts: list[str], start_port: int, attempts: int) -> tuple[int, list[object]]:
+        raise OSError(errno.EADDRINUSE, "No free port (test stub)")
+
+    monkeypatch.setattr(
+        "esphome_device_builder._remote_build_lifecycle.bind_available_port",
+        _exhausted,
+    )
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = 6055
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+
+    fake_advertiser = MagicMock()
+    fake_advertiser.refresh = AsyncMock()
+    db._dashboard_advertiser = fake_advertiser
+
+    await db._remote_build_lifecycle.maybe_start()
+    assert db._remote_build_lifecycle._runner is None
+    fake_advertiser.set_remote_build_port.assert_not_called()
+
+
+async def test_maybe_start_remote_build_site_no_fall_forward_warning_for_ephemeral(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """``remote_build_port=0`` never warns about fall-forward; the OS pick was asked for."""
+    loop = asyncio.get_running_loop()
+
+    def _enable() -> None:
+        with remote_build_settings_transaction(tmp_path) as txn:
+            txn.enabled = True
+
+    await loop.run_in_executor(None, _enable)
+
+    settings = DashboardSettings(config_dir=tmp_path)
+    settings.host = "127.0.0.1"
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = 0
+    db = DeviceBuilder(settings)
+    db.loop = loop
+    db.remote_build_receiver = MagicMock()
+    db.remote_build_receiver._db.settings.config_dir = tmp_path
+    db._remote_build_lifecycle.publish_advertise = AsyncMock()
+
+    try:
+        with caplog.at_level("WARNING", logger="esphome_device_builder._remote_build_lifecycle"):
+            await db._remote_build_lifecycle.maybe_start()
+        assert db._remote_build_lifecycle._runner is not None
+        assert not any("falling forward" in rec.getMessage() for rec in caplog.records)
+    finally:
+        if db._remote_build_lifecycle._runner is not None:
+            await db._remote_build_lifecycle._runner.cleanup()
+
+
 async def test_maybe_start_remote_build_site_skips_ha_addon_without_persisted_opt_in(
     tmp_path: Path,
 ) -> None:
@@ -766,12 +862,12 @@ async def test_reload_remote_build_identity_clears_advertiser_when_rebuild_fails
         db._remote_build_lifecycle._runner = old_runner
 
         # Make the rebuild deterministically fail-soft. Stubbing
-        # ``TCPSite.start`` matches the existing fail-soft test
+        # ``SockSite.start`` matches the existing fail-soft test
         # in this file.
-        async def _failing_start(self: web.TCPSite) -> None:
+        async def _failing_start(self: web.SockSite) -> None:
             raise OSError("address in use (test stub)")
 
-        monkeypatch.setattr(web.TCPSite, "start", _failing_start)
+        monkeypatch.setattr(web.SockSite, "start", _failing_start)
 
         listener_bound = await db.reload_remote_build_identity()
 
@@ -795,6 +891,8 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
 ) -> None:
     """A flaky mDNS refresh during rotation must not raise out of the helper."""
     settings = DashboardSettings(config_dir=tmp_path)
+    settings.remote_build_host = "127.0.0.1"
+    settings.remote_build_port = 0
     db = DeviceBuilder(settings)
     advertiser = MagicMock()
     advertiser.refresh = AsyncMock(side_effect=RuntimeError("zeroconf wedged"))
@@ -810,10 +908,10 @@ async def test_reload_remote_build_identity_advertiser_refresh_failure_is_swallo
 
     # Force the rebuild to also fail so the test doesn't have
     # to stand up a real listener.
-    async def _failing_start(self: web.TCPSite) -> None:
+    async def _failing_start(self: web.SockSite) -> None:
         raise OSError("address in use (test stub)")
 
-    monkeypatch.setattr(web.TCPSite, "start", _failing_start)
+    monkeypatch.setattr(web.SockSite, "start", _failing_start)
 
     # Must not raise — fail-soft contract on the refresh tick.
     listener_bound = await db.reload_remote_build_identity()

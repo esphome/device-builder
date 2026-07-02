@@ -76,6 +76,11 @@ HA_INGRESS_DEFAULT_BIND_HOSTS = ("127.0.0.1", HA_SUPERVISOR_NETWORK_GATEWAY)
 # to manage.
 DEFAULT_REMOTE_BUILD_PORT = 6055
 
+# Candidate ports probed when the configured peer-link port is taken —
+# multiple dashboard instances (e.g. the stable/beta/dev add-on flavors)
+# can share one host-network host, and only one can hold each port.
+REMOTE_BUILD_PORT_SCAN_ATTEMPTS = 10
+
 
 # Long-form pin keys describing a board GPIO. Any other key in a pin mapping
 # names an I/O-expander provider whose value is the hub id. ``id`` is included
