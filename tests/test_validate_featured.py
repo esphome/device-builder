@@ -318,6 +318,24 @@ def test_field_preset_imported_skips_pin_feature_check() -> None:
     assert imported == []
 
 
+def test_field_preset_imported_skips_reserved_lock_check() -> None:
+    """
+    Imported boards bypass the reserved-must-lock check.
+
+    The importer synthesizes every pin as ``available: false``, so the check
+    would fire on any unlocked pin preset; it polices hand-authored pin maps.
+    """
+    pins = {3: {"gpio": 3, "features": [], "available": False}}
+    ce = _pin_entry_requiring()
+    preset = {"value": 3}
+
+    curated = _validate_field_preset("demo", "pin", preset, ce, pins, is_imported=False)
+    assert any("GPIO 3 is reserved" in e for e in curated)
+
+    imported = _validate_field_preset("demo", "pin", preset, ce, pins, is_imported=True)
+    assert imported == []
+
+
 def test_field_preset_imported_still_requires_pin_declared() -> None:
     """The pin-declared check stays in effect for imported boards."""
     pins = {3: {"gpio": 3, "features": []}}
