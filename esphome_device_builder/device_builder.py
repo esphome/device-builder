@@ -485,7 +485,7 @@ class DeviceBuilder:
         if self._network_stopped:
             return
         if self._bg_task:
-            await drain_tasks((self._bg_task,))
+            await drain_tasks((self._bg_task,), log_exceptions=True)
         await drain_tasks(self._background_tasks)
         # Tear down the remote-build listener (if it was bound)
         # before the controller it depends on. Order matters less

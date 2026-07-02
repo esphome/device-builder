@@ -104,7 +104,7 @@ class EditorController:
     async def stop(self) -> None:
         """Stop the controller."""
         if self._reaper_task is not None:
-            await drain_tasks((self._reaper_task,))
+            await drain_tasks((self._reaper_task,), log_exceptions=True)
             self._reaper_task = None
         sessions = list(self._sessions.values())
         self._sessions.clear()

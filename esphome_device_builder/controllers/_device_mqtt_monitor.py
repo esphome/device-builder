@@ -129,7 +129,7 @@ class DeviceMqttMonitor:
         """Cancel the connect/listen task and forget all observations."""
         if self._task is None:
             return
-        await drain_tasks((self._task,))
+        await drain_tasks((self._task,), log_exceptions=True)
         self._task = None
         self._last_seen.clear()
 
