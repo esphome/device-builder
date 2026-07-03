@@ -440,25 +440,6 @@ async def test_revert_reloads_the_scanner_when_devices_is_up(
     devices.reload_configuration.assert_awaited_once_with("livingroom.yaml")
 
 
-async def test_finalize_swap_failure_logs_and_never_raises(
-    tmp_path: Path,
-    firmware_controller_factory: FirmwareControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The device already runs the renamed firmware; a swap error must not fail the job."""
-    controller = firmware_controller_factory()
-
-    def _boom(_configuration: str) -> Path:
-        raise OSError("read-only fs")
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.rename_flow.resolve_storage_path", _boom
-    )
-    _seed_kitchen(tmp_path)
-
-    await rename_flow.finalize_rename_swap(controller, _tail_job(status=JobStatus.RUNNING))
-
-
 def test_on_job_terminal_ignores_completed_tails_and_non_tails(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -495,3 +476,90 @@ async def test_rename_retargets_a_local_substitution_definition(
     assert "  name: ${devicename}\n" in new_content
     # The flash fallback resolves the *old* name through the substitution.
     assert _tail_of(controller, head).port == "kitchen.local"
+
+
+async def test_ws_direct_rename_of_missing_yaml_raises_not_found(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The ``firmware/rename`` entry point reads the YAML itself and errors typed."""
+    controller = firmware_controller_factory(with_queue=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "not found" in excinfo.value.message
+
+
+async def test_rename_chain_uses_caller_supplied_content(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """``devices/rename`` threads its read + rewrite through; nothing is re-derived."""
+    controller = firmware_controller_factory(with_queue=True)
+    _seed_kitchen(tmp_path)
+
+    await controller.rename_chain(
+        configuration="kitchen.yaml",
+        new_name="livingroom",
+        content=_KITCHEN_YAML,
+        new_content="esphome:\n  name: livingroom\n  comment: threaded\n",
+    )
+
+    written = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert "comment: threaded" in written
+
+
+async def test_finalize_swap_wipe_failure_logs_and_never_raises(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The device already runs the renamed firmware; a swap error must not fail the job."""
+    controller = firmware_controller_factory()
+
+    def _boom(_configuration: str) -> None:
+        raise OSError("read-only fs")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.rename_flow.wipe_device_build_dir", _boom
+    )
+    _seed_kitchen(tmp_path)
+
+    await rename_flow.finalize_rename_swap(controller, _tail_job(status=JobStatus.RUNNING))
+
+    assert (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_revert_skips_its_own_active_entry(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """The reverted tail's own jobs entry doesn't read as a newer owning chain."""
+    tail = _tail_job()
+    controller = firmware_controller_factory(tail)
+    (tmp_path / "livingroom.yaml").write_text("", encoding="utf-8")
+
+    await rename_flow.revert_rename(controller, tail)
+
+    assert not (tmp_path / "livingroom.yaml").exists()
+
+
+async def test_revert_cleanup_failure_logs_and_skips_the_reload(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = firmware_controller_factory()
+    devices = MagicMock()
+    devices.reload_configuration = AsyncMock()
+    controller._db.devices = devices
+
+    def _boom(_configuration: str) -> None:
+        raise OSError("read-only fs")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.rename_flow.wipe_device_build_dir", _boom
+    )
+
+    await rename_flow.revert_rename(controller, _tail_job(status=JobStatus.FAILED))
+
+    devices.reload_configuration.assert_not_awaited()
