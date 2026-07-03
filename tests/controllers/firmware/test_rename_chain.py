@@ -563,3 +563,23 @@ async def test_revert_cleanup_failure_logs_and_skips_the_reload(
     await rename_flow.revert_rename(controller, _tail_job(status=JobStatus.FAILED))
 
     devices.reload_configuration.assert_not_awaited()
+
+
+async def test_chain_persists_before_the_yaml_write(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A crash between persist and write must restore a chain, not strand a file."""
+    controller = firmware_controller_factory(with_queue=True)
+    _seed_kitchen(tmp_path)
+    order: list[str] = []
+    controller._persist_jobs.side_effect = lambda: order.append("persist")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.rename_flow.atomic_write_file",
+        lambda _path, _content: order.append("write"),
+    )
+
+    await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
+
+    assert order.index("persist") < order.index("write")

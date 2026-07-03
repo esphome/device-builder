@@ -99,6 +99,10 @@ async def begin_rename(
             # not exclusive-create, because that superseded chain may have
             # left its own write behind.
             await controller._supersede_active_jobs(configuration, exclude_job_ids=set(exclude))
+            # Persist the held chain before the write: a crash between the
+            # two restores the chain, whose failing compile (missing YAML)
+            # cascades into the revert — self-healing, not a stranded file.
+            await controller._persist_jobs()
             await run_in_executor(atomic_write_file, new_path, new_content)
 
         await factories.commit_chain(
