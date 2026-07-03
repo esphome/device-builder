@@ -26,8 +26,10 @@ async def resolve_old_device_address(
     the mDNS default for *fallback_name*.
     """
     storage = await run_in_executor(lambda: StorageJSON.load(resolve_storage_path(configuration)))
-    if storage is not None and storage.address:
-        return storage.address
+    # Annotated hop: upstream ``StorageJSON`` is untyped, so ``.address`` is Any.
+    stored_address: str | None = storage.address if storage is not None else None
+    if stored_address:
+        return stored_address
     devices = controller._db.devices
     if devices is not None:
         device = devices.get_by_configuration(configuration)
