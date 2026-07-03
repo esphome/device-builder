@@ -182,6 +182,17 @@ _PLATFORM_DOMAINS: frozenset[str] = frozenset(
     }
 )
 
+# Top-level components whose ``CONFIG_SCHEMA`` is a ``cv.ensure_list`` (a list of
+# instances) but which don't set the component-registry ``MULTI_CONF`` flag, so
+# introspection reports them single-instance. ``spi`` is the case that bit us: a
+# board needing two SPI buses (a display bus + a separate touch bus) had its second
+# ``spi:`` silently dropped by the merge, which only splices a repeated top-level
+# block for ``multi_conf`` components. ``i2c``/``uart`` set ``MULTI_CONF`` upstream
+# and don't need this. Stamp it here so ``spi`` behaves identically to them —
+# including the reference-advanced pass that reads ``multi_conf`` — rather than
+# post-hoc.
+_LIST_SCHEMA_MULTI_CONF: frozenset[str] = frozenset({"spi"})
+
 # Plain top-level keys we don't want to surface as user-facing components.
 # ``core`` is the indexing-only metadata block in esphome.json.
 _HIDDEN_TOP_LEVEL: frozenset[str] = frozenset({"core"})
@@ -2172,7 +2183,9 @@ def build_component_entry(
         "docs_url": _strip_anchor(docs.url or ""),
         "image_url": image_map.get(component_id) or image_map.get(stem) or "",
         "dependencies": dependencies,
-        "multi_conf": introspection.get("multi_conf", False),
+        "multi_conf": (
+            introspection.get("multi_conf", False) or component_id in _LIST_SCHEMA_MULTI_CONF
+        ),
         "bus_constraints": bus_constraints,
         "supported_platforms": _derive_supported_platforms(
             stem if domain else top_key,

@@ -1274,6 +1274,30 @@ def test_merge_component_yaml_multi_conf_non_canonical_list() -> None:
     assert len(yaml.safe_load(result)["rtttl"]) == 2
 
 
+def test_merge_component_yaml_adds_a_second_spi_bus() -> None:
+    """Two ``spi`` buses coexist as a list — the CYD display + touch case.
+
+    ``spi`` is ``multi_conf`` (a display bus and a separate touch bus on
+    different pins), so a second add must splice a list item, not no-op on the
+    already-present ``spi:`` block.
+    """
+    component = _component(component_id="spi", category=ComponentCategory.BUS, multi_conf=True)
+
+    config = merge_component_yaml(
+        "esphome:\n  name: cyd\n",
+        component,
+        {"id": "lcd_spi", "clk_pin": 14, "mosi_pin": 13},
+    )
+    config = merge_component_yaml(
+        config,
+        component,
+        {"id": "touch_spi", "clk_pin": 25, "mosi_pin": 32, "miso_pin": 39},
+    )
+
+    buses = yaml.safe_load(config)["spi"]
+    assert [b["id"] for b in buses] == ["lcd_spi", "touch_spi"]
+
+
 def test_merge_component_yaml_accepts_incomplete_draft() -> None:
     """A syntactically broken draft is appended-merged, not rejected."""
     component = _component(component_id="i2c", category=ComponentCategory.BUS)
