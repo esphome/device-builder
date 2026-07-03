@@ -353,7 +353,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             device.name, device.configuration, is_queued=is_queued
         )
 
-    def _on_queued_update_change(self, _name: str, is_queued: bool, configuration: str) -> None:
+    def _on_queued_update_change(
+        self,
+        _name: str,
+        is_queued: bool,  # noqa: FBT001 — the monitor's Callable contract is positional
+        configuration: str,
+    ) -> None:
         """Handle offline queued update flag transitions and persist.
 
         Targets the single device matching *configuration* — the unique
