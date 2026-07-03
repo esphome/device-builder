@@ -83,7 +83,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # overtaken by a newer one (which would let a stale snapshot
         # overwrite fresher state on disk).
         self._persist_lock = asyncio.Lock()
-        self._armed_deferred_installs: set[str] = set()
 
         self._unsub_device_wake = self.bus.add_listener(
             EventType.DEVICE_STATE_CHANGED, self._handle_device_wake
@@ -106,24 +105,27 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return self._db.devices.get_by_configuration(configuration)
 
     def _handle_device_wake(self, event: Event) -> None:
-        """Intercept device wake to trigger queued updates and prevent flapping."""
+        """Trigger a device's queued update when it comes online.
+
+        ``Device.queued_update`` is the single arm state — no
+        controller-side set to go stale when a rename moves the
+        configuration filename. The active-flash check is the flap
+        guard: a wake bouncing mid-flash must not supersede the
+        upload that's already running.
+        """
         if event.data["state"] != DeviceState.ONLINE.value:
             return
 
         config = event.data["configuration"]
-
-        if config not in self._armed_deferred_installs:
-            return
-
         device = self._device_for_configuration(config)
         if not device or not device.queued_update:
             return
+        if any(
+            job.is_network_flash and job.configuration == config for job in self.state.active_jobs()
+        ):
+            return
 
         _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
-        # Disarm immediately — a flap mid-flash must not re-enter this
-        # handler and supersede the upload that's already running.
-        # _execute_job re-arms below if this attempt fails.
-        self._armed_deferred_installs.discard(config)
         self._db.create_background_task(self.upload(configuration=config, port="OTA"))
 
     # ------------------------------------------------------------------
@@ -171,16 +173,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 detail,
             )
         await self._load_jobs()
-        self._rehydrate_armed_deferred_installs()
         self._runner_task = self._db.create_background_task(self._run_queue())
-
-    def _rehydrate_armed_deferred_installs(self) -> None:
-        """Re-arm devices whose ``queued_update`` survived a restart."""
-        if self._db.devices is None:
-            return
-        for device in self._db.devices.get_devices():
-            if device.queued_update:
-                self._armed_deferred_installs.add(device.configuration)
 
     # ------------------------------------------------------------------
     # API commands — job submission
@@ -237,7 +230,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         self._db.devices.set_queued_update(configuration, is_queued=False)
-        self._armed_deferred_installs.discard(configuration)
         _LOGGER.info("Queued update cleared for device %s", configuration)
 
     @api_command("firmware/reset_build_env")
@@ -523,10 +515,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         # Anything short of confirmed ONLINE — OFFLINE, or the narrow UNKNOWN
         # window from a scanner rebuild with previous=None (atomic-save churn,
-        # REMOVED+re-ADDED) — arms for the next wake rather than silently
-        # dropping the queued install.
+        # REMOVED+re-ADDED) — stays armed for the next wake rather than
+        # silently dropping the queued install.
         devices.set_queued_update(job.configuration, is_queued=True)
-        self._armed_deferred_installs.add(job.configuration)
 
     def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
         """Clear (on success) or re-arm (on failure/cancel) a queued OTA upload.
@@ -544,12 +535,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         if job.status == JobStatus.COMPLETED:
             self._db.devices.set_queued_update(job.configuration, is_queued=False)
-            self._armed_deferred_installs.discard(job.configuration)
-            return
-
-        # Attempt failed or got cancelled (e.g. by a manual retry) while
-        # still queued — re-arm for the next wake.
-        self._armed_deferred_installs.add(job.configuration)
+        # A failed / cancelled attempt keeps ``queued_update`` set, so the
+        # device stays armed for its next wake.
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)

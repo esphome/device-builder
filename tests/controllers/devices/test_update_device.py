@@ -195,60 +195,25 @@ async def test_update_device_persists_via_executor(
     assert sidecar.exists()
 
 
-def test_on_queued_update_change_updates_and_persists(make_controller, tmp_path):
-    """Test that changing the queued flag updates memory, disk, and the frontend."""
-    # 1. Create the controller using the factory fixture,
-    # passing the tmp_path as the config_dir
-    devices_controller = make_controller(config_dir=tmp_path)
-
-    # 2. Setup a mock device
-    mock_device = MagicMock()
-    mock_device.name = "kitchen"
-    mock_device.configuration = "kitchen.yaml"
-    mock_device.queued_update = False
-
-    # 3. Wire the controller dependencies
-    devices_controller.get_devices = MagicMock(return_value=[mock_device])
-    # Mock the configuration lookup since _on_queued_update_change uses it to find the device
-    devices_controller.get_by_configuration = MagicMock(return_value=mock_device)
-    devices_controller._metadata_store = MagicMock()
-    devices_controller._fire_device_updated = MagicMock()
-
-    # 4. Execute using explicit keyword arguments
-    devices_controller._on_queued_update_change(
-        "kitchen", configuration="kitchen.yaml", is_queued=True
-    )
-
-    # 5. Assert
-    assert mock_device.queued_update is True
-    devices_controller._metadata_store.update.assert_called_once_with(
-        "kitchen.yaml", queued_update=True
-    )
-    devices_controller._fire_device_updated.assert_called_once_with(mock_device)
-
-
-def test_set_queued_update_delegates_to_monitor(make_controller, tmp_path):
-    """Test that set_queued_update correctly delegates to the state monitor."""
+def test_set_queued_update_updates_and_persists(make_controller, tmp_path):
+    """Flipping the queued flag updates memory, disk, and the frontend."""
     controller = make_controller(config_dir=tmp_path)
-    controller._state_monitor = MagicMock()
-    controller._state_monitor.apply_queued_update.return_value = True
-
-    # Seed a real device into the scanner so the internal lookup succeeds
     dev = make_device("kitchen")
     dev.queued_update = False
     controller._scanner.devices = [dev]
+    controller._metadata_store = MagicMock()
+    controller._fire_device_updated = MagicMock()
 
-    # Call with the configuration string instead of the base device name
-    result = controller.set_queued_update("kitchen.yaml", is_queued=True)
+    assert controller.set_queued_update("kitchen.yaml", is_queued=True) is True
 
-    assert result is True
+    assert dev.queued_update is True
+    controller._metadata_store.update.assert_called_once_with("kitchen.yaml", queued_update=True)
+    controller._fire_device_updated.assert_called_once_with(dev)
 
 
-def test_set_queued_update_handles_none_monitor(make_controller, tmp_path):
-    """Test that set_queued_update returns False if monitor is explicitly None."""
+def test_set_queued_update_handles_unknown_configuration(make_controller, tmp_path):
+    """An unknown configuration is a no-op False, not an error."""
     controller = make_controller(config_dir=tmp_path)
-    controller._state_monitor = None
+    controller._scanner.devices = []
 
-    result = controller.set_queued_update("kitchen", is_queued=True)
-
-    assert result is False
+    assert controller.set_queued_update("missing.yaml", is_queued=True) is False

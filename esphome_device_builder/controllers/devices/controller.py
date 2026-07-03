@@ -203,7 +203,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_ip_change=self._on_ip_change,
             on_source_change=self._on_source_change,
             on_version_change=self._on_version_change,
-            on_queued_update_change=self._on_queued_update_change,
             on_config_hash_change=self._on_config_hash_change,
             on_api_encryption_change=self._on_api_encryption_change,
             on_mac_address_change=self._on_mac_address_change,
@@ -345,36 +344,21 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         return self.get_address_cache_args(configuration)
 
     def set_queued_update(self, configuration: str, *, is_queued: bool) -> bool:
-        """Public API to mutate the queued update flag for one device."""
-        device = self._scanner.get_by_configuration(configuration)
-        if device is None or not self._state_monitor:
-            return False
-        return self._state_monitor.apply_queued_update(
-            device.name, device.configuration, is_queued=is_queued
-        )
+        """Set a device's queued-update flag; persist + fire on change.
 
-    def _on_queued_update_change(
-        self,
-        _name: str,
-        is_queued: bool,  # noqa: FBT001 — the monitor's Callable contract is positional
-        configuration: str,
-    ) -> None:
-        """Handle offline queued update flag transitions and persist.
-
-        Targets the single device matching *configuration* — the unique
-        per-device key — rather than fanning out to every device sharing
-        *_name*. A queued firmware install is per-config: two YAML files
-        can share the same ``esphome.name`` (a copy, or a
-        ``dashboard_import`` sibling), and only the compiled config
-        should ever be armed. *_name* is unused here but kept so this
-        callback's signature matches ``QueuedUpdateChangeCallback``.
+        Keyed on *configuration* — the unique per-device key — not the
+        ``esphome.name`` fan-out the monitor's broadcast-driven fields
+        use: a queued install is per-config, and only the compiled
+        config should ever be armed. Not monitor-mediated for the same
+        reason — no broadcast ever carries this flag.
         """
-        device = self.get_by_configuration(configuration)
-        if device is None:
-            return
+        device = self._scanner.get_by_configuration(configuration)
+        if device is None or device.queued_update == is_queued:
+            return False
         device.queued_update = is_queued
         self._metadata_store.update(device.configuration, queued_update=is_queued)
         self._fire_device_updated(device)
+        return True
 
     # ------------------------------------------------------------------
     # API commands — listing

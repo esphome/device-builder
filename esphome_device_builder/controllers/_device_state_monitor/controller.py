@@ -99,13 +99,6 @@ ImportableRemovedCallback = Callable[[str], None]
 # device; an empty key means "connect plaintext".
 ApiConnectionResolver = Callable[[str], Awaitable[tuple[str, int]]]
 
-# Set and clear persistent queued_update flag through the state callback
-# path. Carries *configuration* (the unique per-device key) alongside
-# *name* — a queued firmware install is a per-config event, so unlike
-# the mDNS-style callbacks above it must not fan out to every device
-# sharing an ``esphome.name``.
-QueuedUpdateChangeCallback = Callable[[str, bool, str], None]
-
 
 class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
@@ -127,7 +120,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         on_mac_address_change: MacAddressChangeCallback | None = None,
         on_importable_added: ImportableAddedCallback | None = None,
         on_importable_removed: ImportableRemovedCallback | None = None,
-        on_queued_update_change: QueuedUpdateChangeCallback | None = None,
         reachability: ReachabilityTracker | None = None,
         is_ignored: Callable[[str], bool] | None = None,
         get_devices_by_name: Callable[[str], list[Device]] | None = None,
@@ -155,7 +147,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_mac_address_change = on_mac_address_change
         self._on_importable_added = on_importable_added
         self._on_importable_removed = on_importable_removed
-        self._on_queued_update_change = on_queued_update_change
         self._is_ignored = is_ignored or (lambda _name: False)
         self._resolve_api_connection = resolve_api_connection
         self.state = MonitorState(reachability=reachability)
@@ -468,16 +459,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_mac_address_change(name, normalized)
         return True
 
-    def apply_queued_update(self, name: str, configuration: str, *, is_queued: bool) -> bool:
-        """Record that a local compile finished and is waiting for device wake."""
-        if self._on_queued_update_change is None:
-            return False
-        device = self._find_device_by_configuration(configuration)
-        if device is None or device.queued_update == is_queued:
-            return False
-        self._on_queued_update_change(name, is_queued, configuration)
-        return True
-
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:
         """
         Return True iff some configured device named *name* has ``attr != value``.
@@ -530,14 +511,3 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
     def _find_device_by_name(self, name: str) -> Device | None:
         bucket = self._get_devices_by_name(name)
         return bucket[0] if bucket else None
-
-    def _find_device_by_configuration(self, configuration: str) -> Device | None:
-        """
-        Linear scan for the one device with this unique *configuration*.
-
-        No configuration-keyed index exists on the monitor (only the
-        name-keyed ``_get_devices_by_name``), and this path isn't hot
-        enough — one queued-update flip per completed compile — to
-        warrant adding one.
-        """
-        return next((d for d in self._get_devices() if d.configuration == configuration), None)
