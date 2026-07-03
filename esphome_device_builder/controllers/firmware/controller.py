@@ -49,11 +49,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Upload-job statuses that end an OTA-upload attempt — gates the
-# queued-update bookkeeping (clear on success, re-arm on failure/cancel)
-# so a still-running job can't trip either branch.
-_TERMINAL_UPLOAD_STATUSES = frozenset({JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED})
-
 
 class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
@@ -229,7 +224,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if not device or not device.queued_update or not self._db.devices:
             return
 
-        self._db.devices.set_queued_update(device.name, is_queued=False)
+        self._db.devices.set_queued_update(configuration, is_queued=False)
         self._armed_deferred_installs.discard(configuration)
         _LOGGER.info("Queued update cleared for device %s", configuration)
 
@@ -287,8 +282,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             if device and device.state == DeviceState.OFFLINE:
                 _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
                 build_source = self._resolve_install_source(force_local=True)
-                job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
-                job.is_deferred_install = True
+                job = self._create_job(
+                    configuration,
+                    JobType.COMPILE,
+                    build_source=build_source,
+                    is_deferred_install=True,
+                )
                 return await self._enqueue(job)
 
         build_source = self._resolve_install_source(force_local=force_local)
@@ -471,12 +470,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         path (``is_deferred_install``) does anything here — a plain compile,
         or one that failed, has nothing to act on.
         """
-        is_deferred_compile_success = (
-            job.job_type == JobType.COMPILE
-            and job.status == JobStatus.COMPLETED
-            and job.is_deferred_install
-        )
-        if not is_deferred_compile_success:
+        if not job.is_deferred_compile_success:
             return
 
         devices = self._db.devices
@@ -493,7 +487,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 job.configuration,
             )
             # Use the local 'devices' variable so Mypy knows it is not None
-            devices.set_queued_update(device.name, is_queued=True)
+            devices.set_queued_update(job.configuration, is_queued=True)
             self._db.create_background_task(
                 self.upload(configuration=job.configuration, port="OTA")
             )
@@ -503,7 +497,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # window from a scanner rebuild with previous=None (atomic-save churn,
         # REMOVED+re-ADDED) — arms for the next wake rather than silently
         # dropping the queued install.
-        devices.set_queued_update(device.name, is_queued=True)
+        devices.set_queued_update(job.configuration, is_queued=True)
         self._armed_deferred_installs.add(job.configuration)
 
     def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
@@ -513,12 +507,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         touch the offline-queue machinery just because the device happens to
         also have ``queued_update`` set for an unrelated reason.
         """
-        is_terminal_ota_upload = (
-            job.job_type == JobType.UPLOAD
-            and job.port == "OTA"
-            and job.status in _TERMINAL_UPLOAD_STATUSES
-        )
-        if not is_terminal_ota_upload:
+        if not job.is_terminal_ota_upload:
             return
 
         device = self._device_for_configuration(job.configuration)
@@ -526,7 +515,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         if job.status == JobStatus.COMPLETED:
-            self._db.devices.set_queued_update(device.name, is_queued=False)
+            self._db.devices.set_queued_update(job.configuration, is_queued=False)
             self._armed_deferred_installs.discard(job.configuration)
             return
 
@@ -624,8 +613,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         build_source: JobBuildSource = LOCAL_JOB_BUILD_SOURCE,
         device_name: str = "",
         device_friendly_name: str = "",
+        *,
+        is_deferred_install: bool = False,
     ) -> FirmwareJob:
-        return factories.create_job(
+        job = factories.create_job(
             self,
             configuration,
             job_type,
@@ -638,6 +629,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             device_name=device_name,
             device_friendly_name=device_friendly_name,
         )
+        job.is_deferred_install = is_deferred_install
+        return job
 
     def _resolve_install_source(self, *, force_local: bool = False) -> JobBuildSource:
         return factories.resolve_install_source(self, force_local=force_local)

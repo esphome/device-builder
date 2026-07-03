@@ -280,6 +280,32 @@ class FirmwareJob(DashboardModel):
         """Whether the job is still queued or running (not yet terminal)."""
         return self.status in _ACTIVE_JOB_STATUSES
 
+    @property
+    def is_terminal_ota_upload(self) -> bool:
+        """Whether this is an OTA upload job that has reached a terminal status.
+
+        Scoped to OTA specifically — a failed server-serial upload
+        shouldn't trip the offline-queue machinery just because the
+        device happens to also have ``queued_update`` set for an
+        unrelated reason.
+        """
+        return self.job_type == JobType.UPLOAD and self.port == "OTA" and self.is_terminal
+
+    @property
+    def is_deferred_compile_success(self) -> bool:
+        """Whether this is a successfully-completed COMPILE from the offline-install path.
+
+        Only a job queued via that path (``is_deferred_install``) that
+        actually finished should trigger the "device woke up, flash
+        now" follow-up — a plain compile, or one that failed, has
+        nothing to act on.
+        """
+        return (
+            self.job_type == JobType.COMPILE
+            and self.status == JobStatus.COMPLETED
+            and self.is_deferred_install
+        )
+
     def reset(self) -> None:
         """
         Reset per-run state so the job is ready to be re-executed.

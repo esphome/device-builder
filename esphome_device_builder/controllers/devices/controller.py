@@ -344,20 +344,34 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return []
         return self.get_address_cache_args(configuration)
 
-    def set_queued_update(self, name: str, *, is_queued: bool) -> bool:
-        """Public API to mutate the queued update flag for a device."""
-        if self._state_monitor:
-            return self._state_monitor.apply_queued_update(name, is_queued=is_queued)
-        return False
+    def set_queued_update(self, configuration: str, *, is_queued: bool) -> bool:
+        """Public API to mutate the queued update flag for one device."""
+        device = self._scanner.get_by_configuration(configuration)
+        if device is None or not self._state_monitor:
+            return False
+        return self._state_monitor.apply_queued_update(
+            device.name, device.configuration, is_queued=is_queued
+        )
 
-    def _on_queued_update_change(self, name: str, is_queued: bool) -> None:  # noqa: FBT001
-        """Handle offline queued update flag transitions and persist."""
-        for device in self.get_devices():
-            if device.name != name:
-                continue
-            device.queued_update = is_queued
-            self._metadata_store.update(device.configuration, queued_update=is_queued)
-            self._fire_device_updated(device)
+    def _on_queued_update_change(  # noqa: FBT001
+        self, _name: str, is_queued: bool, configuration: str
+    ) -> None:
+        """Handle offline queued update flag transitions and persist.
+
+        Targets the single device matching *configuration* — the unique
+        per-device key — rather than fanning out to every device sharing
+        *_name*. A queued firmware install is per-config: two YAML files
+        can share the same ``esphome.name`` (a copy, or a
+        ``dashboard_import`` sibling), and only the compiled config
+        should ever be armed. *_name* is unused here but kept so this
+        callback's signature matches ``QueuedUpdateChangeCallback``.
+        """
+        device = self.get_by_configuration(configuration)
+        if device is None:
+            return
+        device.queued_update = is_queued
+        self._metadata_store.update(device.configuration, queued_update=is_queued)
+        self._fire_device_updated(device)
 
     # ------------------------------------------------------------------
     # API commands — listing

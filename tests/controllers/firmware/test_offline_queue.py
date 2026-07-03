@@ -82,7 +82,7 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
     await firmware_controller.clear_queued_update(configuration="test_device.yaml")
 
     firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device", is_queued=False
+        "test_device.yaml", is_queued=False
     )
     assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
 
@@ -114,10 +114,20 @@ def test_on_queued_update_change_matches_device(mock_device):
     # Initialize a mock DevicesController without running __init__
     controller = DevicesController.__new__(DevicesController)
     controller.get_devices = MagicMock(return_value=[mock_device])
+
+    # Mock the configuration lookup to return our mock device
+    controller.get_by_configuration = MagicMock(
+        side_effect=lambda c: mock_device if c == "test_device.yaml" else None
+    )
+
     controller._metadata_store = MagicMock()
     controller._fire_device_updated = MagicMock()
 
-    controller._on_queued_update_change("test_device", True)
+    controller._on_queued_update_change(
+        "test_device",
+        configuration="test_device.yaml",
+        is_queued=True
+    )
 
     # Verify the device flag was updated
     assert mock_device.queued_update is True
@@ -135,10 +145,18 @@ def test_on_queued_update_change_skips_unmatched(mock_device):
     """Test that devices with a different name are skipped."""
     controller = DevicesController.__new__(DevicesController)
     controller.get_devices = MagicMock(return_value=[mock_device])
+
+    # Mock configuration lookup to return None for the unmatched config
+    controller.get_by_configuration = MagicMock(return_value=None)
+
     controller._metadata_store = MagicMock()
     controller._fire_device_updated = MagicMock()
 
-    controller._on_queued_update_change("other_device", True)
+    controller._on_queued_update_change(
+        "other_device",
+        configuration="other_device.yaml",
+        is_queued=True
+    )
 
     # Verify the device flag remains untouched
     assert mock_device.queued_update is False
@@ -283,6 +301,8 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     job.status = JobStatus.COMPLETED
     job.configuration = "test_device.yaml"
     job.is_deferred_install = True
+    job.is_deferred_compile_success = True
+    job.is_terminal_ota_upload = False
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
@@ -291,7 +311,7 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
         await firmware_controller._execute_job(job, MagicMock())
 
     firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device", is_queued=True
+        "test_device.yaml", is_queued=True
     )
     assert "test_device.yaml" in firmware_controller._armed_deferred_installs
 
@@ -311,6 +331,8 @@ async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device)
     job.status = JobStatus.COMPLETED
     job.configuration = "test_device.yaml"
     job.is_deferred_install = False
+    job.is_deferred_compile_success = False
+    job.is_terminal_ota_upload = False
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
@@ -336,6 +358,8 @@ async def test_execute_job_handles_online_device(firmware_controller, mock_devic
     job.status = JobStatus.COMPLETED
     job.configuration = "test_device.yaml"
     job.is_deferred_install = True
+    job.is_deferred_compile_success = True
+    job.is_terminal_ota_upload = False
 
     with (
         patch(
@@ -348,7 +372,7 @@ async def test_execute_job_handles_online_device(firmware_controller, mock_devic
 
     # Assert our new bugfix behavior: flag is persisted, but it is kept OUT of the armed set
     firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device", is_queued=True
+        "test_device.yaml", is_queued=True
     )
     assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
     mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
@@ -388,6 +412,8 @@ async def test_execute_job_clears_queued_flag_on_upload(firmware_controller, moc
     job.configuration = "test_device.yaml"
     job.is_deferred_install = False
     job.port = "OTA"
+    job.is_deferred_compile_success = False
+    job.is_terminal_ota_upload = True
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
@@ -396,7 +422,7 @@ async def test_execute_job_clears_queued_flag_on_upload(firmware_controller, moc
         await firmware_controller._execute_job(job, MagicMock())
 
     firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device", is_queued=False
+        "test_device.yaml", is_queued=False
     )
     assert "test_device.yaml" not in firmware_controller._armed_deferred_installs
 
@@ -419,6 +445,8 @@ async def test_execute_job_preserves_queued_flag_on_failed_upload(firmware_contr
     job.configuration = "test_device.yaml"
     job.is_deferred_install = False
     job.port = "OTA"
+    job.is_deferred_compile_success = False
+    job.is_terminal_ota_upload = True
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
@@ -445,6 +473,8 @@ def _make_deferred_compile_job(configuration: str = "test_device.yaml") -> Magic
     job.status = JobStatus.COMPLETED
     job.is_deferred_install = True
     job.configuration = configuration
+    job.is_deferred_compile_success = True
+    job.is_terminal_ota_upload = False
     return job
 
 
@@ -475,11 +505,7 @@ def test_handle_deferred_compile_completion_no_op_when_devices_controller_is_non
     # Setup: explicitly clear the devices controller
     firmware_controller._db.devices = None
 
-    job = MagicMock(spec=FirmwareJob)
-    job.job_type = JobType.COMPILE
-    job.status = JobStatus.COMPLETED
-    job.is_deferred_install = True
-    job.configuration = "some_device.yaml"
+    job = _make_deferred_compile_job("some_device.yaml")
 
     # Execute: Should return safely without raising AttributeError
     firmware_controller._handle_deferred_compile_completion(job)
@@ -496,11 +522,7 @@ def test_handle_deferred_compile_completion_no_op_when_device_not_found(
     firmware_controller._db.devices.get_by_configuration.return_value = None
     firmware_controller._db.devices.set_queued_update = MagicMock()
 
-    job = MagicMock(spec=FirmwareJob)
-    job.job_type = JobType.COMPILE
-    job.status = JobStatus.COMPLETED
-    job.is_deferred_install = True
-    job.configuration = "missing_device.yaml"
+    job = _make_deferred_compile_job("missing_device.yaml")
 
     firmware_controller._handle_deferred_compile_completion(job)
 
