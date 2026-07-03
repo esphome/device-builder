@@ -1,0 +1,125 @@
+id: waveshare_esp32_c6_lcd_1_47
+name: Waveshare ESP32-C6-LCD-1.47
+description: >-
+  Waveshare ESP32-C6-LCD-1.47: an ESP32-C6 board with a 1.47" 172x320 SPI LCD, a WS2812
+  RGB LED, and a microSD slot. Display CS/DC/reset are supplied by the model. The RGB LED
+  (GPIO8) is a strapping pin handled with ignore_strapping_warning.
+manufacturer: Waveshare
+esphome:
+  platform: esp32
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+- rgb-led
+- sd-card
+images:
+- https://www.waveshare.com/w/upload/thumb/f/fe/ESP32-C6-LCD-1.47.jpg/600px-ESP32-C6-LCD-1.47.jpg
+docs_url: https://www.waveshare.com/wiki/ESP32-C6-LCD-1.47
+pins:
+- gpio: 6
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 7
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 8
+  available: false
+  occupied_by: rgb_led
+  features:
+  - rgb_led
+  - strapping
+  notes: WS2812 RGB LED (strapping pin)
+- gpio: 14
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 15
+  available: false
+  occupied_by: lcd_display
+  features:
+  - strapping
+  notes: Display DC (strapping pin; ignore_strapping_warning set by the model)
+- gpio: 21
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 22
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 7
+      locked: true
+    mosi_pin:
+      value: 6
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: WAVESHARE-ESP32-C6-LCD-1.47
+    spi_id:
+      value: lcd_spi
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 22
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: rgb_led
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    name: RGB LED
+    pin:
+      value:
+        number: 8
+        ignore_strapping_warning: true
+      locked: true
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    id: rgb_led
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
