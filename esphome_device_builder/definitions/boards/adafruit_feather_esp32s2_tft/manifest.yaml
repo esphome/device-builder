@@ -1,0 +1,172 @@
+id: adafruit_feather_esp32s2_tft
+name: Adafruit ESP32-S2 TFT Feather
+description: >-
+  Adafruit ESP32-S2 TFT Feather: an ESP32-S2 Feather with a built-in 1.14" 240x135 ST7789
+  SPI display, a single NeoPixel RGB LED, a BOOT button, and a STEMMA QT I2C port. GPIO21
+  powers the display and I2C rail (must be on for the display), and GPIO34 powers the
+  NeoPixel, so both are part of their bundles. Display CS/DC/reset are supplied by the
+  model.
+manufacturer: Adafruit
+esphome:
+  platform: esp32
+  board: adafruit_feather_esp32s2_tft
+  variant: esp32s2
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+tags:
+- display
+- rgb-led
+images:
+- https://cdn-shop.adafruit.com/970x728/5300-06.jpg
+docs_url: https://learn.adafruit.com/adafruit-esp32-s2-tft-feather
+pins:
+- gpio: 0
+  available: false
+  occupied_by: boot_button
+  notes: BOOT button (strapping pin, active low)
+- gpio: 7
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 21
+  available: false
+  occupied_by: tft_power
+  notes: Display + STEMMA I2C power enable (active high)
+- gpio: 33
+  available: false
+  occupied_by: neopixel
+  notes: NeoPixel data
+- gpio: 34
+  available: false
+  occupied_by: neopixel_power
+  notes: NeoPixel power enable (active high)
+- gpio: 35
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 36
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 39
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC
+- gpio: 40
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 45
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight (strapping pin)
+featured_components:
+- id: tft_power
+  component_id: switch.gpio
+  fields:
+    name: Display Power
+    icon: mdi:power-plug
+    restore_mode: ALWAYS_ON
+    pin:
+      value: 21
+      locked: true
+    id: tft_power
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 36
+      locked: true
+    mosi_pin:
+      value: 35
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: ADAFRUIT-S2-TFT-FEATHER
+    spi_id:
+      value: lcd_spi
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+  - tft_power
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value:
+        number: 45
+        ignore_strapping_warning: true
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: neopixel_power
+  component_id: switch.gpio
+  fields:
+    name: NeoPixel Power
+    icon: mdi:power-plug
+    restore_mode: ALWAYS_ON
+    pin:
+      value: 34
+      locked: true
+    id: neopixel_power
+- id: neopixel
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    name: NeoPixel
+    pin:
+      value: 33
+      locked: true
+    num_leds: 1
+    chipset: WS2812
+    rgb_order: GRB
+    id: neopixel
+  requires:
+  - neopixel_power
+- id: boot_button
+  component_id: binary_sensor.gpio
+  fields:
+    name: Boot Button
+    pin:
+      value:
+        number: 0
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: boot_button
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - tft_power
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: neopixel_setup
+  name: NeoPixel (full setup)
+  component_ids:
+  - neopixel_power
+  - neopixel
