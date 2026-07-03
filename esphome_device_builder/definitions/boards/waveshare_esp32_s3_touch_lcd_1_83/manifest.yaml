@@ -1,0 +1,169 @@
+id: waveshare_esp32_s3_touch_lcd_1_83
+name: Waveshare ESP32-S3-Touch-LCD-1.83
+description: >-
+  Waveshare ESP32-S3-Touch-LCD-1.83: an ESP32-S3 board with a 1.83" 240x284 ST7789P SPI
+  LCD and a CST816 capacitive touch panel on I2C. Display CS/DC/reset are locked to the
+  board wiring. The board also carries an ES8311 speaker codec and ES7210 microphone ADC
+  on the shared I2C/I2S bus (not featured here). Uses the v2 panel init sequence; do not
+  use on the incompatible v1 revision.
+manufacturer: Waveshare
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+images:
+- https://www.waveshare.com/media/catalog/product/e/s/esp32-s3-touch-lcd-1.83-1.jpg
+docs_url: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83
+pins:
+- gpio: 4
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC
+- gpio: 5
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 6
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 7
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 13
+  available: false
+  occupied_by: lcd_touch
+  notes: CST816 touch interrupt
+- gpio: 14
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_scl
+  notes: Touch I2C SCL
+- gpio: 15
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_sda
+  notes: Touch I2C SDA
+- gpio: 38
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 39
+  available: false
+  occupied_by: lcd_touch
+  notes: CST816 touch reset
+- gpio: 40
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 6
+      locked: true
+    mosi_pin:
+      value: 7
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: WAVESHARE-1.83-V2
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 5
+      locked: true
+    dc_pin:
+      value: 4
+      locked: true
+    reset_pin:
+      value: 38
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 40
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 14
+      locked: true
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
+- id: lcd_touch
+  component_id: touchscreen.cst816
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    interrupt_pin:
+      value: 13
+      locked: true
+    reset_pin:
+      value: 39
+      locked: true
+    display: lcd_display
+    id: lcd_touch
+  requires:
+  - i2c_bus
+  - lcd_display
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: touchscreen_setup
+  name: Touchscreen (full setup)
+  component_ids:
+  - i2c_bus
+  - lcd_touch
+  - backlight_output
+  - display_backlight
