@@ -216,9 +216,7 @@ def test_on_queued_update_change_updates_and_persists(make_controller, tmp_path)
 
     # 4. Execute using explicit keyword arguments
     devices_controller._on_queued_update_change(
-        "kitchen",
-        configuration="kitchen.yaml",
-        is_queued=True
+        "kitchen", configuration="kitchen.yaml", is_queued=True
     )
 
     # 5. Assert

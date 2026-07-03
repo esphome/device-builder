@@ -124,9 +124,7 @@ def test_on_queued_update_change_matches_device(mock_device):
     controller._fire_device_updated = MagicMock()
 
     controller._on_queued_update_change(
-        "test_device",
-        configuration="test_device.yaml",
-        is_queued=True
+        "test_device", configuration="test_device.yaml", is_queued=True
     )
 
     # Verify the device flag was updated
@@ -153,9 +151,7 @@ def test_on_queued_update_change_skips_unmatched(mock_device):
     controller._fire_device_updated = MagicMock()
 
     controller._on_queued_update_change(
-        "other_device",
-        configuration="other_device.yaml",
-        is_queued=True
+        "other_device", configuration="other_device.yaml", is_queued=True
     )
 
     # Verify the device flag remains untouched
