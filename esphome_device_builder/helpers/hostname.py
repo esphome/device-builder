@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 
+def default_mdns_address(name: str) -> str:
+    """Return the mDNS address ESPHome derives from a device *name* by default."""
+    return f"{name}.local"
+
+
 def normalize_hostname(hostname: str) -> str:
     """
     Lower-case *hostname* and strip the trailing FQDN dot.

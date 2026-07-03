@@ -676,6 +676,16 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         "allow_custom_value": True,
         "options": [{"label": "0 (disable logging)", "value": "0"}, *_BAUD_RATE_OPTIONS],
     },
+    # ``display.mipi_spi.dc_pin`` is conditionally required — DC exists only on
+    # single/octal (ILI/ST) panels, never on quad AMOLED — enforced by a runtime
+    # validator, not the schema. esphome declares it ``cv.Optional`` via
+    # ``model.option`` and 2026.7.0's dumped schema reports it optional; 2026.6.4
+    # (the pinned version) dumps it required, so the frontend seeds a bogus
+    # ``dc_pin`` on quad displays. Forward-port the 2026.7.0 behaviour here; remove
+    # this override when the esphome dependency is bumped to >= 2026.7.0.
+    ("display.mipi_spi", "dc_pin"): {
+        "required": False,
+    },
 }
 
 # UART ``bus_constraints`` the schema can't express, filled into the captured

@@ -165,19 +165,27 @@ async def enqueue_install_chain(
     return compile_job
 
 
-def check_rename_lock(controller: FirmwareController, job: FirmwareJob) -> None:
+def check_rename_lock(
+    controller: FirmwareController,
+    job: FirmwareJob,
+    *,
+    exclude_job_ids: frozenset[str] = frozenset(),
+) -> None:
     """Reject *job* if an in-flight rename has either YAML name locked.
 
     A rename touches two filenames (the old it reads from + the
     new it creates on install success); conflicting jobs would
     fight for the same file or land work on a half-flashed device.
     Same-old-config ``RENAME`` retries pass through so supersede
-    can cancel-and-replace.
+    can cancel-and-replace. *exclude_job_ids* skips those actives
+    (a chain checking itself).
     """
     new_touches = _names_touched_by_job(job)
     if not new_touches:
         return
     for active in controller.state.active_jobs():
+        if active.job_id in exclude_job_ids:
+            continue
         if active.job_type != JobType.RENAME:
             continue
         # Same-old-config rename retry: let supersede do its thing.

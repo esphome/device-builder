@@ -11,6 +11,7 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_platform_from_yaml
+from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, WizardResponse
 from .helpers import _looks_binary, clean_friendly_name, slugify_hostname
@@ -180,11 +181,6 @@ async def create_device(  # noqa: C901, PLR0912
         clear_metadata=not overwriting,
     )
     return WizardResponse(configuration=filename)
-
-
-def default_mdns_address(name: str) -> str:
-    """Return the mDNS address ESPHome derives from a device *name* by default."""
-    return f"{name}.local"
 
 
 def save_device_storage(filename: str, storage: StorageJSON) -> None:

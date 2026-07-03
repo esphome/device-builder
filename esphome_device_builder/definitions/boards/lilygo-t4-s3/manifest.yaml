@@ -1,0 +1,123 @@
+id: lilygo-t4-s3
+name: LILYGO T4-S3
+description: >-
+  LILYGO T4-S3: an ESP32-S3 board with a 2.41" 450x600 RM690B0 AMOLED panel driven
+  over a quad-SPI (QSPI) bus. The panel is self-emissive, so there is no backlight;
+  brightness is set through the display. GPIO9 enables the panel power rail and is
+  supplied by the model. The board also carries a CST226SE touch panel and a PMU on a
+  shared I2C bus (SDA GPIO6 / SCL GPIO7), left free to assign.
+manufacturer: LILYGO
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+images:
+- https://raw.githubusercontent.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series/master/shell/images/T4-S3-AMOLED.png
+docs_url: https://github.com/Xinyuan-LilyGO/LilyGo-AMOLED-Series
+pins:
+- gpio: 0
+  available: false
+  occupied_by: boot_button
+  notes: BOOT button (strapping pin, active low)
+- gpio: 6
+  notes: Touch/PMU I2C SDA (CST226SE + power management)
+- gpio: 7
+  notes: Touch/PMU I2C SCL (CST226SE + power management)
+- gpio: 8
+  notes: CST226SE touch interrupt
+- gpio: 9
+  available: false
+  occupied_by: lcd_display
+  notes: AMOLED power enable
+- gpio: 10
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data1
+- gpio: 11
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 12
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data3
+- gpio: 13
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 14
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data0
+- gpio: 15
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display QSPI clock
+- gpio: 16
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data2
+- gpio: 17
+  notes: CST226SE touch reset
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 15
+      locked: true
+    data_pins:
+      value:
+      - 14
+      - 10
+      - 16
+      - 12
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: T4-S3
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 11
+      locked: true
+    reset_pin:
+      value: 13
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: boot_button
+  component_id: binary_sensor.gpio
+  fields:
+    name: BOOT Button
+    pin:
+      value:
+        number: 0
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: boot_button
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display

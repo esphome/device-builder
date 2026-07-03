@@ -1,0 +1,157 @@
+id: guition-jc3248w535
+name: Guition JC3248W535
+description: >-
+  Guition JC3248W535: an ESP32-S3 board with a 3.5" 320x480 AXS15231 LCD driven over a
+  quad-SPI (QSPI) bus, with an AXS15231 capacitive touch panel on I2C. The display CS
+  (GPIO45) is a strapping pin handled by the model. The board has 8MB octal PSRAM, which
+  the display buffer relies on, so it is part of the Display bundle.
+manufacturer: Guition
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+docs_url: https://esphome.io/components/display/mipi_spi/
+pins:
+- gpio: 1
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+- gpio: 4
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_sda
+  notes: Touch I2C SDA
+- gpio: 8
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_scl
+  notes: Touch I2C SCL
+- gpio: 21
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data0
+- gpio: 39
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data3
+- gpio: 40
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data2
+- gpio: 45
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS (strapping pin)
+- gpio: 47
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display QSPI clock
+- gpio: 48
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data1
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 47
+      locked: true
+    data_pins:
+      value:
+      - 21
+      - 48
+      - 40
+      - 39
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_psram
+  component_id: psram
+  fields:
+    mode: octal
+    speed: 80MHz
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 8
+      locked: true
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 1
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: JC3248W535
+    spi_id:
+      value: lcd_spi
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+  - lcd_psram
+- id: lcd_touch
+  component_id: touchscreen.axs15231
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    display: lcd_display
+    id: lcd_touch
+  requires:
+  - i2c_bus
+  - lcd_display
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_psram
+  - backlight_output
+  - display_backlight
+  - lcd_display
+- id: touchscreen_setup
+  name: Touchscreen (full setup)
+  component_ids:
+  - i2c_bus
+  - lcd_touch
+  - backlight_output
+  - display_backlight

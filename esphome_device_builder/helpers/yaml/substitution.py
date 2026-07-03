@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from ...models import ErrorCode
+from ..api import CommandError
 from .scalar import (
+    ESPHOME_NAME_PATH,
     _safe_yaml_scalar,
     _strip_yaml_quotes,
     is_plain_literal_scalar,
@@ -53,6 +56,29 @@ def is_retargetable_name(value: str) -> bool:
     the tag / indirection.
     """
     return is_plain_literal_scalar(value) or parse_substitution_ref(value) is not None
+
+
+def rewrite_rename_content(yaml_text: str, new_name: str, *, remedy: str) -> str:
+    """
+    Rewrite ``esphome.name`` (or its local substitution) to *new_name*.
+
+    Raises ``CommandError(INVALID_ARGS)`` (with *remedy* appended) when the
+    name isn't retargetable in place — missing leaf, tag, embedded
+    substitution, or a ``${var}`` defined outside this file — since
+    rewriting those would flatten the indirection to a literal.
+    """
+    current = read_yaml_scalar(yaml_text, ESPHOME_NAME_PATH)
+    var = parse_substitution_ref(current) if current is not None else None
+    # A pure ``${var}`` ref whose def isn't in this file would be flattened.
+    nonlocal_sub = var is not None and read_yaml_scalar(yaml_text, ("substitutions", var)) is None
+    if current is None or not is_retargetable_name(current) or nonlocal_sub:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            "Can't rename: esphome.name isn't a plain literal or a local "
+            "${substitution} (it may come from packages, an !include, or an "
+            f"embedded substitution). {remedy}",
+        )
+    return rewrite_name_or_substitution(yaml_text, ESPHOME_NAME_PATH, new_name)
 
 
 def rewrite_name_or_substitution(

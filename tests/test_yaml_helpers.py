@@ -34,6 +34,7 @@ import pytest
 import yaml
 from esphome.core import EsphomeError
 
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
     YamlUpsertNotSupportedError,
     _mapping_body_to_list_item,
@@ -51,6 +52,7 @@ from esphome_device_builder.helpers.yaml import (
     read_yaml_scalar,
     rewrite_api_encryption_key,
     rewrite_name_or_substitution,
+    rewrite_rename_content,
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
 )
@@ -60,6 +62,7 @@ from esphome_device_builder.helpers.yaml.scalar import (
     _plain_is_fast_safe,
     _plain_is_safe,
 )
+from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
     ComponentCatalogEntry,
@@ -226,6 +229,41 @@ def test_rewrite_name_or_substitution_handles_mixed_value_via_leaf() -> None:
     out = rewrite_name_or_substitution(yaml, ("esphome", "name"), "bedroom-bulb")
     assert "  prefix: my\n" in out  # untouched
     assert "  name: bedroom-bulb\n" in out  # leaf flipped to literal
+
+
+# ---------------------------------------------------------------------------
+# rewrite_rename_content
+# ---------------------------------------------------------------------------
+
+
+def test_rewrite_rename_content_rewrites_literal() -> None:
+    yaml = "esphome:\n  name: kitchen\n"
+    out = rewrite_rename_content(yaml, "bedroom-bulb", remedy="Fix it.")
+    assert out == "esphome:\n  name: bedroom-bulb\n"
+
+
+def test_rewrite_rename_content_redirects_through_local_substitution() -> None:
+    yaml = "substitutions:\n  devicename: kitchen\nesphome:\n  name: ${devicename}\n"
+    out = rewrite_rename_content(yaml, "bedroom-bulb", remedy="Fix it.")
+    assert "  devicename: bedroom-bulb\n" in out
+    assert "  name: ${devicename}\n" in out
+
+
+@pytest.mark.parametrize(
+    "yaml",
+    [
+        pytest.param("wifi:\n  ssid: x\n", id="missing_name"),
+        pytest.param("esphome:\n  name: kitchen_${suffix}\n", id="embedded_substitution"),
+        pytest.param("esphome:\n  name: ${devicename}\n", id="nonlocal_substitution"),
+        pytest.param("esphome:\n  name: !include name.yaml\n", id="tagged_value"),
+    ],
+)
+def test_rewrite_rename_content_refuses_non_retargetable(yaml: str) -> None:
+    """Shapes that would flatten indirection (or have no name) refuse with the remedy."""
+    with pytest.raises(CommandError) as excinfo:
+        rewrite_rename_content(yaml, "bedroom-bulb", remedy="Do the thing.")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert excinfo.value.message.endswith("Do the thing.")
 
 
 # ---------------------------------------------------------------------------

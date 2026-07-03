@@ -12,21 +12,19 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
+from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import (
-    ESPHOME_NAME_PATH,
     YamlUpsertNotSupportedError,
-    is_retargetable_name,
     parse_substitution_ref,
-    read_yaml_scalar,
-    rewrite_name_or_substitution,
+    rewrite_rename_content,
     upsert_yaml_leaf_under_top_block,
 )
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
 from . import archive
 from .firmware_sync import migrate_metadata_then_scan
-from .mutations_create import default_mdns_address, save_device_storage
+from .mutations_create import save_device_storage
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -307,34 +305,16 @@ async def _config_only_rename(
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
-    # ``esphome.name`` must be retargetable in place: a plain literal (rewrite
-    # the leaf) or a pure ``${var}`` ref whose definition lives in this file's
-    # ``substitutions:`` block (rewrite the def). A missing leaf, a tag, an
-    # embedded substitution (``kitchen_${suffix}``), or a ``${var}`` defined in
-    # a package / !include would flatten the indirection to a literal, so refuse
-    # those and steer to the OTA rename, which resolves them.
-    current = read_yaml_scalar(content, ESPHOME_NAME_PATH)
-    var = parse_substitution_ref(current) if current is not None else None
-    # A pure ``${var}`` ref whose def isn't in this file would be flattened.
-    nonlocal_sub = var is not None and read_yaml_scalar(content, ("substitutions", var)) is None
-    if current is None or not is_retargetable_name(current) or nonlocal_sub:
-        # The OTA rename resolves packages / includes / embedded substitutions,
-        # so steer there for a file-move rename. An in-place rename can't fall
-        # back to it (``esphome rename`` won't keep the same filename), so the
-        # only fix is editing the name to a plain value.
-        remedy = (
-            "Edit esphome.name to a plain value and try again."
-            if in_place
-            else "Bring the device online to rename it."
-        )
-        raise CommandError(
-            ErrorCode.INVALID_ARGS,
-            "Can't rename: esphome.name isn't a plain literal or a local "
-            "${substitution} (it may come from packages, an !include, or an "
-            f"embedded substitution). {remedy}",
-        )
-
-    new_content = rewrite_name_or_substitution(content, ESPHOME_NAME_PATH, new_name)
+    # The OTA rename resolves packages / includes / embedded substitutions,
+    # so steer there for a file-move rename. An in-place rename can't fall
+    # back to it (``esphome rename`` won't keep the same filename), so the
+    # only fix is editing the name to a plain value.
+    remedy = (
+        "Edit esphome.name to a plain value and try again."
+        if in_place
+        else "Bring the device online to rename it."
+    )
+    new_content = rewrite_rename_content(content, new_name, remedy=remedy)
 
     # Validate before any disk change so a bad rewrite never lands on disk.
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")

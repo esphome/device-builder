@@ -110,6 +110,28 @@ def test_rename_retry_on_same_old_config_is_allowed(
     controller._check_rename_lock(retry)
 
 
+def test_exclude_job_ids_skips_named_actives(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A chain checks its own tail without self-rejecting; other actives still lock."""
+    rename = _job("rn1", "kitchen.yaml", JobType.RENAME, new_name="livingroom")
+    other = _job("rn2", "garage.yaml", JobType.RENAME, new_name="shed")
+    controller = firmware_controller_factory(rename, with_settings=False)
+    controller.state.jobs[other.job_id] = other
+    new = _job("inst1", "livingroom.yaml", JobType.INSTALL)
+
+    with pytest.raises(CommandError):
+        factories.check_rename_lock(controller, new, exclude_job_ids=frozenset({"rn2"}))
+
+    factories.check_rename_lock(controller, new, exclude_job_ids=frozenset({"rn1"}))
+
+    clash_with_other = _job("inst2", "shed.yaml", JobType.INSTALL)
+    with pytest.raises(CommandError):
+        factories.check_rename_lock(
+            controller, clash_with_other, exclude_job_ids=frozenset({"rn1"})
+        )
+
+
 def test_lock_lifts_when_rename_terminates(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
