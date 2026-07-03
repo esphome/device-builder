@@ -91,23 +91,18 @@ async def enqueue(
 ) -> FirmwareJob:
     """Enqueue *job*, persist, fire JOB_QUEUED; cancel predecessors by default.
 
-    Fires JOB_QUEUED *before* cancelling any predecessor for the
-    same configuration so frontends recognise the resulting
-    JOB_CANCELLED as a supersede and drop the old entry silently.
-    Reset jobs (empty configuration) skip the supersede.
-
     ``supersede=False`` opts out — used by the ``firmware/clean``
     fan-out so per-peer remote-fan-out jobs don't cancel their
-    siblings or the just-queued local job (#608).
-
-    Rejects with ``CommandError(INVALID_ARGS)`` when an in-flight
-    RENAME has *job*'s configuration locked.
+    siblings or the just-queued local job (#608). Reset jobs (empty
+    configuration) skip the supersede too. Rejects (and rolls the
+    job out of ``state.jobs``) when an in-flight RENAME has *job*'s
+    configuration locked.
     """
-    controller._check_rename_lock(job)
-    _place_and_announce(controller, job)
-    if supersede and job.configuration:
-        await controller._supersede_active_jobs(job.configuration, exclude_job_ids={job.job_id})
-    await controller._persist_jobs()
+    await commit_chain(
+        controller,
+        job,
+        supersede_configuration=job.configuration if supersede else None,
+    )
     return job
 
 
@@ -148,39 +143,41 @@ async def enqueue_install_chain(
 async def commit_chain(
     controller: FirmwareController,
     head: FirmwareJob,
-    dependent: FirmwareJob,
+    dependent: FirmwareJob | None = None,
     *,
-    supersede_configuration: str,
+    supersede_configuration: str | None,
     lock_job: FirmwareJob | None = None,
     lock_exclude: frozenset[str] = frozenset(),
     stage: Callable[[], Awaitable[object]] | None = None,
 ) -> None:
-    """Commit a created head + dependent pair: lock-check, place both, supersede, persist.
+    """Commit created job(s): lock-check, place, supersede, persist — the single commit shape.
 
-    Both jobs exist in ``state.jobs`` before this runs, so a fast head
+    The jobs exist in ``state.jobs`` before this runs, so a fast head
     can't finish before its dependent and concurrent lock checks already
-    see the pair; a lock rejection (or *stage* failure) rolls both out.
+    see them; a lock rejection (or *stage* failure) rolls them out.
     Placement is dependent-first with no await between, then one supersede
-    (excluding the pair) + one persist — the single-commit shape that keeps
-    a rename acquired mid-await from stranding a half-queued pair on disk.
-    *stage* runs the rename chain's new-YAML write after the lock check so
-    a chain owned by another device can't be overwritten. The dependent
-    (unmet prerequisite) is held off its lane until the head lands it via
-    ``release_dependents``.
+    (excluding the committed jobs; ``None`` / empty skips it) + one
+    persist — which keeps a rename acquired mid-await from stranding a
+    half-queued pair on disk. *stage* runs the rename chain's new-YAML
+    write after the lock check so a chain owned by another device can't
+    be overwritten. A dependent (unmet prerequisite) is held off its lane
+    until the head lands it via ``release_dependents``.
     """
+    jobs = [dependent, head] if dependent is not None else [head]
     try:
         check_rename_lock(controller, lock_job or head, exclude_job_ids=lock_exclude)
         if stage is not None:
             await stage()
     except Exception:
-        controller.state.jobs.pop(dependent.job_id, None)
-        controller.state.jobs.pop(head.job_id, None)
+        for job in jobs:
+            controller.state.jobs.pop(job.job_id, None)
         raise
-    _place_and_announce(controller, dependent)
-    _place_and_announce(controller, head)
-    await controller._supersede_active_jobs(
-        supersede_configuration, exclude_job_ids={head.job_id, dependent.job_id}
-    )
+    for job in jobs:
+        _place_and_announce(controller, job)
+    if supersede_configuration:
+        await controller._supersede_active_jobs(
+            supersede_configuration, exclude_job_ids={job.job_id for job in jobs}
+        )
     await controller._persist_jobs()
 
 

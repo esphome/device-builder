@@ -194,12 +194,9 @@ class FirmwareState:
         flash; a CLEAN blocks only the flash reading its configuration's
         build tree — for a rename tail that's the *new* filename's.
         """
-        if job.job_type is JobType.UPLOAD:
-            guarded = job.configuration
-        elif job.is_rename_tail:
-            guarded = job.new_filename
-        else:
+        if not job.is_network_flash:
             return False
+        guarded = job.flash_configuration
         for other in self.active_jobs():
             if other.job_type is JobType.RESET_BUILD_ENV:
                 return True

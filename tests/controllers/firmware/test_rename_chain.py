@@ -476,3 +476,22 @@ def test_on_job_terminal_ignores_completed_tails_and_non_tails(
     rename_flow.on_job_terminal(controller, upload)
 
     controller._db.create_background_task.assert_not_called()
+
+
+async def test_rename_retargets_a_local_substitution_definition(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A ``${var}`` name rewrites the substitution def; the leaf keeps the indirection."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text(
+        "substitutions:\n  devicename: kitchen\nesphome:\n  name: ${devicename}\n",
+        encoding="utf-8",
+    )
+
+    head = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
+
+    new_content = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert "  devicename: livingroom\n" in new_content
+    assert "  name: ${devicename}\n" in new_content
+    # The flash fallback resolves the *old* name through the substitution.
+    assert _tail_of(controller, head).port == "kitchen.local"

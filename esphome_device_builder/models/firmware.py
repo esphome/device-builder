@@ -299,6 +299,11 @@ class FirmwareJob(DashboardModel):
         """The YAML filename a rename's ``new_name`` resolves to."""
         return f"{self.new_name}.yaml"
 
+    @property
+    def flash_configuration(self) -> str:
+        """The YAML whose build artifacts this job flashes (the renamed file for a tail)."""
+        return self.new_filename if self.is_rename_tail else self.configuration
+
     def reset(self) -> None:
         """
         Reset per-run state so the job is ready to be re-executed.

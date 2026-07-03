@@ -103,7 +103,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
         # A rename tail runs as a plain ``esphome upload`` of the *renamed*
         # YAML; ``job.configuration`` stays the old filename (rename lock,
         # display, cache args — the old device is the flash target).
-        target_configuration = job.new_filename if job.is_rename_tail else job.configuration
+        target_configuration = job.flash_configuration
         effective_job_type = JobType.UPLOAD if job.is_rename_tail else job.job_type
         # ``rel_path`` calls ``Path.resolve`` which does a sync
         # ``os.path.realpath`` — blocking the event loop. Push it
