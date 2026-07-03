@@ -57,11 +57,11 @@ class JobType(StrEnum):
     # ``platformio_cache/`` — forces the next compile to re-download
     # toolchains and re-fetch external components from scratch.
     RESET_BUILD_ENV = "reset_build_env"
-    # ``esphome rename`` — internally validates, writes a new YAML,
-    # compiles, OTA-installs the new firmware, and only then drops
-    # the old YAML. Routed through the firmware queue so it shows up
-    # in the firmware-tasks list with live output instead of running
-    # silently in the background.
+    # The flash-and-swap tail of a rename chain (``depends_on`` a
+    # COMPILE of the renamed YAML): OTA-uploads the new firmware to
+    # the old device address, then drops the old YAML. A persisted
+    # RENAME with no ``depends_on`` predates the decomposition and
+    # still runs the fused ``esphome rename`` CLI.
     RENAME = "rename"
 
 
@@ -278,6 +278,16 @@ class FirmwareJob(DashboardModel):
     def is_active(self) -> bool:
         """Whether the job is still queued or running (not yet terminal)."""
         return self.status in _ACTIVE_JOB_STATUSES
+
+    @property
+    def is_rename_tail(self) -> bool:
+        """
+        Whether this is the flash-and-swap tail of a rename chain.
+
+        A RENAME with no ``depends_on`` is a pre-decomposition persisted
+        job that still runs the fused ``esphome rename`` CLI.
+        """
+        return self.job_type is JobType.RENAME and bool(self.depends_on)
 
     def reset(self) -> None:
         """

@@ -29,6 +29,7 @@ from ...models import (
     JobType,
 )
 from ..config import _load_metadata, metadata_transaction
+from . import rename_flow
 from .constants import (
     _JOBS_KEY,
     _MAX_AUX_TERMINAL_JOBS,
@@ -157,6 +158,7 @@ def _restore_to_lane(controller: FirmwareController, job: FirmwareJob) -> None:
         prereq_status,
     )
     job.mark_terminal(JobStatus.CANCELLED, error=_PREREQUISITE_FAILED_ERROR)
+    rename_flow.on_job_terminal(controller, job)
 
 
 async def load_jobs(controller: FirmwareController) -> None:

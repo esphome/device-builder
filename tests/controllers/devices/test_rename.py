@@ -184,49 +184,58 @@ async def test_rename_in_place_ignores_config_only_flag(
 ) -> None:
     """An in-place rename rewrites the name even with the default (online) arg.
 
-    ``esphome rename`` can't keep the same filename, so the in-place case
-    routes to the config-only rewrite regardless of ``config_only``; the
-    firmware queue is never touched.
+    The OTA chain needs a distinct new filename to compile against, so the
+    in-place case routes to the config-only rewrite regardless of
+    ``config_only``; the firmware queue is never touched.
     """
     controller = make_controller(tmp_path)
     controller._db.firmware = MagicMock()
-    controller._db.firmware.rename = AsyncMock()
+    controller._db.firmware.rename_chain = AsyncMock()
     config = tmp_path / "test-1.yaml"
     config.write_text(_UNDERSCORE_YAML, encoding="utf-8")
 
     result = await controller.rename_device(configuration="test-1.yaml", new_name="test-1")
 
     assert result["job"] is None
-    controller._db.firmware.rename.assert_not_awaited()
+    controller._db.firmware.rename_chain.assert_not_awaited()
     assert read_yaml_scalar(config.read_text(encoding="utf-8"), ("esphome", "name")) == "test-1"
 
 
 async def test_rename_queues_firmware_job(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Pre-conditions clear → firmware queue, response carries the queued job."""
+    """Pre-conditions clear → firmware queue, response carries both chain halves."""
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text(_YAML, encoding="utf-8")
 
-    queued = FirmwareJob(
+    head = FirmwareJob(
         job_id="abc123",
+        configuration="livingroom.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    tail = FirmwareJob(
+        job_id="def456",
         configuration="kitchen.yaml",
         job_type=JobType.RENAME,
         status=JobStatus.QUEUED,
         new_name="livingroom",
+        depends_on="abc123",
     )
     controller._db.firmware = MagicMock()
-    controller._db.firmware.rename = AsyncMock(return_value=queued)
+    controller._db.firmware.rename_chain = AsyncMock(return_value=(head, tail))
 
     result = await controller.rename_device(configuration="kitchen.yaml", new_name="livingroom")
 
-    controller._db.firmware.rename.assert_awaited_once_with(
+    controller._db.firmware.rename_chain.assert_awaited_once_with(
         configuration="kitchen.yaml", new_name="livingroom"
     )
     assert result["configuration"] == "livingroom.yaml"
     assert result["job"]["job_id"] == "abc123"
-    assert result["job"]["job_type"] == JobType.RENAME
-    # No file-level rename; the queued job owns the rename + rollback.
+    assert result["job"]["job_type"] == JobType.COMPILE
+    assert result["tail_job"]["job_id"] == "def456"
+    assert result["tail_job"]["job_type"] == JobType.RENAME
+    # No file-level rename; the queued chain owns the rename + rollback.
     assert controller._scanner.calls == []
 
 

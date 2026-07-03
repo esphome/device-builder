@@ -22,6 +22,8 @@ from ...helpers.yaml import (
 )
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
+from ..firmware import rename_flow
+from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
 from .firmware_sync import migrate_metadata_then_scan
 from .mutations_create import save_device_storage
@@ -192,12 +194,14 @@ async def rename_device(
     """
     Rename a device configuration.
 
-    Default path delegates to ``esphome rename`` (compile + OTA install,
-    via the firmware queue); only succeeds against a reachable device.
-    ``config_only`` rewrites the YAML + ``esphome.name`` and renames the
-    file without compiling or flashing, for an offline device. An in-place
-    rename (target filename equals the device's own file) is always
-    config-only since ``esphome rename`` can't keep the same filename.
+    Default path queues a rename chain on the firmware queue — a COMPILE
+    of the renamed YAML (remote-eligible) plus a dependent flash of the
+    old device address that swaps the files on success; only succeeds
+    against a reachable device. ``config_only`` rewrites the YAML +
+    ``esphome.name`` and renames the file without compiling or flashing,
+    for an offline device. An in-place rename (target filename equals the
+    device's own file) is always config-only since the OTA chain needs a
+    new filename to compile against.
     """
     new_filename = f"{new_name}.yaml"
     old_path = controller._db.settings.rel_path(configuration)
@@ -226,21 +230,31 @@ async def rename_device(
         )
 
     # When the slugified target filename is the device's own file, the rename
-    # changes ``esphome.name`` without moving the file. ``esphome rename``
-    # refuses that (it requires a new filename), so route it in place. Compare
-    # lexically-normalized paths so a configuration with redundant segments
-    # (``./x.yaml``) still reads as the same file, without the blocking
-    # filesystem access ``Path.resolve()`` would do in this async path.
+    # changes ``esphome.name`` without moving the file — the OTA chain needs
+    # a distinct new filename to compile against, so route it in place.
+    # Compare lexically-normalized paths so a configuration with redundant
+    # segments (``./x.yaml``) still reads as the same file, without the
+    # blocking filesystem access ``Path.resolve()`` would do in this async
+    # path.
     in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
-    # Reject up-front if a *different* file already owns the target filename;
-    # ``esphome rename`` doesn't check collisions and would silently overwrite
-    # an unrelated device's config and OTA-flash firmware to the wrong device.
-    if not in_place and await run_in_executor(new_path.exists):
+    firmware = controller._db.firmware
+    # Reject up-front if a *different* file already owns the target filename —
+    # a rename chain would overwrite the other device's config and OTA-flash
+    # firmware to the wrong device. A retry of a still-active chain is exempt:
+    # the on-disk file is that chain's own write, superseded below.
+    if (
+        not in_place
+        and await run_in_executor(new_path.exists)
+        and not (
+            firmware is not None
+            and rename_flow.active_chain_owns_target(firmware, configuration, new_name)
+        )
+    ):
         msg = f"A device named {new_filename} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
-    # An in-place rename can't go through ``esphome rename`` (same filename),
-    # so it rewrites the name with no flash even when the caller wanted the OTA
+    # An in-place rename can't go through the OTA chain (same filename), so
+    # it rewrites the name with no flash even when the caller wanted the OTA
     # path. The firmware (which broadcasts the raw ``esphome.name``) keeps its
     # old hostname until the next install; the resulting expected/deployed hash
     # mismatch surfaces as a pending-changes indicator, same as the offline
@@ -254,11 +268,11 @@ async def rename_device(
             in_place=in_place,
         )
 
-    if controller._db.firmware is None:
+    if firmware is None:
         msg = "Firmware controller is unavailable"
         raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-    job = await controller._db.firmware.rename(configuration=configuration, new_name=new_name)
-    return {"configuration": new_filename, "job": job.to_dict()}
+    head, tail = await firmware.rename_chain(configuration=configuration, new_name=new_name)
+    return {"configuration": new_filename, "job": head.to_dict(), "tail_job": tail.to_dict()}
 
 
 async def _read_device_yaml_or_raise(controller: DevicesController, configuration: str) -> str:
@@ -305,16 +319,7 @@ async def _config_only_rename(
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
-    # The OTA rename resolves packages / includes / embedded substitutions,
-    # so steer there for a file-move rename. An in-place rename can't fall
-    # back to it (``esphome rename`` won't keep the same filename), so the
-    # only fix is editing the name to a plain value.
-    remedy = (
-        "Edit esphome.name to a plain value and try again."
-        if in_place
-        else "Bring the device online to rename it."
-    )
-    new_content = rewrite_rename_content(content, new_name, remedy=remedy)
+    new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
 
     # Validate before any disk change so a bad rewrite never lands on disk.
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")

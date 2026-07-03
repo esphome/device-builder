@@ -99,9 +99,10 @@ def build_cache_args(controller: FirmwareController, job: FirmwareJob) -> list[s
     """Return ``--mdns/--dns-address-cache`` args for *job*, or empty."""
     if job.job_type not in _OTA_ADDRESS_CACHE_JOB_TYPES or controller._db.devices is None:
         return []
-    # ``rename``'s ``port`` is the post-rename re-install target;
-    # the inner ``esphome run`` against the *old* address is
-    # always OTA, so skip the gate with ``None``.
+    # A rename's flash target is always the old device over OTA — the
+    # tail carries its resolved address in ``port``, the legacy fused
+    # CLI resolves it itself — so skip the port gate with ``None`` and
+    # let the old configuration's cache args through.
     port: str | None = None if job.job_type == JobType.RENAME else job.port
     return controller._db.devices.get_ota_address_cache_args(job.configuration, port)
 

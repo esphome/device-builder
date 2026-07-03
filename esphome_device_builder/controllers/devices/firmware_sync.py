@@ -44,8 +44,8 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         return
     job_type = job.job_type
     if job_type == JobType.RENAME:
-        # ``esphome rename`` deletes the old YAML and writes a
-        # new one with a different filename; full scan is the
+        # A completed rename swapped the old YAML for one with a
+        # different filename; full scan is the
         # simplest way to pick up both transitions. First migrate
         # the device's filename-keyed metadata (labels / comment /
         # board_id live in the sidecar) so the scan rebuilds it

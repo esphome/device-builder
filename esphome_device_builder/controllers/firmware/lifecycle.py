@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
 from ...models import EventType, FirmwareJob, JobStatus
+from . import rename_flow
 from .constants import _PREREQUISITE_FAILED_ERROR
 from .helpers import _fire_job_lifecycle, _trim_job_output
 
@@ -44,6 +45,7 @@ def finalize_terminal(
     _release_lane_slot(controller, job)
     _fire_job_lifecycle(job, controller._db.bus, _STATUS_TO_TERMINAL_EVENT[status])
     release_dependents(controller, job)
+    rename_flow.on_job_terminal(controller, job)
     # Wake an upload lane held behind a now-finished clean/reset (build gate).
     controller.state.build_gate.set()
 
