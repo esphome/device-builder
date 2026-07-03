@@ -37,6 +37,21 @@ async def test_spi_is_multi_conf(catalog: ComponentCatalog) -> None:
     assert body.multi_conf is True
 
 
+async def test_mipi_spi_dc_pin_is_optional(catalog: ComponentCatalog) -> None:
+    """The shipped ``display.mipi_spi`` `dc_pin` is not required.
+
+    DC exists only on single/octal panels, never on quad AMOLED — requiredness is a
+    runtime validator, and esphome declares the field ``cv.Optional``. esphome 2026.6.4
+    dumps it required, so the sync forward-ports 2026.7.0's optional behaviour; without
+    this the frontend seeds a bogus `dc_pin` on quad displays. Guard the override.
+    """
+    body = await catalog.get_body("display.mipi_spi")
+    assert body is not None
+    dc = next((e for e in body.config_entries if e.key == "dc_pin"), None)
+    assert dc is not None
+    assert dc.required is not True
+
+
 async def test_top_level_components_resolved(catalog: ComponentCatalog) -> None:
     """Top-level catalog ids land on esphome.io/components/<id>."""
     docs = await catalog.get_integration_docs()
