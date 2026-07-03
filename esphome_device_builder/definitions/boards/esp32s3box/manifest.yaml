@@ -1,0 +1,170 @@
+id: esp32s3box
+name: Espressif ESP32-S3-Box-3
+description: >-
+  Espressif ESP32-S3-Box-3 AIoT dev kit: a 2.4" 320x240 ILI9341 SPI display with
+  GT911 capacitive touch, dual-mic array, speaker and IMU. The recommended setup
+  covers the display + backlight + touch; the audio path (I2S mics/speaker + the
+  ES8311/ES7210 codec on I2C 8/18) is left for a manual voice-assistant build.
+  ESPHome ships one board id (esp32s3box) for the whole S3-Box family — the
+  display + backlight also fit the original ESP32-S3-Box, but that model uses a
+  TT21100 touch controller, so the GT911 Touchscreen bundle is Box-3 only.
+manufacturer: Espressif
+esphome:
+  platform: esp32
+  board: esp32s3box
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+- microphone
+- speaker
+- imu
+images:
+- https://raw.githubusercontent.com/espressif/esp-box/master/docs/_static/esp32_s3_box_3.png
+docs_url: https://github.com/espressif/esp-box
+pins:
+- gpio: 3
+  available: false
+  occupied_by: lcd_touch
+  notes: GT911 touch interrupt
+- gpio: 4
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC
+- gpio: 5
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 6
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 7
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 8
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_sda
+  notes: I2C SDA (touch + audio codec)
+- gpio: 18
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_scl
+  notes: I2C SCL (touch + audio codec)
+- gpio: 47
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+- gpio: 48
+  available: false
+  occupied_by: lcd_display
+  notes: Display + touch shared reset (inverted)
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 7
+      locked: true
+    mosi_pin:
+      value: 6
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: S3BOX
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 5
+      locked: true
+    dc_pin:
+      value: 4
+      locked: true
+    reset_pin:
+      value:
+        number: 48
+        inverted: true
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 47
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: lcd_touch
+  component_id: touchscreen.gt911
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    address: 0x5D
+    interrupt_pin:
+      value: 3
+      locked: true
+    display: lcd_display
+    id: lcd_touch
+  requires:
+  - i2c_bus
+  - lcd_display
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: touchscreen_setup
+  name: Touchscreen (full setup)
+  component_ids:
+  - i2c_bus
+  - lcd_touch
+  - backlight_output
+  - display_backlight
