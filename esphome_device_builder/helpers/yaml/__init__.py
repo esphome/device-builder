@@ -68,6 +68,7 @@ from .scalar import rewrite_yaml_scalar as rewrite_yaml_scalar
 from .substitution import is_retargetable_name as is_retargetable_name
 from .substitution import parse_substitution_ref as parse_substitution_ref
 from .substitution import rewrite_name_or_substitution as rewrite_name_or_substitution
+from .substitution import rewrite_rename_content as rewrite_rename_content
 from .top_block import (
     upsert_yaml_leaf_under_top_block as upsert_yaml_leaf_under_top_block,
 )
