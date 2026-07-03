@@ -472,3 +472,42 @@ def test_handle_deferred_compile_completion_no_op_when_device_not_found(
 
     # Bailed out safely before trying to update or arm anything
     firmware_controller._db.devices.set_queued_update.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_clean_disarms_queued_update(firmware_controller, mock_device):
+    """A wiped build tree can't flash; clean must clear the arm."""
+    mock_device.queued_update = True
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+
+    with patch(
+        "esphome_device_builder.controllers.firmware.controller.clean_mod.clean",
+        new_callable=AsyncMock,
+    ):
+        await firmware_controller.clean(configuration="test_device.yaml")
+
+    firmware_controller._db.devices.set_queued_update.assert_called_with(
+        "test_device.yaml", is_queued=False
+    )
+
+
+@pytest.mark.asyncio
+async def test_reset_build_env_disarms_all_queued_updates(firmware_controller, mock_device):
+    """The global wipe clears every device's arm, not just one config's."""
+    mock_device.queued_update = True
+    other = MagicMock(configuration="other.yaml", queued_update=True)
+    unarmed = MagicMock(configuration="idle.yaml", queued_update=False)
+    firmware_controller._db.devices.get_devices.return_value = [mock_device, other, unarmed]
+    firmware_controller._db.devices.set_queued_update = MagicMock()
+
+    with (
+        patch(
+            "esphome_device_builder.controllers.firmware.controller.factories.cancel_all_active_jobs",
+            new_callable=AsyncMock,
+        ),
+        patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock),
+    ):
+        await firmware_controller.reset_build_env()
+
+    cleared = {c.args[0] for c in firmware_controller._db.devices.set_queued_update.call_args_list}
+    assert cleared == {"test_device.yaml", "other.yaml"}

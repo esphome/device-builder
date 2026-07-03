@@ -218,6 +218,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/clean")
     async def clean(self, *, configuration: str, **kwargs: Any) -> FirmwareJob:
+        # Disarm a queued update — the wipe leaves nothing to flash, and a
+        # still-armed device would OTA-fail on every wake.
+        if self._db.devices is not None:
+            self._db.devices.set_queued_update(configuration, is_queued=False)
         return await clean_mod.clean(self, configuration=configuration)
 
     @api_command("firmware/clear_queued_update")
@@ -247,6 +251,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         Cancels every other in-flight job first so the wipe can't race a live
         compile or upload running concurrently on either lane.
         """
+        # Disarm every queued update — the wipe leaves nothing to flash,
+        # and a still-armed device would OTA-fail on every wake.
+        if self._db.devices is not None:
+            for device in self._db.devices.get_devices():
+                if device.queued_update:
+                    self._db.devices.set_queued_update(device.configuration, is_queued=False)
         job = self._create_job("", JobType.RESET_BUILD_ENV)
         # The global sweep re-raises on a state-out-of-sync RuntimeError; roll the
         # just-created RESET job back so the orphan can't wedge the upload lane
