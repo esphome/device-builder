@@ -18,6 +18,8 @@ from ...models import ErrorCode, FirmwareJob, JobStatus, JobType
 from . import factories
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
@@ -40,16 +42,17 @@ async def begin_rename(
     plus the dependent flash-and-swap tail.
     """
     new_filename = f"{new_name}.yaml"
-    old_path = controller._db.settings.rel_path(configuration)
-    new_path = controller._db.settings.rel_path(new_filename)
+    settings = controller._db.settings
 
-    def _read() -> str | None:
+    # ``rel_path`` resolves symlinks (blocking) — executor, like the runner.
+    def _read() -> tuple[Path, str | None]:
+        new_path = settings.rel_path(new_filename)
         try:
-            return old_path.read_text(encoding="utf-8")
+            return new_path, settings.rel_path(configuration).read_text(encoding="utf-8")
         except FileNotFoundError:
-            return None
+            return new_path, None
 
-    content = await run_in_executor(_read)
+    new_path, content = await run_in_executor(_read)
     if content is None:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
 
@@ -139,12 +142,11 @@ async def finalize_rename_swap(controller: FirmwareController, job: FirmwareJob)
     Failures log, never raise: the device already runs the renamed
     firmware, and failing here would revert-delete the matching YAML.
     """
-    old_path = controller._db.settings.rel_path(job.configuration)
-    old_storage = resolve_storage_path(job.configuration)
+    settings = controller._db.settings
 
     def _swap() -> None:
-        old_path.unlink(missing_ok=True)
-        old_storage.unlink(missing_ok=True)
+        settings.rel_path(job.configuration).unlink(missing_ok=True)
+        resolve_storage_path(job.configuration).unlink(missing_ok=True)
 
     try:
         await run_in_executor(_swap)
@@ -177,8 +179,8 @@ async def revert_rename(controller: FirmwareController, job: FirmwareJob) -> Non
                 continue
             if other.is_rename_tail and other.new_name == job.new_name:
                 return
-        new_path = controller._db.settings.rel_path(new_filename)
-        await run_in_executor(lambda: new_path.unlink(missing_ok=True))
+        settings = controller._db.settings
+        await run_in_executor(lambda: settings.rel_path(new_filename).unlink(missing_ok=True))
     _LOGGER.info("Rename of %s reverted; removed %s", job.configuration, new_filename)
     devices = controller._db.devices
     if devices is not None:
