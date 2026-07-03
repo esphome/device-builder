@@ -1,0 +1,119 @@
+id: lilygo-t-display-s3-amoled
+name: LILYGO T-Display-S3-AMOLED
+description: >-
+  LILYGO T-Display-S3-AMOLED: an ESP32-S3 board with a 1.91" 240x536 RM67162 AMOLED
+  panel driven over a quad-SPI (QSPI) bus. The panel is self-emissive, so there is no
+  backlight output; brightness is set through the display. GPIO38 enables the panel
+  power rail. GPIO21 is a user button on non-touch units and the CST816 touch interrupt
+  on touch units, so it is left free to assign.
+manufacturer: LILYGO
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+images:
+- https://raw.githubusercontent.com/Xinyuan-LilyGO/T-Display-S3-AMOLED/main/image/T-Display-S3-AMOLED.jpg
+docs_url: https://github.com/Xinyuan-LilyGO/T-Display-S3-AMOLED
+pins:
+- gpio: 0
+  available: false
+  occupied_by: boot_button
+  notes: BOOT button (strapping pin, active low)
+- gpio: 4
+  notes: Battery voltage ADC (on-board 1:2 divider)
+- gpio: 5
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data3
+- gpio: 6
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 7
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data1
+- gpio: 17
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 18
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data0
+- gpio: 21
+  notes: User button on non-touch units, CST816 touch interrupt on touch units
+- gpio: 38
+  available: false
+  occupied_by: lcd_display
+  notes: AMOLED power enable
+- gpio: 47
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display QSPI clock
+- gpio: 48
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data2
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 47
+      locked: true
+    data_pins:
+      value:
+      - 18
+      - 7
+      - 48
+      - 5
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: T-DISPLAY-S3-AMOLED
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 6
+      locked: true
+    reset_pin:
+      value: 17
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: boot_button
+  component_id: binary_sensor.gpio
+  fields:
+    name: BOOT Button
+    pin:
+      value:
+        number: 0
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: boot_button
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
