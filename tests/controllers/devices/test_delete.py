@@ -148,7 +148,7 @@ async def test_delete_tolerates_compiled_config_unlink_failure(
         await controller._delete_single("kitchen.yaml")
 
     assert not yaml_path.exists()
-    assert any("_unlink_compiled_config" in rec.message for rec in caplog.records)
+    assert any("unlink_compiled_config" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

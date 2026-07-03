@@ -10,7 +10,11 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.build_artifacts import wipe_device_build_dir
+from ...helpers.build_artifacts import (
+    unlink_compiled_config,
+    unlink_storage_sidecar,
+    wipe_device_build_dir,
+)
 from ...helpers.device_yaml import resolved_device_name
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
@@ -103,6 +107,8 @@ async def begin_rename(
             tail,
             supersede_configuration=new_filename,
             # The tail touches both names, so one check guards the chain.
+            # Self-exclusion is defensive; the same-config retry rule also
+            # skips the tail.
             lock_job=tail,
             lock_exclude=exclude,
             stage=_stage,
@@ -161,10 +167,11 @@ async def finalize_rename_swap(controller: FirmwareController, job: FirmwareJob)
 
     def _swap() -> None:
         # Build-tree wipe first — it resolves through the StorageJSON
-        # the next line unlinks.
+        # the sidecar unlink drops.
         wipe_device_build_dir(job.configuration)
         settings.rel_path(job.configuration).unlink(missing_ok=True)
-        resolve_storage_path(job.configuration).unlink(missing_ok=True)
+        unlink_storage_sidecar(job.configuration)
+        unlink_compiled_config(job.configuration)
 
     try:
         await run_in_executor(_swap)
@@ -200,13 +207,20 @@ async def revert_rename(controller: FirmwareController, job: FirmwareJob) -> Non
         settings = controller._db.settings
 
         def _cleanup() -> None:
-            # The head compile may have created the new name's build tree +
-            # StorageJSON; drop them with the YAML so nothing is orphaned.
+            # The head compile may have created the new name's build tree,
+            # StorageJSON, and validated-config cache; drop them with the
+            # YAML so nothing is orphaned.
             wipe_device_build_dir(new_filename)
-            resolve_storage_path(new_filename).unlink(missing_ok=True)
+            unlink_storage_sidecar(new_filename)
+            unlink_compiled_config(new_filename)
             settings.rel_path(new_filename).unlink(missing_ok=True)
 
-        await run_in_executor(_cleanup)
+        try:
+            await run_in_executor(_cleanup)
+        except OSError:
+            # Background task; a failed unlink must log, not vanish.
+            _LOGGER.warning("Rename revert could not remove %s", new_filename, exc_info=True)
+            return
     _LOGGER.info("Rename of %s reverted; removed %s", job.configuration, new_filename)
     devices = controller._db.devices
     if devices is not None:

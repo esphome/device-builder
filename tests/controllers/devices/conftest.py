@@ -618,7 +618,7 @@ def redirect_storage_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     def _ext(configuration: str) -> Path:
         return storage_dir / f"{configuration}.json"
 
-    # ``archive.py`` and ``helpers.py`` each import
+    # ``archive.py`` and ``helpers.build_artifacts`` each import
     # ``resolve_storage_path`` independently — rebinding only one
     # leaves the other running against the real CORE.
     monkeypatch.setattr(
@@ -626,7 +626,7 @@ def redirect_storage_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
         _ext,
     )
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.helpers.resolve_storage_path",
+        "esphome_device_builder.helpers.build_artifacts.resolve_storage_path",
         _ext,
     )
 
