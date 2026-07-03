@@ -1,0 +1,398 @@
+id: waveshare_esp32_p4_wifi6
+name: Waveshare ESP32-P4-WIFI6
+description: Compact Waveshare ESP32-P4-WIFI6 board with the ESP32-P4NRW32 (dual-core RISC-V
+  @ 400MHz, 32MB flash, 32MB PSRAM) and an ESP32-C6-MINI-1 co-processor. The ESP32-P4 has
+  no built-in radio; Wi-Fi 6 works out of the box through the onboard ESP32-C6 co-processor.
+  MIPI DSI display and MIPI CSI camera connectors, microSD slot, microphone + speaker header,
+  USB-C port plus 4-pin USB OTG header, 27 user GPIOs.
+manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-p4-wifi6-1.jpg
+esphome:
+  platform: esp32
+  board: esp32-p4-evboard
+  variant: esp32p4
+  framework: esp-idf
+hardware:
+  flash_size: 32MB
+  cpu_frequency: 400MHz
+  connectivity:
+  - wifi
+tags:
+- compact
+- sd-card
+- usb-c
+- camera
+- display
+- microphone
+docs_url: https://www.waveshare.com/wiki/ESP32-P4-WIFI6
+product_url: https://www.waveshare.com/esp32-p4-wifi6.htm
+featured_components:
+- id: c6_wifi
+  component_id: esp32_hosted
+  name: Wi-Fi via ESP32-C6 co-processor
+  description: Onboard ESP32-C6 running ESP-Hosted over SDIO gives the radio-less ESP32-P4
+    Wi-Fi 6. Installed automatically in every new device — the wifi block only works while
+    this is present. If the C6 never comes up on your unit, try active_high false.
+  fields:
+    type:
+      value: sdio
+      locked: true
+    variant:
+      value: ESP32C6
+      locked: true
+    active_high:
+      value: true
+    reset_pin:
+      value: GPIO54
+      locked: true
+    clk_pin:
+      value: GPIO18
+      locked: true
+    cmd_pin:
+      value: GPIO19
+      locked: true
+    d0_pin:
+      value: GPIO14
+      locked: true
+    d1_pin:
+      value: GPIO15
+      locked: true
+    d2_pin:
+      value: GPIO16
+      locked: true
+    d3_pin:
+      value: GPIO17
+      locked: true
+default_components:
+- c6_wifi
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - pwm
+  available: null
+- gpio: 1
+  label: GPIO1
+  features:
+  - pwm
+  available: null
+- gpio: 2
+  label: GPIO2
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 3
+  label: GPIO3
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 4
+  label: GPIO4
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 5
+  label: GPIO5
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 6
+  label: GPIO6
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 7
+  label: GPIO7
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 8
+  label: GPIO8
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 9
+  label: GPIO9
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 10
+  label: GPIO10
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 11
+  label: GPIO11
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 12
+  label: GPIO12
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 13
+  label: GPIO13
+  features:
+  - pwm
+  - touch
+  available: null
+  notes: Touch channel
+- gpio: 14
+  label: GPIO14
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (SDIO D0)
+- gpio: 15
+  label: GPIO15
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (SDIO D1)
+- gpio: 16
+  label: GPIO16
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (SDIO D2)
+- gpio: 17
+  label: GPIO17
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (SDIO D3)
+- gpio: 18
+  label: GPIO18
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (SDIO CLK)
+- gpio: 19
+  label: GPIO19
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (SDIO CMD)
+- gpio: 20
+  label: GPIO20
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH4
+- gpio: 21
+  label: GPIO21
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH5
+- gpio: 22
+  label: GPIO22
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH6
+- gpio: 23
+  label: GPIO23
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH7
+- gpio: 24
+  label: GPIO24
+  features:
+  - adc
+  - pwm
+  - usb_dm
+  available: null
+  notes: ADC1_CH8 — USB OTG D-
+- gpio: 25
+  label: GPIO25
+  features:
+  - adc
+  - pwm
+  - usb_dp
+  available: null
+  notes: ADC1_CH9 — USB OTG D+
+- gpio: 26
+  label: GPIO26
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH10
+- gpio: 27
+  label: GPIO27
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH11
+- gpio: 28
+  label: GPIO28
+  features:
+  - pwm
+  available: null
+- gpio: 29
+  label: GPIO29
+  features:
+  - pwm
+  available: null
+- gpio: 30
+  label: GPIO30
+  features:
+  - pwm
+  available: null
+- gpio: 31
+  label: GPIO31
+  features:
+  - pwm
+  available: null
+- gpio: 32
+  label: GPIO32
+  features:
+  - pwm
+  available: null
+- gpio: 33
+  label: GPIO33
+  features:
+  - pwm
+  available: null
+- gpio: 34
+  label: GPIO34
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 35
+  label: GPIO35
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 36
+  label: GPIO36
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 37
+  label: GPIO37
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 38
+  label: GPIO38
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 39
+  label: GPIO39
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 40
+  label: GPIO40
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 41
+  label: GPIO41
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 42
+  label: GPIO42
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 43
+  label: GPIO43
+  features:
+  - pwm
+  available: null
+- gpio: 44
+  label: GPIO44
+  features:
+  - pwm
+  available: null
+- gpio: 45
+  label: GPIO45
+  features:
+  - pwm
+  available: null
+- gpio: 46
+  label: GPIO46
+  features:
+  - pwm
+  available: null
+- gpio: 47
+  label: GPIO47
+  features:
+  - pwm
+  available: null
+- gpio: 48
+  label: GPIO48
+  features:
+  - pwm
+  available: null
+- gpio: 49
+  label: GPIO49
+  features:
+  - pwm
+  available: null
+- gpio: 50
+  label: GPIO50
+  features:
+  - pwm
+  available: null
+- gpio: 51
+  label: GPIO51
+  features:
+  - pwm
+  available: null
+- gpio: 52
+  label: GPIO52
+  features:
+  - pwm
+  available: null
+- gpio: 53
+  label: GPIO53
+  features:
+  - pwm
+  available: null
+- gpio: 54
+  label: GPIO54
+  features: []
+  available: false
+  occupied_by: ESP32-C6 co-processor (reset)

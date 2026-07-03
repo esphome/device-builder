@@ -403,11 +403,61 @@ async def test_get_components_featured_only_with_board_id(
     assert all(c.category == ComponentCategory.FEATURED for c in page.components)
 
 
-async def test_get_components_excludes_featured_by_default(
+async def test_get_components_all_leads_with_featured_for_board(
     catalog: ComponentCatalog,
 ) -> None:
-    """A regular catalog query never includes featured entries."""
+    """The unfiltered "All" listing for a board leads with its featured entries."""
     page = await catalog.get_components(board_id="sonoff-basic", limit=2000)
+    ids = {c.id for c in page.components}
+    assert "featured.sonoff-basic.relay" in ids
+    first_non_featured = next(
+        (i for i, c in enumerate(page.components) if c.category != ComponentCategory.FEATURED),
+        len(page.components),
+    )
+    assert first_non_featured > 0
+    assert all(
+        c.category == ComponentCategory.FEATURED for c in page.components[:first_non_featured]
+    )
+
+
+async def test_get_components_no_featured_without_board_id(
+    catalog: ComponentCatalog,
+) -> None:
+    """Without a board there are no recommendations to surface."""
+    page = await catalog.get_components(limit=2000)
+    assert all(not c.id.startswith("featured.") for c in page.components)
+
+
+async def test_get_components_specific_category_excludes_featured(
+    catalog: ComponentCatalog,
+) -> None:
+    """A specific non-``featured`` category stays clean of board recommendations."""
+    page = await catalog.get_components(board_id="sonoff-basic", category="sensor", limit=2000)
+    assert all(not c.id.startswith("featured.") for c in page.components)
+
+
+async def test_get_components_exclude_category_featured_wins(
+    catalog: ComponentCatalog,
+) -> None:
+    """``exclude_category=[featured]`` drops them from All, badge included."""
+    page = await catalog.get_components(
+        board_id="sonoff-basic", exclude_category=["featured"], limit=2000
+    )
+    assert all(not c.id.startswith("featured.") for c in page.components)
+    # The sidebar facet must not advertise what the list dropped.
+    assert all(c["id"] != ComponentCategory.FEATURED.value for c in page.categories)
+
+
+async def test_get_components_all_paginates_across_featured_boundary(
+    catalog: ComponentCatalog,
+) -> None:
+    """Featured lead page 0; a later offset pages into the regular entries."""
+    full = await catalog.get_components(board_id="sonoff-basic", limit=2000)
+    n_featured = sum(1 for c in full.components if c.category == ComponentCategory.FEATURED)
+    assert n_featured > 0
+    # A page starting past every featured entry holds only regular ones.
+    page = await catalog.get_components(board_id="sonoff-basic", offset=n_featured, limit=5)
+    assert page.total == full.total
     assert all(not c.id.startswith("featured.") for c in page.components)
 
 

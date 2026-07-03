@@ -1,0 +1,365 @@
+id: waveshare_esp32_s3_rgb_matrix
+name: Waveshare ESP32-S3 RGB Matrix Driver Board
+description: Waveshare HUB75 RGB-matrix driver board with an ESP32-S3-N32R16 (32MB flash,
+  16MB PSRAM) — drives external Waveshare Matrix-RGB panels of any size over the HUB75 connector.
+  Onboard QMI8658 6-axis IMU, SHTC3 temperature/humidity sensor, PCF85063 RTC with battery
+  connector, ES8311 + ES7210 audio codec with dual microphones and speaker connector, microSD
+  slot, USB-C port.
+manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-s3-rgb-matrix-1.jpg
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 32MB
+  cpu_frequency: 240MHz
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+- sd-card
+- usb-c
+- imu
+- microphone
+docs_url: https://www.waveshare.com/wiki/ESP32-S3-RGB-Matrix
+product_url: https://www.waveshare.com/esp32-s3-rgb-matrix.htm
+featured_components:
+- id: matrix_display
+  component_id: display.hub75
+  name: HUB75 RGB matrix output
+  description: The board's HUB75 connector for Waveshare Matrix-RGB panels — pins are fixed
+    by the PCB; set panel_width/panel_height to match the attached panel.
+  fields:
+    r1_pin:
+      value: GPIO4
+      locked: true
+    g1_pin:
+      value: GPIO5
+      locked: true
+    b1_pin:
+      value: GPIO6
+      locked: true
+    r2_pin:
+      value: GPIO7
+      locked: true
+    g2_pin:
+      value: GPIO15
+      locked: true
+    b2_pin:
+      value: GPIO16
+      locked: true
+    a_pin:
+      value: GPIO18
+      locked: true
+    b_pin:
+      value: GPIO8
+      locked: true
+    c_pin:
+      value: GPIO3
+      locked: true
+    d_pin:
+      value: GPIO42
+      locked: true
+    e_pin:
+      value: GPIO9
+      locked: true
+    lat_pin:
+      value: GPIO40
+      locked: true
+    oe_pin:
+      value: GPIO2
+      locked: true
+    clk_pin:
+      value: GPIO41
+      locked: true
+    panel_width:
+      value: 64
+      locked: false
+    panel_height:
+      value: 64
+      locked: false
+default_components:
+- matrix_display
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: BOOT button
+- gpio: 1
+  label: GPIO1
+  features: []
+  available: false
+  occupied_by: microSD CLK
+- gpio: 2
+  label: GPIO2
+  features: []
+  available: false
+  occupied_by: HUB75 OE
+- gpio: 3
+  label: GPIO3
+  features: []
+  available: false
+  occupied_by: HUB75 C
+- gpio: 4
+  label: GPIO4
+  features: []
+  available: false
+  occupied_by: HUB75 R1
+- gpio: 5
+  label: GPIO5
+  features: []
+  available: false
+  occupied_by: HUB75 G1
+- gpio: 6
+  label: GPIO6
+  features: []
+  available: false
+  occupied_by: HUB75 B1
+- gpio: 7
+  label: GPIO7
+  features: []
+  available: false
+  occupied_by: HUB75 R2
+- gpio: 8
+  label: GPIO8
+  features: []
+  available: false
+  occupied_by: HUB75 B
+- gpio: 9
+  label: GPIO9
+  features: []
+  available: false
+  occupied_by: HUB75 E
+- gpio: 10
+  label: GPIO10
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC1_CH9, Touch10
+- gpio: 11
+  label: GPIO11
+  features: []
+  available: false
+  occupied_by: Audio power-amp enable
+- gpio: 12
+  label: GPIO12
+  features: []
+  available: false
+  occupied_by: Audio I2S MCLK
+- gpio: 13
+  label: GPIO13
+  features:
+  - adc
+  - touch
+  - pwm
+  available: null
+  notes: ADC2_CH2, Touch13
+- gpio: 14
+  label: GPIO14
+  features: []
+  available: false
+  occupied_by: microSD SPI CS
+- gpio: 15
+  label: GPIO15
+  features: []
+  available: false
+  occupied_by: HUB75 G2
+- gpio: 16
+  label: GPIO16
+  features: []
+  available: false
+  occupied_by: HUB75 B2
+- gpio: 17
+  label: GPIO17
+  features: []
+  available: false
+  occupied_by: microSD D0
+- gpio: 18
+  label: GPIO18
+  features: []
+  available: false
+  occupied_by: HUB75 A
+- gpio: 19
+  label: GPIO19
+  features:
+  - adc
+  - pwm
+  - usb_dm
+  available: null
+  notes: ADC2_CH8, USB D- (USB-OTG)
+- gpio: 20
+  label: GPIO20
+  features:
+  - adc
+  - pwm
+  - usb_dp
+  available: null
+  notes: ADC2_CH9, USB D+ (USB-OTG)
+- gpio: 21
+  label: GPIO21
+  features: []
+  available: false
+  occupied_by: Audio I2S DOUT
+- gpio: 22
+  label: GPIO22
+  features:
+  - pwm
+  available: null
+- gpio: 23
+  label: GPIO23
+  features:
+  - pwm
+  available: null
+- gpio: 24
+  label: GPIO24
+  features:
+  - pwm
+  available: null
+- gpio: 25
+  label: GPIO25
+  features:
+  - pwm
+  available: null
+- gpio: 26
+  label: GPIO26
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 27
+  label: GPIO27
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 28
+  label: GPIO28
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 29
+  label: GPIO29
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 30
+  label: GPIO30
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 31
+  label: GPIO31
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 32
+  label: GPIO32
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 33
+  label: GPIO33
+  features:
+  - pwm
+  available: null
+- gpio: 34
+  label: GPIO34
+  features:
+  - pwm
+  - spi_cs
+  available: null
+  notes: Default SPI2 CS
+- gpio: 35
+  label: GPIO35
+  features:
+  - pwm
+  - spi_mosi
+  available: null
+  notes: Default SPI2 MOSI
+- gpio: 36
+  label: GPIO36
+  features:
+  - pwm
+  - spi_clk
+  available: null
+  notes: Default SPI2 CLK
+- gpio: 37
+  label: GPIO37
+  features:
+  - pwm
+  - spi_miso
+  available: null
+  notes: Default SPI2 MISO
+- gpio: 38
+  label: GPIO38
+  features: []
+  available: false
+  occupied_by: Audio I2S LRCLK
+- gpio: 39
+  label: GPIO39
+  features: []
+  available: false
+  occupied_by: Audio I2S DIN (microphone)
+- gpio: 40
+  label: GPIO40
+  features: []
+  available: false
+  occupied_by: HUB75 LAT
+- gpio: 41
+  label: GPIO41
+  features: []
+  available: false
+  occupied_by: HUB75 CLK
+- gpio: 42
+  label: GPIO42
+  features: []
+  available: false
+  occupied_by: HUB75 D
+- gpio: 43
+  label: GPIO43
+  features: []
+  available: false
+  occupied_by: Audio I2S BCLK
+- gpio: 44
+  label: GPIO44
+  features: []
+  available: false
+  occupied_by: microSD CMD
+- gpio: 45
+  label: GPIO45
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin (VDD_SPI voltage select)
+- gpio: 46
+  label: GPIO46
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin (boot mode)
+- gpio: 47
+  label: GPIO47
+  features: []
+  available: false
+  occupied_by: Onboard I2C SDA (QMI8658 / SHTC3 / PCF85063)
+- gpio: 48
+  label: GPIO48
+  features: []
+  available: false
+  occupied_by: Onboard I2C SCL (QMI8658 / SHTC3 / PCF85063)

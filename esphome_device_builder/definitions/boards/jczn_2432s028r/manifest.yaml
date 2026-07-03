@@ -1,0 +1,239 @@
+id: jczn_2432s028r
+name: ESP32-2432S028R CYD
+description: >-
+  ESP32-2432S028R "Cheap Yellow Display" (CYD): an ESP32-WROOM-32 board with a
+  2.8" 320x240 SPI display, XPT2046 resistive touch, RGB status LED, microSD
+  slot, LDR and speaker. The panel ships in three display-controller revisions
+  (ILI9341 / ST7789V / ILI9342) that share one GPIO map; pick the matching
+  display model if the default ILI9341 shows a blank or inverted screen.
+manufacturer: Sunton (JCZN)
+esphome:
+  platform: esp32
+  board: jczn_2432s028r
+  variant: esp32
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+- rgb-led
+- sd-card
+- speaker
+images:
+- https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display/assets/1562562/76c3d481-2523-4b6f-881c-2e29f9368cd0
+docs_url: https://github.com/witnessmenow/ESP32-Cheap-Yellow-Display
+pins:
+- gpio: 2
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC (strapping pin)
+- gpio: 13
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 14
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 15
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS (strapping pin)
+- gpio: 21
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+- gpio: 25
+  available: false
+  occupied_by: touch_spi
+  features:
+  - spi_clk
+  notes: Touch SPI CLK
+- gpio: 32
+  available: false
+  occupied_by: touch_spi
+  features:
+  - spi_mosi
+  notes: Touch SPI MOSI
+- gpio: 33
+  available: false
+  occupied_by: lcd_touch
+  notes: Touch CS
+- gpio: 36
+  available: false
+  occupied_by: lcd_touch
+  notes: Touch IRQ (input only)
+- gpio: 39
+  available: false
+  occupied_by: touch_spi
+  features:
+  - spi_miso
+  notes: Touch SPI MISO (input only)
+- gpio: 4
+  available: false
+  occupied_by: led_red
+  notes: RGB LED red (active low)
+- gpio: 16
+  available: false
+  occupied_by: led_green
+  notes: RGB LED green (active low)
+- gpio: 17
+  available: false
+  occupied_by: led_blue
+  notes: RGB LED blue (active low)
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 14
+      locked: true
+    mosi_pin:
+      value: 13
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: touch_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 25
+      locked: true
+    mosi_pin:
+      value: 32
+      locked: true
+    miso_pin:
+      value: 39
+      locked: true
+    id:
+      value: touch_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: ESP32-2432S028
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value:
+        number: 15
+        ignore_strapping_warning: true
+      locked: true
+    dc_pin:
+      value:
+        number: 2
+        ignore_strapping_warning: true
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: lcd_touch
+  component_id: touchscreen.xpt2046
+  fields:
+    spi_id:
+      value: touch_spi
+      locked: true
+    cs_pin:
+      value: 33
+      locked: true
+    interrupt_pin:
+      value: 36
+      locked: true
+    calibration:
+      value:
+        x_min: 280
+        x_max: 3860
+        y_min: 340
+        y_max: 3860
+    display: lcd_display
+    id: lcd_touch
+  requires:
+  - touch_spi
+  - lcd_display
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 21
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: led_red
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 4
+      locked: true
+    inverted: true
+    id: led_red
+- id: led_green
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 16
+      locked: true
+    inverted: true
+    id: led_green
+- id: led_blue
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 17
+      locked: true
+    inverted: true
+    id: led_blue
+- id: rgb_led
+  component_id: light.rgb
+  fields:
+    name: RGB LED
+    icon: mdi:led-on
+    restore_mode: ALWAYS_OFF
+    red: led_red
+    green: led_green
+    blue: led_blue
+    id: rgb_led
+  requires:
+  - led_red
+  - led_green
+  - led_blue
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: touchscreen_setup
+  name: Touchscreen (full setup)
+  component_ids:
+  - touch_spi
+  - lcd_touch
+  - backlight_output
+  - display_backlight
+- id: rgb_led_setup
+  name: RGB LED (full setup)
+  component_ids:
+  - led_red
+  - led_green
+  - led_blue
+  - rgb_led

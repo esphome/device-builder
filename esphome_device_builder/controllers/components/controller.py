@@ -348,11 +348,12 @@ class ComponentCatalog:
         the ADC-family sensors), so the Add-component picker can offer
         valid targets for a cross-domain ``references_component`` field.
 
-        Featured components are surfaced **only** when ``category``
-        explicitly includes ``featured`` and ``board_id`` is set — the
-        regular catalog listing never returns them. Mixed queries
-        (e.g. ``category=["featured", "sensor"]``) return featured
-        entries first followed by the matching regular entries.
+        Featured components lead the results whenever ``board_id`` is
+        set and the filter doesn't scope to a specific non-``featured``
+        category — so the unfiltered "All" listing returns them first,
+        then the regular entries. A specific ``category`` (e.g.
+        ``"sensor"``) drops them unless it names ``featured``; an
+        explicit ``exclude_category=["featured"]`` always wins.
 
         Response entries are the slim :class:`ComponentCatalogIndexEntry`
         shape; the per-field ``config_entries`` tree is fetched on
@@ -363,14 +364,21 @@ class ComponentCatalog:
         include_set = _as_category_set(category) if category else None
         exclude_set = _as_category_set(exclude_category) if exclude_category else None
 
-        include_featured = (
-            include_set is not None
-            and ComponentCategory.FEATURED.value in include_set
-            and board_id is not None
+        # Board id when featured entries apply, else None (one ``is not None``
+        # test, and mypy narrows it for the call below). Featured lead the
+        # results whenever a board is set and the filter isn't scoped to a
+        # specific non-featured category; the "All" listing (no category)
+        # includes them too, and an explicit exclude of ``featured`` always wins.
+        featured_board = (
+            board_id
+            if board_id is not None
+            and (include_set is None or ComponentCategory.FEATURED.value in include_set)
+            and (exclude_set is None or ComponentCategory.FEATURED.value not in exclude_set)
+            else None
         )
         featured_entries = (
-            self._featured_components_for_board(board_id, query)
-            if include_featured and board_id is not None
+            self._featured_components_for_board(featured_board, query)
+            if featured_board is not None
             else []
         )
         # ``provides`` narrows both result sets so a featured-category query
@@ -661,7 +669,12 @@ class ComponentCatalog:
             ):
                 continue
             counts[comp.category] = counts.get(comp.category, 0) + 1
-        if board_id:
+        # Honor an explicit exclude of featured, mirroring the results path, so
+        # the sidebar badge doesn't advertise recommendations the list drops.
+        featured_excluded = (
+            exclude_set is not None and ComponentCategory.FEATURED.value in exclude_set
+        )
+        if board_id and not featured_excluded:
             # Featured rides on the same query so the badge drops to
             # the matches (or vanishes) while the user is searching.
             if query_lower is not None:

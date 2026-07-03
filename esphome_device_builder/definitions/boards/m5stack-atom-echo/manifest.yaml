@@ -1,0 +1,130 @@
+id: m5stack-atom-echo
+name: M5Stack Atom Echo
+description: >-
+  M5Stack Atom Echo: a tiny (24x24mm) ESP32-PICO-D4 voice-satellite dev kit with
+  an SPM1423 PDM microphone, an NS4168 I2S speaker, an SK6812 RGB status LED and a
+  programmable button. The recommended setup wires the mic + speaker + LED +
+  button; add a `voice_assistant` on top for a Home Assistant satellite. Shares
+  the m5stack-atom board id with the Atom Lite/Matrix, which have no audio.
+manufacturer: M5Stack
+esphome:
+  platform: esp32
+  board: m5stack-atom
+  variant: esp32
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- compact
+- microphone
+- speaker
+- rgb-led
+images:
+- https://m5stack-doc.oss-cn-shenzhen.aliyuncs.com/676/C008-C_01.jpg
+docs_url: https://docs.m5stack.com/en/atom/atomecho
+pins:
+- gpio: 19
+  available: false
+  occupied_by: i2s_bus
+  notes: I2S bit clock (BCLK)
+- gpio: 22
+  available: false
+  occupied_by: speaker_1
+  notes: I2S speaker data out (NS4168)
+- gpio: 23
+  available: false
+  occupied_by: mic_1
+  notes: PDM mic data in (SPM1423)
+- gpio: 27
+  available: false
+  occupied_by: status_led
+  notes: SK6812 RGB status LED
+- gpio: 33
+  available: false
+  occupied_by: i2s_bus
+  notes: I2S word/LR clock (LRCLK)
+- gpio: 39
+  available: false
+  occupied_by: button
+  notes: Programmable button (input only, active low)
+featured_components:
+- id: i2s_bus
+  component_id: i2s_audio
+  fields:
+    i2s_bclk_pin:
+      value: 19
+      locked: true
+    i2s_lrclk_pin:
+      value: 33
+      locked: true
+    id:
+      value: i2s_bus
+      locked: true
+- id: mic_1
+  component_id: microphone.i2s_audio
+  fields:
+    i2s_audio_id:
+      value: i2s_bus
+      locked: true
+    i2s_din_pin:
+      value: 23
+      locked: true
+    adc_type: external
+    pdm: true
+    id: mic_1
+  requires:
+  - i2s_bus
+- id: speaker_1
+  component_id: speaker.i2s_audio
+  fields:
+    i2s_audio_id:
+      value: i2s_bus
+      locked: true
+    i2s_dout_pin:
+      value: 22
+      locked: true
+    dac_type: external
+    id: speaker_1
+  requires:
+  - i2s_bus
+- id: status_led
+  component_id: light.esp32_rmt_led_strip
+  fields:
+    name: Status LED
+    icon: mdi:led-on
+    restore_mode: ALWAYS_OFF
+    pin:
+      value: 27
+      locked: true
+    chipset: SK6812
+    rgb_order: GRB
+    num_leds: 1
+    id: status_led
+- id: button
+  component_id: binary_sensor.gpio
+  fields:
+    name: Button
+    pin:
+      value:
+        number: 39
+        inverted: true
+      locked: true
+    id: button
+featured_bundles:
+- id: mic_speaker_setup
+  name: Microphone + Speaker (full setup)
+  component_ids:
+  - i2s_bus
+  - mic_1
+  - speaker_1
+- id: status_led_setup
+  name: Status LED (full setup)
+  component_ids:
+  - status_led
+- id: button_setup
+  name: Button (full setup)
+  component_ids:
+  - button

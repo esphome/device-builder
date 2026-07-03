@@ -57,9 +57,9 @@ class MqttBrokerConfig:
     password: str | None = None
 
     @property
-    def key(self) -> tuple[str, int]:
-        """Identifier for grouping devices to a single broker session."""
-        return (self.host, self.port)
+    def key(self) -> tuple[str, int, str | None]:
+        """Identifier for grouping devices to a single broker session (host, port, username)."""
+        return (self.host, self.port, self.username)
 
 
 class DeviceMqttMonitor:

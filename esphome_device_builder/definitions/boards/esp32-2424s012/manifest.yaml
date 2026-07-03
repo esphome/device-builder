@@ -1,0 +1,161 @@
+id: esp32-2424s012
+name: ESP32-2424S012 Round CYD 1.28"
+description: >-
+  ESP32-2424S012: a 1.28" 240x240 round "Cheap Yellow Display" — an ESP32-C3 board
+  with a GC9A01A round SPI display and a CST816 capacitive touch panel. The panel
+  has no reset line, and display DC (GPIO2) is an ESP32-C3 strapping pin handled with
+  ignore_strapping_warning.
+manufacturer: Guition
+esphome:
+  platform: esp32
+  board: esp32-c3-devkitm-1
+  variant: esp32c3
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+docs_url: https://github.com/rzeldent/esp32-smartdisplay
+pins:
+- gpio: 0
+  available: false
+  occupied_by: lcd_touch
+  notes: CST816 touch interrupt (boot pin)
+- gpio: 1
+  available: false
+  occupied_by: lcd_touch
+  notes: CST816 touch reset
+- gpio: 2
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC (strapping pin)
+- gpio: 3
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+- gpio: 4
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_sda
+  notes: Touch I2C SDA
+- gpio: 5
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_scl
+  notes: Touch I2C SCL
+- gpio: 6
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI SCLK
+- gpio: 7
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 10
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 6
+      locked: true
+    mosi_pin:
+      value: 7
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: ESP32-2424S012
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 10
+      locked: true
+    dc_pin:
+      value:
+        number: 2
+        ignore_strapping_warning: true
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 3
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: lcd_touch
+  component_id: touchscreen.cst816
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    interrupt_pin:
+      value: 0
+      locked: true
+    reset_pin:
+      value: 1
+      locked: true
+    display: lcd_display
+    id: lcd_touch
+  requires:
+  - i2c_bus
+  - lcd_display
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: touchscreen_setup
+  name: Touchscreen (full setup)
+  component_ids:
+  - i2c_bus
+  - lcd_touch
+  - backlight_output
+  - display_backlight

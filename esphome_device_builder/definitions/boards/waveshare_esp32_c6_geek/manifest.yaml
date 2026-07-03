@@ -1,0 +1,252 @@
+id: waveshare_esp32_c6_geek
+name: Waveshare ESP32-C6-GEEK
+description: USB-stick style ESP32-C6 development board (Wi-Fi 6 + BLE 5, 16MB flash) with
+  a built-in USB-A plug, onboard 1.14in 240x135 ST7789 LCD, microSD slot sharing the LCD SPI
+  bus, BOOT/user button, and UART / GPIO / I2C headers.
+manufacturer: Waveshare
+images:
+- https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-c6-geek-1.jpg
+esphome:
+  platform: esp32
+  board: esp32-c6-devkitc-1
+  variant: esp32c6
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  cpu_frequency: 160MHz
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- compact
+- display
+- sd-card
+docs_url: https://www.waveshare.com/wiki/ESP32-C6-GEEK
+product_url: https://www.waveshare.com/esp32-c6-geek.htm
+featured_components:
+- id: spi_bus
+  component_id: spi
+  name: Onboard SPI bus
+  description: SPI bus wired to the onboard 1.14in LCD and the microSD slot.
+  fields:
+    clk_pin:
+      value: GPIO1
+      locked: true
+    mosi_pin:
+      value: GPIO2
+      locked: true
+- id: onboard_display
+  component_id: display.st7789v
+  name: Onboard 1.14in LCD
+  description: 240x135 ST7789 LCD on the onboard SPI bus. Pin mapping follows the community-verified
+    ESPHome config for this board.
+  requires:
+  - spi_bus
+  fields:
+    model:
+      value: CUSTOM
+      locked: false
+    cs_pin:
+      value: GPIO5
+      locked: true
+    dc_pin:
+      value: GPIO3
+      locked: true
+    reset_pin:
+      value: GPIO4
+      locked: true
+    backlight_pin:
+      value: GPIO6
+      locked: true
+    width:
+      value: 240
+      locked: false
+    height:
+      value: 135
+      locked: false
+    offset_width:
+      value: 40
+      locked: false
+    offset_height:
+      value: 52
+      locked: false
+default_components:
+- spi_bus
+- onboard_display
+pins:
+- gpio: 0
+  label: GPIO0
+  features:
+  - adc
+  - pwm
+  available: null
+  notes: ADC1_CH0
+- gpio: 1
+  label: GPIO1
+  features: []
+  available: false
+  occupied_by: LCD SPI SCLK (shared with microSD)
+- gpio: 2
+  label: GPIO2
+  features: []
+  available: false
+  occupied_by: LCD SPI MOSI (shared with microSD)
+- gpio: 3
+  label: GPIO3
+  features: []
+  available: false
+  occupied_by: LCD DC
+- gpio: 4
+  label: GPIO4
+  features: []
+  available: false
+  occupied_by: LCD Reset
+- gpio: 5
+  label: GPIO5
+  features: []
+  available: false
+  occupied_by: LCD CS
+- gpio: 6
+  label: GPIO6
+  features: []
+  available: false
+  occupied_by: LCD Backlight
+- gpio: 7
+  label: GPIO7
+  features:
+  - pwm
+  - i2c_scl
+  available: null
+  notes: Default I2C SCL
+- gpio: 8
+  label: GPIO8
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 9
+  label: GPIO9
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: BOOT / user button (active low)
+- gpio: 10
+  label: GPIO10
+  features:
+  - pwm
+  available: null
+- gpio: 11
+  label: GPIO11
+  features:
+  - pwm
+  available: null
+- gpio: 12
+  label: GPIO12
+  features:
+  - pwm
+  - usb_dm
+  available: null
+  notes: USB Serial/JTAG D-
+- gpio: 13
+  label: GPIO13
+  features:
+  - pwm
+  - usb_dp
+  available: null
+  notes: USB Serial/JTAG D+
+- gpio: 14
+  label: GPIO14
+  features:
+  - pwm
+  available: null
+- gpio: 15
+  label: GPIO15
+  features:
+  - pwm
+  - strapping
+  available: null
+  notes: Strapping pin
+- gpio: 16
+  label: GPIO16
+  features:
+  - pwm
+  - uart_tx
+  available: null
+  notes: Default UART0 TX
+- gpio: 17
+  label: GPIO17
+  features:
+  - pwm
+  - uart_rx
+  available: null
+  notes: Default UART0 RX
+- gpio: 18
+  label: GPIO18
+  features:
+  - pwm
+  available: null
+- gpio: 19
+  label: GPIO19
+  features:
+  - pwm
+  available: null
+- gpio: 20
+  label: GPIO20
+  features:
+  - pwm
+  available: null
+- gpio: 21
+  label: GPIO21
+  features:
+  - pwm
+  available: null
+- gpio: 22
+  label: GPIO22
+  features:
+  - pwm
+  available: null
+- gpio: 23
+  label: GPIO23
+  features:
+  - pwm
+  available: null
+- gpio: 24
+  label: GPIO24
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 25
+  label: GPIO25
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 26
+  label: GPIO26
+  features: []
+  available: false
+  occupied_by: SPI Flash
+  notes: SPI Flash — do not use
+- gpio: 27
+  label: GPIO27
+  features:
+  - pwm
+  available: null
+- gpio: 28
+  label: GPIO28
+  features:
+  - pwm
+  available: null
+- gpio: 29
+  label: GPIO29
+  features:
+  - pwm
+  available: null
+- gpio: 30
+  label: GPIO30
+  features:
+  - pwm
+  available: null

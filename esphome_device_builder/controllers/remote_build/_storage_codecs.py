@@ -15,10 +15,11 @@ entirely) is load-bearing enough to live in its own seam.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from ...helpers.json import dumps as json_dumps
 from ...helpers.json import loads as json_loads
-from ...models import OffloaderRemoteBuildSettings, ReceiverPeers
+from ...models import DashboardModel, OffloaderRemoteBuildSettings, ReceiverPeers
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,44 +32,31 @@ OFFLOADER_PAIRINGS_FILE = ".offloader_pairings.json"
 RECEIVER_PEERS_FILE = ".receiver_peers.json"
 
 
-def encode_pairings(value: OffloaderRemoteBuildSettings) -> bytes:
-    """Serialise the offloader-side pairings shape for the store."""
-    return json_dumps(value.to_dict())
+def _soft_recover_codec[T: DashboardModel](
+    model: type[T], label: str
+) -> tuple[Callable[[T], bytes], Callable[[bytes], T]]:
+    """Build an (encoder, decoder) pair for a model-backed store that soft-recovers.
 
-
-def decode_pairings(raw: bytes) -> OffloaderRemoteBuildSettings:
-    """Decode the offloader-side pairings shape from the store.
-
-    Defaults on a malformed blob rather than crashing dashboard
-    startup. The ``Store`` lets decoder errors propagate so a
-    consumer can pick the recovery posture; here we want
-    "soft-recover to empty" because a corrupt pairings file
-    means every offloader has to re-pair (annoying) but isn't
-    fatal, whereas crashing the dashboard would lock the user
-    out entirely.
+    The decoder defaults to an empty ``model()`` on a malformed blob rather than
+    letting the error propagate: a corrupt *label* file means every paired peer
+    has to re-pair (annoying, not fatal), whereas crashing dashboard startup
+    would lock the user out entirely.
     """
-    try:
-        return OffloaderRemoteBuildSettings.from_dict(json_loads(raw))
-    except Exception:
-        _LOGGER.exception("Corrupt offloader pairings file; resetting to empty")
-        return OffloaderRemoteBuildSettings()
+
+    def encode(value: T) -> bytes:
+        return json_dumps(value.to_dict())
+
+    def decode(raw: bytes) -> T:
+        try:
+            return model.from_dict(json_loads(raw))
+        except Exception:
+            _LOGGER.exception("Corrupt %s file; resetting to empty", label)
+            return model()
+
+    return encode, decode
 
 
-def encode_peers(value: ReceiverPeers) -> bytes:
-    """Serialise the receiver-side peers shape for the store."""
-    return json_dumps(value.to_dict())
-
-
-def decode_peers(raw: bytes) -> ReceiverPeers:
-    """Decode the receiver-side peers shape from the store.
-
-    Soft-recover to empty on malformed blobs, mirror of
-    :func:`decode_pairings`. A corrupt peers file means every
-    paired offloader has to re-pair — annoying, not fatal — so
-    crashing dashboard startup is the wrong recovery posture.
-    """
-    try:
-        return ReceiverPeers.from_dict(json_loads(raw))
-    except Exception:
-        _LOGGER.exception("Corrupt receiver peers file; resetting to empty")
-        return ReceiverPeers()
+encode_pairings, decode_pairings = _soft_recover_codec(
+    OffloaderRemoteBuildSettings, "offloader pairings"
+)
+encode_peers, decode_peers = _soft_recover_codec(ReceiverPeers, "receiver peers")

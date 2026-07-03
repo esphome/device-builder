@@ -25,6 +25,18 @@ def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:
     return session_component_catalog
 
 
+async def test_spi_is_multi_conf(catalog: ComponentCatalog) -> None:
+    """The shipped ``spi`` entry is multi-instance.
+
+    ESPHome's ``spi:`` accepts a list of buses (``cv.ensure_list``) but doesn't set
+    ``MULTI_CONF``, so a naive sync stamps it single-instance and the merge drops a
+    board's second SPI bus (CYD display + separate touch bus). Guard the override.
+    """
+    body = await catalog.get_body("spi")
+    assert body is not None
+    assert body.multi_conf is True
+
+
 async def test_top_level_components_resolved(catalog: ComponentCatalog) -> None:
     """Top-level catalog ids land on esphome.io/components/<id>."""
     docs = await catalog.get_integration_docs()

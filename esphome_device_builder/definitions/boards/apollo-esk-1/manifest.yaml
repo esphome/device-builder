@@ -171,6 +171,7 @@ featured_components:
     id: accessory_power
     pin:
       value: 4
+      locked: true
     name: Accessory Power
     restore_mode: ALWAYS_ON
     setup_priority: 2000
