@@ -122,7 +122,8 @@ def active_chain_owns_target(
     """Whether an active rename tail for *configuration* already targets *new_name*.
 
     A retry then passes the target-exists check: the on-disk file is the
-    superseded chain's own write, not a foreign device's.
+    superseded chain's own write, not a foreign device's. Linear scan;
+    job cardinality is bounded by the queue's history retention.
     """
     return any(
         job.is_rename_tail and job.configuration == configuration and job.new_name == new_name
