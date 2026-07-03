@@ -282,10 +282,9 @@ class FirmwareJob(DashboardModel):
     @property
     def is_rename_tail(self) -> bool:
         """
-        Whether this is the flash-and-swap tail of a rename chain.
+        Whether this is a rename chain's flash-and-swap tail.
 
-        A RENAME with no ``depends_on`` is a pre-decomposition persisted
-        job that still runs the fused ``esphome rename`` CLI.
+        False for a fused ``esphome rename`` job (no ``depends_on``).
         """
         return self.job_type is JobType.RENAME and bool(self.depends_on)
 

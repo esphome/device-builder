@@ -170,7 +170,7 @@ async def finalize_rename_swap(controller: FirmwareController, job: FirmwareJob)
         await run_in_executor(
             lambda: remove_device_files(settings.rel_path(job.configuration), job.configuration)
         )
-    except OSError:
+    except Exception:
         _LOGGER.warning(
             "Rename %s -> %s flashed but the old files could not be removed",
             job.configuration,

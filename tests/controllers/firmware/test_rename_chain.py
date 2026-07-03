@@ -509,16 +509,18 @@ async def test_rename_chain_uses_caller_supplied_content(
     assert "comment: threaded" in written
 
 
+@pytest.mark.parametrize("boom", [OSError("read-only fs"), RuntimeError("wat")])
 async def test_finalize_swap_failure_logs_and_never_raises(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
+    boom: Exception,
 ) -> None:
     """The device already runs the renamed firmware; a swap error must not fail the job."""
     controller = firmware_controller_factory()
 
     def _boom(_path: object, _configuration: str) -> None:
-        raise OSError("read-only fs")
+        raise boom
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.firmware.rename_flow.remove_device_files", _boom
