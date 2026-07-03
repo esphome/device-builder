@@ -18,12 +18,11 @@ async def resolve_old_device_address(
     controller: FirmwareController, configuration: str, fallback_name: str
 ) -> str:
     """
-    Return the OTA address a rename flashes — the *pre-rename* device.
+    Return the OTA address a rename flashes (the pre-rename device).
 
-    ``StorageJSON.address`` wins (what the fused CLI resolved as
-    ``CORE.address``, honouring ``wifi.use_address`` / ``manual_ip``
-    from the last build); then the scanner's live hostname / IP; then
-    the mDNS default for *fallback_name*.
+    Priority: ``StorageJSON.address`` (the fused CLI's ``CORE.address``,
+    honours ``wifi.use_address``), then scanner hostname / IP, then the
+    mDNS default for *fallback_name*.
     """
     storage = await run_in_executor(lambda: StorageJSON.load(resolve_storage_path(configuration)))
     # Annotated hop: upstream ``StorageJSON`` is untyped, so ``.address`` is Any.

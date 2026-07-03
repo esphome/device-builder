@@ -177,9 +177,8 @@ def check_rename_lock(
     new it creates on install success); conflicting jobs would
     fight for the same file or land work on a half-flashed device.
     Same-old-config ``RENAME`` retries pass through so supersede
-    can cancel-and-replace. *exclude_job_ids* skips the named
-    actives so a multi-job chain can be checked without
-    self-rejecting against its own halves.
+    can cancel-and-replace. *exclude_job_ids* skips those actives
+    (a chain checking itself).
     """
     new_touches = _names_touched_by_job(job)
     if not new_touches:

@@ -62,13 +62,10 @@ def rewrite_rename_content(yaml_text: str, new_name: str, *, remedy: str) -> str
     """
     Rewrite ``esphome.name`` (or its local substitution) to *new_name*.
 
-    ``esphome.name`` must be retargetable in place: a plain literal
-    (rewrite the leaf) or a pure ``${var}`` ref whose definition lives in
-    this file's ``substitutions:`` block (rewrite the def). A missing
-    leaf, a tag, an embedded substitution (``kitchen_${suffix}``), or a
-    ``${var}`` defined in a package / !include would flatten the
-    indirection to a literal, so refuse those with
-    ``CommandError(INVALID_ARGS)``, appending *remedy*.
+    Raises ``CommandError(INVALID_ARGS)`` (with *remedy* appended) when the
+    name isn't retargetable in place — missing leaf, tag, embedded
+    substitution, or a ``${var}`` defined outside this file — since
+    rewriting those would flatten the indirection to a literal.
     """
     current = read_yaml_scalar(yaml_text, ESPHOME_NAME_PATH)
     var = parse_substitution_ref(current) if current is not None else None
