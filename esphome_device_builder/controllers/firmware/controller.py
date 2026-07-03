@@ -241,7 +241,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return head
 
     async def rename_chain(
-        self, *, configuration: str, new_name: str
+        self,
+        *,
+        configuration: str,
+        new_name: str,
+        content: str | None = None,
+        new_content: str | None = None,
     ) -> tuple[FirmwareJob, FirmwareJob]:
         """Queue a rename as a COMPILE of the renamed YAML + a flash-and-swap tail.
 
@@ -276,7 +281,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 ErrorCode.INVALID_ARGS,
                 f"A device named {new_filename} already exists",
             )
-        return await rename_flow.begin_rename(self, configuration=configuration, new_name=new_name)
+        return await rename_flow.begin_rename(
+            self,
+            configuration=configuration,
+            new_name=new_name,
+            content=content,
+            new_content=new_content,
+        )
 
     @api_command("firmware/compile_bulk")
     async def compile_bulk(

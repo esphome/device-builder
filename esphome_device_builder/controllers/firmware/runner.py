@@ -60,7 +60,7 @@ async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) ->
     the wait can't be missed (the upload lane is the only waiter). Every job
     terminal sets ``build_gate``; we re-check ``upload_blocked`` on each wake.
     """
-    if job.job_type is not JobType.UPLOAD and not job.is_rename_tail:
+    if not job.is_network_flash:
         return
     while True:
         controller.state.build_gate.clear()
@@ -103,7 +103,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
         # A rename tail runs as a plain ``esphome upload`` of the *renamed*
         # YAML; ``job.configuration`` stays the old filename (rename lock,
         # display, cache args — the old device is the flash target).
-        target_configuration = f"{job.new_name}.yaml" if job.is_rename_tail else job.configuration
+        target_configuration = job.new_filename if job.is_rename_tail else job.configuration
         effective_job_type = JobType.UPLOAD if job.is_rename_tail else job.job_type
         # ``rel_path`` calls ``Path.resolve`` which does a sync
         # ``os.path.realpath`` — blocking the event loop. Push it

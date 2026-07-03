@@ -192,7 +192,7 @@ async def test_delete_tolerates_rmtree_failure(
     def _flaky(path: object, *args: object, **kwargs: object) -> None:
         raise PermissionError("simulated read-only file on windows")
 
-    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.rmtree", _flaky)
+    monkeypatch.setattr("esphome_device_builder.helpers.build_artifacts.rmtree", _flaky)
 
     await controller._delete_single("kitchen.yaml")
 

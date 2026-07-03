@@ -114,7 +114,7 @@ def _names_touched_by_job(job: FirmwareJob) -> set[str]:
     if job.configuration:
         names.add(job.configuration)
     if job.job_type == JobType.RENAME and job.new_name:
-        names.add(f"{job.new_name}.yaml")
+        names.add(job.new_filename)
     return names
 
 

@@ -52,6 +52,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
 
 from .json import loads as json_loads
@@ -246,3 +247,30 @@ def _firmware_offset_for_platform(target_platform: str) -> str:
     if target_platform and target_platform.lower().startswith("esp32"):
         return "0x10000"
     return "0x0"
+
+
+def wipe_device_build_dir(configuration: str) -> None:
+    """
+    Remove the per-device build dir + idedata cache if they exist.
+
+    No-op when the StorageJSON sidecar is gone or the device
+    has never been built; rmtree failures debug-log + fall
+    through so a partial failure doesn't block the delete flow.
+    The idedata cache is keyed on ``StorageJSON.name`` (not the
+    YAML filename), so it's purged here where that name is in hand.
+    """
+    storage = StorageJSON.load(resolve_storage_path(configuration))
+    if storage is None:
+        return
+    if storage.name:
+        idedata_path = resolve_idedata_path(configuration, name=storage.name)
+        try:
+            idedata_path.unlink(missing_ok=True)
+        except OSError as exc:
+            _LOGGER.debug("wipe_device_build_dir: unlink(%s) failed: %s", idedata_path, exc)
+    if not storage.build_path:
+        return
+    try:
+        rmtree(storage.build_path)
+    except OSError as exc:
+        _LOGGER.debug("wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)

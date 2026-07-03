@@ -143,9 +143,7 @@ class FirmwareState:
 
     def lane_for(self, job: FirmwareJob) -> Lane:
         """Return *job*'s lane: network flashes (UPLOAD, rename tail) upload, else compile."""
-        if job.job_type is JobType.UPLOAD or job.is_rename_tail:
-            return self.upload_lane
-        return self.compile_lane
+        return self.upload_lane if job.is_network_flash else self.compile_lane
 
     def place_on_lane(self, job: FirmwareJob) -> None:
         """Route *job* to its worker: the remote pool for a pending remote compile, else its lane.
@@ -199,7 +197,7 @@ class FirmwareState:
         if job.job_type is JobType.UPLOAD:
             guarded = job.configuration
         elif job.is_rename_tail:
-            guarded = f"{job.new_name}.yaml"
+            guarded = job.new_filename
         else:
             return False
         for other in self.active_jobs():

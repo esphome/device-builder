@@ -7,10 +7,11 @@ import json
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.firmware import persistence
+from esphome_device_builder.controllers.firmware import persistence, rename_flow
 from esphome_device_builder.controllers.firmware.cli import build_command
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
@@ -26,6 +27,7 @@ from tests.controllers.firmware.conftest import (
     run_until_terminal,
     stub_offloader,
     stub_pairing,
+    wire_background_tasks,
     wire_real_queue,
 )
 
@@ -49,11 +51,6 @@ def _tail_of(controller: FirmwareController, head: FirmwareJob) -> FirmwareJob:
         for j in controller.state.jobs.values()
         if j.is_rename_tail and j.depends_on == head.job_id
     )
-
-
-def _wire_background_tasks(controller: FirmwareController) -> None:
-    """Run scheduled background work (the revert) for real."""
-    controller._db.create_background_task = asyncio.create_task
 
 
 async def _wait_for_missing(path: Path, timeout: float = 5.0) -> None:
@@ -150,7 +147,7 @@ async def test_rename_retry_passes_target_exists_check(
 ) -> None:
     """The prior chain's on-disk write doesn't read as a foreign collision."""
     controller = firmware_controller_factory(with_queue=True)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     _seed_kitchen(tmp_path)
 
     first = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
@@ -169,7 +166,7 @@ async def test_rename_retry_to_new_target_reverts_the_old_target(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     _seed_kitchen(tmp_path)
 
     await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
@@ -191,10 +188,11 @@ async def test_chain_success_flashes_old_address_and_swaps_files(
     """Compile → released tail uploads the new YAML to the old address → swap."""
     controller = firmware_controller_factory(with_queue=True)
     wire_real_queue(controller)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     argv_log = _fake_esphome_recording(controller, tmp_path)
     _seed_kitchen(tmp_path)
     old_storage = write_storage_json(tmp_path, "kitchen.yaml", overrides={"address": "10.1.2.3"})
+    (tmp_path / ".esphome" / "build" / "kitchen").mkdir(parents=True)
 
     head = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
     tail = _tail_of(controller, head)
@@ -208,9 +206,10 @@ async def test_chain_success_flashes_old_address_and_swaps_files(
     assert invocations[1][1] == "upload"
     assert invocations[1][2].endswith("livingroom.yaml")
     assert invocations[1][3:] == ["--device", "10.1.2.3"]
-    # Swap: old YAML + storage gone, new YAML in place.
+    # Swap: old YAML + storage + build tree gone, new YAML in place.
     assert not (tmp_path / "kitchen.yaml").exists()
     assert not old_storage.exists()
+    assert not (tmp_path / ".esphome" / "build" / "kitchen").exists()
     assert (tmp_path / "livingroom.yaml").exists()
     assert len(captured["job_completed"]) == 2
 
@@ -220,7 +219,7 @@ async def test_compile_failure_cancels_tail_and_reverts(
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
     wire_real_queue(controller)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", "import sys; sys.exit(1)"]
     _seed_kitchen(tmp_path)
 
@@ -240,7 +239,7 @@ async def test_tail_failure_reverts_and_keeps_old_yaml(
     """A failed flash deletes the new YAML; the old device files are untouched."""
     controller = firmware_controller_factory(with_queue=True)
     wire_real_queue(controller)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     # Succeed for the compile, fail for the upload.
     controller.state.esphome_cmd = [
         sys.executable,
@@ -266,7 +265,7 @@ async def test_cancelling_tail_cascades_to_its_compile(
 ) -> None:
     """Cancelling the held tail also cancels the head — its build is doomed work."""
     controller = firmware_controller_factory(with_queue=True)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     _seed_kitchen(tmp_path)
 
     head = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
@@ -282,7 +281,7 @@ async def test_cancelling_head_cascades_to_tail_and_reverts(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     _seed_kitchen(tmp_path)
 
     head = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
@@ -335,7 +334,7 @@ async def test_restored_tail_with_missing_prereq_cancels_and_reverts(
     """A pruned/failed prerequisite cancels the restored tail and cleans its write."""
     tail = _tail_job()
     controller = firmware_controller_factory(tail)
-    _wire_background_tasks(controller)
+    wire_background_tasks(controller)
     (tmp_path / "livingroom.yaml").write_text("esphome:\n  name: livingroom\n", encoding="utf-8")
 
     persistence._restore_to_lane(controller, tail)
@@ -360,3 +359,120 @@ async def test_restored_legacy_rename_lands_on_compile_lane(
 def test_legacy_rename_command_shape_is_unchanged() -> None:
     cmd = build_command(["esphome"], JobType.RENAME, "kitchen.yaml", "", None, "livingroom")
     assert cmd == ["esphome", "--dashboard", "rename", "kitchen.yaml", "livingroom"]
+
+
+# ---------------------------------------------------------------------------
+# Revert / finalize edge branches
+# ---------------------------------------------------------------------------
+
+
+async def test_rename_rejected_by_foreign_chain_rolls_back_and_writes_nothing(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """Another device's active rename to the same target rejects the whole chain."""
+    foreign = FirmwareJob(
+        job_id="rn0",
+        configuration="garage.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.QUEUED,
+        new_name="livingroom",
+        depends_on="c0",
+    )
+    controller = firmware_controller_factory(foreign, with_queue=True)
+    _seed_kitchen(tmp_path)
+
+    in_flight = FirmwareJob(
+        job_id="c9",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    controller.state.jobs[in_flight.job_id] = in_flight
+
+    with pytest.raises(CommandError) as excinfo:
+        await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert sorted(controller.state.jobs) == ["c9", "rn0"]
+    assert not (tmp_path / "livingroom.yaml").exists()
+    # A rejected rename must not supersede the device's in-flight build.
+    assert in_flight.status is JobStatus.QUEUED
+
+
+async def test_revert_skips_when_a_newer_chain_owns_the_target(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    newer = _tail_job()
+    controller = firmware_controller_factory(newer)
+    (tmp_path / "livingroom.yaml").write_text("esphome:\n  name: livingroom\n", encoding="utf-8")
+    superseded = FirmwareJob(
+        job_id="tail0",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.CANCELLED,
+        new_name="livingroom",
+        depends_on="head0",
+    )
+
+    await rename_flow.revert_rename(controller, superseded)
+
+    assert (tmp_path / "livingroom.yaml").exists()
+
+
+async def test_revert_reloads_the_scanner_when_devices_is_up(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    controller = firmware_controller_factory()
+    devices = MagicMock()
+    devices.reload_configuration = AsyncMock()
+    controller._db.devices = devices
+    (tmp_path / "livingroom.yaml").write_text("", encoding="utf-8")
+    new_storage = write_storage_json(tmp_path, "livingroom.yaml")
+    (tmp_path / ".esphome" / "build" / "livingroom").mkdir(parents=True)
+    tail = _tail_job(status=JobStatus.FAILED)
+
+    await rename_flow.revert_rename(controller, tail)
+
+    # The head compile's outputs for the new name are cleaned with the YAML.
+    assert not (tmp_path / "livingroom.yaml").exists()
+    assert not new_storage.exists()
+    assert not (tmp_path / ".esphome" / "build" / "livingroom").exists()
+    devices.reload_configuration.assert_awaited_once_with("livingroom.yaml")
+
+
+async def test_finalize_swap_failure_logs_and_never_raises(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The device already runs the renamed firmware; a swap error must not fail the job."""
+    controller = firmware_controller_factory()
+
+    def _boom(_configuration: str) -> Path:
+        raise OSError("read-only fs")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.rename_flow.resolve_storage_path", _boom
+    )
+    _seed_kitchen(tmp_path)
+
+    await rename_flow.finalize_rename_swap(controller, _tail_job(status=JobStatus.RUNNING))
+
+
+def test_on_job_terminal_ignores_completed_tails_and_non_tails(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    controller = firmware_controller_factory()
+    controller._db.create_background_task = MagicMock()
+
+    rename_flow.on_job_terminal(controller, _tail_job(status=JobStatus.COMPLETED))
+    upload = FirmwareJob(
+        job_id="u1",
+        configuration="kitchen.yaml",
+        job_type=JobType.UPLOAD,
+        status=JobStatus.FAILED,
+        depends_on="c1",
+    )
+    rename_flow.on_job_terminal(controller, upload)
+
+    controller._db.create_background_task.assert_not_called()

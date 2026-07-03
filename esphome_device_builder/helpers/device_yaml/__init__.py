@@ -51,6 +51,7 @@ from ._parsing import (
     get_resolved_api_encryption_key,
     parse_esphome_meta,
     parse_platform_from_yaml,
+    resolved_device_name,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
@@ -89,6 +90,7 @@ __all__ = [
     "parse_esphome_meta",
     "parse_platform_from_yaml",
     "pending_changes_via_hash",
+    "resolved_device_name",
     "run_esphome_config",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",

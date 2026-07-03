@@ -10,13 +10,13 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.build_artifacts import wipe_device_build_dir
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
 from .helpers import (
     _unlink_compiled_config,
     _unlink_storage_sidecar,
-    _wipe_device_build_dir,
 )
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         # per-filename keyed, so a future same-name device would
         # otherwise inherit the archived device's stale
         # firmware_bin_path / loaded_integrations / target_platform.
-        _wipe_device_build_dir(configuration)
+        wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
         _unlink_storage_sidecar(configuration)
         _unlink_compiled_config(configuration)
@@ -180,7 +180,7 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
             raise FileNotFoundError(msg)
         # Wipe build dir first so a partial failure later leaves
         # the user able to retry the delete.
-        _wipe_device_build_dir(configuration)
+        wipe_device_build_dir(configuration)
         config_path.unlink(missing_ok=True)
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)

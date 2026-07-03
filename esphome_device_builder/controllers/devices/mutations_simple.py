@@ -11,18 +11,16 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
+from ...helpers.device_yaml import parse_esphome_meta, resolved_device_name
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
-    parse_substitution_ref,
     rewrite_rename_content,
     upsert_yaml_leaf_under_top_block,
 )
 from ...models import Device, ErrorCode, UpdateDeviceResponse
 from ..config import set_device_labels
-from ..firmware import rename_flow
 from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
 from .firmware_sync import migrate_metadata_then_scan
@@ -214,16 +212,8 @@ async def rename_device(
     # raw name (``test_1``) while the file is slugified (``test-1.yaml``), so
     # a stem compare wrongly rejects the legitimate ``test_1`` -> ``test-1``
     # rename and wrongly accepts a real no-op whose filename differs from its
-    # name. A nonlocal ``${var}`` (package / !include) stays an unresolved
-    # token, so treat that as unknown and fall back to the filename stem
-    # rather than comparing against the literal ``${var}``.
-    parsed_name = parse_esphome_meta(content).name
-    current_name = (
-        parsed_name
-        if parsed_name and parse_substitution_ref(parsed_name) is None
-        else configuration_stem(configuration)
-    )
-    if new_name == current_name:
+    # name.
+    if new_name == resolved_device_name(content, configuration):
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "new_name must differ from the current device name",
@@ -237,21 +227,10 @@ async def rename_device(
     # blocking filesystem access ``Path.resolve()`` would do in this async
     # path.
     in_place = os.path.normpath(old_path) == os.path.normpath(new_path)
-    firmware = controller._db.firmware
-    # Reject up-front if a *different* file already owns the target filename —
-    # a rename chain would overwrite the other device's config and OTA-flash
-    # firmware to the wrong device. A retry of a still-active chain is exempt:
-    # the on-disk file is that chain's own write, superseded below.
-    if (
-        not in_place
-        and await run_in_executor(new_path.exists)
-        and not (
-            firmware is not None
-            and rename_flow.active_chain_owns_target(firmware, configuration, new_name)
-        )
-    ):
-        msg = f"A device named {new_filename} already exists"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+    # Single rewrite + refusal point: offline, in-place, and the OTA chain
+    # all retarget the name the same way.
+    new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
 
     # An in-place rename can't go through the OTA chain (same filename), so
     # it rewrites the name with no flash even when the caller wanted the OTA
@@ -260,18 +239,27 @@ async def rename_device(
     # mismatch surfaces as a pending-changes indicator, same as the offline
     # ``config_only`` rename, so the divergence is visible rather than silent.
     if config_only or in_place:
+        # Reject if another file owns the target; the chain path's own
+        # collision check (with its active-retry exemption) lives in
+        # ``firmware.rename_chain``.
+        if not in_place and await run_in_executor(new_path.exists):
+            msg = f"A device named {new_filename} already exists"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
         return await _config_only_rename(
             controller,
             configuration=configuration,
             new_name=new_name,
-            content=content,
+            new_content=new_content,
             in_place=in_place,
         )
 
+    firmware = controller._db.firmware
     if firmware is None:
         msg = "Firmware controller is unavailable"
         raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-    head, tail = await firmware.rename_chain(configuration=configuration, new_name=new_name)
+    head, tail = await firmware.rename_chain(
+        configuration=configuration, new_name=new_name, content=content, new_content=new_content
+    )
     return {"configuration": new_filename, "job": head.to_dict(), "tail_job": tail.to_dict()}
 
 
@@ -302,24 +290,22 @@ async def _config_only_rename(
     *,
     configuration: str,
     new_name: str,
-    content: str,
+    new_content: str,
     in_place: bool,
 ) -> dict[str, Any]:
     """
-    Rename the YAML + ``esphome.name`` with no compile or OTA.
+    Land the rewritten YAML with no compile or OTA.
 
-    Validates the rewritten config before touching disk, writes the new
-    file atomically, removes the old, and migrates the StorageJSON +
-    sidecar metadata. Returns ``job: None`` (nothing is queued). When
-    *in_place* the target filename is the device's own file: the rewrite
-    lands on it and the old-file / old-sidecar removals are skipped so the
-    just-written file isn't deleted.
+    Validates *new_content* before touching disk, writes the new file
+    atomically, removes the old, and migrates the StorageJSON + sidecar
+    metadata. Returns ``job: None`` (nothing is queued). When *in_place*
+    the target filename is the device's own file: the rewrite lands on it
+    and the old-file / old-sidecar removals are skipped so the just-written
+    file isn't deleted.
     """
     new_filename = f"{new_name}.yaml"
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
-
-    new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
 
     # Validate before any disk change so a bad rewrite never lands on disk.
     await controller._validate_rewritten_yaml_or_raise(new_filename, new_content, action="rename")

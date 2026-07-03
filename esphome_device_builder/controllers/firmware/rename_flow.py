@@ -10,10 +10,11 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.device_yaml import configuration_stem, parse_esphome_meta
+from ...helpers.build_artifacts import wipe_device_build_dir
+from ...helpers.device_yaml import resolved_device_name
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
-from ...helpers.yaml import parse_substitution_ref, rewrite_rename_content
+from ...helpers.yaml import rewrite_rename_content
 from ...models import ErrorCode, FirmwareJob, JobStatus, JobType
 from . import factories
 
@@ -33,13 +34,20 @@ RENAME_REMEDY = (
 
 
 async def begin_rename(
-    controller: FirmwareController, *, configuration: str, new_name: str
+    controller: FirmwareController,
+    *,
+    configuration: str,
+    new_name: str,
+    content: str | None = None,
+    new_content: str | None = None,
 ) -> tuple[FirmwareJob, FirmwareJob]:
     """
     Write the renamed YAML and enqueue its COMPILE + RENAME-tail chain.
 
     Returns ``(head, tail)``: a remote-eligible COMPILE of the new YAML
-    plus the dependent flash-and-swap tail.
+    plus the dependent flash-and-swap tail. *content* / *new_content*
+    carry the old YAML's text and its rewrite when the caller already
+    produced them (``devices/rename``); ``None`` derives them here.
     """
     new_filename = f"{new_name}.yaml"
     settings = controller._db.settings
@@ -47,6 +55,8 @@ async def begin_rename(
     # ``rel_path`` resolves symlinks (blocking) — executor, like the runner.
     def _read() -> tuple[Path, str | None]:
         new_path = settings.rel_path(new_filename)
+        if content is not None:
+            return new_path, content
         try:
             return new_path, settings.rel_path(configuration).read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -56,16 +66,14 @@ async def begin_rename(
     if content is None:
         raise CommandError(ErrorCode.INVALID_ARGS, f"Device {configuration} not found")
 
-    new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
+    if new_content is None:
+        new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
     port = await resolve_old_device_address(
-        controller, configuration, _current_device_name(content, configuration)
+        controller, configuration, resolved_device_name(content, configuration)
     )
     build_source = controller._resolve_install_source()
 
     async with controller.state.rename_fs_lock:
-        # Supersede first: the prior chain's scheduled revert then queues
-        # behind this lock, sees our active tail owning the target, and skips.
-        await controller._supersede_active_jobs(configuration, exclude_job_ids=set())
         head = factories.create_job(
             controller, new_filename, JobType.COMPILE, build_source=build_source
         )
@@ -78,20 +86,27 @@ async def begin_rename(
             depends_on=head.job_id,
         )
         exclude = frozenset({head.job_id, tail.job_id})
-        try:
+
+        async def _stage() -> None:
+            # Supersede only after the lock check passed — a rejected rename
+            # must not cancel the device's in-flight build. The prior chain's
+            # scheduled revert queues behind this lock, sees our active tail
+            # owning the target, and skips; the write is an atomic overwrite,
+            # not exclusive-create, because that superseded chain may have
+            # left its own write behind.
+            await controller._supersede_active_jobs(configuration, exclude_job_ids=set(exclude))
+            await run_in_executor(atomic_write_file, new_path, new_content)
+
+        await factories.commit_chain(
+            controller,
+            head,
+            tail,
+            supersede_configuration=new_filename,
             # The tail touches both names, so one check guards the chain.
-            factories.check_rename_lock(controller, tail, exclude_job_ids=exclude)
-        except CommandError:
-            controller.state.jobs.pop(tail.job_id, None)
-            controller.state.jobs.pop(head.job_id, None)
-            raise
-        # Atomic overwrite, not exclusive-create: a superseded same-target
-        # chain may have left its write behind.
-        await run_in_executor(atomic_write_file, new_path, new_content)
-        factories._place_and_announce(controller, tail)
-        factories._place_and_announce(controller, head)
-        await controller._supersede_active_jobs(new_filename, exclude_job_ids=set(exclude))
-        await controller._persist_jobs()
+            lock_job=tail,
+            lock_exclude=exclude,
+            stage=_stage,
+        )
     return head, tail
 
 
@@ -137,7 +152,7 @@ async def resolve_old_device_address(
 
 async def finalize_rename_swap(controller: FirmwareController, job: FirmwareJob) -> None:
     """
-    Drop the old YAML + StorageJSON after the tail's flash succeeded.
+    Drop the old YAML, StorageJSON, and build tree after the tail's flash succeeded.
 
     Failures log, never raise: the device already runs the renamed
     firmware, and failing here would revert-delete the matching YAML.
@@ -145,6 +160,9 @@ async def finalize_rename_swap(controller: FirmwareController, job: FirmwareJob)
     settings = controller._db.settings
 
     def _swap() -> None:
+        # Build-tree wipe first — it resolves through the StorageJSON
+        # the next line unlinks.
+        wipe_device_build_dir(job.configuration)
         settings.rel_path(job.configuration).unlink(missing_ok=True)
         resolve_storage_path(job.configuration).unlink(missing_ok=True)
 
@@ -172,7 +190,7 @@ def on_job_terminal(controller: FirmwareController, job: FirmwareJob) -> None:
 
 async def revert_rename(controller: FirmwareController, job: FirmwareJob) -> None:
     """Remove the failed/cancelled chain's new YAML unless a newer chain owns it."""
-    new_filename = f"{job.new_name}.yaml"
+    new_filename = job.new_filename
     async with controller.state.rename_fs_lock:
         for other in controller.state.active_jobs():
             if other.job_id == job.job_id:
@@ -180,20 +198,16 @@ async def revert_rename(controller: FirmwareController, job: FirmwareJob) -> Non
             if other.is_rename_tail and other.new_name == job.new_name:
                 return
         settings = controller._db.settings
-        await run_in_executor(lambda: settings.rel_path(new_filename).unlink(missing_ok=True))
+
+        def _cleanup() -> None:
+            # The head compile may have created the new name's build tree +
+            # StorageJSON; drop them with the YAML so nothing is orphaned.
+            wipe_device_build_dir(new_filename)
+            resolve_storage_path(new_filename).unlink(missing_ok=True)
+            settings.rel_path(new_filename).unlink(missing_ok=True)
+
+        await run_in_executor(_cleanup)
     _LOGGER.info("Rename of %s reverted; removed %s", job.configuration, new_filename)
     devices = controller._db.devices
     if devices is not None:
         await devices.reload_configuration(new_filename)
-
-
-def _current_device_name(content: str, configuration: str) -> str:
-    """Return the device's current ``esphome.name``, else the filename stem.
-
-    A ``${var}`` name stays an unresolved token in the parsed meta, so fall
-    back to the stem rather than building an address from the literal ref.
-    """
-    parsed = parse_esphome_meta(content).name
-    if parsed and parse_substitution_ref(parsed) is None:
-        return parsed
-    return configuration_stem(configuration)

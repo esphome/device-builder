@@ -289,6 +289,16 @@ class FirmwareJob(DashboardModel):
         """
         return self.job_type is JobType.RENAME and bool(self.depends_on)
 
+    @property
+    def is_network_flash(self) -> bool:
+        """Whether this job flashes over the network (UPLOAD, or a rename tail)."""
+        return self.job_type is JobType.UPLOAD or self.is_rename_tail
+
+    @property
+    def new_filename(self) -> str:
+        """The YAML filename a rename's ``new_name`` resolves to."""
+        return f"{self.new_name}.yaml"
+
     def reset(self) -> None:
         """
         Reset per-run state so the job is ready to be re-executed.

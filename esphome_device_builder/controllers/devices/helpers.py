@@ -21,14 +21,12 @@ try:
 except ImportError:  # pragma: no cover; older esphome without the constant
     FRIENDLY_NAME_MAX_LEN = 120
 
-from esphome.helpers import rmtree, sort_ip_addresses
-from esphome.storage_json import StorageJSON
+from esphome.helpers import sort_ip_addresses
 
 from ...helpers.api import CommandError
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.storage_path import (
     resolve_compiled_config_path,
-    resolve_idedata_path,
     resolve_storage_path,
 )
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
@@ -58,7 +56,6 @@ __all__ = [
     "_unlink_compiled_config",
     "_unlink_storage_sidecar",
     "_validate_archive_configuration",
-    "_wipe_device_build_dir",
     "clean_friendly_name",
     "friendly_name_slugify",
     "slugify_hostname",
@@ -155,33 +152,6 @@ def _rewrite_required_yaml_leaf(
             "defined.",
         )
     return rewrite_name_or_substitution(content, leaf_path, new_value)
-
-
-def _wipe_device_build_dir(configuration: str) -> None:
-    """
-    Remove the per-device build dir + idedata cache if they exist.
-
-    No-op when the StorageJSON sidecar is gone or the device
-    has never been built; rmtree failures debug-log + fall
-    through so a partial failure doesn't block the delete flow.
-    The idedata cache is keyed on ``StorageJSON.name`` (not the
-    YAML filename), so it's purged here where that name is in hand.
-    """
-    storage = StorageJSON.load(resolve_storage_path(configuration))
-    if storage is None:
-        return
-    if storage.name:
-        idedata_path = resolve_idedata_path(configuration, name=storage.name)
-        try:
-            idedata_path.unlink(missing_ok=True)
-        except OSError as exc:
-            _LOGGER.debug("_wipe_device_build_dir: unlink(%s) failed: %s", idedata_path, exc)
-    if not storage.build_path:
-        return
-    try:
-        rmtree(storage.build_path)
-    except OSError as exc:
-        _LOGGER.debug("_wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)
 
 
 def _unlink_compiled_config(configuration: str) -> None:
