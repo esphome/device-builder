@@ -1,0 +1,170 @@
+id: lilygo-t-embed
+name: LILYGO T-Embed
+description: >-
+  LILYGO T-Embed: an ESP32-S3 board with a 1.9" 170x320 ST7789 SPI display, a
+  rotary encoder with push button, an APA102 RGB LED and a PDM microphone. The
+  board's peripheral power rail (GPIO46) must be driven high or the display stays
+  dark, so it's part of the Display bundle.
+manufacturer: LILYGO
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+- microphone
+- rgb-led
+images:
+- https://raw.githubusercontent.com/Xinyuan-LilyGO/T-Embed/main/image/T-Embed1.png
+docs_url: https://github.com/Xinyuan-LilyGO/T-Embed
+pins:
+- gpio: 0
+  available: false
+  occupied_by: encoder_btn
+  notes: Encoder push button (strapping pin, active low)
+- gpio: 1
+  available: false
+  occupied_by: encoder
+  notes: Rotary encoder B
+- gpio: 2
+  available: false
+  occupied_by: encoder
+  notes: Rotary encoder A
+- gpio: 9
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 10
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 11
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 12
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 13
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC
+- gpio: 15
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+- gpio: 46
+  available: false
+  occupied_by: power_enable
+  notes: Peripheral power enable (strapping pin; hold high for the display)
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 12
+      locked: true
+    mosi_pin:
+      value: 11
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: power_enable
+  component_id: switch.gpio
+  fields:
+    name: Peripheral Power
+    icon: mdi:power-plug
+    restore_mode: ALWAYS_ON
+    pin:
+      value:
+        number: 46
+        ignore_strapping_warning: true
+      locked: true
+    id: power_enable
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: T-EMBED
+    spi_id:
+      value: lcd_spi
+      locked: true
+    cs_pin:
+      value: 10
+      locked: true
+    dc_pin:
+      value: 13
+      locked: true
+    reset_pin:
+      value: 9
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+  - power_enable
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 15
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: encoder
+  component_id: sensor.rotary_encoder
+  fields:
+    name: Encoder
+    pin_a:
+      value: 2
+      locked: true
+    pin_b:
+      value: 1
+      locked: true
+    id: encoder
+- id: encoder_btn
+  component_id: binary_sensor.gpio
+  fields:
+    name: Encoder Button
+    pin:
+      value:
+        number: 0
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: encoder_btn
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - power_enable
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: encoder_setup
+  name: Rotary Encoder (full setup)
+  component_ids:
+  - encoder
+  - encoder_btn
