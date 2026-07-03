@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -90,23 +91,18 @@ async def enqueue(
 ) -> FirmwareJob:
     """Enqueue *job*, persist, fire JOB_QUEUED; cancel predecessors by default.
 
-    Fires JOB_QUEUED *before* cancelling any predecessor for the
-    same configuration so frontends recognise the resulting
-    JOB_CANCELLED as a supersede and drop the old entry silently.
-    Reset jobs (empty configuration) skip the supersede.
-
     ``supersede=False`` opts out — used by the ``firmware/clean``
     fan-out so per-peer remote-fan-out jobs don't cancel their
-    siblings or the just-queued local job (#608).
-
-    Rejects with ``CommandError(INVALID_ARGS)`` when an in-flight
-    RENAME has *job*'s configuration locked.
+    siblings or the just-queued local job (#608). Reset jobs (empty
+    configuration) skip the supersede too. Rejects (and rolls the
+    job out of ``state.jobs``) when an in-flight RENAME has *job*'s
+    configuration locked.
     """
-    controller._check_rename_lock(job)
-    _place_and_announce(controller, job)
-    if supersede and job.configuration:
-        await controller._supersede_active_jobs(job.configuration, exclude_job_ids={job.job_id})
-    await controller._persist_jobs()
+    await commit_chain(
+        controller,
+        job,
+        supersede_configuration=job.configuration if supersede else None,
+    )
     return job
 
 
@@ -134,35 +130,55 @@ async def enqueue_install_chain(
 
     Returns the COMPILE job (the chain head). The UPLOAD is held until the
     compile succeeds, then runs on the upload lane — so the network flash
-    doesn't block the next device's compile. Both are created before either
-    enqueues so a fast compile can't finish before the dependent exists; the
-    upload enqueues *held* first so the compile completing can't double-add
-    it.
+    doesn't block the next device's compile.
     """
     compile_job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
     upload_job = create_job(
         controller, configuration, JobType.UPLOAD, port=port, depends_on=compile_job.job_id
     )
-    # Commit the pair atomically: one rename-lock check, then place + announce
-    # both synchronously (no await between), one supersede + one persist below.
-    # That closes the window the two-await shape left, where a rename acquired
-    # during the first enqueue's persist-await stranded a half-queued pair on
-    # disk. Both jobs share a configuration, so one check covers both. The
-    # upload (unmet prerequisite) is held off its lane until the compile lands
-    # it via ``release_dependents``.
-    try:
-        controller._check_rename_lock(compile_job)
-    except CommandError:
-        controller.state.jobs.pop(upload_job.job_id, None)
-        controller.state.jobs.pop(compile_job.job_id, None)
-        raise
-    _place_and_announce(controller, upload_job)
-    _place_and_announce(controller, compile_job)
-    await controller._supersede_active_jobs(
-        configuration, exclude_job_ids={compile_job.job_id, upload_job.job_id}
-    )
-    await controller._persist_jobs()
+    await commit_chain(controller, compile_job, upload_job, supersede_configuration=configuration)
     return compile_job
+
+
+async def commit_chain(
+    controller: FirmwareController,
+    head: FirmwareJob,
+    dependent: FirmwareJob | None = None,
+    *,
+    supersede_configuration: str | None,
+    lock_job: FirmwareJob | None = None,
+    lock_exclude: frozenset[str] = frozenset(),
+    stage: Callable[[], Awaitable[object]] | None = None,
+) -> None:
+    """Commit created job(s): lock-check, place, supersede, persist — the single commit shape.
+
+    The jobs exist in ``state.jobs`` before this runs, so a fast head
+    can't finish before its dependent and concurrent lock checks already
+    see them; a lock rejection (or *stage* failure) rolls them out.
+    Placement is dependent-first with no await between, then one supersede
+    (excluding the committed jobs; ``None`` / empty skips it) + one
+    persist — which keeps a rename acquired mid-await from stranding a
+    half-queued pair on disk. *stage* runs the rename chain's new-YAML
+    write after the lock check so a chain owned by another device can't
+    be overwritten. A dependent (unmet prerequisite) is held off its lane
+    until the head lands it via ``release_dependents``.
+    """
+    jobs = [dependent, head] if dependent is not None else [head]
+    try:
+        check_rename_lock(controller, lock_job or head, exclude_job_ids=lock_exclude)
+        if stage is not None:
+            await stage()
+    except Exception:
+        for job in jobs:
+            controller.state.jobs.pop(job.job_id, None)
+        raise
+    for job in jobs:
+        _place_and_announce(controller, job)
+    if supersede_configuration:
+        await controller._supersede_active_jobs(
+            supersede_configuration, exclude_job_ids={job.job_id for job in jobs}
+        )
+    await controller._persist_jobs()
 
 
 def check_rename_lock(
@@ -174,7 +190,7 @@ def check_rename_lock(
     """Reject *job* if an in-flight rename has either YAML name locked.
 
     A rename touches two filenames (the old it reads from + the
-    new it creates on install success); conflicting jobs would
+    new it writes up-front); conflicting jobs would
     fight for the same file or land work on a half-flashed device.
     Same-old-config ``RENAME`` retries pass through so supersede
     can cancel-and-replace. *exclude_job_ids* skips those actives
@@ -195,7 +211,7 @@ def check_rename_lock(
         if not clash:
             continue
         old = active.configuration
-        new = f"{active.new_name}.yaml" if active.new_name else "(unknown)"
+        new = active.new_filename if active.new_name else "(unknown)"
         msg = (
             f"Device {old} is being renamed to {new}; wait for the "
             f"rename to finish before queueing another firmware "

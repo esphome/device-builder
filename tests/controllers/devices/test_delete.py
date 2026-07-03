@@ -148,7 +148,7 @@ async def test_delete_tolerates_compiled_config_unlink_failure(
         await controller._delete_single("kitchen.yaml")
 
     assert not yaml_path.exists()
-    assert any("_unlink_compiled_config" in rec.message for rec in caplog.records)
+    assert any("unlink_compiled_config" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -192,7 +192,7 @@ async def test_delete_tolerates_rmtree_failure(
     def _flaky(path: object, *args: object, **kwargs: object) -> None:
         raise PermissionError("simulated read-only file on windows")
 
-    monkeypatch.setattr("esphome_device_builder.controllers.devices.helpers.rmtree", _flaky)
+    monkeypatch.setattr("esphome_device_builder.helpers.build_artifacts.rmtree", _flaky)
 
     await controller._delete_single("kitchen.yaml")
 

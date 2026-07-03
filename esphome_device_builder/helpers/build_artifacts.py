@@ -52,10 +52,15 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
 
 from .json import loads as json_loads
-from .storage_path import resolve_idedata_path, resolve_storage_path
+from .storage_path import (
+    resolve_compiled_config_path,
+    resolve_idedata_path,
+    resolve_storage_path,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -246,3 +251,69 @@ def _firmware_offset_for_platform(target_platform: str) -> str:
     if target_platform and target_platform.lower().startswith("esp32"):
         return "0x10000"
     return "0x0"
+
+
+def wipe_device_build_dir(configuration: str) -> None:
+    """
+    Remove the per-device build dir + idedata cache if they exist.
+
+    No-op when the StorageJSON sidecar is gone or the device
+    has never been built; rmtree failures debug-log + fall
+    through so a partial failure doesn't block the delete flow.
+    The idedata cache is keyed on ``StorageJSON.name`` (not the
+    YAML filename), so it's purged here where that name is in hand.
+    """
+    storage = StorageJSON.load(resolve_storage_path(configuration))
+    if storage is None:
+        return
+    if storage.name:
+        idedata_path = resolve_idedata_path(configuration, name=storage.name)
+        try:
+            idedata_path.unlink(missing_ok=True)
+        except OSError as exc:
+            _LOGGER.debug("wipe_device_build_dir: unlink(%s) failed: %s", idedata_path, exc)
+    if not storage.build_path:
+        return
+    try:
+        rmtree(storage.build_path)
+    except OSError as exc:
+        _LOGGER.debug("wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)
+
+
+def unlink_compiled_config(configuration: str) -> None:
+    """Remove the validated-config cache (``<file>.validated.yaml``); no-op if absent."""
+    compiled_path = resolve_compiled_config_path(configuration)
+    try:
+        compiled_path.unlink(missing_ok=True)
+    except OSError as exc:
+        # Same best-effort level + detail as the idedata wipe above:
+        # both are regenerable caches, debug-logged with the exception
+        # so a permissions vs FS failure is distinguishable.
+        _LOGGER.debug("unlink_compiled_config: unlink(%s) failed: %s", compiled_path, exc)
+
+
+def unlink_storage_sidecar(configuration: str) -> None:
+    """Remove the StorageJSON sidecar file (no-op if absent).
+
+    The per-device metadata entry is RAM-canonical in
+    ``DeviceMetadataStore``; the archive / delete flows mutate
+    it on the event loop side after this executor-side file
+    unlink returns.
+    """
+    storage_path = resolve_storage_path(configuration)
+    try:
+        storage_path.unlink(missing_ok=True)
+    except OSError:
+        _LOGGER.warning("Could not remove storage file for %s", configuration)
+
+
+def remove_device_files(yaml_path: Path, configuration: str) -> None:
+    """Drop *configuration*'s YAML and its regenerable build artifacts.
+
+    Build-tree wipe first — it resolves through the StorageJSON the
+    sidecar unlink then drops.
+    """
+    wipe_device_build_dir(configuration)
+    unlink_storage_sidecar(configuration)
+    unlink_compiled_config(configuration)
+    yaml_path.unlink(missing_ok=True)

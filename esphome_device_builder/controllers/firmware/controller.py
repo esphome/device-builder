@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
+from ...helpers.device_yaml import configuration_filename
 from ...helpers.event_bus import Event
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
@@ -33,7 +34,18 @@ from ...models import (
     JobType,
     QueueStatus,
 )
-from . import bulk, cli, factories, follow, jobs, lifecycle, persistence, remote_dispatch, runner
+from . import (
+    bulk,
+    cli,
+    factories,
+    follow,
+    jobs,
+    lifecycle,
+    persistence,
+    remote_dispatch,
+    rename_flow,
+    runner,
+)
 from . import clean as clean_mod
 from . import download as download_mod
 from ._state import FirmwareState, Lane
@@ -302,20 +314,30 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/rename")
     async def rename(self, *, configuration: str, new_name: str, **kwargs: Any) -> FirmwareJob:
-        """Queue a rename: compile + OTA-install the new firmware, then swap the YAML.
+        """Queue a rename chain (see :meth:`rename_chain`); returns the COMPILE head."""
+        head, _tail = await self.rename_chain(configuration=configuration, new_name=new_name)
+        return head
 
-        Routed through the single-job queue so it can't race a
-        compile / install and appears in the firmware-tasks list
-        with live output. ``esphome rename`` keeps the old YAML
-        around until the install succeeds — a failed install rolls
-        back the new-YAML write so the user can retry against the
-        unchanged old hostname.
+    async def rename_chain(
+        self,
+        *,
+        configuration: str,
+        new_name: str,
+        content: str | None = None,
+        new_content: str | None = None,
+    ) -> tuple[FirmwareJob, FirmwareJob]:
+        """Queue a rename as a COMPILE of the renamed YAML + a flash-and-swap tail.
+
+        The renamed YAML is written up-front; the compile is remote-eligible
+        like an install's, and the tail OTA-flashes the *old* device address
+        then drops the old YAML. A failed / cancelled chain deletes the new
+        YAML so the old device is untouched.
         """
         await self._validate_configuration_boundary(configuration)
         # Validate the derived ``<new_name>.yaml`` filename at the WS
         # boundary so a direct request can't pass a traversal-shaped
         # name and surface as a failed job later.
-        new_filename = f"{new_name}.yaml"
+        new_filename = configuration_filename(new_name)
         await self._validate_configuration_boundary(new_filename)
         # Same-name rename is a YAML no-op but still queues a real
         # compile + flash — make the caller use ``firmware/install``.
@@ -324,20 +346,26 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 ErrorCode.INVALID_ARGS,
                 "new_name must differ from the current device name",
             )
-        # Reject up-front if the target filename is in use. A direct
-        # WS client can bypass ``DevicesController.rename_device``'s
-        # check, and ``esphome rename`` doesn't check collisions
-        # itself — it would blindly overwrite the other device's YAML
-        # and flash the wrong firmware. ``new_filename`` already
-        # passed ``rel_path`` so build the path directly.
+        # Reject up-front if the target filename is in use — a chain
+        # would blindly overwrite the other device's YAML and flash the
+        # wrong firmware. A retry is exempt: the on-disk file belongs to
+        # the still-active chain the retry supersedes. ``new_filename``
+        # already passed ``rel_path`` so build the path directly.
         new_path = self._db.settings.config_dir / new_filename
-        if await run_in_executor(new_path.exists):
+        if await run_in_executor(new_path.exists) and not rename_flow.active_chain_owns_target(
+            self, configuration, new_name
+        ):
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 f"A device named {new_filename} already exists",
             )
-        job = self._create_job(configuration, JobType.RENAME, new_name=new_name)
-        return await self._enqueue(job)
+        return await rename_flow.begin_rename(
+            self,
+            configuration=configuration,
+            new_name=new_name,
+            content=content,
+            new_content=new_content,
+        )
 
     @api_command("firmware/compile_bulk")
     async def compile_bulk(

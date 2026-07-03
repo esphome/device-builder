@@ -202,6 +202,21 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   splits into a COMPILE job + a dependent local UPLOAD job (`depends_on`):
   the upload is held until the compile succeeds, then runs on the upload
   lane; a cancelled/failed compile cascades to cancel the held upload.
+- **Rename is the same chain shape** (#1812): `devices/rename` rewrites
+  `esphome.name` dashboard-side (`helpers.yaml.rewrite_rename_content`),
+  writes `<new>.yaml` up-front, and queues a COMPILE of it (remote-eligible
+  like an install's) plus a dependent RENAME *tail*
+  (`FirmwareJob.is_rename_tail`) that `esphome upload`s the **old** device
+  address (resolved at enqueue: StorageJSON → scanner → mDNS default,
+  stamped into `port`) on the upload lane, then drops the old YAML +
+  StorageJSON. Any non-COMPLETED tail terminal reverts the chain — deletes
+  the new YAML — via `rename_flow.on_job_terminal`, hooked at all three
+  finalisation sites (`finalize_terminal`, the QUEUED-cancel branch,
+  restore-with-lost-prerequisite). `FirmwareState.rename_fs_lock` orders a
+  retry's supersede → write against the superseded chain's revert unlink;
+  cancelling the tail cascades *up* to its compile. A persisted RENAME
+  with no `depends_on` (pre-decomposition) still runs the fused
+  `esphome rename` CLI on the compile lane.
 - Plus a **remote build-server pool** — a third consumer (`run_dispatch_loop`)
   gathered alongside the two lanes. Compiles eligible for a paired server
   hold here (off the single compile lane) and run concurrently, one per

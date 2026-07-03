@@ -17,7 +17,7 @@ from ...models import (
     JobStatus,
     JobType,
 )
-from . import lifecycle
+from . import lifecycle, rename_flow
 from .constants import _ERROR_PATTERNS
 from .helpers import (
     _ingest_output_line,
@@ -60,7 +60,7 @@ async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) ->
     the wait can't be missed (the upload lane is the only waiter). Every job
     terminal sets ``build_gate``; we re-check ``upload_blocked`` on each wake.
     """
-    if job.job_type is not JobType.UPLOAD:
+    if not job.is_network_flash:
         return
     while True:
         controller.state.build_gate.clear()
@@ -69,7 +69,7 @@ async def _await_build_gate(controller: FirmwareController, job: FirmwareJob) ->
         await controller.state.build_gate.wait()
 
 
-async def execute_job(  # noqa: PLR0915, C901
+async def execute_job(  # noqa: PLR0915, PLR0912, C901
     controller: FirmwareController, job: FirmwareJob, lane: Lane
 ) -> None:
     """Execute a single firmware job on *lane*."""
@@ -100,6 +100,11 @@ async def execute_job(  # noqa: PLR0915, C901
         if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
             await controller._verify_chip(job, lane)
 
+        # A rename tail runs as a plain ``esphome upload`` of the *renamed*
+        # YAML; ``job.configuration`` stays the old filename (rename lock,
+        # display, cache args — the old device is the flash target).
+        target_configuration = job.flash_configuration
+        effective_job_type = JobType.UPLOAD if job.is_rename_tail else job.job_type
         # ``rel_path`` calls ``Path.resolve`` which does a sync
         # ``os.path.realpath`` — blocking the event loop. Push it
         # to the executor so the runner stays non-blocking
@@ -107,11 +112,11 @@ async def execute_job(  # noqa: PLR0915, C901
         # ``bus.fire`` listeners are interleaved on the loop and
         # blocking here pauses every follower's event delivery).
         config_path = str(
-            await run_in_executor(controller._db.settings.rel_path, job.configuration)
+            await run_in_executor(controller._db.settings.rel_path, target_configuration)
         )
         cache_args = controller._build_cache_args(job)
         cmd = controller._build_command(
-            job.job_type, config_path, job.port, cache_args, job.new_name
+            effective_job_type, config_path, job.port, cache_args, job.new_name
         )
         _LOGGER.debug("Running: %s", " ".join(cmd))
 
@@ -210,6 +215,11 @@ async def execute_job(  # noqa: PLR0915, C901
                 else:
                     job.error = "Process exited 0 but output contains errors"
                 _LOGGER.warning("Job %s: %s", job.job_id, job.error)
+
+            # Swap before the terminal fire so the JOB_COMPLETED listener's
+            # metadata migration + rescan see the old YAML already gone.
+            if success and job.is_rename_tail:
+                await rename_flow.finalize_rename_swap(controller, job)
 
             # ``_finalize_terminal`` runs the mark + slot-
             # release + fire sequence in the order the

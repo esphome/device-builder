@@ -30,8 +30,8 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
-from esphome_device_builder.controllers.devices.helpers import _unlink_storage_sidecar
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.build_artifacts import unlink_storage_sidecar
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 
@@ -522,11 +522,11 @@ async def test_archive_rejects_path_traversal(
 
 
 # ---------------------------------------------------------------------------
-# _unlink_storage_sidecar exception paths
+# unlink_storage_sidecar exception paths
 # ---------------------------------------------------------------------------
 
 
-def test_unlink_storage_sidecar_logs_oserror(tmp_path: Path, monkeypatch: Any, caplog: Any) -> None:
+def testunlink_storage_sidecar_logs_oserror(tmp_path: Path, monkeypatch: Any, caplog: Any) -> None:
     """OSError from the storage unlink is logged, not raised.
 
     A permission-error / read-only fs on the StorageJSON sidecar
@@ -541,7 +541,7 @@ def test_unlink_storage_sidecar_logs_oserror(tmp_path: Path, monkeypatch: Any, c
     monkeypatch.setattr(Path, "unlink", _raise_oserror)
 
     with caplog.at_level(logging.WARNING):
-        _unlink_storage_sidecar("kitchen.yaml")
+        unlink_storage_sidecar("kitchen.yaml")
     assert any("Could not remove storage file" in rec.message for rec in caplog.records)
 
 

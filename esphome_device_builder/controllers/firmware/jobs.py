@@ -14,7 +14,7 @@ from ...models import (
     FirmwareJob,
     JobStatus,
 )
-from . import lifecycle
+from . import lifecycle, rename_flow
 from .helpers import _fire_job_lifecycle
 
 if TYPE_CHECKING:
@@ -134,6 +134,13 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
         if lifecycle.release_dependents(controller, job):
             controller._prune_history()
             await controller._persist_jobs()
+        rename_flow.on_job_terminal(controller, job)
+        # Cascade a rename-tail cancel *up*: the head compiles a YAML the
+        # revert just deleted.
+        if job.is_rename_tail:
+            prereq = controller.state.jobs.get(job.depends_on)
+            if prereq is not None and prereq.is_active:
+                await cancel(controller, job_id=prereq.job_id)
         # Wake an upload lane held behind this job if it was a clean/reset.
         controller.state.build_gate.set()
         return

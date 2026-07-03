@@ -57,11 +57,11 @@ class JobType(StrEnum):
     # ``platformio_cache/`` — forces the next compile to re-download
     # toolchains and re-fetch external components from scratch.
     RESET_BUILD_ENV = "reset_build_env"
-    # ``esphome rename`` — internally validates, writes a new YAML,
-    # compiles, OTA-installs the new firmware, and only then drops
-    # the old YAML. Routed through the firmware queue so it shows up
-    # in the firmware-tasks list with live output instead of running
-    # silently in the background.
+    # The flash-and-swap tail of a rename chain (``depends_on`` a
+    # COMPILE of the renamed YAML): OTA-uploads the new firmware to
+    # the old device address, then drops the old YAML. A persisted
+    # RENAME with no ``depends_on`` predates the decomposition and
+    # still runs the fused ``esphome rename`` CLI.
     RENAME = "rename"
 
 
@@ -279,6 +279,30 @@ class FirmwareJob(DashboardModel):
     def is_active(self) -> bool:
         """Whether the job is still queued or running (not yet terminal)."""
         return self.status in _ACTIVE_JOB_STATUSES
+
+    @property
+    def is_rename_tail(self) -> bool:
+        """
+        Whether this is a rename chain's flash-and-swap tail.
+
+        False for a fused ``esphome rename`` job (no ``depends_on``).
+        """
+        return self.job_type is JobType.RENAME and bool(self.depends_on)
+
+    @property
+    def is_network_flash(self) -> bool:
+        """Whether this job flashes over the network (UPLOAD, or a rename tail)."""
+        return self.job_type is JobType.UPLOAD or self.is_rename_tail
+
+    @property
+    def new_filename(self) -> str:
+        """The YAML filename a rename's ``new_name`` resolves to."""
+        return f"{self.new_name}.yaml"
+
+    @property
+    def flash_configuration(self) -> str:
+        """The YAML whose build artifacts this job flashes (the renamed file for a tail)."""
+        return self.new_filename if self.is_rename_tail else self.configuration
 
     @property
     def is_terminal_ota_upload(self) -> bool:

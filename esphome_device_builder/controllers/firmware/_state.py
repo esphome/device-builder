@@ -134,12 +134,16 @@ class FirmwareState:
     # (see ``upload_blocked`` / ``runner._await_build_gate``).
     build_gate: asyncio.Event = field(default_factory=asyncio.Event)
 
+    # Serializes a rename chain's new-YAML write against a superseded
+    # chain's revert unlink (see ``rename_flow``).
+    rename_fs_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
     # Remote build-server pool (see :class:`RemoteDispatchState`).
     remote_dispatch: RemoteDispatchState = field(default_factory=RemoteDispatchState)
 
     def lane_for(self, job: FirmwareJob) -> Lane:
-        """Return the lane *job* runs on: UPLOAD on the network lane, else the compile lane."""
-        return self.upload_lane if job.job_type is JobType.UPLOAD else self.compile_lane
+        """Return *job*'s lane: network flashes (UPLOAD, rename tail) upload, else compile."""
+        return self.upload_lane if job.is_network_flash else self.compile_lane
 
     def place_on_lane(self, job: FirmwareJob) -> None:
         """Route *job* to its worker: the remote pool for a pending remote compile, else its lane.
@@ -182,18 +186,20 @@ class FirmwareState:
         return prereq is not None and prereq.status is JobStatus.COMPLETED
 
     def upload_blocked(self, job: FirmwareJob) -> bool:
-        """Whether an UPLOAD must wait for an in-flight clean/reset to finish first.
+        """Whether a flash must wait for an in-flight clean/reset to finish first.
 
         A clean/reset rmtree's build artifacts that ``esphome upload`` reads;
         since they run on separate lanes, an unguarded upload could flash a
         truncated binary mid-wipe. RESET_BUILD_ENV (whole tree) blocks every
-        upload; a CLEAN blocks only its own configuration's upload.
+        flash; a CLEAN blocks only the flash reading its configuration's
+        build tree — for a rename tail that's the *new* filename's.
         """
-        if job.job_type is not JobType.UPLOAD:
+        if not job.is_network_flash:
             return False
+        guarded = job.flash_configuration
         for other in self.active_jobs():
             if other.job_type is JobType.RESET_BUILD_ENV:
                 return True
-            if other.job_type is JobType.CLEAN and other.configuration == job.configuration:
+            if other.job_type is JobType.CLEAN and other.configuration == guarded:
                 return True
         return False

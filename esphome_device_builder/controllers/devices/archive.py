@@ -10,14 +10,15 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.build_artifacts import (
+    remove_device_files,
+    unlink_compiled_config,
+    unlink_storage_sidecar,
+    wipe_device_build_dir,
+)
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
-from .helpers import (
-    _unlink_compiled_config,
-    _unlink_storage_sidecar,
-    _wipe_device_build_dir,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -54,10 +55,10 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         # per-filename keyed, so a future same-name device would
         # otherwise inherit the archived device's stale
         # firmware_bin_path / loaded_integrations / target_platform.
-        _wipe_device_build_dir(configuration)
+        wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
-        _unlink_storage_sidecar(configuration)
-        _unlink_compiled_config(configuration)
+        unlink_storage_sidecar(configuration)
+        unlink_compiled_config(configuration)
 
     # Hold the per-file write lock across the move + history commit so a
     # concurrent editor save to the same config can't interleave with the
@@ -153,8 +154,8 @@ async def delete_archived_single(controller: DevicesController, configuration: s
             # An active config with the same filename owns the
             # sidecars now; leave them alone.
             return False
-        _unlink_storage_sidecar(configuration)
-        _unlink_compiled_config(configuration)
+        unlink_storage_sidecar(configuration)
+        unlink_compiled_config(configuration)
         return True
 
     sidecars_purged = await run_in_executor(_delete_all)
@@ -178,14 +179,11 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         if not config_path.exists():
             msg = f"File not found: {configuration}"
             raise FileNotFoundError(msg)
-        # Wipe build dir first so a partial failure later leaves
-        # the user able to retry the delete.
-        _wipe_device_build_dir(configuration)
-        config_path.unlink(missing_ok=True)
+        # Wipe build dir first (inside the helper) so a partial failure
+        # later leaves the user able to retry the delete.
+        remove_device_files(config_path, configuration)
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
-        _unlink_storage_sidecar(configuration)
-        _unlink_compiled_config(configuration)
 
     # Per-file write lock so the removal commit can't interleave with a
     # concurrent editor save's commit on the same config (uniform with

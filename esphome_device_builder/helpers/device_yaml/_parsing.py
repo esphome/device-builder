@@ -10,7 +10,7 @@ from esphome import const
 from esphome.const import CONF_PACKAGES
 
 from ...models.boards import RP2_PLATFORM_ALIASES
-from ..yaml import _split_value_and_comment, _strip_yaml_quotes
+from ..yaml import _split_value_and_comment, _strip_yaml_quotes, parse_substitution_ref
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,6 +77,11 @@ def configuration_stem(configuration: str) -> str:
     same device.
     """
     return configuration.removesuffix(".yaml").removesuffix(".yml")
+
+
+def configuration_filename(name: str) -> str:
+    """Return the ``.yaml`` configuration filename for a device *name*."""
+    return f"{name}.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +344,18 @@ def parse_esphome_meta(
             meta[field] = _resolve_substitutions(meta[field], merged)
 
     return EsphomeMeta(meta["name"], meta["friendly_name"], meta["comment"], meta["area"])
+
+
+def resolved_device_name(yaml_content: str, configuration: str) -> str:
+    """Return the device's ``esphome.name`` when known, else the filename stem.
+
+    A nonlocal ``${var}`` name stays an unresolved token in the parsed
+    meta, so fall back to the stem rather than using the literal ref.
+    """
+    parsed = parse_esphome_meta(yaml_content).name
+    if parsed and parse_substitution_ref(parsed) is None:
+        return parsed
+    return configuration_stem(configuration)
 
 
 def extract_esphome_meta_from_config(

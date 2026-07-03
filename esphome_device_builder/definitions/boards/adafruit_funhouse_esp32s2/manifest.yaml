@@ -1,0 +1,197 @@
+id: adafruit_funhouse_esp32s2
+name: Adafruit FunHouse
+description: >-
+  Adafruit FunHouse: an ESP32-S2 smart-home dev board with a 2.4" 240x240 ST7789 SPI
+  display, three tactile buttons (Up / Select / Down), five onboard DotStar RGB LEDs, and
+  a PIR motion sensor. Display CS/DC/reset are supplied by the model; the DotStars run on
+  their own SPI bus. The buttons are active-high (external pulldown).
+manufacturer: Adafruit
+esphome:
+  platform: esp32
+  board: adafruit_funhouse_esp32s2
+  variant: esp32s2
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+tags:
+- display
+- rgb-led
+images:
+- https://cdn-shop.adafruit.com/970x728/4985-06.jpg
+docs_url: https://learn.adafruit.com/adafruit-funhouse
+pins:
+- gpio: 3
+  available: false
+  occupied_by: button_down
+  notes: Down button (active high)
+- gpio: 4
+  available: false
+  occupied_by: button_select
+  notes: Select button (active high)
+- gpio: 5
+  available: false
+  occupied_by: button_up
+  notes: Up button (active high)
+- gpio: 14
+  available: false
+  occupied_by: dotstar_spi
+  features:
+  - spi_mosi
+  notes: DotStar data
+- gpio: 15
+  available: false
+  occupied_by: dotstar_spi
+  features:
+  - spi_clk
+  notes: DotStar clock
+- gpio: 16
+  available: false
+  occupied_by: motion
+  notes: PIR motion sensor
+- gpio: 21
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight
+- gpio: 35
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 36
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 39
+  available: false
+  occupied_by: lcd_display
+  notes: Display DC
+- gpio: 40
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 41
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 36
+      locked: true
+    mosi_pin:
+      value: 35
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: ADAFRUIT-FUNHOUSE
+    spi_id:
+      value: lcd_spi
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 21
+      locked: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+- id: dotstar_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 15
+      locked: true
+    mosi_pin:
+      value: 14
+      locked: true
+    id:
+      value: dotstar_spi
+      locked: true
+- id: dotstars
+  component_id: light.spi_led_strip
+  fields:
+    name: DotStars
+    num_leds: 5
+    spi_id:
+      value: dotstar_spi
+      locked: true
+    id: dotstars
+  requires:
+  - dotstar_spi
+- id: button_up
+  component_id: binary_sensor.gpio
+  fields:
+    name: Up Button
+    pin:
+      value: 5
+      locked: true
+    id: button_up
+- id: button_select
+  component_id: binary_sensor.gpio
+  fields:
+    name: Select Button
+    pin:
+      value: 4
+      locked: true
+    id: button_select
+- id: button_down
+  component_id: binary_sensor.gpio
+  fields:
+    name: Down Button
+    pin:
+      value: 3
+      locked: true
+    id: button_down
+- id: motion
+  component_id: binary_sensor.gpio
+  fields:
+    name: Motion
+    device_class: motion
+    pin:
+      value: 16
+      locked: true
+    id: motion
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
+- id: dotstar_setup
+  name: DotStar LEDs (full setup)
+  component_ids:
+  - dotstar_spi
+  - dotstars
+- id: buttons_setup
+  name: Buttons (full setup)
+  component_ids:
+  - button_up
+  - button_select
+  - button_down

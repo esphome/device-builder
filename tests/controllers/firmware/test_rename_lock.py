@@ -3,8 +3,7 @@ Tests for ``FirmwareController._check_rename_lock``.
 
 A rename touches two YAML files at different points in its lifetime:
 - the *old* configuration it's reading from (``configuration``), and
-- the *new* configuration it'll write on install success
-  (``new_name + ".yaml"``).
+- the *new* configuration it writes (``new_name + ".yaml"``).
 
 Any other firmware job that touches either name would either fight
 for the same file or end up flashing a half-renamed device. These
@@ -19,6 +18,7 @@ tests pin down the lock policy:
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -218,6 +218,26 @@ async def test_install_bulk_skips_locked_configs_and_queues_the_rest(
     # other two queue normally.
     queued_configs = sorted(j.configuration for j in queued)
     assert queued_configs == ["garage.yaml", "office.yaml"]
+
+
+async def test_single_enqueue_rolls_back_when_rename_locked(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A rename-locked compile enqueue leaves no ghost QUEUED job behind.
+
+    The job is created before the lock check; without the rollback it
+    lingers active-but-never-placed and a restart would run it.
+    """
+    rename = _job(
+        "rn1", "kitchen.yaml", JobType.RENAME, new_name="living", status=JobStatus.RUNNING
+    )
+    controller = firmware_controller_factory(rename, with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+
+    with pytest.raises(CommandError):
+        await controller.compile(configuration="kitchen.yaml")
+
+    assert set(controller.state.jobs) == {"rn1"}
 
 
 async def test_install_chain_rolls_back_when_rename_locked(

@@ -86,25 +86,33 @@ def _spy_upload_blocked(controller: FirmwareController) -> asyncio.Event:
 # ---------------------------------------------------------------------------
 
 
-async def test_rename_returns_queued_rename_job(
+async def test_rename_returns_queued_chain_head(
     tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
 ) -> None:
-    """Happy path: handler returns a ``QUEUED`` ``RENAME`` job carrying ``new_name``.
+    """Happy path: handler queues the chain and returns its COMPILE head.
 
     The rename-lock suite covers conflict cases but nothing pins
-    the enqueue itself — a regression that swapped the job_type
-    or dropped ``new_name`` would still pass every lock-policy
-    test (none of them inspect the resulting job's shape).
+    the enqueue itself — a regression that swapped the chain shape
+    or dropped the tail's fields would still pass every lock-policy
+    test (none of them inspect the resulting jobs' shape).
     """
     controller = firmware_controller_factory(with_queue=True)
-    (tmp_path / "kitchen.yaml").write_text("")
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     job = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
 
     assert job.status == JobStatus.QUEUED
-    assert job.job_type == JobType.RENAME
-    assert job.configuration == "kitchen.yaml"
-    assert job.new_name == "livingroom"
+    assert job.job_type == JobType.COMPILE
+    assert job.configuration == "livingroom.yaml"
+    tail = next(j for j in controller.state.jobs.values() if j.is_rename_tail)
+    assert tail.status == JobStatus.QUEUED
+    assert tail.configuration == "kitchen.yaml"
+    assert tail.new_name == "livingroom"
+    assert tail.depends_on == job.job_id
+    # The renamed YAML is written up-front; the compile builds it.
+    assert (tmp_path / "livingroom.yaml").read_text(encoding="utf-8") == (
+        "esphome:\n  name: livingroom\n"
+    )
 
 
 async def test_rename_rejects_when_target_filename_already_exists(

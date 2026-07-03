@@ -162,8 +162,9 @@ async def test_config_only_rename_refuses_non_literal_name(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "literal" in excinfo.value.message
-    # File-move refusal steers to the OTA rename, which resolves the indirection.
-    assert "online" in excinfo.value.message
+    # The OTA chain uses the same rewriter and refuses the same shapes,
+    # so the remedy points at editing the name, not bringing it online.
+    assert "Edit esphome.name" in excinfo.value.message
     assert (tmp_path / "kitchen.yaml").exists()
     assert not (tmp_path / "livingroom.yaml").exists()
 
