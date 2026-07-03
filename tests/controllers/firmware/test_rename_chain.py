@@ -509,7 +509,7 @@ async def test_rename_chain_uses_caller_supplied_content(
     assert "comment: threaded" in written
 
 
-async def test_finalize_swap_wipe_failure_logs_and_never_raises(
+async def test_finalize_swap_failure_logs_and_never_raises(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -517,11 +517,11 @@ async def test_finalize_swap_wipe_failure_logs_and_never_raises(
     """The device already runs the renamed firmware; a swap error must not fail the job."""
     controller = firmware_controller_factory()
 
-    def _boom(_configuration: str) -> None:
+    def _boom(_path: object, _configuration: str) -> None:
         raise OSError("read-only fs")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.rename_flow.wipe_device_build_dir", _boom
+        "esphome_device_builder.controllers.firmware.rename_flow.remove_device_files", _boom
     )
     _seed_kitchen(tmp_path)
 
@@ -553,11 +553,11 @@ async def test_revert_cleanup_failure_logs_and_skips_the_reload(
     devices.reload_configuration = AsyncMock()
     controller._db.devices = devices
 
-    def _boom(_configuration: str) -> None:
+    def _boom(_path: object, _configuration: str) -> None:
         raise OSError("read-only fs")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.rename_flow.wipe_device_build_dir", _boom
+        "esphome_device_builder.controllers.firmware.rename_flow.remove_device_files", _boom
     )
 
     await rename_flow.revert_rename(controller, _tail_job(status=JobStatus.FAILED))

@@ -190,7 +190,7 @@ def check_rename_lock(
     """Reject *job* if an in-flight rename has either YAML name locked.
 
     A rename touches two filenames (the old it reads from + the
-    new it creates on install success); conflicting jobs would
+    new it writes up-front); conflicting jobs would
     fight for the same file or land work on a half-flashed device.
     Same-old-config ``RENAME`` retries pass through so supersede
     can cancel-and-replace. *exclude_job_ids* skips those actives

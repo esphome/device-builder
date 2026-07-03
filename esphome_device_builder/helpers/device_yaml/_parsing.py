@@ -79,6 +79,11 @@ def configuration_stem(configuration: str) -> str:
     return configuration.removesuffix(".yaml").removesuffix(".yml")
 
 
+def configuration_filename(name: str) -> str:
+    """Return the ``.yaml`` configuration filename for a device *name*."""
+    return f"{name}.yaml"
+
+
 # ---------------------------------------------------------------------------
 # YAML parsing
 # ---------------------------------------------------------------------------

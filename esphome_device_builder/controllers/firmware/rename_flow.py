@@ -10,12 +10,8 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.build_artifacts import (
-    unlink_compiled_config,
-    unlink_storage_sidecar,
-    wipe_device_build_dir,
-)
-from ...helpers.device_yaml import resolved_device_name
+from ...helpers.build_artifacts import remove_device_files
+from ...helpers.device_yaml import configuration_filename, resolved_device_name
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import rewrite_rename_content
@@ -53,7 +49,7 @@ async def begin_rename(
     carry the old YAML's text and its rewrite when the caller already
     produced them (``devices/rename``); ``None`` derives them here.
     """
-    new_filename = f"{new_name}.yaml"
+    new_filename = configuration_filename(new_name)
     settings = controller._db.settings
 
     # ``rel_path`` resolves symlinks (blocking) — executor, like the runner.
@@ -170,16 +166,10 @@ async def finalize_rename_swap(controller: FirmwareController, job: FirmwareJob)
     """
     settings = controller._db.settings
 
-    def _swap() -> None:
-        # Build-tree wipe first — it resolves through the StorageJSON
-        # the sidecar unlink drops.
-        wipe_device_build_dir(job.configuration)
-        settings.rel_path(job.configuration).unlink(missing_ok=True)
-        unlink_storage_sidecar(job.configuration)
-        unlink_compiled_config(job.configuration)
-
     try:
-        await run_in_executor(_swap)
+        await run_in_executor(
+            lambda: remove_device_files(settings.rel_path(job.configuration), job.configuration)
+        )
     except OSError:
         _LOGGER.warning(
             "Rename %s -> %s flashed but the old files could not be removed",
@@ -211,17 +201,12 @@ async def revert_rename(controller: FirmwareController, job: FirmwareJob) -> Non
                 return
         settings = controller._db.settings
 
-        def _cleanup() -> None:
-            # The head compile may have created the new name's build tree,
-            # StorageJSON, and validated-config cache; drop them with the
-            # YAML so nothing is orphaned.
-            wipe_device_build_dir(new_filename)
-            unlink_storage_sidecar(new_filename)
-            unlink_compiled_config(new_filename)
-            settings.rel_path(new_filename).unlink(missing_ok=True)
-
         try:
-            await run_in_executor(_cleanup)
+            # Drops the head compile's outputs (build tree, StorageJSON,
+            # validated-config cache) with the YAML so nothing is orphaned.
+            await run_in_executor(
+                lambda: remove_device_files(settings.rel_path(new_filename), new_filename)
+            )
         except OSError:
             # Background task; a failed unlink must log, not vanish.
             _LOGGER.warning("Rename revert could not remove %s", new_filename, exc_info=True)

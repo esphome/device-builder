@@ -11,6 +11,7 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import (
+    remove_device_files,
     unlink_compiled_config,
     unlink_storage_sidecar,
     wipe_device_build_dir,
@@ -178,14 +179,11 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         if not config_path.exists():
             msg = f"File not found: {configuration}"
             raise FileNotFoundError(msg)
-        # Wipe build dir first so a partial failure later leaves
-        # the user able to retry the delete.
-        wipe_device_build_dir(configuration)
-        config_path.unlink(missing_ok=True)
+        # Wipe build dir first (inside the helper) so a partial failure
+        # later leaves the user able to retry the delete.
+        remove_device_files(config_path, configuration)
         (config_dir / ".trash" / configuration).unlink(missing_ok=True)
         (config_dir / ".archive" / f"{configuration}.json").unlink(missing_ok=True)
-        unlink_storage_sidecar(configuration)
-        unlink_compiled_config(configuration)
 
     # Per-file write lock so the removal commit can't interleave with a
     # concurrent editor save's commit on the same config (uniform with

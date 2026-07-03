@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
+from ...helpers.device_yaml import configuration_filename
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
     ErrorCode,
@@ -259,7 +260,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # Validate the derived ``<new_name>.yaml`` filename at the WS
         # boundary so a direct request can't pass a traversal-shaped
         # name and surface as a failed job later.
-        new_filename = f"{new_name}.yaml"
+        new_filename = configuration_filename(new_name)
         await self._validate_configuration_boundary(new_filename)
         # Same-name rename is a YAML no-op but still queues a real
         # compile + flash — make the caller use ``firmware/install``.

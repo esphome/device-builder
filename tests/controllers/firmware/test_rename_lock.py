@@ -3,8 +3,7 @@ Tests for ``FirmwareController._check_rename_lock``.
 
 A rename touches two YAML files at different points in its lifetime:
 - the *old* configuration it's reading from (``configuration``), and
-- the *new* configuration it'll write on install success
-  (``new_name + ".yaml"``).
+- the *new* configuration it writes (``new_name + ".yaml"``).
 
 Any other firmware job that touches either name would either fight
 for the same file or end up flashing a half-renamed device. These

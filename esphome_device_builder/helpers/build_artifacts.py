@@ -305,3 +305,15 @@ def unlink_storage_sidecar(configuration: str) -> None:
         storage_path.unlink(missing_ok=True)
     except OSError:
         _LOGGER.warning("Could not remove storage file for %s", configuration)
+
+
+def remove_device_files(yaml_path: Path, configuration: str) -> None:
+    """Drop *configuration*'s YAML and its regenerable build artifacts.
+
+    Build-tree wipe first — it resolves through the StorageJSON the
+    sidecar unlink then drops.
+    """
+    wipe_device_build_dir(configuration)
+    unlink_storage_sidecar(configuration)
+    unlink_compiled_config(configuration)
+    yaml_path.unlink(missing_ok=True)

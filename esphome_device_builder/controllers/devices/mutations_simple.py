@@ -11,7 +11,11 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.device_yaml import parse_esphome_meta, resolved_device_name
+from ...helpers.device_yaml import (
+    configuration_filename,
+    parse_esphome_meta,
+    resolved_device_name,
+)
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import (
@@ -201,7 +205,7 @@ async def rename_device(
     device's own file) is always config-only since the OTA chain needs a
     new filename to compile against.
     """
-    new_filename = f"{new_name}.yaml"
+    new_filename = configuration_filename(new_name)
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
@@ -303,7 +307,7 @@ async def _config_only_rename(
     and the old-file / old-sidecar removals are skipped so the just-written
     file isn't deleted.
     """
-    new_filename = f"{new_name}.yaml"
+    new_filename = configuration_filename(new_name)
     old_path = controller._db.settings.rel_path(configuration)
     new_path = controller._db.settings.rel_path(new_filename)
 
