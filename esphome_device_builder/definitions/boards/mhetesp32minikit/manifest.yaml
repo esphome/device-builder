@@ -1,0 +1,47 @@
+id: mhetesp32minikit
+name: MH-ET LIVE D1 Mini ESP32
+description: >-
+  MH-ET LIVE D1 Mini ESP32: a WeMos D1 Mini form-factor ESP32 development board with an
+  onboard blue LED on GPIO2. GPIO2 is a strapping pin, handled with
+  ignore_strapping_warning.
+manufacturer: MH-ET LIVE
+esphome:
+  platform: esp32
+  board: mhetesp32minikit
+  variant: esp32
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- dev-kit
+- compact
+docs_url: https://www.wemos.cc/en/latest/d1/index.html
+pins:
+- gpio: 2
+  available: false
+  occupied_by: led_output
+  features:
+  - strapping
+  notes: Onboard blue LED (strapping pin)
+featured_components:
+- id: led_output
+  component_id: output.gpio
+  fields:
+    pin:
+      value:
+        number: 2
+        ignore_strapping_warning: true
+      locked: true
+    id: led_output
+- id: onboard_led
+  component_id: light.binary
+  fields:
+    name: Onboard LED
+    icon: mdi:led-on
+    output: led_output
+    id: onboard_led
+  requires:
+  - led_output
