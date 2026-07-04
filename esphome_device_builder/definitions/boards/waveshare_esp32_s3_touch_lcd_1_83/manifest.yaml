@@ -4,8 +4,8 @@ description: >-
   Waveshare ESP32-S3-Touch-LCD-1.83: an ESP32-S3 board with a 1.83" 240x284 ST7789P SPI
   LCD and a CST816 capacitive touch panel on I2C. Display CS/DC/reset are locked to the
   board wiring. The board also carries an ES8311 speaker codec and ES7210 microphone ADC
-  on the shared I2C/I2S bus (not featured here). Uses the v2 panel init sequence; do not
-  use on the incompatible v1 revision.
+  on a shared I2C/I2S bus, featured as Speaker and Microphone bundles. Uses the v2 panel
+  init sequence; do not use on the incompatible v1 revision.
 manufacturer: Waveshare
 esphome:
   platform: esp32
@@ -19,6 +19,8 @@ hardware:
   - bluetooth
 tags:
 - display
+- speaker
+- microphone
 images:
 - https://www.waveshare.com/media/catalog/product/e/s/esp32-s3-touch-lcd-1.83-1.jpg
 docs_url: https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-1.83
@@ -43,6 +45,18 @@ pins:
   features:
   - spi_mosi
   notes: Display SPI MOSI
+- gpio: 8
+  available: false
+  occupied_by: onboard_speaker
+  notes: I2S audio data out (speaker)
+- gpio: 9
+  available: false
+  occupied_by: audio_bus
+  notes: I2S bit clock
+- gpio: 10
+  available: false
+  occupied_by: onboard_mic
+  notes: I2S audio data in (microphone)
 - gpio: 13
   available: false
   occupied_by: lcd_touch
@@ -59,6 +73,10 @@ pins:
   features:
   - i2c_sda
   notes: Touch I2C SDA
+- gpio: 16
+  available: false
+  occupied_by: audio_bus
+  notes: I2S master clock
 - gpio: 38
   available: false
   occupied_by: lcd_display
@@ -71,6 +89,14 @@ pins:
   available: false
   occupied_by: backlight_output
   notes: Display backlight
+- gpio: 45
+  available: false
+  occupied_by: audio_bus
+  notes: I2S word-select (LRCLK)
+- gpio: 46
+  available: false
+  occupied_by: audio_amplifier
+  notes: Power-amp enable (active high)
 featured_components:
 - id: lcd_spi
   component_id: spi
@@ -152,6 +178,82 @@ featured_components:
   requires:
   - i2c_bus
   - lcd_display
+- id: audio_bus
+  component_id: i2s_audio
+  fields:
+    i2s_mclk_pin:
+      value: 16
+      locked: true
+    i2s_bclk_pin:
+      value: 9
+      locked: true
+    i2s_lrclk_pin:
+      value: 45
+      locked: true
+    id:
+      value: audio_bus
+      locked: true
+- id: es8311_dac
+  component_id: audio_dac.es8311
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    address: 0x18
+    id: es8311_dac
+  requires:
+  - i2c_bus
+- id: onboard_speaker
+  component_id: speaker.i2s_audio
+  fields:
+    i2s_audio_id:
+      value: audio_bus
+      locked: true
+    i2s_dout_pin:
+      value: 8
+      locked: true
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    id: onboard_speaker
+  requires:
+  - audio_bus
+  - es8311_dac
+- id: audio_amplifier
+  component_id: switch.gpio
+  fields:
+    name: Audio Amplifier
+    icon: mdi:volume-high
+    restore_mode: RESTORE_DEFAULT_ON
+    pin:
+      value: 46
+      locked: true
+    id: audio_amplifier
+- id: es7210_adc
+  component_id: audio_adc.es7210
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    address: 0x40
+    id: es7210_adc
+  requires:
+  - i2c_bus
+- id: onboard_mic
+  component_id: microphone.i2s_audio
+  fields:
+    i2s_audio_id:
+      value: audio_bus
+      locked: true
+    i2s_din_pin:
+      value: 10
+      locked: true
+    adc_type: external
+    pdm: false
+    id: onboard_mic
+  requires:
+  - audio_bus
+  - es7210_adc
 featured_bundles:
 - id: display_setup
   name: Display (full setup)
@@ -167,3 +269,18 @@ featured_bundles:
   - lcd_touch
   - backlight_output
   - display_backlight
+- id: speaker_setup
+  name: Speaker (full setup)
+  component_ids:
+  - i2c_bus
+  - audio_bus
+  - es8311_dac
+  - onboard_speaker
+  - audio_amplifier
+- id: microphone_setup
+  name: Microphone (full setup)
+  component_ids:
+  - i2c_bus
+  - audio_bus
+  - es7210_adc
+  - onboard_mic
