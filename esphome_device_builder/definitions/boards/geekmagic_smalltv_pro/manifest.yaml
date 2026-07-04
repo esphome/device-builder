@@ -1,0 +1,108 @@
+id: geekmagic_smalltv_pro
+name: GeekMagic SmallTV Pro
+description: >-
+  GeekMagic SmallTV Pro: an ESP32 desktop smart-display cube with a 1.54" 240x240 ST7789
+  SPI LCD. The display runs on the ESP32 SPI bus (CLK GPIO18, MOSI GPIO23) with DC on
+  GPIO2 (a strapping pin, handled with ignore_strapping_warning) and reset on GPIO4; CS is
+  tied to ground. The backlight (GPIO25) is active-low, driven by an inverted PWM output.
+  This is the ESP32 SmallTV Pro, not the original ESP8266 SmallTV.
+manufacturer: GeekMagic
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+hardware:
+  flash_size: 4MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+docs_url: https://esphome.io/components/display/mipi_spi/
+pins:
+- gpio: 2
+  available: false
+  occupied_by: lcd_display
+  features:
+  - strapping
+  notes: Display DC (strapping pin)
+- gpio: 4
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 18
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK
+- gpio: 23
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI
+- gpio: 25
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight (active low)
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 18
+      locked: true
+    mosi_pin:
+      value: 23
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: GEEKMAGIC-SMALLTV-PRO
+    spi_id:
+      value: lcd_spi
+      locked: true
+    dc_pin:
+      value:
+        number: 2
+        ignore_strapping_warning: true
+      locked: true
+    reset_pin:
+      value: 4
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 25
+      locked: true
+    inverted: true
+    frequency: 1000Hz
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
