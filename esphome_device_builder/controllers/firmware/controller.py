@@ -532,21 +532,17 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if not device:
             return
 
+        # Arm first on every path — a failed immediate OTA must find the flag
+        # set so the device stays armed for its next wake. Anything short of
+        # confirmed ONLINE (OFFLINE, or the narrow UNKNOWN window from a
+        # scanner rebuild with previous=None) just waits for that wake.
+        devices.set_queued_update(job.configuration)
         if device.state == DeviceState.ONLINE:
             _LOGGER.info(
                 "Device %s is online after deferred compile. Triggering upload now.",
                 job.configuration,
             )
-            # Use the local 'devices' variable so Mypy knows it is not None
-            devices.set_queued_update(job.configuration)
             self._dispatch_queued_upload(job.configuration)
-            return
-
-        # Anything short of confirmed ONLINE — OFFLINE, or the narrow UNKNOWN
-        # window from a scanner rebuild with previous=None (atomic-save churn,
-        # REMOVED+re-ADDED) — stays armed for the next wake rather than
-        # silently dropping the queued install.
-        devices.set_queued_update(job.configuration)
 
     def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
         """Clear (on success) or re-arm (on failure/cancel) a queued OTA upload.
