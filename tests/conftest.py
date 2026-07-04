@@ -992,3 +992,19 @@ def wire_secrets_writer(db_mock: Any) -> None:
         return await write_secrets_locked(db_mock.secrets_write_lock, fn, *args)
 
     db_mock.write_secrets_locked = _run
+
+
+def record_argv_esphome(state: Any, argv_log: Path) -> None:
+    """Point *state*'s ``esphome_cmd`` at a fake that records argv and succeeds.
+
+    Each invocation appends ``sys.argv[1:]`` as one JSON line to *argv_log*.
+    """
+    state.esphome_cmd = [
+        sys.executable,
+        "-c",
+        "import json, sys\n"
+        f"with open({str(argv_log)!r}, 'a') as fh:\n"
+        "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+        "print('INFO ok')\n"
+        "sys.exit(0)\n",
+    ]

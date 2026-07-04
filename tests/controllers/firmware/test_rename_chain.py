@@ -22,6 +22,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import record_argv_esphome
 from tests.controllers.firmware.conftest import (
     build_scheduler_inputs,
     run_until_terminal,
@@ -57,21 +58,6 @@ async def _wait_for_missing(path: Path, timeout: float = 5.0) -> None:
     async with asyncio.timeout(timeout):
         while path.exists():
             await asyncio.sleep(0.01)
-
-
-def _fake_esphome_recording(controller: FirmwareController, tmp_path: Path) -> Path:
-    """Point ``esphome_cmd`` at a script that records argv and succeeds."""
-    argv_log = tmp_path / "argv.jsonl"
-    controller.state.esphome_cmd = [
-        sys.executable,
-        "-c",
-        "import json, sys\n"
-        f"with open({str(argv_log)!r}, 'a') as fh:\n"
-        "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "print('INFO ok')\n"
-        "sys.exit(0)\n",
-    ]
-    return argv_log
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +175,8 @@ async def test_chain_success_flashes_old_address_and_swaps_files(
     controller = firmware_controller_factory(with_queue=True)
     wire_real_queue(controller)
     wire_background_tasks(controller)
-    argv_log = _fake_esphome_recording(controller, tmp_path)
+    argv_log = tmp_path / "argv.jsonl"
+    record_argv_esphome(controller.state, argv_log)
     _seed_kitchen(tmp_path)
     old_storage = write_storage_json(tmp_path, "kitchen.yaml", overrides={"address": "10.1.2.3"})
     (tmp_path / ".esphome" / "build" / "kitchen").mkdir(parents=True)

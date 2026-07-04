@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,7 @@ import pytest
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.models import DeviceState, EventType, JobStatus, JobType
 
-from ..conftest import MakeSettingsFactory
+from ..conftest import MakeSettingsFactory, record_argv_esphome
 
 _ESP8266_YAML = "esphome:\n  name: kitchen\n\nesp8266:\n  board: esp01_1m\n"
 
@@ -34,22 +33,6 @@ async def dashboard(
         yield db
     finally:
         await db.stop()
-
-
-def _record_argv_esphome(db: DeviceBuilder, tmp_path: Path) -> Path:
-    """Point ``esphome_cmd`` at a fake that records argv and succeeds."""
-    argv_log = tmp_path / "argv.jsonl"
-    assert db.firmware is not None
-    db.firmware.state.esphome_cmd = [
-        sys.executable,
-        "-c",
-        "import json, sys\n"
-        f"with open({str(argv_log)!r}, 'a') as fh:\n"
-        "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "print('INFO ok')\n"
-        "sys.exit(0)\n",
-    ]
-    return argv_log
 
 
 def _announce(db: DeviceBuilder, state: DeviceState, source: str) -> None:
@@ -101,7 +84,8 @@ async def test_offline_install_defers_then_flashes_on_wake(
     db = dashboard
     assert db.firmware is not None
     assert db.devices is not None
-    argv_log = _record_argv_esphome(db, tmp_path)
+    argv_log = tmp_path / "argv.jsonl"
+    record_argv_esphome(db.firmware.state, argv_log)
     _announce(db, DeviceState.OFFLINE, "ping")
 
     compile_done = _completed_job(db, JobType.COMPILE)

@@ -153,6 +153,8 @@ class FirmwareJob(DashboardModel):
     output: list[str] = field(default_factory=list)
     error: str | None = None
     port: str = ""  # for upload jobs
+    # In-memory decision input for the deferred-install completion hook;
+    # the durable arm is ``Device.queued_update``.
     is_deferred_install: bool = False
     # New device name for ``rename`` jobs. Plumbed through to the
     # ``esphome rename`` CLI. Empty for every other job type.
@@ -305,15 +307,19 @@ class FirmwareJob(DashboardModel):
         return self.new_filename if self.is_rename_tail else self.configuration
 
     @property
-    def is_terminal_ota_upload(self) -> bool:
-        """Whether this is an OTA upload job that has reached a terminal status.
+    def is_completed_ota_upload(self) -> bool:
+        """Whether this is an OTA upload job that completed.
 
-        Scoped to OTA specifically — a failed server-serial upload
+        Scoped to OTA specifically — a server-serial upload
         shouldn't trip the offline-queue machinery just because the
         device happens to also have ``queued_update`` set for an
         unrelated reason.
         """
-        return self.job_type == JobType.UPLOAD and self.port == "OTA" and self.is_terminal
+        return (
+            self.job_type == JobType.UPLOAD
+            and self.port == "OTA"
+            and self.status == JobStatus.COMPLETED
+        )
 
     @property
     def is_deferred_compile_success(self) -> bool:

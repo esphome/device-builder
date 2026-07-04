@@ -258,11 +258,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """Manually clear the queued_update flag for a device."""
         await self._validate_configuration_boundary(configuration)
 
+        devices = self._db.devices
         device = self._device_for_configuration(configuration)
-        if not device or not device.queued_update or not self._db.devices:
+        if devices is None or not device or not device.queued_update:
             return
 
-        self._db.devices.clear_queued_update(configuration)
+        devices.clear_queued_update(configuration)
         _LOGGER.info("Queued update cleared for device %s", configuration)
 
     @api_command("firmware/reset_build_env")
@@ -320,12 +321,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             if device and device.state == DeviceState.OFFLINE:
                 _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
                 build_source = self._resolve_install_source(force_local=force_local)
-                job = self._create_job(
-                    configuration,
-                    JobType.COMPILE,
-                    build_source=build_source,
-                    is_deferred_install=True,
-                )
+                job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
+                job.is_deferred_install = True
                 return await self._enqueue(job)
 
         build_source = self._resolve_install_source(force_local=force_local)
@@ -551,23 +548,21 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             self._dispatch_queued_upload(job.configuration)
 
     def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
-        """Clear (on success) or re-arm (on failure/cancel) a queued OTA upload.
+        """Disarm a queued update once its OTA delivery lands.
 
-        Scoped to OTA specifically — a failed server-serial upload shouldn't
-        touch the offline-queue machinery just because the device happens to
-        also have ``queued_update`` set for an unrelated reason.
+        A failed / cancelled attempt never reaches the JOB_COMPLETED
+        listener, so the flag stays set and the device stays armed for
+        its next wake.
         """
-        if not job.is_terminal_ota_upload:
+        devices = self._db.devices
+        if devices is None or not job.is_completed_ota_upload:
             return
 
         device = self._device_for_configuration(job.configuration)
-        if not device or not device.queued_update or not self._db.devices:
+        if not device or not device.queued_update:
             return
 
-        if job.status == JobStatus.COMPLETED:
-            self._db.devices.clear_queued_update(job.configuration)
-        # A failed / cancelled attempt keeps ``queued_update`` set, so the
-        # device stays armed for its next wake.
+        devices.clear_queued_update(job.configuration)
 
     async def _execute_remote_job(self, job: FirmwareJob) -> None:
         await runner.execute_remote_job(self, job)
@@ -659,10 +654,8 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         build_source: JobBuildSource = LOCAL_JOB_BUILD_SOURCE,
         device_name: str = "",
         device_friendly_name: str = "",
-        *,
-        is_deferred_install: bool = False,
     ) -> FirmwareJob:
-        job = factories.create_job(
+        return factories.create_job(
             self,
             configuration,
             job_type,
@@ -675,8 +668,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             device_name=device_name,
             device_friendly_name=device_friendly_name,
         )
-        job.is_deferred_install = is_deferred_install
-        return job
 
     def _resolve_install_source(self, *, force_local: bool = False) -> JobBuildSource:
         return factories.resolve_install_source(self, force_local=force_local)
