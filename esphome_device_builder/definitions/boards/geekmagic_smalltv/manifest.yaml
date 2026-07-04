@@ -1,0 +1,97 @@
+id: geekmagic_smalltv
+name: GeekMagic SmallTV
+description: >-
+  GeekMagic SmallTV: an ESP8266 (ESP-12F) desktop smart-display cube with a 1.54" 240x240
+  ST7789 SPI LCD. The display runs on the ESP8266 hardware SPI bus (CLK GPIO14, MOSI
+  GPIO13); DC (GPIO0) and reset (GPIO2) are supplied by the model. The backlight (GPIO5)
+  is active-low, driven by an inverted PWM output. This is the original ESP8266 SmallTV,
+  not the ESP32 SmallTV-Pro/Ultra.
+manufacturer: GeekMagic
+esphome:
+  platform: esp8266
+  board: esp12e
+hardware:
+  connectivity:
+  - wifi
+tags:
+- display
+docs_url: https://esphome.io/components/display/mipi_spi/
+pins:
+- gpio: 0
+  available: false
+  occupied_by: lcd_display
+  features:
+  - strapping
+  notes: Display DC (strapping pin — must be high during boot)
+- gpio: 2
+  available: false
+  occupied_by: lcd_display
+  features:
+  - strapping
+  notes: Display reset (strapping pin — must be high during boot)
+- gpio: 5
+  available: false
+  occupied_by: backlight_output
+  notes: Display backlight (active low)
+- gpio: 13
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_mosi
+  notes: Display SPI MOSI (hardware SPI)
+- gpio: 14
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display SPI CLK (hardware SPI)
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    clk_pin:
+      value: 14
+      locked: true
+    mosi_pin:
+      value: 13
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: GEEKMAGIC-SMALLTV
+    spi_id:
+      value: lcd_spi
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+- id: backlight_output
+  component_id: output.esp8266_pwm
+  fields:
+    pin:
+      value: 5
+      locked: true
+    inverted: true
+    id: backlight_output
+- id: display_backlight
+  component_id: light.monochromatic
+  fields:
+    name: Display Backlight
+    icon: mdi:brightness-7
+    restore_mode: ALWAYS_ON
+    output: backlight_output
+    id: display_backlight
+  requires:
+  - backlight_output
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_display
+  - backlight_output
+  - display_backlight
