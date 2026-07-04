@@ -109,6 +109,10 @@ class JobBuildSource:
         )
 
 
+# The wire value ``FirmwareJob.port`` carries for an over-the-air flash —
+# the esphome CLI resolves the device's address itself.
+OTA_PORT = "OTA"
+
 LOCAL_JOB_BUILD_SOURCE = JobBuildSource()
 # Submit-time marker for "remote-eligible, server chosen at dispatch".
 # The pin/label/version stay empty until the dispatch pool resolves them.
@@ -317,7 +321,7 @@ class FirmwareJob(DashboardModel):
         """
         return (
             self.job_type == JobType.UPLOAD
-            and self.port == "OTA"
+            and self.port == OTA_PORT
             and self.status == JobStatus.COMPLETED
         )
 

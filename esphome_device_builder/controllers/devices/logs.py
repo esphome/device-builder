@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.api import registered_stream
 from ...helpers.process import kill_quietly
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
-from ...models import StreamEvent
+from ...models import OTA_PORT, StreamEvent
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -37,7 +37,7 @@ async def stream_logs(
     # Always pass --device; without one ``esphome logs`` enters an
     # interactive port-choice prompt that crashes the stdin-less
     # subprocess with EOFError. (#636)
-    resolved_port = port or "OTA"
+    resolved_port = port or OTA_PORT
     # Cache args go before the subcommand; esphome parses
     # --mdns/--dns-address-cache on the top-level parser.
     cache_args = controller.get_ota_address_cache_args(configuration, resolved_port)

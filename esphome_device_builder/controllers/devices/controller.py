@@ -37,6 +37,7 @@ from ...helpers.secrets_state import (
 )
 from ...helpers.storage import ShutdownCallback
 from ...models import (
+    OTA_PORT,
     AddComponentResponse,
     Device,
     DeviceEventData,
@@ -339,7 +340,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def get_ota_address_cache_args(self, configuration: str, port: str | None) -> list[str]:
         """Return cache args when ``port == "OTA"`` (or ``None`` for always-OTA flows)."""
-        if port is not None and port != "OTA":
+        if port is not None and port != OTA_PORT:
             return []
         return self.get_address_cache_args(configuration)
 

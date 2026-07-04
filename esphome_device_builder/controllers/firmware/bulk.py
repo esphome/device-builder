@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from ...helpers.api import CommandError
-from ...models import ErrorCode, FirmwareJob, JobType
+from ...models import OTA_PORT, ErrorCode, FirmwareJob, JobType
 from . import factories
 from .helpers import _validate_port
 
@@ -124,7 +124,7 @@ async def compile_bulk(
 
 
 async def install_bulk(
-    controller: FirmwareController, *, configurations: list[str], port: str = "OTA"
+    controller: FirmwareController, *, configurations: list[str], port: str = OTA_PORT
 ) -> list[FirmwareJob]:
     """Queue install (compile + upload) for *configurations*; defaults to OTA.
 

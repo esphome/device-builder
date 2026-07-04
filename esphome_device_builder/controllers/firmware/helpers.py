@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from ...helpers.api import CommandError
 from ...helpers.subprocess import run_subprocess_capture
 from ...models import (
+    OTA_PORT,
     ErrorCode,
     EventType,
     FirmwareJob,
@@ -195,7 +196,7 @@ def _parse_progress(line: str) -> int | None:
 
 def _validate_port(port: str) -> None:
     """Accept ``""`` / ``"OTA"`` / SERIAL / IPv4-6 / hostname; raise ``INVALID_ARGS`` otherwise."""
-    if not port or port == "OTA":
+    if not port or port == OTA_PORT:
         return
     if get_port_type(port) is PortType.SERIAL:
         return

@@ -25,6 +25,7 @@ from ...helpers.device_yaml import configuration_filename
 from ...helpers.event_bus import Event
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
+    OTA_PORT,
     DeviceState,
     ErrorCode,
     EventType,
@@ -123,7 +124,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         *configuration* comes from our own device events, so the WS
         boundary/port validation ``upload()`` performs is tautological.
         """
-        job = self._create_job(configuration, JobType.UPLOAD, port="OTA")
+        job = self._create_job(configuration, JobType.UPLOAD, port=OTA_PORT)
         self._db.create_background_task(self._enqueue(job))
 
     def _device_for_configuration(self, configuration: str) -> Any | None:
@@ -298,7 +299,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self,
         *,
         configuration: str,
-        port: str = "OTA",
+        port: str = OTA_PORT,
         force_local: bool = False,
         **kwargs: Any,
     ) -> FirmwareJob:
@@ -315,7 +316,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_port(port)
         await self._validate_configuration_boundary(configuration)
 
-        if port == "OTA":
+        if port == OTA_PORT:
             device = self._device_for_configuration(configuration)
             # Gated ONLY on OFFLINE, avoiding UNKNOWN startup states
             if device and device.state == DeviceState.OFFLINE:
@@ -402,7 +403,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     @api_command("firmware/install_bulk")
     async def install_bulk(
-        self, *, configurations: list[str], port: str = "OTA", **kwargs: Any
+        self, *, configurations: list[str], port: str = OTA_PORT, **kwargs: Any
     ) -> list[FirmwareJob]:
         return await bulk.install_bulk(self, configurations=configurations, port=port)
 
