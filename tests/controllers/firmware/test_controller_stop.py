@@ -30,6 +30,10 @@ def controller_with_real_bus():
         controller._unsub_device_wake = controller.bus.add_listener(
             EventType.DEVICE_STATE_CHANGED, controller._handle_device_wake
         )
+        controller._handle_job_completed = MagicMock()
+        controller._unsub_job_completed = controller.bus.add_listener(
+            EventType.JOB_COMPLETED, controller._handle_job_completed
+        )
         yield controller
 
 

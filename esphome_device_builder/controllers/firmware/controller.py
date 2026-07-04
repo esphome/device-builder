@@ -87,15 +87,33 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self._unsub_device_wake = self.bus.add_listener(
             EventType.DEVICE_STATE_CHANGED, self._handle_device_wake
         )
+        # Rides the bus (not the lane runner) so pool-dispatched remote
+        # compiles arm the queued update too.
+        self._unsub_job_completed = self.bus.add_listener(
+            EventType.JOB_COMPLETED, self._handle_job_completed
+        )
 
     def stop(self) -> None:
         """Tear down bus subscriptions registered in __init__."""
         self._unsub_device_wake()
+        self._unsub_job_completed()
 
     @property
     def bus(self) -> EventBus:
         """The event bus for lifecycle / output events — read-only shorthand for ``_db.bus``."""
         return self._db.bus
+
+    def _dispatch_queued_upload(self, configuration: str) -> None:
+        """Queue the deferred OTA flash for *configuration*.
+
+        The job is created synchronously so a flapping device's second
+        wake sees it in ``active_jobs()`` before the async enqueue runs —
+        the window that let a flap dispatch a superseding second OTA.
+        *configuration* comes from our own device events, so the WS
+        boundary/port validation ``upload()`` performs is tautological.
+        """
+        job = self._create_job(configuration, JobType.UPLOAD, port="OTA")
+        self._db.create_background_task(self._enqueue(job))
 
     def _device_for_configuration(self, configuration: str) -> Any | None:
         """Resolve a Device by its configuration filename."""
@@ -126,7 +144,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         _LOGGER.info("Device %s woke up. Triggering queued offline update.", config)
-        self._db.create_background_task(self.upload(configuration=config, port="OTA"))
+        self._dispatch_queued_upload(config)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -295,7 +313,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             # Gated ONLY on OFFLINE, avoiding UNKNOWN startup states
             if device and device.state == DeviceState.OFFLINE:
                 _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
-                build_source = self._resolve_install_source(force_local=True)
+                build_source = self._resolve_install_source(force_local=force_local)
                 job = self._create_job(
                     configuration,
                     JobType.COMPILE,
@@ -490,6 +508,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     async def _execute_job(self, job: FirmwareJob, lane: Lane) -> None:
         await runner.execute_job(self, job, lane)
+
+    def _handle_job_completed(self, event: Event) -> None:
+        job = event.data["job"]
         self._handle_deferred_compile_completion(job)
         self._handle_ota_upload_completion(job)
 
@@ -518,9 +539,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             )
             # Use the local 'devices' variable so Mypy knows it is not None
             devices.set_queued_update(job.configuration, is_queued=True)
-            self._db.create_background_task(
-                self.upload(configuration=job.configuration, port="OTA")
-            )
+            self._dispatch_queued_upload(job.configuration)
             return
 
         # Anything short of confirmed ONLINE — OFFLINE, or the narrow UNKNOWN

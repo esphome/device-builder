@@ -39,7 +39,10 @@ def firmware_controller(mock_device):
 
     controller._db.settings = MagicMock()
     controller._db.settings.config_dir = Path(__file__).parent
+    controller._db.remote_build_offloader = None
+    controller._db.create_background_task = MagicMock(side_effect=lambda coro: coro.close())
     controller.state = FirmwareState()
+    controller._persist_jobs = AsyncMock()
     return controller
 
 
@@ -159,49 +162,48 @@ def test_handle_device_wake_triggers_upload(firmware_controller, mock_device):
 
     firmware_controller._db.devices.set_queued_update = MagicMock()
 
-    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
-        event = Event(
-            EventType.DEVICE_STATE_CHANGED,
-            data={
-                "state": DeviceState.ONLINE.value,
-                "configuration": "test_device.yaml",
-            },
-        )
-        firmware_controller._handle_device_wake(event)
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.ONLINE.value,
+            "configuration": "test_device.yaml",
+        },
+    )
+    firmware_controller._handle_device_wake(event)
 
-        firmware_controller._db.devices.set_queued_update.assert_not_called()
-        mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
-        firmware_controller._db.create_background_task.assert_called_once()
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+    uploads = [j for j in firmware_controller.state.jobs.values() if j.job_type is JobType.UPLOAD]
+    assert len(uploads) == 1
+    assert uploads[0].port == "OTA"
+    firmware_controller._db.create_background_task.assert_called_once()
 
 
 def test_handle_device_wake_ignored_if_offline(firmware_controller, mock_device):
     """Test that non-ONLINE state changes are ignored."""
     mock_device.queued_update = True
-    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
-        event = Event(
-            EventType.DEVICE_STATE_CHANGED,
-            data={
-                "state": DeviceState.OFFLINE.value,
-                "configuration": "test_device.yaml",
-            },
-        )
-        firmware_controller._handle_device_wake(event)
-        mock_upload.assert_not_called()
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.OFFLINE.value,
+            "configuration": "test_device.yaml",
+        },
+    )
+    firmware_controller._handle_device_wake(event)
+    assert not firmware_controller.state.jobs
 
 
 def test_handle_device_wake_ignored_if_no_flag(firmware_controller, mock_device):
     """Test that online devices without the queued_update flag are ignored."""
     mock_device.queued_update = False
-    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
-        event = Event(
-            EventType.DEVICE_STATE_CHANGED,
-            data={
-                "state": DeviceState.ONLINE.value,
-                "configuration": "test_device.yaml",
-            },
-        )
-        firmware_controller._handle_device_wake(event)
-        mock_upload.assert_not_called()
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.ONLINE.value,
+            "configuration": "test_device.yaml",
+        },
+    )
+    firmware_controller._handle_device_wake(event)
+    assert not firmware_controller.state.jobs
 
 
 def test_handle_device_wake_no_devices(firmware_controller):
@@ -236,11 +238,7 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
     job.is_deferred_compile_success = True
     job.is_terminal_ota_upload = False
 
-    with patch(
-        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
-        new_callable=AsyncMock,
-    ):
-        await firmware_controller._execute_job(job, MagicMock())
+    firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device.yaml", is_queued=True
@@ -265,11 +263,7 @@ async def test_compile_only_does_not_arm_queue(firmware_controller, mock_device)
     job.is_deferred_compile_success = False
     job.is_terminal_ota_upload = False
 
-    with patch(
-        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
-        new_callable=AsyncMock,
-    ):
-        await firmware_controller._execute_job(job, MagicMock())
+    firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     # Ensure the arming path was skipped
     firmware_controller._db.devices.set_queued_update.assert_not_called()
@@ -291,20 +285,32 @@ async def test_execute_job_handles_online_device(firmware_controller, mock_devic
     job.is_deferred_compile_success = True
     job.is_terminal_ota_upload = False
 
-    with (
-        patch(
-            "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
-            new_callable=AsyncMock,
-        ),
-        patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload,
-    ):
-        await firmware_controller._execute_job(job, MagicMock())
+    firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device.yaml", is_queued=True
     )
-    mock_upload.assert_called_with(configuration="test_device.yaml", port="OTA")
+    uploads = [j for j in firmware_controller.state.jobs.values() if j.job_type is JobType.UPLOAD]
+    assert [j.port for j in uploads] == ["OTA"]
     firmware_controller._db.create_background_task.assert_called_once()
+
+
+def test_wake_flap_dispatches_a_single_upload(firmware_controller, mock_device):
+    """A flap's second wake sees the synchronously-created job and backs off."""
+    mock_device.queued_update = True
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.ONLINE.value,
+            "configuration": "test_device.yaml",
+        },
+    )
+
+    firmware_controller._handle_device_wake(event)
+    firmware_controller._handle_device_wake(event)
+
+    uploads = [j for j in firmware_controller.state.jobs.values() if j.job_type is JobType.UPLOAD]
+    assert len(uploads) == 1
 
 
 def test_handle_device_wake_skips_active_flash(firmware_controller, mock_device):
@@ -319,16 +325,16 @@ def test_handle_device_wake_skips_active_flash(firmware_controller, mock_device)
     )
     firmware_controller.state.jobs[in_flight.job_id] = in_flight
 
-    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
-        event = Event(
-            EventType.DEVICE_STATE_CHANGED,
-            data={
-                "state": DeviceState.ONLINE.value,
-                "configuration": "test_device.yaml",
-            },
-        )
-        firmware_controller._handle_device_wake(event)
-        mock_upload.assert_not_called()
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.ONLINE.value,
+            "configuration": "test_device.yaml",
+        },
+    )
+    firmware_controller._handle_device_wake(event)
+
+    assert list(firmware_controller.state.jobs) == ["u1"]
 
 
 def test_handle_device_wake_triggers_after_rename(firmware_controller, mock_device):
@@ -337,16 +343,17 @@ def test_handle_device_wake_triggers_after_rename(firmware_controller, mock_devi
     mock_device.configuration = "renamed_device.yaml"
     mock_device.name = "renamed_device"
 
-    with patch.object(firmware_controller, "upload", new_callable=MagicMock) as mock_upload:
-        event = Event(
-            EventType.DEVICE_STATE_CHANGED,
-            data={
-                "state": DeviceState.ONLINE.value,
-                "configuration": "renamed_device.yaml",
-            },
-        )
-        firmware_controller._handle_device_wake(event)
-        mock_upload.assert_called_with(configuration="renamed_device.yaml", port="OTA")
+    event = Event(
+        EventType.DEVICE_STATE_CHANGED,
+        data={
+            "state": DeviceState.ONLINE.value,
+            "configuration": "renamed_device.yaml",
+        },
+    )
+    firmware_controller._handle_device_wake(event)
+
+    uploads = [j for j in firmware_controller.state.jobs.values() if j.job_type is JobType.UPLOAD]
+    assert [j.configuration for j in uploads] == ["renamed_device.yaml"]
 
 
 @pytest.mark.asyncio
@@ -367,11 +374,7 @@ async def test_execute_job_clears_queued_flag_on_upload(firmware_controller, moc
     job.is_deferred_compile_success = False
     job.is_terminal_ota_upload = True
 
-    with patch(
-        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
-        new_callable=AsyncMock,
-    ):
-        await firmware_controller._execute_job(job, MagicMock())
+    firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     firmware_controller._db.devices.set_queued_update.assert_called_with(
         "test_device.yaml", is_queued=False
@@ -396,11 +399,9 @@ async def test_execute_job_preserves_queued_flag_on_failed_upload(firmware_contr
     job.is_deferred_compile_success = False
     job.is_terminal_ota_upload = True
 
-    with patch(
-        "esphome_device_builder.controllers.firmware.controller.runner.execute_job",
-        new_callable=AsyncMock,
-    ):
-        await firmware_controller._execute_job(job, MagicMock())
+    # Failed uploads never reach the JOB_COMPLETED listener; the handler's
+    # own terminal guard keeps a direct call a no-op too.
+    firmware_controller._handle_ota_upload_completion(job)
 
     # The flag stays set, so the device stays armed for its next wake.
     firmware_controller._db.devices.set_queued_update.assert_not_called()
