@@ -239,7 +239,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # Disarm a queued update — the wipe leaves nothing to flash, and a
         # still-armed device would OTA-fail on every wake.
         if self._db.devices is not None:
-            self._db.devices.set_queued_update(configuration, is_queued=False)
+            self._db.devices.clear_queued_update(configuration)
         return await clean_mod.clean(self, configuration=configuration)
 
     @api_command("firmware/clear_queued_update")
@@ -251,7 +251,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if not device or not device.queued_update or not self._db.devices:
             return
 
-        self._db.devices.set_queued_update(configuration, is_queued=False)
+        self._db.devices.clear_queued_update(configuration)
         _LOGGER.info("Queued update cleared for device %s", configuration)
 
     @api_command("firmware/reset_build_env")
@@ -274,7 +274,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if self._db.devices is not None:
             for device in self._db.devices.get_devices():
                 if device.queued_update:
-                    self._db.devices.set_queued_update(device.configuration, is_queued=False)
+                    self._db.devices.clear_queued_update(device.configuration)
         job = self._create_job("", JobType.RESET_BUILD_ENV)
         # The global sweep re-raises on a state-out-of-sync RuntimeError; roll the
         # just-created RESET job back so the orphan can't wedge the upload lane
@@ -538,7 +538,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 job.configuration,
             )
             # Use the local 'devices' variable so Mypy knows it is not None
-            devices.set_queued_update(job.configuration, is_queued=True)
+            devices.set_queued_update(job.configuration)
             self._dispatch_queued_upload(job.configuration)
             return
 
@@ -546,7 +546,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # window from a scanner rebuild with previous=None (atomic-save churn,
         # REMOVED+re-ADDED) — stays armed for the next wake rather than
         # silently dropping the queued install.
-        devices.set_queued_update(job.configuration, is_queued=True)
+        devices.set_queued_update(job.configuration)
 
     def _handle_ota_upload_completion(self, job: FirmwareJob) -> None:
         """Clear (on success) or re-arm (on failure/cancel) a queued OTA upload.
@@ -563,7 +563,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         if job.status == JobStatus.COMPLETED:
-            self._db.devices.set_queued_update(job.configuration, is_queued=False)
+            self._db.devices.clear_queued_update(job.configuration)
         # A failed / cancelled attempt keeps ``queued_update`` set, so the
         # device stays armed for its next wake.
 

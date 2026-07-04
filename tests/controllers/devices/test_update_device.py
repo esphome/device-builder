@@ -204,7 +204,7 @@ def test_set_queued_update_updates_and_persists(make_controller, tmp_path):
     controller._metadata_store = MagicMock()
     controller._fire_device_updated = MagicMock()
 
-    assert controller.set_queued_update("kitchen.yaml", is_queued=True) is True
+    assert controller.set_queued_update("kitchen.yaml") is True
 
     assert dev.queued_update is True
     controller._metadata_store.update.assert_called_once_with("kitchen.yaml", queued_update=True)
@@ -216,4 +216,4 @@ def test_set_queued_update_handles_unknown_configuration(make_controller, tmp_pa
     controller = make_controller(config_dir=tmp_path)
     controller._scanner.devices = []
 
-    assert controller.set_queued_update("missing.yaml", is_queued=True) is False
+    assert controller.set_queued_update("missing.yaml") is False

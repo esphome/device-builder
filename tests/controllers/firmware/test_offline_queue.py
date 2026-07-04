@@ -82,9 +82,7 @@ async def test_clear_queued_update_clears_flag(firmware_controller, mock_device)
 
     await firmware_controller.clear_queued_update(configuration="test_device.yaml")
 
-    firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device.yaml", is_queued=False
-    )
+    firmware_controller._db.devices.clear_queued_update.assert_called_with("test_device.yaml")
 
 
 @pytest.mark.asyncio
@@ -123,7 +121,7 @@ def _devices_controller_with(mock_device):
 def test_set_queued_update_persists_and_fires(mock_device):
     controller = _devices_controller_with(mock_device)
 
-    assert controller.set_queued_update("test_device.yaml", is_queued=True) is True
+    assert controller.set_queued_update("test_device.yaml") is True
 
     assert mock_device.queued_update is True
     controller._metadata_store.update.assert_called_once_with(
@@ -137,7 +135,7 @@ def test_set_queued_update_dedupes_same_value(mock_device):
     mock_device.queued_update = True
     controller = _devices_controller_with(mock_device)
 
-    assert controller.set_queued_update("test_device.yaml", is_queued=True) is False
+    assert controller.set_queued_update("test_device.yaml") is False
 
     controller._metadata_store.update.assert_not_called()
     controller._fire_device_updated.assert_not_called()
@@ -146,7 +144,7 @@ def test_set_queued_update_dedupes_same_value(mock_device):
 def test_set_queued_update_skips_unknown_configuration(mock_device):
     controller = _devices_controller_with(mock_device)
 
-    assert controller.set_queued_update("other_device.yaml", is_queued=True) is False
+    assert controller.set_queued_update("other_device.yaml") is False
 
     assert mock_device.queued_update is False
     controller._metadata_store.update.assert_not_called()
@@ -240,9 +238,7 @@ async def test_execute_job_sets_queued_flag(firmware_controller, mock_device):
 
     firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
-    firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device.yaml", is_queued=True
-    )
+    firmware_controller._db.devices.set_queued_update.assert_called_with("test_device.yaml")
 
 
 @pytest.mark.asyncio
@@ -287,9 +283,7 @@ async def test_execute_job_handles_online_device(firmware_controller, mock_devic
 
     firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
-    firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device.yaml", is_queued=True
-    )
+    firmware_controller._db.devices.set_queued_update.assert_called_with("test_device.yaml")
     uploads = [j for j in firmware_controller.state.jobs.values() if j.job_type is JobType.UPLOAD]
     assert [j.port for j in uploads] == ["OTA"]
     firmware_controller._db.create_background_task.assert_called_once()
@@ -376,9 +370,7 @@ async def test_execute_job_clears_queued_flag_on_upload(firmware_controller, moc
 
     firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
-    firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device.yaml", is_queued=False
-    )
+    firmware_controller._db.devices.clear_queued_update.assert_called_with("test_device.yaml")
 
 
 @pytest.mark.asyncio
@@ -404,7 +396,7 @@ async def test_execute_job_preserves_queued_flag_on_failed_upload(firmware_contr
     firmware_controller._handle_ota_upload_completion(job)
 
     # The flag stays set, so the device stays armed for its next wake.
-    firmware_controller._db.devices.set_queued_update.assert_not_called()
+    firmware_controller._db.devices.clear_queued_update.assert_not_called()
 
 
 def test_device_for_configuration_handles_none(firmware_controller):
@@ -487,9 +479,7 @@ async def test_clean_disarms_queued_update(firmware_controller, mock_device):
     ):
         await firmware_controller.clean(configuration="test_device.yaml")
 
-    firmware_controller._db.devices.set_queued_update.assert_called_with(
-        "test_device.yaml", is_queued=False
-    )
+    firmware_controller._db.devices.clear_queued_update.assert_called_with("test_device.yaml")
 
 
 @pytest.mark.asyncio
@@ -510,5 +500,25 @@ async def test_reset_build_env_disarms_all_queued_updates(firmware_controller, m
     ):
         await firmware_controller.reset_build_env()
 
-    cleared = {c.args[0] for c in firmware_controller._db.devices.set_queued_update.call_args_list}
+    calls = firmware_controller._db.devices.clear_queued_update.call_args_list
+    cleared = {c.args[0] for c in calls}
     assert cleared == {"test_device.yaml", "other.yaml"}
+
+
+def test_completed_ota_upload_for_unarmed_device_is_ignored(firmware_controller, mock_device):
+    """A regular install's OTA upload must not touch the queue machinery."""
+    mock_device.queued_update = False
+    firmware_controller._db.devices.clear_queued_update = MagicMock()
+
+    job = MagicMock(spec=FirmwareJob)
+    job.job_type = JobType.UPLOAD
+    job.status = JobStatus.COMPLETED
+    job.configuration = "test_device.yaml"
+    job.is_deferred_install = False
+    job.port = "OTA"
+    job.is_deferred_compile_success = False
+    job.is_terminal_ota_upload = True
+
+    firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
+
+    firmware_controller._db.devices.clear_queued_update.assert_not_called()

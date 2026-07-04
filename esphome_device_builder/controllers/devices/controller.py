@@ -343,7 +343,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return []
         return self.get_address_cache_args(configuration)
 
-    def set_queued_update(self, configuration: str, *, is_queued: bool) -> bool:
+    def set_queued_update(self, configuration: str) -> bool:
+        """Arm *configuration*'s queued update; True when the flag flipped."""
+        return self._set_queued_update(configuration, is_queued=True)
+
+    def clear_queued_update(self, configuration: str) -> bool:
+        """Disarm *configuration*'s queued update; True when the flag flipped."""
+        return self._set_queued_update(configuration, is_queued=False)
+
+    def _set_queued_update(self, configuration: str, *, is_queued: bool) -> bool:
         """Set a device's queued-update flag; persist + fire on change.
 
         Keyed on *configuration* — the unique per-device key — not the
