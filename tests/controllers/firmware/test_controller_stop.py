@@ -1,5 +1,6 @@
 """Tests for FirmwareController.stop() — bus listener teardown."""
 
+from collections.abc import Iterator
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -10,7 +11,7 @@ from esphome_device_builder.models import DeviceState, EventType
 
 
 @pytest.fixture
-def controller_with_real_bus():
+def controller_with_real_bus() -> Iterator[FirmwareController]:
     """Wire a FirmwareController to a real EventBus.
 
     Bypasses the full __init__ DI graph (device_builder, devices, etc.)
@@ -37,7 +38,9 @@ def controller_with_real_bus():
         yield controller
 
 
-def test_stop_unsubscribes_device_wake_listener(controller_with_real_bus):
+def test_stop_unsubscribes_device_wake_listener(
+    controller_with_real_bus: FirmwareController,
+) -> None:
     """stop() must remove the DEVICE_STATE_CHANGED listener from the bus.
 
     Without this, a re-created controller (tests, a restart path) keeps
@@ -58,7 +61,7 @@ def test_stop_unsubscribes_device_wake_listener(controller_with_real_bus):
     controller._handle_device_wake.assert_called_once()
 
 
-def test_stop_is_idempotent(controller_with_real_bus):
+def test_stop_is_idempotent(controller_with_real_bus: FirmwareController) -> None:
     """Calling stop() twice must not raise.
 
     EventBus._remove_listener uses set.discard (no-op if already

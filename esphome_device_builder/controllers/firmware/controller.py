@@ -103,6 +103,17 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """The event bus for lifecycle / output events — read-only shorthand for ``_db.bus``."""
         return self._db.bus
 
+    def _disarm_all_queued_updates(self) -> None:
+        """Clear every armed device — a global wipe leaves nothing to flash.
+
+        Without this, a still-armed device would OTA-fail on every wake.
+        """
+        if self._db.devices is None:
+            return
+        for device in self._db.devices.get_devices():
+            if device.queued_update:
+                self._db.devices.clear_queued_update(device.configuration)
+
     def _dispatch_queued_upload(self, configuration: str) -> None:
         """Queue the deferred OTA flash for *configuration*.
 
@@ -269,12 +280,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         Cancels every other in-flight job first so the wipe can't race a live
         compile or upload running concurrently on either lane.
         """
-        # Disarm every queued update — the wipe leaves nothing to flash,
-        # and a still-armed device would OTA-fail on every wake.
-        if self._db.devices is not None:
-            for device in self._db.devices.get_devices():
-                if device.queued_update:
-                    self._db.devices.clear_queued_update(device.configuration)
+        self._disarm_all_queued_updates()
         job = self._create_job("", JobType.RESET_BUILD_ENV)
         # The global sweep re-raises on a state-out-of-sync RuntimeError; roll the
         # just-created RESET job back so the orphan can't wedge the upload lane

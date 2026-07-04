@@ -522,3 +522,53 @@ def test_completed_ota_upload_for_unarmed_device_is_ignored(firmware_controller,
     firmware_controller._handle_job_completed(Event(EventType.JOB_COMPLETED, {"job": job}))
 
     firmware_controller._db.devices.clear_queued_update.assert_not_called()
+
+
+def test_clear_queued_update_persists_and_fires(mock_device):
+    mock_device.queued_update = True
+    controller = _devices_controller_with(mock_device)
+
+    assert controller.clear_queued_update("test_device.yaml") is True
+
+    assert mock_device.queued_update is False
+    controller._metadata_store.update.assert_called_once_with(
+        "test_device.yaml", queued_update=False
+    )
+    controller._fire_device_updated.assert_called_once_with(mock_device)
+
+
+def _job(job_type: JobType, status: JobStatus, *, port: str = "", deferred: bool = False):
+    job = FirmwareJob(
+        job_id="j1", configuration="kitchen.yaml", job_type=job_type, status=status, port=port
+    )
+    job.is_deferred_install = deferred
+    return job
+
+
+def test_is_terminal_ota_upload_truth_table():
+    assert _job(JobType.UPLOAD, JobStatus.COMPLETED, port="OTA").is_terminal_ota_upload is True
+    assert _job(JobType.UPLOAD, JobStatus.FAILED, port="OTA").is_terminal_ota_upload is True
+    assert _job(JobType.UPLOAD, JobStatus.RUNNING, port="OTA").is_terminal_ota_upload is False
+    assert (
+        _job(JobType.UPLOAD, JobStatus.COMPLETED, port="/dev/ttyUSB0").is_terminal_ota_upload
+        is False
+    )
+    assert _job(JobType.COMPILE, JobStatus.COMPLETED, port="OTA").is_terminal_ota_upload is False
+
+
+def test_is_deferred_compile_success_truth_table():
+    assert (
+        _job(JobType.COMPILE, JobStatus.COMPLETED, deferred=True).is_deferred_compile_success
+        is True
+    )
+    assert (
+        _job(JobType.COMPILE, JobStatus.COMPLETED, deferred=False).is_deferred_compile_success
+        is False
+    )
+    assert (
+        _job(JobType.COMPILE, JobStatus.FAILED, deferred=True).is_deferred_compile_success is False
+    )
+    assert (
+        _job(JobType.UPLOAD, JobStatus.COMPLETED, deferred=True).is_deferred_compile_success
+        is False
+    )
