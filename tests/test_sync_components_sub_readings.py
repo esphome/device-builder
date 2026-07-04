@@ -232,6 +232,17 @@ def test_platform_domains_match_yaml_entity_categories() -> None:
     assert set(_PLATFORM_DOMAINS) == set(_ENTITY_CATEGORIES)
 
 
+def test_platform_domains_have_component_categories() -> None:
+    """Every platform domain needs a ``ComponentCategory`` member, else it loads as MISC."""
+    # A domain in the sets but missing from the enum is silently coerced to MISC at
+    # load time, breaking the category filter — the exact bug #1832 fixed.
+    from esphome_device_builder.models.components import (  # noqa: PLC0415
+        ComponentCategory,
+    )
+
+    assert set(_PLATFORM_DOMAINS) <= {c.value for c in ComponentCategory}
+
+
 def test_resolve_auto_load_handles_callable() -> None:
     """A callable AUTO_LOAD resolves to its list; one that can't run falls back to []."""
     assert _resolve_auto_load(["a", "b"]) == ["a", "b"]
