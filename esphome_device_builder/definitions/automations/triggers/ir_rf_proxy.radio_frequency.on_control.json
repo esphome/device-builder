@@ -1,1 +1,1 @@
-{"id":"ir_rf_proxy.radio_frequency.on_control","name":"Radio Frequency → On Control","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["radio_frequency"],"is_device_level":false,"supports_list":true,"config_entries":[]}
+{"id":"ir_rf_proxy.radio_frequency.on_control","name":"Radio Frequency.Ir Rf Proxy → On Control","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["radio_frequency.ir_rf_proxy"],"is_device_level":false,"supports_list":true,"config_entries":[]}

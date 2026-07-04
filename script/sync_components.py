@@ -179,6 +179,8 @@ _PLATFORM_DOMAINS: frozenset[str] = frozenset(
         "water_heater",
         "ota",
         "packet_transport",
+        "motion",
+        "radio_frequency",
     }
 )
 

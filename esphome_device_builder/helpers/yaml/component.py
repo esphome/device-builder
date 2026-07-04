@@ -65,8 +65,10 @@ _ENTITY_CATEGORIES = {
     "canbus",
     "infrared",
     "media_source",
+    "motion",
     "one_wire",
     "packet_transport",
+    "radio_frequency",
     "stepper",
     "water_heater",
 }
