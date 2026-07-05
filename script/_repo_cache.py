@@ -19,6 +19,7 @@ def ensure_shallow_git_repo(
     pull_timeout: int = 120,
     clone_timeout: int = 300,
     allow_existing_non_git: bool = False,
+    clone_fail_level: int = logging.WARNING,
 ) -> Path | None:
     """
     Clone *url* into *target* (shallow) or refresh it; return the path or None.
@@ -28,6 +29,10 @@ def ensure_shallow_git_repo(
     *pull* is False. Every git failure is non-fatal: a failed pull keeps the
     on-disk snapshot, a failed clone returns None. With *allow_existing_non_git*
     a pre-existing non-git *target* is used as-is rather than cloned into.
+
+    *clone_fail_level* is the log level for a failed clone; pass
+    ``logging.ERROR`` when the repo is a primary data source whose absence
+    yields an empty/partial result the operator must notice.
     """
     if (target / ".git").exists():
         if pull:
@@ -67,6 +72,6 @@ def ensure_shallow_git_repo(
             timeout=clone_timeout,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        _LOGGER.warning("Could not clone %s: %s", label, exc)
+        _LOGGER.log(clone_fail_level, "Could not clone %s: %s", label, exc)
         return None
     return target
