@@ -91,6 +91,23 @@ async def test_provision_builds_and_caches(tmp_path: Path, monkeypatch: pytest.M
     assert runner.count("version") == 2
 
 
+async def test_provision_rebuilds_unhealthy_existing_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leftover venv dir that fails the health check is rebuilt, not reused."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    # A crash-interrupted build leaves the dir present but with no runnable
+    # esphome, so the health probe's is_file fast-path fails.
+    await _seed_venv(provisioner, "2026.6.4")
+
+    cmd = await provisioner.provision("2026.6.4")
+
+    assert "esphome-2026.6.4" in cmd[0]
+    assert (runner.count("venv"), runner.count("install")) == (1, 1)  # rebuilt
+
+
 async def test_provision_refuses_non_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
