@@ -325,23 +325,23 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_upload_target(port, bootloader=bootloader)
         await self._validate_configuration_boundary(configuration)
 
-        if port == OTA_PORT:
-            device = self._device_for_configuration(configuration)
-            # Gated ONLY on OFFLINE, avoiding UNKNOWN startup states
-            if device and device.state == DeviceState.OFFLINE:
-                # No deferral for a bootloader flash — the wake dispatch
-                # re-uploads the app, not the bootloader, so silently
-                # queuing would flash the wrong image.
-                if bootloader:
-                    raise CommandError(
-                        ErrorCode.INVALID_ARGS,
-                        "Bootloader update requires the device online",
-                    )
-                _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
-                build_source = self._resolve_install_source(force_local=force_local)
-                job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
-                job.is_deferred_install = True
-                return await self._enqueue(job)
+        device = self._device_for_configuration(configuration)
+        # No deferral for a bootloader flash — the wake dispatch re-uploads
+        # the app, not the bootloader — and an explicit IP/hostname target
+        # doesn't make a known-OFFLINE device reachable either.
+        if bootloader and device and device.state == DeviceState.OFFLINE:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "Bootloader update requires the device online",
+            )
+
+        # Deferral gated ONLY on OFFLINE, avoiding UNKNOWN startup states
+        if port == OTA_PORT and device and device.state == DeviceState.OFFLINE:
+            _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
+            build_source = self._resolve_install_source(force_local=force_local)
+            job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
+            job.is_deferred_install = True
+            return await self._enqueue(job)
 
         build_source = self._resolve_install_source(force_local=force_local)
         # Install is a compile + a dependent local upload. The compile (local

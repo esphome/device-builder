@@ -2016,6 +2016,32 @@ def test_load_device_ota_partition_access_from_validated_cache(tmp_path: Path) -
     assert device.ota_partition_access is True
 
 
+def test_load_device_ota_partition_access_cache_without_flag(tmp_path: Path) -> None:
+    """A validated cache that never mentions the flag stays off via the raw-text scan."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    cache = tmp_path / ".esphome" / "storage" / "lamp.yaml.validated.yaml"
+    cache.write_text("ota:\n- platform: esphome\n", encoding="utf-8")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is False
+
+
+def test_load_device_ota_partition_access_cache_unparsable(tmp_path: Path) -> None:
+    """A corrupt validated cache mentioning the flag stays off instead of raising."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    cache = tmp_path / ".esphome" / "storage" / "lamp.yaml.validated.yaml"
+    cache.write_text("ota: [platform: esphome\nallow_partition_access: true", encoding="utf-8")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is False
+
+
 def test_load_device_ota_partition_access_default_off(tmp_path: Path) -> None:
     """An esp32 without the flag reports no partition access."""
     yaml_path = tmp_path / "lamp.yaml"
