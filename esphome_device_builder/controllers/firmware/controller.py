@@ -52,8 +52,7 @@ from . import download as download_mod
 from ._state import FirmwareState, Lane
 from .helpers import (
     _find_esphome_cmd,
-    _validate_bootloader_port,
-    _validate_port,
+    _validate_upload_target,
     _verify_esphome_importable,
 )
 
@@ -246,9 +245,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         ``bootloader=True`` flashes the bootloader image instead of
         the app (``esphome upload --bootloader``); OTA targets only.
         """
-        _validate_port(port)
-        if bootloader:
-            _validate_bootloader_port(port)
+        _validate_upload_target(port, bootloader=bootloader)
         await self._validate_configuration_boundary(configuration)
         job = self._create_job(
             configuration, JobType.UPLOAD, port=port, flash_bootloader=bootloader
@@ -325,9 +322,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         the bootloader image instead of the app (``esphome upload
         --bootloader``); OTA targets only, device must be reachable.
         """
-        _validate_port(port)
-        if bootloader:
-            _validate_bootloader_port(port)
+        _validate_upload_target(port, bootloader=bootloader)
         await self._validate_configuration_boundary(configuration)
 
         if port == OTA_PORT:

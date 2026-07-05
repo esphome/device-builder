@@ -16,6 +16,7 @@ from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
 from ._parsing import (
+    _CONF_ALLOW_PARTITION_ACCESS,
     _extract_resolved_substitutions,
     _is_valid_esphome_name,
     _pick_meta,
@@ -373,7 +374,7 @@ def load_device_from_storage(
         ota_partition_access=target_platform == "esp32"
         and (
             extract_ota_partition_access(resolved_config)
-            or extract_ota_partition_access(load_compiled_config_cache(filename))
+            or compiled_config_has_ota_partition_access(filename)
         ),
     )
 
@@ -510,21 +511,28 @@ def load_device_yaml(path: Path) -> dict | None:
     return cast("dict[Any, Any] | None", config)
 
 
-def load_compiled_config_cache(configuration: str) -> dict | None:
+def compiled_config_has_ota_partition_access(configuration: str) -> bool:
     """
-    Parse the last compile's validated-config cache, or ``None``.
+    Report whether the last compile's validated-config cache enables partition access.
 
     ``<data_dir>/storage/<basename>.validated.yaml`` is written by every
     esphome compile with substitutions, packages (including remote ones
-    the in-process loader can't fetch), and secrets fully resolved.
-    ``clear_secrets=False`` mirrors ``esphome.compiled_config``: the cache
-    read must not wipe the process-wide secrets registry mid-scan.
+    the in-process loader can't fetch), and secrets fully resolved. The
+    raw-text scan short-circuits the full parse for the common no-flag
+    case — the cache is the whole resolved config, materially larger than
+    the source YAML, and this runs per device reload. ``clear_secrets=False``
+    mirrors ``esphome.compiled_config``: the read must not wipe the
+    process-wide secrets registry mid-scan.
     """
     path = resolve_compiled_config_path(configuration)
-    if not path.exists():
-        return None
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    if _CONF_ALLOW_PARTITION_ACCESS not in text:
+        return False
     try:
         config = yaml_util.load_yaml(path, clear_secrets=False)
     except EsphomeError:
-        return None
-    return config if isinstance(config, dict) else None
+        return False
+    return isinstance(config, dict) and extract_ota_partition_access(config)

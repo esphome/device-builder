@@ -194,9 +194,10 @@ def _parse_progress(line: str) -> int | None:
     return None
 
 
-def _validate_bootloader_port(port: str) -> None:
-    """``--bootloader`` is OTA-only: require ``"OTA"``, an IP, or a hostname."""
-    if not port or get_port_type(port) is PortType.SERIAL:
+def _validate_upload_target(port: str, *, bootloader: bool) -> None:
+    """Validate a flash target; ``bootloader=True`` adds the OTA-only gate."""
+    _validate_port(port)
+    if bootloader and (not port or get_port_type(port) is PortType.SERIAL):
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "Bootloader update runs over OTA only — target must be OTA, "
