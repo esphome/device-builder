@@ -12,10 +12,12 @@ The primary API. A single multiplexed WebSocket handles all 44 commands.
 
 On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/models/api.py):
 ```json
-{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false}
+{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false, "desktop_version": ""}
 ```
 
 `ha_ingress` is `true` only when the connection is proxied through the HA Supervisor ingress (the `X-Ingress-Path` header is present); the frontend slims its header in that case so HA's own panel bar isn't doubled up. An add-on reached directly on its exposed port reports `ha_addon: true` but `ha_ingress: false`.
+
+`desktop_version` carries the ESPHome Desktop wrapper version (from the `ESPHOME_DESKTOP_VERSION` env var) when the dashboard runs inside the desktop app, and is `""` otherwise; the value is sanitized server-side (blank, non-printable, or over-length is treated as unset). The frontend renders it as a footer line only when non-empty.
 
 **Send a [`CommandMessage`](../esphome_device_builder/models/api.py):**
 ```json
