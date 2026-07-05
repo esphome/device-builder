@@ -675,14 +675,6 @@ def make_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> MakeSettin
 
 # ---------------------------------------------------------------------------
 # MagicMock ``DeviceBuilder`` for /ws handshake tests
-#
-# The Origin/Host, heartbeat, shutdown, and pre-auth tests each drive
-# ``websocket_handler`` through a stub DeviceBuilder rather than a real
-# one. They only need ``settings`` to answer the fields the opening
-# ``ServerInfoMessage`` reads; hand-rolling that mock per module meant a
-# new handshake field had to be added in five places (and a missing one
-# serialises a ``MagicMock`` into the frame, closing the socket). Building
-# it here keeps that surface in one spot.
 # ---------------------------------------------------------------------------
 
 
