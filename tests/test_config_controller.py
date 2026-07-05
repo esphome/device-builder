@@ -2091,14 +2091,26 @@ def test_desktop_bin_and_update_capable_read_env(
     assert settings.desktop_bin == ""
     assert settings.desktop_update_capable is False
 
-    monkeypatch.setenv("ESPHOME_DESKTOP_BIN", "  /Applications/ESPHome.app/bin  ")
-    assert settings.desktop_bin == "/Applications/ESPHome.app/bin"
+    # Real bundle paths (with spaces) are fine.
+    monkeypatch.setenv(
+        "ESPHOME_DESKTOP_BIN",
+        "  /Applications/ESPHome Device Builder.app/Contents/MacOS/esphome-desktop  ",
+    )
+    assert (
+        settings.desktop_bin
+        == "/Applications/ESPHome Device Builder.app/Contents/MacOS/esphome-desktop"
+    )
     assert settings.desktop_update_capable is True
 
-    # Blank stays not-capable (older desktop app that only sets the version).
+    # Blank, control-char (log-injection vector), and absurdly long values all
+    # degrade to "" so desktop_update_capable can't be flipped by junk.
     monkeypatch.setenv("ESPHOME_DESKTOP_BIN", "   ")
     assert settings.desktop_bin == ""
     assert settings.desktop_update_capable is False
+    monkeypatch.setenv("ESPHOME_DESKTOP_BIN", "/bin/esphome\ndesktop")
+    assert settings.desktop_bin == ""
+    monkeypatch.setenv("ESPHOME_DESKTOP_BIN", "/" + "a" * 4096)
+    assert settings.desktop_bin == ""
 
 
 def test_metadata_transaction_persists_without_fcntl(
