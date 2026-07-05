@@ -21,6 +21,7 @@ from aiohttp import web
 from esphome.const import __version__ as esphome_version
 
 from ._remote_build_lifecycle import RemoteBuildLifecycle
+from ._remote_build_only import run_remote_build_only
 from .api.legacy import create_legacy_routes
 from .api.ws import create_ws_routes, init_ws_app
 from .constants import __version__ as server_version
@@ -908,6 +909,12 @@ class DeviceBuilder:
         """Start the HTTP server (blocking)."""
         # Logging is already configured by __main__.py
         settings = self.settings
+        if settings.remote_build_only:
+            # Headless remote-build server: peer-link listener only, no
+            # HTTP dashboard. Lifecycle + first-pair bootstrap live in
+            # ``_remote_build_only``.
+            run_remote_build_only(self)
+            return
         # On the HA add-on with no password we never gate the public
         # port with HA credentials — the legacy supervisor ``/auth``
         # fallback is gone (an unrate-limited brute-force vector,

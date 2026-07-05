@@ -99,7 +99,8 @@ async def preview_pair(
     X25519 pubkey from the handshake transcript. The
     frontend renders the returned ``pin_sha256`` for the
     user to OOB-verify against the receiver's "Build
-    server" Settings card before calling ``request_pair``.
+    server" Settings card (or the ``--remote-build-only``
+    CLI pairing banner) before calling ``request_pair``.
 
     Returns ``{"pin_sha256": "<lowercase-hex-64>"}``.
     """

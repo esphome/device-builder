@@ -29,6 +29,12 @@ class ReceiverState:
     pairing_window_clients: dict[Hashable, float] = field(default_factory=dict)
     pairing_window_handle: asyncio.TimerHandle | None = None
 
+    # Armed by ``--remote-build-only`` first-pair bootstrap: while
+    # True (and zero peers are APPROVED), the next ``pair_request``
+    # inside the open window is approved without the inbox dance.
+    # One-shot — ``record_pair_request`` disarms it on use.
+    auto_approve_first_pair: bool = False
+
     # PENDING StoredPeer rows keyed on ``dashboard_id``; never
     # persisted, cleared on window auto-close.
     pending_peers: dict[str, StoredPeer] = field(default_factory=dict)

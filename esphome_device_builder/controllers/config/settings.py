@@ -79,6 +79,14 @@ class DashboardSettings:
     # latter is resolved at bind time to every IPv4 / IPv6 address
     # on the interface (see :func:`helpers.network_interfaces.resolve_bind_host`).
     remote_build_host: str = "0.0.0.0"
+    # Headless remote-build server mode (``--remote-build-only``): no
+    # HTTP dashboard is served and the peer-link listener binds
+    # regardless of the persisted ``RemoteBuildSettings.enabled``
+    # toggle — with no UI to flip the toggle, an on-disk ``False``
+    # would otherwise brick the mode. Pairing bootstrap (5-minute
+    # auto-approve window, console fingerprint banner) lives in
+    # ``_remote_build_only.py``.
+    remote_build_only: bool = False
     # In dev mode the SPA shell is served with ``Cache-Control: no-cache``
     # so a re-deployed wheel isn't masked by a browser-cached
     # ``index.html`` pointing at a now-deleted hashed bundle. In
@@ -207,6 +215,7 @@ class DashboardSettings:
         else:
             env_remote_build_host = os.getenv("ESPHOME_REMOTE_BUILD_HOST", "").strip()
             self.remote_build_host = env_remote_build_host or "0.0.0.0"
+        self.remote_build_only = bool(getattr(args, "remote_build_only", False))
         self.dev_mode = bool(getattr(args, "dev", False))
         # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
         # Comma-separated. Lower-cased for the case-insensitive match

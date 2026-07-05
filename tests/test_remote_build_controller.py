@@ -2985,7 +2985,7 @@ async def test_pairing_window_auto_closes_when_clients_age_out(
     bus.fire.side_effect = _fire_side_effect
     controller.offloader._db.bus = bus
 
-    monkeypatch.setattr(rb_pairing_window, "_PAIRING_WINDOW_DURATION_SECONDS", 0.5)
+    monkeypatch.setattr(rb_pairing_window, "PAIRING_WINDOW_DURATION_SECONDS", 0.5)
 
     await controller.receiver.set_pairing_window(open=True, client="tab-1")
     assert controller.receiver.is_pairing_window_open() is True
@@ -3045,7 +3045,7 @@ async def test_explicit_close_cancels_handle_no_duplicate_event(
     # required — the explicit-close path schedules no replacement
     # handle, so checking ``_pairing_window_handle is None`` after
     # a tick is sufficient).
-    monkeypatch.setattr(rb_pairing_window, "_PAIRING_WINDOW_DURATION_SECONDS", 1.0)
+    monkeypatch.setattr(rb_pairing_window, "PAIRING_WINDOW_DURATION_SECONDS", 1.0)
 
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()

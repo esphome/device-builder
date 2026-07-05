@@ -171,8 +171,16 @@ def main() -> None:
     parser.add_argument(
         "configuration",
         nargs="?",
-        default="./configs",
-        help="Path to the ESPHome configuration directory",
+        # ``SUPPRESS`` (attribute absent when omitted) rather than a
+        # plain default so ``_validate_mode_flags`` can tell "operator
+        # typed ./configs" from "operator gave nothing" — the latter is
+        # an error under --remote-build-only, where the directory holds
+        # the server's identity + pairing and must not depend on cwd.
+        default=argparse.SUPPRESS,
+        help=(
+            "Path to the ESPHome configuration directory (default ./configs; "
+            "must be given explicitly with --remote-build-only)"
+        ),
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="HTTP port to listen on")
     parser.add_argument(
@@ -276,6 +284,22 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--remote-build-only",
+        action="store_true",
+        help=(
+            "Run as a headless remote-build server: no HTTP dashboard is "
+            "served, only the peer-link receiver listener (remote-build is "
+            "force-enabled regardless of persisted Settings). On first run "
+            "(no paired dashboard yet) a 5-minute pairing window opens and "
+            "the fingerprint to verify is printed to the console; the first "
+            "pairing request is approved automatically and the window "
+            "closes — exactly one pairing is allowed. Exits with status 1 "
+            "if nothing pairs before the window lapses. Requires an "
+            "explicit configuration directory; not compatible with "
+            "--ha-addon"
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="info",
         choices=["debug", "info", "warning", "error"],
@@ -320,11 +344,11 @@ def main() -> None:
 
     _validate_credentials(parser, args)
 
+    _validate_mode_flags(parser, args)
+
     _setup_logging(args.log_level, args.log_file)
 
-    _warn_deprecated_credential_flags(args)
-
-    _warn_legacy_credential_env(args)
+    _warn_credential_deprecations(args)
 
     # ``--version`` / ``--help`` exit above before reaching this
     # point, so the lazy imports below are reachable only when the
@@ -480,6 +504,33 @@ def _validate_credentials(parser: argparse.ArgumentParser, args: argparse.Namesp
         )
 
 
+def _validate_mode_flags(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Validate run-mode flag combinations and resolve the config-dir default."""
+    if args.remote_build_only and args.ha_addon:
+        parser.error(
+            "--remote-build-only cannot be combined with --ha-addon; the "
+            "add-on enables remote-build through its Settings toggle instead."
+        )
+    if getattr(args, "configuration", None) is None:
+        # A build server's identity, pairing, and build state live in
+        # the config dir; a cwd-relative fallback would mint a fresh
+        # identity (new fingerprint, re-pair required) whenever the
+        # service starts from a different directory.
+        if args.remote_build_only:
+            parser.error(
+                "--remote-build-only requires an explicit configuration "
+                "directory; the server's identity, pairing, and build "
+                "state are stored there (e.g. /var/lib/esphome-builder)."
+            )
+        args.configuration = "./configs"
+
+
+def _warn_credential_deprecations(args: argparse.Namespace) -> None:
+    """Warn about deprecated credential flags and legacy env vars."""
+    _warn_deprecated_credential_flags(args)
+    _warn_legacy_credential_env(args)
+
+
 def _warn_deprecated_credential_flags(args: argparse.Namespace) -> None:
     """Log a deprecation warning when --username / --password are used."""
     if not (args.username or args.password):
@@ -512,6 +563,11 @@ def _warn_legacy_credential_env(args: argparse.Namespace) -> None:
 def _warn_if_unprotected(settings: DashboardSettings) -> None:
     """Print a banner when starting without any authentication boundary."""
     if settings.using_password:
+        return
+    # Headless remote-build mode binds no HTTP dashboard at all; the
+    # peer-link listener's gate is Noise + pairing, so a banner about
+    # an unauthenticated dashboard on host:port would be misleading.
+    if settings.remote_build_only:
         return
     # The wide-open add-on opt-in gets a more accurate banner from
     # DeviceBuilder.run (_warn_front_door_open); the generic one below points

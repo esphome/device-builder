@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 # Pairing-window lifetime. Auto-closes after this much idle;
 # the frontend extends on each activity tick.
-_PAIRING_WINDOW_DURATION_SECONDS = 300.0
+PAIRING_WINDOW_DURATION_SECONDS = 300.0
 
 
 async def set_pairing_window(
@@ -94,7 +94,7 @@ def _pairing_window_remaining(controller: ReceiverController) -> float | None:
     if not controller.state.pairing_window_clients:
         return None
     latest_extend = max(controller.state.pairing_window_clients.values())
-    return max(0.0, latest_extend + _PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
+    return max(0.0, latest_extend + PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
 
 
 def _pairing_window_state(controller: ReceiverController) -> PairingWindowState:
@@ -119,7 +119,7 @@ def _prune_stale_pairing_window_clients(controller: ReceiverController) -> None:
     """Drop client entries whose last-extend timestamp aged out."""
     if not controller.state.pairing_window_clients:
         return
-    cutoff = time.monotonic() - _PAIRING_WINDOW_DURATION_SECONDS
+    cutoff = time.monotonic() - PAIRING_WINDOW_DURATION_SECONDS
     controller.state.pairing_window_clients = {
         client: extended_at
         for client, extended_at in controller.state.pairing_window_clients.items()

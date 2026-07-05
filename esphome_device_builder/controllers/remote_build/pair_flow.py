@@ -61,6 +61,12 @@ async def record_pair_request(
       pairing window; fires
       :attr:`EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED`
       so the receiver UI surfaces the inbox row.
+    * ``APPROVED`` (auto) — ``state.auto_approve_first_pair``
+      armed inside an open window with zero APPROVED rows
+      (the ``--remote-build-only`` first-pair bootstrap):
+      the row lands directly in ``approved_peers``, is
+      flushed to disk before the wire response, and the
+      one-shot flag disarms.
     * ``REJECTED`` — APPROVED row exists but pin doesn't
       match: offloader rotated identity, or someone is
       claiming a stranger's ``dashboard_id``. Refused
@@ -88,6 +94,16 @@ async def record_pair_request(
 
     if not controller.is_pairing_window_open():
         return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
+
+    if controller.state.auto_approve_first_pair and not controller.state.approved_peers:
+        return await _auto_approve_pair_request(
+            controller,
+            dashboard_id=dashboard_id,
+            pin_sha256=pin_sha256,
+            static_x25519_pub=static_x25519_pub,
+            label=label,
+            peer_ip=peer_ip,
+        )
 
     # Refuse to overwrite a PENDING entry's pubkey — defense
     # in depth against a LAN attacker injecting a rival key
@@ -216,6 +232,48 @@ def fire_pair_status_changed(
         "status": status,
     }
     controller._db.bus.fire(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, payload)
+
+
+async def _auto_approve_pair_request(
+    controller: ReceiverController,
+    *,
+    dashboard_id: str,
+    pin_sha256: str,
+    static_x25519_pub: bytes,
+    label: str,
+    peer_ip: str,
+) -> IntentOutcome:
+    """
+    First-pair bootstrap: approve the request without the inbox dance.
+
+    Disarms the one-shot flag *before* the store flush so a second
+    request arriving during the await can't also auto-approve. The
+    flush is awaited (not debounced) — this write is the mode's
+    single trust-establishing state; losing it to a crash inside a
+    debounce window would strand an offloader that believes it's
+    APPROVED.
+    """
+    controller.state.auto_approve_first_pair = False
+    peer = StoredPeer(
+        dashboard_id=dashboard_id,
+        pin_sha256=pin_sha256,
+        static_x25519_pub=static_x25519_pub,
+        label=label,
+        paired_at=time.time(),
+        peer_ip=peer_ip,
+    )
+    controller.state.approved_peers[dashboard_id] = peer
+    controller._peers_store.async_delay_save(controller._serialize_peers)
+    await controller._peers_store.async_save_now()
+    _LOGGER.info(
+        "Auto-approved first pairing: %r (dashboard_id=%s, offloader pin %s) from %s",
+        label,
+        dashboard_id,
+        pin_sha256,
+        peer_ip,
+    )
+    controller._fire_pair_status_changed(dashboard_id, "approved")
+    return IntentOutcome(IntentResponse.APPROVED)
 
 
 async def _lookup_peer_response(

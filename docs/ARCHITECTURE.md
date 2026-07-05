@@ -477,6 +477,24 @@ sequenceDiagram
 
 The `dashboard_id` stays stable across rotation either way; `pin_sha256` (the SHA-256 of the new pubkey) changes, so every paired peer sees a `pin_mismatch` event on the next handshake and has to re-pair. That's the intended UX for "operator suspects compromise" — one rotation revokes every existing trust on this side without touching anything else.
 
+### Headless build server (`--remote-build-only`)
+
+A machine whose only job is lending CPU can run the backend as a service with no dashboard at all:
+
+```sh
+esphome-device-builder --remote-build-only /var/lib/esphome-builder
+```
+
+The positional argument is the standard config dir, but in this mode it holds the server's *identity* (X25519 keypair + `dashboard_id`), the pairing, and build state rather than device YAMLs — and it is **required** (no `./configs` fallback): a cwd-relative default would mint a fresh identity — new fingerprint, new mDNS name, re-pair needed — whenever the service started from a different directory. Keep it persistent; wiping it resets the fingerprint and requires re-pairing.
+
+The flag flips three things:
+
+* **No HTTP site.** `DeviceBuilder.run` skips `web.run_app` entirely and drives the controller lifecycle through `_remote_build_only.run_remote_build_only` — the peer-link Noise listener (and its mDNS advertise) is the process's only network surface besides discovery. There is no WS dashboard, no ingress, no REST.
+* **Force-enabled listener.** `maybe_start` ignores a persisted `RemoteBuildSettings.enabled=false` — with no UI to flip the toggle back on, honouring it would brick the mode. Not combinable with `--ha-addon` (the parser rejects the pair; the add-on opts in via its Settings toggle).
+* **First-pair bootstrap.** With no UI there's nobody to click Accept, so on first run (zero APPROVED peers) the process opens the standard 5-minute pairing window, arms a **one-shot auto-approve** (`ReceiverState.auto_approve_first_pair`), and prints a fingerprint banner to the console — the pin as the 7-emoji Matrix-SAS sequence (`helpers/pin_emoji.py`) plus emoji names and formatted hex. The operator pairs from the main builder's UI and verifies the fingerprint shown there matches the banner; the first `pair_request` inside the window is approved without the inbox dance (the row is flushed to `.receiver_peers.json` before the wire response — this write is the mode's single trust anchor, so it is not debounced) and the window closes behind it. **Exactly one pairing**: the auto-approve disarms on use and only ever fires with zero APPROVED rows; with no UI to open another window, later pair requests get `no_pairing_window`. If nothing pairs before the window lapses the process exits 1 (a service restart opens a fresh window — the Bluetooth-style trade an operator accepts by re-running it). Subsequent runs with an APPROVED peer skip the bootstrap and just serve.
+
+The trust model matches Bluetooth-style pairing: the window is explicit (operator started the process), time-boxed, single-use, and the OOB fingerprint compare on the main builder is the load-bearing verification. A LAN attacker racing the window would have to win the first request *and* survive the operator seeing their own pair attempt fail with a pin mismatch. The emoji rendering is the Matrix SAS spec's 64-emoji vocabulary (6-bit chunks of the leading 42 bits) — `helpers/pin_emoji.py` is an exact port of the frontend's `src/util/pin-emoji.ts`, and each side pins the algorithm with a shared known-vector test so the CLI banner and the pair dialog always show the same sequence for a given pin.
+
 ### Listener internals
 
 **Second TCP listener.** When `_remote_build.enabled` is `true`, `DeviceBuilder` binds an aiohttp site on `--remote-build-port` (default 6055) serving `/remote-build/peer-link`. A taken port falls forward to the next free one (bounded scan of `REMOTE_BUILD_PORT_SCAN_ATTEMPTS` candidates, each held on every bind host from probe to listen so concurrent starters can't race it) — the stable/beta/dev add-on flavors share one host-network host, and only one can hold each port. Default is `True` on standalone / Desktop installs; the HA addon overrides the default to `False` at the bind site (a fresh addon install with no persisted `_remote_build` block doesn't bind — the addon container's docker IP isn't LAN-routable without an explicit `ports:` override). When the toggle is off the listener doesn't bind at all (a sidecar `enabled=false` skip beats default-deny 404s — nothing to probe). This sits alongside the public + ingress sites from the Authentication section: HA-addon mode with remote-build enabled binds three listeners on three different ports, each with its own role.
