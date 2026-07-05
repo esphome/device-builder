@@ -337,6 +337,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         ha_ingress=bool(request.headers.get("X-Ingress-Path")),
         requires_auth=(not pre_authenticated),
         desktop_version=settings.desktop_version,
+        desktop_update_capable=settings.desktop_update_capable,
     )
     await client.send(info.to_dict())
 

@@ -32,6 +32,7 @@ from .controllers.config import (
     ConfigController,
     DashboardSettings,
 )
+from .controllers.desktop import DesktopController
 from .controllers.devices import DevicesController
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
@@ -348,6 +349,7 @@ class DeviceBuilder:
         self.components = ComponentCatalog(self)
         self.components.load()
         self.config = ConfigController(self)
+        self.desktop = DesktopController(self)
         self.devices = DevicesController(self)
         self.automations = AutomationsController(self)
         self.firmware = FirmwareController(self)
@@ -431,6 +433,7 @@ class DeviceBuilder:
             self.boards,
             self.components,
             self.config,
+            self.desktop,
             self.devices,
             self.automations,
             self.firmware,

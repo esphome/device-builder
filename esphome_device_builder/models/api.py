@@ -114,3 +114,6 @@ class ServerInfoMessage(DashboardModel):
     requires_auth: bool = False
     # ESPHome Desktop wrapper version, from ESPHOME_DESKTOP_VERSION; "" off-desktop.
     desktop_version: str = ""
+    # True when the desktop app (0.14.0+) exposes its update `api` via
+    # ESPHOME_DESKTOP_BIN; gates the frontend's "Check for updates" menu item.
+    desktop_update_capable: bool = False

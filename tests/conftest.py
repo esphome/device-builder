@@ -684,6 +684,7 @@ def make_ws_device_builder(
     on_ha_addon: bool = False,
     trusted_domains: list[str] | None = None,
     desktop_version: str = "",
+    desktop_update_capable: bool = False,
 ) -> MagicMock:
     """MagicMock ``DeviceBuilder`` carrying the settings the /ws handshake reads."""
     settings = MagicMock()
@@ -692,6 +693,7 @@ def make_ws_device_builder(
     settings.on_ha_addon = on_ha_addon
     settings.trusted_domains = [] if trusted_domains is None else trusted_domains
     settings.desktop_version = desktop_version
+    settings.desktop_update_capable = desktop_update_capable
     device_builder = MagicMock()
     device_builder.settings = settings
     return device_builder

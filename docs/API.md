@@ -12,12 +12,21 @@ The primary API. A single multiplexed WebSocket handles all 44 commands.
 
 On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/models/api.py):
 ```json
-{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false, "desktop_version": ""}
+{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false, "desktop_version": "", "desktop_update_capable": false}
 ```
 
 `ha_ingress` is `true` only when the connection is proxied through the HA Supervisor ingress (the `X-Ingress-Path` header is present); the frontend slims its header in that case so HA's own panel bar isn't doubled up. An add-on reached directly on its exposed port reports `ha_addon: true` but `ha_ingress: false`.
 
 `desktop_version` carries the ESPHome Desktop wrapper version (from the `ESPHOME_DESKTOP_VERSION` env var) when the dashboard runs inside the desktop app, and is `""` otherwise; the value is sanitized server-side (blank, non-printable, or over-length is treated as unset). The frontend renders it as a footer line only when non-empty.
+
+`desktop_update_capable` is `true` only when the dashboard runs inside an ESPHome Desktop app that exposes its update `api` (0.14.0+, which sets `ESPHOME_DESKTOP_BIN`). Older desktop apps set `desktop_version` but not this, so the frontend gates the "Check for updates" menu item on `desktop_update_capable`, not on `desktop_version`.
+
+### Desktop update commands
+
+Available only when `desktop_update_capable` is `true`; both shell out to the desktop app's `esphome-desktop` CLI.
+
+- `desktop/check_update` returns whether an update is available for any component, without installing: `{"any_available": bool, "app": {…}, "esphome": {…}, "device_builder": {…}}`, where each component carries `available`, `installed`, `latest`, and `error`.
+- `desktop/update` triggers the full update (desktop app, ESPHome, device builder) and returns `{"started": true}` immediately. It is fire-and-forget: the desktop app stops and restarts this backend to install, so the WebSocket drops mid-update; re-run `desktop/check_update` after reconnecting to confirm the new versions.
 
 **Send a [`CommandMessage`](../esphome_device_builder/models/api.py):**
 ```json

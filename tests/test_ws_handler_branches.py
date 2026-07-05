@@ -279,3 +279,25 @@ async def test_server_info_carries_desktop_version(
         assert info["desktop_version"] == "1.4.2"
     finally:
         await ws.close()
+
+
+async def test_server_info_carries_desktop_update_capable(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """The handshake frame relays ``settings.desktop_update_capable``."""
+    device_builder = make_ws_device_builder(desktop_update_capable=True)
+    device_builder.command_handlers = {}
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = True
+    ws_module.init_ws_app(app)
+    app.router.add_routes(ws_module.create_ws_routes())
+
+    client = await aiohttp_client(app)
+
+    ws, info = await _connect_and_drain_server_info(client)
+    try:
+        assert info["desktop_update_capable"] is True
+    finally:
+        await ws.close()
