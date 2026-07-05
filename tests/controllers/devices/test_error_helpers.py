@@ -1,4 +1,4 @@
-"""Unit tests for the shared device error helpers in ``devices/helpers.py``."""
+"""Unit tests for the shared device error helpers in ``controllers/devices/helpers.py``."""
 
 from __future__ import annotations
 

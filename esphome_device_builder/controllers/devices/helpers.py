@@ -65,7 +65,7 @@ _LOGGER = logging.getLogger(__name__)
 def raise_device_not_found(
     configuration: str, *, from_exc: BaseException | None = None
 ) -> NoReturn:
-    """Raise ``NOT_FOUND`` for a device *configuration* the scanner doesn't track."""
+    """Raise ``NOT_FOUND`` for a missing device *configuration*."""
     err = CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
     if from_exc is not None:
         raise err from from_exc
