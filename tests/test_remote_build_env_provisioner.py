@@ -139,6 +139,33 @@ async def test_provision_rejects_venv_reporting_wrong_version(
     assert not _venv_dir(provisioner, "2026.6.4").exists()
 
 
+async def test_cached_cmd_returns_none_when_not_provisioned(tmp_path: Path) -> None:
+    """cached_cmd never builds; a version with no venv yet returns None."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    assert await provisioner.cached_cmd("2026.6.4") is None
+
+
+async def test_cached_cmd_refuses_non_release(tmp_path: Path) -> None:
+    """A dev / prerelease version is never cached-servable."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    assert await provisioner.cached_cmd("2026.7.0-dev") is None
+
+
+async def test_cached_cmd_returns_cmd_after_provision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once a version is provisioned, cached_cmd hands back its cmd without rebuilding."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    built = await provisioner.provision("2026.6.4")
+
+    cached = await provisioner.cached_cmd("2026.6.4")
+
+    assert cached == built
+    assert runner.count("venv") == 1  # no extra build
+
+
 async def test_provision_refuses_non_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -205,35 +232,6 @@ async def test_provision_concurrent_same_version_builds_once(
 
     assert cmd_a == cmd_b
     assert runner.count("venv") == 1  # only the lock holder built; the other cache-hit
-
-
-async def test_clean_all_waits_for_in_flight_provision(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """clean_all (write lock) waits for an in-flight provision (read lock) to finish."""
-    gate = asyncio.Event()
-    runner = _FakeRunner(block=gate)
-    _patch_runner(monkeypatch, runner)
-    provisioner = EnvProvisioner(data_dir=tmp_path)
-    order: list[str] = []
-
-    async def provision_then_mark() -> None:
-        await provisioner.provision("2026.6.4")
-        order.append("provision")
-
-    async def clean_then_mark() -> None:
-        await provisioner.clean_all()
-        order.append("clean")
-
-    prov = asyncio.create_task(provision_then_mark())
-    await runner.entered.wait()  # provision holds the read lock, blocked mid-build
-    clean = asyncio.create_task(clean_then_mark())
-    gate.set()
-    await asyncio.gather(prov, clean)
-
-    # Without the RW lock, clean's executor rmtree could land before the build
-    # finished; the write lock forces it to wait for the read lock to release.
-    assert order == ["provision", "clean"]
 
 
 async def test_sweep_stale_removes_older_keeps_installed_and_newer(tmp_path: Path) -> None:

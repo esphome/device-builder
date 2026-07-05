@@ -638,12 +638,20 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         """Return the esphome CLI invocation to run *job* with.
 
         For a remote job whose offloader ran a different esphome
-        (``target_esphome_version`` set and differing from ours), provision +
-        return that version's venv so the compile matches what the offloader
-        would have built locally; otherwise the installed esphome. A failed
-        provision (non-release target, or venv/pip error) propagates so the
-        job fails and the offloader re-routes to LOCAL — never silently
-        compiling with the wrong version.
+        (``target_esphome_version`` set and differing from ours):
+
+        * COMPILE / INSTALL provision + return that version's venv so the build
+          matches what the offloader would have built locally. A failed provision
+          (non-release target, or venv/pip error) propagates so the job fails with
+          an actionable error instead of silently compiling with the wrong
+          version; there is no automatic LOCAL fallback, so the offloader surfaces
+          the receiver's failure to the operator.
+        * CLEAN uses that version's venv **only if already provisioned** (a newer
+          ``esphome clean`` removes more, so a clean should match the build's
+          esphome — but a clean is never worth a ``pip install``); otherwise the
+          installed esphome.
+
+        Everything else uses the installed esphome.
         """
         version = job.target_esphome_version
         if not version or version == _installed_esphome_version:
@@ -651,7 +659,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         receiver = self._db.remote_build_receiver
         if receiver is None or receiver.state.env_provisioner is None:
             return self.state.esphome_cmd
-        return await receiver.state.env_provisioner.provision(version)
+        provisioner = receiver.state.env_provisioner
+        if job.job_type in (JobType.COMPILE, JobType.INSTALL):
+            return await provisioner.provision(version)
+        if job.job_type is JobType.CLEAN:
+            return await provisioner.cached_cmd(version) or self.state.esphome_cmd
+        return self.state.esphome_cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
         return cli.build_cache_args(self, job)

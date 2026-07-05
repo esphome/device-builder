@@ -29,7 +29,7 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ....helpers.peer_link_resolver import make_peer_link_http_session
-from ....helpers.version_compat import is_pep440_version
+from ....helpers.version_compat import coerce_pep440_version
 from ....models import (
     PAIRING_VERSION_MAX_LEN,
     IntentResponse,
@@ -92,12 +92,9 @@ def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
     valid PEP 440 version — so a malformed / injected string never
     reaches storage or a later ``pip install`` argument.
     """
-    value = response.get("esphome_version", "")
-    if not isinstance(value, str) or len(value) > PAIRING_VERSION_MAX_LEN:
-        return ""
-    if not is_pep440_version(value):
-        return ""
-    return value
+    return coerce_pep440_version(
+        response.get("esphome_version", ""), max_len=PAIRING_VERSION_MAX_LEN
+    )
 
 
 def _extract_auto_provision_supported(response: dict[str, Any]) -> bool:

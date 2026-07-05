@@ -17,8 +17,6 @@ import asyncio
 import logging
 import re
 import sys
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 
 from esphome.core import CORE
@@ -46,51 +44,17 @@ class EnvProvisionError(Exception):
     """A matching esphome venv could not be provisioned."""
 
 
-class _RWLock:
-    """Minimal async readers-writer lock: concurrent readers, exclusive writer.
-
-    Provisions take the read side (different versions build concurrently);
-    ``clean_all`` / ``sweep_stale`` take the write side so a wipe waits for
-    in-flight builds instead of yanking a venv out from under one. Writers can
-    starve under continuous readers, which is fine — a wipe is rare and should
-    yield to active builds.
-    """
-
-    def __init__(self) -> None:
-        self._cond = asyncio.Condition()
-        self._readers = 0
-        self._writer = False
-
-    @asynccontextmanager
-    async def read(self) -> AsyncIterator[None]:
-        async with self._cond:
-            while self._writer:
-                await self._cond.wait()
-            self._readers += 1
-        try:
-            yield
-        finally:
-            async with self._cond:
-                self._readers -= 1
-                if self._readers == 0:
-                    self._cond.notify_all()
-
-    @asynccontextmanager
-    async def write(self) -> AsyncIterator[None]:
-        async with self._cond:
-            while self._writer or self._readers:
-                await self._cond.wait()
-            self._writer = True
-        try:
-            yield
-        finally:
-            async with self._cond:
-                self._writer = False
-                self._cond.notify_all()
-
-
 class EnvProvisioner:
-    """Create + cache one esphome venv per release version, keyed by version."""
+    """Create + cache one esphome venv per release version, keyed by version.
+
+    Callers serialize on the compile lane: ``provision`` runs inside a COMPILE
+    job, ``clean_all`` inside a RESET_BUILD_ENV job (same lane), and
+    ``sweep_stale`` at receiver start before any build — so no two run
+    concurrently and a wipe can't race a provision. The per-version
+    :class:`asyncio.Lock` is cheap stdlib defense for the same-version double
+    build if a future caller ever invokes ``provision`` off-lane; a wipe run
+    off-lane concurrent with a provision would need its own guard.
+    """
 
     def __init__(self, data_dir: Path | None = None, *, base_python: str | None = None) -> None:
         # ``data_dir`` / ``base_python`` are injectable for tests; production
@@ -102,7 +66,6 @@ class EnvProvisioner:
         # probe subprocess (can't drift under our own management). A fresh
         # process starts empty, so it re-probes and catches cross-restart drift.
         self._verified: set[str] = set()
-        self._maintenance = _RWLock()
 
     @property
     def venvs_dir(self) -> Path:
@@ -120,7 +83,7 @@ class EnvProvisioner:
         if not is_release_version(version):
             raise EnvProvisionError(f"cannot provision non-release esphome version {version!r}")
         venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
-        async with self._maintenance.read(), self._lock_for(version):
+        async with self._lock_for(version):
             if version not in self._verified:
                 if not await self._is_healthy(venv, version):
                     await self._build(version, venv)
@@ -132,31 +95,52 @@ class EnvProvisioner:
                 self._verified.add(version)
         return _venv_esphome_cmd(venv)
 
+    async def cached_cmd(self, version: str) -> list[str] | None:
+        """Return *version*'s venv cmd if already provisioned + healthy, else ``None``.
+
+        Never builds. For a fanned-out CLEAN, which wants to run under the same
+        (possibly newer) esphome that built the artifacts — a newer ``esphome
+        clean`` removes more (IDF ``managed_components``, ``idedata``,
+        ``pio_components``, PIO cache) — but only when the venv is already
+        cached from the build; a clean is never worth a ``pip install``.
+        """
+        if not is_release_version(version):
+            return None
+        venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
+        async with self._lock_for(version):
+            if version in self._verified or await self._is_healthy(venv, version):
+                self._verified.add(version)
+                return _venv_esphome_cmd(venv)
+        return None
+
     async def sweep_stale(self, installed_version: str) -> None:
         """Remove cached venvs older than *installed_version* (a startup sweep).
 
         No-op when *installed_version* isn't a plain release (a dev receiver),
-        since older / newer can't be ordered against it.
+        since older / newer can't be ordered against it. Runs at receiver start
+        before any build, so it never races a provision.
         """
         if not is_release_version(installed_version):
             return
         installed_key = _release_key(installed_version)
-        async with self._maintenance.write():
-            for venv, version in await run_in_executor(self._list_venvs):
-                if _release_key(version) < installed_key:
-                    _LOGGER.info(
-                        "Removing stale esphome venv %s (older than installed %s)",
-                        version,
-                        installed_version,
-                    )
-                    await run_in_executor(_rmtree, venv)
-                    self._verified.discard(version)
+        for venv, version in await run_in_executor(self._list_venvs):
+            if _release_key(version) < installed_key:
+                _LOGGER.info(
+                    "Removing stale esphome venv %s (older than installed %s)",
+                    version,
+                    installed_version,
+                )
+                await run_in_executor(_rmtree, venv)
+                self._verified.discard(version)
 
     async def clean_all(self) -> None:
-        """Remove every cached venv (the receiver's clean-build-env path)."""
-        async with self._maintenance.write():
-            await run_in_executor(_rmtree, self.venvs_dir)
-            self._verified.clear()
+        """Remove every cached venv (the receiver's clean-build-env path).
+
+        Runs inside a RESET_BUILD_ENV job on the compile lane, so it's serialized
+        with provisions (compile jobs) rather than racing one mid-install.
+        """
+        await run_in_executor(_rmtree, self.venvs_dir)
+        self._verified.clear()
 
     # ------------------------------------------------------------------
     # Internals

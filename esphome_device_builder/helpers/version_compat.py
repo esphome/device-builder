@@ -35,6 +35,18 @@ def is_pep440_version(version: str) -> bool:
     return _PEP440_RE.fullmatch(version) is not None
 
 
+def coerce_pep440_version(value: object, *, max_len: int) -> str:
+    """Coerce a peer-supplied *value* to a bounded PEP 440 version, or ``""``.
+
+    Non-str, longer than *max_len*, or non-PEP440 all collapse to ``""`` so a
+    malformed / oversized / injected wire value never reaches storage or a
+    ``pip install`` argument. The single coercion both version wire seams use.
+    """
+    if not isinstance(value, str) or len(value) > max_len or not is_pep440_version(value):
+        return ""
+    return value
+
+
 # A plain dotted-numeric release (no epoch / pre / post / dev / local segment).
 _RELEASE_RE = re.compile(r"\d+(?:\.\d+)*")
 

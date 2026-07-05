@@ -71,8 +71,9 @@ from ...helpers.peer_link_bundle import (
 )
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
-from ...helpers.version_compat import is_pep440_version
+from ...helpers.version_compat import coerce_pep440_version
 from ...models import (
+    PAIRING_VERSION_MAX_LEN,
     JobType,
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
@@ -239,13 +240,11 @@ def _coerce_display_field(value: Any) -> str:
 def _coerce_version_field(value: Any) -> str:
     """Coerce the peer-supplied ``target_esphome_version`` to a PEP 440 string or ``""``.
 
-    ``NotRequired`` on the wire, so a non-str / malformed / injected value
-    would otherwise reach the provisioner's ``pip install`` argument; soft
+    ``NotRequired`` on the wire, so a non-str / malformed / oversized / injected
+    value would otherwise reach the provisioner's ``pip install`` argument; soft
     coerce to ``""`` (no provisioning, compile with the installed esphome).
     """
-    if not isinstance(value, str) or not is_pep440_version(value):
-        return ""
-    return value
+    return coerce_pep440_version(value, max_len=PAIRING_VERSION_MAX_LEN)
 
 
 def _validate_configuration_filename(filename: str) -> str | None:

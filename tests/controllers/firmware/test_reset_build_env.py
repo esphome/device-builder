@@ -29,7 +29,9 @@ test that verifies the dispatch through the queue).
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
+from esphome_device_builder.controllers.firmware.runner import _clean_provisioned_venvs
 from esphome_device_builder.models import EventType, JobStatus, JobType
 from tests.controllers.firmware.conftest import (
     BareFirmwareControllerFactory,
@@ -211,3 +213,21 @@ def test_build_command_for_reset_build_env_ignores_port_and_cache_args(
     # for non-OTA jobs in the real flow). Pin only that ``clean-all``
     # itself appears with the config_dir as the trailing positional.
     assert cmd[-2:] == ["clean-all", str(tmp_path)]
+
+
+async def test_clean_provisioned_venvs_wipes_when_receiver_present() -> None:
+    """A reset on a receiver also wipes its cached esphome venvs."""
+    controller = MagicMock()
+    clean_all = controller._db.remote_build_receiver.state.env_provisioner.clean_all = AsyncMock()
+
+    await _clean_provisioned_venvs(controller)
+
+    clean_all.assert_awaited_once_with()
+
+
+async def test_clean_provisioned_venvs_noop_without_receiver() -> None:
+    """A reset on a pure offloader (no receiver) has no venvs to wipe."""
+    controller = MagicMock()
+    controller._db.remote_build_receiver = None
+
+    await _clean_provisioned_venvs(controller)  # no receiver → no-op, no raise

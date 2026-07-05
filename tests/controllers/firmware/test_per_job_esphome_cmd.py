@@ -72,6 +72,52 @@ async def test_resolve_esphome_cmd_provisions_for_mismatched_target(
     provisioner.provision.assert_awaited_once_with("2026.5.0")
 
 
+def _clean_job(target_esphome_version: str) -> FirmwareJob:
+    return FirmwareJob(
+        job_id="j1",
+        configuration="kitchen.yaml",
+        job_type=JobType.CLEAN,
+        target_esphome_version=target_esphome_version,
+    )
+
+
+async def test_resolve_esphome_cmd_clean_never_provisions(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """CLEAN uses the cached venv only; it never pip-installs (cache miss → installed)."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    provisioner = controller._db.remote_build_receiver.state.env_provisioner
+    provisioner.provision = AsyncMock()
+    provisioner.cached_cmd = AsyncMock(return_value=None)  # not provisioned yet
+
+    assert await controller._resolve_esphome_cmd(_clean_job("2026.5.0")) == [
+        "installed",
+        "-m",
+        "esphome",
+    ]
+    provisioner.provision.assert_not_awaited()  # no build for a clean
+    provisioner.cached_cmd.assert_awaited_once_with("2026.5.0")
+
+
+async def test_resolve_esphome_cmd_clean_uses_cached_venv(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """A CLEAN cleans under the build's venv when it's already provisioned (newer cleans more)."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    provisioner = controller._db.remote_build_receiver.state.env_provisioner
+    provisioner.provision = AsyncMock()
+    provisioner.cached_cmd = AsyncMock(return_value=["venv/bin/python", "-m", "esphome"])
+
+    cmd = await controller._resolve_esphome_cmd(_clean_job("2026.5.0"))
+
+    assert cmd == ["venv/bin/python", "-m", "esphome"]
+    provisioner.provision.assert_not_awaited()
+
+
 async def test_resolve_esphome_cmd_installed_target_uses_installed(
     bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> None:

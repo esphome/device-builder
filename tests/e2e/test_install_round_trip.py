@@ -251,6 +251,9 @@ async def test_version_match_policy_filters_mismatched_peer_end_to_end(
     await paired_instances.wait_until_session_opened()
     pin = paired_instances.pin_sha256
     pairing = paired_instances.offloader.state.pairings[pin]
+    # This suite pins the version-match *policy* filter; auto-provision (which
+    # makes a mismatch eligible) is covered separately, so hold it off here.
+    pairing.auto_provision_supported = False
 
     # Pin both ends explicitly so the gate sees the mismatch
     # regardless of the bundled ``esphome.const.__version__``.
@@ -294,6 +297,9 @@ async def test_exact_required_raises_no_compatible_peer_end_to_end(
     await paired_instances.wait_until_session_opened()
     pin = paired_instances.pin_sha256
     pairing = paired_instances.offloader.state.pairings[pin]
+    # Policy-filter test: keep auto-provision off so a mismatch is filtered,
+    # not made eligible via provisioning (covered separately).
+    pairing.auto_provision_supported = False
     pairing.esphome_version = "2026.6.1"
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
     snapshot = replace(
