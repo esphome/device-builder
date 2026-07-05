@@ -292,13 +292,16 @@ def dispatch_artifacts_end(client: PeerLinkClient, parsed: dict[str, Any]) -> No
     )
 
 
-def fire_opened(client: PeerLinkClient, *, esphome_version: str = "") -> None:
+def fire_opened(
+    client: PeerLinkClient, *, esphome_version: str = "", auto_provision_supported: bool = False
+) -> None:
     """Fire ``OFFLOADER_PEER_LINK_OPENED`` for a session that reached intent_response=ok."""
     payload: OffloaderPeerLinkOpenedData = {
         "receiver_hostname": client._hostname,
         "receiver_port": client._port,
         "pin_sha256": client._pin_sha256,
         "esphome_version": esphome_version,
+        "auto_provision_supported": auto_provision_supported,
     }
     client._bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, payload)
 

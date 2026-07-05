@@ -6,10 +6,35 @@ import pytest
 
 from esphome_device_builder.helpers.version_compat import (
     VersionMatchPolicy,
+    is_pep440_version,
     major_versions_match,
     version_satisfies_policy,
     versions_match_exactly,
 )
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        # Real esphome shapes: release, dev, beta, rc, dev-build, epoch/post/local.
+        pytest.param("2026.6.4", True, id="release"),
+        pytest.param("2026.7.0-dev", True, id="dev"),
+        pytest.param("2026.7.0b1", True, id="beta"),
+        pytest.param("2026.7.0.dev20260629", True, id="dev_build"),
+        pytest.param("1.0.0.post1", True, id="post"),
+        pytest.param("1.0.0+local.1", True, id="local"),
+        # Garbage / injection / whitespace: rejected so it can't reach a
+        # pip install argument or the sidecar.
+        pytest.param("", False, id="empty"),
+        pytest.param("not-a-version", False, id="garbage"),
+        pytest.param("2026.6.4; rm -rf /", False, id="shell_injection"),
+        pytest.param("2026.6.4\n", False, id="trailing_newline"),
+        pytest.param("$(whoami)", False, id="command_sub"),
+    ],
+)
+def test_is_pep440_version(version: str, expected: bool) -> None:
+    """Accepts well-formed PEP 440 strings; rejects garbage / injection."""
+    assert is_pep440_version(version) is expected
 
 
 @pytest.mark.parametrize(

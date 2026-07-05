@@ -19,6 +19,7 @@ from esphome.const import __version__ as esphome_version
 from ....helpers import json as _json
 from ....helpers.peer_link_noise import NOISE_ERRORS, PeerLinkNoiseSession
 from ....models import IntentResponse, PeerLinkIntent, RejectReason
+from ..provision import receiver_supports_auto_provision
 
 if TYPE_CHECKING:
     from .handshake import _HandshakeStep
@@ -109,19 +110,20 @@ async def _send_response(
     """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
 
     Payload carries the response discriminator plus the receiver's
-    ``esphome_version`` on every intent. The long-lived
-    ``peer_link`` session captures the version onto
-    :attr:`StoredPairing.esphome_version` so a receiver upgrade
-    surfaces in pick_build_path's version-compat gate on the next
-    session-open without operator action.
+    ``esphome_version`` and ``auto_provision_supported`` capability on
+    every intent. The long-lived ``peer_link`` session captures both
+    onto the :class:`StoredPairing` so a receiver upgrade surfaces in
+    pick_build_path's version-compat gate on the next session-open
+    without operator action.
 
     *reason* rides along on non-OK responses (additive field;
     older offloaders ignore it) so the offloader can tell a
     terminal rejection apart from a transient one.
     """
-    payload: dict[str, str] = {
+    payload: dict[str, str | bool] = {
         "intent_response": response.value,
         "esphome_version": esphome_version,
+        "auto_provision_supported": receiver_supports_auto_provision(),
     }
     if reason is not None:
         payload["reason"] = reason.value

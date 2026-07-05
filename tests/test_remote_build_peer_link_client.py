@@ -62,6 +62,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     SubmitJobTimeoutError,
     _build_ws_url,
     _DownloadArtifactsState,
+    _extract_auto_provision_supported,
     _extract_receiver_esphome_version,
     drive_initiator_round_trip,
     one_shot,
@@ -1186,6 +1187,7 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         "receiver_port": 6055,
         "pin_sha256": pin,
         "esphome_version": "",
+        "auto_provision_supported": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=opened))
     assert pin in offloader.state.open_peer_links
@@ -1211,6 +1213,8 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
     ("response", "expected"),
     [
         ({"esphome_version": "2026.5.0"}, "2026.5.0"),
+        # Dev version is valid PEP 440 (normalises to .dev0); kept as-is.
+        ({"esphome_version": "2026.7.0-dev"}, "2026.7.0-dev"),
         # Older receiver predating the wire change.
         ({}, ""),
         # Malformed: non-string value. Defense-in-depth gate
@@ -1219,31 +1223,50 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         ({"esphome_version": 12345}, ""),
         ({"esphome_version": None}, ""),
         ({"esphome_version": {"nested": "shape"}}, ""),
-        # At the cap: 64-char version exactly matches the
-        # validator's max; flows through unchanged.
-        ({"esphome_version": "x" * PAIRING_VERSION_MAX_LEN}, "x" * PAIRING_VERSION_MAX_LEN),
-        # One past the cap: a buggy / malicious receiver trying
-        # to poison the sidecar. The wire seam returns empty
-        # rather than firing OPENED with an oversize value that
-        # would survive the in-memory mutation path and then
-        # fail the next StoredPairing.from_dict on a real disk
-        # load.
-        ({"esphome_version": "x" * (PAIRING_VERSION_MAX_LEN + 1)}, ""),
+        # Not a PEP 440 version (garbage / injection): empty so it
+        # can't reach storage or a later pip install argument.
+        ({"esphome_version": "not-a-version"}, ""),
+        ({"esphome_version": "2026.6.4; rm -rf /"}, ""),
+        # Oversize (peer-controlled wire data exceeding the
+        # StoredPairing validator's cap): rejected on length before
+        # the PEP 440 check, so a poison value never survives the
+        # in-memory mutation path into the next disk load.
+        ({"esphome_version": "1.0.0+" + "b" * PAIRING_VERSION_MAX_LEN}, ""),
     ],
 )
 def test_extract_receiver_esphome_version_branches(response: dict[str, Any], expected: str) -> None:
-    """Helper handles missing / non-string / oversize / valid response shapes.
+    """Helper handles missing / non-string / oversize / non-PEP440 / valid shapes.
 
     Pins the post-handshake response → ``StoredPairing.esphome_version``
-    seam: a valid string flows through unchanged; missing field
-    (older receiver), malformed shapes (non-string from a buggy
-    peer), and oversize strings (peer-controlled wire data that
-    exceeds the validator's cap) all fall back to empty so
-    pick_build_path's compat gate sees "unknown" rather than
-    propagating into the next StoredPairing load and poisoning
-    the sidecar.
+    seam: a valid PEP 440 string flows through unchanged; missing field
+    (older receiver), malformed shapes (non-string from a buggy peer),
+    oversize strings (peer-controlled wire data exceeding the cap), and
+    non-PEP440 garbage all fall back to empty so pick_build_path's compat
+    gate sees "unknown" rather than propagating a poison value into the
+    next StoredPairing load or a later pip install.
     """
     assert _extract_receiver_esphome_version(response) == expected
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"auto_provision_supported": True}, True),
+        ({"auto_provision_supported": False}, False),
+        # Older receiver predating the capability field.
+        ({}, False),
+        # Non-bool from a buggy peer falls back to False rather than
+        # a truthy value flipping the capability on.
+        ({"auto_provision_supported": "1"}, False),
+        ({"auto_provision_supported": 1}, False),
+        ({"auto_provision_supported": None}, False),
+    ],
+)
+def test_extract_auto_provision_supported_branches(
+    response: dict[str, Any], expected: bool
+) -> None:
+    """Helper reads the capability flag; missing / non-bool ⇒ ``False``."""
+    assert _extract_auto_provision_supported(response) is expected
 
 
 async def test_peer_link_opened_refreshes_stored_pairing_version(
@@ -1289,6 +1312,7 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
             "receiver_port": 6055,
             "pin_sha256": pin,
             "esphome_version": version,
+            "auto_provision_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1327,6 +1351,53 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
     assert len(save_calls) == 2
 
 
+async def test_peer_link_opened_refreshes_auto_provision_capability(
+    offloader_controller_dir: Path,
+) -> None:
+    """``auto_provision_supported`` lands on the pairing and saves only on change."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        status=PeerStatus.APPROVED,
+    )
+    offloader.state.pairings[pin] = pairing
+    save_calls: list[None] = []
+    offloader._schedule_pairings_save = lambda: save_calls.append(None)  # type: ignore[method-assign]
+
+    def _opened(supported: bool) -> Any:
+        payload: OffloaderPeerLinkOpenedData = {
+            "receiver_hostname": "rcv.local",
+            "receiver_port": 6055,
+            "pin_sha256": pin,
+            "esphome_version": "2026.5.0",
+            "auto_provision_supported": supported,
+        }
+        return MagicMock(data=payload)
+
+    assert pairing.auto_provision_supported is False
+
+    # Receiver now advertises the capability: capture + save (the
+    # version also lands on this first OPENED, so at least one save).
+    offloader._on_offloader_peer_link_opened(_opened(True))
+    assert pairing.auto_provision_supported is True
+    saves_after_enable = len(save_calls)
+    assert saves_after_enable >= 1
+
+    # Same capability + same version reconnect: no redundant save.
+    offloader._on_offloader_peer_link_opened(_opened(True))
+    assert len(save_calls) == saves_after_enable
+
+    # Capability flips off (receiver downgraded) even though the
+    # version is unchanged: still persists.
+    offloader._on_offloader_peer_link_opened(_opened(False))
+    assert pairing.auto_provision_supported is False
+    assert len(save_calls) == saves_after_enable + 1
+
+
 async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1350,6 +1421,7 @@ async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
         "receiver_port": 6055,
         "pin_sha256": "a" * 64,
         "esphome_version": "2026.5.0",
+        "auto_provision_supported": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=payload))
     assert len(save_calls) == 0

@@ -500,6 +500,7 @@ async def test_send_response_advertises_esphome_version() -> None:
     assert parsed == {
         "intent_response": IntentResponse.OK.value,
         "esphome_version": esphome_version,
+        "auto_provision_supported": False,
     }
 
 

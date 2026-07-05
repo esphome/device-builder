@@ -71,6 +71,9 @@ _PAIRING_VALIDATOR = vol.Schema(
         # so an ``int``-coerced-to-bool gets rejected (same
         # shape that bit ``cleanup_ttl_seconds``).
         vol.Required("enabled"): bool,
+        # Receiver-advertised capability; older sidecars deserialise
+        # as ``False`` (couldn't provision). Strict ``bool`` as above.
+        vol.Required("auto_provision_supported"): bool,
     }
 )
 
@@ -131,6 +134,11 @@ class StoredPairing(DashboardModel):
     # install to route here. Older sidecars deserialise as
     # ``True`` (the historical implicit behaviour).
     enabled: bool = True
+    # Receiver-advertised: whether it can build a version-mismatched
+    # offloader's esphome by provisioning it. Refreshed on every
+    # peer-link session-open; ``False`` on a fresh row, an older
+    # sidecar, or a receiver without the provisioner.
+    auto_provision_supported: bool = False
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""

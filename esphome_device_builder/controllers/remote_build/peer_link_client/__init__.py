@@ -19,6 +19,7 @@ from .client import PeerLinkClient
 from .one_shot import (
     _build_ws_url,
     _drive_initiator_handshake_and_read_response,
+    _extract_auto_provision_supported,
     _extract_receiver_esphome_version,
     await_pair_status,
     drive_initiator_round_trip,
@@ -41,6 +42,7 @@ __all__ = (
     "_SessionLoopState",
     "_build_ws_url",
     "_drive_initiator_handshake_and_read_response",
+    "_extract_auto_provision_supported",
     "_extract_receiver_esphome_version",
     "await_pair_status",
     "drive_initiator_round_trip",

@@ -29,6 +29,7 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ....helpers.peer_link_resolver import make_peer_link_http_session
+from ....helpers.version_compat import is_pep440_version
 from ....models import (
     PAIRING_VERSION_MAX_LEN,
     IntentResponse,
@@ -85,16 +86,29 @@ def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
     """
     Lift ``esphome_version`` off the post-handshake response.
 
-    Returns ``""`` when missing, non-str, or exceeds
-    :data:`PAIRING_VERSION_MAX_LEN` — the disk-side cap mirrors
-    here so the wire and storage seams can't drift apart.
+    Returns ``""`` when missing, non-str, oversize
+    (:data:`PAIRING_VERSION_MAX_LEN`, the disk-side cap mirrored
+    here so the wire and storage seams can't drift apart), or not a
+    valid PEP 440 version — so a malformed / injected string never
+    reaches storage or a later ``pip install`` argument.
     """
     value = response.get("esphome_version", "")
-    if not isinstance(value, str):
+    if not isinstance(value, str) or len(value) > PAIRING_VERSION_MAX_LEN:
         return ""
-    if len(value) > PAIRING_VERSION_MAX_LEN:
+    if not is_pep440_version(value):
         return ""
     return value
+
+
+def _extract_auto_provision_supported(response: dict[str, Any]) -> bool:
+    """
+    Lift the receiver's ``auto_provision_supported`` flag off the response.
+
+    Missing or non-bool ⇒ ``False`` — an older receiver that never sends
+    the field is treated as unable to provision.
+    """
+    value = response.get("auto_provision_supported", False)
+    return value if isinstance(value, bool) else False
 
 
 def _build_ws_url(hostname: str, port: int) -> URL:

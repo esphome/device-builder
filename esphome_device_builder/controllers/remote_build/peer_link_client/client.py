@@ -59,6 +59,7 @@ from . import _dispatch, _submit
 from .one_shot import (
     _DEFAULT_TIMEOUT_SECONDS,
     _drive_initiator_handshake_and_read_response,
+    _extract_auto_provision_supported,
     _extract_receiver_esphome_version,
 )
 
@@ -438,12 +439,16 @@ class PeerLinkClient:
                 ):
                     return self._on_handshake_rejected(response)
                 receiver_version = _extract_receiver_esphome_version(response)
+                auto_provision = _extract_auto_provision_supported(response)
                 channel = PeerLinkChannel(
                     noise=session, ws=ws, log_label=f"{self._hostname}:{self._port}"
                 )
                 self._session_was_opened = True
                 self._last_connect_error = ""
-                self._fire_opened(esphome_version=receiver_version)
+                self._fire_opened(
+                    esphome_version=receiver_version,
+                    auto_provision_supported=auto_provision,
+                )
                 try:
                     return await self._run_session_loops(channel)
                 except asyncio.CancelledError:
@@ -635,8 +640,14 @@ class PeerLinkClient:
     def _dispatch_artifacts_end(self, parsed: dict[str, Any]) -> None:
         _dispatch.dispatch_artifacts_end(self, parsed)
 
-    def _fire_opened(self, *, esphome_version: str = "") -> None:
-        _dispatch.fire_opened(self, esphome_version=esphome_version)
+    def _fire_opened(
+        self, *, esphome_version: str = "", auto_provision_supported: bool = False
+    ) -> None:
+        _dispatch.fire_opened(
+            self,
+            esphome_version=esphome_version,
+            auto_provision_supported=auto_provision_supported,
+        )
 
     def _fire_closed(self, reason: str, *, error_detail: str = "") -> None:
         _dispatch.fire_closed(self, reason, error_detail=error_detail)

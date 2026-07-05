@@ -104,13 +104,11 @@ def on_offloader_peer_link_opened(
     controller: OffloaderController, event: Event[OffloaderPeerLinkOpenedData]
 ) -> None:
     """
-    Add ``pin_sha256`` to ``_open_peer_links`` and refresh the receiver version.
+    Add ``pin_sha256`` to ``_open_peer_links``; refresh version + capability.
 
-    Receiver's ``esphome_version`` rides on every
-    ``intent_response`` so a receiver upgrade picks up on
-    next session-open without operator action.
-    ``pick_build_path``'s deferred version-compat gate reads
-    this field.
+    Both ride on every ``intent_response`` so a receiver upgrade
+    picks up on next session-open without operator action.
+    ``pick_build_path``'s deferred version-compat gate reads them.
 
     Empty / oversize versions are dropped silently rather
     than clobbering — empty would lose the captured value
@@ -122,14 +120,20 @@ def on_offloader_peer_link_opened(
     data = event.data
     pin_sha256 = data["pin_sha256"]
     controller.state.open_peer_links.add(pin_sha256)
-    version = data["esphome_version"]
-    if not version or len(version) > PAIRING_VERSION_MAX_LEN:
-        return
     pairing = controller.state.pairings.get(pin_sha256)
-    if pairing is None or pairing.esphome_version == version:
+    if pairing is None:
         return
-    pairing.esphome_version = version
-    controller._schedule_pairings_save()
+    changed = False
+    version = data["esphome_version"]
+    if version and len(version) <= PAIRING_VERSION_MAX_LEN and pairing.esphome_version != version:
+        pairing.esphome_version = version
+        changed = True
+    supported = data["auto_provision_supported"]
+    if pairing.auto_provision_supported != supported:
+        pairing.auto_provision_supported = supported
+        changed = True
+    if changed:
+        controller._schedule_pairings_save()
 
 
 def on_offloader_peer_link_closed(

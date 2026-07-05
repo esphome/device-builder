@@ -8,6 +8,32 @@ from typing import assert_never
 
 _DIGITS_PREFIX_RE = re.compile(r"^(\d+)")
 
+# Pragmatic PEP 440 matcher, not the full grammar: esphome only ever
+# emits release / pre / post / dev / local forms. A regex keeps the
+# cold-import floor clean — ``packaging`` is too heavy to import here.
+_PEP440_RE = re.compile(
+    r"""
+    v?                                                       # optional leading v
+    (?:\d+!)?                                                 # epoch
+    \d+(?:\.\d+)*                                             # release segment
+    (?:[-_.]?(?:a|b|c|rc|alpha|beta|pre|preview)[-_.]?\d*)?   # pre-release
+    (?:(?:[-_.]?post[-_.]?\d*)|-\d+)?                         # post-release
+    (?:[-_.]?dev[-_.]?\d*)?                                   # dev-release
+    (?:\+[a-z0-9]+(?:[-_.][a-z0-9]+)*)?                       # local version
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def is_pep440_version(version: str) -> bool:
+    """Return whether *version* is a well-formed PEP 440 version string.
+
+    The single gate for every esphome version string crossing a trust
+    boundary (peer-link advert, provisioning target) so a malformed or
+    injected value never reaches storage or a ``pip install`` argument.
+    """
+    return _PEP440_RE.fullmatch(version) is not None
+
 
 class VersionMatchPolicy(StrEnum):
     """How strictly the offloader filters peers by ESPHome version.

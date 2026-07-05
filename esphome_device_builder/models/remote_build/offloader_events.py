@@ -222,16 +222,19 @@ class OffloaderPeerLinkOpenedData(TypedDict):
     ``intent_response: ok`` state and the dispatch loop is
     parked. ``esphome_version`` is the receiver's
     :data:`esphome.const.__version__` lifted off the response;
-    empty if the receiver didn't carry the field. The
-    controller subscribes to refresh
-    :attr:`StoredPairing.esphome_version` so pick_build_path's
-    version-compat gate sees fresh values.
+    empty if the receiver didn't carry the field.
+    ``auto_provision_supported`` is the receiver's capability flag
+    (``False`` for an older receiver that never sent it). The
+    controller subscribes to refresh both onto the
+    :class:`StoredPairing` so pick_build_path's version-compat
+    gate sees fresh values.
     """
 
     receiver_hostname: str
     receiver_port: int
     pin_sha256: str
     esphome_version: str
+    auto_provision_supported: bool
 
 
 class OffloaderPeerLinkClosedData(TypedDict):
