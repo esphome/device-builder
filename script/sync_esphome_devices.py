@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import logging
 import re
 import shutil
@@ -53,6 +52,7 @@ from esphome_device_builder.constants import (  # noqa: E402
 )
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
+from script._component_catalog import load_component_catalog  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -2248,19 +2248,7 @@ def _load_components_index() -> dict[str, dict[str, Any]]:
         raise SystemExit(
             f"{_COMPONENTS_INDEX_JSON} not found — run script/sync_components.py first."
         )
-    raw = json.loads(_COMPONENTS_INDEX_JSON.read_text(encoding="utf-8"))
-    by_id: dict[str, dict[str, Any]] = {}
-    for comp in raw.get("components", []):
-        cid = comp.get("id")
-        if not cid:
-            continue
-        body_path = _COMPONENTS_BODIES_DIR / f"{cid}.json"
-        if body_path.is_file():
-            body = json.loads(body_path.read_text(encoding="utf-8"))
-            by_id[cid] = {**comp, **body}
-        else:
-            by_id[cid] = comp
-    return by_id
+    return load_component_catalog(_COMPONENTS_INDEX_JSON, _COMPONENTS_BODIES_DIR)
 
 
 def _parse_args() -> argparse.Namespace:

@@ -34,6 +34,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Imported from the stdlib-only constants module so this script stays light.
 from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
+from script._component_catalog import load_component_catalog  # noqa: E402
 
 DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
@@ -218,19 +219,7 @@ def _build_components_index() -> dict | None:
             file=sys.stderr,
         )
         return None
-    raw = json.loads(COMPONENTS_INDEX_JSON.read_text(encoding="utf-8"))
-    by_id: dict[str, dict] = {}
-    for comp in raw.get("components", []):
-        cid = comp.get("id")
-        if not cid:
-            continue
-        body_path = COMPONENTS_BODIES_DIR / f"{cid}.json"
-        if body_path.is_file():
-            body = json.loads(body_path.read_text(encoding="utf-8"))
-            by_id[cid] = {**comp, **body}
-        else:
-            by_id[cid] = comp
-    return by_id
+    return load_component_catalog(COMPONENTS_INDEX_JSON, COMPONENTS_BODIES_DIR)
 
 
 def _validate_featured(  # noqa: C901
