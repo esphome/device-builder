@@ -42,6 +42,20 @@ def test_pulls_existing_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "pull" in fake.calls[0]
 
 
+def test_pull_nonzero_exit_keeps_snapshot(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _make_git_repo(tmp_path)
+    fake = _FakeRun(returncode=1)
+    monkeypatch.setattr(subprocess, "run", fake)
+    assert ensure_shallow_git_repo("url", target, "main", label="x") == target
+
+
+def test_pull_timeout_is_non_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _make_git_repo(tmp_path)
+    fake = _FakeRun(raises=subprocess.TimeoutExpired("git", 1))
+    monkeypatch.setattr(subprocess, "run", fake)
+    assert ensure_shallow_git_repo("url", target, "main", label="x") == target
+
+
 def test_skips_pull_when_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = _make_git_repo(tmp_path)
     fake = _FakeRun()

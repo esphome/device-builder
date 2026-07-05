@@ -31,13 +31,20 @@ def ensure_shallow_git_repo(
     """
     if (target / ".git").exists():
         if pull:
-            result = subprocess.run(
-                ["git", "-C", str(target), "pull", "-q", "--ff-only"],
-                check=False,
-                timeout=pull_timeout,
-            )
-            if result.returncode != 0:
-                _LOGGER.warning("git pull failed in %s; using existing snapshot", target)
+            # Keep the pull non-fatal end to end: a non-zero exit, a timeout, or
+            # git missing all fall back to the on-disk snapshot rather than
+            # aborting the sync.
+            try:
+                result = subprocess.run(
+                    ["git", "-C", str(target), "pull", "-q", "--ff-only"],
+                    check=False,
+                    timeout=pull_timeout,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                _LOGGER.warning("git pull in %s failed: %s; using existing snapshot", target, exc)
+            else:
+                if result.returncode != 0:
+                    _LOGGER.warning("git pull failed in %s; using existing snapshot", target)
         return target
     if allow_existing_non_git and target.exists():
         return target

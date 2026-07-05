@@ -44,9 +44,6 @@ import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from _repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
@@ -56,6 +53,7 @@ from esphome_device_builder.constants import (  # noqa: E402
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
+from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
