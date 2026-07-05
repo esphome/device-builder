@@ -633,7 +633,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         )
 
     async def _resolve_esphome_cmd(self, job: FirmwareJob) -> list[str]:
-        """Return the esphome CLI invocation to compile *job* with."""
+        """Return the esphome CLI invocation to run *job* with."""
         return self.state.esphome_cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
