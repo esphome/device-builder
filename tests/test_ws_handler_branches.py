@@ -38,6 +38,7 @@ def _make_settings(*, using_password: bool) -> MagicMock:
     settings.port = 6052
     settings.on_ha_addon = False
     settings.trusted_domains = []
+    settings.desktop_version = ""
     return settings
 
 
@@ -268,5 +269,31 @@ async def test_server_info_ha_ingress_reflects_x_ingress_path_header(
     ws, info = await _connect_and_drain_server_info(client)
     try:
         assert info["ha_ingress"] is False
+    finally:
+        await ws.close()
+
+
+async def test_server_info_carries_desktop_version(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """The handshake frame relays ``settings.desktop_version`` (default '')."""
+    device_builder = MagicMock()
+    settings = _make_settings(using_password=False)
+    settings.desktop_version = "1.4.2"
+    device_builder.settings = settings
+    device_builder.auth = MagicMock()
+    device_builder.command_handlers = {}
+
+    app = web.Application()
+    app["device_builder"] = device_builder
+    app["trusted_site"] = True
+    ws_module.init_ws_app(app)
+    app.router.add_routes(ws_module.create_ws_routes())
+
+    client = await aiohttp_client(app)
+
+    ws, info = await _connect_and_drain_server_info(client)
+    try:
+        assert info["desktop_version"] == "1.4.2"
     finally:
         await ws.close()

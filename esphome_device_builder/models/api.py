@@ -112,3 +112,5 @@ class ServerInfoMessage(DashboardModel):
     # add-on reached directly on its exposed port is False, unlike ha_addon.
     ha_ingress: bool = False
     requires_auth: bool = False
+    # ESPHome Desktop wrapper version, from ESPHOME_DESKTOP_VERSION; "" off-desktop.
+    desktop_version: str = ""

@@ -2062,6 +2062,26 @@ def test_status_use_mqtt_reflects_env(
     assert settings.status_use_mqtt is True
 
 
+def test_desktop_version_reads_and_sanitizes_env(
+    make_settings: MakeSettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``desktop_version`` returns a clean value or '' for unset / unusable input."""
+    settings = make_settings()
+    monkeypatch.delenv("ESPHOME_DESKTOP_VERSION", raising=False)
+    assert settings.desktop_version == ""
+
+    monkeypatch.setenv("ESPHOME_DESKTOP_VERSION", "  1.4.2  ")
+    assert settings.desktop_version == "1.4.2"
+
+    # Blank, control-char, and over-length values all degrade to "".
+    monkeypatch.setenv("ESPHOME_DESKTOP_VERSION", "   ")
+    assert settings.desktop_version == ""
+    monkeypatch.setenv("ESPHOME_DESKTOP_VERSION", "1.4\n2")
+    assert settings.desktop_version == ""
+    monkeypatch.setenv("ESPHOME_DESKTOP_VERSION", "9" * 65)
+    assert settings.desktop_version == ""
+
+
 def test_metadata_transaction_persists_without_fcntl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

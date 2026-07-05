@@ -30,6 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _DASHBOARD_SENTINEL_FILE = "___DASHBOARD_SENTINEL___.yaml"
 
+# Upper bound on the ESPHome Desktop wrapper version string; a value past this
+# is treated as unset rather than rendered in the footer.
+_MAX_DESKTOP_VERSION_LEN = 64
+
 
 @dataclass
 class DashboardSettings:
@@ -259,6 +263,14 @@ class DashboardSettings:
     @property
     def status_use_mqtt(self) -> bool:
         return bool(get_bool_env("ESPHOME_DASHBOARD_USE_MQTT"))
+
+    @property
+    def desktop_version(self) -> str:
+        """ESPHome Desktop wrapper version from the env; '' when unset or unusable."""
+        raw = os.getenv("ESPHOME_DESKTOP_VERSION", "").strip()
+        if not raw or len(raw) > _MAX_DESKTOP_VERSION_LEN or not raw.isprintable():
+            return ""
+        return raw
 
     @property
     def front_door_open(self) -> bool:
