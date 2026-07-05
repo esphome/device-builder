@@ -7,10 +7,33 @@ import pytest
 from esphome_device_builder.helpers.version_compat import (
     VersionMatchPolicy,
     is_pep440_version,
+    is_release_version,
     major_versions_match,
     version_satisfies_policy,
     versions_match_exactly,
 )
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        pytest.param("2026.6.4", True, id="release"),
+        pytest.param("2024.12.0", True, id="release_two_digit_month"),
+        # Everything with a pre / dev / post / local / epoch segment is NOT a
+        # plain release, so the provisioner won't pin it.
+        pytest.param("2026.7.0-dev", False, id="dev"),
+        pytest.param("2026.7.0b1", False, id="beta"),
+        pytest.param("2026.7.0rc1", False, id="rc"),
+        pytest.param("1.0.0.post1", False, id="post"),
+        pytest.param("1.0.0+local", False, id="local"),
+        pytest.param("1!2.0.0", False, id="epoch"),
+        pytest.param("", False, id="empty"),
+        pytest.param("not-a-version", False, id="garbage"),
+    ],
+)
+def test_is_release_version(version: str, expected: bool) -> None:
+    """Only plain dotted-numeric releases pass; pre / dev / post / local do not."""
+    assert is_release_version(version) is expected
 
 
 @pytest.mark.parametrize(

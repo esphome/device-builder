@@ -35,6 +35,20 @@ def is_pep440_version(version: str) -> bool:
     return _PEP440_RE.fullmatch(version) is not None
 
 
+# A plain dotted-numeric release (no epoch / pre / post / dev / local segment).
+_RELEASE_RE = re.compile(r"\d+(?:\.\d+)*")
+
+
+def is_release_version(version: str) -> bool:
+    """Return whether *version* is a final release, not a pre / dev / local build.
+
+    Stricter than :func:`is_pep440_version`: only a plain release pins to a
+    reproducible ``pip install esphome==<version>``, so the provisioner
+    refuses anything else (a ``-dev`` build can't be pinned to an exact commit).
+    """
+    return _RELEASE_RE.fullmatch(version) is not None
+
+
 class VersionMatchPolicy(StrEnum):
     """How strictly the offloader filters peers by ESPHome version.
 
