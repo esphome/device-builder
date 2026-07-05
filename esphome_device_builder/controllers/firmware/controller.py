@@ -19,6 +19,8 @@ from collections.abc import Iterator
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any
 
+from esphome.const import __version__ as _installed_esphome_version
+
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.device_yaml import configuration_filename
@@ -633,8 +635,23 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         )
 
     async def _resolve_esphome_cmd(self, job: FirmwareJob) -> list[str]:
-        """Return the esphome CLI invocation to run *job* with."""
-        return self.state.esphome_cmd
+        """Return the esphome CLI invocation to run *job* with.
+
+        For a remote job whose offloader ran a different esphome
+        (``target_esphome_version`` set and differing from ours), provision +
+        return that version's venv so the compile matches what the offloader
+        would have built locally; otherwise the installed esphome. A failed
+        provision (non-release target, or venv/pip error) propagates so the
+        job fails and the offloader re-routes to LOCAL — never silently
+        compiling with the wrong version.
+        """
+        version = job.target_esphome_version
+        if not version or version == _installed_esphome_version:
+            return self.state.esphome_cmd
+        receiver = self._db.remote_build_receiver
+        if receiver is None or receiver.state.env_provisioner is None:
+            return self.state.esphome_cmd
+        return await receiver.state.env_provisioner.provision(version)
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
         return cli.build_cache_args(self, job)
@@ -689,6 +706,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         build_source: JobBuildSource = LOCAL_JOB_BUILD_SOURCE,
         device_name: str = "",
         device_friendly_name: str = "",
+        target_esphome_version: str = "",
         *,
         flash_bootloader: bool = False,
     ) -> FirmwareJob:
@@ -705,6 +723,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             build_source=build_source,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
+            target_esphome_version=target_esphome_version,
         )
 
     def _resolve_install_source(self, *, force_local: bool = False) -> JobBuildSource:

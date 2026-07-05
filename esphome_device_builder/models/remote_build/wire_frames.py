@@ -32,7 +32,10 @@ class SubmitJobFrameData(TypedDict):
     ``device_friendly_name`` are ``NotRequired`` so older
     offloaders that don't set them produce a valid frame;
     receiver-side title falls back to the last segment of the
-    configuration path.
+    configuration path. ``target_esphome_version`` is the
+    offloader's own esphome version; the receiver provisions a
+    matching venv when it differs from its installed esphome
+    (``NotRequired`` — older offloaders don't send it).
     """
 
     type: Literal["submit_job"]
@@ -44,6 +47,7 @@ class SubmitJobFrameData(TypedDict):
     bundle_sha256: str
     device_name: NotRequired[str]
     device_friendly_name: NotRequired[str]
+    target_esphome_version: NotRequired[str]
 
 
 class SubmitJobChunkFrameData(TypedDict):

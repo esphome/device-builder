@@ -285,6 +285,7 @@ class PeerLinkClient:
         bundle_bytes: bytes,
         device_name: str = "",
         device_friendly_name: str = "",
+        target_esphome_version: str = "",
     ) -> SubmitJobAckFrameData:
         return await _submit.submit_job(
             self,
@@ -294,6 +295,7 @@ class PeerLinkClient:
             bundle_bytes=bundle_bytes,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
+            target_esphome_version=target_esphome_version,
         )
 
     async def cancel_job(self, *, job_id: str) -> bool:

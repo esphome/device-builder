@@ -500,7 +500,7 @@ async def test_send_response_advertises_esphome_version() -> None:
     assert parsed == {
         "intent_response": IntentResponse.OK.value,
         "esphome_version": esphome_version,
-        "auto_provision_supported": False,
+        "auto_provision_supported": True,
     }
 
 
@@ -1444,6 +1444,7 @@ def _install_stub_submit_job_receiver(
         remote_job_id: str = "",
         device_name: str = "",
         device_friendly_name: str = "",
+        target_esphome_version: str = "",
     ) -> Any:
         job = MagicMock()
         job.job_id = f"local-{len(queued_jobs)}"
@@ -1453,6 +1454,7 @@ def _install_stub_submit_job_receiver(
         job.remote_job_id = remote_job_id
         job.device_name = device_name
         job.device_friendly_name = device_friendly_name
+        job.target_esphome_version = target_esphome_version
         return job
 
     async def _enqueue(job: Any) -> Any:

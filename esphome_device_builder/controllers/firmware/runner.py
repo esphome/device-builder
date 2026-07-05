@@ -32,6 +32,13 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+async def _clean_provisioned_venvs(controller: FirmwareController) -> None:
+    """Wipe the receiver's cached esphome venvs, if this dashboard is a receiver."""
+    receiver = controller._db.remote_build_receiver
+    if receiver is not None and receiver.state.env_provisioner is not None:
+        await receiver.state.env_provisioner.clean_all()
+
+
 async def run_lane(controller: FirmwareController, lane: Lane) -> None:
     """Background loop: process one job at a time on *lane* (concurrent with the other lane)."""
     while True:
@@ -227,6 +234,11 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             # metadata migration + rescan see the old YAML already gone.
             if success and job.is_rename_tail:
                 await rename_flow.finalize_rename_swap(controller, job)
+
+            # A clean-build-env (``clean-all``) also wipes the receiver's
+            # cached esphome venvs — they re-provision on demand.
+            if success and job.job_type is JobType.RESET_BUILD_ENV:
+                await _clean_provisioned_venvs(controller)
 
             # ``_finalize_terminal`` runs the mark + slot-
             # release + fire sequence in the order the

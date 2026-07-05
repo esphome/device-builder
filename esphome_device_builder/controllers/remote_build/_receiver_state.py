@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from ...models import StoredPeer
 from .artifacts_download import ArtifactsDownloadSender
+from .env_provisioner import EnvProvisioner
 from .job_fanout import JobFanout
 from .peer_link import PeerLinkSession
 from .submit_job import SubmitJobReceiver
@@ -42,3 +43,8 @@ class ReceiverState:
     submit_job_receiver: SubmitJobReceiver | None = None
     artifacts_download_sender: ArtifactsDownloadSender | None = None
     job_fanout: JobFanout | None = None
+
+    # Builds + caches per-version esphome venvs so a compile from an
+    # offloader on a different esphome matches its version. Constructed
+    # in :meth:`ReceiverController.start`; ``None`` before start / after stop.
+    env_provisioner: EnvProvisioner | None = None

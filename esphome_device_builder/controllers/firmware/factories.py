@@ -37,6 +37,7 @@ def create_job(
     device_name: str = "",
     device_friendly_name: str = "",
     depends_on: str = "",
+    target_esphome_version: str = "",
     *,
     flash_bootloader: bool = False,
 ) -> FirmwareJob:
@@ -62,6 +63,7 @@ def create_job(
         remote_job_id=remote_job_id,
         device_name=device_name,
         device_friendly_name=device_friendly_name,
+        target_esphome_version=target_esphome_version,
     )
     job.apply_build_source(build_source)
     controller.state.jobs[job.job_id] = job

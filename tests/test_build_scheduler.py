@@ -40,6 +40,7 @@ def _stub_pairing(
     status: PeerStatus = PeerStatus.APPROVED,
     enabled: bool = True,
     esphome_version: str = "",
+    auto_provision_supported: bool = False,
 ) -> StoredPairing:
     """Build a :class:`StoredPairing` with defaults aimed at the scheduler tests.
 
@@ -59,6 +60,7 @@ def _stub_pairing(
         status=status,
         enabled=enabled,
         esphome_version=esphome_version,
+        auto_provision_supported=auto_provision_supported,
     )
 
 
@@ -706,6 +708,56 @@ def test_release_policy_local_fallback_logs_info(
     info_lines = [r for r in caplog.records if r.levelname == "INFO"]
     assert len(info_lines) == 1
     assert "version policy release filtered 1 peer" in info_lines[0].getMessage()
+
+
+def test_auto_provision_keeps_version_mismatch_eligible() -> None:
+    """A mismatched receiver that advertises auto-provision stays eligible."""
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        pin_sha256=pin, esphome_version="2026.5.0", auto_provision_supported=True
+    )
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.RELEASE,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+
+def test_auto_provision_ignored_when_offloader_is_dev() -> None:
+    """A dev offloader can't be provisioned, so a mismatch is still filtered to LOCAL."""
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        pin_sha256=pin, esphome_version="2026.5.0", auto_provision_supported=True
+    )
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.7.0-dev",
+        version_match_policy=VersionMatchPolicy.RELEASE,
+    )
+    assert pick_build_path(inputs).path is BuildPath.LOCAL
+
+
+def test_version_mismatch_without_auto_provision_falls_back_local() -> None:
+    """A mismatched receiver that can't auto-provision still filters to LOCAL."""
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        pin_sha256=pin, esphome_version="2026.5.0", auto_provision_supported=False
+    )
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.6.0",
+        version_match_policy=VersionMatchPolicy.RELEASE,
+    )
+    assert pick_build_path(inputs).path is BuildPath.LOCAL
 
 
 def test_exact_required_raises_no_compatible_peer_when_filtered() -> None:

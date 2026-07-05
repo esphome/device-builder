@@ -8,6 +8,7 @@ def receiver_supports_auto_provision() -> bool:
 
     Advertised on every peer-link session-open so the offloader only
     routes a version-mismatched compile here when the receiver can
-    provision the matching esphome. ``False`` until the provisioner lands.
+    provision the matching esphome. On by default now the
+    :class:`~.env_provisioner.EnvProvisioner` engine exists.
     """
-    return False
+    return True

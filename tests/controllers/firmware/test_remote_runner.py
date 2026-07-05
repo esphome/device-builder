@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from esphome.const import __version__ as _esphome_version
 
 from esphome_device_builder.controllers.firmware import remote_runner
 from esphome_device_builder.controllers.firmware._state import Lane
@@ -382,6 +383,7 @@ async def test_remote_compile_translates_output_and_completes(
         bundle_bytes=b"FAKEBUNDLE",
         device_name="",
         device_friendly_name="",
+        target_esphome_version=_esphome_version,
     )
 
 
@@ -431,6 +433,7 @@ async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_comple
         bundle_bytes=b"FAKEBUNDLE",
         device_name="",
         device_friendly_name="",
+        target_esphome_version=_esphome_version,
     )
     # Crucially: no download_artifacts call — clean has nothing
     # to fetch back.
@@ -485,6 +488,7 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
         bundle_bytes=b"FAKEBUNDLE",
         device_name="kitchen",
         device_friendly_name="AC Float Monitor 32",
+        target_esphome_version=_esphome_version,
     )
 
 
@@ -521,6 +525,7 @@ async def test_remote_compile_falls_through_when_no_device_matches(
         bundle_bytes=b"FAKEBUNDLE",
         device_name="",
         device_friendly_name="",
+        target_esphome_version=_esphome_version,
     )
 
 

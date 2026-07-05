@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
+
+from esphome_device_builder.controllers.firmware.controller import _installed_esphome_version
+from esphome_device_builder.controllers.remote_build.env_provisioner import EnvProvisionError
 from esphome_device_builder.models import JobType
 from esphome_device_builder.models.firmware import FirmwareJob
 from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
+
+
+def _remote_job(target_esphome_version: str) -> FirmwareJob:
+    return FirmwareJob(
+        job_id="j1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        target_esphome_version=target_esphome_version,
+    )
 
 
 def test_build_command_prefers_the_per_call_esphome_cmd(
@@ -39,3 +54,65 @@ async def test_resolve_esphome_cmd_defaults_to_installed(
     job = FirmwareJob(job_id="j1", configuration="kitchen.yaml", job_type=JobType.COMPILE)
 
     assert await controller._resolve_esphome_cmd(job) == ["installed", "-m", "esphome"]
+
+
+async def test_resolve_esphome_cmd_provisions_for_mismatched_target(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """A remote job targeting a different version resolves to the provisioned venv."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    provisioner = controller._db.remote_build_receiver.state.env_provisioner
+    provisioner.provision = AsyncMock(return_value=["venv/bin/python", "-m", "esphome"])
+
+    cmd = await controller._resolve_esphome_cmd(_remote_job("2026.5.0"))
+
+    assert cmd == ["venv/bin/python", "-m", "esphome"]
+    provisioner.provision.assert_awaited_once_with("2026.5.0")
+
+
+async def test_resolve_esphome_cmd_installed_target_uses_installed(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """A target equal to the receiver's installed version needs no venv."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    provisioner = controller._db.remote_build_receiver.state.env_provisioner
+    provisioner.provision = AsyncMock()
+
+    cmd = await controller._resolve_esphome_cmd(_remote_job(_installed_esphome_version))
+
+    assert cmd == ["installed", "-m", "esphome"]
+    provisioner.provision.assert_not_awaited()
+
+
+async def test_resolve_esphome_cmd_no_receiver_uses_installed(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """A pure offloader (no receiver controller) compiles with its installed esphome."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    controller._db.remote_build_receiver = None
+
+    assert await controller._resolve_esphome_cmd(_remote_job("2026.5.0")) == [
+        "installed",
+        "-m",
+        "esphome",
+    ]
+
+
+async def test_resolve_esphome_cmd_propagates_provision_error(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """A failed provision propagates so the job fails and the offloader re-routes."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    provisioner = controller._db.remote_build_receiver.state.env_provisioner
+    provisioner.provision = AsyncMock(side_effect=EnvProvisionError("boom"))
+
+    with pytest.raises(EnvProvisionError):
+        await controller._resolve_esphome_cmd(_remote_job("2026.5.0"))

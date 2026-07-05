@@ -278,6 +278,12 @@ class FirmwareJob(DashboardModel):
     # pairing hadn't yet completed a peer-link session (the
     # pairing field populates on every session-open).
     source_esphome_version: str = ""
+    # Receiver-side: the offloader's esphome version off the
+    # SUBMIT_JOB header. When set and it differs from the
+    # receiver's installed esphome, the receiver provisions a
+    # matching venv and compiles the job with it. Empty for
+    # local jobs and older offloaders (compile with installed).
+    target_esphome_version: str = ""
 
     @property
     def is_terminal(self) -> bool:

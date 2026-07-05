@@ -17,6 +17,8 @@ import asyncio
 import logging
 import re
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from esphome.core import CORE
@@ -44,6 +46,49 @@ class EnvProvisionError(Exception):
     """A matching esphome venv could not be provisioned."""
 
 
+class _RWLock:
+    """Minimal async readers-writer lock: concurrent readers, exclusive writer.
+
+    Provisions take the read side (different versions build concurrently);
+    ``clean_all`` / ``sweep_stale`` take the write side so a wipe waits for
+    in-flight builds instead of yanking a venv out from under one. Writers can
+    starve under continuous readers, which is fine — a wipe is rare and should
+    yield to active builds.
+    """
+
+    def __init__(self) -> None:
+        self._cond = asyncio.Condition()
+        self._readers = 0
+        self._writer = False
+
+    @asynccontextmanager
+    async def read(self) -> AsyncIterator[None]:
+        async with self._cond:
+            while self._writer:
+                await self._cond.wait()
+            self._readers += 1
+        try:
+            yield
+        finally:
+            async with self._cond:
+                self._readers -= 1
+                if self._readers == 0:
+                    self._cond.notify_all()
+
+    @asynccontextmanager
+    async def write(self) -> AsyncIterator[None]:
+        async with self._cond:
+            while self._writer or self._readers:
+                await self._cond.wait()
+            self._writer = True
+        try:
+            yield
+        finally:
+            async with self._cond:
+                self._writer = False
+                self._cond.notify_all()
+
+
 class EnvProvisioner:
     """Create + cache one esphome venv per release version, keyed by version."""
 
@@ -53,6 +98,11 @@ class EnvProvisioner:
         self._data_dir = data_dir
         self._base_python = base_python or sys.executable
         self._locks: dict[str, asyncio.Lock] = {}
+        # Versions this process built or health-checked; a warm hit skips the
+        # probe subprocess (can't drift under our own management). A fresh
+        # process starts empty, so it re-probes and catches cross-restart drift.
+        self._verified: set[str] = set()
+        self._maintenance = _RWLock()
 
     @property
     def venvs_dir(self) -> Path:
@@ -70,14 +120,16 @@ class EnvProvisioner:
         if not is_release_version(version):
             raise EnvProvisionError(f"cannot provision non-release esphome version {version!r}")
         venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
-        async with self._lock_for(version):
-            if not await self._is_healthy(venv, version):
-                await self._build(version, venv)
+        async with self._maintenance.read(), self._lock_for(version):
+            if version not in self._verified:
                 if not await self._is_healthy(venv, version):
-                    await run_in_executor(_rmtree, venv)
-                    raise EnvProvisionError(
-                        f"provisioned esphome venv for {version} failed its health check"
-                    )
+                    await self._build(version, venv)
+                    if not await self._is_healthy(venv, version):
+                        await run_in_executor(_rmtree, venv)
+                        raise EnvProvisionError(
+                            f"provisioned esphome venv for {version} failed its health check"
+                        )
+                self._verified.add(version)
         return _venv_esphome_cmd(venv)
 
     async def sweep_stale(self, installed_version: str) -> None:
@@ -89,18 +141,22 @@ class EnvProvisioner:
         if not is_release_version(installed_version):
             return
         installed_key = _release_key(installed_version)
-        for venv, version in await run_in_executor(self._list_venvs):
-            if _release_key(version) < installed_key:
-                _LOGGER.info(
-                    "Removing stale esphome venv %s (older than installed %s)",
-                    version,
-                    installed_version,
-                )
-                await run_in_executor(_rmtree, venv)
+        async with self._maintenance.write():
+            for venv, version in await run_in_executor(self._list_venvs):
+                if _release_key(version) < installed_key:
+                    _LOGGER.info(
+                        "Removing stale esphome venv %s (older than installed %s)",
+                        version,
+                        installed_version,
+                    )
+                    await run_in_executor(_rmtree, venv)
+                    self._verified.discard(version)
 
     async def clean_all(self) -> None:
         """Remove every cached venv (the receiver's clean-build-env path)."""
-        await run_in_executor(_rmtree, self.venvs_dir)
+        async with self._maintenance.write():
+            await run_in_executor(_rmtree, self.venvs_dir)
+            self._verified.clear()
 
     # ------------------------------------------------------------------
     # Internals

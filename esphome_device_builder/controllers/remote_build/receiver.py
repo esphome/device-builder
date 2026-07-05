@@ -22,6 +22,8 @@ import logging
 from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
+from esphome.const import __version__ as _installed_esphome_version
+
 from ...helpers.api import api_command
 from ...helpers.async_ import drain_tasks, run_in_executor
 from ...helpers.event_bus import Event
@@ -58,6 +60,7 @@ from ._storage_codecs import (
 )
 from ._summaries import peer_summary
 from .artifacts_download import ArtifactsDownloadSender
+from .env_provisioner import EnvProvisioner
 from .job_fanout import JobFanout
 from .peer_link import PeerLinkSession, TerminateReason
 from .submit_job import SubmitJobReceiver
@@ -94,6 +97,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             )
             self.state.job_fanout = JobFanout(self)
             self.state.job_fanout.start()
+            self.state.env_provisioner = EnvProvisioner()
+            # Drop venvs older than our installed esphome — nothing will
+            # target them again. Bounded (a few dirs); runs once at startup.
+            await self.state.env_provisioner.sweep_stale(_installed_esphome_version)
             self._track_task(
                 self._run_cleanup_loop(),
                 name=f"{type(self).__name__}._run_cleanup_loop",
@@ -122,6 +129,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         # stale firmware-controller-bound instance.
         self.state.submit_job_receiver = None
         self.state.artifacts_download_sender = None
+        self.state.env_provisioner = None
         await drain_tasks(self._tasks)
         self._tasks.clear()
         if self.state.pairing_window_handle is not None:

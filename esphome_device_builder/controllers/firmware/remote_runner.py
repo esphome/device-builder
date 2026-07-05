@@ -32,6 +32,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Literal
 
+from esphome.const import __version__ as _offloader_esphome_version
+
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
@@ -347,6 +349,10 @@ async def _submit_job_to_receiver(
             bundle_bytes=bundle_bytes,
             device_name=device_name,
             device_friendly_name=device_friendly_name,
+            # The receiver provisions a matching esphome venv when this
+            # differs from its installed version, so its compile matches
+            # what this offloader would have built locally.
+            target_esphome_version=_offloader_esphome_version,
         )
     except (PeerLinkNoSessionError, SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")

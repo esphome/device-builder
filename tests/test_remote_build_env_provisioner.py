@@ -45,9 +45,11 @@ class _FakeRunner:
         self._fail_at = fail_at
         self._block = block
         self._reports_version = reports_version
+        self.entered = asyncio.Event()  # set when a call begins (for blocked-mid-call tests)
 
     async def __call__(self, *args: str, timeout: float, **_: object) -> CapturedSubprocess:
         self.calls.append(args)
+        self.entered.set()
         if self._block is not None:
             await self._block.wait()
         if "venv" in args:
@@ -102,9 +104,8 @@ async def test_provision_builds_and_caches(tmp_path: Path, monkeypatch: pytest.M
 
     again = await provisioner.provision("2026.6.4")
     assert again == cmd
-    # No rebuild (venv / install unchanged); the health probe runs each time.
-    assert (runner.count("venv"), runner.count("install")) == (1, 1)
-    assert runner.count("version") == 2
+    # Warm hit: no rebuild AND no repeat health probe (verified this lifetime).
+    assert (runner.count("venv"), runner.count("install"), runner.count("version")) == (1, 1, 1)
 
 
 async def test_provision_rebuilds_unhealthy_existing_venv(
@@ -198,12 +199,41 @@ async def test_provision_concurrent_same_version_builds_once(
 
     first = asyncio.create_task(provisioner.provision("2026.6.4"))
     second = asyncio.create_task(provisioner.provision("2026.6.4"))
-    await asyncio.sleep(0)  # let both reach the lock
+    await runner.entered.wait()  # the lock holder is inside the (blocked) build
     gate.set()
     cmd_a, cmd_b = await asyncio.gather(first, second)
 
     assert cmd_a == cmd_b
     assert runner.count("venv") == 1  # only the lock holder built; the other cache-hit
+
+
+async def test_clean_all_waits_for_in_flight_provision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """clean_all (write lock) waits for an in-flight provision (read lock) to finish."""
+    gate = asyncio.Event()
+    runner = _FakeRunner(block=gate)
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    order: list[str] = []
+
+    async def provision_then_mark() -> None:
+        await provisioner.provision("2026.6.4")
+        order.append("provision")
+
+    async def clean_then_mark() -> None:
+        await provisioner.clean_all()
+        order.append("clean")
+
+    prov = asyncio.create_task(provision_then_mark())
+    await runner.entered.wait()  # provision holds the read lock, blocked mid-build
+    clean = asyncio.create_task(clean_then_mark())
+    gate.set()
+    await asyncio.gather(prov, clean)
+
+    # Without the RW lock, clean's executor rmtree could land before the build
+    # finished; the write lock forces it to wait for the read lock to release.
+    assert order == ["provision", "clean"]
 
 
 async def test_sweep_stale_removes_older_keeps_installed_and_newer(tmp_path: Path) -> None:
