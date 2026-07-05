@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import inspect
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
 from esphome_device_builder.api import ws as ws_module
+
+from .conftest import make_ws_device_builder
 
 
 def test_heartbeat_constant_matches_legacy_tornado_interval() -> None:
@@ -57,18 +59,7 @@ async def test_websocket_response_constructed_with_heartbeat(
             captured.update(kwargs)
             super().__init__(*args, **kwargs)
 
-    settings = MagicMock()
-    settings.using_password = False
-    settings.port = 6052
-    settings.on_ha_addon = False
-    settings.desktop_version = ""
-
-    auth = MagicMock()
-    auth.session_store = MagicMock()
-
-    device_builder = MagicMock()
-    device_builder.settings = settings
-    device_builder.auth = auth
+    device_builder = make_ws_device_builder()
 
     app = web.Application()
     app["device_builder"] = device_builder

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from aiohttp import web
@@ -42,6 +42,8 @@ from esphome_device_builder.helpers.origin import (
     normalize_host,
     origin_in_allowlist,
 )
+
+from .conftest import make_ws_device_builder
 
 # ---------------------------------------------------------------------------
 # normalize_host
@@ -378,17 +380,9 @@ def test_settings_explicit_empty_cli_overrides_env_var(tmp_path: object) -> None
 
 def _public_site_app(trusted_domains: list[str], *, using_password: bool = True) -> web.Application:
     """Build a minimal aiohttp app wired to ``websocket_handler`` on the public site."""
-    settings = MagicMock()
-    settings.using_password = using_password
-    settings.trusted_domains = trusted_domains
-    settings.port = 6052
-    settings.on_ha_addon = False
-    settings.desktop_version = ""
-
-    device_builder = MagicMock()
-    device_builder.settings = settings
-    device_builder.auth = MagicMock()
-    device_builder.auth.session_store = MagicMock()
+    device_builder = make_ws_device_builder(
+        using_password=using_password, trusted_domains=trusted_domains
+    )
 
     app = web.Application()
     app["device_builder"] = device_builder
@@ -480,17 +474,9 @@ async def test_handler_skips_gating_on_trusted_site(
     enforcing Origin / Host gating there would block legitimate
     supervisor-routed requests with synthesised headers.
     """
-    settings = MagicMock()
-    settings.using_password = True
-    settings.trusted_domains = ["dashboard.example.com"]
-    settings.port = 6052
-    settings.on_ha_addon = True
-    settings.desktop_version = ""
-
-    device_builder = MagicMock()
-    device_builder.settings = settings
-    device_builder.auth = MagicMock()
-    device_builder.auth.session_store = MagicMock()
+    device_builder = make_ws_device_builder(
+        using_password=True, on_ha_addon=True, trusted_domains=["dashboard.example.com"]
+    )
 
     app = web.Application()
     app["device_builder"] = device_builder

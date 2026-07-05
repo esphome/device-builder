@@ -31,15 +31,7 @@ from esphome_device_builder.api import ws as ws_module
 from esphome_device_builder.api.ws import WebSocketClient
 from esphome_device_builder.models import ErrorCode
 
-
-def _make_settings(*, using_password: bool) -> MagicMock:
-    settings = MagicMock()
-    settings.using_password = using_password
-    settings.port = 6052
-    settings.on_ha_addon = False
-    settings.trusted_domains = []
-    settings.desktop_version = ""
-    return settings
+from .conftest import make_ws_device_builder
 
 
 async def _connect_and_drain_server_info(client: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
@@ -76,8 +68,7 @@ async def test_bearer_token_with_valid_session_pre_authenticates(
     auth.session_store = MagicMock()
     auth.session_store.validate = AsyncMock(return_value=session)
 
-    device_builder = MagicMock()
-    device_builder.settings = _make_settings(using_password=True)
+    device_builder = make_ws_device_builder(using_password=True)
     device_builder.auth = auth
     device_builder.command_handlers = {}
 
@@ -137,8 +128,7 @@ async def test_bearer_token_with_invalid_session_falls_back_to_in_band_auth(
     auth.session_store = MagicMock()
     auth.session_store.validate = AsyncMock(return_value=None)
 
-    device_builder = MagicMock()
-    device_builder.settings = _make_settings(using_password=True)
+    device_builder = make_ws_device_builder(using_password=True)
     device_builder.auth = auth
     device_builder.command_handlers = {}
 
@@ -191,9 +181,7 @@ async def test_invalid_json_message_returns_invalid_message_error(
        ``continue``-d instead of breaking out of the message
        loop.
     """
-    device_builder = MagicMock()
-    device_builder.settings = _make_settings(using_password=False)
-    device_builder.auth = MagicMock()
+    device_builder = make_ws_device_builder(using_password=False)
 
     async def _ping_handler(*, client: Any, message_id: str, **_kwargs: Any) -> dict[str, str]:
         return {"pong": "yes"}
@@ -245,9 +233,7 @@ async def test_server_info_ha_ingress_reflects_x_ingress_path_header(
     aiohttp_client: AiohttpClient,
 ) -> None:
     """``ha_ingress`` mirrors whether Supervisor's ``X-Ingress-Path`` header is present."""
-    device_builder = MagicMock()
-    device_builder.settings = _make_settings(using_password=False)
-    device_builder.auth = MagicMock()
+    device_builder = make_ws_device_builder(using_password=False)
     device_builder.command_handlers = {}
 
     app = web.Application()
@@ -277,11 +263,7 @@ async def test_server_info_carries_desktop_version(
     aiohttp_client: AiohttpClient,
 ) -> None:
     """The handshake frame relays ``settings.desktop_version`` (default '')."""
-    device_builder = MagicMock()
-    settings = _make_settings(using_password=False)
-    settings.desktop_version = "1.4.2"
-    device_builder.settings = settings
-    device_builder.auth = MagicMock()
+    device_builder = make_ws_device_builder(desktop_version="1.4.2")
     device_builder.command_handlers = {}
 
     app = web.Application()

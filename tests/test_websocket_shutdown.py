@@ -24,7 +24,6 @@ import gc
 import inspect
 import weakref
 from typing import Any
-from unittest.mock import MagicMock
 
 from aiohttp import WSCloseCode, web
 from pytest_aiohttp.plugin import AiohttpClient
@@ -38,6 +37,8 @@ from esphome_device_builder.api.ws import (
 )
 from esphome_device_builder.device_builder import DeviceBuilder
 
+from .conftest import make_ws_device_builder
+
 
 def _bare_app() -> web.Application:
     """Build a minimal aiohttp app wired with the WS routes + on_shutdown closer.
@@ -46,18 +47,7 @@ def _bare_app() -> web.Application:
     (:meth:`DeviceBuilder.create_app`) so the contract under test
     is what ships, not a hand-built shim that could drift.
     """
-    settings = MagicMock()
-    settings.using_password = False
-    settings.port = 6052
-    settings.on_ha_addon = False
-    settings.desktop_version = ""
-
-    auth = MagicMock()
-    auth.session_store = MagicMock()
-
-    device_builder = MagicMock()
-    device_builder.settings = settings
-    device_builder.auth = auth
+    device_builder = make_ws_device_builder()
 
     app = web.Application()
     app["device_builder"] = device_builder
