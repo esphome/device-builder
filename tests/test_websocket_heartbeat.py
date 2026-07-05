@@ -61,6 +61,7 @@ async def test_websocket_response_constructed_with_heartbeat(
     settings.using_password = False
     settings.port = 6052
     settings.on_ha_addon = False
+    settings.desktop_version = ""
 
     auth = MagicMock()
     auth.session_store = MagicMock()

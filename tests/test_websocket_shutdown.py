@@ -50,6 +50,7 @@ def _bare_app() -> web.Application:
     settings.using_password = False
     settings.port = 6052
     settings.on_ha_addon = False
+    settings.desktop_version = ""
 
     auth = MagicMock()
     auth.session_store = MagicMock()

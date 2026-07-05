@@ -383,6 +383,7 @@ def _public_site_app(trusted_domains: list[str], *, using_password: bool = True)
     settings.trusted_domains = trusted_domains
     settings.port = 6052
     settings.on_ha_addon = False
+    settings.desktop_version = ""
 
     device_builder = MagicMock()
     device_builder.settings = settings
@@ -484,6 +485,7 @@ async def test_handler_skips_gating_on_trusted_site(
     settings.trusted_domains = ["dashboard.example.com"]
     settings.port = 6052
     settings.on_ha_addon = True
+    settings.desktop_version = ""
 
     device_builder = MagicMock()
     device_builder.settings = settings
