@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import TYPE_CHECKING, Any, NoReturn
 
 try:
     # ``friendly_name_slugify`` lives in ``esphome.helpers`` from
@@ -52,11 +52,39 @@ __all__ = [
     "_validate_archive_configuration",
     "clean_friendly_name",
     "friendly_name_slugify",
+    "raise_device_name_exists",
+    "raise_device_not_found",
+    "require_file_exists",
     "slugify_hostname",
 ]
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def raise_device_not_found(
+    configuration: str, *, from_exc: BaseException | None = None
+) -> NoReturn:
+    """Raise ``NOT_FOUND`` for a device *configuration* the scanner doesn't track."""
+    err = CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
+    if from_exc is not None:
+        raise err from from_exc
+    raise err
+
+
+def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None) -> NoReturn:
+    """Raise ``INVALID_ARGS`` for a rename/clone target *name* that already exists."""
+    err = CommandError(ErrorCode.INVALID_ARGS, f"A device named {name} already exists")
+    if from_exc is not None:
+        raise err from from_exc
+    raise err
+
+
+def require_file_exists(path: Path, configuration: str, *, archived: bool = False) -> None:
+    """Raise ``FileNotFoundError`` naming *configuration* when *path* is absent."""
+    if not path.exists():
+        prefix = "Archived file" if archived else "File"
+        raise FileNotFoundError(f"{prefix} not found: {configuration}")
 
 
 # C0 controls, DEL, and C1 controls. ESPHome's friendly_name validator

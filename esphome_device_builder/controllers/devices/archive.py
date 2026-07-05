@@ -19,6 +19,7 @@ from ...helpers.build_artifacts import (
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
+from .helpers import require_file_exists
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -34,9 +35,7 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
     config_dir = controller._db.settings.config_dir
 
     def _archive_sync() -> None:
-        if not config_path.exists():
-            msg = f"File not found: {configuration}"
-            raise FileNotFoundError(msg)
+        require_file_exists(config_path, configuration)
         archive_dir = config_dir / "archive"
         archive_dir.mkdir(parents=True, exist_ok=True)
         target = archive_dir / configuration
@@ -87,9 +86,7 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
     target = controller._db.settings.rel_path(configuration)
 
     def _unarchive_sync() -> None:
-        if not archive_path.exists():
-            msg = f"Archived file not found: {configuration}"
-            raise FileNotFoundError(msg)
+        require_file_exists(archive_path, configuration, archived=True)
         if target.exists():
             msg = (
                 f"Cannot unarchive {configuration}: an active config "
@@ -146,9 +143,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
     active_path = controller._db.settings.rel_path(configuration)
 
     def _delete_all() -> bool:
-        if not archive_path.exists():
-            msg = f"Archived file not found: {configuration}"
-            raise FileNotFoundError(msg)
+        require_file_exists(archive_path, configuration, archived=True)
         archive_path.unlink()
         if active_path.exists():
             # An active config with the same filename owns the
@@ -176,9 +171,7 @@ async def delete_single(controller: DevicesController, configuration: str) -> No
         # Existence check stays inside the executor; Path.exists
         # performs a filesystem stat and would block the event
         # loop otherwise.
-        if not config_path.exists():
-            msg = f"File not found: {configuration}"
-            raise FileNotFoundError(msg)
+        require_file_exists(config_path, configuration)
         # Wipe build dir first (inside the helper) so a partial failure
         # later leaves the user able to retry the delete.
         remove_device_files(config_path, configuration)
