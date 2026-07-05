@@ -53,6 +53,7 @@ from esphome_device_builder.constants import (  # noqa: E402
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
+from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -2177,10 +2178,9 @@ def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
     if not manifest_path.is_file():
         return None
     try:
-        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+        return load_manifest_dict(manifest_path)
+    except (OSError, ManifestError):
         return None
-    return data if isinstance(data, dict) else None
 
 
 def _imported_remote_id(prior: dict[str, Any] | None) -> tuple[bool, str | None]:
