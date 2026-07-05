@@ -1,12 +1,8 @@
-"""Real-compile proof: a provisioned venv builds with the offloader's esphome version.
+"""
+Real-compile proof: a provisioned venv builds with the offloader's esphome version.
 
-Exercises the whole point of the auto-provision feature end to end with a real
-``pip install`` and a real esp8266 compile: the receiver's installed esphome
-differs from the target, so :class:`EnvProvisioner` builds a venv for the target
-version and the compile runs from it — not from the installed esphome. Lives
-under ``tests/real_compile`` so it stays out of the default suite (opt in with
-``pytest tests/real_compile``); it downloads a second esphome + the PlatformIO
-esp8266 toolchain, minutes per run.
+Opt-in (``pytest tests/real_compile``); a real ``pip install`` + esp8266
+compile, minutes per run.
 """
 
 from __future__ import annotations

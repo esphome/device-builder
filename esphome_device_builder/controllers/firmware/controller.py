@@ -636,23 +636,13 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         )
 
     async def _resolve_esphome_cmd(self, job: FirmwareJob) -> list[str]:
-        """Return the esphome CLI invocation to run *job* with.
+        """
+        Return the esphome CLI invocation to run *job* with.
 
-        For a remote job whose offloader ran a different esphome
-        (``target_esphome_version`` set and differing from ours):
-
-        * COMPILE / INSTALL provision + return that version's venv so the build
-          matches what the offloader would have built locally. A failed provision
-          (non-release target, venv/pip error, or no reachable provisioner because
-          the receiver is stopping) raises :class:`EnvProvisionError` so the job
-          fails instead of silently compiling with the wrong version; the receiver
-          tags the failure ``"provision"`` and the offloader rebuilds locally.
-        * CLEAN uses that version's venv **only if already provisioned** (a newer
-          ``esphome clean`` removes more, so a clean should match the build's
-          esphome — but a clean is never worth a ``pip install``); otherwise the
-          installed esphome.
-
-        Everything else uses the installed esphome.
+        For a remote job whose ``target_esphome_version`` differs from ours:
+        COMPILE / INSTALL provision that version's venv (raising
+        :class:`EnvProvisionError` if unavailable); CLEAN reuses it only when
+        already provisioned. Everything else uses the installed esphome.
         """
         version = job.target_esphome_version
         if not version or version == _installed_esphome_version:

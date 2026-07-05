@@ -45,15 +45,13 @@ class EnvProvisionError(Exception):
 
 
 class EnvProvisioner:
-    """Create + cache one esphome venv per release version, keyed by version.
+    """
+    Create + cache one esphome venv per release version, keyed by version.
 
-    Callers serialize on the compile lane: ``provision`` runs inside a COMPILE
-    job, ``clean_all`` inside a RESET_BUILD_ENV job (same lane), and
-    ``sweep_stale`` at receiver start before any build — so no two run
-    concurrently and a wipe can't race a provision. The per-version
-    :class:`asyncio.Lock` is cheap stdlib defense for the same-version double
-    build if a future caller ever invokes ``provision`` off-lane; a wipe run
-    off-lane concurrent with a provision would need its own guard.
+    Callers serialize on the compile lane (``provision`` in COMPILE,
+    ``clean_all`` in RESET_BUILD_ENV, ``sweep_stale`` at start), so a wipe
+    never races a provision; the per-version lock guards same-version double
+    builds only.
     """
 
     def __init__(self, data_dir: Path | None = None, *, base_python: str | None = None) -> None:
