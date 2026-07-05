@@ -44,6 +44,9 @@ import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
@@ -417,40 +420,15 @@ def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
     which is what the smoke test does so it inspects the same revision
     the sync just produced.
     """
-    target = _DEVICES_CLONE_DIR
-    if (target / ".git").exists():
-        if not pull:
-            return target
-        result = subprocess.run(
-            ["git", "-C", str(target), "pull", "-q", "--ff-only"],
-            check=False,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            _LOGGER.warning("git pull failed in %s — using existing snapshot", target)
-        return target
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning devices.esphome.io (shallow) to %s", target)
-    try:
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "-q",
-                "--depth=1",
-                "--single-branch",
-                f"--branch={_DEVICES_REPO_BRANCH}",
-                _DEVICES_REPO_URL,
-                str(target),
-            ],
-            check=True,
-            timeout=300,
-        )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        _LOGGER.error("Could not clone devices.esphome.io: %s", exc)
-        return None
-    return target
+    return ensure_shallow_git_repo(
+        _DEVICES_REPO_URL,
+        _DEVICES_CLONE_DIR,
+        _DEVICES_REPO_BRANCH,
+        label="devices.esphome.io",
+        pull=pull,
+        pull_timeout=120,
+        clone_timeout=300,
+    )
 
 
 def _get_repo_revision(repo: Path) -> str:

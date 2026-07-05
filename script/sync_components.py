@@ -113,6 +113,7 @@ from _catalog_split import (  # noqa: E402
     swap_split_catalog_in,
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
+from _repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
@@ -1881,44 +1882,15 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
 
 def _ensure_docs_repo() -> Path | None:
     """Clone or update the esphome.io repo (shallow). Returns its path."""
-    import subprocess
-
-    target = _CACHE_ROOT / _DOCS_CLONE_DIR
-    if (target / ".git").exists():
-        # Refresh in-place. ``-q`` and ``--ff-only`` keep it quiet and
-        # safe; failure here just means we keep using the existing
-        # snapshot.
-        subprocess.run(
-            ["git", "-C", str(target), "pull", "-q", "--ff-only"],
-            check=False,
-            timeout=60,
-        )
-        return target
-    if target.exists():
-        # Pre-existing non-git directory — leave alone, use as-is.
-        return target
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning esphome.io (shallow) to %s", target)
-    try:
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "-q",
-                "--depth=1",
-                "--single-branch",
-                f"--branch={_DOCS_REPO_BRANCH}",
-                _DOCS_REPO_URL,
-                str(target),
-            ],
-            check=True,
-            timeout=120,
-        )
-    except Exception:
-        _LOGGER.warning("Could not clone esphome.io — descriptions stay empty")
-        return None
-    return target
+    return ensure_shallow_git_repo(
+        _DOCS_REPO_URL,
+        _CACHE_ROOT / _DOCS_CLONE_DIR,
+        _DOCS_REPO_BRANCH,
+        label="esphome.io",
+        pull_timeout=60,
+        clone_timeout=120,
+        allow_existing_non_git=True,
+    )
 
 
 # Frontmatter description matcher — captures the value of the
