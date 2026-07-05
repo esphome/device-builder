@@ -91,14 +91,13 @@ async def test_resolve_esphome_cmd_clean_never_provisions(
     provisioner = controller._db.remote_build_receiver.state.env_provisioner
     provisioner.provision = AsyncMock()
     provisioner.cached_cmd = AsyncMock(return_value=None)  # not provisioned yet
+    job = _clean_job("2026.5.0")
 
-    assert await controller._resolve_esphome_cmd(_clean_job("2026.5.0")) == [
-        "installed",
-        "-m",
-        "esphome",
-    ]
+    assert await controller._resolve_esphome_cmd(job) == ["installed", "-m", "esphome"]
     provisioner.provision.assert_not_awaited()  # no build for a clean
     provisioner.cached_cmd.assert_awaited_once_with("2026.5.0")
+    # The under-purge fallback is surfaced, not silent.
+    assert any("may not fully purge" in line for line in job.output)
 
 
 async def test_resolve_esphome_cmd_clean_uses_cached_venv(
@@ -111,11 +110,14 @@ async def test_resolve_esphome_cmd_clean_uses_cached_venv(
     provisioner = controller._db.remote_build_receiver.state.env_provisioner
     provisioner.provision = AsyncMock()
     provisioner.cached_cmd = AsyncMock(return_value=["venv/bin/python", "-m", "esphome"])
+    job = _clean_job("2026.5.0")
 
-    cmd = await controller._resolve_esphome_cmd(_clean_job("2026.5.0"))
+    cmd = await controller._resolve_esphome_cmd(job)
 
     assert cmd == ["venv/bin/python", "-m", "esphome"]
     provisioner.provision.assert_not_awaited()
+    # A cached venv cleans fully, so no under-purge warning.
+    assert not any("may not fully purge" in line for line in job.output)
 
 
 async def test_resolve_esphome_cmd_installed_target_uses_installed(
@@ -159,12 +161,11 @@ async def test_resolve_esphome_cmd_clean_no_provisioner_uses_installed(
         esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
     )
     controller._db.remote_build_receiver = None
+    job = _clean_job("2026.5.0")
 
-    assert await controller._resolve_esphome_cmd(_clean_job("2026.5.0")) == [
-        "installed",
-        "-m",
-        "esphome",
-    ]
+    assert await controller._resolve_esphome_cmd(job) == ["installed", "-m", "esphome"]
+    # No receiver to provision from, so the under-purge is still surfaced.
+    assert any("may not fully purge" in line for line in job.output)
 
 
 async def test_resolve_esphome_cmd_propagates_provision_error(

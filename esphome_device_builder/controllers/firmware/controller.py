@@ -56,6 +56,7 @@ from . import download as download_mod
 from ._state import FirmwareState, Lane
 from .helpers import (
     _find_esphome_cmd,
+    _ingest_output_line,
     _validate_upload_target,
     _verify_esphome_importable,
 )
@@ -657,8 +658,25 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                     "(receiver stopping?); refusing to compile with the installed version"
                 )
             return await provisioner.provision(version)
-        if job.job_type is JobType.CLEAN and provisioner is not None:
-            return await provisioner.cached_cmd(version) or self.state.esphome_cmd
+        if job.job_type is JobType.CLEAN:
+            if provisioner is not None and (cached := await provisioner.cached_cmd(version)):
+                return cached
+            # No cached venv for the built version: clean with the installed
+            # esphome. An older esphome cleans less (managed_components, idedata,
+            # pio_components, PIO cache), so surface the possible under-purge
+            # instead of letting it pass silently.
+            _LOGGER.info(
+                "Clean %s: no cached esphome %s venv; cleaning with the installed "
+                "esphome, which may not fully purge the build",
+                job.configuration,
+                version,
+            )
+            _ingest_output_line(
+                job,
+                self._db.bus,
+                f"No cached esphome {version}; cleaning with the installed esphome, "
+                f"which may not fully purge artifacts built with {version}.\n",
+            )
         return self.state.esphome_cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
