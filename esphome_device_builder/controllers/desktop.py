@@ -65,20 +65,34 @@ class DesktopController:
         ``error``.
         """
         bin_path = self._desktop_bin()
-        result = await run_subprocess_capture(
-            bin_path,
-            "api",
-            "check-update",
-            timeout=_CHECK_UPDATE_TIMEOUT,
-            merge_stderr=False,
-        )
+        try:
+            result = await run_subprocess_capture(
+                bin_path,
+                "api",
+                "check-update",
+                timeout=_CHECK_UPDATE_TIMEOUT,
+                merge_stderr=False,
+            )
+        except OSError as err:
+            # Stale/removed ESPHOME_DESKTOP_BIN, permissions, etc. Surface a
+            # clean error instead of an INTERNAL_ERROR traceback.
+            _LOGGER.warning("Could not run ESPHome Desktop CLI %s: %s", bin_path, err)
+            raise CommandError(
+                ErrorCode.INTERNAL_ERROR, "could not run the ESPHome Desktop CLI"
+            ) from err
         if result.timed_out:
+            _LOGGER.warning("ESPHome Desktop update check timed out")
             raise CommandError(ErrorCode.INTERNAL_ERROR, "update check timed out")
         if result.returncode != 0:
-            raise CommandError(
-                ErrorCode.INTERNAL_ERROR,
-                f"update check failed (exit {result.returncode})",
+            # The CLI prints its errors as a JSON `{"type":"err",...}` line on
+            # stdout (kept clean by merge_stderr=False), so surface its message.
+            detail = _error_detail(result.stdout)
+            _LOGGER.warning(
+                "ESPHome Desktop update check failed (exit %s): %s",
+                result.returncode,
+                detail,
             )
+            raise CommandError(ErrorCode.INTERNAL_ERROR, f"update check failed: {detail}")
         try:
             # orjson-backed helper; JSONDecodeError (and _last_json_line's
             # "no output") both subclass ValueError.
@@ -101,19 +115,43 @@ class DesktopController:
         polls ``desktop/check_update`` again after the WS reconnects.
         """
         bin_path = self._desktop_bin()
-        await create_subprocess_exec(
-            bin_path,
-            "api",
-            "update",
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-            # Own session so a backend stop/restart during the install does not
-            # signal the updater along with this process group.
-            start_new_session=True,
-        )
+        try:
+            await create_subprocess_exec(
+                bin_path,
+                "api",
+                "update",
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                # Own session so a backend stop/restart during the install does
+                # not signal the updater along with this process group.
+                start_new_session=True,
+            )
+        except OSError as err:
+            _LOGGER.warning("Could not run ESPHome Desktop CLI %s: %s", bin_path, err)
+            raise CommandError(
+                ErrorCode.INTERNAL_ERROR, "could not run the ESPHome Desktop CLI"
+            ) from err
         _LOGGER.info("Triggered ESPHome Desktop update via %s", bin_path)
         return {"started": True}
+
+
+def _error_detail(stdout: bytes) -> str:
+    """Human-readable failure detail from the CLI's error line, if present.
+
+    On a non-zero exit the `api` prints a JSON `{"type":"err",...,"message":...}`
+    line on stdout; extract that message so operators and the client see the
+    real reason rather than a bare exit code.
+    """
+    try:
+        payload = loads(_last_json_line(stdout))
+    except ValueError:
+        return "no diagnostic output"
+    if isinstance(payload, dict):
+        message = payload.get("message")
+        if isinstance(message, str):
+            return message
+    return "unrecognized error output"
 
 
 def _last_json_line(stdout: bytes) -> str:

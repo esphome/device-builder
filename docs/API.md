@@ -4,7 +4,7 @@ Base URL: `http://localhost:6052`
 
 ## WebSocket API (`/ws`)
 
-The primary API. A single multiplexed WebSocket handles all 44 commands.
+The primary API. A single multiplexed WebSocket handles all 46 commands.
 
 ### Protocol
 
