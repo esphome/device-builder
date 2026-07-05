@@ -426,9 +426,11 @@ def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
         pull=pull,
         pull_timeout=120,
         clone_timeout=300,
-        # Primary data source: a clone miss yields an empty imported-device
-        # catalog the operator must notice, so keep it loud (was ERROR).
+        # Primary data source: a clone miss (empty catalog) or a stale-pull
+        # (regenerating from outdated upstream) both need operator attention,
+        # so keep both loud (clone was ERROR; pull elevated to match).
         clone_fail_level=logging.ERROR,
+        pull_fail_level=logging.ERROR,
     )
 
 

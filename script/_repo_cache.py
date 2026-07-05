@@ -20,6 +20,7 @@ def ensure_shallow_git_repo(
     clone_timeout: int = 300,
     allow_existing_non_git: bool = False,
     clone_fail_level: int = logging.WARNING,
+    pull_fail_level: int = logging.WARNING,
 ) -> Path | None:
     """
     Clone *url* into *target* (shallow) or refresh it; return the path or None.
@@ -30,9 +31,9 @@ def ensure_shallow_git_repo(
     on-disk snapshot, a failed clone returns None. With *allow_existing_non_git*
     a pre-existing non-git *target* is used as-is rather than cloned into.
 
-    *clone_fail_level* is the log level for a failed clone; pass
-    ``logging.ERROR`` when the repo is a primary data source whose absence
-    yields an empty/partial result the operator must notice.
+    *clone_fail_level* / *pull_fail_level* are the log levels for a failed
+    clone / pull; pass ``logging.ERROR`` when the repo is a primary data source
+    whose absence or stale refresh yields a result the operator must notice.
     """
     if (target / ".git").exists():
         if pull:
@@ -46,10 +47,17 @@ def ensure_shallow_git_repo(
                     timeout=pull_timeout,
                 )
             except (OSError, subprocess.SubprocessError) as exc:
-                _LOGGER.warning("git pull in %s failed: %s; using existing snapshot", target, exc)
+                _LOGGER.log(
+                    pull_fail_level,
+                    "git pull in %s failed: %s; using existing snapshot",
+                    target,
+                    exc,
+                )
             else:
                 if result.returncode != 0:
-                    _LOGGER.warning("git pull failed in %s; using existing snapshot", target)
+                    _LOGGER.log(
+                        pull_fail_level, "git pull failed in %s; using existing snapshot", target
+                    )
         return target
     if allow_existing_non_git and target.exists():
         return target

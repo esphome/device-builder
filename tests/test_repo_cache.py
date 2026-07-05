@@ -57,6 +57,18 @@ def test_pull_timeout_is_non_fatal(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     assert ensure_shallow_git_repo("url", target, "main", label="x") == target
 
 
+def test_pull_failure_honours_log_level(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    target = _make_git_repo(tmp_path)
+    fake = _FakeRun(returncode=1)
+    monkeypatch.setattr(subprocess, "run", fake)
+    with caplog.at_level(logging.DEBUG, logger="script._repo_cache"):
+        ensure_shallow_git_repo("url", target, "main", label="x", pull_fail_level=logging.ERROR)
+    pull_records = [r for r in caplog.records if "git pull" in r.getMessage()]
+    assert [r.levelno for r in pull_records] == [logging.ERROR]
+
+
 def test_skips_pull_when_disabled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     target = _make_git_repo(tmp_path)
     fake = _FakeRun()
