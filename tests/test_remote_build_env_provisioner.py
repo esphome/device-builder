@@ -10,16 +10,26 @@ import pytest
 from esphome_device_builder.controllers.remote_build.env_provisioner import (
     EnvProvisioner,
     EnvProvisionError,
+    _venv_python,
 )
+from esphome_device_builder.helpers.async_ import run_in_executor
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
+
+
+def _make_venv_python(venv: Path) -> None:
+    """Create the venv's python file, as ``python -m venv`` would."""
+    python = _venv_python(venv)
+    python.parent.mkdir(parents=True, exist_ok=True)
+    python.touch()
 
 
 class _FakeRunner:
     """Stand-in for ``run_subprocess_capture`` that records calls.
 
-    On the ``venv`` command it creates the target dir (so the readiness
-    marker write lands), mirroring what ``python -m venv`` would do. A
-    command whose args contain ``fail_at`` returns a non-zero exit.
+    On the ``venv`` command it creates the venv's python file, so the health
+    probe's ``is_file`` fast-path passes and its ``esphome version`` call runs
+    (mirroring what ``python -m venv`` + install would leave behind). A command
+    whose args contain ``fail_at`` returns a non-zero exit.
     """
 
     def __init__(self, *, fail_at: str | None = None, block: asyncio.Event | None = None) -> None:
@@ -32,9 +42,12 @@ class _FakeRunner:
         if self._block is not None:
             await self._block.wait()
         if "venv" in args:
-            Path(args[-1]).mkdir(parents=True, exist_ok=True)
+            await run_in_executor(_make_venv_python, Path(args[-1]))
         rc = 1 if self._fail_at is not None and self._fail_at in args else 0
-        return CapturedSubprocess(returncode=rc, stdout=b"pretend pip output", timed_out=False)
+        return CapturedSubprocess(returncode=rc, stdout=b"pretend output", timed_out=False)
+
+    def count(self, token: str) -> int:
+        return sum(token in call for call in self.calls)
 
 
 def _patch_runner(monkeypatch: pytest.MonkeyPatch, runner: _FakeRunner) -> None:
@@ -48,16 +61,19 @@ def _venv_dir(provisioner: EnvProvisioner, version: str) -> Path:
     return provisioner.venvs_dir / f"esphome-{version}"
 
 
-def _seed_venv(provisioner: EnvProvisioner, version: str) -> Path:
-    """Create a ready-looking cached venv dir on disk."""
+async def _seed_venv(provisioner: EnvProvisioner, version: str) -> Path:
+    """Create a cached venv dir on disk (recognised by the sweep / clean)."""
     venv = _venv_dir(provisioner, version)
-    venv.mkdir(parents=True, exist_ok=True)
-    (venv / ".provisioned").write_text(version)
+    await run_in_executor(_mkdirs, venv)
     return venv
 
 
+def _mkdirs(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+
+
 async def test_provision_builds_and_caches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """First provision runs venv + pip and marks ready; a repeat is a cache hit."""
+    """First provision runs venv + pip + health probe; a repeat is a cache hit."""
     runner = _FakeRunner()
     _patch_runner(monkeypatch, runner)
     provisioner = EnvProvisioner(data_dir=tmp_path)
@@ -66,12 +82,13 @@ async def test_provision_builds_and_caches(tmp_path: Path, monkeypatch: pytest.M
 
     assert cmd[-2:] == ["-m", "esphome"]
     assert "esphome-2026.6.4" in cmd[0]
-    assert (_venv_dir(provisioner, "2026.6.4") / ".provisioned").is_file()
-    assert len(runner.calls) == 2  # one venv, one pip install
+    assert (runner.count("venv"), runner.count("install"), runner.count("version")) == (1, 1, 1)
 
     again = await provisioner.provision("2026.6.4")
     assert again == cmd
-    assert len(runner.calls) == 2  # unchanged: served from cache
+    # No rebuild (venv / install unchanged); the health probe runs each time.
+    assert (runner.count("venv"), runner.count("install")) == (1, 1)
+    assert runner.count("version") == 2
 
 
 async def test_provision_refuses_non_release(
@@ -88,11 +105,11 @@ async def test_provision_refuses_non_release(
     assert runner.calls == []
 
 
-@pytest.mark.parametrize("fail_at", ["venv", "install"])
+@pytest.mark.parametrize("fail_at", ["venv", "install", "version"])
 async def test_provision_failure_removes_partial_venv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_at: str
 ) -> None:
-    """A failed venv or pip step raises and leaves no half-built (marked) venv."""
+    """A failed venv / pip / health step raises and leaves no usable venv behind."""
     runner = _FakeRunner(fail_at=fail_at)
     _patch_runner(monkeypatch, runner)
     provisioner = EnvProvisioner(data_dir=tmp_path)
@@ -119,17 +136,15 @@ async def test_provision_concurrent_same_version_builds_once(
     cmd_a, cmd_b = await asyncio.gather(first, second)
 
     assert cmd_a == cmd_b
-    assert len(runner.calls) == 2  # only the lock holder built; the other cache-hit
+    assert runner.count("venv") == 1  # only the lock holder built; the other cache-hit
 
 
-async def test_sweep_stale_removes_older_keeps_installed_and_newer(
-    tmp_path: Path,
-) -> None:
+async def test_sweep_stale_removes_older_keeps_installed_and_newer(tmp_path: Path) -> None:
     """Startup sweep drops venvs older than installed; keeps equal / newer."""
     provisioner = EnvProvisioner(data_dir=tmp_path)
-    older = _seed_venv(provisioner, "2026.5.0")
-    same = _seed_venv(provisioner, "2026.6.4")
-    newer = _seed_venv(provisioner, "2026.7.0")
+    older = await _seed_venv(provisioner, "2026.5.0")
+    same = await _seed_venv(provisioner, "2026.6.4")
+    newer = await _seed_venv(provisioner, "2026.7.0")
 
     await provisioner.sweep_stale("2026.6.4")
 
@@ -141,7 +156,7 @@ async def test_sweep_stale_removes_older_keeps_installed_and_newer(
 async def test_sweep_stale_noop_when_installed_is_dev(tmp_path: Path) -> None:
     """A dev-installed receiver can't order versions, so the sweep does nothing."""
     provisioner = EnvProvisioner(data_dir=tmp_path)
-    kept = _seed_venv(provisioner, "2026.5.0")
+    kept = await _seed_venv(provisioner, "2026.5.0")
 
     await provisioner.sweep_stale("2026.7.0-dev")
 
@@ -151,8 +166,8 @@ async def test_sweep_stale_noop_when_installed_is_dev(tmp_path: Path) -> None:
 async def test_clean_all_removes_every_venv(tmp_path: Path) -> None:
     """The clean-build-env path wipes the whole venvs tree."""
     provisioner = EnvProvisioner(data_dir=tmp_path)
-    _seed_venv(provisioner, "2026.5.0")
-    _seed_venv(provisioner, "2026.6.4")
+    await _seed_venv(provisioner, "2026.5.0")
+    await _seed_venv(provisioner, "2026.6.4")
 
     await provisioner.clean_all()
 

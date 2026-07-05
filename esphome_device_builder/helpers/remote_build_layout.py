@@ -36,6 +36,16 @@ REMOTE_BUILDS_SUBDIR = Path(".esphome") / REMOTE_BUILDS_NAME
 # delete it (PR #552).
 BUNDLE_SUFFIX = ".tar.gz"
 
+# Cached per-version esphome venvs the receiver provisions to build a
+# version-mismatched offloader's firmware; a sibling of the per-dashboard
+# extract dirs, keyed by version rather than dashboard.
+_VENVS_NAME = "venvs"
+
+
+def venvs_dir(data_dir: Path) -> Path:
+    """Return the base dir for the receiver's cached per-version esphome venvs."""
+    return data_dir / REMOTE_BUILDS_NAME / _VENVS_NAME
+
 
 # POSIX-form parts of ``REMOTE_BUILDS_SUBDIR``, pre-split once.
 # :attr:`FirmwareJob.configuration` is forward-slash on every

@@ -15,27 +15,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import shutil
 import sys
 from pathlib import Path
 
 from esphome.core import CORE
+from esphome.helpers import rmtree as _esphome_rmtree
 
+from ...helpers import remote_build_layout
 from ...helpers.async_ import run_in_executor
-from ...helpers.remote_build_layout import REMOTE_BUILDS_NAME
 from ...helpers.subprocess import run_subprocess_capture
 from ...helpers.version_compat import is_release_version
 
 _LOGGER = logging.getLogger(__name__)
 
-_VENVS_DIRNAME = "venvs"
 _VENV_PREFIX = "esphome-"
-# Written only after both venv creation and the install succeed, so a venv
-# left half-built by a crash (present dir, no marker) is rebuilt, not reused.
-_READY_MARKER = ".provisioned"
 _VENV_TIMEOUT = 120.0
 # ``pip install esphome`` pulls platformio + a large dep tree; allow generously.
 _PIP_TIMEOUT = 900.0
+# ``esphome version`` just prints a constant, but the interpreter still imports
+# esphome; give the health probe margin on a slow host.
+_HEALTHCHECK_TIMEOUT = 60.0
 # Cap on the subprocess-output tail folded into an error message.
 _ERROR_TAIL_BYTES = 2000
 
@@ -58,20 +57,26 @@ class EnvProvisioner:
     def venvs_dir(self) -> Path:
         """Base directory holding every per-version venv."""
         base = self._data_dir if self._data_dir is not None else Path(CORE.data_dir)
-        return base / REMOTE_BUILDS_NAME / _VENVS_DIRNAME
+        return remote_build_layout.venvs_dir(base)
 
     async def provision(self, version: str) -> list[str]:
         """Return the esphome command for *version*, building its venv on first use.
 
-        Raises :class:`EnvProvisionError` for a non-release version or a failed
-        venv / pip step; a partial venv is removed so a retry starts clean.
+        Raises :class:`EnvProvisionError` for a non-release version, or a venv
+        that won't build or fails its health check; a bad venv is removed so a
+        retry starts clean.
         """
         if not is_release_version(version):
             raise EnvProvisionError(f"cannot provision non-release esphome version {version!r}")
         venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
         async with self._lock_for(version):
-            if not await run_in_executor(_is_ready, venv):
+            if not await self._is_healthy(venv):
                 await self._build(version, venv)
+                if not await self._is_healthy(venv):
+                    await run_in_executor(_rmtree, venv)
+                    raise EnvProvisionError(
+                        f"provisioned esphome venv for {version} failed its health check"
+                    )
         return _venv_esphome_cmd(venv)
 
     async def sweep_stale(self, installed_version: str) -> None:
@@ -120,9 +125,23 @@ class EnvProvisioner:
                 found.append((child, version))
         return found
 
+    async def _is_healthy(self, venv: Path) -> bool:
+        """Whether *venv*'s esphome actually runs (``python -m esphome version``).
+
+        Doubles as the readiness check: a missing venv, a crash-partial (no
+        esphome installed), or a corrupted one all fail here and rebuild, so no
+        separate "finished" marker is needed.
+        """
+        python = _venv_python(venv)
+        if not await run_in_executor(python.is_file):
+            return False
+        result = await run_subprocess_capture(
+            str(python), "-m", "esphome", "version", timeout=_HEALTHCHECK_TIMEOUT
+        )
+        return not result.timed_out and result.returncode == 0
+
     async def _build(self, version: str, venv: Path) -> None:
-        await run_in_executor(_rmtree, venv)  # clear any partial from a prior crash
-        await run_in_executor(_mkdirs, venv.parent)
+        await run_in_executor(_prepare_venv_dir, venv)
         await self._run(
             "create the venv", venv, _VENV_TIMEOUT, self._base_python, "-m", "venv", str(venv)
         )
@@ -136,7 +155,6 @@ class EnvProvisioner:
             "install",
             f"esphome=={version}",
         )
-        await run_in_executor((venv / _READY_MARKER).write_text, version)
 
     async def _run(self, what: str, venv: Path, timeout: float, *args: str) -> None:
         result = await run_subprocess_capture(*args, timeout=timeout)
@@ -162,13 +180,13 @@ def _release_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
-def _is_ready(venv: Path) -> bool:
-    return (venv / _READY_MARKER).is_file()
-
-
-def _mkdirs(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
+def _prepare_venv_dir(venv: Path) -> None:
+    """Remove any crash-partial venv and ensure the parent dir exists."""
+    _rmtree(venv)
+    venv.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _rmtree(path: Path) -> None:
-    shutil.rmtree(path, ignore_errors=True)
+    """Remove *path* if present, handling Windows read-only files."""
+    if path.exists():
+        _esphome_rmtree(path)
