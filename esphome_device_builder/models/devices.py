@@ -224,6 +224,11 @@ class Device(DashboardModel):
     # unset (frontend uses 115200); ``0`` ⇒ UART logging disabled; positive ⇒
     # that baud.
     logger_baud_rate: int | None = None
+    # esp32 whose ``ota: platform: esphome`` sets ``allow_partition_access``
+    # — gates the install dialog's OTA bootloader-update action. Whether the
+    # *running* firmware has it compiled in is the frontend's half of the
+    # gate (deployed hash == expected hash).
+    ota_partition_access: bool = False
 
 
 @dataclass

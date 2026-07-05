@@ -14,7 +14,7 @@ from esphome.storage_json import StorageJSON
 from ...models import Device, DeviceState
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
-from ..storage_path import resolve_storage_path
+from ..storage_path import resolve_compiled_config_path, resolve_storage_path
 from ._parsing import (
     _extract_resolved_substitutions,
     _is_valid_esphome_name,
@@ -25,6 +25,7 @@ from ._parsing import (
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
     extract_logger_baud_rate,
+    extract_ota_partition_access,
     get_api_encryption_block,
     parse_esphome_meta,
     yaml_has_api_encryption,
@@ -362,6 +363,18 @@ def load_device_from_storage(
         build_size_bytes=build_size_bytes,
         labels=list(labels),
         logger_baud_rate=logger_baud_rate,
+        # Gates the install dialog's OTA bootloader-update action; esp32-only
+        # (the esphome schema rejects the flag elsewhere). Union of two
+        # signals: the in-process resolved YAML (immediate on edit) and the
+        # last compile's validated-config cache — which catches a flag pulled
+        # in via remote packages / Jinja the in-process loader can't resolve
+        # (same gap the ``api_enabled`` union closes via
+        # ``loaded_integrations``; this flag has no StorageJSON field).
+        ota_partition_access=target_platform == "esp32"
+        and (
+            extract_ota_partition_access(resolved_config)
+            or extract_ota_partition_access(load_compiled_config_cache(filename))
+        ),
     )
 
 
@@ -495,3 +508,23 @@ def load_device_yaml(path: Path) -> dict | None:
     # return so the public ``dict | None`` signature is honest
     # without forcing every caller to re-narrow on receive.
     return cast("dict[Any, Any] | None", config)
+
+
+def load_compiled_config_cache(configuration: str) -> dict | None:
+    """
+    Parse the last compile's validated-config cache, or ``None``.
+
+    ``<data_dir>/storage/<basename>.validated.yaml`` is written by every
+    esphome compile with substitutions, packages (including remote ones
+    the in-process loader can't fetch), and secrets fully resolved.
+    ``clear_secrets=False`` mirrors ``esphome.compiled_config``: the cache
+    read must not wipe the process-wide secrets registry mid-scan.
+    """
+    path = resolve_compiled_config_path(configuration)
+    if not path.exists():
+        return None
+    try:
+        config = yaml_util.load_yaml(path, clear_secrets=False)
+    except EsphomeError:
+        return None
+    return config if isinstance(config, dict) else None

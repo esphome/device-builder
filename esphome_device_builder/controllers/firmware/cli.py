@@ -52,6 +52,8 @@ def build_command(
     port: str,
     cache_args: list[str] | None = None,
     new_name: str = "",
+    *,
+    flash_bootloader: bool = False,
 ) -> list[str]:
     """Build the esphome CLI command for a given job type."""
     cmd_map = {
@@ -86,6 +88,9 @@ def build_command(
         cmd.append("--no-logs")
     if job_type in (JobType.UPLOAD, JobType.INSTALL) and port:
         cmd.extend(["--device", port])
+    if job_type == JobType.UPLOAD and flash_bootloader:
+        # ``--bootloader`` exists only on the ``upload`` subparser (OTA-only).
+        cmd.append("--bootloader")
     if job_type == JobType.RENAME:
         # ``esphome rename`` takes the new name as a positional
         # arg. The CLI handles the inner compile + install + old

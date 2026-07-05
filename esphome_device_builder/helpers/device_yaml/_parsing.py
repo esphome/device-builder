@@ -18,6 +18,11 @@ _LOGGER = logging.getLogger(__name__)
 # state monitor's API info fallback.
 DEFAULT_API_PORT = 6053
 
+# Mirrors ``esphome.components.esphome.ota.CONF_ALLOW_PARTITION_ACCESS``;
+# importing the canonical constant would pull ``esphome.components.*`` into
+# the long-lived process (see the cold-import invariant).
+_CONF_ALLOW_PARTITION_ACCESS = "allow_partition_access"
+
 
 class EsphomeMeta(NamedTuple):
     """The user-facing ``esphome:`` meta fields; ``None`` for any the YAML omits."""
@@ -409,6 +414,24 @@ def extract_logger_baud_rate(
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
+
+
+def extract_ota_partition_access(config: dict | None) -> bool:
+    """
+    Report whether an ``ota: platform: esphome`` entry sets ``allow_partition_access``.
+
+    Accepts both the list-of-platforms form and the legacy single-mapping
+    form (which implies the esphome platform).
+    """
+    ota = config.get(const.CONF_OTA) if isinstance(config, dict) else None
+    entries = ota if isinstance(ota, list) else [ota]
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        platform = entry.get(const.CONF_PLATFORM, "esphome")
+        if platform == "esphome" and entry.get(_CONF_ALLOW_PARTITION_ACCESS) is True:
+            return True
+    return False
 
 
 def _str_or_none(value: object) -> str | None:

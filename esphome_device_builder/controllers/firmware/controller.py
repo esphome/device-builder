@@ -52,6 +52,7 @@ from . import download as download_mod
 from ._state import FirmwareState, Lane
 from .helpers import (
     _find_esphome_cmd,
+    _validate_bootloader_port,
     _validate_port,
     _verify_esphome_importable,
 )
@@ -233,17 +234,25 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         return await self._enqueue(job)
 
     @api_command("firmware/upload")
-    async def upload(self, *, configuration: str, port: str = "", **kwargs: Any) -> FirmwareJob:
+    async def upload(
+        self, *, configuration: str, port: str = "", bootloader: bool = False, **kwargs: Any
+    ) -> FirmwareJob:
         """Queue an upload job; ``port`` is forwarded as ``--device`` to esphome.
 
         ``port`` accepts ``"OTA"`` (CLI resolves the YAML's
         ``esphome.address``), a serial path (``/dev/ttyUSB0``,
         ``COM3``), or an explicit IPv4 / IPv6 / ``.local``
         hostname (bypasses the address cache).
+        ``bootloader=True`` flashes the bootloader image instead of
+        the app (``esphome upload --bootloader``); OTA targets only.
         """
         _validate_port(port)
+        if bootloader:
+            _validate_bootloader_port(port)
         await self._validate_configuration_boundary(configuration)
-        job = self._create_job(configuration, JobType.UPLOAD, port=port)
+        job = self._create_job(
+            configuration, JobType.UPLOAD, port=port, flash_bootloader=bootloader
+        )
         return await self._enqueue(job)
 
     @api_command("firmware/clean")
@@ -301,6 +310,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         configuration: str,
         port: str = OTA_PORT,
         force_local: bool = False,
+        bootloader: bool = False,
         **kwargs: Any,
     ) -> FirmwareJob:
         """Queue a device update (compile + upload); paired-receiver auto-routing.
@@ -311,15 +321,27 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         compile dispatches to the receiver and artifacts stage back
         locally for the flash step. ``force_local=True`` overrides
         the scheduler (used by the install dialog's "Build locally
-        instead" link).
+        instead" link). ``bootloader=True`` compiles then flashes
+        the bootloader image instead of the app (``esphome upload
+        --bootloader``); OTA targets only, device must be reachable.
         """
         _validate_port(port)
+        if bootloader:
+            _validate_bootloader_port(port)
         await self._validate_configuration_boundary(configuration)
 
         if port == OTA_PORT:
             device = self._device_for_configuration(configuration)
             # Gated ONLY on OFFLINE, avoiding UNKNOWN startup states
             if device and device.state == DeviceState.OFFLINE:
+                # No deferral for a bootloader flash — the wake dispatch
+                # re-uploads the app, not the bootloader, so silently
+                # queuing would flash the wrong image.
+                if bootloader:
+                    raise CommandError(
+                        ErrorCode.INVALID_ARGS,
+                        "Bootloader update requires the device online",
+                    )
                 _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
                 build_source = self._resolve_install_source(force_local=force_local)
                 job = self._create_job(configuration, JobType.COMPILE, build_source=build_source)
@@ -333,7 +355,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # build the next device — so a slow flash never blocks a compile, and
         # a remote receiver keeps compiling while we upload locally.
         return await factories.enqueue_install_chain(
-            self, configuration=configuration, port=port, build_source=build_source
+            self,
+            configuration=configuration,
+            port=port,
+            build_source=build_source,
+            flash_bootloader=bootloader,
         )
 
     @api_command("firmware/rename")
@@ -597,9 +623,17 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         port: str,
         cache_args: list[str] | None = None,
         new_name: str = "",
+        *,
+        flash_bootloader: bool = False,
     ) -> list[str]:
         return cli.build_command(
-            self.state.esphome_cmd, job_type, config_path, port, cache_args, new_name
+            self.state.esphome_cmd,
+            job_type,
+            config_path,
+            port,
+            cache_args,
+            new_name,
+            flash_bootloader=flash_bootloader,
         )
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
@@ -655,12 +689,15 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         build_source: JobBuildSource = LOCAL_JOB_BUILD_SOURCE,
         device_name: str = "",
         device_friendly_name: str = "",
+        *,
+        flash_bootloader: bool = False,
     ) -> FirmwareJob:
         return factories.create_job(
             self,
             configuration,
             job_type,
             port=port,
+            flash_bootloader=flash_bootloader,
             new_name=new_name,
             remote_peer=remote_peer,
             remote_peer_label=remote_peer_label,

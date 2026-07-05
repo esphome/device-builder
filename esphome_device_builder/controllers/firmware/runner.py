@@ -116,7 +116,12 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
         )
         cache_args = controller._build_cache_args(job)
         cmd = controller._build_command(
-            effective_job_type, config_path, job.port, cache_args, job.new_name
+            effective_job_type,
+            config_path,
+            job.port,
+            cache_args,
+            job.new_name,
+            flash_bootloader=job.flash_bootloader,
         )
         _LOGGER.debug("Running: %s", " ".join(cmd))
 

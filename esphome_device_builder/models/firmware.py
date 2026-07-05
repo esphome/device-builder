@@ -157,6 +157,9 @@ class FirmwareJob(DashboardModel):
     output: list[str] = field(default_factory=list)
     error: str | None = None
     port: str = ""  # for upload jobs
+    # UPLOAD flashes the bootloader image instead of the app
+    # (``esphome upload --bootloader``); OTA-only.
+    flash_bootloader: bool = False
     # In-memory decision input for the deferred-install completion hook;
     # the durable arm is ``Device.queued_update``.
     is_deferred_install: bool = False

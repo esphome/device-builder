@@ -41,6 +41,7 @@ from esphome_device_builder.helpers.device_yaml import (
 from esphome_device_builder.helpers.device_yaml._parsing import (
     _is_valid_esphome_name,
     extract_logger_baud_rate,
+    extract_ota_partition_access,
 )
 from esphome_device_builder.models import (
     BoardCatalogEntry,
@@ -826,6 +827,38 @@ def test_extract_logger_baud_rate_zero_disabled() -> None:
 def test_extract_logger_baud_rate_none(config: Any) -> None:
     """Missing / malformed / unresolvable / negative baud yields ``None``."""
     assert extract_logger_baud_rate(config) is None
+
+
+@pytest.mark.parametrize(
+    "ota",
+    [
+        [{"platform": "esphome", "allow_partition_access": True}],
+        [{"platform": "web_server"}, {"platform": "esphome", "allow_partition_access": True}],
+        {"allow_partition_access": True},  # legacy single-mapping form implies esphome
+    ],
+)
+def test_extract_ota_partition_access_true(ota: Any) -> None:
+    """``allow_partition_access: true`` on the esphome OTA platform is detected."""
+    assert extract_ota_partition_access({"ota": ota}) is True
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        None,
+        {},
+        {"ota": None},
+        {"ota": "not-a-list"},
+        {"ota": ["not-a-dict"]},
+        {"ota": [{"platform": "esphome"}]},
+        {"ota": [{"platform": "esphome", "allow_partition_access": False}]},
+        {"ota": [{"platform": "esphome", "allow_partition_access": "true"}]},  # unvalidated draft
+        {"ota": [{"platform": "web_server", "allow_partition_access": True}]},
+    ],
+)
+def test_extract_ota_partition_access_false(config: Any) -> None:
+    """Missing / other-platform / non-``True`` flags stay off."""
+    assert extract_ota_partition_access(config) is False
 
 
 def test_parse_meta_top_level_comment_does_not_close_esphome_block() -> None:
@@ -1937,6 +1970,64 @@ def test_load_device_logger_baud_rate(tmp_path: Path) -> None:
     device = load_device_from_storage(yaml_path)
 
     assert device.logger_baud_rate == 19200
+
+
+def test_load_device_ota_partition_access(tmp_path: Path) -> None:
+    """esp32 + ``allow_partition_access`` on the esphome OTA platform arms the flag."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\nota:\n  - platform: esphome\n    allow_partition_access: true\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is True
+
+
+def test_load_device_ota_partition_access_non_esp32(tmp_path: Path) -> None:
+    """The flag stays off on non-esp32 platforms (OTA bootloader update is esp32-only)."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\nota:\n  - platform: esphome\n    allow_partition_access: true\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml", overrides={"core_platform": "esp8266"})
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is False
+
+
+def test_load_device_ota_partition_access_from_validated_cache(tmp_path: Path) -> None:
+    """A flag visible only in the last compile's validated-config cache still arms it."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    cache = tmp_path / ".esphome" / "storage" / "lamp.yaml.validated.yaml"
+    cache.write_text(
+        "ota:\n- platform: esphome\n  allow_partition_access: true\n",
+        encoding="utf-8",
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is True
+
+
+def test_load_device_ota_partition_access_default_off(tmp_path: Path) -> None:
+    """An esp32 without the flag reports no partition access."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: lamp\nota:\n  - platform: esphome\n",
+        encoding="utf-8",
+    )
+    write_storage_json(tmp_path, "lamp.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is False
 
 
 def test_load_device_logger_baud_rate_from_substitution(tmp_path: Path) -> None:

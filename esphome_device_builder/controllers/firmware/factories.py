@@ -37,6 +37,8 @@ def create_job(
     device_name: str = "",
     device_friendly_name: str = "",
     depends_on: str = "",
+    *,
+    flash_bootloader: bool = False,
 ) -> FirmwareJob:
     """Create a new job and add it to the in-memory map; *sync*, no I/O.
 
@@ -52,6 +54,7 @@ def create_job(
         job_type=job_type,
         created_at=_now_iso(),
         port=port,
+        flash_bootloader=flash_bootloader,
         new_name=new_name,
         depends_on=depends_on,
         remote_peer=remote_peer,
@@ -125,6 +128,7 @@ async def enqueue_install_chain(
     configuration: str,
     port: str,
     build_source: JobBuildSource,
+    flash_bootloader: bool = False,
 ) -> FirmwareJob:
     """Enqueue an install as a COMPILE job + a dependent local UPLOAD job.
 
@@ -134,7 +138,12 @@ async def enqueue_install_chain(
     """
     compile_job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
     upload_job = create_job(
-        controller, configuration, JobType.UPLOAD, port=port, depends_on=compile_job.job_id
+        controller,
+        configuration,
+        JobType.UPLOAD,
+        port=port,
+        flash_bootloader=flash_bootloader,
+        depends_on=compile_job.job_id,
     )
     await commit_chain(controller, compile_job, upload_job, supersede_configuration=configuration)
     return compile_job
