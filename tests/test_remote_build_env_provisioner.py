@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from pathlib import Path
 
 import pytest
@@ -90,6 +91,10 @@ def _mkdirs(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
+def _remove_dir(path: Path) -> None:
+    shutil.rmtree(path)
+
+
 async def test_provision_builds_and_caches(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """First provision runs venv + pip + health probe; a repeat is a cache hit."""
     runner = _FakeRunner()
@@ -123,6 +128,38 @@ async def test_provision_rebuilds_unhealthy_existing_venv(
 
     assert "esphome-2026.6.4" in cmd[0]
     assert (runner.count("venv"), runner.count("install")) == (1, 1)  # rebuilt
+
+
+async def test_provision_reprovisions_when_warm_venv_deleted_out_of_band(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A verified venv removed out-of-band rebuilds, never returning a dead cmd."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    await provisioner.provision("2026.6.4")  # version is now warm in _verified
+
+    # External cleanup / disk pressure removes the cached venv mid-lifetime.
+    await run_in_executor(_remove_dir, _venv_dir(provisioner, "2026.6.4"))
+
+    cmd = await provisioner.provision("2026.6.4")
+
+    assert "esphome-2026.6.4" in cmd[0]
+    assert runner.count("venv") == 2  # rebuilt rather than trusting the warm set
+
+
+async def test_cached_cmd_returns_none_when_warm_venv_deleted_out_of_band(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """cached_cmd drops a warm entry whose venv vanished instead of a dead cmd."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    await provisioner.provision("2026.6.4")
+
+    await run_in_executor(_remove_dir, _venv_dir(provisioner, "2026.6.4"))
+
+    assert await provisioner.cached_cmd("2026.6.4") is None
 
 
 async def test_provision_rejects_venv_reporting_wrong_version(

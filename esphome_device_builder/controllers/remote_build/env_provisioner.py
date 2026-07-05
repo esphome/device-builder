@@ -76,13 +76,14 @@ class EnvProvisioner:
 
         Raises :class:`EnvProvisionError` for a non-release version, or a venv
         that won't build or fails its health check; a bad venv is removed so a
-        retry starts clean.
+        retry starts clean. A warm-cached venv deleted out-of-band re-provisions
+        rather than handing back a cmd for a missing interpreter.
         """
         if not is_release_version(version):
             raise EnvProvisionError(f"cannot provision non-release esphome version {version!r}")
         venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
         async with self._lock_for(version):
-            if version not in self._verified:
+            if not await self._warm(venv, version):
                 if not await self._is_healthy(venv, version):
                     await self._build(version, venv)
                     if not await self._is_healthy(venv, version):
@@ -106,9 +107,10 @@ class EnvProvisioner:
             return None
         venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
         async with self._lock_for(version):
-            if version in self._verified or await self._is_healthy(venv, version):
+            if await self._warm(venv, version) or await self._is_healthy(venv, version):
                 self._verified.add(version)
                 return _venv_esphome_cmd(venv)
+            self._verified.discard(version)
         return None
 
     async def sweep_stale(self, installed_version: str) -> None:
@@ -163,6 +165,21 @@ class EnvProvisioner:
             if is_release_version(version):
                 found.append((child, version))
         return found
+
+    async def _warm(self, venv: Path, version: str) -> bool:
+        """Whether *version* is verified this lifetime AND its venv is still on disk.
+
+        The verified set skips the subprocess health probe, not the existence
+        check: a venv deleted out-of-band (external cleanup, disk pressure)
+        drops the stale entry so the caller re-provisions instead of returning
+        a cmd for a missing interpreter.
+        """
+        if version not in self._verified:
+            return False
+        if await run_in_executor(_venv_python(venv).is_file):
+            return True
+        self._verified.discard(version)
+        return False
 
     async def _is_healthy(self, venv: Path, version: str) -> bool:
         """Whether *venv* runs the *version* of esphome it's cached for.
