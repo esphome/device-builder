@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -70,9 +71,9 @@ class EnvProvisioner:
             raise EnvProvisionError(f"cannot provision non-release esphome version {version!r}")
         venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
         async with self._lock_for(version):
-            if not await self._is_healthy(venv):
+            if not await self._is_healthy(venv, version):
                 await self._build(version, venv)
-                if not await self._is_healthy(venv):
+                if not await self._is_healthy(venv, version):
                     await run_in_executor(_rmtree, venv)
                     raise EnvProvisionError(
                         f"provisioned esphome venv for {version} failed its health check"
@@ -125,12 +126,15 @@ class EnvProvisioner:
                 found.append((child, version))
         return found
 
-    async def _is_healthy(self, venv: Path) -> bool:
-        """Whether *venv*'s esphome actually runs (``python -m esphome version``).
+    async def _is_healthy(self, venv: Path, version: str) -> bool:
+        """Whether *venv* runs the *version* of esphome it's cached for.
 
-        Doubles as the readiness check: a missing venv, a crash-partial (no
-        esphome installed), or a corrupted one all fail here and rebuild, so no
-        separate "finished" marker is needed.
+        Verifies esphome both runs (``python -m esphome version`` exits 0) AND
+        reports the requested version, so a venv whose contents drifted from its
+        directory name (interrupted upgrade, manual pip) is rebuilt rather than
+        trusted on liveness alone — version identity is the whole point of the
+        feature. Also the readiness check: a missing or crash-partial venv fails
+        here, so no separate "finished" marker is needed.
         """
         python = _venv_python(venv)
         if not await run_in_executor(python.is_file):
@@ -138,7 +142,9 @@ class EnvProvisioner:
         result = await run_subprocess_capture(
             str(python), "-m", "esphome", "version", timeout=_HEALTHCHECK_TIMEOUT
         )
-        return not result.timed_out and result.returncode == 0
+        if result.timed_out or result.returncode != 0:
+            return False
+        return _version_in_output(version, result.stdout.decode(errors="replace"))
 
     async def _build(self, version: str, venv: Path) -> None:
         await run_in_executor(_prepare_venv_dir, venv)
@@ -174,6 +180,11 @@ def _venv_python(venv: Path) -> Path:
 def _venv_esphome_cmd(venv: Path) -> list[str]:
     """Return the esphome CLI invocation that runs inside *venv*."""
     return [str(_venv_python(venv)), "-m", "esphome"]
+
+
+def _version_in_output(version: str, output: str) -> bool:
+    """Whether *version* appears in *output* as a whole token, not inside a longer number."""
+    return re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", output) is not None
 
 
 def _release_key(version: str) -> tuple[int, ...]:

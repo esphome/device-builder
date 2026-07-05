@@ -28,14 +28,23 @@ class _FakeRunner:
 
     On the ``venv`` command it creates the venv's python file, so the health
     probe's ``is_file`` fast-path passes and its ``esphome version`` call runs
-    (mirroring what ``python -m venv`` + install would leave behind). A command
-    whose args contain ``fail_at`` returns a non-zero exit.
+    (mirroring what ``python -m venv`` + install would leave behind). The
+    ``version`` probe reports the version parsed from the venv dir, or
+    ``reports_version`` when set (to simulate a drifted cache). A command whose
+    args contain ``fail_at`` returns a non-zero exit.
     """
 
-    def __init__(self, *, fail_at: str | None = None, block: asyncio.Event | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail_at: str | None = None,
+        block: asyncio.Event | None = None,
+        reports_version: str | None = None,
+    ) -> None:
         self.calls: list[tuple[str, ...]] = []
         self._fail_at = fail_at
         self._block = block
+        self._reports_version = reports_version
 
     async def __call__(self, *args: str, timeout: float, **_: object) -> CapturedSubprocess:
         self.calls.append(args)
@@ -43,8 +52,15 @@ class _FakeRunner:
             await self._block.wait()
         if "venv" in args:
             await run_in_executor(_make_venv_python, Path(args[-1]))
-        rc = 1 if self._fail_at is not None and self._fail_at in args else 0
-        return CapturedSubprocess(returncode=rc, stdout=b"pretend output", timed_out=False)
+        if self._fail_at is not None and self._fail_at in args:
+            return CapturedSubprocess(returncode=1, stdout=b"pretend output", timed_out=False)
+        stdout = b"pretend output"
+        if "version" in args:  # health probe: echo the venv's esphome version
+            reported = self._reports_version
+            if reported is None:
+                reported = Path(args[0]).parent.parent.name.removeprefix("esphome-")
+            stdout = f"Version: {reported}\n".encode()
+        return CapturedSubprocess(returncode=0, stdout=stdout, timed_out=False)
 
     def count(self, token: str) -> int:
         return sum(token in call for call in self.calls)
@@ -106,6 +122,20 @@ async def test_provision_rebuilds_unhealthy_existing_venv(
 
     assert "esphome-2026.6.4" in cmd[0]
     assert (runner.count("venv"), runner.count("install")) == (1, 1)  # rebuilt
+
+
+async def test_provision_rejects_venv_reporting_wrong_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A venv that runs but reports a different version fails the health check."""
+    runner = _FakeRunner(reports_version="2025.1.0")  # never the requested version
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+
+    with pytest.raises(EnvProvisionError, match="health check"):
+        await provisioner.provision("2026.6.4")
+
+    assert not _venv_dir(provisioner, "2026.6.4").exists()
 
 
 async def test_provision_refuses_non_release(
