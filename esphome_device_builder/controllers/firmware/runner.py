@@ -115,6 +115,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             await run_in_executor(controller._db.settings.rel_path, target_configuration)
         )
         cache_args = controller._build_cache_args(job)
+        esphome_cmd = await controller._resolve_esphome_cmd(job)
         cmd = controller._build_command(
             effective_job_type,
             config_path,
@@ -122,6 +123,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             cache_args,
             job.new_name,
             flash_bootloader=job.flash_bootloader,
+            esphome_cmd=esphome_cmd,
         )
         _LOGGER.debug("Running: %s", " ".join(cmd))
 

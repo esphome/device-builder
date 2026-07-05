@@ -620,9 +620,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         new_name: str = "",
         *,
         flash_bootloader: bool = False,
+        esphome_cmd: list[str] | None = None,
     ) -> list[str]:
         return cli.build_command(
-            self.state.esphome_cmd,
+            esphome_cmd or self.state.esphome_cmd,
             job_type,
             config_path,
             port,
@@ -630,6 +631,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             new_name,
             flash_bootloader=flash_bootloader,
         )
+
+    async def _resolve_esphome_cmd(self, job: FirmwareJob) -> list[str]:
+        """Return the esphome CLI invocation to compile *job* with."""
+        return self.state.esphome_cmd
 
     def _build_cache_args(self, job: FirmwareJob) -> list[str]:
         return cli.build_cache_args(self, job)
