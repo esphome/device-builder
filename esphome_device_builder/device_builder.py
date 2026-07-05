@@ -932,12 +932,13 @@ class DeviceBuilder:
                 app = self.create_app(trusted=False, peer_guard=False)
                 if self._startup_timer is not None:
                     self._startup_timer.mark("app")
-                hosts = resolve_bind_host(settings.host)
+                hosts = resolve_bind_host(settings.host) if settings.unix_socket is None else []
                 ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
                 web.run_app(
                     app,
                     host=hosts,
                     port=settings.port,
+                    path=settings.unix_socket,
                     shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
                     handle_signals=False,
                 )
@@ -992,7 +993,7 @@ class DeviceBuilder:
         app = self.create_app()
         if self._startup_timer is not None:
             self._startup_timer.mark("app")
-        hosts = resolve_bind_host(settings.host)
+        hosts = resolve_bind_host(settings.host) if settings.unix_socket is None else []
         ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
         # ``handle_signals=False``: keep our ``__main__`` SIGTERM/SIGBREAK trap
         # as the sole handler for the whole lifecycle. aiohttp's own
@@ -1006,6 +1007,7 @@ class DeviceBuilder:
             app,
             host=hosts,
             port=settings.port,
+            path=settings.unix_socket,
             shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
             handle_signals=False,
         )

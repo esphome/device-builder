@@ -187,6 +187,9 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--socket", help="Path of a UNIX socket to bind to. Host and port are ignored when set."
+    )
+    parser.add_argument(
         "--username",
         default="",
         help=(
