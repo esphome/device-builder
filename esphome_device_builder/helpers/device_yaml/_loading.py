@@ -533,6 +533,11 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
         return False
     try:
         config = yaml_util.load_yaml(path, clear_secrets=False)
-    except EsphomeError:
+    except EsphomeError as err:
+        # Reached only after the raw-text scan matched, so a cache esphome
+        # itself wrote won't parse — log it or the vanished dialog option is
+        # undiagnosable. Class only: yaml error marks can quote lines from
+        # the secrets-bearing cache.
+        _LOGGER.debug("Validated-config cache %s did not parse (%s)", path, type(err).__name__)
         return False
     return isinstance(config, dict) and extract_ota_partition_access(config)
