@@ -160,8 +160,9 @@ class EnvProvisioner:
         result = await run_subprocess_capture(*args, timeout=timeout)
         if result.timed_out or result.returncode != 0:
             await run_in_executor(_rmtree, venv)
+            status = "timed out" if result.timed_out else f"exit {result.returncode}"
             tail = result.stdout[-_ERROR_TAIL_BYTES:].decode(errors="replace")
-            raise EnvProvisionError(f"failed to {what} for a remote build: {tail}")
+            raise EnvProvisionError(f"failed to {what} for a remote build ({status}): {tail}")
 
 
 def _venv_python(venv: Path) -> Path:
@@ -176,8 +177,15 @@ def _venv_esphome_cmd(venv: Path) -> list[str]:
 
 
 def _release_key(version: str) -> tuple[int, ...]:
-    """Sort key for a plain-release version string (sweep ordering)."""
-    return tuple(int(part) for part in version.split("."))
+    """Sort key for a plain-release version, trailing ``.0`` normalised out.
+
+    So ``2026.6`` and ``2026.6.0`` order equal rather than the shorter one
+    counting as older, which would sweep an effectively-installed venv.
+    """
+    parts = [int(part) for part in version.split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
 
 
 def _prepare_venv_dir(venv: Path) -> None:

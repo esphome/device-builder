@@ -137,6 +137,26 @@ async def test_provision_failure_removes_partial_venv(
     assert not _venv_dir(provisioner, "2026.6.4").exists()
 
 
+async def test_provision_timeout_reports_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A step that times out raises with a ``timed out`` status, not empty output."""
+
+    async def _timeout(*_args: str, timeout: float, **_: object) -> CapturedSubprocess:
+        return CapturedSubprocess(returncode=None, stdout=b"", timed_out=True)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.env_provisioner.run_subprocess_capture",
+        _timeout,
+    )
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+
+    with pytest.raises(EnvProvisionError, match="timed out"):
+        await provisioner.provision("2026.6.4")
+
+    assert not _venv_dir(provisioner, "2026.6.4").exists()
+
+
 async def test_provision_concurrent_same_version_builds_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -146,8 +166,8 @@ async def test_provision_concurrent_same_version_builds_once(
     _patch_runner(monkeypatch, runner)
     provisioner = EnvProvisioner(data_dir=tmp_path)
 
-    first = asyncio.ensure_future(provisioner.provision("2026.6.4"))
-    second = asyncio.ensure_future(provisioner.provision("2026.6.4"))
+    first = asyncio.create_task(provisioner.provision("2026.6.4"))
+    second = asyncio.create_task(provisioner.provision("2026.6.4"))
     await asyncio.sleep(0)  # let both reach the lock
     gate.set()
     cmd_a, cmd_b = await asyncio.gather(first, second)
@@ -168,6 +188,24 @@ async def test_sweep_stale_removes_older_keeps_installed_and_newer(tmp_path: Pat
     assert not older.exists()
     assert same.exists()
     assert newer.exists()
+
+
+async def test_sweep_stale_tolerates_missing_dir_and_skips_non_venv_entries(
+    tmp_path: Path,
+) -> None:
+    """Sweep is a no-op with no venvs dir and leaves non-``esphome-`` entries alone."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    # Nothing provisioned yet: the venvs dir doesn't exist.
+    await provisioner.sweep_stale("2026.6.4")
+
+    older = await _seed_venv(provisioner, "2026.5.0")
+    stray = provisioner.venvs_dir / "not-a-venv"
+    await run_in_executor(_mkdirs, stray)
+
+    await provisioner.sweep_stale("2026.6.4")
+
+    assert not older.exists()  # older release swept
+    assert stray.exists()  # unrelated entry untouched
 
 
 async def test_sweep_stale_noop_when_installed_is_dev(tmp_path: Path) -> None:
