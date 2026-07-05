@@ -49,6 +49,12 @@ def run_remote_build_only(db: DeviceBuilder) -> None:
     try:
         exit_code = loop.run_until_complete(main_task)
     except (GracefulExit, KeyboardInterrupt):
+        # ``__main__``'s SIGTERM trap schedules ``_raise_graceful_exit``
+        # via ``call_soon_threadsafe``; ``GracefulExit`` subclasses
+        # ``SystemExit``, so asyncio's ``Handle._run`` re-raises it
+        # (rather than routing it to the loop exception handler) and it
+        # propagates out of ``run_until_complete`` here. The ``finally``
+        # then cancels the still-parked ``_serve`` task.
         pass
     finally:
         if not main_task.done():
@@ -117,7 +123,7 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     ):
         await receiver.set_pairing_window(open=True, client=_BOOTSTRAP_WINDOW_CLIENT)
         identity = await db.peer_link_identity_store.async_load()
-        _log_pairing_banner(identity)
+        _log_pairing_banner(identity, db.settings.allow_pairing_sources)
         await _wait_first(paired, window_closed)
     receiver.state.auto_approve_first_pair = False
     if not paired.is_set():
@@ -133,9 +139,17 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     return True
 
 
-def _log_pairing_banner(identity: PeerLinkIdentity) -> None:
+def _log_pairing_banner(identity: PeerLinkIdentity, allow_pairing_sources: list[str]) -> None:
     """Print the fingerprint the operator verifies on the main builder's pair dialog."""
     banner = "=" * 70
+    if allow_pairing_sources:
+        source_line = f" Only auto-approving a request from: {', '.join(allow_pairing_sources)}\n"
+    else:
+        source_line = (
+            " Accepting the first pairing request from ANY source\n"
+            " (--allow-any-pairing-source). Anyone on this LAN who pairs\n"
+            " before your builder does wins — watch this console.\n"
+        )
     _LOGGER.info(
         "\n%s\n"
         " REMOTE BUILD PAIRING — window open for %d minutes\n"
@@ -146,15 +160,16 @@ def _log_pairing_banner(identity: PeerLinkIdentity) -> None:
         "   (%s)\n"
         "   %s\n"
         "\n"
-        " The first pairing request is approved automatically and closes\n"
-        " the window (exactly one pairing). This process exits if nothing\n"
-        " pairs before the window lapses.\n"
+        "%s"
+        " The window closes on the first pairing (exactly one pairing).\n"
+        " This process exits if nothing pairs before the window lapses.\n"
         "%s",
         banner,
         int(PAIRING_WINDOW_DURATION_SECONDS // 60),
         pin_emoji(identity.pin_sha256),
         pin_emoji_names(identity.pin_sha256),
         identity.pin_sha256_formatted,
+        source_line,
         banner,
     )
 
@@ -171,6 +186,15 @@ async def _wait_first(*events: asyncio.Event) -> None:
 
 
 async def _park_forever() -> int:
-    """Serve until the runner's stop path cancels us (the Event is never set)."""
+    """
+    Serve until the runner's stop path cancels this task.
+
+    The event is created once and never set; the ``while`` keeps the
+    function statically non-returning (so the ``int`` return type
+    holds without an unreachable ``return``) and, because the single
+    ``wait()`` blocks until cancellation, the loop body only ever runs
+    once — no per-iteration allocation.
+    """
+    never = asyncio.Event()
     while True:
-        await asyncio.Event().wait()
+        await never.wait()

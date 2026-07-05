@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 # Exact port of the frontend's ``src/util/pin-emoji.ts``: the
 # 64-emoji vocabulary and indexing from v1.x of the Matrix
 # Short-Authentication-String spec
@@ -86,23 +88,33 @@ PIN_EMOJI_COUNT = 7
 _NIBBLES_NEEDED = 11
 
 
-def pin_emoji_slots(pin_sha256: str) -> list[tuple[str, str]]:
+@lru_cache(maxsize=8)
+def pin_emoji_slots(pin_sha256: str) -> tuple[tuple[str, str], ...]:
     """
     Map a hex pin's leading 42 bits to 7 ``(emoji, name)`` SAS slots.
 
     Mirrors the frontend's ``pinSha256ToEmojis``: consume the hex
     left-to-right in 6-bit chunks, index each into the SAS table.
+    Cached — the banner renders emoji and names off one computation,
+    and a process only ever displays a handful of distinct pins.
     """
     bits = int(pin_sha256[:_NIBBLES_NEEDED], 16)
     total_bits = _NIBBLES_NEEDED * 4
-    return [SAS_EMOJI[(bits >> (total_bits - 6 * (i + 1))) & 0x3F] for i in range(PIN_EMOJI_COUNT)]
+    return tuple(
+        SAS_EMOJI[(bits >> (total_bits - 6 * (i + 1))) & 0x3F] for i in range(PIN_EMOJI_COUNT)
+    )
 
 
 def pin_emoji(pin_sha256: str) -> str:
     """Render the 7-emoji SAS sequence, space-separated for console display."""
-    return " ".join(emoji for emoji, _ in pin_emoji_slots(pin_sha256))
+    return _render(pin_sha256, part=0, sep=" ")
 
 
 def pin_emoji_names(pin_sha256: str) -> str:
     """Render the matching SAS emoji names, for terminals with poor emoji fonts."""
-    return ", ".join(name for _, name in pin_emoji_slots(pin_sha256))
+    return _render(pin_sha256, part=1, sep=", ")
+
+
+def _render(pin_sha256: str, *, part: int, sep: str) -> str:
+    """Join one field of each cached slot: ``part`` 0 = emoji, 1 = name."""
+    return sep.join(slot[part] for slot in pin_emoji_slots(pin_sha256))

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import logging
 import signal
 import sys
@@ -140,24 +141,8 @@ def _raise_graceful_exit() -> None:
     raise GracefulExit
 
 
-def main() -> None:
-    """Run the ESPHome Device Builder."""
-    # Trap the platform's stop signal so a quit exits cleanly instead of
-    # the OS default disposition. POSIX: a startup-window SIGTERM exits
-    # 143 ("did not handle SIGTERM") before aiohttp would arm its own
-    # handler. We run ``web.run_app(handle_signals=False)`` so this trap
-    # stays the sole handler for the whole lifecycle — otherwise aiohttp's
-    # ``add_signal_handler`` (armed in ``runner.setup`` before ``on_startup``)
-    # would replace it, and a stop landing mid-startup would skip the
-    # clean-exit bookkeeping below. Windows: aiohttp installs no handler at
-    # all, and the desktop quits the backend with CTRL_BREAK_EVENT
-    # (→ SIGBREAK; SIGTERM is uncatchable there), so without this the break
-    # default-terminates abruptly instead of draining. The Proactor loop's
-    # wakeup fd makes the break land promptly while serving.
-    signal.signal(signal.SIGTERM, _exit_cleanly_on_signal)
-    if sys.platform == "win32":
-        signal.signal(signal.SIGBREAK, _exit_cleanly_on_signal)
-
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the CLI argument parser (all flags live here)."""
     parser = argparse.ArgumentParser(
         description="ESPHome Device Builder",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -295,8 +280,33 @@ def main() -> None:
             "pairing request is approved automatically and the window "
             "closes — exactly one pairing is allowed. Exits with status 1 "
             "if nothing pairs before the window lapses. Requires an "
-            "explicit configuration directory; not compatible with "
-            "--ha-addon"
+            "explicit configuration directory and a pairing-source choice "
+            "(--allow-pairing-source <IP> or --allow-any-pairing-source); "
+            "not compatible with --ha-addon"
+        ),
+    )
+    parser.add_argument(
+        "--allow-pairing-source",
+        default="",
+        help=(
+            "Comma-separated source IP allowlist for the "
+            "--remote-build-only first-pair window. When set, only a "
+            "pairing request from one of these addresses is "
+            "auto-approved — closes the window against any other LAN "
+            "peer that times it. Requires --remote-build-only; you must "
+            "know the main builder's address in advance. Mutually "
+            "exclusive with --allow-any-pairing-source"
+        ),
+    )
+    parser.add_argument(
+        "--allow-any-pairing-source",
+        action="store_true",
+        help=(
+            "Explicitly accept the --remote-build-only first pairing "
+            "from ANY source (trust-on-first-use). Required when "
+            "--remote-build-only is used without --allow-pairing-source, "
+            "so opening the window to any LAN peer is always a conscious "
+            "choice rather than a silent default"
         ),
     )
     parser.add_argument(
@@ -339,6 +349,28 @@ def main() -> None:
             "while keeping cross-origin acceptance permissive."
         ),
     )
+    return parser
+
+
+def main() -> None:
+    """Run the ESPHome Device Builder."""
+    # Trap the platform's stop signal so a quit exits cleanly instead of
+    # the OS default disposition. POSIX: a startup-window SIGTERM exits
+    # 143 ("did not handle SIGTERM") before aiohttp would arm its own
+    # handler. We run ``web.run_app(handle_signals=False)`` so this trap
+    # stays the sole handler for the whole lifecycle — otherwise aiohttp's
+    # ``add_signal_handler`` (armed in ``runner.setup`` before ``on_startup``)
+    # would replace it, and a stop landing mid-startup would skip the
+    # clean-exit bookkeeping below. Windows: aiohttp installs no handler at
+    # all, and the desktop quits the backend with CTRL_BREAK_EVENT
+    # (→ SIGBREAK; SIGTERM is uncatchable there), so without this the break
+    # default-terminates abruptly instead of draining. The Proactor loop's
+    # wakeup fd makes the break land promptly while serving.
+    signal.signal(signal.SIGTERM, _exit_cleanly_on_signal)
+    if sys.platform == "win32":
+        signal.signal(signal.SIGBREAK, _exit_cleanly_on_signal)
+
+    parser = _build_arg_parser()
 
     args = parser.parse_args()
 
@@ -523,6 +555,53 @@ def _validate_mode_flags(parser: argparse.ArgumentParser, args: argparse.Namespa
                 "state are stored there (e.g. /var/lib/esphome-builder)."
             )
         args.configuration = "./configs"
+
+    _validate_pairing_source_flags(parser, args)
+
+
+def _validate_pairing_source_flags(
+    parser: argparse.ArgumentParser, args: argparse.Namespace
+) -> None:
+    """Validate the --remote-build-only first-pair source flags."""
+    raw_sources = (getattr(args, "allow_pairing_source", "") or "").strip()
+    allow_any = getattr(args, "allow_any_pairing_source", False)
+
+    # Both pairing-source flags only mean something for the headless
+    # first-pair auto-approve window.
+    if (raw_sources or allow_any) and not args.remote_build_only:
+        parser.error(
+            "--allow-pairing-source / --allow-any-pairing-source only apply "
+            "to the --remote-build-only first-pair window; they have no "
+            "effect on the normal UI-approved pair flow."
+        )
+    if not args.remote_build_only:
+        return
+
+    # Force a conscious choice: either restrict the window to a known
+    # address, or explicitly opt into accepting any LAN peer. Never a
+    # silent trust-on-first-use default.
+    if raw_sources and allow_any:
+        parser.error(
+            "pass either --allow-pairing-source <IP> or --allow-any-pairing-source, not both."
+        )
+    if not raw_sources and not allow_any:
+        parser.error(
+            "--remote-build-only requires a pairing-source choice: pass "
+            "--allow-pairing-source <IP> to restrict the first-pair window "
+            "to a known address, or --allow-any-pairing-source to accept the "
+            "first pairing from any LAN peer (trust-on-first-use)."
+        )
+    for entry in raw_sources.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        try:
+            ipaddress.ip_address(candidate)
+        except ValueError:
+            parser.error(
+                f"--allow-pairing-source: {candidate!r} is not a valid "
+                "IP address (comma-separated IPv4 / IPv6 literals)."
+            )
 
 
 def _warn_credential_deprecations(args: argparse.Namespace) -> None:

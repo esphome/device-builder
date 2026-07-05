@@ -27,6 +27,7 @@ from esphome_device_builder.controllers.config import (
     DashboardSettings,
     remote_build_settings_transaction,
 )
+from esphome_device_builder.controllers.config.settings import normalize_pairing_sources
 from esphome_device_builder.controllers.remote_build import (
     pairing_window as rb_pairing_window,
 )
@@ -55,6 +56,7 @@ async def _send_pair_request(
     dashboard_id: str = "main-builder",
     seed: bytes = b"\xaa",
     label: str = "Main builder",
+    peer_ip: str = "192.168.1.10",
 ) -> Any:
     pubkey, pin = _pubkey_and_pin(seed)
     return await controller.receiver.record_pair_request(
@@ -62,7 +64,7 @@ async def _send_pair_request(
         pin_sha256=pin,
         static_x25519_pub=pubkey,
         label=label,
-        peer_ip="192.168.1.10",
+        peer_ip=peer_ip,
     )
 
 
@@ -122,6 +124,11 @@ class _FakeDB:
 
     @staticmethod
     def _raise_graceful() -> None:
+        # Mirrors production's SIGTERM path (a scheduled callback that
+        # raises GracefulExit). GracefulExit subclasses SystemExit, so
+        # asyncio re-raises it out of run_until_complete rather than
+        # swallowing it into the loop exception handler — the runner's
+        # ``except`` catches it deterministically, no hang.
         raise GracefulExit
 
 
@@ -204,6 +211,59 @@ async def test_auto_approve_is_one_shot(tmp_path: Path) -> None:
     assert list(controller.receiver.state.pending_peers) == ["second"]
 
 
+async def test_auto_approve_honours_source_allowlist(tmp_path: Path) -> None:
+    """A request from a non-allowlisted source is refused without disarming."""
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    controller.receiver._db.settings.allow_pairing_sources = ["192.168.1.50"]
+    await controller.receiver.set_pairing_window(open=True, client="cli")
+    controller.receiver.state.auto_approve_first_pair = True
+
+    # Wrong source: refused as a closed window, nothing approved, still armed.
+    stranger = await _send_pair_request(
+        controller, dashboard_id="stranger", seed=b"\xbb", peer_ip="192.168.1.99"
+    )
+    assert stranger.response == "no_pairing_window"
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.pending_peers == {}
+    assert controller.receiver.state.auto_approve_first_pair
+
+    # The intended builder still pairs.
+    wanted = await _send_pair_request(
+        controller, dashboard_id="main", seed=b"\xaa", peer_ip="192.168.1.50"
+    )
+    assert wanted.response == "approved"
+    assert list(controller.receiver.state.approved_peers) == ["main"]
+    assert not controller.receiver.state.auto_approve_first_pair
+
+
+async def test_auto_approve_source_allowlist_normalises_ipv6(tmp_path: Path) -> None:
+    """A differently-spelled but equal IPv6 source still matches."""
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    controller.receiver._db.settings.allow_pairing_sources = ["2001:db8::1"]
+    await controller.receiver.set_pairing_window(open=True, client="cli")
+    controller.receiver.state.auto_approve_first_pair = True
+
+    response = await _send_pair_request(
+        controller, dashboard_id="main", peer_ip="2001:0db8:0000:0000:0000:0000:0000:0001"
+    )
+    assert response.response == "approved"
+
+
+async def test_auto_approve_source_allowlist_rejects_unparseable_peer_ip(tmp_path: Path) -> None:
+    """A peer_ip that can't be parsed as an IP never matches an allowlist."""
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    controller.receiver._db.settings.allow_pairing_sources = ["192.168.1.50"]
+    await controller.receiver.set_pairing_window(open=True, client="cli")
+    controller.receiver.state.auto_approve_first_pair = True
+
+    response = await _send_pair_request(controller, dashboard_id="main", peer_ip="")
+    assert response.response == "no_pairing_window"
+    assert controller.receiver.state.approved_peers == {}
+
+
 # ---------------------------------------------------------------------------
 # _bootstrap_first_pair
 # ---------------------------------------------------------------------------
@@ -235,7 +295,44 @@ async def test_bootstrap_first_pair_success(
     assert pin_emoji(identity.pin_sha256) in banner
     assert pin_emoji_names(identity.pin_sha256) in banner
     assert identity.pin_sha256_formatted in banner
+    # No allowlist = the operator chose --allow-any-pairing-source; the
+    # banner names that explicit any-source posture.
+    assert "--allow-any-pairing-source" in banner
+    assert "ANY source" in banner
     assert any("Paired with 'Main builder'" in r.getMessage() for r in caplog.records)
+
+
+async def test_bootstrap_first_pair_with_source_allowlist(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The banner names the allowlisted source; only that source auto-approves."""
+    db = _make_fake_db(tmp_path)
+    db.settings.allow_pairing_sources = ["192.168.1.10"]
+    receiver = db.remote_build_receiver
+    assert receiver is not None
+
+    with caplog.at_level("INFO", logger=_RBO_LOGGER):
+        bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
+        await _wait_until(receiver.is_pairing_window_open)
+
+        # A stranger is refused; the window stays armed.
+        refused = await _send_pair_request(
+            RemoteBuildController(MagicMock(), receiver),
+            dashboard_id="stranger",
+            peer_ip="10.0.0.9",
+        )
+        assert refused.response == "no_pairing_window"
+        assert not bootstrap.done()
+
+        # The allowlisted builder pairs.
+        ok = await _send_pair_request(RemoteBuildController(MagicMock(), receiver))
+        assert ok.response == "approved"
+        assert await asyncio.wait_for(bootstrap, timeout=2.0) is True
+
+    banner = next(
+        r.getMessage() for r in caplog.records if "REMOTE BUILD PAIRING" in r.getMessage()
+    )
+    assert "Only auto-approving a request from: 192.168.1.10" in banner
 
 
 async def test_bootstrap_first_pair_window_lapse(
@@ -396,6 +493,7 @@ def _ns(configuration: str, **kwargs: object) -> SimpleNamespace:
         "remote_build_port": None,
         "remote_build_host": None,
         "remote_build_only": False,
+        "allow_pairing_source": "",
         "dev": False,
         "trusted_domains": None,
     }
@@ -407,6 +505,29 @@ def test_parse_args_remote_build_only_defaults_off(tmp_path: Path) -> None:
     settings = DashboardSettings()
     settings.parse_args(_ns(configuration=str(tmp_path)))
     assert settings.remote_build_only is False
+    assert settings.allow_pairing_sources == []
+
+
+def test_normalize_pairing_sources_edge_cases() -> None:
+    """Empty input yields []; blank and unparseable entries are dropped."""
+    assert normalize_pairing_sources("") == []
+    assert normalize_pairing_sources("  ,  ") == []
+    # Invalid entries are dropped (the parser rejects them loudly upstream);
+    # a valid entry alongside still survives.
+    assert normalize_pairing_sources("not-an-ip, 192.168.1.5") == ["192.168.1.5"]
+
+
+def test_parse_args_allow_pairing_sources_normalised(tmp_path: Path) -> None:
+    """Comma-separated sources are split, IPv6-normalised, and deduplicated."""
+    settings = DashboardSettings()
+    settings.parse_args(
+        _ns(
+            configuration=str(tmp_path),
+            remote_build_only=True,
+            allow_pairing_source="192.168.1.5, 2001:0db8::1 ,192.168.1.5",
+        )
+    )
+    assert settings.allow_pairing_sources == ["192.168.1.5", "2001:db8::1"]
 
 
 def test_parse_args_remote_build_only_flag_sets_mode(tmp_path: Path) -> None:
@@ -451,10 +572,123 @@ def test_validate_mode_flags_keeps_explicit_config_dir() -> None:
     """An explicit path passes through untouched in remote-build-only mode."""
     parser = argparse.ArgumentParser()
     args = SimpleNamespace(
-        remote_build_only=True, ha_addon=False, configuration="/var/lib/esphome-builder"
+        remote_build_only=True,
+        ha_addon=False,
+        configuration="/var/lib/esphome-builder",
+        allow_any_pairing_source=True,
     )
     main_module._validate_mode_flags(parser, args)
     assert args.configuration == "/var/lib/esphome-builder"
+
+
+def test_main_rejects_allow_pairing_source_without_remote_build_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The allowlist only means something for the headless auto-approve window."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["esphome-device-builder", str(tmp_path), "--allow-pairing-source", "192.168.1.5"],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main_module.main()
+    assert excinfo.value.code == 2
+
+
+def test_main_rejects_invalid_allow_pairing_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-IP allowlist entry is refused at the parser."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "esphome-device-builder",
+            str(tmp_path),
+            "--remote-build-only",
+            "--allow-pairing-source",
+            "not-an-ip",
+        ],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main_module.main()
+    assert excinfo.value.code == 2
+
+
+def test_validate_mode_flags_accepts_valid_allowlist() -> None:
+    """A valid IP allowlist with --remote-build-only passes validation.
+
+    The trailing empty segment exercises the blank-entry skip.
+    """
+    parser = argparse.ArgumentParser()
+    args = SimpleNamespace(
+        remote_build_only=True,
+        ha_addon=False,
+        configuration="/var/lib/esphome-builder",
+        allow_pairing_source="192.168.1.5, ::1, ",
+        allow_any_pairing_source=False,
+    )
+    main_module._validate_mode_flags(parser, args)  # does not raise
+
+
+def test_main_requires_pairing_source_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--remote-build-only with neither pairing-source flag is refused."""
+    monkeypatch.setattr(
+        sys, "argv", ["esphome-device-builder", str(tmp_path), "--remote-build-only"]
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main_module.main()
+    assert excinfo.value.code == 2
+
+
+def test_main_rejects_both_pairing_source_flags(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The restrict and accept-any choices are mutually exclusive."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "esphome-device-builder",
+            str(tmp_path),
+            "--remote-build-only",
+            "--allow-pairing-source",
+            "192.168.1.5",
+            "--allow-any-pairing-source",
+        ],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main_module.main()
+    assert excinfo.value.code == 2
+
+
+def test_main_rejects_allow_any_without_remote_build_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--allow-any-pairing-source is meaningless outside headless mode."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["esphome-device-builder", str(tmp_path), "--allow-any-pairing-source"],
+    )
+    with pytest.raises(SystemExit) as excinfo:
+        main_module.main()
+    assert excinfo.value.code == 2
+
+
+def test_validate_mode_flags_accepts_allow_any() -> None:
+    """--remote-build-only + --allow-any-pairing-source passes validation."""
+    parser = argparse.ArgumentParser()
+    args = SimpleNamespace(
+        remote_build_only=True,
+        ha_addon=False,
+        configuration="/var/lib/esphome-builder",
+        allow_pairing_source="",
+        allow_any_pairing_source=True,
+    )
+    main_module._validate_mode_flags(parser, args)  # does not raise
 
 
 def test_run_branches_into_headless_runner(make_settings: MakeSettingsFactory) -> None:

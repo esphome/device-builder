@@ -343,6 +343,10 @@ def make_remote_build_controller(
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    # Empty allowlist = trust-on-first-use (the default); a bare
+    # MagicMock here would be truthy and break the ``pair_flow``
+    # source guard's "no allowlist configured" branch.
+    db.settings.allow_pairing_sources = []
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     db.create_background_task = asyncio.create_task
     _idle = QueueStatus(idle=True, running=False, queue_depth=0)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import time
 from dataclasses import dataclass
@@ -96,7 +97,7 @@ async def record_pair_request(
         return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
 
     if controller.state.auto_approve_first_pair and not controller.state.approved_peers:
-        return await _auto_approve_pair_request(
+        return await _auto_approve_or_refuse(
             controller,
             dashboard_id=dashboard_id,
             pin_sha256=pin_sha256,
@@ -234,6 +235,62 @@ def fire_pair_status_changed(
     controller._db.bus.fire(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, payload)
 
 
+async def _auto_approve_or_refuse(
+    controller: ReceiverController,
+    *,
+    dashboard_id: str,
+    pin_sha256: str,
+    static_x25519_pub: bytes,
+    label: str,
+    peer_ip: str,
+) -> IntentOutcome:
+    """
+    First-pair window is armed: auto-approve *peer_ip*, or refuse it.
+
+    Honours ``--allow-pairing-source``. A source that isn't on the
+    allowlist is refused WITHOUT disarming — the window stays armed so
+    the intended builder can still pair — and gets the same
+    ``NO_PAIRING_WINDOW`` a closed window returns, leaking nothing
+    about the filter.
+    """
+    if _pairing_source_allowed(controller, peer_ip):
+        return await _auto_approve_pair_request(
+            controller,
+            dashboard_id=dashboard_id,
+            pin_sha256=pin_sha256,
+            static_x25519_pub=static_x25519_pub,
+            label=label,
+            peer_ip=peer_ip,
+        )
+    _LOGGER.warning(
+        "Refused auto-pair from %s (dashboard_id=%s): source not in "
+        "--allow-pairing-source allowlist %s",
+        peer_ip,
+        dashboard_id,
+        controller._db.settings.allow_pairing_sources,
+    )
+    return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
+
+
+def _pairing_source_allowed(controller: ReceiverController, peer_ip: str) -> bool:
+    """
+    Whether *peer_ip* may use the first-pair auto-approve window.
+
+    ``True`` when no ``--allow-pairing-source`` allowlist is
+    configured (trust-on-first-use, the default). When one is set,
+    ``True`` only if *peer_ip* normalises to a listed address; an
+    unparseable ``peer_ip`` never matches.
+    """
+    allowlist = controller._db.settings.allow_pairing_sources
+    if not allowlist:
+        return True
+    try:
+        normalized = str(ipaddress.ip_address(peer_ip))
+    except ValueError:
+        return False
+    return normalized in allowlist
+
+
 async def _auto_approve_pair_request(
     controller: ReceiverController,
     *,
@@ -246,12 +303,13 @@ async def _auto_approve_pair_request(
     """
     First-pair bootstrap: approve the request without the inbox dance.
 
-    Disarms the one-shot flag *before* the store flush so a second
-    request arriving during the await can't also auto-approve. The
-    flush is awaited (not debounced) — this write is the mode's
-    single trust-establishing state; losing it to a crash inside a
-    debounce window would strand an offloader that believes it's
-    APPROVED.
+    Trust-on-first-use — a documented accepted risk (see
+    docs/THREAT_MODEL.md "Out of scope"). Disarms the one-shot flag
+    *before* the store flush so a second request arriving during the
+    await can't also auto-approve. The flush is awaited (not
+    debounced) — this write is the mode's single trust-establishing
+    state; losing it to a crash inside a debounce window would
+    strand an offloader that believes it's APPROVED.
     """
     controller.state.auto_approve_first_pair = False
     peer = StoredPeer(

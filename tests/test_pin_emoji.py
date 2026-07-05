@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import re
-import urllib.error
-import urllib.request
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -16,17 +16,31 @@ from esphome_device_builder.helpers.pin_emoji import (
     pin_emoji_slots,
 )
 
-_FRONTEND_PIN_EMOJI_URL = (
-    "https://raw.githubusercontent.com/esphome/device-builder-frontend/main/src/util/pin-emoji.ts"
-)
+# The built frontend bundle emits the SAS table minified as a run of
+# ``{emoji:"🐶",name:"Dog"}`` object literals (emoji as literal
+# glyphs, not ``\u{...}`` escapes). Extract them in order to compare
+# against the backend port.
+_BUNDLE_ENTRY_RE = re.compile(r'\{emoji:"([^"]+)",name:"([^"]+)"\}')
 
-_TS_ENTRY_RE = re.compile(r'\{\s*emoji:\s*"((?:\\u\{[0-9A-Fa-f]+\})+)",\s*name:\s*"([^"]+)"\s*\}')
-_TS_ESCAPE_RE = re.compile(r"\\u\{([0-9A-Fa-f]+)\}")
 
+def _frontend_sas_table() -> tuple[tuple[str, str], ...] | None:
+    """Extract the SAS ``(emoji, name)`` table from the installed frontend wheel.
 
-def _decode_ts_string(escaped: str) -> str:
-    r"""Decode a TS ``\u{XXXX}`` escape sequence into the literal string."""
-    return _TS_ESCAPE_RE.sub(lambda m: chr(int(m.group(1), 16)), escaped)
+    Returns ``None`` when the ``esphome-device-builder-frontend``
+    package isn't installed (API-only deployments) — the caller
+    skips rather than fails.
+    """
+    try:
+        import esphome_device_builder_frontend as frontend  # noqa: PLC0415
+    except ImportError:
+        return None
+    # ``app.<contenthash>.js`` carries the app code; the hash changes
+    # every build, so glob rather than hardcode.
+    app_bundles = sorted(Path(frontend.where()).glob("app.*.js"))
+    if not app_bundles:
+        return None
+    source = app_bundles[0].read_text(encoding="utf-8")
+    return tuple(_BUNDLE_ENTRY_RE.findall(source))
 
 
 def test_table_matches_matrix_sas_shape() -> None:
@@ -74,7 +88,7 @@ def test_uses_leading_42_bits_only() -> None:
     """Only the first 11 nibbles (44 bits, top 42 used) select emoji."""
     base = "00" * 32
     tail_differs = "00000000000" + "f" * 53
-    assert pin_emoji_slots(base) == [SAS_EMOJI[0]] * PIN_EMOJI_COUNT
+    assert pin_emoji_slots(base) == (SAS_EMOJI[0],) * PIN_EMOJI_COUNT
     assert pin_emoji(base) == pin_emoji(tail_differs)
 
 
@@ -83,34 +97,38 @@ def test_first_chunk_change_changes_output() -> None:
     assert pin_emoji("00" * 32) != pin_emoji("04" + "00" * 31)
 
 
-def test_frontend_main_branch_table_matches_backend() -> None:
+def test_frontend_bundle_table_matches_backend() -> None:
     """
-    Cross-repo drift tripwire: the backend port must match the frontend's ``main``.
+    Drift tripwire: the backend port must match the shipped frontend bundle.
 
-    Fetches ``src/util/pin-emoji.ts`` from the frontend repo's main
-    branch and compares its SAS table (codepoints + names), default
-    emoji count, and 6-bit-chunking markers against this port. A
-    frontend change here is allowed — but this failure means the
-    backend must be re-synced before the next release, or the CLI
-    banner and pair dialog stop rendering the same fingerprint.
-    Skips (rather than fails) when GitHub is unreachable so offline
-    runs don't flake; CI provides the enforcement.
+    Reads the SAS ``(emoji, name)`` table out of the built
+    ``esphome-device-builder-frontend`` wheel (the exact artifact the
+    user's browser runs, pinned in this release — no network) and
+    compares it, in order, against the backend port. A frontend
+    change here is allowed, but this failure means the backend must
+    be re-synced before the next release, or the CLI banner and the
+    pair dialog stop rendering the same fingerprint for a given pin.
+
+    Skips only when the frontend package isn't installed (API-only
+    deployments); otherwise it always runs — no network, no flake.
     """
-    try:
-        with urllib.request.urlopen(_FRONTEND_PIN_EMOJI_URL, timeout=15) as response:
-            source = response.read().decode("utf-8")
-    except (urllib.error.URLError, TimeoutError) as exc:
-        pytest.skip(f"frontend repo unreachable: {exc}")
+    table = _frontend_sas_table()
+    if table is None:
+        pytest.skip("esphome-device-builder-frontend not installed")
+    assert len(table) == 64, "frontend SAS table changed size; re-sync the backend port"
+    assert table == SAS_EMOJI
 
-    entries = [(_decode_ts_string(emoji), name) for emoji, name in _TS_ENTRY_RE.findall(source)]
-    assert tuple(entries) == SAS_EMOJI
 
-    count_match = re.search(r"pinSha256ToEmojis\(pin: string, count = (\d+)\)", source)
-    assert count_match is not None, "frontend changed pinSha256ToEmojis's signature; re-sync"
-    assert int(count_match.group(1)) == PIN_EMOJI_COUNT
+def test_frontend_sas_table_none_when_package_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API-only installs (no frontend wheel) yield ``None`` so the tripwire skips."""
+    monkeypatch.setitem(sys.modules, "esphome_device_builder_frontend", None)
+    assert _frontend_sas_table() is None
 
-    # Algorithm markers: the nibble-fed 6-bit chunker. If these lines
-    # change, the indexing may have too — re-verify the port against
-    # the new TS (see the node cross-check in the PR that added this).
-    assert "bits = (bits << 4) | nibble;" in source
-    assert "& 0x3f;" in source
+
+def test_frontend_sas_table_none_when_no_bundle(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A frontend dir with no ``app.*.js`` (broken/partial wheel) yields ``None``."""
+    frontend = pytest.importorskip("esphome_device_builder_frontend")
+    monkeypatch.setattr(frontend, "where", lambda: str(tmp_path))
+    assert _frontend_sas_table() is None

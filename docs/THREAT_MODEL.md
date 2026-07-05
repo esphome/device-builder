@@ -147,6 +147,33 @@ These are explicitly *not* threats the dashboard defends against:
   authenticated client.** They can already crash their own
   dashboard; reliability is a quality bar, not a security
   boundary.
+- **A LAN attacker winning the `--remote-build-only` first-pair
+  window.** The headless build server's bootstrap auto-approves the
+  first `pair_request` that arrives inside its operator-initiated,
+  single-use, 5-minute pairing window — Bluetooth-style
+  trust-on-first-use, and only when the operator explicitly chose
+  `--allow-any-pairing-source` (the mode refuses to start without
+  either that flag or `--allow-pairing-source`, so this posture is
+  never a silent default). An attacker who races the window can become
+  the server's one approved peer without OOB confirmation; that
+  peer can then submit build jobs (arbitrary code execution on the
+  build server, as any approved peer has). Accepted because the
+  exposure is narrow and the failure is loud: the window exists
+  only in the moments after the operator deliberately started the
+  process (they are watching the console), it closes permanently on
+  the first pairing, the legitimate operator's own pair attempt
+  then fails with a pin mismatch — so a hijacked window is
+  *detected*, not silent — the auto-approved peer's label, IP, and
+  pin are logged at INFO, and recovery is deleting
+  `.receiver_peers.json` and re-running. An operator who knows the
+  main builder's address closes the vector entirely with
+  `--allow-pairing-source <IP>` — the bootstrap then auto-approves
+  only a request from that address and refuses every other LAN peer
+  (as a closed window, leaking nothing). What we still defend: the
+  auto-approve is one-shot, never fires while an APPROVED peer
+  exists, honours the source allowlist when set, and no UI or WS
+  surface can re-open the window in this mode — a regression on any
+  of those *is* a security bug.
 - **An operator who deliberately opened the front door.** On the HA
   add-on, enabling "Disable external authentication"
   (`leave_front_door_open`) *and* mapping port 6052 binds the public
