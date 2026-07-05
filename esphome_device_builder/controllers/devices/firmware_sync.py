@@ -15,7 +15,7 @@ from ...helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
 from ...helpers.storage_path import resolve_storage_path
-from ...models import JobLifecycleData, JobStatus, JobType
+from ...models import COMPILING_JOB_TYPES, JobLifecycleData, JobStatus, JobType
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -80,7 +80,7 @@ def on_job_completed(controller: DevicesController, event: Event[JobLifecycleDat
         return
     if job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL):
         return
-    recompute_hash = job_type in (JobType.COMPILE, JobType.INSTALL)
+    recompute_hash = job_type in COMPILING_JOB_TYPES
     flashed = job_type in (JobType.UPLOAD, JobType.INSTALL)
     # Routed through the controller's bound delegate so tests
     # that monkeypatch ``_refresh_after_firmware_job`` on the

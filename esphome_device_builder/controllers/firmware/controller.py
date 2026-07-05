@@ -27,6 +27,7 @@ from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.device_yaml import configuration_filename
 from ...helpers.event_bus import Event
 from ...models import (
+    COMPILING_JOB_TYPES,
     LOCAL_JOB_BUILD_SOURCE,
     OTA_PORT,
     DeviceState,
@@ -649,7 +650,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return self.state.esphome_cmd
         receiver = self._db.remote_build_receiver
         provisioner = receiver.state.env_provisioner if receiver is not None else None
-        if job.job_type in (JobType.COMPILE, JobType.INSTALL):
+        if job.job_type in COMPILING_JOB_TYPES:
             if provisioner is None:
                 raise EnvProvisionError(
                     f"no provisioner available to build esphome {version} "

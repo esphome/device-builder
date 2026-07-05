@@ -65,6 +65,12 @@ class JobType(StrEnum):
     RENAME = "rename"
 
 
+# Job types that compile firmware from source (INSTALL is a fused compile +
+# flash; UPLOAD only flashes an existing binary), so the config hash changes
+# and a version-mismatched remote build must provision the offloader's esphome.
+COMPILING_JOB_TYPES: frozenset[JobType] = frozenset({JobType.COMPILE, JobType.INSTALL})
+
+
 class JobSource(StrEnum):
     """
     Where a :class:`FirmwareJob`'s bytes come from.
