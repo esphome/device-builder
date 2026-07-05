@@ -45,6 +45,7 @@ from ...helpers.subprocess import iter_lines_with_progress
 from ...models import (
     EventType,
     FirmwareJob,
+    JobFailureReason,
     JobStatus,
     JobType,
     OffloaderJobOutputData,
@@ -83,6 +84,16 @@ class RemoteServerLostError(Exception):
     Raised by :func:`run_remote_job` only when ``retry_on_server_loss``
     is set (the dispatch pool) so the job re-routes to another worker
     instead of failing. The message is the close reason text.
+    """
+
+
+class ProvisionUnavailableError(Exception):
+    """The receiver couldn't provision the offloader's esphome version.
+
+    Raised by :func:`run_remote_job` only when ``retry_on_server_loss`` is set
+    (the dispatch pool), on a ``failed`` terminal tagged
+    :attr:`JobFailureReason.PROVISION`, so the compile re-routes to a LOCAL
+    build instead of failing. The message is the receiver's error text.
     """
 
 
@@ -389,6 +400,29 @@ async def _finalise_after_receiver_completed(
     await _fetch_and_run_local_upload(controller=controller, job=job, client=client)
 
 
+def _handle_failed_terminal(
+    controller: FirmwareController,
+    job: FirmwareJob,
+    data: OffloaderJobStateChangedData,
+    *,
+    retry_on_server_loss: bool,
+) -> None:
+    """Finalise a ``failed`` terminal — re-route a provision failure, else fail locally.
+
+    A ``PROVISION`` failure (receiver couldn't provision our esphome — transient
+    PyPI / network, or receiver stopping) raises in the dispatch pool so the
+    compile re-routes to a LOCAL build; anything else finalises FAILED with the
+    receiver's message.
+    """
+    if data["failure_reason"] == JobFailureReason.PROVISION and retry_on_server_loss:
+        raise ProvisionUnavailableError(
+            data["error_message"] or "receiver could not provision esphome"
+        )
+    # Receiver-supplied error text rides into job.error; an empty error_message
+    # (older receiver, internal bug) falls back so subscribers see a reason.
+    _fail_locally(controller, job, reason=data["error_message"] or "compile failed")
+
+
 async def _await_terminal(
     *,
     controller: FirmwareController,
@@ -510,10 +544,7 @@ async def _await_terminal(
         controller._finalize_cancelled(job)
         return None
     if status == "failed":
-        # Receiver-supplied error text rides into job.error; an
-        # empty error_message (older receiver, internal bug)
-        # falls back so subscribers always see a non-empty reason.
-        _fail_locally(controller, job, reason=data["error_message"] or "compile failed")
+        _handle_failed_terminal(controller, job, data, retry_on_server_loss=retry_on_server_loss)
         return None
     # ``completed`` — the only status the caller must act on.
     # Don't finalise here; the caller owes a local flash step

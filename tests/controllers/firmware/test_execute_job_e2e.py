@@ -33,6 +33,7 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -47,7 +48,8 @@ from esphome_device_builder.controllers.firmware.constants import (
     _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
 )
-from esphome_device_builder.models import EventType, JobStatus
+from esphome_device_builder.controllers.remote_build.env_provisioner import EnvProvisionError
+from esphome_device_builder.models import EventType, JobFailureReason, JobStatus
 from tests.controllers.firmware.conftest import (
     run_until_terminal as _run_until_terminal,
 )
@@ -74,6 +76,28 @@ def _fake_esphome(controller: FirmwareController, script: str) -> None:
     shape the test wants to exercise.
     """
     controller.state.esphome_cmd = [sys.executable, "-c", script]
+
+
+async def test_provision_failure_marks_job_failed_with_reason(
+    firmware_controller_factory: FirmwareControllerFactory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A receiver-side provision failure fails the job tagged PROVISION for the offloader."""
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _seed_yaml(tmp_path)
+    monkeypatch.setattr(
+        controller,
+        "_resolve_esphome_cmd",
+        AsyncMock(side_effect=EnvProvisionError("failed to install esphome==2026.5.0")),
+    )
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    await _run_until_terminal(controller)
+
+    assert job.status == JobStatus.FAILED
+    assert job.failure_reason is JobFailureReason.PROVISION
 
 
 def _seed_yaml(tmp_path: Path, name: str = "kitchen.yaml") -> None:

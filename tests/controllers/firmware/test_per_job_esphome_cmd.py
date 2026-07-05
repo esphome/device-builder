@@ -134,16 +134,33 @@ async def test_resolve_esphome_cmd_installed_target_uses_installed(
     provisioner.provision.assert_not_awaited()
 
 
-async def test_resolve_esphome_cmd_no_receiver_uses_installed(
+async def test_resolve_esphome_cmd_compile_no_provisioner_raises(
     bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> None:
-    """A pure offloader (no receiver controller) compiles with its installed esphome."""
+    """A mismatched COMPILE with no reachable provisioner fails loud, never installed.
+
+    Guards the shutdown-race hole: a remote COMPILE draining while ``stop()`` nulled
+    the provisioner must not silently build with the wrong version.
+    """
     controller = bare_firmware_controller_factory(
         esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
     )
     controller._db.remote_build_receiver = None
 
-    assert await controller._resolve_esphome_cmd(_remote_job("2026.5.0")) == [
+    with pytest.raises(EnvProvisionError):
+        await controller._resolve_esphome_cmd(_remote_job("2026.5.0"))
+
+
+async def test_resolve_esphome_cmd_clean_no_provisioner_uses_installed(
+    bare_firmware_controller_factory: BareFirmwareControllerFactory,
+) -> None:
+    """A CLEAN with no provisioner is version-insensitive, so the installed esphome is fine."""
+    controller = bare_firmware_controller_factory(
+        esphome_cmd=["installed", "-m", "esphome"], with_mock_db=True
+    )
+    controller._db.remote_build_receiver = None
+
+    assert await controller._resolve_esphome_cmd(_clean_job("2026.5.0")) == [
         "installed",
         "-m",
         "esphome",

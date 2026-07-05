@@ -18,6 +18,7 @@ from ....models import (
     ArtifactsEndFrameData,
     ArtifactsStartFrameData,
     EventType,
+    JobFailureReason,
     JobOutputFrameData,
     JobStateChangedFrameData,
     OffloaderJobOutputData,
@@ -45,6 +46,16 @@ _LOGGER = logging.getLogger(__name__)
 _SUBMIT_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 _JOB_STATE_CHANGED_SCHEMA = frame_schema({"job_id": str, "status": str, "error_message": str})
+
+# Known ``failure_reason`` values; a peer-supplied value outside this set
+# coerces to ``""`` (treated as an ordinary failure the offloader surfaces).
+_VALID_FAILURE_REASONS = frozenset(reason.value for reason in JobFailureReason)
+
+
+def _coerce_failure_reason(value: object) -> str:
+    """Coerce the peer-supplied ``failure_reason`` to a known value, else ``""``."""
+    return value if isinstance(value, str) and value in _VALID_FAILURE_REASONS else ""
+
 
 _JOB_OUTPUT_SCHEMA = frame_schema({"job_id": str, "stream": str, "line": str})
 
@@ -171,6 +182,7 @@ def dispatch_job_state_changed(client: PeerLinkClient, parsed: dict[str, Any]) -
         "job_id": wire["job_id"],
         "status": wire["status"],
         "error_message": wire["error_message"],
+        "failure_reason": _coerce_failure_reason(parsed.get("failure_reason")),
     }
     client._bus.fire(EventType.OFFLOADER_JOB_STATE_CHANGED, payload)
 

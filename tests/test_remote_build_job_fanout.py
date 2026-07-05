@@ -27,6 +27,7 @@ from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
+    JobFailureReason,
     JobStatus,
     JobType,
 )
@@ -164,6 +165,28 @@ async def test_failed_event_carries_error_message() -> None:
     frame = session.send_app_frame.call_args.args[0]
     assert frame["status"] == "failed"
     assert frame["error_message"] == "compile failed: bad pin"
+    assert "failure_reason" not in frame  # ordinary failure carries no category
+
+
+async def test_failed_event_carries_provision_failure_reason() -> None:
+    """A provision failure stamps ``failure_reason`` so the offloader rebuilds locally."""
+    bus = EventBus()
+    session = _make_session()
+    controller = _make_controller(bus=bus, sessions={"alpha": session})
+    fanout = JobFanout(controller)
+    fanout.start()
+    job = _make_remote_job(status=JobStatus.FAILED, error="failed to install esphome")
+    job.failure_reason = JobFailureReason.PROVISION
+    _seed_via_queued(bus, job)
+    await _drain_background(controller)
+    session.send_app_frame.reset_mock()
+
+    bus.fire(EventType.JOB_FAILED, {"job": job})
+    await _drain_background(controller)
+
+    frame = session.send_app_frame.call_args.args[0]
+    assert frame["status"] == "failed"
+    assert frame["failure_reason"] == "provision"
 
 
 async def test_local_job_does_not_fan_out() -> None:

@@ -33,7 +33,7 @@ from ...models import (
 )
 from . import lifecycle
 from .helpers import _ingest_output_line
-from .remote_runner import RemoteServerLostError, run_remote_job
+from .remote_runner import ProvisionUnavailableError, RemoteServerLostError, run_remote_job
 
 if TYPE_CHECKING:
     from ...helpers.build_scheduler import BuildSchedulerInputs
@@ -213,6 +213,8 @@ async def _drive_remote(controller: FirmwareController, job: FirmwareJob) -> Non
         await run_remote_job(controller, job, retry_on_server_loss=True)
     except RemoteServerLostError as lost:
         _requeue_after_server_loss(controller, job, str(lost))
+    except ProvisionUnavailableError as unprovisionable:
+        _requeue_after_provision_failure(controller, job, str(unprovisionable))
     except asyncio.CancelledError:
         # run_remote_job already finalised CANCELLED on its way out; just unwind.
         raise
@@ -245,6 +247,30 @@ def _requeue_after_server_loss(
     )
     _return_to_pool(controller, job)
     _LOGGER.info("Remote compile %s: server lost, re-routing (attempt %d)", job.job_id, attempt)
+
+
+def _requeue_after_provision_failure(
+    controller: FirmwareController, job: FirmwareJob, reason: str
+) -> None:
+    """Re-route to a LOCAL build a compile the receiver couldn't provision esphome for.
+
+    One-way REMOTE→LOCAL: the dispatch loop only ever picks ``REMOTE_PENDING``
+    jobs, so a LOCAL job never returns here — no retry cap needed (unlike a
+    server loss, which re-routes REMOTE→REMOTE). Logged both to the job's output
+    stream (visible in the dialog) and the server log.
+    """
+    _ingest_output_line(
+        job,
+        controller.bus,
+        f"\n*** receiver couldn't provision esphome ({reason}); building locally instead ***\n",
+    )
+    job.clear_run_state()
+    _fallback_to_local(controller, job)
+    _LOGGER.warning(
+        "Remote compile %s: receiver couldn't provision esphome (%s); building locally",
+        job.job_id,
+        reason,
+    )
 
 
 def _return_to_pool(controller: FirmwareController, job: FirmwareJob) -> None:

@@ -9,10 +9,12 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from ...controllers.remote_build.env_provisioner import EnvProvisionError
 from ...helpers.async_ import run_in_executor
 from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
 from ...models import (
     FirmwareJob,
+    JobFailureReason,
     JobSource,
     JobStatus,
     JobType,
@@ -259,6 +261,12 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
         controller._finalize_cancelled(job)
         _LOGGER.info("Job %s cancelled (runner shutdown)", job.job_id)
         raise
+    except EnvProvisionError as exc:
+        # The receiver couldn't provision the offloader's esphome. Categorize it
+        # so the offloader rebuilds locally instead of surfacing a hard failure;
+        # still logged + finalized like any failure (``job.error`` gets the text).
+        job.failure_reason = JobFailureReason.PROVISION
+        lifecycle.finalize_unexpected_error(controller, job, exc)
     except Exception as exc:  # noqa: BLE001 — terminality guarantee; helper logs + finalizes
         # Cancel intent wins over the raise — e.g. ``_verify_chip``'s early-cancel
         # path raises ``ValueError`` to short-circuit the install, which is a

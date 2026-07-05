@@ -90,18 +90,27 @@ class JobStateChangedFrameData(TypedDict):
     """
     Application-frame payload for ``AppMessageType.JOB_STATE_CHANGED``.
 
-    Receiver-pushed lifecycle transitions. ``error_message`` is
-    empty on non-terminal states and on ``completed``; populated
-    on ``failed`` / ``cancelled`` with a short human-readable
-    string. Detailed build output flows separately through
-    ``job_output`` so the offloader can render the streaming
-    view without parsing the terminal frame.
+    Receiver-pushed lifecycle transitions. Two distinct terminal
+    fields, deliberately separate — one for humans, one for the
+    dispatcher:
+
+    * ``error_message`` — the HUMAN-readable one-line reason, empty
+      on non-terminal states and on ``completed``, populated on
+      ``failed`` / ``cancelled`` for the operator to read. Detailed
+      build output flows separately through ``job_output``.
+    * ``failure_reason`` — the MACHINE-readable category
+      (:class:`JobFailureReason` value; ``NotRequired``, older
+      receivers omit it → ``""``). ``"provision"`` means this
+      ``failed`` terminal was because the receiver couldn't provision
+      the esphome, so the offloader rebuilds locally; ``""`` / absent
+      is an ordinary failure the offloader surfaces as-is.
     """
 
     type: Literal["job_state_changed"]
     job_id: str
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     error_message: str
+    failure_reason: NotRequired[str]
 
 
 class JobOutputFrameData(TypedDict):

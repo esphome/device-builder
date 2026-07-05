@@ -47,6 +47,7 @@ from ...helpers.event_bus import Event
 from ...models import (
     TERMINAL_JOB_EVENTS,
     EventType,
+    JobFailureReason,
     JobLifecycleData,
     JobOutputData,
     JobOutputFrameData,
@@ -196,6 +197,7 @@ class JobFanout:
             remote_job_id=job.remote_job_id,
             status="queued",
             error_message="",
+            failure_reason=JobFailureReason.NONE,
             log_label=event.event_type.value,
             log_job_id=job.job_id,
         )
@@ -231,11 +233,15 @@ class JobFanout:
         # ``failed`` / ``cancelled`` so the offloader has a
         # one-liner to surface without parsing the full output.
         error_message = job.error if status in {"failed", "cancelled"} and job.error else ""
+        # Machine category (e.g. ``"provision"``) lets the offloader treat a
+        # receiver-side provision failure as retryable and rebuild locally.
+        failure_reason = job.failure_reason if status == "failed" else JobFailureReason.NONE
         self._dispatch_state_changed(
             remote_peer=remote_peer,
             remote_job_id=remote_job_id,
             status=status,
             error_message=error_message,
+            failure_reason=failure_reason,
             log_label=event.event_type.value,
             log_job_id=job.job_id,
         )
@@ -247,6 +253,7 @@ class JobFanout:
         remote_job_id: str,
         status: _JobStatusLiteral,
         error_message: str,
+        failure_reason: JobFailureReason,
         log_label: str,
         log_job_id: str,
     ) -> None:
@@ -260,15 +267,15 @@ class JobFanout:
                 log_job_id,
             )
             return
-        self._dispatch(
-            session,
-            JobStateChangedFrameData(
-                type="job_state_changed",
-                job_id=remote_job_id,
-                status=status,
-                error_message=error_message,
-            ),
+        frame = JobStateChangedFrameData(
+            type="job_state_changed",
+            job_id=remote_job_id,
+            status=status,
+            error_message=error_message,
         )
+        if failure_reason is not JobFailureReason.NONE:
+            frame["failure_reason"] = failure_reason.value
+        self._dispatch(session, frame)
 
     def _on_output(self, event: Event[JobOutputData]) -> None:
         """Forward one output line to the submitting session, best-effort.

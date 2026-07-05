@@ -19,7 +19,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import remote_dispatch, runner
-from esphome_device_builder.controllers.firmware.remote_runner import RemoteServerLostError
+from esphome_device_builder.controllers.firmware.remote_runner import (
+    ProvisionUnavailableError,
+    RemoteServerLostError,
+)
 from esphome_device_builder.helpers.async_ import create_eager_task
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
@@ -944,6 +947,38 @@ async def test_server_lost_mid_build_reroutes_to_another_worker(
     assert pool.retries["c1"] == 1
     # A re-route is not a restart: the log must not claim the dashboard restarted.
     assert not any("restarted mid-build" in line for line in job.output)
+
+
+async def test_provision_failure_falls_back_to_local(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A receiver that can't provision our esphome → the compile re-routes to LOCAL."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    job = FirmwareJob(
+        job_id="c1",
+        configuration="dev.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN_A,
+    )
+    controller.state.jobs["c1"] = job
+    controller.state.remote_dispatch.in_flight["c1"] = MagicMock()
+    controller.state.remote_dispatch.job_peer["c1"] = _PIN_A
+
+    async def _cant_provision(_ctrl: object, _job: FirmwareJob, **_kw: object) -> None:
+        raise ProvisionUnavailableError("failed to install esphome==2026.5.0")
+
+    monkeypatch.setattr(remote_dispatch, "run_remote_job", _cant_provision)
+
+    await remote_dispatch._drive_remote(controller, job)
+
+    # One-way flip to a LOCAL build (no retry counter — LOCAL never re-dispatches).
+    assert job.source is JobSource.LOCAL
+    assert "c1" not in controller.state.remote_dispatch.in_flight
+    assert "c1" not in controller.state.remote_dispatch.retries
+    assert any("building locally" in line for line in job.output)
 
 
 async def test_server_loss_retry_is_bounded(

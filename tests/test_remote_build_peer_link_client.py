@@ -4262,6 +4262,7 @@ async def test_run_session_loops_fires_offloader_job_state_changed_on_inbound_fr
         "job_id": "j-001",
         "status": "running",
         "error_message": "",
+        "failure_reason": "",
     }
 
 

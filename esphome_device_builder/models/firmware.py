@@ -89,6 +89,20 @@ class JobSource(StrEnum):
     REMOTE_PENDING = "remote_pending"
 
 
+class JobFailureReason(StrEnum):
+    """Machine-readable failure category set alongside a FAILED terminal.
+
+    Distinct from :attr:`FirmwareJob.error`, the human-readable message.
+    ``NONE`` is an ordinary failure (compile error, bad YAML, …) the offloader
+    surfaces as-is; ``PROVISION`` means a receiver couldn't provision the target
+    esphome, which the offloader treats as retryable and rebuilds locally. New
+    retryable-vs-terminal categories get their own member here.
+    """
+
+    NONE = ""
+    PROVISION = "provision"
+
+
 @dataclass(frozen=True, slots=True)
 class JobBuildSource:
     """Bundle of :class:`FirmwareJob` ``source_*`` dispatch-origin fields."""
@@ -284,6 +298,10 @@ class FirmwareJob(DashboardModel):
     # matching venv and compiles the job with it. Empty for
     # local jobs and older offloaders (compile with installed).
     target_esphome_version: str = ""
+    # Machine-readable failure category on a FAILED terminal (see
+    # :class:`JobFailureReason`), distinct from ``error`` (the human
+    # message). ``PROVISION`` tells the offloader to rebuild locally.
+    failure_reason: JobFailureReason = JobFailureReason.NONE
 
     @property
     def is_terminal(self) -> bool:
@@ -443,6 +461,7 @@ class FirmwareJob(DashboardModel):
         """
         self.progress = None
         self.error = None
+        self.failure_reason = JobFailureReason.NONE
         self.started_at = None
         self.completed_at = None
         self.exit_code = None

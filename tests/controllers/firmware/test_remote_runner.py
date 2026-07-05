@@ -194,6 +194,7 @@ def _fire_state(
     status: str,
     pin: str = _PIN,
     error_message: str = "",
+    failure_reason: str = "",
 ) -> None:
     controller._db.bus.fire(
         EventType.OFFLOADER_JOB_STATE_CHANGED,
@@ -204,6 +205,7 @@ def _fire_state(
             "job_id": job_id,
             "status": status,
             "error_message": error_message,
+            "failure_reason": failure_reason,
         },
     )
 
@@ -627,6 +629,56 @@ async def test_remote_compile_failed_status_fires_job_failed(
 
     assert job.status == JobStatus.FAILED
     assert job.error == "remote build: syntax error in YAML"
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_compile_provision_failure_raises_when_retryable(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """A ``failure_reason="provision"`` terminal raises ProvisionUnavailableError in the pool."""
+    controller = firmware_controller_factory(with_terminate=True)
+    _capture_local_events(controller)
+    _, client = _wire_remote_build(controller)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(
+        remote_runner.run_remote_job(controller, job, retry_on_server_loss=True)
+    )
+    await _wait_until_dispatched(client)
+    _fire_state(
+        controller,
+        job_id=job.job_id,
+        status="failed",
+        error_message="failed to install esphome==2026.5.0",
+        failure_reason="provision",
+    )
+    with pytest.raises(remote_runner.ProvisionUnavailableError):
+        await asyncio.wait_for(runner, timeout=2.0)
+
+
+async def test_remote_compile_provision_failure_fails_without_retry(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """Off the dispatch pool (no retry), a provision failure just fails the job."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    _, client = _wire_remote_build(controller)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_dispatched(client)
+    _fire_state(
+        controller,
+        job_id=job.job_id,
+        status="failed",
+        error_message="failed to install esphome",
+        failure_reason="provision",
+    )
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.const import __version__ as _installed_esphome_version
 
+from ...controllers.remote_build.env_provisioner import EnvProvisionError
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.device_yaml import configuration_filename
@@ -642,10 +643,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         * COMPILE / INSTALL provision + return that version's venv so the build
           matches what the offloader would have built locally. A failed provision
-          (non-release target, or venv/pip error) propagates so the job fails with
-          an actionable error instead of silently compiling with the wrong
-          version; there is no automatic LOCAL fallback, so the offloader surfaces
-          the receiver's failure to the operator.
+          (non-release target, venv/pip error, or no reachable provisioner because
+          the receiver is stopping) raises :class:`EnvProvisionError` so the job
+          fails instead of silently compiling with the wrong version; the receiver
+          tags the failure ``"provision"`` and the offloader rebuilds locally.
         * CLEAN uses that version's venv **only if already provisioned** (a newer
           ``esphome clean`` removes more, so a clean should match the build's
           esphome — but a clean is never worth a ``pip install``); otherwise the
@@ -657,12 +658,15 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if not version or version == _installed_esphome_version:
             return self.state.esphome_cmd
         receiver = self._db.remote_build_receiver
-        if receiver is None or receiver.state.env_provisioner is None:
-            return self.state.esphome_cmd
-        provisioner = receiver.state.env_provisioner
+        provisioner = receiver.state.env_provisioner if receiver is not None else None
         if job.job_type in (JobType.COMPILE, JobType.INSTALL):
+            if provisioner is None:
+                raise EnvProvisionError(
+                    f"no provisioner available to build esphome {version} "
+                    "(receiver stopping?); refusing to compile with the installed version"
+                )
             return await provisioner.provision(version)
-        if job.job_type is JobType.CLEAN:
+        if job.job_type is JobType.CLEAN and provisioner is not None:
             return await provisioner.cached_cmd(version) or self.state.esphome_cmd
         return self.state.esphome_cmd
 
