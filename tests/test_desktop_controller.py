@@ -110,6 +110,44 @@ async def test_check_update_unparseable_output_errors(
         await _controller().check_update()
 
 
+async def test_check_update_non_object_payload_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Valid JSON that isn't an object (array/scalar) is rejected.
+    _patch_capture(
+        monkeypatch,
+        CapturedSubprocess(returncode=0, stdout=b"[1, 2, 3]\n", timed_out=False),
+    )
+    with pytest.raises(CommandError):
+        await _controller().check_update()
+
+
+async def test_check_update_nonzero_exit_without_message_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Non-zero exit whose JSON line carries no `message`.
+    _patch_capture(
+        monkeypatch,
+        CapturedSubprocess(returncode=1, stdout=b'{"type":"err"}\n', timed_out=False),
+    )
+    with pytest.raises(CommandError) as exc:
+        await _controller().check_update()
+    assert "unrecognized error output" in exc.value.message
+
+
+async def test_check_update_nonzero_exit_without_output_detail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Non-zero exit with no output at all.
+    _patch_capture(
+        monkeypatch,
+        CapturedSubprocess(returncode=1, stdout=b"", timed_out=False),
+    )
+    with pytest.raises(CommandError) as exc:
+        await _controller().check_update()
+    assert "no diagnostic output" in exc.value.message
+
+
 async def test_update_spawns_detached(monkeypatch: pytest.MonkeyPatch) -> None:
     exec_mock = AsyncMock(return_value=MagicMock())
     monkeypatch.setattr(
