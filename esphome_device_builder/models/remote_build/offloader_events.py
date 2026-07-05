@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 from ...helpers.version_compat import VersionMatchPolicy
+from ..firmware import JobFailureReason
 
 
 class OffloaderPairStatusChangedData(TypedDict):
@@ -307,7 +308,7 @@ class OffloaderJobStateChangedData(TypedDict):
     job_id: str
     status: Literal["queued", "running", "completed", "failed", "cancelled"]
     error_message: str
-    failure_reason: str
+    failure_reason: JobFailureReason
 
 
 class OffloaderJobOutputData(TypedDict):

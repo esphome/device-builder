@@ -414,7 +414,7 @@ def _handle_failed_terminal(
     compile re-routes to a LOCAL build; anything else finalises FAILED with the
     receiver's message.
     """
-    if data["failure_reason"] == JobFailureReason.PROVISION and retry_on_server_loss:
+    if data["failure_reason"] is JobFailureReason.PROVISION and retry_on_server_loss:
         raise ProvisionUnavailableError(
             data["error_message"] or "receiver could not provision esphome"
         )

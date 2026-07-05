@@ -45,6 +45,7 @@ from esphome_device_builder.models import (
     ErrorCode,
     EventType,
     FirmwareJob,
+    JobFailureReason,
     JobSource,
     JobStatus,
     JobType,
@@ -194,7 +195,7 @@ def _fire_state(
     status: str,
     pin: str = _PIN,
     error_message: str = "",
-    failure_reason: str = "",
+    failure_reason: JobFailureReason = JobFailureReason.NONE,
 ) -> None:
     controller._db.bus.fire(
         EventType.OFFLOADER_JOB_STATE_CHANGED,
@@ -636,7 +637,7 @@ async def test_remote_compile_provision_failure_raises_when_retryable(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
 ) -> None:
-    """A ``failure_reason="provision"`` terminal raises ProvisionUnavailableError in the pool."""
+    """A ``PROVISION`` terminal raises ProvisionUnavailableError in the pool."""
     controller = firmware_controller_factory(with_terminate=True)
     _capture_local_events(controller)
     _, client = _wire_remote_build(controller)
@@ -651,7 +652,7 @@ async def test_remote_compile_provision_failure_raises_when_retryable(
         job_id=job.job_id,
         status="failed",
         error_message="failed to install esphome==2026.5.0",
-        failure_reason="provision",
+        failure_reason=JobFailureReason.PROVISION,
     )
     with pytest.raises(remote_runner.ProvisionUnavailableError):
         await asyncio.wait_for(runner, timeout=2.0)
@@ -674,7 +675,7 @@ async def test_remote_compile_provision_failure_fails_without_retry(
         job_id=job.job_id,
         status="failed",
         error_message="failed to install esphome",
-        failure_reason="provision",
+        failure_reason=JobFailureReason.PROVISION,
     )
     await asyncio.wait_for(runner, timeout=2.0)
 

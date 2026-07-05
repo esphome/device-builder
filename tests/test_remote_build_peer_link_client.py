@@ -95,6 +95,7 @@ from esphome_device_builder.models import (
     ErrorCode,
     EventType,
     IntentResponse,
+    JobFailureReason,
     OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
@@ -4262,8 +4263,52 @@ async def test_run_session_loops_fires_offloader_job_state_changed_on_inbound_fr
         "job_id": "j-001",
         "status": "running",
         "error_message": "",
-        "failure_reason": "",
+        "failure_reason": JobFailureReason.NONE,
     }
+
+
+async def test_run_session_loops_coerces_provision_failure_reason_to_enum_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``"provision"`` wire value parses to the ``JobFailureReason`` member, not a bare str.
+
+    The offloader compares it with ``is`` to re-route to a local build, so the
+    parse boundary must hand back the enum singleton.
+    """
+    bus = EventBus()
+    captured = capture_events(bus, EventType.OFFLOADER_JOB_STATE_CHANGED)
+    client = _make_offloader_client(bus)
+    frame = {
+        "type": "job_state_changed",
+        "job_id": "j-001",
+        "status": "failed",
+        "error_message": "failed to install esphome==2026.5.0",
+        "failure_reason": "provision",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        await asyncio.wait_for(captured.received.wait(), timeout=2.0)
+
+    assert captured[0]["failure_reason"] is JobFailureReason.PROVISION
+
+
+async def test_run_session_loops_coerces_unknown_failure_reason_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A peer-supplied value outside the enum coerces to ``NONE``, not passed through."""
+    bus = EventBus()
+    captured = capture_events(bus, EventType.OFFLOADER_JOB_STATE_CHANGED)
+    client = _make_offloader_client(bus)
+    frame = {
+        "type": "job_state_changed",
+        "job_id": "j-001",
+        "status": "failed",
+        "error_message": "boom",
+        "failure_reason": "not-a-real-reason",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        await asyncio.wait_for(captured.received.wait(), timeout=2.0)
+
+    assert captured[0]["failure_reason"] is JobFailureReason.NONE
 
 
 @pytest.mark.parametrize(

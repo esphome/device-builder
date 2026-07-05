@@ -47,14 +47,16 @@ _SUBMIT_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 _JOB_STATE_CHANGED_SCHEMA = frame_schema({"job_id": str, "status": str, "error_message": str})
 
-# Known ``failure_reason`` values; a peer-supplied value outside this set
-# coerces to ``""`` (treated as an ordinary failure the offloader surfaces).
-_VALID_FAILURE_REASONS = frozenset(reason.value for reason in JobFailureReason)
+# Known ``failure_reason`` wire values → enum; a peer-supplied value outside
+# this map coerces to ``NONE`` (an ordinary failure the offloader surfaces).
+_FAILURE_REASONS_BY_VALUE = {reason.value: reason for reason in JobFailureReason}
 
 
-def _coerce_failure_reason(value: object) -> str:
-    """Coerce the peer-supplied ``failure_reason`` to a known value, else ``""``."""
-    return value if isinstance(value, str) and value in _VALID_FAILURE_REASONS else ""
+def _coerce_failure_reason(value: object) -> JobFailureReason:
+    """Coerce the peer-supplied ``failure_reason`` to a known member, else ``NONE``."""
+    if isinstance(value, str):
+        return _FAILURE_REASONS_BY_VALUE.get(value, JobFailureReason.NONE)
+    return JobFailureReason.NONE
 
 
 _JOB_OUTPUT_SCHEMA = frame_schema({"job_id": str, "stream": str, "line": str})
