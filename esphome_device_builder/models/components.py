@@ -14,6 +14,7 @@ class IntegrationDocEntry(TypedDict):
 
     url: str
     name: str
+    description: str
 
 
 class ComponentCategory(StrEnum):

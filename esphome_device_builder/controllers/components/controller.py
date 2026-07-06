@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -45,6 +46,23 @@ if TYPE_CHECKING:
     from ...models import BoardCatalogEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_EMPHASIS_RE = re.compile(r"[*_`]")
+_FIRST_SENTENCE_RE = re.compile(r"(.{1,240}?\.)(?:\s|$)")
+
+
+def _summarize_description(text: str) -> str:
+    """First sentence of a catalog description, markdown flattened.
+
+    The full descriptions are markdown paragraphs; the logs popover wants
+    one plain-text sentence, and trimming here keeps the 900-entry map at
+    ~77 KiB instead of ~172 KiB.
+    """
+    flat = " ".join(_MD_EMPHASIS_RE.sub("", _MD_LINK_RE.sub(r"\1", text)).split())
+    match = _FIRST_SENTENCE_RE.match(flat)
+    return match.group(1) if match else flat[:240]
 
 
 def _installed_component_names() -> set[str]:
@@ -235,14 +253,17 @@ class ComponentCatalog:
         #      unambiguous answer, not the first one we happen to see.
         top_level: dict[str, IntegrationDocEntry] = {}
         category_urls: dict[str, IntegrationDocEntry] = {}
-        stem_candidates: dict[str, dict[str, str]] = {}
+        stem_candidates: dict[str, dict[str, tuple[str, str]]] = {}
         for comp in self._components:
             comp_id = comp.id
             docs = comp.docs_url
             if not comp_id or not docs:
                 continue
+            summary = _summarize_description(comp.description)
             if "." not in comp_id:
-                top_level[comp_id] = IntegrationDocEntry(url=docs, name=comp.name)
+                top_level[comp_id] = IntegrationDocEntry(
+                    url=docs, name=comp.name, description=summary
+                )
                 continue
             category, stem = comp_id.split(".", 1)
             # ESPHome's docs site serves a real index page at
@@ -257,19 +278,21 @@ class ComponentCatalog:
             if idx != -1:
                 category_urls.setdefault(
                     category,
-                    IntegrationDocEntry(url=docs[: idx + len(marker) - 1], name=category),
+                    IntegrationDocEntry(
+                        url=docs[: idx + len(marker) - 1], name=category, description=""
+                    ),
                 )
-            stem_candidates.setdefault(stem, {})[docs] = comp.name
+            stem_candidates.setdefault(stem, {})[docs] = (comp.name, summary)
 
         # Stems are unambiguous only when every category that owns the
         # stem agrees on the same docs URL. Multi-platform components
         # (``at581x``, ``rotary_encoder``) hit this path because they
         # share a single docs page across categories.
         stems: dict[str, IntegrationDocEntry] = {
-            stem: IntegrationDocEntry(url=url, name=name)
+            stem: IntegrationDocEntry(url=url, name=name, description=summary)
             for stem, urls in stem_candidates.items()
             if len(urls) == 1
-            for url, name in urls.items()
+            for url, (name, summary) in urls.items()
         }
 
         # ``dict.update()`` overwrites existing keys, so later writes
@@ -522,16 +545,23 @@ class ComponentCatalog:
         reversed aliases so an id-exact key beats another component's
         reversal. Undocumented internals then inherit their family's page.
         """
-        for comp in self._components:
-            if comp.id and comp.docs_url and "." in comp.id:
-                result.setdefault(comp.id, IntegrationDocEntry(url=comp.docs_url, name=comp.name))
-        for comp in self._components:
-            comp_id = comp.id
-            docs = comp.docs_url
-            if not comp_id or not docs or "." not in comp_id:
-                continue
+        qualified = [
+            (
+                comp.id,
+                IntegrationDocEntry(
+                    url=comp.docs_url,
+                    name=comp.name,
+                    description=_summarize_description(comp.description),
+                ),
+            )
+            for comp in self._components
+            if comp.id and comp.docs_url and "." in comp.id
+        ]
+        for comp_id, entry in qualified:
+            result.setdefault(comp_id, entry)
+        for comp_id, entry in qualified:
             category, stem = comp_id.split(".", 1)
-            result.setdefault(f"{stem}.{category}", IntegrationDocEntry(url=docs, name=comp.name))
+            result.setdefault(f"{stem}.{category}", entry)
 
         # Undocumented internal helpers (esp32_ble_client, web_server_base)
         # inherit the docs page of their longest documented name prefix.

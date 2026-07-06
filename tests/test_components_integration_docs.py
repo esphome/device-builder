@@ -174,6 +174,19 @@ async def test_entries_carry_display_names(catalog: ComponentCatalog) -> None:
     assert docs["esp32_ble_client"]["name"] == docs["esp32_ble"]["name"]
 
 
+async def test_entries_carry_trimmed_descriptions(catalog: ComponentCatalog) -> None:
+    """Entries carry the first sentence of the catalog description, markdown flattened."""
+    docs = await catalog.get_integration_docs()
+    assert (
+        docs["ethernet"]["description"]
+        == "This ESPHome component enables wired Ethernet connections for ESP32 and RP2040 boards."
+    )
+    # Category landings have no catalog entry, so no description.
+    assert docs["sensor"]["description"] == ""
+    # Trimming is a hard cap — no entry ships a full markdown paragraph.
+    assert all(len(entry["description"]) <= 242 for entry in docs.values())
+
+
 async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
     """Names without a catalog hit are simply absent from the map."""
     docs = await catalog.get_integration_docs()
