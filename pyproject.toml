@@ -26,6 +26,9 @@ dependencies = [
   # validate-result cache (content → cached subprocess result).
   "fnv-hash-fast>=2.0.0",
   "ifaddr>=0.2.0",
+  # Device-status ICMP sweep + DNS resolve. esphome dropped its own
+  # pin with the legacy dashboard (esphome/esphome#17124).
+  "icmplib>=3.0.4",
   "mashumaro>=3.13",
   "orjson>=3.9.0",
   "pyyaml>=6.0",

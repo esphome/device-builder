@@ -438,15 +438,6 @@ async def test_can_use_icmp_lib_with_privilege_returns_none_when_both_denied() -
     assert fake_ping.await_count == 2
 
 
-async def test_can_use_icmp_lib_with_privilege_returns_none_when_icmplib_missing() -> None:
-    """``icmp_ping`` is ``None`` (icmplib not installed) → probe returns ``None``."""
-    with patch(
-        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
-        None,
-    ):
-        assert await _can_use_icmp_lib_with_privilege() is None
-
-
 async def test_can_use_icmp_lib_with_privilege_returns_none_on_unexpected_oserror() -> None:
     """Non-permission ``OSError`` also degrades gracefully; the task doesn't die."""
     fake_ping = AsyncMock(side_effect=[OSError("EAFNOSUPPORT"), OSError("EAFNOSUPPORT")])
