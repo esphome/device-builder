@@ -249,7 +249,9 @@ async def test_scan_updated_passes_previous_device(tmp_path: Path) -> None:
         yaml_path.write_text("esphome:\n  name: kitchen\n# edit\n", encoding="utf-8")
         await scanner.scan()
 
-    assert [(kind, prev) for kind, _dev, prev in events] == [(ScanChange.UPDATED, first_device)]
+    assert [kind for kind, _dev, _prev in events] == [ScanChange.UPDATED]
+    # Identity, not equality — an equal rebuilt Device must not pass.
+    assert events[0][2] is first_device
 
 
 async def test_reload_passes_previous_device(tmp_path: Path) -> None:
@@ -270,7 +272,9 @@ async def test_reload_passes_previous_device(tmp_path: Path) -> None:
         events.clear()
         assert await scanner.reload("kitchen.yaml") is True
 
-    assert [(kind, prev) for kind, _dev, prev in events] == [(ScanChange.RELOADED, first_device)]
+    assert [kind for kind, _dev, _prev in events] == [ScanChange.RELOADED]
+    # Identity, not equality — an equal rebuilt Device must not pass.
+    assert events[0][2] is first_device
 
 
 async def test_scan_removed_passes_none_previous(tmp_path: Path) -> None:
