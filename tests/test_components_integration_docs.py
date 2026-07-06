@@ -120,15 +120,7 @@ async def test_ambiguous_stems_omitted(catalog: ComponentCatalog) -> None:
 
 
 async def test_qualified_log_tag_aliases(catalog: ComponentCatalog) -> None:
-    """Dotted platform log tags resolve in either order.
-
-    Platform code logs under a dotted tag whose order is inconsistent
-    upstream — ``esphome.ota`` / ``gpio.binary_sensor`` are
-    <stem>.<category> while ``switch.gpio`` is the catalog id itself —
-    so the map carries both orders of every qualified id. Without the
-    reversed alias, the logs UI linked ``esphome.ota`` lines to the core
-    ``esphome`` page instead of the OTA platform page.
-    """
+    """Both orders of every qualified id resolve (upstream tag order varies)."""
     docs = await catalog.get_integration_docs()
     assert docs["esphome.ota"]["url"].rstrip("/").endswith("/components/ota/esphome")
     assert docs["gpio.binary_sensor"]["url"].rstrip("/").endswith("/components/binary_sensor/gpio")
@@ -147,14 +139,7 @@ async def test_qualified_alias_does_not_shadow_bare_names(
 async def test_helper_alias_for_undocumented_internals(
     catalog: ComponentCatalog,
 ) -> None:
-    """Undocumented internals inherit their longest documented name prefix.
-
-    ``esp32_ble_client`` / ``web_server_base`` ship as components but have
-    no docs page; without the derived alias their log tags render as plain
-    text. The prefix must itself stay multi-word, so ``esp32_rmt`` (whose
-    only documented prefix is the one-word ``esp32``) stays omitted rather
-    than guessing.
-    """
+    """Undocumented internals inherit their longest documented multi-word prefix."""
     docs = await catalog.get_integration_docs()
     assert docs["esp32_ble_client"]["url"].rstrip("/").endswith("/components/esp32_ble")
     assert docs["web_server_base"]["url"].rstrip("/").endswith("/components/web_server")
@@ -162,12 +147,7 @@ async def test_helper_alias_for_undocumented_internals(
 
 
 async def test_entries_carry_display_names(catalog: ComponentCatalog) -> None:
-    """Every entry pairs the URL with the catalog display name.
-
-    The logs UI popover headline uses it (``ethernet`` → "Ethernet
-    Component"); category landings have no catalog entry so they fall
-    back to the bare key, and derived helpers inherit the family's name.
-    """
+    """Entries carry the catalog display name; landings fall back to the key."""
     docs = await catalog.get_integration_docs()
     assert docs["ethernet"]["name"] == "Ethernet Component"
     assert docs["sensor"]["name"] == "sensor"

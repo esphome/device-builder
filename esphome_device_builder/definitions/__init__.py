@@ -509,6 +509,9 @@ class PlatformCapabilities(NamedTuple):
     # download types are static (esp32 / esp8266 / rp2040). Build-dir-dependent
     # platforms (libretiny / nrf52) are absent and resolved via subprocess.
     download_types: dict[str, list[dict[str, str]]]
+    # Every shipped component directory name; drives the derived log-tag
+    # doc aliases for undocumented internals.
+    component_names: list[str]
 
 
 @cache
@@ -526,7 +529,7 @@ def load_platform_capabilities_index() -> PlatformCapabilities:
 
 def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
     """Parse a platform-capabilities index at *path*; empty on missing / malformed."""
-    empty = PlatformCapabilities([], [], [], [], {})
+    empty = PlatformCapabilities([], [], [], [], {}, [])
     if not path.exists():
         _LOGGER.warning(
             "platform_capabilities.index.json missing — download routing + wifi "
@@ -554,6 +557,7 @@ def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
         libretiny_families=_str_list("libretiny_families"),
         rp2040_no_wifi_boards=_str_list("rp2040_no_wifi_boards"),
         download_types=_parse_download_types(payload.get("download_types")),
+        component_names=_str_list("component_names"),
     )
 
 

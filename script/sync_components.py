@@ -3143,6 +3143,7 @@ def _emit_platform_capabilities_index() -> None:
     """
     from types import SimpleNamespace
 
+    import esphome
     from esphome.components.esp32.const import VARIANTS
     from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
@@ -3166,7 +3167,19 @@ def _emit_platform_capabilities_index() -> None:
             for entry in module.get_download_types(sentinel)
         ]
 
+    # Every shipped component directory name (documented or not). The
+    # dashboard derives log-tag doc aliases for undocumented internals
+    # (esp32_ble_client, web_server_base) from this, instead of importing
+    # or scanning esphome at runtime.
+    components_dir = Path(esphome.__file__).parent / "components"
+    component_names = sorted(
+        entry.name
+        for entry in components_dir.iterdir()
+        if entry.is_dir() and not entry.name.startswith("_")
+    )
+
     payload = {
+        "component_names": component_names,
         "esp32_variants": sorted(VARIANTS),
         "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
         "libretiny_families": list(_libretiny_families()),

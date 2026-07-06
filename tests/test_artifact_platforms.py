@@ -119,7 +119,7 @@ def test_esp32_variant_folds_to_esp32_when_index_degraded(monkeypatch: pytest.Mo
     monkeypatch.setattr(
         artifact_platforms,
         "load_platform_capabilities_index",
-        lambda: PlatformCapabilities([], [], [], [], {}),
+        lambda: PlatformCapabilities([], [], [], [], {}, []),
     )
     artifact_platforms._by_target.cache_clear()
     try:

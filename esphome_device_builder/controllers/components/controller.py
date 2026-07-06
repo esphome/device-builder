@@ -2,18 +2,15 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-import esphome
 
 from ...definitions import (
     load_featured_components_index,
     load_pin_registry_modes_index,
+    load_platform_capabilities_index,
 )
 from ...helpers.api import api_command
 from ...helpers.device_yaml import NETWORK_PROVIDER_COMPONENT_IDS
@@ -54,34 +51,10 @@ _FIRST_SENTENCE_RE = re.compile(r"(.{1,240}?\.)(?:\s|$)")
 
 
 def _summarize_description(text: str) -> str:
-    """First sentence of a catalog description, markdown flattened.
-
-    The full descriptions are markdown paragraphs; the logs popover wants
-    one plain-text sentence, and trimming here keeps the 900-entry map at
-    ~77 KiB instead of ~172 KiB.
-    """
+    """First sentence of *text* with markdown flattened, capped at 240 chars."""
     flat = " ".join(_MD_EMPHASIS_RE.sub("", _MD_LINK_RE.sub(r"\1", text)).split())
     match = _FIRST_SENTENCE_RE.match(flat)
     return match.group(1) if match else flat[:240]
-
-
-def _installed_component_names() -> set[str]:
-    """Component directory names shipped by the installed esphome.
-
-    A directory listing, never an ``esphome.components.*`` import — the
-    import-time budget guard forbids the latter in this process. Blocking;
-    call from an executor.
-    """
-    components = Path(esphome.__file__).parent / "components"
-    try:
-        return {
-            entry.name
-            for entry in components.iterdir()
-            if entry.is_dir() and not entry.name.startswith("_")
-        }
-    except OSError as err:
-        _LOGGER.warning("Could not list esphome components dir %s: %s", components, err)
-        return set()
 
 
 def variant_to_key(variant: str) -> str:
@@ -119,9 +92,6 @@ class ComponentCatalog:
         # empty (or a native pin with no provider key) leaves the frontend
         # showing every flag (the pre-scoping behaviour).
         self._pin_registry_modes: dict[str, list[str]] = {}
-        # Installed-esphome component dir names; scanned once on first
-        # ``get_integration_docs`` call (executor hop) and cached.
-        self._installed_components: set[str] | None = None
         self._body_store: LazyBodyStore[ComponentCatalogEntry] = LazyBodyStore(
             load_one=_load_body_from_disk,
             cache_maxsize=_BODY_CACHE_MAXSIZE,
@@ -206,7 +176,7 @@ class ComponentCatalog:
 
     @api_command("components/get_integration_docs")
     async def get_integration_docs(self, **kwargs: Any) -> dict[str, IntegrationDocEntry]:
-        """Return ``{integration_name: {url, name}}`` for resolvable integrations.
+        """Return ``{integration_name: {url, name, description}}`` per integration.
 
         Returns a map covering every loaded-integration identifier we can
         resolve to an esphome.io docs page.
@@ -227,15 +197,17 @@ class ComponentCatalog:
            ``ota.esphome``'s docs URL): both orders of every dotted id,
            for platform log tags, whose order is inconsistent upstream.
         5. Derived helper alias (``esp32_ble_client`` → ``esp32_ble``'s
-           page): an installed component with no page of its own inherits
-           its longest documented multi-word name prefix.
+           page): a component in the sync-time ``component_names`` snapshot
+           with no page of its own inherits its longest documented
+           multi-word name prefix.
 
         Names with no catalog hit are simply omitted — the frontend
         renders them as plain text. The catalog's ``docs_url`` is sourced
         from the live esphome.io docs index, so a present URL is also a
         guarantee that the page exists. ``name`` is the catalog display
-        name (``ethernet`` → "Ethernet Component"); category landings,
-        which have no catalog entry, fall back to the bare key.
+        name (``ethernet`` → "Ethernet Component") and ``description`` its
+        first sentence; category landings, which have no catalog entry,
+        fall back to the bare key and an empty description.
         """
         # Three sources, applied in priority order:
         #   1. Top-level component (id without ``.``) — wins outright.
@@ -307,16 +279,9 @@ class ComponentCatalog:
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
-        installed = self._installed_components
-        if installed is None:
-            loop = asyncio.get_running_loop()
-            installed = await loop.run_in_executor(None, _installed_component_names)
-            # Don't latch a failed (empty) scan — leave the cache unset so the
-            # next call retries instead of silently losing the helper aliases
-            # for the process lifetime.
-            if installed:
-                self._installed_components = installed
-        self._add_docs_aliases(result, qualified, installed)
+        self._add_docs_aliases(
+            result, qualified, load_platform_capabilities_index().component_names
+        )
         return result
 
     async def get_component(
@@ -545,16 +510,14 @@ class ComponentCatalog:
         self,
         result: dict[str, IntegrationDocEntry],
         qualified: list[tuple[str, IntegrationDocEntry]],
-        installed: set[str],
+        component_names: list[str],
     ) -> None:
-        """Add log-tag alias keys to the integration-docs map in place.
+        """
+        Add log-tag alias keys to the map in place.
 
-        Platform code logs under a dotted tag whose order is inconsistent
-        upstream (``uptime.sensor`` is <stem>.<category> but ``switch.gpio``
-        is <category>.<stem>), so emit BOTH orders of every qualified id.
-        Dotted keys can't collide with the bare-name sources; ids land before
-        reversed aliases so an id-exact key beats another component's
-        reversal. Undocumented internals then inherit their family's page.
+        Both orders of every qualified id (upstream tag order is
+        inconsistent); id-exact keys land before reversed aliases, then
+        undocumented ``component_names`` inherit their family's page.
         """
         for comp_id, entry in qualified:
             result.setdefault(comp_id, entry)
@@ -566,7 +529,7 @@ class ComponentCatalog:
         # inherit the docs page of their longest documented name prefix.
         # The prefix must itself stay multi-word — a one-word prefix hit
         # (``sensor``, ``time``) is coincidence, not component family.
-        for name in installed:
+        for name in component_names:
             if name in result:
                 continue
             prefix = name

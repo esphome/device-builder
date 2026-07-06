@@ -35,6 +35,7 @@ from esphome_device_builder.controllers.components import (
 )
 from esphome_device_builder.controllers.components import _resolve as components_module
 from esphome_device_builder.controllers.components import controller as comp_controller
+from esphome_device_builder.definitions import PlatformCapabilities
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -190,35 +191,21 @@ async def test_get_integration_docs_skips_entries_with_no_id_or_no_docs() -> Non
     assert "no_docs" not in docs
 
 
-def test_installed_component_scan_degrades_to_empty(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """An unreadable esphome install skips the derived aliases, loudly."""
-    monkeypatch.setattr(
-        comp_controller,
-        "esphome",
-        SimpleNamespace(__file__="/nonexistent/esphome/__init__.py"),
-    )
-    with caplog.at_level(logging.WARNING):
-        assert comp_controller._installed_component_names() == set()
-    assert any("Could not list esphome components dir" in r.message for r in caplog.records)
-
-
-async def test_empty_component_scan_is_not_cached(
+async def test_helper_aliases_come_from_the_capabilities_snapshot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A failed scan retries on the next call instead of latching empty."""
+    """Derived helper aliases read the sync-time component_names snapshot."""
     cat = ComponentCatalog()
     cat._components = [
-        _make_entry(entry_id="wifi", docs_url="https://esphome.io/components/wifi"),
+        _make_entry(entry_id="esp32_ble", docs_url="https://esphome.io/components/esp32_ble"),
     ]
-    monkeypatch.setattr(comp_controller, "_installed_component_names", set)
-    await cat.get_integration_docs()
-    assert cat._installed_components is None
-    monkeypatch.setattr(comp_controller, "_installed_component_names", lambda: {"wifi"})
-    await cat.get_integration_docs()
-    assert cat._installed_components == {"wifi"}
+    monkeypatch.setattr(
+        comp_controller,
+        "load_platform_capabilities_index",
+        lambda: PlatformCapabilities([], [], [], [], {}, ["esp32_ble_client"]),
+    )
+    docs = await cat.get_integration_docs()
+    assert docs["esp32_ble_client"]["url"] == "https://esphome.io/components/esp32_ble"
 
 
 def test_summarize_description_truncates_unpunctuated_text() -> None:

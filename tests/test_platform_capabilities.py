@@ -29,7 +29,7 @@ from esphome_device_builder.definitions import (
     load_platform_capabilities_index,
 )
 
-_EMPTY = PlatformCapabilities([], [], [], [], {})
+_EMPTY = PlatformCapabilities([], [], [], [], {}, [])
 
 _COMPONENTS_INDEX = (
     Path(__file__).resolve().parent.parent
