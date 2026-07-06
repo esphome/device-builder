@@ -118,11 +118,13 @@ featured_components:
     mdio_pin:
       value: GPIO18
       locked: true
-    clk_mode:
-      value: GPIO17_OUT
-      locked: true
     phy_addr:
       value: 0
+      locked: true
+    clk:
+      value:
+        pin: GPIO17
+        mode: CLK_OUT
       locked: true
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio

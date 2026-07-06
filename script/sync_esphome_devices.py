@@ -224,9 +224,10 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
 # unsafe to surface as a preset value or as an ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
 
-# Legacy flat ``clk_mode: GPIO17_OUT`` encodes the RMII clock pin in the
-# mode string; this pulls the GPIO number out for the occupancy map.
-_CLK_MODE_PIN_RE = re.compile(r"GPIO(\d+)_")
+# Deprecated flat ``clk_mode: GPIO<n>_(IN|OUT)`` encodes the RMII clock
+# pin and direction in the mode string; folded into nested ``clk``
+# ``{mode, pin}`` (upstream removal 2026.9.0).
+_CLK_MODE_RE = re.compile(r"GPIO(\d+)_(IN|OUT)")
 
 # Hardware fields of a top-level ``ethernet:`` block worth locking as a
 # featured-component preset (the PHY/pinout). Network/runtime fields
@@ -240,7 +241,6 @@ _ETHERNET_HW_FIELDS: frozenset[str] = frozenset(
         "mdc_pin",
         "mdio_pin",
         "clk",
-        "clk_mode",
         "clk_pin",
         "phy_addr",
         "power_pin",
@@ -1363,6 +1363,27 @@ def _eth_value_safe(value: Any) -> bool:
     return True
 
 
+def _normalized_clk(eth: dict[str, Any]) -> dict[str, Any] | None:
+    """Fold deprecated flat ``clk_mode`` into nested ``clk``; ``None`` when unmappable."""
+    if "clk_mode" not in eth:
+        return eth
+    # clk_mode exists only in upstream's RMII schema (SPI PHYs use clk_pin);
+    # a block carrying it without the RMII-required mdc_pin is invalid upstream.
+    if "mdc_pin" not in eth:
+        return None
+    without = {k: v for k, v in eth.items() if k != "clk_mode"}
+    if "clk" in eth:
+        return without
+    clk_mode = eth["clk_mode"]
+    # Upstream validates with cv.enum(upper=True, space="_"); mirror it.
+    normalized = clk_mode.strip().upper().replace(" ", "_") if isinstance(clk_mode, str) else ""
+    match = _CLK_MODE_RE.fullmatch(normalized)
+    if match is None:
+        return None
+    mode = "CLK_EXT_IN" if match.group(2) == "IN" else "CLK_OUT"
+    return {**without, "clk": {"pin": f"GPIO{match.group(1)}", "mode": mode}}
+
+
 def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[int, str]]:
     """
     Mine a top-level ``ethernet:`` block into a locked featured component.
@@ -1380,6 +1401,9 @@ def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, di
     """
     eth = config.get("ethernet")
     if not isinstance(eth, dict) or not isinstance(eth.get("type"), str):
+        return None, {}
+    eth = _normalized_clk(eth)
+    if eth is None:
         return None, {}
     fields: dict[str, Any] = {}
     occupancy: dict[int, str] = {}
@@ -1403,9 +1427,6 @@ def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, di
         if gpio is None:
             return None, {}
         occupancy[gpio] = "Ethernet CLK"
-    clk_mode = eth.get("clk_mode")
-    if isinstance(clk_mode, str) and (m := _CLK_MODE_PIN_RE.match(clk_mode)):
-        occupancy[int(m.group(1))] = "Ethernet CLK"
     entry = {
         "id": "onboard_ethernet",
         "component_id": "ethernet",

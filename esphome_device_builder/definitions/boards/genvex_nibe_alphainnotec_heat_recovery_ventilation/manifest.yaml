@@ -37,11 +37,13 @@ featured_components:
     mdio_pin:
       value: GPIO18
       locked: true
-    clk_mode:
-      value: GPIO0_IN
-      locked: true
     phy_addr:
       value: 0
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
       locked: true
 - id: binary_sensor_modbus_controller_1
   component_id: binary_sensor.modbus_controller

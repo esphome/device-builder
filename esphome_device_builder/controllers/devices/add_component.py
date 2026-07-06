@@ -72,9 +72,8 @@ async def add_component(
     # The required-field gate catches a user-driven form add that omitted a
     # required field. Featured presets come from the board manifest instead
     # (curated, locked, already validated by ``create`` + compile), and the
-    # catalog can't model ESPHome's type-conditional either-or fields — an
-    # ethernet ``LAN8720`` preset legitimately sets ``clk_mode`` where the
-    # schema marks ``clk`` required, so re-gating rejects a valid recommended
+    # catalog can't model ESPHome's type-conditional either-or fields, so
+    # re-gating a variant-scoped requirement rejects a valid recommended
     # add. Trust the manifest; ESPHome validation at compile is the real gate.
     if not is_featured:
         _require_present_fields(component, fields)

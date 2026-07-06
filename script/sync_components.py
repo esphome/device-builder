@@ -656,7 +656,7 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     },
     # ``ethernet.clk`` is ``cv.Optional`` in the schema but a final-validate
     # step requires it for RMII PHYs unless the deprecated ``clk_mode``
-    # migrates into it (removal scheduled 2026.7.0). Mark it required on the
+    # migrates into it (removal scheduled 2026.9.0). Mark it required on the
     # main form; the variant gate already scopes it to the RMII types.
     ("ethernet", "clk"): {
         "required": True,

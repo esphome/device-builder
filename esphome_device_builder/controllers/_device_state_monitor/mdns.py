@@ -3,7 +3,8 @@ mDNS source: zeroconf responder, browser, and cache accessors.
 
 :class:`MdnsSource` owns the ``AsyncEsphomeZeroconf`` responder and
 the ``AsyncServiceBrowser`` it drives, the esphomelib service-state
-callback that reaches into the monitor's apply path, and the
+callback that reaches into the monitor's apply path, the ``_http._tcp``
+fallback callback that reads a non-API device's ``version`` TXT, and the
 cache-inspection accessors the drawer's reachability snapshot reads.
 """
 
@@ -90,6 +91,7 @@ class MdnsSource:
                 self._on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
                 importable.browser_callback(zeroconf, service_type, name, state_change)
             elif service_type == _HTTP_SERVICE_TYPE:
+                self._on_http_service_state_change(zeroconf, service_type, name, state_change)
                 importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
         try:
@@ -392,6 +394,40 @@ class MdnsSource:
             monitor.apply_api_encryption(device_name, value if isinstance(value, str) else "")
         elif props:
             monitor.apply_api_encryption(device_name, "")
+
+    def _on_http_service_state_change(
+        self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
+    ) -> None:
+        """
+        Read the ``version`` TXT off a non-API device's ``_http._tcp`` fallback.
+
+        Skipped when every config for the name exposes the API (the
+        esphomelib path carries their version, and the fallback isn't
+        published with the API on). No ONLINE claim; reachability stays
+        owned by the active-resolve / MQTT / ping paths.
+        """
+        if state_change == ServiceStateChange.Removed:
+            return
+        monitor = self._monitor
+        device_name = device_name_from_service(name)
+        # Look at the whole name bucket, not just bucket[0]: sibling
+        # YAMLs can share an ``esphome.name`` (a config + a ``foo (1)``
+        # copy), and an all-API bucket is the only one to skip.
+        bucket = monitor._get_devices_by_name(device_name)
+        if not bucket or all(device.api_enabled for device in bucket):
+            return
+        info = AsyncServiceInfo(service_type, name)
+        if info.load_from_cache(zeroconf):
+            self._apply_http_version(device_name, info)
+            return
+        monitor._track_task(
+            self._resolve_then(zeroconf, info, device_name, self._apply_http_version)
+        )
+
+    def _apply_http_version(self, device_name: str, info: AsyncServiceInfo) -> None:
+        """Apply the ``version`` TXT from a resolved ``_http._tcp`` fallback service."""
+        if version := info.decoded_properties.get("version"):
+            self._monitor.apply_version(device_name, version)
 
     def _get_address_records(self, name: str) -> list[Any]:
         """Return cached A and AAAA records for *name*, or ``[]``."""
