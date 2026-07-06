@@ -1364,12 +1364,7 @@ def _eth_value_safe(value: Any) -> bool:
 
 
 def _normalized_clk(eth: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    Fold deprecated flat ``clk_mode`` into nested ``clk``.
-
-    ``None`` when ``clk_mode`` is unmappable (upstream would reject the
-    config); an existing nested ``clk`` wins when both are present.
-    """
+    """Fold deprecated flat ``clk_mode`` into nested ``clk``; ``None`` when unmappable."""
     if "clk_mode" not in eth:
         return eth
     clk_mode = eth["clk_mode"]
