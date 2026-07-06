@@ -242,9 +242,10 @@ def test_convert_field_keeps_number_only_pin_entries_bare(
     ``internal_gpio_pin_number`` fields (ethernet ``mdc_pin`` /
     ``clk.pin``, SPI ``clk_pin``, ...) reject the mapping form, so
     offering mode flags / ``inverted`` in the editor produces
-    invalid YAML.
+    invalid YAML. Identical to the positive test's raw entry minus
+    the ``schema`` flag — the flag alone is the discriminator.
     """
-    raw = {"internal": True, "key": "Required", "modes": ["output"], "type": "pin"}
+    raw = {"key": "Required", "modes": ["input"], "type": "pin"}
     entry = _convert_field("mdc_pin", raw, schema_dir)
 
     assert entry is not None
