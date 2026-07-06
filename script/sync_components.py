@@ -2895,8 +2895,14 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         # pin field. Without this the visual editor only supports
         # the short ``pin: GPIO5`` form, which blocks configurations
         # like ``pin: { number: GPIO5, mode: { input: true, pullup:
-        # true } }`` (issue #420).
-        entry["config_entries"] = list(_pin_long_form_extras(schema_dir)) or None
+        # true } }`` (issue #420). Number-only validators
+        # (``internal_gpio_pin_number``: ethernet ``mdc_pin`` /
+        # ``clk.pin``, ...) emit no ``schema`` flag and reject the
+        # mapping form, so they keep the bare picker.
+        if raw.get("schema"):
+            entry["config_entries"] = list(_pin_long_form_extras(schema_dir)) or None
+        else:
+            entry["config_entries"] = None
     else:
         entry["config_entries"] = None
 
