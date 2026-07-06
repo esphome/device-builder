@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from ...models import Device, DeviceEventData, EventType
+from ...models import Device, DeviceEventData, EventType, ReachabilitySource
 from .._device_scanner import ScanChange
 
 if TYPE_CHECKING:
@@ -14,7 +14,12 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def on_scan_change(controller: DevicesController, kind: ScanChange, device: Device) -> None:
+def on_scan_change(
+    controller: DevicesController,
+    kind: ScanChange,
+    device: Device,
+    previous: Device | None = None,
+) -> None:
     """Forward scanner changes onto the event bus and fan out per-kind side effects."""
     # UPDATED and RELOADED both refresh the client row via DEVICE_UPDATED;
     # only UPDATED (the scanner saw the YAML's mtime/size/inode change) also
@@ -39,13 +44,26 @@ def on_scan_change(controller: DevicesController, kind: ScanChange, device: Devi
         # periodic ping sweep.
         controller._state_monitor.probe_device(device.name)
         # Paired ICMP probe covers ping-only devices that don't
-        # broadcast ``_esphomelib._tcp``; the bootstrap-window
-        # guard inside the monitor wrapper skips it on cold start.
+        # broadcast ``_esphomelib._tcp``; a cold-start herd of wakes
+        # is absorbed into the first post-bootstrap sweep.
         controller._state_monitor.probe_device_ping(device.name)
         # Drop the stale importable row so connected subscribe_events
         # clients stop showing the adopt banner once the device is
         # configured. Idempotent: fires REMOVED only if a row existed.
         controller._on_importable_removed(device.name)
+    if (
+        kind in (ScanChange.UPDATED, ScanChange.RELOADED)
+        and previous is not None
+        and previous.address != device.address
+        and controller._state_monitor.priority_for(device.name) != ReachabilitySource.MDNS
+    ):
+        # The reload swapped in a new address (a ``wifi.use_address``
+        # save, or the post-regen StorageJSON replacing the
+        # ``<file>.local`` fallback); without the wake the new address
+        # waits out the remainder of the periodic sweep interval. An
+        # mDNS-claimed device is skipped — its liveness tracking is
+        # name-keyed, so the address change doesn't affect it.
+        controller._state_monitor.probe_device_ping(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.RELOADED, ScanChange.REMOVED):
         # YAML cache key changed (or a reload re-read it); clear any
         # prior failure marker so the next edit gets a fresh chance at

@@ -823,7 +823,7 @@ async def test_edit_friendly_name_end_to_end_through_real_scanner(
     real_scanner = DeviceScanner(
         tmp_path,
         get_metadata=lambda _cdir, _name: metadata,
-        on_change=lambda _kind, _device: None,
+        on_change=lambda _kind, _device, _previous: None,
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     ctrl._scanner = real_scanner  # swap the recording fake for a real one

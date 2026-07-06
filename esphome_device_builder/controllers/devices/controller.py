@@ -1084,8 +1084,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Read *path* as UTF-8 text off the executor."""
         return await run_in_executor(path.read_text, "utf-8")
 
-    def _on_scan_change(self, kind: ScanChange, device: Device) -> None:
-        scan_change.on_scan_change(self, kind, device)
+    def _on_scan_change(
+        self, kind: ScanChange, device: Device, previous: Device | None = None
+    ) -> None:
+        scan_change.on_scan_change(self, kind, device, previous)
 
     def _devices_by_name(self, name: str) -> list[Device]:
         """Every configured device whose ``name`` field matches ``name``.
