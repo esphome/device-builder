@@ -1367,20 +1367,17 @@ def _normalized_clk(eth: dict[str, Any]) -> dict[str, Any] | None:
     """Fold deprecated flat ``clk_mode`` into nested ``clk``; ``None`` when unmappable."""
     if "clk_mode" not in eth:
         return eth
+    without = {k: v for k, v in eth.items() if k != "clk_mode"}
+    if "clk" in eth:
+        return without
     clk_mode = eth["clk_mode"]
     # Upstream validates with cv.enum(upper=True, space="_"); mirror it.
     normalized = clk_mode.strip().upper().replace(" ", "_") if isinstance(clk_mode, str) else ""
     match = _CLK_MODE_RE.fullmatch(normalized)
-    out: dict[str, Any] = {}
-    for key, value in eth.items():
-        if key != "clk_mode":
-            out[key] = value
-        elif "clk" not in eth:
-            if match is None:
-                return None
-            mode = "CLK_EXT_IN" if match.group(2) == "IN" else "CLK_OUT"
-            out["clk"] = {"pin": f"GPIO{match.group(1)}", "mode": mode}
-    return out
+    if match is None:
+        return None
+    mode = "CLK_EXT_IN" if match.group(2) == "IN" else "CLK_OUT"
+    return {**without, "clk": {"pin": f"GPIO{match.group(1)}", "mode": mode}}
 
 
 def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[int, str]]:
