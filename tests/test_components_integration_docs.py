@@ -144,6 +144,19 @@ async def test_qualified_alias_does_not_shadow_bare_names(
     assert docs["ota"].rstrip("/").endswith("/components/ota")
 
 
+async def test_helper_alias_for_undocumented_internals(
+    catalog: ComponentCatalog,
+) -> None:
+    """``esp32_ble_client`` (no docs page of its own) aliases to ble_client.
+
+    It's AUTO_LOADed by ``ble_client`` / ``bluetooth_proxy`` and logs the
+    connection fields (address, auto-connect, state) the ble_client page
+    documents; without the alias its log tag renders as plain text.
+    """
+    docs = await catalog.get_integration_docs()
+    assert docs["esp32_ble_client"].rstrip("/").endswith("/components/ble_client")
+
+
 async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
     """Names without a catalog hit are simply absent from the map."""
     docs = await catalog.get_integration_docs()

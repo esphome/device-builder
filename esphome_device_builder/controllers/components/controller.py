@@ -41,6 +41,11 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Internal AUTO_LOADed helpers with no docs page of their own, aliased to the
+# user-facing component that documents the behaviour they log (values are
+# looked up in the built map, so the URL stays catalog-sourced).
+_HELPER_DOC_ALIASES: dict[str, str] = {"esp32_ble_client": "ble_client"}
+
 
 def variant_to_key(variant: str) -> str:
     """Normalise an ``Esp32Variant`` value (``esp32c3``) to a catalog key (``esp32_c3``).
@@ -181,6 +186,8 @@ class ComponentCatalog:
         4. Qualified alias (``esphome.ota`` / ``ota.esphome`` →
            ``ota.esphome``'s docs URL): both orders of every dotted id,
            for platform log tags, whose order is inconsistent upstream.
+        5. Curated helper alias (``esp32_ble_client`` → ``ble_client``'s
+           page): internal AUTO_LOADed helpers with no page of their own.
 
         Names with no catalog hit are simply omitted — the frontend
         renders them as plain text. The catalog's ``docs_url`` is sourced
@@ -243,23 +250,7 @@ class ComponentCatalog:
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
-
-        # Platform code logs under a dotted tag whose order is
-        # inconsistent upstream (``uptime.sensor`` is <stem>.<category>
-        # but ``switch.gpio`` is <category>.<stem>), so emit BOTH orders
-        # of every qualified id. Dotted keys can't collide with the bare
-        # names above; ids land before reversed aliases so an id-exact
-        # key beats another component's reversal.
-        for comp in self._components:
-            if comp.id and comp.docs_url and "." in comp.id:
-                result.setdefault(comp.id, comp.docs_url)
-        for comp in self._components:
-            comp_id = comp.id
-            docs = comp.docs_url
-            if not comp_id or not docs or "." not in comp_id:
-                continue
-            category, stem = comp_id.split(".", 1)
-            result.setdefault(f"{stem}.{category}", docs)
+        self._add_docs_aliases(result)
         return result
 
     async def get_component(
@@ -483,6 +474,31 @@ class ComponentCatalog:
     async def _load_bodies(self, component_ids: list[str]) -> dict[str, ComponentCatalogEntry]:
         """Batched variant of :meth:`get_body`; one executor hop per call."""
         return await self._body_store.get_many(component_ids)
+
+    def _add_docs_aliases(self, result: dict[str, str]) -> None:
+        """Add log-tag alias keys to the integration-docs map in place.
+
+        Platform code logs under a dotted tag whose order is inconsistent
+        upstream (``uptime.sensor`` is <stem>.<category> but ``switch.gpio``
+        is <category>.<stem>), so emit BOTH orders of every qualified id.
+        Dotted keys can't collide with the bare-name sources; ids land before
+        reversed aliases so an id-exact key beats another component's
+        reversal. Curated helper aliases fill undocumented internals last.
+        """
+        for comp in self._components:
+            if comp.id and comp.docs_url and "." in comp.id:
+                result.setdefault(comp.id, comp.docs_url)
+        for comp in self._components:
+            comp_id = comp.id
+            docs = comp.docs_url
+            if not comp_id or not docs or "." not in comp_id:
+                continue
+            category, stem = comp_id.split(".", 1)
+            result.setdefault(f"{stem}.{category}", docs)
+        for helper, target in _HELPER_DOC_ALIASES.items():
+            url = result.get(target)
+            if url:
+                result.setdefault(helper, url)
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
