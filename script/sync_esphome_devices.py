@@ -2135,7 +2135,7 @@ _LOGGER_HARDWARE_UARTS = frozenset({"UART0", "UART1", "UART2", "USB_CDC", "USB_S
 
 
 def _extract_logger_hardware_uart(config: dict[str, Any]) -> str | None:
-    """Lift ``logger.hardware_uart`` when the page pins a non-default console."""
+    """Lift the page's explicit ``logger.hardware_uart`` when it names a known target."""
     logger = config.get("logger")
     if not isinstance(logger, dict):
         return None

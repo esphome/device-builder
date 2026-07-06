@@ -668,11 +668,11 @@ def test_esp32_engineering_sample_matches_esphome_boards_table() -> None:
 
 
 def test_logger_hardware_uart_pins_known_console_wirings() -> None:
-    """Boards with a UART-bridge console pin it; native-JTAG boards stay unset.
+    """UART-bridge consoles pin UART0; native-JTAG boards keep the default.
 
-    Every Waveshare P4 routes its console Type-C through a CH343P on UART0
-    (chip-default USB_SERIAL_JTAG shows ROM output but no app logs there);
-    Guition / Olimex / M5Stack use the chip's native USB and keep the default.
+    Every Waveshare P4 routes its console Type-C through a CH343P on UART0.
+    Native-JTAG boards get the default either implicitly (olimex, no field)
+    or restated explicitly when the upstream page pins it (guition).
     """
     uarts = {b.id: b.esphome.logger_hardware_uart for b in load_board_index()}
     for board_id in (

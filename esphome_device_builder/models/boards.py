@@ -144,9 +144,9 @@ class BoardEsphomeConfig(DashboardModel):
     # Pre-rev3 ESP32-P4 silicon (esphome's "engineering sample"); stamped by
     # sync_boards from esphome's BOARDS table, never hand-set in manifests.
     engineering_sample: bool = False
-    # logger ``hardware_uart`` the generated config pins because the board's
-    # console port is not the chip default (e.g. a CH343 UART bridge on a chip
-    # defaulting to USB_SERIAL_JTAG). None keeps ESPHome's default.
+    # Explicit logger ``hardware_uart`` for generated configs; may restate the
+    # chip default (imports carry the upstream page's value verbatim). None
+    # emits a bare ``logger:`` and ESPHome's default applies.
     logger_hardware_uart: str | None = None
 
     class Config(_CatalogConfig):

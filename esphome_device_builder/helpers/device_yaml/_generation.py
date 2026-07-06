@@ -197,8 +197,8 @@ def generate_device_yaml(
     # Logging
     lines.append("logger:")
     if esphome_cfg.logger_hardware_uart:
-        # Console port isn't the chip default (e.g. a CH343 UART bridge);
-        # without the pin the port shows ROM output but no app logs.
+        # Board-explicit console target; may restate the chip default. On
+        # UART-bridge boards the default console shows no app logs at all.
         lines.append(f"  hardware_uart: {esphome_cfg.logger_hardware_uart}")
     lines.append("")
 
