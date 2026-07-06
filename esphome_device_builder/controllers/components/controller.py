@@ -178,6 +178,9 @@ class ComponentCatalog:
         3. Category match (``sensor`` → ``https://esphome.io/components/sensor``,
            the parent path of any ``sensor.*`` component's docs URL).
            Only fills a slot a top-level component hasn't already claimed.
+        4. Qualified alias (``esphome.ota`` / ``ota.esphome`` →
+           ``ota.esphome``'s docs URL): both orders of every dotted id,
+           for platform log tags, whose order is inconsistent upstream.
 
         Names with no catalog hit are simply omitted — the frontend
         renders them as plain text. The catalog's ``docs_url`` is sourced
@@ -240,6 +243,23 @@ class ComponentCatalog:
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
+
+        # Platform code logs under a dotted tag whose order is
+        # inconsistent upstream (``uptime.sensor`` is <stem>.<category>
+        # but ``switch.gpio`` is <category>.<stem>), so emit BOTH orders
+        # of every qualified id. Dotted keys can't collide with the bare
+        # names above; ids land before reversed aliases so an id-exact
+        # key beats another component's reversal.
+        for comp in self._components:
+            if comp.id and comp.docs_url and "." in comp.id:
+                result.setdefault(comp.id, comp.docs_url)
+        for comp in self._components:
+            comp_id = comp.id
+            docs = comp.docs_url
+            if not comp_id or not docs or "." not in comp_id:
+                continue
+            category, stem = comp_id.split(".", 1)
+            result.setdefault(f"{stem}.{category}", docs)
         return result
 
     async def get_component(

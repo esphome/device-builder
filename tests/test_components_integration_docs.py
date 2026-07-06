@@ -119,6 +119,31 @@ async def test_ambiguous_stems_omitted(catalog: ComponentCatalog) -> None:
         raise AssertionError(msg)
 
 
+async def test_qualified_log_tag_aliases(catalog: ComponentCatalog) -> None:
+    """Dotted platform log tags resolve in either order.
+
+    Platform code logs under a dotted tag whose order is inconsistent
+    upstream — ``esphome.ota`` / ``gpio.binary_sensor`` are
+    <stem>.<category> while ``switch.gpio`` is the catalog id itself —
+    so the map carries both orders of every qualified id. Without the
+    reversed alias, the logs UI linked ``esphome.ota`` lines to the core
+    ``esphome`` page instead of the OTA platform page.
+    """
+    docs = await catalog.get_integration_docs()
+    assert docs["esphome.ota"].rstrip("/").endswith("/components/ota/esphome")
+    assert docs["gpio.binary_sensor"].rstrip("/").endswith("/components/binary_sensor/gpio")
+    assert docs["switch.gpio"].rstrip("/").endswith("/components/switch/gpio")
+
+
+async def test_qualified_alias_does_not_shadow_bare_names(
+    catalog: ComponentCatalog,
+) -> None:
+    """The dotted aliases leave every bare-name resolution untouched."""
+    docs = await catalog.get_integration_docs()
+    assert docs["esphome"].rstrip("/").endswith("/components/esphome")
+    assert docs["ota"].rstrip("/").endswith("/components/ota")
+
+
 async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
     """Names without a catalog hit are simply absent from the map."""
     docs = await catalog.get_integration_docs()
