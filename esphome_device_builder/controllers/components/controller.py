@@ -253,18 +253,22 @@ class ComponentCatalog:
         #      unambiguous answer, not the first one we happen to see.
         top_level: dict[str, IntegrationDocEntry] = {}
         category_urls: dict[str, IntegrationDocEntry] = {}
-        stem_candidates: dict[str, dict[str, tuple[str, str]]] = {}
+        stem_candidates: dict[str, dict[str, IntegrationDocEntry]] = {}
+        qualified: list[tuple[str, IntegrationDocEntry]] = []
         for comp in self._components:
             comp_id = comp.id
             docs = comp.docs_url
             if not comp_id or not docs:
                 continue
-            summary = _summarize_description(comp.description)
+            entry = IntegrationDocEntry(
+                url=docs,
+                name=comp.name,
+                description=_summarize_description(comp.description),
+            )
             if "." not in comp_id:
-                top_level[comp_id] = IntegrationDocEntry(
-                    url=docs, name=comp.name, description=summary
-                )
+                top_level[comp_id] = entry
                 continue
+            qualified.append((comp_id, entry))
             category, stem = comp_id.split(".", 1)
             # ESPHome's docs site serves a real index page at
             # ``/components/<category>/`` for every category that has
@@ -282,17 +286,16 @@ class ComponentCatalog:
                         url=docs[: idx + len(marker) - 1], name=category, description=""
                     ),
                 )
-            stem_candidates.setdefault(stem, {})[docs] = (comp.name, summary)
+            stem_candidates.setdefault(stem, {})[docs] = entry
 
         # Stems are unambiguous only when every category that owns the
         # stem agrees on the same docs URL. Multi-platform components
         # (``at581x``, ``rotary_encoder``) hit this path because they
         # share a single docs page across categories.
         stems: dict[str, IntegrationDocEntry] = {
-            stem: IntegrationDocEntry(url=url, name=name, description=summary)
-            for stem, urls in stem_candidates.items()
-            if len(urls) == 1
-            for url, (name, summary) in urls.items()
+            stem: next(iter(by_url.values()))
+            for stem, by_url in stem_candidates.items()
+            if len(by_url) == 1
         }
 
         # ``dict.update()`` overwrites existing keys, so later writes
@@ -308,7 +311,7 @@ class ComponentCatalog:
             self._installed_components = await loop.run_in_executor(
                 None, _installed_component_names
             )
-        self._add_docs_aliases(result, self._installed_components)
+        self._add_docs_aliases(result, qualified, self._installed_components)
         return result
 
     async def get_component(
@@ -534,7 +537,10 @@ class ComponentCatalog:
         return await self._body_store.get_many(component_ids)
 
     def _add_docs_aliases(
-        self, result: dict[str, IntegrationDocEntry], installed: set[str]
+        self,
+        result: dict[str, IntegrationDocEntry],
+        qualified: list[tuple[str, IntegrationDocEntry]],
+        installed: set[str],
     ) -> None:
         """Add log-tag alias keys to the integration-docs map in place.
 
@@ -545,18 +551,6 @@ class ComponentCatalog:
         reversed aliases so an id-exact key beats another component's
         reversal. Undocumented internals then inherit their family's page.
         """
-        qualified = [
-            (
-                comp.id,
-                IntegrationDocEntry(
-                    url=comp.docs_url,
-                    name=comp.name,
-                    description=_summarize_description(comp.description),
-                ),
-            )
-            for comp in self._components
-            if comp.id and comp.docs_url and "." in comp.id
-        ]
         for comp_id, entry in qualified:
             result.setdefault(comp_id, entry)
         for comp_id, entry in qualified:
