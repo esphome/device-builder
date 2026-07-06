@@ -509,8 +509,9 @@ class PlatformCapabilities(NamedTuple):
     # download types are static (esp32 / esp8266 / rp2040). Build-dir-dependent
     # platforms (libretiny / nrf52) are absent and resolved via subprocess.
     download_types: dict[str, list[dict[str, str]]]
-    # Every shipped component directory name; drives the derived log-tag
-    # doc aliases for undocumented internals.
+    # Every shipped component directory name — including the schema-less
+    # internals (esp32_ble_client, web_server_base) the schema-driven
+    # catalog index can't name. Drives the derived log-tag doc aliases.
     component_names: list[str]
 
 
