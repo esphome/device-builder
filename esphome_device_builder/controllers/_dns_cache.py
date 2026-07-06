@@ -109,9 +109,6 @@ class DNSCache:
         with suppress(ValueError):
             return [str(ip_address(normalized))]
 
-        if async_resolve is None:
-            return None
-
         now = time.monotonic()
         entry = self._cache.get(normalized)
         if entry is not None and entry[0] > now:
