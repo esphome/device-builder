@@ -2179,7 +2179,11 @@ def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
         return None
     try:
         return load_manifest_dict(manifest_path)
-    except (OSError, ManifestError):
+    except (OSError, ManifestError) as exc:
+        # A present-but-corrupt/unreadable manifest still returns None (the prior
+        # state is unrecoverable either way), but log it so it isn't silently
+        # indistinguishable from a manifest that never existed.
+        _LOGGER.warning("Ignoring unreadable manifest %s: %s", manifest_path, exc)
         return None
 
 
