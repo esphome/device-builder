@@ -1367,6 +1367,10 @@ def _normalized_clk(eth: dict[str, Any]) -> dict[str, Any] | None:
     """Fold deprecated flat ``clk_mode`` into nested ``clk``; ``None`` when unmappable."""
     if "clk_mode" not in eth:
         return eth
+    # clk_mode exists only in upstream's RMII schema (SPI PHYs use clk_pin);
+    # a block carrying it without the RMII-required mdc_pin is invalid upstream.
+    if "mdc_pin" not in eth:
+        return None
     without = {k: v for k, v in eth.items() if k != "clk_mode"}
     if "clk" in eth:
         return without

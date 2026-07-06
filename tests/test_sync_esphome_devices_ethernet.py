@@ -44,19 +44,27 @@ def test_extracts_rmii_and_marks_pins_occupied() -> None:
 )
 def test_normalizes_each_deprecated_clk_mode(clk_mode: str, pin: str, mode: str) -> None:
     """A GPIO<n>_(IN|OUT) clk_mode folds into nested clk + occupancy (any pin)."""
-    entry, occ = _extract_ethernet({"ethernet": {"type": "LAN8720", "clk_mode": clk_mode}})
+    entry, occ = _extract_ethernet(
+        {"ethernet": {"type": "LAN8720", "mdc_pin": "GPIO23", "clk_mode": clk_mode}}
+    )
     assert entry is not None
     assert entry["fields"]["clk"] == {"value": {"pin": pin, "mode": mode}, "locked": True}
     assert "clk_mode" not in entry["fields"]
-    assert occ == {int(pin.removeprefix("GPIO")): "Ethernet CLK"}
+    assert occ[int(pin.removeprefix("GPIO"))] == "Ethernet CLK"
 
 
 def test_skips_block_on_unknown_clk_mode() -> None:
     """A clk_mode that isn't GPIO<n>_(IN|OUT) would fail upstream validation; skip the block."""
-    assert _extract_ethernet({"ethernet": {"type": "LAN8720", "clk_mode": "EXTERNAL"}}) == (
-        None,
-        {},
-    )
+    assert _extract_ethernet(
+        {"ethernet": {"type": "LAN8720", "mdc_pin": "GPIO23", "clk_mode": "EXTERNAL"}}
+    ) == (None, {})
+
+
+def test_skips_block_when_clk_mode_without_rmii_shape() -> None:
+    """clk_mode is RMII-only; carried on an SPI-shaped block (no mdc_pin) it's invalid."""
+    assert _extract_ethernet(
+        {"ethernet": {"type": "W5500", "cs_pin": 17, "clk_mode": "GPIO17_OUT"}}
+    ) == (None, {})
 
 
 def test_nested_clk_wins_over_clk_mode() -> None:
@@ -65,6 +73,7 @@ def test_nested_clk_wins_over_clk_mode() -> None:
         {
             "ethernet": {
                 "type": "LAN8720",
+                "mdc_pin": "GPIO23",
                 "clk_mode": "GPIO17_OUT",
                 "clk": {"pin": "GPIO0", "mode": "CLK_EXT_IN"},
             }
@@ -76,7 +85,7 @@ def test_nested_clk_wins_over_clk_mode() -> None:
         "locked": True,
     }
     assert "clk_mode" not in entry["fields"]
-    assert occ == {0: "Ethernet CLK"}
+    assert occ[0] == "Ethernet CLK"
 
 
 def test_extracts_spi_pins() -> None:
