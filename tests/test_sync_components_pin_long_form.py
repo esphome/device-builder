@@ -240,10 +240,11 @@ def test_convert_field_keeps_number_only_pin_entries_bare(
     """A number-only pin validator (no ``schema`` flag) gets no long-form extras.
 
     ``internal_gpio_pin_number`` fields (ethernet ``mdc_pin`` /
-    ``clk.pin``, SPI ``clk_pin``, ...) reject the mapping form, so
-    offering mode flags / ``inverted`` in the editor produces
-    invalid YAML. Identical to the positive test's raw entry minus
-    the ``schema`` flag — the flag alone is the discriminator.
+    ``clk.pin`` and its SPI-PHY ``clk_pin``, spi ``data_pins``, ...)
+    reject the mapping form, so offering mode flags / ``inverted``
+    in the editor produces invalid YAML. Identical to the positive
+    test's raw entry minus the ``schema`` flag — the flag alone is
+    the discriminator.
     """
     raw = {"key": "Required", "modes": ["input"], "type": "pin"}
     entry = _convert_field("mdc_pin", raw, schema_dir)
