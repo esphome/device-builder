@@ -378,14 +378,10 @@ def _append_hosted_firmware_update(
     defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]] | None,
 ) -> str:
     """
-    Append the co-processor firmware update entity for ``esp32_hosted`` boards.
+    Append the hosted radio's firmware update entity.
 
-    Hosted radios only run the firmware flashed at the factory — often old
-    enough that Bluetooth is broken — and the OTA-updated host firmware never
-    touches it. The ``update.esp32_hosted`` entity is the supported way to
-    bring the radio current; emit it (plus its ``http_request`` dependency)
-    whenever a hosted radio ships in *defaults* and its variant has a
-    published firmware manifest.
+    Emits ``http_request:`` + ``update.esp32_hosted`` when a hosted radio
+    ships in *defaults* and its variant has a published firmware manifest.
     """
     for component, fields in defaults or ():
         if component.id != "esp32_hosted":

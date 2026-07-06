@@ -2825,11 +2825,7 @@ def test_generate_device_yaml_hosted_radio_enables_wifi_on_p4() -> None:
 
 
 def test_generate_device_yaml_hosted_default_appends_firmware_update() -> None:
-    """An ``esp32_hosted`` default appends its firmware update entity.
-
-    Hosted radios only run factory firmware (often with broken Bluetooth)
-    and host OTA never touches it; ``update.esp32_hosted`` is the fix path.
-    """
+    """An ``esp32_hosted`` default appends ``http_request:`` and its update entity."""
     board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
     out = generate_device_yaml(
         "kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=_hosted_defaults()
