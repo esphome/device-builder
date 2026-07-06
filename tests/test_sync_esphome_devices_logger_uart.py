@@ -17,6 +17,8 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
         ({"logger": {"hardware_uart": "uart0"}}, "UART0"),
         ({"logger": {"hardware_uart": " usb_serial_jtag "}}, "USB_SERIAL_JTAG"),
         ({"logger": {"hardware_uart": "USB_CDC"}}, "USB_CDC"),
+        # UART2 is valid on classic ESP32 / bk72xx / ln882x.
+        ({"logger": {"hardware_uart": "UART2"}}, "UART2"),
         # Missing / bare / non-dict logger blocks lift nothing.
         ({}, None),
         ({"logger": None}, None),

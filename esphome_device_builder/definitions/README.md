@@ -113,6 +113,12 @@ esphome:
   board: esp32-s3-devkitc-1    # PlatformIO board ID
   variant: esp32s3             # ESP32 chip variant only (omit otherwise)
   framework: esp-idf           # arduino, esp-idf, or zephyr (omit for platform default)
+  logger_hardware_uart: UART0  # pin the logger console when the board's console port
+                               # isn't the chip default (e.g. a CH343 UART bridge on a
+                               # USB_SERIAL_JTAG-default chip); UART0, UART1, UART2,
+                               # USB_CDC, or USB_SERIAL_JTAG (omit to keep the default).
+                               # engineering_sample is NOT set here — it's derived at
+                               # sync time from the pio board id.
 
 # Hardware specs (all optional)
 hardware:

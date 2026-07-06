@@ -2131,7 +2131,7 @@ def _build_esphome_block(
 
 
 # ESPHome's logger ``hardware_uart`` targets the manifest schema accepts.
-_LOGGER_HARDWARE_UARTS = frozenset({"UART0", "UART1", "USB_CDC", "USB_SERIAL_JTAG"})
+_LOGGER_HARDWARE_UARTS = frozenset({"UART0", "UART1", "UART2", "USB_CDC", "USB_SERIAL_JTAG"})
 
 
 def _extract_logger_hardware_uart(config: dict[str, Any]) -> str | None:
