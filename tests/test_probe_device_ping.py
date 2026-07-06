@@ -13,19 +13,19 @@ from esphome_device_builder.controllers._device_state_monitor import ping as pin
 from esphome_device_builder.controllers._device_state_monitor.controller import (
     DeviceStateMonitor,
 )
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
 
 from .conftest import make_state_monitor_with_callbacks
 
 
-def _ping_only_device(name: str = "garage") -> Device:
+def _ping_only_device(name: str = "garage", state: DeviceState = DeviceState.UNKNOWN) -> Device:
     """Build a no-API device (ICMP-reachable only) for the test fixtures."""
     return Device(
         name=name,
         friendly_name=name.title(),
         configuration=f"{name}.yaml",
         address=f"{name}.local",
-        state=DeviceState.UNKNOWN,
+        state=state,
         loaded_integrations=["wifi"],
     )
 
@@ -95,6 +95,35 @@ def test_probe_device_ping_sets_wake_event() -> None:
 
     assert monitor._ping._wake.is_set() is True
     assert monitor._tasks == set()
+
+
+def test_probe_device_ping_skips_online_mdns_claimed_device() -> None:
+    """No wake for a device mDNS already tracks ONLINE — the sweep would skip it anyway."""
+    monitor, _ = make_state_monitor_with_callbacks([_ping_only_device(state=DeviceState.ONLINE)])
+    monitor.state.state_source["garage"] = ReachabilitySource.MDNS
+
+    monitor.probe_device_ping("garage")
+
+    assert monitor._ping._wake.is_set() is False
+
+
+def test_probe_device_ping_wakes_offline_mdns_sourced_device() -> None:
+    """A device mDNS declared OFFLINE still wakes the sweep so a new address gets probed."""
+    monitor, _ = make_state_monitor_with_callbacks([_ping_only_device(state=DeviceState.OFFLINE)])
+    monitor.state.state_source["garage"] = ReachabilitySource.MDNS
+
+    monitor.probe_device_ping("garage")
+
+    assert monitor._ping._wake.is_set() is True
+
+
+def test_probe_device_ping_unknown_name_fails_open() -> None:
+    """A name with no matching device still wakes the sweep."""
+    monitor, _ = make_state_monitor_with_callbacks([])
+
+    monitor.probe_device_ping("ghost")
+
+    assert monitor._ping._wake.is_set() is True
 
 
 def test_probe_device_ping_herd_collapses_to_single_set() -> None:

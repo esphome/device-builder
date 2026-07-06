@@ -57,7 +57,6 @@ from tests.conftest import make_device
 from .conftest import (
     CaptureDevicesEventsFactory,
     MakeControllerFactory,
-    RecordingStateMonitor,
     SeedDeviceFactory,
     StubBoardLookups,
 )
@@ -1128,22 +1127,6 @@ def test_on_scan_change_reloaded_without_previous_skips_ping(
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
 
     controller._on_scan_change(ScanChange.RELOADED, make_device(name="kitchen", address="x"))
-
-    assert ("probe_device_ping", "kitchen") not in controller._state_monitor.calls
-
-
-def test_on_scan_change_address_change_mdns_claimed_skips_ping(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """An address change on an mDNS-claimed device doesn't wake the sweep."""
-    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
-    controller._state_monitor = RecordingStateMonitor(priority_map={"kitchen": "mdns"})
-
-    controller._on_scan_change(
-        ScanChange.RELOADED,
-        make_device(name="kitchen", address="192.168.1.50"),
-        make_device(name="kitchen", address="kitchen.local"),
-    )
 
     assert ("probe_device_ping", "kitchen") not in controller._state_monitor.calls
 
