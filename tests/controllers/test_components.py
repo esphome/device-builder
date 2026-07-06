@@ -34,6 +34,7 @@ from esphome_device_builder.controllers.components import (
     _FeaturedRecord,
 )
 from esphome_device_builder.controllers.components import _resolve as components_module
+from esphome_device_builder.controllers.components import controller as comp_controller
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -187,6 +188,23 @@ async def test_get_integration_docs_skips_entries_with_no_id_or_no_docs() -> Non
     assert "" not in docs
     # Empty docs_url stays out too.
     assert "no_docs" not in docs
+
+
+def test_installed_component_scan_degrades_to_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreadable esphome install skips the derived aliases, not the map."""
+    monkeypatch.setattr(
+        comp_controller,
+        "esphome",
+        SimpleNamespace(__file__="/nonexistent/esphome/__init__.py"),
+    )
+    assert comp_controller._installed_component_names() == set()
+
+
+def test_summarize_description_truncates_unpunctuated_text() -> None:
+    """A run-on description with no sentence end still caps at 240 chars."""
+    assert comp_controller._summarize_description("word " * 100) == ("word " * 100)[:240]
 
 
 # ── get_component_bodies() unknown-id branch ────────────────────────

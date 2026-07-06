@@ -572,9 +572,9 @@ class ComponentCatalog:
                 continue
             prefix = name
             while "_" in (prefix := prefix.rsplit("_", 1)[0]):
-                entry = result.get(prefix)
-                if entry:
-                    result[name] = entry
+                family = result.get(prefix)
+                if family:
+                    result[name] = family
                     break
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
