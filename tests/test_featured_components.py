@@ -566,15 +566,18 @@ async def _apply(
     return _apply_featured_presets(record, user_fields, body)
 
 
-async def test_shipped_onboard_ethernet_preset_would_trip_required_gate(
+async def test_shipped_onboard_ethernet_preset_satisfies_required_gate(
     catalog: ComponentCatalog,
 ) -> None:
-    """KC868-A128 ethernet preset omits gated-required ``clk`` (sets ``clk_mode``)."""
+    """KC868-A128 ethernet preset carries nested ``clk`` (normalized from clk_mode at ingest)."""
     record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
     assert record is not None
+    assert record.featured.locked_pins["clk.pin"] == 17
     body = await catalog.get_body(record.underlying_id)
     assert body is not None
     fields = _apply_featured_presets(record, {}, body)
+    assert fields["clk"] == {"pin": "GPIO17", "mode": "CLK_OUT"}
+    assert "clk_mode" not in fields
     component = await catalog.get_component(component_id=record.underlying_id)
     assert component is not None
     missing = [
@@ -582,7 +585,7 @@ async def test_shipped_onboard_ethernet_preset_would_trip_required_gate(
         for e in component.config_entries
         if e.required and _entry_gate_active(e, fields) and e.key not in fields
     ]
-    assert "clk" in missing
+    assert "clk" not in missing
 
 
 async def test_bundle_reincluded_ethernet_provider_is_idempotent(

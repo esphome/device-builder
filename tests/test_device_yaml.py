@@ -2943,6 +2943,9 @@ async def test_generate_device_yaml_wt32_eth01_suppresses_wifi_with_ethernet(
         pytest.param("esp32-poe-iso", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="esp32-poe-iso"),
         pytest.param("esp32-evb", {"pin": "GPIO0", "mode": "CLK_EXT_IN"}, id="esp32-evb"),
         pytest.param("esp32-gateway", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="esp32-gateway"),
+        pytest.param(
+            "kincony_kc868_a128", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="kincony_kc868_a128"
+        ),
     ],
 )
 async def test_every_curated_ethernet_board_generates_wired_only_config(
@@ -2952,8 +2955,9 @@ async def test_every_curated_ethernet_board_generates_wired_only_config(
 ) -> None:
     """Each curated onboard-ethernet board emits its ``ethernet:`` block and no ``wifi:``.
 
-    Pins the four hand-curated manifests to their sourced pinouts so a
-    bad edit (wrong clk mode/pin) surfaces here.
+    Pins the hand-curated manifests to their sourced pinouts (a bad edit
+    — wrong clk mode/pin — surfaces here) plus one imported board whose
+    preset was normalized from legacy ``clk_mode`` at ingest.
     """
     board = await session_component_catalog._db.boards.get_board(board_id=board_id)
     assert board is not None
