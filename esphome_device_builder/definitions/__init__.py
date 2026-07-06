@@ -284,6 +284,7 @@ def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
         board=data["board"],
         variant=variant,
         framework=data.get("framework"),
+        logger_hardware_uart=data.get("logger_hardware_uart"),
     )
 
 

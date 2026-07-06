@@ -48,6 +48,11 @@
           "type": ["string", "null"],
           "description": "Build framework override. Omit or null for platform default.",
           "enum": ["arduino", "esp-idf", "zephyr", null]
+        },
+        "logger_hardware_uart": {
+          "type": ["string", "null"],
+          "description": "logger hardware_uart the generated config pins because the board's console port is not the chip default (e.g. a CH343 UART bridge on a chip that defaults to USB_SERIAL_JTAG). Omit or null to keep ESPHome's default.",
+          "enum": ["UART0", "UART1", "USB_CDC", "USB_SERIAL_JTAG", null]
         }
       }
     },

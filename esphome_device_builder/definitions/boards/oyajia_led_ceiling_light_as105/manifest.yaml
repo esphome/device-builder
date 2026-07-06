@@ -4,6 +4,7 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: bk72xx
   board: generic-bk7231n-qfn32-tuya
+  logger_hardware_uart: UART1
 hardware:
   connectivity:
   - wifi

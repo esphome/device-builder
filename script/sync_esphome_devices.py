@@ -2069,7 +2069,9 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
         "id": _slugify(src.folder_name),
         "name": title.strip(),
         "description": "Imported from devices.esphome.io — see linked docs for community notes.",
-        "esphome": _build_esphome_block(soc, board, variant, framework),
+        "esphome": _build_esphome_block(
+            soc, board, variant, framework, _extract_logger_hardware_uart(src.config_yaml)
+        ),
     }
 
     connectivity = list(_connectivity_for(soc, variant) or [])
@@ -2111,7 +2113,11 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
 
 
 def _build_esphome_block(
-    soc: str, board: str, variant: str | None, framework: str | None
+    soc: str,
+    board: str,
+    variant: str | None,
+    framework: str | None,
+    logger_hardware_uart: str | None = None,
 ) -> dict[str, Any]:
     """Compose the manifest's ``esphome:`` block, omitting empty optional fields."""
     out: dict[str, Any] = {"platform": soc, "board": board}
@@ -2119,7 +2125,25 @@ def _build_esphome_block(
         out["variant"] = variant
     if framework in ("arduino", "esp-idf"):
         out["framework"] = framework
+    if logger_hardware_uart:
+        out["logger_hardware_uart"] = logger_hardware_uart
     return out
+
+
+# ESPHome's logger ``hardware_uart`` targets the manifest schema accepts.
+_LOGGER_HARDWARE_UARTS = frozenset({"UART0", "UART1", "USB_CDC", "USB_SERIAL_JTAG"})
+
+
+def _extract_logger_hardware_uart(config: dict[str, Any]) -> str | None:
+    """Lift ``logger.hardware_uart`` when the page pins a non-default console."""
+    logger = config.get("logger")
+    if not isinstance(logger, dict):
+        return None
+    value = logger.get("hardware_uart")
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().upper()
+    return normalized if normalized in _LOGGER_HARDWARE_UARTS else None
 
 
 def _connectivity_for(soc: str, variant: str | None) -> list[str] | None:

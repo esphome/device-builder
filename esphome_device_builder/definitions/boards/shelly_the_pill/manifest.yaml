@@ -6,6 +6,7 @@ esphome:
   board: esp32-c3-devkitm-1
   variant: esp32c3
   framework: esp-idf
+  logger_hardware_uart: USB_SERIAL_JTAG
 hardware:
   connectivity:
   - wifi

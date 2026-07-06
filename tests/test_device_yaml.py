@@ -63,6 +63,7 @@ def _make_esp32_board(
     flash_size: str | None = None,
     framework: str | None = None,
     engineering_sample: bool = False,
+    logger_hardware_uart: str | None = None,
 ) -> BoardCatalogEntry:
     """Build a minimal ESP32 ``BoardCatalogEntry`` for the YAML generator.
 
@@ -81,6 +82,7 @@ def _make_esp32_board(
             variant=variant,
             framework=framework,
             engineering_sample=engineering_sample,
+            logger_hardware_uart=logger_hardware_uart,
         ),
         hardware=BoardHardware(
             flash_size=flash_size,
@@ -1197,6 +1199,31 @@ def test_generate_yaml_omits_engineering_sample_by_default() -> None:
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
 
     assert "engineering_sample" not in yaml
+
+
+def test_generate_yaml_pins_logger_hardware_uart_when_set() -> None:
+    """``logger_hardware_uart`` set → the logger block pins the console UART.
+
+    Boards whose console USB port is a UART bridge (CH343 on UART0) show ROM
+    output but no app logs on the chip-default console.
+    """
+    board = _make_esp32_board(
+        variant=Esp32Variant.ESP32P4,
+        framework="esp-idf",
+        logger_hardware_uart="UART0",
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "logger:\n  hardware_uart: UART0\n" in yaml
+
+
+def test_generate_yaml_leaves_logger_bare_by_default() -> None:
+    """No ``logger_hardware_uart`` → bare ``logger:`` (ESPHome's default console)."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "logger:\n\n" in yaml
+    assert "hardware_uart" not in yaml
 
 
 def test_generate_yaml_emits_all_three_esp32_fields_together() -> None:

@@ -196,6 +196,10 @@ def generate_device_yaml(
 
     # Logging
     lines.append("logger:")
+    if esphome_cfg.logger_hardware_uart:
+        # Console port isn't the chip default (e.g. a CH343 UART bridge);
+        # without the pin the port shows ROM output but no app logs.
+        lines.append(f"  hardware_uart: {esphome_cfg.logger_hardware_uart}")
     lines.append("")
 
     # Wi-Fi decision — used both for the ``wifi:`` block below and to
