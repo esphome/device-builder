@@ -2824,6 +2824,48 @@ def test_generate_device_yaml_hosted_radio_enables_wifi_on_p4() -> None:
     assert "no native Wi-Fi" not in out
 
 
+def test_generate_device_yaml_hosted_default_appends_firmware_update() -> None:
+    """An ``esp32_hosted`` default appends its firmware update entity.
+
+    Hosted radios only run factory firmware (often with broken Bluetooth)
+    and host OTA never touches it; ``update.esp32_hosted`` is the fix path.
+    """
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    out = generate_device_yaml(
+        "kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=_hosted_defaults()
+    )
+
+    assert "http_request:\n" in out
+    assert (
+        "update:\n"
+        "  - platform: esp32_hosted\n"
+        "    type: http\n"
+        "    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json\n"
+        "    name: C6 Firmware\n"
+    ) in out
+    # The update block lands after the hosted component it updates.
+    assert out.index("esp32_hosted:") < out.index("update:")
+
+
+def test_generate_device_yaml_hosted_variant_without_firmware_manifest_skips_update() -> None:
+    """No published firmware manifest for the variant → no update entity, no dead URL."""
+    defaults = [(_make_component("esp32_hosted"), {"variant": "ESP32C3"})]
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=defaults)
+
+    assert "http_request:" not in out
+    assert "update:" not in out
+
+
+def test_generate_device_yaml_no_hosted_default_appends_no_update() -> None:
+    """Boards without a hosted radio get neither ``http_request:`` nor ``update:``."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32S3, framework="esp-idf")
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw")
+
+    assert "http_request:" not in out
+    assert "update:" not in out
+
+
 def test_generate_device_yaml_p4_wifi_claim_without_radio_gets_network_todo() -> None:
     """A wifi-claiming P4 with no radio provider in defaults must not emit ``wifi:``.
 
