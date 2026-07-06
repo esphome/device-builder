@@ -338,8 +338,8 @@ def _append_platform_block(
     """
     Append the platform block.
 
-    esp32 emits variant + flash_size (board stays implied); every other
-    platform requires ``board:``.
+    esp32 emits variant / engineering_sample / flash_size / framework with
+    ``board:`` implied; every other platform requires ``board:``.
     """
     lines.append(f"{platform}:")
     if platform == "esp32":
