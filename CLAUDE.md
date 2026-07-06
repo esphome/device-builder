@@ -515,6 +515,17 @@ against legacy behaviour before assuming the simpler version suffices.
     has no browser `Removed` counterpart, so it locks out `should_ping` and
     latches the device ONLINE forever (#1776). The `ping`-source result
     (priority 1) stays sweep-eligible so a dead entry demotes.
+  - **`_http._tcp` version fallback** (`MdnsSource._on_http_service_state_change`,
+    for a configured device with `mqtt:` but no `api:`). Such a device never
+    publishes `_esphomelib._tcp` (behind `USE_API`); its only broadcast is a
+    bare `_http._tcp` fallback carrying a lone `version` TXT. Read that
+    `version` through `apply_version` and **nothing else** — `mac` /
+    `config_hash` / api-encryption live only on `_esphomelib._tcp`, and the
+    fallback carries no version TXT once the device gains a web server. Drive
+    **no** state off it (no ONLINE claim, `Removed` ignored): the same shared
+    browser watches `_http._tcp`, but reachability stays owned by the
+    active-resolve / MQTT / ping paths, so an all-API name bucket is skipped
+    (a device broadcasting the API gets its version from the esphomelib path).
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE
