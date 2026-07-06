@@ -4,9 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypedDict
 
 from .common import ConfigEntry, DashboardModel, PagedResponse, RequiredGroup
+
+
+class IntegrationDocEntry(TypedDict):
+    """One ``components/get_integration_docs`` map value."""
+
+    url: str
+    name: str
 
 
 class ComponentCategory(StrEnum):

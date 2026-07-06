@@ -22,6 +22,7 @@ from ...models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
     ComponentCategory,
+    IntegrationDocEntry,
     PagedComponentsResponse,
 )
 from ...models.boards import normalize_platform
@@ -185,8 +186,8 @@ class ComponentCatalog:
         return self._pin_registry_modes
 
     @api_command("components/get_integration_docs")
-    async def get_integration_docs(self, **kwargs: Any) -> dict[str, str]:
-        """Return ``{integration_name: docs_url}`` for resolvable integrations.
+    async def get_integration_docs(self, **kwargs: Any) -> dict[str, IntegrationDocEntry]:
+        """Return ``{integration_name: {url, name}}`` for resolvable integrations.
 
         Returns a map covering every loaded-integration identifier we can
         resolve to an esphome.io docs page.
@@ -213,7 +214,9 @@ class ComponentCatalog:
         Names with no catalog hit are simply omitted — the frontend
         renders them as plain text. The catalog's ``docs_url`` is sourced
         from the live esphome.io docs index, so a present URL is also a
-        guarantee that the page exists.
+        guarantee that the page exists. ``name`` is the catalog display
+        name (``ethernet`` → "Ethernet Component"); category landings,
+        which have no catalog entry, fall back to the bare key.
         """
         # Three sources, applied in priority order:
         #   1. Top-level component (id without ``.``) — wins outright.
@@ -230,16 +233,16 @@ class ComponentCatalog:
         #      stem is dropped and the frontend renders it as plain
         #      text. "If we have a docs page for it" demands one
         #      unambiguous answer, not the first one we happen to see.
-        top_level: dict[str, str] = {}
-        category_urls: dict[str, str] = {}
-        stem_candidates: dict[str, set[str]] = {}
+        top_level: dict[str, IntegrationDocEntry] = {}
+        category_urls: dict[str, IntegrationDocEntry] = {}
+        stem_candidates: dict[str, dict[str, str]] = {}
         for comp in self._components:
             comp_id = comp.id
             docs = comp.docs_url
             if not comp_id or not docs:
                 continue
             if "." not in comp_id:
-                top_level[comp_id] = docs
+                top_level[comp_id] = IntegrationDocEntry(url=docs, name=comp.name)
                 continue
             category, stem = comp_id.split(".", 1)
             # ESPHome's docs site serves a real index page at
@@ -252,22 +255,28 @@ class ComponentCatalog:
             marker = f"/components/{category}/"
             idx = docs.find(marker)
             if idx != -1:
-                category_urls.setdefault(category, docs[: idx + len(marker) - 1])
-            stem_candidates.setdefault(stem, set()).add(docs)
+                category_urls.setdefault(
+                    category,
+                    IntegrationDocEntry(url=docs[: idx + len(marker) - 1], name=category),
+                )
+            stem_candidates.setdefault(stem, {})[docs] = comp.name
 
         # Stems are unambiguous only when every category that owns the
         # stem agrees on the same docs URL. Multi-platform components
         # (``at581x``, ``rotary_encoder``) hit this path because they
         # share a single docs page across categories.
-        stems: dict[str, str] = {
-            stem: next(iter(urls)) for stem, urls in stem_candidates.items() if len(urls) == 1
+        stems: dict[str, IntegrationDocEntry] = {
+            stem: IntegrationDocEntry(url=url, name=name)
+            for stem, urls in stem_candidates.items()
+            if len(urls) == 1
+            for url, name in urls.items()
         }
 
         # ``dict.update()`` overwrites existing keys, so later writes
         # win. Apply lowest priority first (stems), then category, then
         # top-level — that way a colliding key is overridden by the
         # more-specific page.
-        result: dict[str, str] = {}
+        result: dict[str, IntegrationDocEntry] = {}
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
@@ -501,7 +510,9 @@ class ComponentCatalog:
         """Batched variant of :meth:`get_body`; one executor hop per call."""
         return await self._body_store.get_many(component_ids)
 
-    def _add_docs_aliases(self, result: dict[str, str], installed: set[str]) -> None:
+    def _add_docs_aliases(
+        self, result: dict[str, IntegrationDocEntry], installed: set[str]
+    ) -> None:
         """Add log-tag alias keys to the integration-docs map in place.
 
         Platform code logs under a dotted tag whose order is inconsistent
@@ -513,14 +524,14 @@ class ComponentCatalog:
         """
         for comp in self._components:
             if comp.id and comp.docs_url and "." in comp.id:
-                result.setdefault(comp.id, comp.docs_url)
+                result.setdefault(comp.id, IntegrationDocEntry(url=comp.docs_url, name=comp.name))
         for comp in self._components:
             comp_id = comp.id
             docs = comp.docs_url
             if not comp_id or not docs or "." not in comp_id:
                 continue
             category, stem = comp_id.split(".", 1)
-            result.setdefault(f"{stem}.{category}", docs)
+            result.setdefault(f"{stem}.{category}", IntegrationDocEntry(url=docs, name=comp.name))
 
         # Undocumented internal helpers (esp32_ble_client, web_server_base)
         # inherit the docs page of their longest documented name prefix.
@@ -531,9 +542,9 @@ class ComponentCatalog:
                 continue
             prefix = name
             while "_" in (prefix := prefix.rsplit("_", 1)[0]):
-                url = result.get(prefix)
-                if url:
-                    result[name] = url
+                entry = result.get(prefix)
+                if entry:
+                    result[name] = entry
                     break
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
