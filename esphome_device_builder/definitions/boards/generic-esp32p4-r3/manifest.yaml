@@ -1,21 +1,21 @@
-id: generic-esp32p4
-name: Generic ESP32-P4 Board (pre-rev3)
-description: Generic ESP32-P4 development board with pre-rev3 (engineering sample)
-  silicon — most boards sold so far. If your boot log shows "chip revision v3.x",
-  pick the Generic ESP32-P4 Board (rev3) instead; the two revisions need different
-  firmware. Select this if your specific board is not listed — not all pins may be
-  physically accessible on your board. Note that the ESP32-P4 has no built-in WiFi
-  or Bluetooth and typically requires a co-processor for wireless connectivity.
+id: generic-esp32p4-r3
+name: Generic ESP32-P4 Board (rev3)
+description: Generic ESP32-P4 development board with rev3 (v3.0x) production silicon. Pick
+  this only if your boot log shows "chip revision v3.x" — pre-rev3 boards need the plain Generic
+  ESP32-P4 Board; the two revisions need different firmware. Select this if your specific
+  board is not listed — not all pins may be physically accessible on your board. Note that
+  the ESP32-P4 has no built-in WiFi or Bluetooth and typically requires a co-processor for
+  wireless connectivity.
 manufacturer: Generic
 is_generic: true
 esphome:
   platform: esp32
-  board: esp32-p4-evboard
+  board: esp32-p4_r3-evboard
   variant: esp32p4
   framework: esp-idf
 hardware:
   flash_size: 16MB
-  cpu_frequency: 360MHz
+  cpu_frequency: 400MHz
   connectivity:
   - openthread
 tags: []
@@ -359,6 +359,6 @@ pins:
   available: null
 - gpio: 54
   label: GPIO54
-  features:
-  - pwm
-  available: null
+  features: []
+  available: false
+  occupied_by: VDD_HP_1 power rail (pin repurposed in rev3 silicon)

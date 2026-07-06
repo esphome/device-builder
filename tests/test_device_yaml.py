@@ -62,6 +62,7 @@ def _make_esp32_board(
     variant: Esp32Variant | None = None,
     flash_size: str | None = None,
     framework: str | None = None,
+    engineering_sample: bool = False,
 ) -> BoardCatalogEntry:
     """Build a minimal ESP32 ``BoardCatalogEntry`` for the YAML generator.
 
@@ -79,6 +80,7 @@ def _make_esp32_board(
             board="esp32dev",
             variant=variant,
             framework=framework,
+            engineering_sample=engineering_sample,
         ),
         hardware=BoardHardware(
             flash_size=flash_size,
@@ -1170,6 +1172,31 @@ def test_generate_yaml_omits_esp32_branch_fields_when_unset() -> None:
     assert "variant:" not in yaml
     assert "flash_size:" not in yaml
     assert "framework:" not in yaml
+
+
+def test_generate_yaml_emits_engineering_sample_for_prerev3_p4() -> None:
+    """ES-flagged board → ``engineering_sample: true`` between variant and flash_size.
+
+    Without it esphome defaults ``variant: esp32p4`` to rev3-only firmware
+    that faults at the bootloader on pre-rev3 silicon.
+    """
+    board = _make_esp32_board(
+        variant=Esp32Variant.ESP32P4,
+        flash_size="32MB",
+        framework="esp-idf",
+        engineering_sample=True,
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "esp32:\n  variant: esp32p4\n  engineering_sample: true\n  flash_size: 32MB\n" in yaml
+
+
+def test_generate_yaml_omits_engineering_sample_by_default() -> None:
+    """Non-ES board → no ``engineering_sample`` line (rev3 P4s must not get it)."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "engineering_sample" not in yaml
 
 
 def test_generate_yaml_emits_all_three_esp32_fields_together() -> None:

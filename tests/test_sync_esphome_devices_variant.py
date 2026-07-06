@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import pytest
+from esphome.components.esp32.boards import BOARDS
 
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
+    _ESP32_VARIANT_DEFAULT_BOARD,
     _resolve_board_and_variant,
 )
 
@@ -32,3 +34,20 @@ def test_explicit_variant_wins_over_inference() -> None:
         "esp32", {"board": "esp32-p4-evboard", "variant": "ESP32S3"}
     )
     assert variant == "esp32s3"
+
+
+def test_variant_default_boards_exist_in_esphome() -> None:
+    """Every ``_ESP32_VARIANT_DEFAULT_BOARD`` value is a real ESPHome board id.
+
+    A bogus default (``esp32-p4-function-ev-board``) shipped in an imported
+    manifest unnoticed; the id must resolve in ``BOARDS`` so variant-only
+    upstream pages import a buildable board.
+    """
+    missing = {v: b for v, b in _ESP32_VARIANT_DEFAULT_BOARD.items() if b not in BOARDS}
+    assert not missing, missing
+
+
+def test_p4_variant_default_board_is_pre_rev3() -> None:
+    """The esp32p4 default stays pre-rev3: rev3-min firmware faults at boot on that silicon."""
+    board = _ESP32_VARIANT_DEFAULT_BOARD["esp32p4"]
+    assert BOARDS[board].get("engineering_sample") is True

@@ -141,6 +141,11 @@ class BoardEsphomeConfig(DashboardModel):
     # libretiny families (e.g. bk72xx chips) the same way later. None where
     # the platform needs no split; esp32 uses ``variant`` for the same role.
     mcu: str | None = None
+    # Pre-rev3 ESP32-P4 silicon (esphome's "engineering sample"). Stamped by
+    # sync_boards from esphome's BOARDS table; generated configs must carry
+    # ``engineering_sample: true`` or esphome defaults to rev3-only firmware
+    # that faults at boot on these chips.
+    engineering_sample: bool = False
 
     class Config(_CatalogConfig):
         """Skip empty defaults on serialise; see :class:`_CatalogConfig`."""

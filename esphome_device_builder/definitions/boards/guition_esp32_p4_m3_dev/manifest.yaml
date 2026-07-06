@@ -3,7 +3,7 @@ name: Guition ESP32-P4-M3-Dev
 description: Imported from devices.esphome.io — see linked docs for community notes.
 esphome:
   platform: esp32
-  board: esp32-p4-function-ev-board
+  board: esp32-p4-evboard
   variant: esp32p4
   framework: esp-idf
 hardware:

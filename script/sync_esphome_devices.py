@@ -93,7 +93,9 @@ _ESP32_VARIANT_DEFAULT_BOARD: dict[str, str] = {
     "esp32c6": "esp32-c6-devkitc-1",
     "esp32c61": "esp32-c61-devkitc1",
     "esp32h2": "esp32-h2-devkitm-1",
-    "esp32p4": "esp32-p4-function-ev-board",
+    # Pre-rev3 board on purpose: ES firmware boots on both silicon revisions,
+    # rev3-min firmware faults at boot on pre-rev3 chips.
+    "esp32p4": "esp32-p4-evboard",
 }
 
 # ESPHome esp32 board ids encode the chip variant (``esp32-p4-evboard``,

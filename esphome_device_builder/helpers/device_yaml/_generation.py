@@ -12,6 +12,7 @@ from ..yaml import _safe_yaml_scalar, merge_component_yaml
 
 if TYPE_CHECKING:
     from ...models import BoardCatalogEntry, ComponentCatalogEntry
+    from ...models.boards import BoardEsphomeConfig, BoardHardware
 
 
 # Native-Wi-Fi capability, snapshotted from esphome into
@@ -189,31 +190,9 @@ def generate_device_yaml(
     lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
 
-    # Platform config
-    # ESP32: variant + flash_size, board optional
-    # All others: board is REQUIRED, no variant/flash_size
     platform = str(esphome_cfg.platform)
     hardware = board.hardware
-    lines.append(f"{platform}:")
-
-    if platform == "esp32":
-        # ESP32 uses variant instead of board
-        if esphome_cfg.variant:
-            lines.append(f"  variant: {esphome_cfg.variant}")
-        if hardware.flash_size:
-            lines.append(f"  flash_size: {hardware.flash_size}")
-        if esphome_cfg.framework:
-            lines.extend(("  framework:", f"    type: {esphome_cfg.framework}"))
-            if hardware.flash_size == "32MB":
-                # ESPHome refuses ``ota:`` (emitted below whenever a
-                # network exists) with 32MB flash unless this opt-in
-                # is set.
-                lines.extend(("    advanced:", "      enable_idf_experimental_features: true"))
-    else:
-        # esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52 — board is required
-        lines.append(f"  board: {esphome_cfg.board}")
-
-    lines.append("")
+    _append_platform_block(lines, platform, esphome_cfg, hardware)
 
     # Logging
     lines.append("logger:")
@@ -348,6 +327,41 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
         board=esphome_cfg.board,
         variant=str(esphome_cfg.variant) if esphome_cfg.variant else None,
     )
+
+
+def _append_platform_block(
+    lines: list[str],
+    platform: str,
+    esphome_cfg: BoardEsphomeConfig,
+    hardware: BoardHardware,
+) -> None:
+    """
+    Append the platform block.
+
+    esp32 emits variant + flash_size (board stays implied); every other
+    platform requires ``board:``.
+    """
+    lines.append(f"{platform}:")
+    if platform == "esp32":
+        if esphome_cfg.variant:
+            lines.append(f"  variant: {esphome_cfg.variant}")
+        if esphome_cfg.engineering_sample:
+            # Pre-rev3 P4 silicon: without this esphome builds rev3-only
+            # firmware that faults at the bootloader on these chips.
+            lines.append("  engineering_sample: true")
+        if hardware.flash_size:
+            lines.append(f"  flash_size: {hardware.flash_size}")
+        if esphome_cfg.framework:
+            lines.extend(("  framework:", f"    type: {esphome_cfg.framework}"))
+            if hardware.flash_size == "32MB":
+                # ESPHome refuses ``ota:`` (emitted below whenever a
+                # network exists) with 32MB flash unless this opt-in
+                # is set.
+                lines.extend(("    advanced:", "      enable_idf_experimental_features: true"))
+    else:
+        # esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52 — board is required
+        lines.append(f"  board: {esphome_cfg.board}")
+    lines.append("")
 
 
 def _apply_default_components(

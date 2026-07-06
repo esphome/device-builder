@@ -567,10 +567,20 @@ def _augment_rp2040_onboard_ethernet_pins(boards: list[BoardCatalogEntry]) -> No
 
 def _esp32_generic_pins_by_variant(
     boards: list[BoardCatalogEntry],
-) -> dict[Esp32Variant, list[BoardPin]]:
-    """Index the loaded ``generic-<variant>`` manifests' pins by variant."""
+) -> dict[tuple[Esp32Variant, bool], list[BoardPin]]:
+    """
+    Index the loaded ``generic-<variant>`` manifests' pins by (variant, ES-ness).
+
+    The P4 has one generic per silicon revision (GPIO54 is a GPIO on pre-rev3,
+    a power rail on rev3); keying on variant alone let whichever generic loads
+    last hand its pinout to every generated board of the variant.
+    """
+    module = importlib.import_module(_ESP32_BOARDS_MODULE)
+    board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
     return {
-        b.esphome.variant: b.pins
+        (b.esphome.variant, bool(board_list.get(b.esphome.board, {}).get("engineering_sample"))): (
+            b.pins
+        )
         for b in boards
         if b.is_generic and b.esphome.platform.value == "esp32" and b.esphome.variant
     }
@@ -659,10 +669,41 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
             continue
         variant = Esp32Variant(meta["variant"].lower())
         pins = _resolve_board_pins(pin_map, name)
-        derived = _esp32_board_pins(generic_pins.get(variant, []), pins)
+        es = bool(meta.get("engineering_sample"))
+        # Fall back to the other revision's generic for variants with one manifest.
+        base = generic_pins.get((variant, es)) or generic_pins.get((variant, not es), [])
+        derived = _esp32_board_pins(base, pins)
         boards.append(_generated_board(Platform("esp32"), name, display, derived, variant))
         ids.add(name)
         names.add((Platform("esp32"), display))
+
+
+def _backfill_esp32_engineering_sample(boards: list[BoardCatalogEntry]) -> None:
+    """
+    Stamp ``esphome.engineering_sample`` from ESPHome's ``BOARDS`` table.
+
+    Pre-rev3 ESP32-P4 pio boards are flagged upstream; generated configs must
+    emit ``engineering_sample: true`` or esphome builds rev3-only firmware that
+    faults at boot on that silicon. Fails the sync on an esp32 board id ESPHome
+    doesn't know (a typo shipped ``esp32-p4-function-ev-board`` unnoticed).
+    """
+    module = importlib.import_module(_ESP32_BOARDS_MODULE)
+    board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
+    unknown: list[str] = []
+    for board in boards:
+        cfg = board.esphome
+        if cfg.platform.value != "esp32":
+            continue
+        meta = board_list.get(cfg.board)
+        if meta is None:
+            unknown.append(f"{board.id} ({cfg.board})")
+            continue
+        cfg.engineering_sample = bool(meta.get("engineering_sample"))
+    if unknown:
+        raise SystemExit(
+            "esp32 manifests whose esphome.board is unknown to the installed "
+            f"ESPHome: {', '.join(sorted(unknown))}"
+        )
 
 
 def _esp8266_generic_pins(boards: list[BoardCatalogEntry]) -> list[BoardPin]:
@@ -1140,6 +1181,7 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_libretiny_mcu(catalog.boards)
     _augment_rp2040_onboard_ethernet_pins(catalog.boards)
     _augment_esp32_boards(catalog.boards)
+    _backfill_esp32_engineering_sample(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
