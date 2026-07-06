@@ -192,14 +192,33 @@ async def test_get_integration_docs_skips_entries_with_no_id_or_no_docs() -> Non
 
 def test_installed_component_scan_degrades_to_empty(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unreadable esphome install skips the derived aliases, not the map."""
+    """An unreadable esphome install skips the derived aliases, loudly."""
     monkeypatch.setattr(
         comp_controller,
         "esphome",
         SimpleNamespace(__file__="/nonexistent/esphome/__init__.py"),
     )
-    assert comp_controller._installed_component_names() == set()
+    with caplog.at_level(logging.WARNING):
+        assert comp_controller._installed_component_names() == set()
+    assert any("Could not list esphome components dir" in r.message for r in caplog.records)
+
+
+async def test_empty_component_scan_is_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed scan retries on the next call instead of latching empty."""
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="wifi", docs_url="https://esphome.io/components/wifi"),
+    ]
+    monkeypatch.setattr(comp_controller, "_installed_component_names", set)
+    await cat.get_integration_docs()
+    assert cat._installed_components is None
+    monkeypatch.setattr(comp_controller, "_installed_component_names", lambda: {"wifi"})
+    await cat.get_integration_docs()
+    assert cat._installed_components == {"wifi"}
 
 
 def test_summarize_description_truncates_unpunctuated_text() -> None:

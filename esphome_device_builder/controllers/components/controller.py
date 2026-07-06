@@ -79,7 +79,8 @@ def _installed_component_names() -> set[str]:
             for entry in components.iterdir()
             if entry.is_dir() and not entry.name.startswith("_")
         }
-    except OSError:
+    except OSError as err:
+        _LOGGER.warning("Could not list esphome components dir %s: %s", components, err)
         return set()
 
 
@@ -306,12 +307,16 @@ class ComponentCatalog:
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
-        if self._installed_components is None:
+        installed = self._installed_components
+        if installed is None:
             loop = asyncio.get_running_loop()
-            self._installed_components = await loop.run_in_executor(
-                None, _installed_component_names
-            )
-        self._add_docs_aliases(result, qualified, self._installed_components)
+            installed = await loop.run_in_executor(None, _installed_component_names)
+            # Don't latch a failed (empty) scan — leave the cache unset so the
+            # next call retries instead of silently losing the helper aliases
+            # for the process lifetime.
+            if installed:
+                self._installed_components = installed
+        self._add_docs_aliases(result, qualified, installed)
         return result
 
     async def get_component(
