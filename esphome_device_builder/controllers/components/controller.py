@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import esphome
 
 from ...definitions import (
     load_featured_components_index,
@@ -41,10 +45,23 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Internal AUTO_LOADed helpers with no docs page of their own, aliased to the
-# user-facing component that documents the behaviour they log (values are
-# looked up in the built map, so the URL stays catalog-sourced).
-_HELPER_DOC_ALIASES: dict[str, str] = {"esp32_ble_client": "ble_client"}
+
+def _installed_component_names() -> set[str]:
+    """Component directory names shipped by the installed esphome.
+
+    A directory listing, never an ``esphome.components.*`` import — the
+    import-time budget guard forbids the latter in this process. Blocking;
+    call from an executor.
+    """
+    components = Path(esphome.__file__).parent / "components"
+    try:
+        return {
+            entry.name
+            for entry in components.iterdir()
+            if entry.is_dir() and not entry.name.startswith("_")
+        }
+    except OSError:
+        return set()
 
 
 def variant_to_key(variant: str) -> str:
@@ -82,6 +99,9 @@ class ComponentCatalog:
         # empty (or a native pin with no provider key) leaves the frontend
         # showing every flag (the pre-scoping behaviour).
         self._pin_registry_modes: dict[str, list[str]] = {}
+        # Installed-esphome component dir names; scanned once on first
+        # ``get_integration_docs`` call (executor hop) and cached.
+        self._installed_components: set[str] | None = None
         self._body_store: LazyBodyStore[ComponentCatalogEntry] = LazyBodyStore(
             load_one=_load_body_from_disk,
             cache_maxsize=_BODY_CACHE_MAXSIZE,
@@ -186,8 +206,9 @@ class ComponentCatalog:
         4. Qualified alias (``esphome.ota`` / ``ota.esphome`` →
            ``ota.esphome``'s docs URL): both orders of every dotted id,
            for platform log tags, whose order is inconsistent upstream.
-        5. Curated helper alias (``esp32_ble_client`` → ``ble_client``'s
-           page): internal AUTO_LOADed helpers with no page of their own.
+        5. Derived helper alias (``esp32_ble_client`` → ``esp32_ble``'s
+           page): an installed component with no page of its own inherits
+           its longest documented multi-word name prefix.
 
         Names with no catalog hit are simply omitted — the frontend
         renders them as plain text. The catalog's ``docs_url`` is sourced
@@ -250,7 +271,12 @@ class ComponentCatalog:
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
-        self._add_docs_aliases(result)
+        if self._installed_components is None:
+            loop = asyncio.get_running_loop()
+            self._installed_components = await loop.run_in_executor(
+                None, _installed_component_names
+            )
+        self._add_docs_aliases(result, self._installed_components)
         return result
 
     async def get_component(
@@ -475,7 +501,7 @@ class ComponentCatalog:
         """Batched variant of :meth:`get_body`; one executor hop per call."""
         return await self._body_store.get_many(component_ids)
 
-    def _add_docs_aliases(self, result: dict[str, str]) -> None:
+    def _add_docs_aliases(self, result: dict[str, str], installed: set[str]) -> None:
         """Add log-tag alias keys to the integration-docs map in place.
 
         Platform code logs under a dotted tag whose order is inconsistent
@@ -483,7 +509,7 @@ class ComponentCatalog:
         is <category>.<stem>), so emit BOTH orders of every qualified id.
         Dotted keys can't collide with the bare-name sources; ids land before
         reversed aliases so an id-exact key beats another component's
-        reversal. Curated helper aliases fill undocumented internals last.
+        reversal. Undocumented internals then inherit their family's page.
         """
         for comp in self._components:
             if comp.id and comp.docs_url and "." in comp.id:
@@ -495,10 +521,20 @@ class ComponentCatalog:
                 continue
             category, stem = comp_id.split(".", 1)
             result.setdefault(f"{stem}.{category}", docs)
-        for helper, target in _HELPER_DOC_ALIASES.items():
-            url = result.get(target)
-            if url:
-                result.setdefault(helper, url)
+
+        # Undocumented internal helpers (esp32_ble_client, web_server_base)
+        # inherit the docs page of their longest documented name prefix.
+        # The prefix must itself stay multi-word — a one-word prefix hit
+        # (``sensor``, ``time``) is coincidence, not component family.
+        for name in installed:
+            if name in result:
+                continue
+            prefix = name
+            while "_" in (prefix := prefix.rsplit("_", 1)[0]):
+                url = result.get(prefix)
+                if url:
+                    result[name] = url
+                    break
 
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""

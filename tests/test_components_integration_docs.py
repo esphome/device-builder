@@ -147,14 +147,18 @@ async def test_qualified_alias_does_not_shadow_bare_names(
 async def test_helper_alias_for_undocumented_internals(
     catalog: ComponentCatalog,
 ) -> None:
-    """``esp32_ble_client`` (no docs page of its own) aliases to ble_client.
+    """Undocumented internals inherit their longest documented name prefix.
 
-    It's AUTO_LOADed by ``ble_client`` / ``bluetooth_proxy`` and logs the
-    connection fields (address, auto-connect, state) the ble_client page
-    documents; without the alias its log tag renders as plain text.
+    ``esp32_ble_client`` / ``web_server_base`` ship as components but have
+    no docs page; without the derived alias their log tags render as plain
+    text. The prefix must itself stay multi-word, so ``esp32_rmt`` (whose
+    only documented prefix is the one-word ``esp32``) stays omitted rather
+    than guessing.
     """
     docs = await catalog.get_integration_docs()
-    assert docs["esp32_ble_client"].rstrip("/").endswith("/components/ble_client")
+    assert docs["esp32_ble_client"].rstrip("/").endswith("/components/esp32_ble")
+    assert docs["web_server_base"].rstrip("/").endswith("/components/web_server")
+    assert "esp32_rmt" not in docs
 
 
 async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:
