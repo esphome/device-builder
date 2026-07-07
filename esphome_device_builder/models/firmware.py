@@ -196,17 +196,22 @@ class FirmwareJob(DashboardModel):
     # Latched once released onto its lane; a restart then routes it even if
     # the prerequisite was pruned. False without ``depends_on``.
     dependency_released: bool = False
-    # Coarse progress estimate parsed from PlatformIO/esptool output
-    # (0-100). Monotonically non-decreasing *within a phase* — the
-    # streaming ingest only latches a higher parsed percent. At
+    # Coarse progress estimate parsed from PlatformIO/esptool/ninja
+    # output (0-100). Monotonically non-decreasing *within a phase* —
+    # the streaming ingest only latches a higher parsed percent. At
     # known phase seams (REMOTE install's compile → upload boundary
-    # in :func:`controllers.firmware.remote_runner._fetch_and_run_local_upload`)
-    # the runner explicitly resets to 0 so subsequent phase percents
-    # aren't silently clamped against the previous phase's peak.
-    # ``None`` when the underlying tooling hasn't emitted a percentage
-    # yet -- most compile output is opaque, but the heavy phases (PIO
-    # build, esptool flash) do emit percentages we can latch onto.
+    # in :func:`controllers.firmware.remote_runner._fetch_and_run_local_upload`,
+    # a ninja ``[N/M]`` counter restart detected via ``progress_total``)
+    # the ingest explicitly bypasses the clamp so subsequent phase
+    # percents aren't silently clamped against the previous phase's
+    # peak. ``None`` when the underlying tooling hasn't emitted a
+    # percentage yet -- most compile output is opaque, but the heavy
+    # phases (PIO / ninja build, esptool flash) do emit progress we can
+    # latch onto.
     progress: int | None = None
+    # Last-seen total of a ninja ``[N/M]`` counter; a change marks a new
+    # sub-build's counter and resets the monotonic clamp. Per-run state.
+    progress_total: int | None = None
     # Offloader's ``dashboard_id`` when this job came in via the
     # peer-link ``submit_job`` flow (issue #106). Empty for
     # locally-submitted jobs. Surfaced in the firmware-tasks UI
@@ -395,9 +400,10 @@ class FirmwareJob(DashboardModel):
           another build server uses :meth:`clear_run_state`
           instead, so it doesn't claim a restart that didn't
           happen.)
-        - **Clears per-run state** — ``progress`` / ``error`` /
-          ``started_at`` / ``completed_at`` / ``exit_code``
-          back to their defaults.
+        - **Clears per-run state** — ``progress`` /
+          ``progress_total`` / ``error`` / ``started_at`` /
+          ``completed_at`` / ``exit_code`` back to their
+          defaults.
         - **Doesn't change ``status``** — the caller decides
           the transition (load path flips ``RUNNING`` →
           ``QUEUED``; future callers might want a different
@@ -466,6 +472,7 @@ class FirmwareJob(DashboardModel):
         restart notice that never happened.
         """
         self.progress = None
+        self.progress_total = None
         self.error = None
         self.failure_reason = JobFailureReason.NONE
         self.started_at = None
@@ -536,16 +543,16 @@ class JobProgressData(TypedDict):
     Payload for ``EventType.JOB_PROGRESS``.
 
     Coarse 0-100 progress estimate parsed from PlatformIO /
-    esptool output. The streaming ingest only fires this event
-    when the parsed percent advances, so the gauge climbs
+    esptool / ninja output. The streaming ingest only fires this
+    event when the parsed percent advances, so the gauge climbs
     monotonically *within a phase*. At known phase seams
     (REMOTE install's compile → upload boundary —
-    :func:`controllers.firmware.remote_runner._fetch_and_run_local_upload`)
-    the runner explicitly fires a ``progress=0`` reset so the
-    next phase's percents don't get clamped against the
-    previous phase's peak. Subscribers should render the bar
-    from the latest event rather than asserting non-decreasing
-    progress.
+    :func:`controllers.firmware.remote_runner._fetch_and_run_local_upload`
+    — and a ninja ``[N/M]`` counter restarting with a new total)
+    the ingest explicitly bypasses the clamp so the next phase's
+    percents don't get clamped against the previous phase's
+    peak. Subscribers should render the bar from the latest
+    event rather than asserting non-decreasing progress.
     """
 
     job_id: str

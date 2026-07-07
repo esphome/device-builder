@@ -602,6 +602,71 @@ async def test_compile_progress_lines_fire_job_progress(
     assert job.status == JobStatus.COMPLETED
 
 
+async def test_ninja_compile_progress_lines_fire_job_progress(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """Ninja ``[N/M]`` counters drive ``JOB_PROGRESS`` for ESP-IDF builds.
+
+    ESP-IDF builds emit no percentage at all; the per-target
+    counter is the only progress signal, and sub-100 totals
+    (CMake re-runs) must not move the gauge.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        "import sys\n"
+        "print('[1/2] Re-running CMake...')\n"
+        "print('[100/1424] Building C object esp-idf/a.c.obj')\n"
+        "print('[907/1424] Building C object esp-idf/b.c.obj')\n"
+        "print('[1424/1424] Linking firmware.elf')\n"
+        "sys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    captured = await _run_until_terminal(controller)
+
+    progress_values = [d["progress"] for d in captured["job_progress"]]
+    # The [1/2] CMake sub-step is below the total floor and fires nothing.
+    assert progress_values == [7, 63, 100]
+    assert job.progress == 100
+    assert job.status == JobStatus.COMPLETED
+
+
+async def test_ninja_sub_build_counter_restart_unpins_progress(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
+) -> None:
+    """A counter restarting with a new total resets the monotonic clamp.
+
+    A ≥100-step sub-build can run its counter to 100% before the
+    app build starts; without the total-change reset the gauge
+    would freeze at the sub-build's peak.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _fake_esphome(
+        controller,
+        "import sys\n"
+        "print('[120/240] Building sub-build a.c.obj')\n"
+        "print('[240/240] Linking sub-build.elf')\n"
+        "print('[1/1424] Building C object esp-idf/a.c.obj')\n"
+        "print('[907/1424] Building C object esp-idf/b.c.obj')\n"
+        "print('[1424/1424] Linking firmware.elf')\n"
+        "sys.exit(0)\n",
+    )
+    _seed_yaml(tmp_path)
+
+    job = await controller.compile(configuration="kitchen.yaml")
+    captured = await _run_until_terminal(controller)
+
+    progress_values = [d["progress"] for d in captured["job_progress"]]
+    # The 0 is the total-change reset firing past the clamp.
+    assert progress_values == [50, 100, 0, 63, 100]
+    assert job.progress == 100
+    assert job.status == JobStatus.COMPLETED
+
+
 # ---------------------------------------------------------------------------
 # RESET_BUILD_ENV — routes through the same subprocess pipeline
 # ---------------------------------------------------------------------------
@@ -825,3 +890,7 @@ async def test_compile_cr_progress_lines_collapsed_in_storage(
     assert "[2/3] Compiling b.o\r" not in job.output
     assert "[3/3] Compiling c.o\r" not in job.output
     assert job.output[-1] == "INFO Compile finished.\n"
+
+    # Totals under the ninja floor never move the gauge.
+    assert captured["job_progress"] == []
+    assert job.progress is None
