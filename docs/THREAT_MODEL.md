@@ -159,10 +159,16 @@ These are explicitly *not* threats the dashboard defends against:
   leaks nothing and the legitimate builder can still pair. There
   is deliberately no failure lockout — a lockout would let an
   attacker deny the pairing with garbage keys, and the keyspace
-  makes brute force inside the window moot. On the wire the key
-  rides only in the encrypted Noise msg3, sent only after the
-  offloader has verified the receiver's static key against the
-  previewed fingerprint, so an active MITM never sees it. What
+  makes brute force inside the window moot. On the
+  builder-to-receiver peer-link wire the key rides only in the
+  encrypted Noise msg3, sent only after the offloader has verified
+  the receiver's static key against the previewed fingerprint, so
+  an active MITM on that hop never sees it. The operator types the
+  key into the *builder's* pair dialog, so it also crosses the
+  browser-to-dashboard WS — plaintext `ws://` on a default HTTP
+  deployment, the same channel that already carries the login
+  password and every YAML secret; a sniffer on that segment is the
+  pre-existing dashboard trust boundary, not new exposure. What
   remains accepted: an attacker who can read the server's console
   or journal can take the key — that is local-shell trust, out of
   scope per the first bullet — and the key is worthless once the
