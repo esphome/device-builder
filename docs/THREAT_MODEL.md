@@ -174,12 +174,20 @@ These are explicitly *not* threats the dashboard defends against:
   scope per the first bullet — and the key is worthless once the
   window closes or the first pairing lands (never persisted,
   never in argv or env). `--allow-pairing-source <IP>` composes
-  as optional defense in depth. What we still defend: the
-  auto-approve is one-shot, never fires while an APPROVED peer
-  exists, requires the key match (failing closed when armed
-  without one), honours the source allowlist when set, and no UI
-  or WS surface can re-open the window in this mode — a
-  regression on any of those *is* a security bug.
+  as optional defense in depth. The `preview` response reports
+  `requires_pairing_key` so the pairing UI can require the key up
+  front; it's static on the server's mode (always true for a
+  `--remote-build-only` server, independent of whether a window is
+  open), so a previewer learns only "this server uses a key" — never
+  the key, and never whether a window is currently open. The flag
+  rides only on the `preview` response, never on a `pair_request`
+  refusal, so the actual pairing attempt stays indistinguishable
+  from a closed window. What we still defend: the auto-approve is
+  one-shot, never fires while an APPROVED peer exists, requires
+  the key match (failing closed when armed without one), honours
+  the source allowlist when set, and no UI or WS surface can
+  re-open the window in this mode — a regression on any of those
+  *is* a security bug.
 - **An operator who deliberately opened the front door.** On the HA
   add-on, enabling "Disable external authentication"
   (`leave_front_door_open`) *and* mapping port 6052 binds the public

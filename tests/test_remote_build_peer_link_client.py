@@ -194,13 +194,38 @@ async def test_preview_pair_returns_receivers_pin(
     server, _, expected_pin, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
-    pin = await preview_pair(
+    preview = await preview_pair(
         hostname="127.0.0.1",
         port=server.port,
         identity_priv=initiator_priv,
     )
 
-    assert pin == expected_pin
+    assert preview.pin_sha256 == expected_pin
+    # A normal (non-bootstrap) receiver doesn't require a pairing key.
+    assert preview.requires_pairing_key is False
+
+
+async def test_preview_pair_reports_requires_pairing_key_for_headless_receiver(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+) -> None:
+    """A key-mode receiver reports requires_pairing_key even with no armed window.
+
+    Pins the static (mode-based) semantics: the flag rides on
+    ``settings.remote_build_only`` alone, never on whether a
+    bootstrap window is currently open, so previewing can't reveal
+    the window-open state.
+    """
+    server, controller, _, _ = receiver_server
+    controller._db.settings.remote_build_only = True
+    # No bootstrap window armed — the flag is still True.
+    assert not controller.state.auto_approve_first_pair
+
+    preview = await preview_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=secrets.token_bytes(32),
+    )
+    assert preview.requires_pairing_key is True
 
 
 async def test_preview_pair_does_not_persist_state_on_receiver(
@@ -824,7 +849,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
         port=server.port,
     )
 
-    assert result == {"pin_sha256": expected_pin}
+    assert result == {"pin_sha256": expected_pin, "requires_pairing_key": False}
     # Preview is read-only on the offloader side too: no StoredPairing
     # row written until the user OOB-confirms and calls request_pair.
     assert await _saved_pairings(offloader) == []

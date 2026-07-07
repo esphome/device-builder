@@ -398,7 +398,9 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         return await pair_commands.set_pairing_enabled(self, pin_sha256=pin_sha256, enabled=enabled)
 
     @api_command("remote_build/preview_pair")
-    async def preview_pair(self, *, hostname: str, port: int, **kwargs: Any) -> dict[str, str]:
+    async def preview_pair(
+        self, *, hostname: str, port: int, **kwargs: Any
+    ) -> dict[str, str | bool]:
         """Open a brief Noise XX WS to *hostname*:*port* and return the receiver's pin."""
         return await pair_commands.preview_pair(self, hostname=hostname, port=port)
 

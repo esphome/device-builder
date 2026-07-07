@@ -40,6 +40,7 @@ from .._client_models import (
     PairStatusResult,
     PeerLinkClientError,
     PeerLinkPinMismatchError,
+    PreviewResult,
     RequestPairResult,
 )
 from ..peer_link import PEER_LINK_PATH
@@ -261,13 +262,15 @@ async def preview_pair(
     port: int,
     identity_priv: bytes,
     resolver: AbstractResolver | None = None,
-) -> str:
+) -> PreviewResult:
     """
-    Run an ``intent="preview"`` round-trip; return the receiver's pin_sha256.
+    Run an ``intent="preview"`` round-trip; return the receiver's pin + key flag.
 
-    The returned pin renders for OOB verification against the
-    receiver's "Build server" Settings card before the offloader
-    calls ``request_pair``.
+    The pin renders for OOB verification against the receiver's
+    "Build server" Settings card before the offloader calls
+    ``request_pair``. ``requires_pairing_key`` reflects whether the
+    receiver's next ``pair_request`` needs the ``--remote-build-only``
+    bootstrap key.
     """
     rt = await drive_initiator_round_trip(
         hostname=hostname,
@@ -279,7 +282,10 @@ async def preview_pair(
     if rt.intent_response != IntentResponse.OK.value:
         msg = f"peer-link preview rejected with intent_response={rt.intent_response!r}"
         raise PeerLinkClientError(msg)
-    return pin_sha256_for_pubkey(rt.remote_static_pub)
+    return PreviewResult(
+        pin_sha256=pin_sha256_for_pubkey(rt.remote_static_pub),
+        requires_pairing_key=rt.response.get("requires_pairing_key") is True,
+    )
 
 
 async def request_pair(

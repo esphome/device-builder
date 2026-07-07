@@ -61,6 +61,8 @@ async def _bootstrap_instances_ctx(tmp_path: Path) -> AsyncIterator[BootstrapIns
     receiver_bus = EventBus()
     offloader_bus = EventBus()
     receiver = make_remote_build_controller(config_dir=receiver_dir, bus=receiver_bus)
+    # Simulate the headless key-mode server so preview reports requires_pairing_key.
+    receiver.receiver._db.settings.remote_build_only = True
     offloader = make_remote_build_controller(config_dir=offloader_dir, bus=offloader_bus)
     offloader_opened = capture_events(offloader_bus, EventType.OFFLOADER_PEER_LINK_OPENED)
     receiver_opened = capture_events(receiver_bus, EventType.RECEIVER_PEER_LINK_SESSION_OPENED)
@@ -104,6 +106,9 @@ async def test_bootstrap_pairing_key_round_trip(tmp_path: Path) -> None:
 
         preview = await offloader.preview_pair(hostname="127.0.0.1", port=inst.server.port)
         pin_sha256 = preview["pin_sha256"]
+        # The armed bootstrap receiver reports it needs a key, so the UI can
+        # require it up front instead of failing the first attempt.
+        assert preview["requires_pairing_key"] is True
 
         # Wrong key: refused as a closed window, nothing persisted, still armed.
         with pytest.raises(CommandError) as excinfo:

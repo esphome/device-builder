@@ -92,7 +92,7 @@ async def set_pairing_enabled(
 
 async def preview_pair(
     controller: OffloaderController, *, hostname: str, port: int
-) -> dict[str, str]:
+) -> dict[str, str | bool]:
     """
     Open a brief Noise XX WS to *hostname*:*port* and return the receiver's pin.
 
@@ -103,13 +103,16 @@ async def preview_pair(
     server" Settings card (or the ``--remote-build-only``
     CLI pairing banner) before calling ``request_pair``.
 
-    Returns ``{"pin_sha256": "<lowercase-hex-64>"}``.
+    Returns ``{"pin_sha256": "<lowercase-hex-64>",
+    "requires_pairing_key": <bool>}`` — the flag lets the pair
+    dialog require the bootstrap key up front for a headless
+    receiver instead of failing the first attempt.
     """
     clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
     clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
     identity = await controller._db.peer_link_identity_store.async_load()
     try:
-        pin = await peer_link_preview_pair(
+        preview = await peer_link_preview_pair(
             hostname=clean_host,
             port=clean_port,
             identity_priv=identity.private_bytes,
@@ -117,7 +120,10 @@ async def preview_pair(
         )
     except PeerLinkClientError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
-    return {"pin_sha256": pin}
+    return {
+        "pin_sha256": preview.pin_sha256,
+        "requires_pairing_key": preview.requires_pairing_key,
+    }
 
 
 async def request_pair(

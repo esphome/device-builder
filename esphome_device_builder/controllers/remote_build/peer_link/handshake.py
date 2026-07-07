@@ -161,7 +161,22 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             dashboard_id,
             pin,
         )
-    await _send_response(session, ws, outcome.response, reason=outcome.reason)
+    # Tell a previewing offloader this is a key-mode (--remote-build-only)
+    # server, so its UI can require the bootstrap key up front. Static on
+    # the server's mode, NOT on whether a window is currently armed —
+    # always-true for a headless server reveals only "uses a key", never
+    # "a window is open right now", so the window-open state stays secret.
+    # Preview only; a pair_request refusal never carries it.
+    requires_pairing_key = (
+        intent is PeerLinkIntent.PREVIEW and controller._db.settings.remote_build_only
+    )
+    await _send_response(
+        session,
+        ws,
+        outcome.response,
+        reason=outcome.reason,
+        requires_pairing_key=requires_pairing_key,
+    )
 
     # Hand off to the long-lived application session on an
     # OK-authed peer_link; every other intent (incl. REJECTED

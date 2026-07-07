@@ -347,6 +347,9 @@ def make_remote_build_controller(
     # MagicMock here would be truthy and break the ``pair_flow``
     # source guard's "no allowlist configured" branch.
     db.settings.allow_pairing_sources = []
+    # A bare MagicMock is truthy, which would make every receiver look
+    # like a headless key-mode server on preview; default it off.
+    db.settings.remote_build_only = False
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     db.create_background_task = asyncio.create_task
     _idle = QueueStatus(idle=True, running=False, queue_depth=0)

@@ -65,6 +65,21 @@ class PeerLinkPinMismatchError(PeerLinkClientError):
 
 
 @dataclass(frozen=True)
+class PreviewResult:
+    """Outcome of an ``intent="preview"`` round-trip.
+
+    ``requires_pairing_key`` is the receiver reporting it's a
+    key-mode (``--remote-build-only``) server, so the offloader UI
+    requires the bootstrap key up front. Static on the server's mode
+    (not on whether a window is open), so it never reveals the
+    window-open state.
+    """
+
+    pin_sha256: str
+    requires_pairing_key: bool
+
+
+@dataclass(frozen=True)
 class InitiatorRoundTrip:
     """One offloader-side Noise XX round-trip's outputs.
 

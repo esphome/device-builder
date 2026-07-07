@@ -60,6 +60,9 @@ from esphome_device_builder.controllers.remote_build._validators import (
 from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
 )
+from esphome_device_builder.controllers.remote_build.peer_link_client import (
+    PreviewResult,
+)
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.async_ import drain_tasks
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
@@ -392,7 +395,9 @@ def _patch_probe_internals(
         )
     elif preview_return is not None:
         monkeypatch.setattr(
-            rb_rebind, "peer_link_preview_pair", AsyncMock(return_value=preview_return)
+            rb_rebind,
+            "peer_link_preview_pair",
+            AsyncMock(return_value=PreviewResult(preview_return, requires_pairing_key=False)),
         )
     if seed_cooldown_for is not None:
         controller.offloader.state.rebind_probe_until[seed_cooldown_for] = cooldown_until
@@ -690,11 +695,11 @@ async def test_rebind_probe_skips_when_pairing_status_flips_mid_probe(
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
 
-    async def _flip_status_then_match(**_: Any) -> str:
+    async def _flip_status_then_match(**_: Any) -> PreviewResult:
         # Same identity, but the row's status flipped between
         # schedule and apply.
         pairing.status = PeerStatus.PENDING
-        return pin
+        return PreviewResult(pin, requires_pairing_key=False)
 
     cancel, spawn = _patch_probe_internals(
         monkeypatch, controller, preview_side_effect=_flip_status_then_match
@@ -837,9 +842,9 @@ async def test_maybe_schedule_rebind_probe_dedupes_within_cooldown(
     # second schedule attempt runs against the live cooldown.
     blocked = asyncio.Event()
 
-    async def _hanging_preview(**_: Any) -> str:
+    async def _hanging_preview(**_: Any) -> PreviewResult:
         await blocked.wait()
-        return pin
+        return PreviewResult(pin, requires_pairing_key=False)
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _hanging_preview)
     monkeypatch.setattr(controller.offloader, "_cancel_peer_link_client", MagicMock())
@@ -1066,12 +1071,12 @@ async def test_edit_pairing_endpoint_raises_not_found_when_pairing_replaced_mid_
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=old)
     fresh = _valid_stored_pairing(receiver_hostname="user-typed.local", receiver_port=6060)
 
-    async def _replace_during_preview(**_kwargs: object) -> str:
+    async def _replace_during_preview(**_kwargs: object) -> PreviewResult:
         # Simulate the in-flight re-pair: replace the dict entry
         # with a fresh object before the probe applies its
         # result.
         controller.offloader.state.pairings[pin] = fresh
-        return pin
+        return PreviewResult(pin, requires_pairing_key=False)
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _replace_during_preview)
     cancel = AsyncMock()
@@ -1135,12 +1140,12 @@ async def test_edit_pairing_endpoint_status_changed_mid_probe_raises_preconditio
     pairing = _valid_stored_pairing(receiver_hostname="old.local", receiver_port=6058)
     controller = _make_paired_offloader_controller(config_dir=tmp_path, pairing=pairing)
 
-    async def _flip_status_during_preview(**_kwargs: object) -> str:
+    async def _flip_status_during_preview(**_kwargs: object) -> PreviewResult:
         # Simulate the status flip mid-probe — same dict object,
         # just a different status field. The probe's race-safe
         # re-check sees this and bails.
         pairing.status = PeerStatus.PENDING
-        return pin
+        return PreviewResult(pin, requires_pairing_key=False)
 
     monkeypatch.setattr(rb_rebind, "peer_link_preview_pair", _flip_status_during_preview)
     cancel = AsyncMock()
