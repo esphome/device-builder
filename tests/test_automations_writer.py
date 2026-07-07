@@ -2220,6 +2220,42 @@ def test_two_subsensors_on_one_platform_target_independently() -> None:
     assert ("aht20_humidity", "on_value_range") in targeted
 
 
+_AHT10_IDLESS = (
+    "esphome:\n  name: x\n"
+    "sensor:\n"
+    "  - platform: aht10\n"
+    "    temperature:\n"
+    "      name: Kit Temperature\n"
+    "    humidity:\n"
+    "      name: Kit Humidity\n"
+)
+
+
+def test_upsert_synthetic_subentity_splices_under_idless_block() -> None:
+    """The ``<parent>_<sub_key>`` synthetic id targets an id-less sub-block."""
+    new_text, _diff = render_upsert(
+        _AHT10_IDLESS,
+        tree=_value_range_tree(),
+        location=ComponentOnLocation(component_id="sensor_0_temperature", trigger="on_value_range"),
+    )
+    temp_idx = new_text.index("name: Kit Temperature")
+    on_idx = new_text.index("on_value_range:")
+    hum_idx = new_text.index("humidity:")
+    assert temp_idx < on_idx < hum_idx, "handler landed outside the temperature block"
+    assert "      on_value_range:" in new_text.split("\n")
+
+
+def test_synthetic_subentity_handler_round_trips() -> None:
+    """An id-less sub-entity handler parses back and deletes on the same synthetic id."""
+    loc = ComponentOnLocation(component_id="sensor_0_temperature", trigger="on_value_range")
+    new_text, _diff = render_upsert(_AHT10_IDLESS, tree=_value_range_tree(), location=loc)
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 1
+    assert parsed[0].location == loc
+    back, _ddiff = render_delete(new_text, location=loc)
+    assert back == _AHT10_IDLESS
+
+
 _AHT10_NO_HUMIDITY = (
     "sensor:\n  - platform: aht10\n    id: aht20\n    temperature:\n      id: aht20_temperature\n"
 )
