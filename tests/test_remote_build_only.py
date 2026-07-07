@@ -370,6 +370,44 @@ async def test_bootstrap_first_pair_success(
     assert any("Paired with 'Main builder'" in r.getMessage() for r in caplog.records)
 
 
+async def test_bootstrap_banner_key_survives_pair_during_identity_load(
+    tmp_path: Path,
+) -> None:
+    """The banner logs the generated key even if a pair lands during the load await."""
+    db = _make_fake_db(tmp_path)
+    receiver = db.remote_build_receiver
+    assert receiver is not None
+
+    real_load = db.peer_link_identity_store.async_load
+
+    async def slow_load() -> Any:
+        # Widen the await before the banner so the pair request below reliably
+        # lands mid-load and clears the state field before the banner logs.
+        await asyncio.sleep(0.05)
+        return await real_load()
+
+    db.peer_link_identity_store.async_load = slow_load  # type: ignore[method-assign]
+    logged: dict[str, str | None] = {}
+    orig_banner = rbo._log_pairing_banner
+
+    def _spy(identity: Any, sources: list[str], key: str | None) -> None:
+        logged["key"] = key
+        orig_banner(identity, sources, key)
+
+    with patch.object(rbo, "_log_pairing_banner", _spy):
+        bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
+        await _wait_until(receiver.is_pairing_window_open)
+        key = receiver.state.bootstrap_pairing_key
+        response = await _send_pair_request(
+            RemoteBuildController(MagicMock(), receiver), pairing_key=key
+        )
+        assert response.response == "approved"
+        assert await asyncio.wait_for(bootstrap, timeout=2.0) is True
+
+    assert receiver.state.bootstrap_pairing_key is None
+    assert logged["key"] == key
+
+
 async def test_bootstrap_first_pair_with_source_allowlist(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

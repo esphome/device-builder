@@ -114,7 +114,10 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     and clears together with ``auto_approve_first_pair``.
     """
     receiver.state.auto_approve_first_pair = True
-    receiver.state.bootstrap_pairing_key = generate_pairing_key()
+    # Log the banner from this local, not the state field: an await sits before
+    # the log, and a pair request landing in it clears the field to None.
+    pairing_key = generate_pairing_key()
+    receiver.state.bootstrap_pairing_key = pairing_key
     paired = asyncio.Event()
     window_closed = asyncio.Event()
 
@@ -138,9 +141,7 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
                 duration_seconds=BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS,
             )
             identity = await db.peer_link_identity_store.async_load()
-            _log_pairing_banner(
-                identity, db.settings.allow_pairing_sources, receiver.state.bootstrap_pairing_key
-            )
+            _log_pairing_banner(identity, db.settings.allow_pairing_sources, pairing_key)
             await _wait_first(paired, window_closed)
     finally:
         # Arm and disarm together so a cancellation / exception mid-wait can
