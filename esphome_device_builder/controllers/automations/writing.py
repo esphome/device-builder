@@ -67,9 +67,11 @@ from .writing_lists import (
     delete_light_effect,
     delete_list_entry,
     delete_list_entry_for,
+    delete_subentity_list_entry,
     upsert_component_on_entry,
     upsert_light_effect,
     upsert_list_entry,
+    upsert_subentity_on_entry,
     wrap_handler_list_block,
 )
 
@@ -281,7 +283,19 @@ def _upsert_subentity_on(
 ) -> tuple[str, YamlDiff]:
     """Splice an ``on_*:`` handler under a nested sub-entity (``aht20_temperature``)."""
     parent_domain, parent_id, sub_key = _subentity_context(target)
-    _require_trigger(target.domain, location)
+    trigger = _require_trigger(target.domain, location)
+    if location.index is not None:
+        return upsert_subentity_on_entry(
+            yaml_text,
+            tree=tree,
+            parent_domain=parent_domain,
+            parent_id=parent_id,
+            sub_key=sub_key,
+            component_id=location.component_id,
+            trigger_key=location.trigger,
+            trigger=trigger,
+            index=location.index,
+        )
     rendered = render_trigger_handler(tree, key=location.trigger)
     res = upsert_subentity_handler(
         yaml_text,
@@ -637,6 +651,16 @@ def _delete_subentity_on(
 ) -> tuple[str, YamlDiff]:
     """Drop an ``on_*:`` handler from a nested sub-entity (``aht20_temperature``)."""
     parent_domain, parent_id, sub_key = _subentity_context(target)
+    if location.index is not None:
+        return delete_subentity_list_entry(
+            yaml_text,
+            parent_domain=parent_domain,
+            parent_id=parent_id,
+            sub_key=sub_key,
+            component_id=location.component_id,
+            handler_key=location.trigger,
+            index=location.index,
+        )
     res = remove_subentity_handler(
         yaml_text,
         parent_domain=parent_domain,

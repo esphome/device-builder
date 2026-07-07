@@ -2274,6 +2274,109 @@ def test_subentity_context_rejects_incomplete_target() -> None:
 
 
 # ---------------------------------------------------------------------------
+# List-shaped triggers on sub-entities (#1886 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _range_tree(above: int, msg: str) -> AutomationTree:
+    return AutomationTree(
+        trigger_id="sensor.on_value_range",
+        trigger_params={"above": above},
+        actions=[ActionNode(action_id="logger.log", params={"format": msg})],
+    )
+
+
+def _sub_range_loc(index: int) -> ComponentOnLocation:
+    return ComponentOnLocation(
+        component_id="aht20_temperature", trigger="on_value_range", index=index
+    )
+
+
+def test_second_value_range_on_subentity_appends_entry() -> None:
+    """A second ``on_value_range`` appends a list entry instead of overwriting the first."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    two, _ = render_upsert(one, tree=_range_tree(30, "blue"), location=_sub_range_loc(1))
+    assert "above: 25" in two
+    assert "above: 30" in two
+    temp_idx = two.index("id: aht20_temperature")
+    hum_idx = two.index("id: aht20_humidity")
+    assert temp_idx < two.index("above: 25") < hum_idx
+    assert temp_idx < two.index("above: 30") < hum_idx
+
+
+def test_subentity_list_entries_parse_back_indexed() -> None:
+    """Both sub-entity list entries round-trip as indexed component_on locations."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    two, _ = render_upsert(one, tree=_range_tree(30, "blue"), location=_sub_range_loc(1))
+    locs = [p.location for p in parse_device_yaml(two)]
+    assert _sub_range_loc(0) in locs
+    assert _sub_range_loc(1) in locs
+
+
+def test_upsert_subentity_entry_replaces_in_range() -> None:
+    """An in-range index replaces that entry and leaves the sibling entry alone."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    two, _ = render_upsert(one, tree=_range_tree(30, "blue"), location=_sub_range_loc(1))
+    three, _ = render_upsert(two, tree=_range_tree(15, "green"), location=_sub_range_loc(0))
+    assert "above: 15" in three
+    assert "above: 25" not in three
+    assert "above: 30" in three
+
+
+def test_delete_subentity_entry_keeps_sibling() -> None:
+    """Deleting one indexed entry keeps the other."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    two, _ = render_upsert(one, tree=_range_tree(30, "blue"), location=_sub_range_loc(1))
+    back, _ = render_delete(two, location=_sub_range_loc(0))
+    assert "above: 25" not in back
+    assert "above: 30" in back
+
+
+def test_delete_last_subentity_entry_removes_the_key() -> None:
+    """Deleting the only entry drops the handler key and restores the original."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    back, _ = render_delete(one, location=_sub_range_loc(0))
+    assert back == _AHT10
+
+
+def test_upsert_subentity_entry_index_out_of_range_raises() -> None:
+    """An index past the end is refused, not padded."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    with pytest.raises(CommandError):
+        render_upsert(one, tree=_range_tree(30, "blue"), location=_sub_range_loc(5))
+
+
+def test_upsert_subentity_entry_refuses_existing_mapping() -> None:
+    """A pre-existing mapping-form handler is not silently rewritten to a list."""
+    mapping_form, _ = render_upsert(
+        _AHT10,
+        tree=_range_tree(25, "red"),
+        location=ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range"),
+    )
+    with pytest.raises(CommandError):
+        render_upsert(mapping_form, tree=_range_tree(30, "blue"), location=_sub_range_loc(1))
+
+
+def test_upsert_subentity_entry_missing_sub_block_raises() -> None:
+    """An indexed upsert on a parent without the sub-block refuses cleanly."""
+    with pytest.raises(CommandError):
+        render_upsert(
+            _AHT10_NO_HUMIDITY,
+            tree=_range_tree(25, "red"),
+            location=ComponentOnLocation(
+                component_id="aht20_humidity", trigger="on_value_range", index=0
+            ),
+        )
+
+
+def test_delete_subentity_entry_missing_index_raises_not_found() -> None:
+    """Deleting an absent indexed entry is a clean NOT_FOUND."""
+    one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
+    with pytest.raises(CommandError):
+        render_delete(one, location=_sub_range_loc(3))
+
+
+# ---------------------------------------------------------------------------
 # !lambda tag preservation (issue #1306)
 # ---------------------------------------------------------------------------
 

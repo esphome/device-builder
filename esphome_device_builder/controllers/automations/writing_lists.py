@@ -21,8 +21,10 @@ from ruamel.yaml.comments import CommentedMap
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     remove_inline_handler,
+    remove_subentity_handler,
     synthetic_instance_index,
     upsert_inline_handler,
+    upsert_subentity_handler,
 )
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -285,6 +287,137 @@ def delete_list_entry(
         index=index,
         strategy=_component_strategy(domain, component_id),
     )
+
+
+def upsert_subentity_on_entry(
+    yaml_text: str,
+    *,
+    tree: AutomationTree,
+    parent_domain: str,
+    parent_id: str,
+    sub_key: str,
+    component_id: str,
+    trigger_key: str,
+    trigger: AutomationTrigger,
+    index: int,
+) -> tuple[str, YamlDiff]:
+    """Insert or replace one entry of a list-shaped trigger on a nested sub-entity."""
+    return upsert_list_entry(
+        yaml_text,
+        key=trigger_key,
+        item=emit_trigger_list_item(tree),
+        index=index,
+        strategy=_subentity_strategy(parent_domain, parent_id, sub_key, component_id),
+        trigger=trigger,
+    )
+
+
+def delete_subentity_list_entry(
+    yaml_text: str,
+    *,
+    parent_domain: str,
+    parent_id: str,
+    sub_key: str,
+    component_id: str,
+    handler_key: str,
+    index: int,
+) -> tuple[str, YamlDiff]:
+    """Drop entry *index* from a sub-entity's ``<handler_key>:`` list; re-splice."""
+    return delete_list_entry_for(
+        yaml_text,
+        key=handler_key,
+        index=index,
+        strategy=_subentity_strategy(parent_domain, parent_id, sub_key, component_id),
+    )
+
+
+def _subentity_strategy(
+    parent_domain: str, parent_id: str, sub_key: str, component_id: str
+) -> ListContainerStrategy:
+    """Strategy for a list handler nested under a sub-entity block."""
+    return ListContainerStrategy(
+        locate=partial(
+            _require_subentity, parent_domain=parent_domain, parent_id=parent_id, sub_key=sub_key
+        ),
+        resplice=partial(
+            _resplice_subentity_list_block,
+            parent_domain=parent_domain,
+            parent_id=parent_id,
+            sub_key=sub_key,
+        ),
+        not_present_msg=partial(_subentity_not_present_msg, component_id),
+    )
+
+
+def _require_subentity(
+    yaml_text: str,
+    error_code: ErrorCode,
+    *,
+    parent_domain: str,
+    parent_id: str,
+    sub_key: str,
+) -> dict:
+    """Return the ``<sub_key>:`` mapping inside the located parent instance."""
+    instance = _require_instance(
+        yaml_text, error_code, domain=parent_domain, component_id=parent_id
+    )
+    sub = instance.get(sub_key)
+    if not isinstance(sub, dict):
+        msg = (
+            f"Sub-entity {sub_key!r} not present on component "
+            f"id={parent_id!r} under {parent_domain!r}"
+        )
+        raise CommandError(error_code, msg)
+    return sub
+
+
+def _subentity_not_present_msg(component_id: str, key: str, index: int) -> str:
+    """Delete not-found message for a sub-entity-nested list handler."""
+    return f"{key}[{index}] not present on sub-entity id={component_id!r}"
+
+
+def _resplice_subentity_list_block(
+    yaml_text: str,
+    handler_key: str,
+    entries: list,
+    *,
+    parent_domain: str,
+    parent_id: str,
+    sub_key: str,
+) -> tuple[str, YamlDiff]:
+    """Re-emit a sub-entity's list handler from *entries* and return the diff.
+
+    Non-empty *entries* replace the whole block; an empty list removes the
+    handler key. Callers locate the sub-entity first, so a ``None`` splice
+    result is unreachable.
+    """
+    if entries:
+        rendered = wrap_handler_list_block(handler_key, dump(entries))
+        res = upsert_subentity_handler(
+            yaml_text,
+            parent_domain=parent_domain,
+            parent_id=parent_id,
+            sub_key=sub_key,
+            handler_key=handler_key,
+            rendered_yaml=rendered,
+        )
+        if res is None:  # pragma: no cover — sub-entity located by the caller
+            msg = f"Sub-entity {sub_key!r} not found on id={parent_id!r} under {parent_domain!r}"
+            raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+        new_text, from_line, to_line, replacement = res
+        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
+    removed = remove_subentity_handler(
+        yaml_text,
+        parent_domain=parent_domain,
+        parent_id=parent_id,
+        sub_key=sub_key,
+        handler_key=handler_key,
+    )
+    if removed is None:  # pragma: no cover — sub-entity located by the caller
+        msg = f"{handler_key}: not found on sub-entity {sub_key!r} of id={parent_id!r}"
+        raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+    new_text, from_line, to_line = removed
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
 
 
 def upsert_light_effect(
