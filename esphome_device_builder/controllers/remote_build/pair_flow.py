@@ -336,14 +336,17 @@ async def _auto_approve_pair_request(
     First-pair bootstrap: approve the request without the inbox dance.
 
     Caller has already verified the bootstrap pairing key (and the
-    source allowlist, when set). Disarms the one-shot flag
-    *before* the store flush so a second request arriving during the
-    await can't also auto-approve. The flush is awaited (not
-    debounced) — this write is the mode's single trust-establishing
-    state; losing it to a crash inside a debounce window would
-    strand an offloader that believes it's APPROVED.
+    source allowlist, when set). Disarms the one-shot flag *and*
+    clears the now-consumed key *before* the store flush so a second
+    request arriving during the await can't auto-approve and the key
+    doesn't linger in RAM past its single use (the bootstrap runner's
+    finally also clears it). The flush is awaited (not debounced) —
+    this write is the mode's single trust-establishing state; losing
+    it to a crash inside a debounce window would strand an offloader
+    that believes it's APPROVED.
     """
     controller.state.auto_approve_first_pair = False
+    controller.state.bootstrap_pairing_key = None
     peer = StoredPeer(
         dashboard_id=dashboard_id,
         pin_sha256=pin_sha256,
