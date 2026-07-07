@@ -448,51 +448,25 @@ dedicated build server with no dashboard UI:
 esphome-device-builder --remote-build-only /var/lib/esphome-builder
 ```
 
-No web interface is served — only the peer-link listener — so
-there's no **Pairing requests** screen to click Accept on.
-Instead the first run (before any dashboard is paired)
-bootstraps a pairing itself: it opens a 15-minute pairing
-window and prints the fingerprint plus a **one-time pairing
-key** to the console:
+The config-dir argument holds the server's identity and build
+state — keep it persistent. On first run it prints a
+fingerprint and a **one-time pairing key** to the console:
 
 ```
-======================================================================
- REMOTE BUILD PAIRING — window open for 15 minutes
- ...
    📌 🍎 🐙 ☎️ 🚀 🌏 🐰
-   (Pin, Apple, Octopus, Telephone, Rocket, Globe, Rabbit)
-   fd 83 71 d9 31 da 8f 06 45 ...
-
- In the pair dialog expand 'Pairing a headless build server?'
- and enter this one-time pairing key:
-
+   ...
    8MC5-KAXV-NN6N-PWAA
-======================================================================
 ```
 
-From your main dashboard, open **Settings → Send builds →
-Pair with a build server**, type the headless server's
-hostname and peer-link port (default 6055; the config dir is
-where its identity, pairing, and build state live, so keep it
-persistent), and Continue. Verify the emoji fingerprint
-matches the console, expand **Pairing a headless build
-server?**, and enter the printed key. The first request that
-presents the correct key is auto-approved and the window
-closes — exactly one pairing. A wrong or missing key is
-refused exactly like a closed window, so racing the window
-without the key gets an attacker nowhere; the key is a
-~2⁷⁸-entropy one-time secret that only exists on the console
-and is never written to disk. If nothing pairs before the
-window lapses the process exits with status 1 — re-run it to
-open a fresh window (the fingerprint stays the same across
-restarts, only the key regenerates). Once paired, the pairing
-persists, so later restarts skip the bootstrap and serve
-immediately.
-
-`--allow-pairing-source <IP>` (comma-separated IPv4 / IPv6)
-optionally restricts which source address may pair, as
-defense in depth on top of the key. Not combinable with
-`--ha-addon`.
+To pair, on your main dashboard open **Settings → Send builds
+→ Pair with a build server**, enter the headless server's
+hostname and peer-link port (default 6055), and Continue.
+Check the emoji fingerprint matches the console, expand
+**Pairing a headless build server?**, enter the printed key,
+and send. That's it — the server pairs and starts serving
+builds. Re-run the server if you don't pair within the window
+it prints. `--allow-pairing-source <IP>` optionally restricts
+which address may pair.
 
 ### Install coverage
 
