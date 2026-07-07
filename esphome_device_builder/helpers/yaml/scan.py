@@ -52,5 +52,5 @@ def top_list_item_starts(lines: list[str], start: int, end: int) -> list[int]:
 
 
 def leading_ws(line: str) -> str:
-    """Leading whitespace of *line*."""
-    return line[: len(line) - len(line.lstrip())]
+    """Leading spaces of *line* (YAML indentation is spaces-only; a tab counts as content)."""
+    return line[: len(line) - len(line.lstrip(" "))]
