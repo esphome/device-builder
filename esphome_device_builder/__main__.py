@@ -275,7 +275,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "Run as a headless remote-build server: no HTTP dashboard is "
             "served, only the peer-link receiver listener (remote-build is "
             "force-enabled regardless of persisted Settings). On first run "
-            "(no paired dashboard yet) a 5-minute pairing window opens and "
+            "(no paired dashboard yet) a 15-minute pairing window opens and "
             "the fingerprint plus a one-time pairing key are printed to "
             "the console; the first pairing request presenting that key is "
             "approved automatically and the window closes — exactly one "

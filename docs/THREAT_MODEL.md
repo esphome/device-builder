@@ -150,7 +150,7 @@ These are explicitly *not* threats the dashboard defends against:
 - **A console reader taking the `--remote-build-only` first-pair
   key.** The headless build server's bootstrap auto-approves the
   first `pair_request` inside its operator-initiated, single-use,
-  5-minute pairing window **only when it presents the one-time
+  15-minute pairing window **only when it presents the one-time
   pairing key printed on the server console** (16 chars from a
   30-char alphabet, ~2^78; compared constant-time after
   normalisation). Racing the window is therefore no longer

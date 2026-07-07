@@ -106,7 +106,8 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
 
     Returns ``True`` once the first pair request lands (the window is
     closed behind it — exactly one pairing); ``False`` when the
-    window lapses unpaired. The 5-minute lifetime is the pairing
+    window lapses unpaired. The 15-minute lifetime
+    (:data:`BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS`) is the pairing
     window's own idle deadline — the bootstrap client never extends it.
 
     Pairing requires the banner-printed key; ``bootstrap_pairing_key`` arms

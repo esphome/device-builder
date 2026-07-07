@@ -110,9 +110,9 @@ class DashboardSettings:
     # HTTP dashboard is served and the peer-link listener binds
     # regardless of the persisted ``RemoteBuildSettings.enabled``
     # toggle — with no UI to flip the toggle, an on-disk ``False``
-    # would otherwise brick the mode. Pairing bootstrap (5-minute
-    # auto-approve window, console fingerprint banner) lives in
-    # ``_remote_build_only.py``.
+    # would otherwise brick the mode. Pairing bootstrap (15-minute
+    # key-gated auto-approve window, console fingerprint banner) lives
+    # in ``_remote_build_only.py``.
     remote_build_only: bool = False
     # Optional source-IP allowlist for the ``--remote-build-only``
     # first-pair auto-approve window. When non-empty, the bootstrap
