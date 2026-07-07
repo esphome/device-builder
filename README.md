@@ -461,12 +461,12 @@ fingerprint and a **one-time pairing key** to the console:
 To pair, on your main dashboard open **Settings → Send builds
 → Pair with a build server**, enter the headless server's
 hostname and peer-link port (default 6055), and Continue.
-Check the emoji fingerprint matches the console, expand
-**Pairing a headless build server?**, enter the printed key,
-and send. That's it — the server pairs and starts serving
-builds. Re-run the server if you don't pair within the window
-it prints. `--allow-pairing-source <IP>` optionally restricts
-which address may pair.
+Check the emoji fingerprint matches the console; the dialog
+detects it's a headless server and shows a pairing-key field —
+enter the printed key and send. That's it — the server pairs
+and starts serving builds. Re-run the server if you don't pair
+within the window it prints. `--allow-pairing-source <IP>`
+optionally restricts which address may pair.
 
 ### Install coverage
 
