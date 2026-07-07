@@ -7,10 +7,9 @@ real ones (PlatformIO ``[ NN%]`` per-file markers, esptool
 ``(NN %)``, ESPHome OTA ``Uploading: 100%``) and skip everything
 else (PIO platform-extract bars, memory-usage reports, stray
 percentages in narrative log text). ESP-IDF builds emit no percent
-at all — their ninja ``[N/M]`` counter goes through
-``_parse_ninja_progress`` / ``_advance_ninja_progress`` instead,
-with a total floor so ``[1/2] Re-running CMake...`` sub-steps and
-the bootloader sub-build never drive the gauge.
+at all — their ninja ``[N/M]`` counter derives one, with a total
+floor so ``[1/2] Re-running CMake...`` sub-steps and the bootloader
+sub-build never drive the gauge.
 
 The regression these tests guard against: a wide-open
 ``\d{1,3}%`` regex pinned ``job.progress`` to 100 the moment
@@ -21,17 +20,9 @@ real work.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
-from esphome_device_builder.controllers.firmware.helpers import (
-    _advance_ninja_progress,
-    _parse_ninja_progress,
-    _parse_progress,
-)
-from esphome_device_builder.helpers.event_bus import EventBus
-from esphome_device_builder.models import EventType, FirmwareJob, JobType
+from esphome_device_builder.controllers.firmware.helpers import _parse_progress
 
 
 class TestRealProgressLines:
@@ -194,7 +185,7 @@ class TestOutOfRange:
 
 
 class TestNinjaCounterLines:
-    """Ninja ``[N/M]`` counters resolve to ``(percent, total)`` above the total floor."""
+    """Ninja ``[N/M]`` counters resolve to a percentage above the total floor."""
 
     @pytest.mark.parametrize(
         ("line", "expected"),
@@ -202,28 +193,28 @@ class TestNinjaCounterLines:
             (
                 "[907/1424] Building C object esp-idf/bt/CMakeFiles/__idf_bt.dir/"
                 "host/bluedroid/bta/av/bta_av_cfg.c.obj",
-                (63, 1424),
+                63,
             ),
             (
                 "[707/1473] Building C object esp-idf/mbedtls/mbedtls/library/"
                 "CMakeFiles/mbedtls.dir/mbedtls_debug.c.obj",
-                (47, 1473),
+                47,
             ),
-            ("[1424/1424] Linking .pioenvs/firmware.elf", (100, 1424)),
-            ("[1/1424] Generating memory view", (0, 1424)),
+            ("[1424/1424] Linking .pioenvs/firmware.elf", 100),
+            ("[1/1424] Generating memory view", 0),
             # Total exactly at the floor still counts.
-            ("[50/100] Building C object foo.c.obj", (50, 100)),
-            ("    [907/1424] Building C object foo.c.obj", (63, 1424)),
+            ("[50/100] Building C object foo.c.obj", 50),
+            ("    [907/1424] Building C object foo.c.obj", 63),
             # CR-terminated in-place refresh chunk.
-            ("[907/1424] Building C object foo.c.obj\r", (63, 1424)),
+            ("[907/1424] Building C object foo.c.obj\r", 63),
             # ANSI clear-line prefix — a bare ``^\s*`` anchor would
             # silently fail in production while passing plain-text tests
             # (same trap as the esptool ``Writing at`` pattern).
-            ("\x1b[2K[907/1424] Building C object foo.c.obj", (63, 1424)),
+            ("\x1b[2K[907/1424] Building C object foo.c.obj", 63),
         ],
     )
-    def test_counter_lines_parse(self, line: str, expected: tuple[int, int]) -> None:
-        assert _parse_ninja_progress(line) == expected
+    def test_counter_lines_parse(self, line: str, expected: int) -> None:
+        assert _parse_progress(line) == expected
 
     @pytest.mark.parametrize(
         "line",
@@ -242,75 +233,10 @@ class TestNinjaCounterLines:
             # glued counter isn't its output shape.
             "[907/1424]",
             "[907/1424]Building C object foo.c.obj",
-            # Percent shapes belong to ``_parse_progress``.
-            "[ 17%] Compiling .pio/foo.cpp.o",
-            "[100%] Linking firmware.elf",
-            # Other build noise.
-            "Unpacking [####################################] 100%",
-            "RAM:   [==        ]  19.3% (used 63276 bytes from 327680 bytes)",
+            # Build noise that brackets digits without being a counter.
             "otadata,data,ota,0x9000,8K,",
             "*" * 79,
-            "",
         ],
     )
     def test_non_counter_lines_ignored(self, line: str) -> None:
-        assert _parse_ninja_progress(line) is None
-
-    def test_counter_lines_never_match_percent_whitelist(self) -> None:
-        assert _parse_progress("[907/1424] Building C object foo.c.obj") is None
-
-
-class TestAdvanceNinjaProgress:
-    """Counter-driven gauge: monotonic within a total, unclamped on a total change."""
-
-    def _advance(self, job: FirmwareJob, lines: list[str]) -> list[int]:
-        bus = EventBus()
-        fired: list[int] = []
-        bus.add_listener(EventType.JOB_PROGRESS, lambda event: fired.append(event.data["progress"]))
-        for line in lines:
-            _advance_ninja_progress(job, bus, line)
-        return fired
-
-    def _make_job(self, **overrides: Any) -> FirmwareJob:
-        defaults: dict[str, Any] = {
-            "job_id": "j-1",
-            "configuration": "kitchen.yaml",
-            "job_type": JobType.COMPILE,
-        }
-        defaults.update(overrides)
-        return FirmwareJob(**defaults)
-
-    def test_same_total_climbs_monotonically(self) -> None:
-        job = self._make_job()
-        fired = self._advance(
-            job,
-            [
-                "[100/1424] Building a.c.obj",
-                "[907/1424] Building b.c.obj",
-                "[900/1424] Building repeat.c.obj",
-                "[1424/1424] Linking firmware.elf",
-            ],
-        )
-        assert fired == [7, 63, 100]
-        assert job.progress == 100
-        assert job.progress_total == 1424
-
-    def test_total_change_bypasses_clamp(self) -> None:
-        job = self._make_job()
-        fired = self._advance(
-            job,
-            [
-                "[240/240] Linking sub-build.elf",
-                "[1/1424] Building a.c.obj",
-                "[907/1424] Building b.c.obj",
-            ],
-        )
-        assert fired == [100, 0, 63]
-        assert job.progress == 63
-
-    def test_sub_floor_totals_leave_job_untouched(self) -> None:
-        job = self._make_job()
-        fired = self._advance(job, ["[1/2] Re-running CMake...", "[97/97] Linking bootloader"])
-        assert fired == []
-        assert job.progress is None
-        assert job.progress_total is None
+        assert _parse_progress(line) is None

@@ -182,8 +182,9 @@ def _parse_progress(line: str) -> int | None:
     """Extract a 0-100 progress percentage from a build/flash output line.
 
     Returns ``None`` when the line doesn't match one of the known
-    progress shapes (see ``_PROGRESS_PATTERNS``). Stray ``%`` signs
-    elsewhere in the build output (Unpacking bars, memory-usage
+    percent shapes (see ``_PROGRESS_PATTERNS``) or a ninja ``[N/M]``
+    counter with at least ``_NINJA_MIN_TOTAL`` steps. Stray ``%``
+    signs elsewhere in the build output (Unpacking bars, memory-usage
     reports) are intentionally ignored.
     """
     for pattern in _PROGRESS_PATTERNS:
@@ -193,23 +194,11 @@ def _parse_progress(line: str) -> int | None:
         value = int(match.group(1))
         if 0 <= value <= 100:
             return value
+    if match := _NINJA_PROGRESS_PATTERN.match(line):
+        done, total = int(match.group(1)), int(match.group(2))
+        if total >= _NINJA_MIN_TOTAL and done <= total:
+            return done * 100 // total
     return None
-
-
-def _parse_ninja_progress(line: str) -> tuple[int, int] | None:
-    """
-    Extract ``(percent, total)`` from a ninja ``[N/M]`` counter line.
-
-    Totals under ``_NINJA_MIN_TOTAL`` (CMake re-run steps, bootloader
-    sub-builds) and malformed ``N > M`` counters return ``None``.
-    """
-    match = _NINJA_PROGRESS_PATTERN.match(line)
-    if match is None:
-        return None
-    done, total = int(match.group(1)), int(match.group(2))
-    if total < _NINJA_MIN_TOTAL or done > total:
-        return None
-    return done * 100 // total, total
 
 
 def _validate_upload_target(port: str, *, bootloader: bool) -> None:
@@ -322,25 +311,6 @@ def _fire_job_lifecycle(job: FirmwareJob, bus: EventBus, event_type: EventType) 
     bus.fire(event_type, payload)
 
 
-def _advance_ninja_progress(job: FirmwareJob, bus: EventBus, line: str) -> None:
-    """
-    Advance ``job.progress`` from a ninja ``[N/M]`` counter line, if any.
-
-    A changed total means a new counter started (sub-build → app build),
-    so the value fires unclamped — mirroring the remote compile → upload
-    seam reset; same-total values keep the monotonic clamp.
-    """
-    parsed = _parse_ninja_progress(line)
-    if parsed is None:
-        return
-    percent, total = parsed
-    if total != job.progress_total:
-        job.progress_total = total
-        _fire_job_progress(job, bus, percent)
-    elif percent > (job.progress or 0):
-        _fire_job_progress(job, bus, percent)
-
-
 def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     r"""
     Append *line* to ``job.output`` and fire local follower events.
@@ -369,10 +339,7 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
        would otherwise look like a regression to the
        progress-bar renderer). Explicit phase transitions
        (compile → upload) call the helper directly to bypass
-       the clamp and reset the gauge. Ninja ``[N/M]`` counters
-       also drive progress (:func:`_advance_ninja_progress`); a
-       total change marks a new sub-build's counter and resets
-       the clamp baseline the same way.
+       the clamp and reset the gauge.
 
     Does **not** handle error-pattern detection — that's a
     local-only concern (the remote path gets a structured
@@ -393,8 +360,6 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
     bus.fire(EventType.JOB_OUTPUT, out_payload)
     progress = _parse_progress(line)
-    if progress is not None:
-        if progress > (job.progress or 0):
-            _fire_job_progress(job, bus, progress)
+    if progress is None or progress <= (job.progress or 0):
         return
-    _advance_ninja_progress(job, bus, line)
+    _fire_job_progress(job, bus, progress)
