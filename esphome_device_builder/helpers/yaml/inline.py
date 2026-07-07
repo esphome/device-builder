@@ -6,6 +6,13 @@ import re
 from dataclasses import dataclass
 
 from .scalar import ESPHOME_YAML_INDENT, block_body_is_list
+from .scan import (
+    block_end_index,
+    find_block_header,
+    key_header_re,
+    leading_ws,
+    top_list_item_starts,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +125,7 @@ def _apply_handler_upsert(
     # Look for an existing ``<handler_key>:`` line under this
     # instance. The key is at exactly ``child_indent`` columns of
     # leading whitespace.
-    handler_re = re.compile(rf"^{re.escape(child_indent)}{re.escape(handler_key)}:\s*(?:#.*)?$")
+    handler_re = key_header_re(handler_key, indent=child_indent)
     handler_start: int | None = None
     handler_end: int | None = None
     for idx in range(instance_start, instance_end):
@@ -189,7 +196,7 @@ def _apply_handler_remove(
 ) -> tuple[str, int, int] | None:
     """Drop ``<handler_key>:`` from the located *span*; the shared remove tail."""
     instance_start, instance_end, child_indent = span
-    handler_re = re.compile(rf"^{re.escape(child_indent)}{re.escape(handler_key)}:\s*(?:#.*)?$")
+    handler_re = key_header_re(handler_key, indent=child_indent)
     for idx in range(instance_start, instance_end):
         if not handler_re.match(lines[idx].rstrip("\n\r")):
             continue
@@ -217,9 +224,7 @@ def _locate_subentity_instance(
     if span is None:
         return None
     instance_start, instance_end, parent_child_indent = span
-    header_re = re.compile(
-        rf"^{re.escape(parent_child_indent)}{re.escape(ref.sub_key)}:\s*(?:#.*)?$"
-    )
+    header_re = key_header_re(ref.sub_key, indent=parent_child_indent)
     sub_start: int | None = None
     for idx in range(instance_start, instance_end):
         if header_re.match(lines[idx].rstrip("\n\r")):
@@ -234,12 +239,12 @@ def _locate_subentity_instance(
     for idx in range(sub_start + 1, sub_end):
         content = lines[idx].rstrip("\n\r")
         if content:
-            sub_child_indent = " " * (len(content) - len(content.lstrip(" ")))
+            sub_child_indent = leading_ws(content)
             break
     return sub_start, sub_end, sub_child_indent
 
 
-def _locate_component_instance(  # noqa: C901
+def _locate_component_instance(
     lines: list[str],
     domain: str,
     component_id: str,
@@ -251,20 +256,10 @@ def _locate_component_instance(  # noqa: C901
     index, one-past-last-line index, and the leading whitespace of
     the instance's child fields.
     """
-    header_re = re.compile(rf"^{re.escape(domain)}:\s*(?:#.*)?$")
-    domain_start: int | None = None
-    for idx, line in enumerate(lines):
-        if header_re.match(line.rstrip("\n\r")):
-            domain_start = idx
-            break
+    domain_start = find_block_header(lines, domain)
     if domain_start is None:
         return None
-    domain_end = len(lines)
-    for idx in range(domain_start + 1, len(lines)):
-        stripped = lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
-            domain_end = idx
-            break
+    domain_end = block_end_index(lines, domain_start)
 
     if not block_body_is_list(lines, domain_start, domain_end):
         # Flat singleton mapping (``sun:`` / ``mqtt:``) — its only ``- ``
@@ -272,24 +267,8 @@ def _locate_component_instance(  # noqa: C901
         return _locate_singleton_instance(lines, domain, component_id, domain_start, domain_end)
 
     # Walk the domain body looking for a list item whose first child
-    # line carries ``id: <component_id>``. Only column-2 dashes count
-    # as instance starts — deeper dashes are inner action lists.
-    item_indent: str | None = None
-    item_starts: list[int] = []
-    for idx in range(domain_start + 1, domain_end):
-        raw = lines[idx].rstrip("\n\r")
-        stripped = raw.lstrip(" ")
-        if not stripped.startswith("- "):
-            continue
-        prefix = raw[: len(raw) - len(stripped)]
-        if item_indent is None:
-            item_indent = prefix
-        if prefix != item_indent:
-            # Inner action list — deeper indent than the canonical
-            # list-of-instances. Skip.
-            continue
-        item_starts.append(idx)
-
+    # line carries ``id: <component_id>``.
+    item_starts = top_list_item_starts(lines, domain_start, domain_end)
     bounds = _instance_bounds(lines, item_starts, domain_end)
     for start, end, child_indent in bounds:
         if _instance_declared_id(lines, start, end, child_indent) == component_id:
@@ -311,8 +290,7 @@ def _instance_bounds(
 
 def _child_indent(lines: list[str], start: int) -> str:
     """Leading whitespace of an instance's child fields (its dash indent plus one level)."""
-    dash_indent = lines[start][: len(lines[start]) - len(lines[start].lstrip(" "))]
-    return dash_indent + ESPHOME_YAML_INDENT
+    return leading_ws(lines[start]) + ESPHOME_YAML_INDENT
 
 
 def _locate_idless_instance(

@@ -15,6 +15,7 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
+from .scan import block_end_index, find_block_header, leading_ws
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -317,29 +318,14 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
     trailing blank lines so an inserted item lands directly after the
     last content line. Returns ``None`` when no matching header exists.
     """
-    header_re = re.compile(rf"^{re.escape(key)}:\s*(?:#.*)?$")
-    block_start: int | None = None
-    for idx, line in enumerate(file_lines):
-        if header_re.match(line.rstrip("\n\r")):
-            block_start = idx
-            break
+    block_start = find_block_header(file_lines, key)
     if block_start is None:
         return None
 
-    block_end = len(file_lines)
-    for idx in range(block_start + 1, len(file_lines)):
-        stripped = file_lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
-            block_end = idx
-            break
+    block_end = block_end_index(file_lines, block_start)
     while block_end > block_start + 1 and not file_lines[block_end - 1].strip():
         block_end -= 1
     return block_start, block_end
-
-
-def _leading_ws(line: str) -> str:
-    """Leading whitespace of *line*."""
-    return line[: len(line) - len(line.lstrip())]
 
 
 def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:
@@ -353,7 +339,7 @@ def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> s
         if not stripped or stripped.startswith("#"):
             continue
         if stripped.startswith("- ") or stripped == "-":
-            return _leading_ws(file_lines[idx].rstrip("\n\r"))
+            return leading_ws(file_lines[idx].rstrip("\n\r"))
     return ESPHOME_YAML_INDENT
 
 
@@ -376,7 +362,7 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
     block_start, last_content = bounds
 
     dash_indent = _list_item_indent(file_lines, block_start, last_content)
-    src_indent = _leading_ws(block_lines[1])
+    src_indent = leading_ws(block_lines[1])
     items: list[str] = []
     for line in block_lines[1:]:
         if not line.strip():
@@ -443,7 +429,7 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
     body_indent = ""
     for line in body_lines:
         if line.strip() and not line.lstrip().startswith("#"):
-            body_indent = _leading_ws(line)
+            body_indent = leading_ws(line)
             break
     result: list[str] = []
     marked = False
