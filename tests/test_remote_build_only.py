@@ -294,6 +294,20 @@ async def test_auto_approve_requires_matching_pairing_key(tmp_path: Path) -> Non
     assert not controller.receiver.state.auto_approve_first_pair
 
 
+async def test_pair_request_closed_window_logs_reason(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A pair_request against a closed window logs a clear reason for the operator."""
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+
+    with caplog.at_level("WARNING"):
+        response = await _send_pair_request(controller)
+
+    assert response.response == "no_pairing_window"
+    assert any("pairing window is closed" in r.getMessage() for r in caplog.records)
+
+
 async def test_auto_approve_fails_closed_when_armed_without_pairing_key(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

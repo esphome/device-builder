@@ -97,6 +97,15 @@ async def record_pair_request(
         return IntentOutcome(IntentResponse.APPROVED)
 
     if not controller.is_pairing_window_open():
+        # Every refusal path logs its reason so a headless operator can
+        # tell a closed/lapsed window from a key or source rejection.
+        _LOGGER.warning(
+            "Refused pair_request from %s (dashboard_id=%s): pairing window is closed "
+            "(no window open — already paired, lapsed, or the receiver's Pairing "
+            "requests screen isn't open)",
+            peer_ip,
+            dashboard_id,
+        )
         return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
 
     if controller.state.auto_approve_first_pair and not controller.state.approved_peers:
