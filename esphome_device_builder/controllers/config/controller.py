@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.const import __version__ as esphome_version
 from esphome.storage_json import StorageJSON
-from esphome.util import get_serial_ports
 
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
@@ -30,6 +29,7 @@ from .chip_detect import (
     _is_valid_port_name,
     _read_app_descriptor_board_id,
 )
+from .serial_ports import SerialPortInfo, list_serial_ports
 
 if TYPE_CHECKING:
     from ...device_builder import DeviceBuilder
@@ -60,13 +60,9 @@ class ConfigController:
         return {"server_version": server_version, "esphome_version": esphome_version}
 
     @api_command("config/serial_ports")
-    async def get_serial_ports_cmd(self, **kwargs: Any) -> list[dict]:
+    async def get_serial_ports_cmd(self, **kwargs: Any) -> list[SerialPortInfo]:
         """List available serial ports."""
-        ports = await run_in_executor(get_serial_ports)
-        return [
-            {"port": p.path, "desc": p.description if p.description != "n/a" else p.path}
-            for p in ports
-        ]
+        return await run_in_executor(list_serial_ports)
 
     @api_command("config/detect_chip")
     async def detect_chip_cmd(self, **kwargs: Any) -> dict:

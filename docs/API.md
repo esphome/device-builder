@@ -303,7 +303,7 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|
 | `config/version` | — | `{server_version, esphome_version}` | Get versions |
-| `config/serial_ports` | — | `[{port, desc}]` | List serial ports |
+| `config/serial_ports` | — | `[{port, desc, vid, pid, hint}]` | List serial ports. `vid`/`pid` are the USB ids (`null` when unknown); `hint` is `esp` (Espressif native USB), `bridge` (common USB-UART bridge chip), or `null` |
 | `config/get_preferences` | — | `UserPreferences` | Get user preferences |
 | `config/set_preferences` | `{theme?, dashboard_view?, experience_level?, remote_compute_only?, version_history_enabled?, device_editor_layout?, secrets_editor_layout?, ...}` | `UserPreferences` | Update preferences (partial). `experience_level` is `beginner` / `expert` (or `null` until chosen); `remote_compute_only` marks an install as a remote build node. `version_history_enabled` (default `true`) gates the git auto-commit of config edits; setting it `false` stops new commits and skips repo creation, leaving any existing repo intact. `device_editor_layout` is `visual` / `yaml` / `both` and `secrets_editor_layout` is `visual` / `yaml` (the secrets editor has no split view); they persist which editor panes the user keeps open. |
 | `config/get_secrets` | — | `[string]` | List secret key names |
