@@ -53,6 +53,7 @@ from esphome_device_builder.controllers.remote_build._validators import (
     intent_response_to_command_error,
     validate_hostname,
     validate_pair_label,
+    validate_pairing_key,
     validate_pin_sha256,
     validate_port,
 )
@@ -3781,6 +3782,36 @@ def test_validate_pair_label_rejects_control_characters(payload: str) -> None:
     """
     with pytest.raises(CommandError) as exc:
         validate_pair_label(payload, field=PairLabelField.OFFLOADER_LABEL)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "printable" in str(exc.value)
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_validate_pairing_key_blank_is_none(raw: str | None) -> None:
+    """Missing / empty / whitespace-only normalises to ``None`` (no key presented)."""
+    assert validate_pairing_key(raw) is None
+
+
+def test_validate_pairing_key_strips_and_returns() -> None:
+    assert validate_pairing_key("  ABCD-EFGH  ") == "ABCD-EFGH"
+
+
+def test_validate_pairing_key_rejects_non_string() -> None:
+    with pytest.raises(CommandError) as exc:
+        validate_pairing_key(42)  # type: ignore[arg-type]
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "pairing_key" in str(exc.value)
+
+
+def test_validate_pairing_key_rejects_oversize() -> None:
+    with pytest.raises(CommandError) as exc:
+        validate_pairing_key("A" * 65)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_validate_pairing_key_rejects_control_characters() -> None:
+    with pytest.raises(CommandError) as exc:
+        validate_pairing_key("ABCD\x1b[31m")
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "printable" in str(exc.value)
 

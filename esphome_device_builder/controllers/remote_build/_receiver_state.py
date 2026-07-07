@@ -31,7 +31,7 @@ class ReceiverState:
 
     # Armed by ``--remote-build-only`` first-pair bootstrap: while
     # True (and zero peers are APPROVED), the next ``pair_request``
-    # inside the open window presenting ``bootstrap_psk`` is approved
+    # inside the open window presenting ``bootstrap_pairing_key`` is approved
     # without the inbox dance. One-shot — ``record_pair_request``
     # disarms it on use. A wrong/missing key or disallowed source is
     # refused WITHOUT disarming, indistinguishably from a closed
@@ -40,7 +40,7 @@ class ReceiverState:
     # Pairing key printed in the bootstrap banner; armed and cleared
     # with the flag above. ``pair_flow`` fails closed when the flag is
     # armed without a key. Never persisted.
-    bootstrap_psk: str | None = None
+    bootstrap_pairing_key: str | None = None
 
     # PENDING StoredPeer rows keyed on ``dashboard_id``; never
     # persisted, cleared on window auto-close.

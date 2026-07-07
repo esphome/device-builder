@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from aiohttp.web import GracefulExit
 
 from .controllers.remote_build.pairing_window import PAIRING_WINDOW_DURATION_SECONDS
-from .helpers.pairing_psk import generate_pairing_psk
+from .helpers.pairing_key import generate_pairing_key
 from .helpers.pin_emoji import pin_emoji, pin_emoji_names
 from .models import EventType
 
@@ -106,11 +106,11 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     window lapses unpaired. The 5-minute lifetime is the pairing
     window's own idle deadline — the bootstrap client never extends it.
 
-    Pairing requires the banner-printed key; ``bootstrap_psk`` arms
+    Pairing requires the banner-printed key; ``bootstrap_pairing_key`` arms
     and clears together with ``auto_approve_first_pair``.
     """
     receiver.state.auto_approve_first_pair = True
-    receiver.state.bootstrap_psk = generate_pairing_psk()
+    receiver.state.bootstrap_pairing_key = generate_pairing_key()
     paired = asyncio.Event()
     window_closed = asyncio.Event()
 
@@ -122,18 +122,22 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
         if not event.data["open"]:
             window_closed.set()
 
-    with (
-        db.bus.listening([EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED], _on_pair_status),
-        db.bus.listening([EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED], _on_window_changed),
-    ):
-        await receiver.set_pairing_window(open=True, client=_BOOTSTRAP_WINDOW_CLIENT)
-        identity = await db.peer_link_identity_store.async_load()
-        _log_pairing_banner(
-            identity, db.settings.allow_pairing_sources, receiver.state.bootstrap_psk
-        )
-        await _wait_first(paired, window_closed)
-    receiver.state.auto_approve_first_pair = False
-    receiver.state.bootstrap_psk = None
+    try:
+        with (
+            db.bus.listening([EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED], _on_pair_status),
+            db.bus.listening([EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED], _on_window_changed),
+        ):
+            await receiver.set_pairing_window(open=True, client=_BOOTSTRAP_WINDOW_CLIENT)
+            identity = await db.peer_link_identity_store.async_load()
+            _log_pairing_banner(
+                identity, db.settings.allow_pairing_sources, receiver.state.bootstrap_pairing_key
+            )
+            await _wait_first(paired, window_closed)
+    finally:
+        # Arm and disarm together so a cancellation / exception mid-wait can
+        # never leave the receiver armed with a live key.
+        receiver.state.auto_approve_first_pair = False
+        receiver.state.bootstrap_pairing_key = None
     if not paired.is_set():
         _LOGGER.error(
             "No pairing request arrived within %d minutes; exiting. Re-run to "
@@ -148,7 +152,7 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
 
 
 def _log_pairing_banner(
-    identity: PeerLinkIdentity, allow_pairing_sources: list[str], psk: str | None
+    identity: PeerLinkIdentity, allow_pairing_sources: list[str], pairing_key: str | None
 ) -> None:
     """Print the fingerprint + one-shot pairing key the operator uses in the pair dialog."""
     banner = "=" * 70
@@ -184,7 +188,7 @@ def _log_pairing_banner(
         pin_emoji(identity.pin_sha256),
         pin_emoji_names(identity.pin_sha256),
         identity.pin_sha256_formatted,
-        psk,
+        pairing_key,
         source_line,
         banner,
     )

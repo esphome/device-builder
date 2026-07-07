@@ -279,28 +279,31 @@ async def request_pair(
     label: str,
     dashboard_id: str,
     resolver: AbstractResolver | None = None,
-    psk: str | None = None,
+    pairing_key: str | None = None,
     expected_pin_sha256: str | None = None,
 ) -> RequestPairResult:
     """
     Run an ``intent="pair_request"`` round-trip; return the receiver's response.
 
-    Caller is responsible for the TOCTOU pin check: compare
+    When *expected_pin_sha256* is set the pin is verified
+    mid-handshake and a mismatch raises
+    :class:`PeerLinkPinMismatchError` before msg3 is sent;
+    callers that omit it must compare
     :attr:`RequestPairResult.pin_sha256` against the value the
-    user OOB-confirmed in ``preview_pair`` BEFORE persisting any
+    user OOB-confirmed in ``preview_pair`` before persisting any
     state. Unknown ``intent_response`` strings raise
     :class:`PeerLinkClientError`.
 
-    *psk* rides in the encrypted msg3 and requires
+    *pairing_key* rides in the encrypted msg3 and requires
     *expected_pin_sha256* so the secret never reaches an
     unverified responder.
     """
-    if psk is not None and expected_pin_sha256 is None:
-        msg = "request_pair: psk requires expected_pin_sha256 (secret in msg3)"
+    if pairing_key is not None and expected_pin_sha256 is None:
+        msg = "request_pair: pairing_key requires expected_pin_sha256 (secret in msg3)"
         raise ValueError(msg)
     payload: dict[str, str] = {"label": label, "dashboard_id": dashboard_id}
-    if psk is not None:
-        payload["psk"] = psk
+    if pairing_key is not None:
+        payload["pairing_key"] = pairing_key
     rt = await drive_initiator_round_trip(
         hostname=hostname,
         port=port,

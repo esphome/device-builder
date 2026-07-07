@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.event_bus import Event
-from ...helpers.pairing_psk import pairing_psk_matches
+from ...helpers.pairing_key import pairing_key_matches
 from ...models import (
     EventType,
     IntentResponse,
@@ -49,7 +49,7 @@ async def record_pair_request(
     static_x25519_pub: bytes,
     label: str,
     peer_ip: str,
-    psk: str | None = None,
+    pairing_key: str | None = None,
 ) -> IntentOutcome:
     """
     Process an ``intent="pair_request"`` Noise session.
@@ -107,7 +107,7 @@ async def record_pair_request(
             static_x25519_pub=static_x25519_pub,
             label=label,
             peer_ip=peer_ip,
-            psk=psk,
+            pairing_key=pairing_key,
         )
 
     # Refuse to overwrite a PENDING entry's pubkey — defense
@@ -247,7 +247,7 @@ async def _auto_approve_or_refuse(
     static_x25519_pub: bytes,
     label: str,
     peer_ip: str,
-    psk: str | None,
+    pairing_key: str | None,
 ) -> IntentOutcome:
     """
     First-pair window is armed: auto-approve the request, or refuse it.
@@ -257,13 +257,22 @@ async def _auto_approve_or_refuse(
     never disarm and return the same ``NO_PAIRING_WINDOW`` a closed
     window does, leaking nothing about which gate fired.
     """
-    expected_psk = controller.state.bootstrap_psk
-    if expected_psk is None or not pairing_psk_matches(expected_psk, psk):
+    expected_key = controller.state.bootstrap_pairing_key
+    if expected_key is None or not pairing_key_matches(expected_key, pairing_key):
+        # Name the receiver-side "no key armed" case distinctly from the
+        # offloader-side missing/mismatch so the diagnostic points at the
+        # right side; the wire response is identical for all three.
+        if expected_key is None:
+            reason = "no key armed"
+        elif not pairing_key:
+            reason = "missing"
+        else:
+            reason = "mismatch"
         _LOGGER.warning(
             "Refused auto-pair from %s (dashboard_id=%s): pairing key %s",
             peer_ip,
             dashboard_id,
-            "missing" if not psk else "mismatch",
+            reason,
         )
         return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
     if _pairing_source_allowed(controller, peer_ip):

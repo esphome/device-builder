@@ -48,7 +48,7 @@ _PAIR_LABEL_MAX_CHARS = 128
 
 # Generous over the 19-char generated key; caps what a frontend
 # bug can push into the encrypted msg3.
-_PAIRING_PSK_MAX_CHARS = 64
+_PAIRING_KEY_MAX_CHARS = 64
 
 
 class HostFieldContext(StrEnum):
@@ -266,7 +266,7 @@ def validate_pair_label(raw: object, *, field: PairLabelField) -> str:
     return cleaned
 
 
-def validate_pairing_psk(raw: object) -> str | None:
+def validate_pairing_key(raw: object) -> str | None:
     """
     Validate the optional ``request_pair`` pairing key.
 
@@ -275,16 +275,16 @@ def validate_pairing_psk(raw: object) -> str | None:
     if raw is None:
         return None
     if not isinstance(raw, str):
-        msg = "psk must be a string"
+        msg = "pairing_key must be a string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     cleaned = raw.strip()
     if not cleaned:
         return None
-    if len(cleaned) > _PAIRING_PSK_MAX_CHARS:
-        msg = f"psk must be at most {_PAIRING_PSK_MAX_CHARS} characters"
+    if len(cleaned) > _PAIRING_KEY_MAX_CHARS:
+        msg = f"pairing_key must be at most {_PAIRING_KEY_MAX_CHARS} characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     if not cleaned.isprintable():
-        msg = "psk must contain only printable characters"
+        msg = "pairing_key must contain only printable characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return cleaned
 

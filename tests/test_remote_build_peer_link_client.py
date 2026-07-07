@@ -717,7 +717,7 @@ async def test_request_pair_pin_mismatch_aborts_before_msg3() -> None:
                 identity_priv=secrets.token_bytes(32),
                 label="green",
                 dashboard_id="abcdef0123456789",
-                psk="ABCD-EFGH-JKMN-PQRS",
+                pairing_key="ABCD-EFGH-JKMN-PQRS",
                 expected_pin_sha256="0" * 64,
             )
     finally:
@@ -725,8 +725,8 @@ async def test_request_pair_pin_mismatch_aborts_before_msg3() -> None:
     assert msg3_frames == []
 
 
-async def test_request_pair_psk_requires_expected_pin() -> None:
-    """A psk without a pinned pin is refused before any connect."""
+async def test_request_pair_key_requires_expected_pin() -> None:
+    """A pairing key without a pinned pin is refused before any connect."""
     with pytest.raises(ValueError, match="expected_pin_sha256"):
         await request_pair(
             hostname="127.0.0.1",
@@ -734,7 +734,7 @@ async def test_request_pair_psk_requires_expected_pin() -> None:
             identity_priv=secrets.token_bytes(32),
             label="green",
             dashboard_id="abcdef0123456789",
-            psk="ABCD-EFGH-JKMN-PQRS",
+            pairing_key="ABCD-EFGH-JKMN-PQRS",
         )
 
 

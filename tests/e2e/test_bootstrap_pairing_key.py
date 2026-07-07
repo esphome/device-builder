@@ -89,7 +89,7 @@ async def _bootstrap_instances_ctx(tmp_path: Path) -> AsyncIterator[BootstrapIns
         await server.close()
 
 
-async def test_bootstrap_psk_pair_round_trip(tmp_path: Path) -> None:
+async def test_bootstrap_pairing_key_round_trip(tmp_path: Path) -> None:
     """Wrong key refused without disarming; the banner key pairs and opens a session."""
     async with _bootstrap_instances_ctx(tmp_path) as inst:
         receiver = inst.receiver_handles.receiver
@@ -99,8 +99,8 @@ async def test_bootstrap_psk_pair_round_trip(tmp_path: Path) -> None:
         )
         while not receiver.is_pairing_window_open():
             await asyncio.sleep(0.01)
-        psk = receiver.state.bootstrap_psk
-        assert psk is not None
+        key = receiver.state.bootstrap_pairing_key
+        assert key is not None
 
         preview = await offloader.preview_pair(hostname="127.0.0.1", port=inst.server.port)
         pin_sha256 = preview["pin_sha256"]
@@ -113,7 +113,7 @@ async def test_bootstrap_psk_pair_round_trip(tmp_path: Path) -> None:
                 pin_sha256=pin_sha256,
                 receiver_label="build server",
                 offloader_label="main builder",
-                psk="WRNG-WRNG-WRNG-WRNG",
+                pairing_key="WRNG-WRNG-WRNG-WRNG",
             )
         assert excinfo.value.code is ErrorCode.NO_PAIRING_WINDOW
         assert receiver.state.approved_peers == {}
@@ -128,7 +128,7 @@ async def test_bootstrap_psk_pair_round_trip(tmp_path: Path) -> None:
             pin_sha256=pin_sha256,
             receiver_label="build server",
             offloader_label="main builder",
-            psk=psk.lower().replace("-", " "),
+            pairing_key=key.lower().replace("-", " "),
         )
         assert summary.status is PeerStatus.APPROVED
         assert summary.pin_sha256 == pin_sha256
@@ -139,7 +139,7 @@ async def test_bootstrap_psk_pair_round_trip(tmp_path: Path) -> None:
         assert peer.label == "main builder"
         assert not receiver.is_pairing_window_open()
         assert not receiver.state.auto_approve_first_pair
-        assert receiver.state.bootstrap_psk is None
+        assert receiver.state.bootstrap_pairing_key is None
 
         # The pairing carries through to a live peer-link session on both sides.
         await asyncio.wait_for(inst.offloader_opened.received.wait(), timeout=2.0)
@@ -147,7 +147,7 @@ async def test_bootstrap_psk_pair_round_trip(tmp_path: Path) -> None:
         assert peer.dashboard_id in receiver.state.peer_link_sessions
 
 
-async def test_bootstrap_pair_without_psk_refused(tmp_path: Path) -> None:
+async def test_bootstrap_pair_without_key_refused(tmp_path: Path) -> None:
     """An offloader that sends no key (pre-key builder) cannot win the window."""
     async with _bootstrap_instances_ctx(tmp_path) as inst:
         receiver = inst.receiver_handles.receiver
