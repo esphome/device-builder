@@ -342,12 +342,8 @@ async def test_get_available_surfaces_multi_entity_subentities(tmp_path: Path) -
     assert devices[("sensor", "aht20_humidity")]["parent_id"] == "aht20"
 
 
-async def test_get_available_idless_multi_entity_is_not_a_container(tmp_path: Path) -> None:
-    """A multi-entity platform with no ided readings stays a plain target.
-
-    Marking it a container would have the frontend hide it with no
-    sub-entity to redirect to, stranding the user.
-    """
+async def test_get_available_surfaces_idless_subentities_synthetically(tmp_path: Path) -> None:
+    """Id-less readings surface on ``<parent>_<sub_key>`` synthetic ids, never as a leaf."""
     config = tmp_path / "aht.yaml"
     config.write_text(
         "esphome:\n  name: d\n"
@@ -361,27 +357,68 @@ async def test_get_available_idless_multi_entity_is_not_a_container(tmp_path: Pa
     controller = _make_controller(tmp_path)
     result = await controller.get_available(configuration="aht.yaml")
     devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
-    assert devices[("sensor.aht10", "aht20")]["is_entity_container"] is False
-    assert not any(d["component_id"] == "sensor" for d in result["devices"])
+    assert devices[("sensor.aht10", "aht20")]["is_entity_container"] is True
+    temp = devices[("sensor", "aht20_temperature")]
+    assert temp["parent_id"] == "aht20"
+    assert temp["name"] == "Just Temp"
+    assert devices[("sensor", "aht20_humidity")]["parent_id"] == "aht20"
 
 
-async def test_get_available_skips_idless_subentity(tmp_path: Path) -> None:
-    """A sub-entity block without its own id can't be targeted, so it's not surfaced."""
+async def test_get_available_idless_parent_composes_synthetic_sub_ids(tmp_path: Path) -> None:
+    """An id-less parent's readings key on the positional synthetic (``sensor_0_<sub>``)."""
+    config = tmp_path / "aht.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    temperature:\n      name: Just Temp\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="aht.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    assert devices[("sensor.aht10", "sensor_0")]["is_entity_container"] is True
+    assert devices[("sensor", "sensor_0_temperature")]["parent_id"] == "sensor_0"
+
+
+async def test_get_available_declared_sub_id_wins_over_synthetic(tmp_path: Path) -> None:
+    """A declared sub-entity id keys the instance; the synthetic is only a fallback."""
     config = tmp_path / "aht.yaml"
     config.write_text(
         "esphome:\n  name: d\n"
         "sensor:\n"
         "  - platform: aht10\n"
         "    id: aht20\n"
-        "    temperature:\n      id: aht20_temperature\n"
+        "    temperature:\n      id: my_temp\n"
         "    humidity:\n      name: Just Humidity\n",
         encoding="utf-8",
     )
     controller = _make_controller(tmp_path)
     result = await controller.get_available(configuration="aht.yaml")
     ids = {d["id"] for d in result["devices"]}
-    assert "aht20_temperature" in ids
-    assert "aht20_humidity" not in ids
+    assert "my_temp" in ids
+    assert "aht20_temperature" not in ids
+    assert "aht20_humidity" in ids
+
+
+async def test_get_available_unconfigured_multi_entity_is_an_empty_container(
+    tmp_path: Path,
+) -> None:
+    """A multi-entity platform with no sub-blocks is a flagged container, not a leaf.
+
+    Surfacing it as a leaf offered entity triggers on the platform item and
+    spliced invalid YAML (#1886).
+    """
+    config = tmp_path / "aht.yaml"
+    config.write_text(
+        "esphome:\n  name: d\nsensor:\n  - platform: aht10\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="aht.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    assert devices[("sensor.aht10", "sensor_0")]["is_entity_container"] is True
+    assert not any(d["component_id"] == "sensor" for d in result["devices"])
 
 
 async def test_get_available_surfaces_idless_binary_sensor_leaf(tmp_path: Path) -> None:
