@@ -31,7 +31,11 @@ from esphome_device_builder.controllers.automations.writing import (
     render_delete,
     render_upsert,
 )
+from esphome_device_builder.controllers.automations.writing_lists import (
+    delete_subentity_list_entry,
+)
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.yaml import SubEntityRef
 from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
@@ -2374,6 +2378,19 @@ def test_delete_subentity_entry_missing_index_raises_not_found() -> None:
     one, _ = render_upsert(_AHT10, tree=_range_tree(25, "red"), location=_sub_range_loc(0))
     with pytest.raises(CommandError):
         render_delete(one, location=_sub_range_loc(3))
+
+
+def test_subentity_list_locate_refuses_missing_sub_block() -> None:
+    """The list-entry locate refuses a ref whose sub-block isn't in the YAML."""
+    ref = SubEntityRef(parent_domain="sensor", parent_id="aht20", sub_key="humidity")
+    with pytest.raises(CommandError):
+        delete_subentity_list_entry(
+            _AHT10_NO_HUMIDITY,
+            ref,
+            component_id="aht20_humidity",
+            handler_key="on_value_range",
+            index=0,
+        )
 
 
 # ---------------------------------------------------------------------------

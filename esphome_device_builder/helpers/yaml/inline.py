@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from .scalar import ESPHOME_YAML_INDENT, block_body_is_list
+
+
+@dataclass(frozen=True, slots=True)
+class SubEntityRef:
+    """Address of a nested sub-entity block: parent instance + sub-block key."""
+
+    parent_domain: str
+    parent_id: str
+    sub_key: str
 
 
 def synthetic_instance_index(domain: str, component_id: str) -> int | None:
@@ -66,22 +76,20 @@ def upsert_inline_handler(
 
 def upsert_subentity_handler(
     yaml_text: str,
+    ref: SubEntityRef,
     *,
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
     handler_key: str,
     rendered_yaml: str,
 ) -> tuple[str, int, int, str] | None:
     """
     Insert or replace ``<handler_key>:`` under a nested sub-entity block.
 
-    Splices at the ``<sub_key>:`` block's child indent inside the
-    ``<parent_id>`` instance under ``<parent_domain>:``. Same return shape as
-    :func:`upsert_inline_handler`; ``None`` when the sub-block isn't found.
+    Splices at *ref*'s ``<sub_key>:`` block child indent inside its parent
+    instance. Same return shape as :func:`upsert_inline_handler`; ``None``
+    when the sub-block isn't found.
     """
     lines = yaml_text.splitlines(keepends=True)
-    span = _locate_subentity_instance(lines, parent_domain, parent_id, sub_key)
+    span = _locate_subentity_instance(lines, ref)
     if span is None:
         return None
     return _apply_handler_upsert(lines, span, handler_key, rendered_yaml)
@@ -162,15 +170,13 @@ def remove_inline_handler(
 
 def remove_subentity_handler(
     yaml_text: str,
+    ref: SubEntityRef,
     *,
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
     handler_key: str,
 ) -> tuple[str, int, int] | None:
     """Delete ``<handler_key>:`` from a nested sub-entity block (inverse of upsert)."""
     lines = yaml_text.splitlines(keepends=True)
-    span = _locate_subentity_instance(lines, parent_domain, parent_id, sub_key)
+    span = _locate_subentity_instance(lines, ref)
     if span is None:
         return None
     return _apply_handler_remove(lines, span, handler_key)
@@ -195,25 +201,25 @@ def _apply_handler_remove(
 
 def _locate_subentity_instance(
     lines: list[str],
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
+    ref: SubEntityRef,
 ) -> tuple[int, int, str] | None:
     """
-    Find the line range of a ``<sub_key>:`` block inside a parent instance.
+    Find the line range of *ref*'s ``<sub_key>:`` block inside its parent instance.
 
-    Locates the ``<parent_id>`` instance under ``<parent_domain>:``, then the
-    ``<sub_key>:`` header among its child fields. Returns ``(start, end,
-    child_indent)`` where *start* is the header line, *end* one past the
-    sub-block's last line, and *child_indent* the leading whitespace of the
-    sub-block's own fields (where a sibling handler is spliced). ``None`` when
-    the parent or the sub-block isn't present.
+    Locates the parent instance, then the ``<sub_key>:`` header among its
+    child fields. Returns ``(start, end, child_indent)`` where *start* is the
+    header line, *end* one past the sub-block's last line, and *child_indent*
+    the leading whitespace of the sub-block's own fields (where a sibling
+    handler is spliced). ``None`` when the parent or the sub-block isn't
+    present.
     """
-    span = _locate_component_instance(lines, parent_domain, parent_id)
+    span = _locate_component_instance(lines, ref.parent_domain, ref.parent_id)
     if span is None:
         return None
     instance_start, instance_end, parent_child_indent = span
-    header_re = re.compile(rf"^{re.escape(parent_child_indent)}{re.escape(sub_key)}:\s*(?:#.*)?$")
+    header_re = re.compile(
+        rf"^{re.escape(parent_child_indent)}{re.escape(ref.sub_key)}:\s*(?:#.*)?$"
+    )
     sub_start: int | None = None
     for idx in range(instance_start, instance_end):
         if header_re.match(lines[idx].rstrip("\n\r")):

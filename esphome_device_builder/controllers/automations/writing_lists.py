@@ -20,6 +20,7 @@ from ruamel.yaml.comments import CommentedMap
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
+    SubEntityRef,
     remove_inline_handler,
     remove_subentity_handler,
     synthetic_instance_index,
@@ -79,43 +80,33 @@ def _strip_comments(node: Any) -> None:
             _strip_comments(child)
 
 
-def _resplice_list_block(
+def _resplice_handler_block(
     yaml_text: str,
     handler_key: str,
     entries: list,
     *,
-    domain: str,
-    component_id: str,
+    upsert: Callable[..., tuple[str, int, int, str] | None],
+    remove: Callable[..., tuple[str, int, int] | None],
+    subject: str,
 ) -> tuple[str, YamlDiff]:
     """
-    Re-emit a component's list handler from *entries* and return the diff.
+    Re-emit a list handler from *entries* via the bound splice callables.
 
     Non-empty *entries* replace the whole block; an empty list removes the
-    handler key. Callers locate the instance first, so a ``None`` splice
+    handler key. Callers locate the container first, so a ``None`` splice
     result is unreachable.
     """
     if entries:
         rendered = wrap_handler_list_block(handler_key, dump(entries))
-        res = upsert_inline_handler(
-            yaml_text,
-            component_domain=domain,
-            component_id=component_id,
-            handler_key=handler_key,
-            rendered_yaml=rendered,
-        )
-        if res is None:  # pragma: no cover — instance located by the caller
-            msg = f"Component instance id={component_id!r} not found under {domain!r}"
+        res = upsert(yaml_text, handler_key=handler_key, rendered_yaml=rendered)
+        if res is None:  # pragma: no cover — container located by the caller
+            msg = f"{subject} not found"
             raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
         new_text, from_line, to_line, replacement = res
         return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
-    removed = remove_inline_handler(
-        yaml_text,
-        component_domain=domain,
-        component_id=component_id,
-        handler_key=handler_key,
-    )
-    if removed is None:  # pragma: no cover — instance located by the caller
-        msg = f"{handler_key}: not found on component id={component_id!r}"
+    removed = remove(yaml_text, handler_key=handler_key)
+    if removed is None:  # pragma: no cover — container located by the caller
+        msg = f"{handler_key}: not found on {subject}"
         raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
     new_text, from_line, to_line = removed
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
@@ -205,17 +196,26 @@ def delete_list_entry_for(
     return strategy.resplice(yaml_text, key, entries)
 
 
-def _component_not_present_msg(component_id: str, key: str, index: int) -> str:
-    """Delete not-found message for a component-nested list handler."""
-    return f"{key}[{index}] not present on component id={component_id!r}"
+def _not_present_msg(subject: str, key: str, index: int) -> str:
+    """Delete not-found message for a list handler nested under *subject*."""
+    return f"{key}[{index}] not present on {subject}"
 
 
 def _component_strategy(domain: str, component_id: str) -> ListContainerStrategy:
     """Strategy for a list handler nested under a configured component instance."""
     return ListContainerStrategy(
         locate=partial(_require_instance, domain=domain, component_id=component_id),
-        resplice=partial(_resplice_list_block, domain=domain, component_id=component_id),
-        not_present_msg=partial(_component_not_present_msg, component_id),
+        resplice=partial(
+            _resplice_handler_block,
+            upsert=partial(
+                upsert_inline_handler, component_domain=domain, component_id=component_id
+            ),
+            remove=partial(
+                remove_inline_handler, component_domain=domain, component_id=component_id
+            ),
+            subject=f"component id={component_id!r} under {domain!r}",
+        ),
+        not_present_msg=partial(_not_present_msg, f"component id={component_id!r}"),
     )
 
 
@@ -291,11 +291,9 @@ def delete_list_entry(
 
 def upsert_subentity_on_entry(
     yaml_text: str,
+    ref: SubEntityRef,
     *,
     tree: AutomationTree,
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
     component_id: str,
     trigger_key: str,
     trigger: AutomationTrigger,
@@ -307,17 +305,15 @@ def upsert_subentity_on_entry(
         key=trigger_key,
         item=emit_trigger_list_item(tree),
         index=index,
-        strategy=_subentity_strategy(parent_domain, parent_id, sub_key, component_id),
+        strategy=_subentity_strategy(ref, component_id),
         trigger=trigger,
     )
 
 
 def delete_subentity_list_entry(
     yaml_text: str,
+    ref: SubEntityRef,
     *,
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
     component_id: str,
     handler_key: str,
     index: int,
@@ -327,97 +323,37 @@ def delete_subentity_list_entry(
         yaml_text,
         key=handler_key,
         index=index,
-        strategy=_subentity_strategy(parent_domain, parent_id, sub_key, component_id),
+        strategy=_subentity_strategy(ref, component_id),
     )
 
 
-def _subentity_strategy(
-    parent_domain: str, parent_id: str, sub_key: str, component_id: str
-) -> ListContainerStrategy:
+def _subentity_strategy(ref: SubEntityRef, component_id: str) -> ListContainerStrategy:
     """Strategy for a list handler nested under a sub-entity block."""
     return ListContainerStrategy(
-        locate=partial(
-            _require_subentity, parent_domain=parent_domain, parent_id=parent_id, sub_key=sub_key
-        ),
+        locate=partial(_require_subentity, ref=ref),
         resplice=partial(
-            _resplice_subentity_list_block,
-            parent_domain=parent_domain,
-            parent_id=parent_id,
-            sub_key=sub_key,
+            _resplice_handler_block,
+            upsert=partial(upsert_subentity_handler, ref=ref),
+            remove=partial(remove_subentity_handler, ref=ref),
+            subject=f"sub-entity {ref.sub_key!r} on id={ref.parent_id!r}",
         ),
-        not_present_msg=partial(_subentity_not_present_msg, component_id),
+        not_present_msg=partial(_not_present_msg, f"sub-entity id={component_id!r}"),
     )
 
 
-def _require_subentity(
-    yaml_text: str,
-    error_code: ErrorCode,
-    *,
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
-) -> dict:
+def _require_subentity(yaml_text: str, error_code: ErrorCode, *, ref: SubEntityRef) -> dict:
     """Return the ``<sub_key>:`` mapping inside the located parent instance."""
     instance = _require_instance(
-        yaml_text, error_code, domain=parent_domain, component_id=parent_id
+        yaml_text, error_code, domain=ref.parent_domain, component_id=ref.parent_id
     )
-    sub = instance.get(sub_key)
+    sub = instance.get(ref.sub_key)
     if not isinstance(sub, dict):
         msg = (
-            f"Sub-entity {sub_key!r} not present on component "
-            f"id={parent_id!r} under {parent_domain!r}"
+            f"Sub-entity {ref.sub_key!r} not present on component "
+            f"id={ref.parent_id!r} under {ref.parent_domain!r}"
         )
         raise CommandError(error_code, msg)
     return sub
-
-
-def _subentity_not_present_msg(component_id: str, key: str, index: int) -> str:
-    """Delete not-found message for a sub-entity-nested list handler."""
-    return f"{key}[{index}] not present on sub-entity id={component_id!r}"
-
-
-def _resplice_subentity_list_block(
-    yaml_text: str,
-    handler_key: str,
-    entries: list,
-    *,
-    parent_domain: str,
-    parent_id: str,
-    sub_key: str,
-) -> tuple[str, YamlDiff]:
-    """Re-emit a sub-entity's list handler from *entries* and return the diff.
-
-    Non-empty *entries* replace the whole block; an empty list removes the
-    handler key. Callers locate the sub-entity first, so a ``None`` splice
-    result is unreachable.
-    """
-    if entries:
-        rendered = wrap_handler_list_block(handler_key, dump(entries))
-        res = upsert_subentity_handler(
-            yaml_text,
-            parent_domain=parent_domain,
-            parent_id=parent_id,
-            sub_key=sub_key,
-            handler_key=handler_key,
-            rendered_yaml=rendered,
-        )
-        if res is None:  # pragma: no cover — sub-entity located by the caller
-            msg = f"Sub-entity {sub_key!r} not found on id={parent_id!r} under {parent_domain!r}"
-            raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-        new_text, from_line, to_line, replacement = res
-        return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
-    removed = remove_subentity_handler(
-        yaml_text,
-        parent_domain=parent_domain,
-        parent_id=parent_id,
-        sub_key=sub_key,
-        handler_key=handler_key,
-    )
-    if removed is None:  # pragma: no cover — sub-entity located by the caller
-        msg = f"{handler_key}: not found on sub-entity {sub_key!r} of id={parent_id!r}"
-        raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
-    new_text, from_line, to_line = removed
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
 
 
 def upsert_light_effect(
