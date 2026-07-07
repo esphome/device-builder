@@ -82,6 +82,7 @@ __all__ = [
     "_render_params",
     "_render_value",
     "catalog_id",
+    "instance_id",
     "iter_subentities",
     "make_yaml",
     "parse_device_yaml",
@@ -349,8 +350,13 @@ def resolve_component_target(yaml_text: str, component_id: str) -> ComponentTarg
     return None
 
 
-def _instance_id(domain: str, instance: dict, idx: int, *, is_list: bool) -> str:
-    """Reconstruct the id the parser attributes to one instance."""
+def instance_id(domain: str, instance: dict, idx: int, *, is_list: bool) -> str:
+    """
+    Reconstruct the id the parser attributes to one instance.
+
+    The declared ``id:`` or the positional ``<domain>_<idx>`` synthetic; the
+    one composition every surfaced, parsed, and written id must agree on.
+    """
     if is_list:
         return str(instance.get("id") or f"{domain}_{idx}")
     return singleton_component_id(instance, domain)
@@ -374,7 +380,7 @@ def _iter_instance_targets(
         for idx, instance in enumerate(items):
             if not isinstance(instance, dict):
                 continue
-            comp_id = _instance_id(str(domain), instance, idx, is_list=is_list)
+            comp_id = instance_id(str(domain), instance, idx, is_list=is_list)
             yield str(domain), instance, comp_id, ComponentTarget(domain=str(domain))
             for sub_domain, sub, sub_id, sub_key in iter_subentities(
                 str(domain), instance, comp_id
