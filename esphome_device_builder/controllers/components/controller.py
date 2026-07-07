@@ -46,7 +46,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 _MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_MD_EMPHASIS_RE = re.compile(r"[*_`]")
+# Intra-word underscores are literal (``zwave_proxy``), not emphasis.
+_MD_EMPHASIS_RE = re.compile(r"[*`]|(?<!\w)_|_(?!\w)")
 _FIRST_SENTENCE_RE = re.compile(r"(.{1,240}?\.)(?:\s|$)")
 
 

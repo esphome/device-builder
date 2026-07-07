@@ -213,6 +213,15 @@ def test_summarize_description_truncates_unpunctuated_text() -> None:
     assert comp_controller._summarize_description("word " * 100) == ("word " * 100)[:240]
 
 
+def test_summarize_description_keeps_intra_word_underscores() -> None:
+    """Markdown flattening strips emphasis but not snake_case identifiers."""
+    text = "The `zwave_proxy` component proxies frames via *ESPHome's* _Api_."
+    assert (
+        comp_controller._summarize_description(text)
+        == "The zwave_proxy component proxies frames via ESPHome's Api."
+    )
+
+
 # ── get_component_bodies() unknown-id branch ────────────────────────
 
 
