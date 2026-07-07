@@ -376,7 +376,9 @@ def _iter_instance_targets(
                 continue
             comp_id = _instance_id(str(domain), instance, idx, is_list=is_list)
             yield str(domain), instance, comp_id, ComponentTarget(domain=str(domain))
-            for sub_domain, sub, sub_id, sub_key in iter_subentities(str(domain), instance):
+            for sub_domain, sub, sub_id, sub_key in iter_subentities(
+                str(domain), instance, comp_id
+            ):
                 yield (
                     sub_domain,
                     sub,
@@ -407,13 +409,21 @@ def catalog_id(domain: str, platform: Any) -> str:
 def iter_subentities(
     domain: str,
     instance: dict,
+    parent_id: str,
 ) -> Iterator[tuple[str, dict, str, str]]:
-    """Yield ``(platform_type, sub_instance, sub_id, sub_key)`` for ided sub-blocks."""
+    """
+    Yield ``(platform_type, sub_instance, sub_id, sub_key)`` per configured sub-block.
+
+    An id-less sub-block gets the synthetic ``<parent_id>_<sub_key>`` id; the
+    writer locates it by parent + sub-key, so it round-trips without a
+    declared ``id:``.
+    """
     cat_id = catalog_id(domain, instance.get("platform"))
     for sub_key, sub_domain in platform_subentity_keys(cat_id):
         sub = instance.get(sub_key)
-        if isinstance(sub, dict) and sub.get("id") is not None:
-            yield sub_domain, sub, str(sub["id"]), sub_key
+        if isinstance(sub, dict):
+            sub_id = str(sub["id"]) if sub.get("id") is not None else f"{parent_id}_{sub_key}"
+            yield sub_domain, sub, sub_id, sub_key
 
 
 def _parse_inline_component_triggers(root: Any) -> list[ParsedAutomation]:
