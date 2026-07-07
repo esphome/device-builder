@@ -67,9 +67,9 @@ async def record_pair_request(
     * ``APPROVED`` (auto) — ``state.auto_approve_first_pair``
       armed inside an open window with zero APPROVED rows
       (the ``--remote-build-only`` first-pair bootstrap) and
-      *psk* matches ``state.bootstrap_psk``: the row lands
-      directly in ``approved_peers``, is flushed to disk
-      before the wire response, and the one-shot flag
+      *pairing_key* matches ``state.bootstrap_pairing_key``:
+      the row lands directly in ``approved_peers``, is flushed
+      to disk before the wire response, and the one-shot flag
       disarms.
     * ``REJECTED`` — APPROVED row exists but pin doesn't
       match: offloader rotated identity, or someone is
@@ -252,10 +252,11 @@ async def _auto_approve_or_refuse(
     """
     First-pair window is armed: auto-approve the request, or refuse it.
 
-    Requires *psk* to match ``state.bootstrap_psk`` (fail closed when
-    no key is armed) and honours ``--allow-pairing-source``. Refusals
-    never disarm and return the same ``NO_PAIRING_WINDOW`` a closed
-    window does, leaking nothing about which gate fired.
+    Requires *pairing_key* to match ``state.bootstrap_pairing_key``
+    (fail closed when no key is armed) and honours
+    ``--allow-pairing-source``. Refusals never disarm and return the
+    same ``NO_PAIRING_WINDOW`` a closed window does, leaking nothing
+    about which gate fired.
     """
     expected_key = controller.state.bootstrap_pairing_key
     if expected_key is None or not pairing_key_matches(expected_key, pairing_key):

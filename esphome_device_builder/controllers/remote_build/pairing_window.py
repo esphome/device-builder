@@ -19,9 +19,17 @@ if TYPE_CHECKING:
     from .receiver import ReceiverController
 
 
-# Pairing-window lifetime. Auto-closes after this much idle;
+# UI pairing-window lifetime. Auto-closes after this much idle;
 # the frontend extends on each activity tick.
 PAIRING_WINDOW_DURATION_SECONDS = 300.0
+
+# ``--remote-build-only`` first-pair bootstrap window. Longer than the
+# UI window because pairing is gated on the console-printed key (the
+# tight-window race pressure is gone), so the operator gets time to
+# bring up the main builder and transcribe the key. The UI "Pairing
+# requests" window keeps the shorter default — it's admin-Accept-gated,
+# not auto-approve, so it doesn't need widening.
+BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS = 900.0
 
 
 async def set_pairing_window(
@@ -29,6 +37,7 @@ async def set_pairing_window(
     *,
     open: bool,  # noqa: A002 — wire format names this field "open"
     client: Hashable,
+    duration_seconds: float | None = None,
 ) -> PairingWindowState:
     """
     Open, extend, or close the pairing window for the calling client.
@@ -36,7 +45,7 @@ async def set_pairing_window(
     Refcounted per WS client: ``open=true`` adds/refreshes
     the caller's entry, ``open=false`` removes it. Window is
     open iff any client has a non-stale entry. Crashed tabs
-    age out via the 5min idle timeout; a graceful close from
+    age out via the idle timeout; a graceful close from
     one tab leaves the window open for others.
 
     ``client`` is the WS connection injected by the
@@ -44,16 +53,27 @@ async def set_pairing_window(
     distinct entries. Required kwarg (a default would
     silently bucket every caller under the same key).
 
+    ``duration_seconds`` sets this entry's auto-close lifetime
+    (defaults to :data:`PAIRING_WINDOW_DURATION_SECONDS`, read at
+    call time so tests can monkeypatch it); the headless bootstrap
+    passes the longer :data:`BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS`.
+    Not forwarded by the WS command, so a client can't widen its own
+    window.
+
     Fires :attr:`EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED`
     only on real state transitions; idempotent calls don't.
     """
     if not isinstance(open, bool):
         msg = "remote_build/set_pairing_window: 'open' must be a bool"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if duration_seconds is None:
+        duration_seconds = PAIRING_WINDOW_DURATION_SECONDS
 
     was_open = is_pairing_window_open(controller)
     if open:
-        controller.state.pairing_window_clients[client] = time.monotonic()
+        # Store the absolute deadline so a per-entry lifetime rides
+        # with each client without a companion duration map.
+        controller.state.pairing_window_clients[client] = time.monotonic() + duration_seconds
     else:
         controller.state.pairing_window_clients.pop(client, None)
     _reschedule_pairing_window_close(controller)
@@ -89,12 +109,12 @@ def clear_pending_peers_on_window_close(controller: ReceiverController) -> None:
 
 
 def _pairing_window_remaining(controller: ReceiverController) -> float | None:
-    """Seconds until the latest-extend deadline, or ``None`` if closed."""
+    """Seconds until the latest client's deadline, or ``None`` if closed."""
     _prune_stale_pairing_window_clients(controller)
     if not controller.state.pairing_window_clients:
         return None
-    latest_extend = max(controller.state.pairing_window_clients.values())
-    return max(0.0, latest_extend + PAIRING_WINDOW_DURATION_SECONDS - time.monotonic())
+    latest_deadline = max(controller.state.pairing_window_clients.values())
+    return max(0.0, latest_deadline - time.monotonic())
 
 
 def _pairing_window_state(controller: ReceiverController) -> PairingWindowState:
@@ -116,14 +136,14 @@ def _fire_pairing_window_changed(controller: ReceiverController) -> None:
 
 
 def _prune_stale_pairing_window_clients(controller: ReceiverController) -> None:
-    """Drop client entries whose last-extend timestamp aged out."""
+    """Drop client entries whose deadline has passed."""
     if not controller.state.pairing_window_clients:
         return
-    cutoff = time.monotonic() - PAIRING_WINDOW_DURATION_SECONDS
+    now = time.monotonic()
     controller.state.pairing_window_clients = {
-        client: extended_at
-        for client, extended_at in controller.state.pairing_window_clients.items()
-        if extended_at >= cutoff
+        client: deadline
+        for client, deadline in controller.state.pairing_window_clients.items()
+        if deadline >= now
     }
 
 

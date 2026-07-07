@@ -9,7 +9,10 @@ from typing import TYPE_CHECKING
 
 from aiohttp.web import GracefulExit
 
-from .controllers.remote_build.pairing_window import PAIRING_WINDOW_DURATION_SECONDS
+from .controllers.remote_build.pairing_window import (
+    BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS,
+    set_pairing_window,
+)
 from .helpers.pairing_key import generate_pairing_key
 from .helpers.pin_emoji import pin_emoji, pin_emoji_names
 from .models import EventType
@@ -127,7 +130,12 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
             db.bus.listening([EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED], _on_pair_status),
             db.bus.listening([EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED], _on_window_changed),
         ):
-            await receiver.set_pairing_window(open=True, client=_BOOTSTRAP_WINDOW_CLIENT)
+            await set_pairing_window(
+                receiver,
+                open=True,
+                client=_BOOTSTRAP_WINDOW_CLIENT,
+                duration_seconds=BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS,
+            )
             identity = await db.peer_link_identity_store.async_load()
             _log_pairing_banner(
                 identity, db.settings.allow_pairing_sources, receiver.state.bootstrap_pairing_key
@@ -142,10 +150,10 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
         _LOGGER.error(
             "No pairing request arrived within %d minutes; exiting. Re-run to "
             "open a fresh pairing window.",
-            int(PAIRING_WINDOW_DURATION_SECONDS // 60),
+            int(BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS // 60),
         )
         return False
-    await receiver.set_pairing_window(open=False, client=_BOOTSTRAP_WINDOW_CLIENT)
+    await set_pairing_window(receiver, open=False, client=_BOOTSTRAP_WINDOW_CLIENT)
     peer = next(iter(receiver.state.approved_peers.values()))
     _LOGGER.info("Paired with %r — remote-build server is now in service", peer.label)
     return True
@@ -184,7 +192,7 @@ def _log_pairing_banner(
         " This process exits if nothing pairs before the window lapses.\n"
         "%s",
         banner,
-        int(PAIRING_WINDOW_DURATION_SECONDS // 60),
+        int(BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS // 60),
         pin_emoji(identity.pin_sha256),
         pin_emoji_names(identity.pin_sha256),
         identity.pin_sha256_formatted,

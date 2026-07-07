@@ -28,9 +28,6 @@ from esphome_device_builder.controllers.config import (
     remote_build_settings_transaction,
 )
 from esphome_device_builder.controllers.config.settings import normalize_pairing_sources
-from esphome_device_builder.controllers.remote_build import (
-    pairing_window as rb_pairing_window,
-)
 from esphome_device_builder.controllers.remote_build._storage_codecs import (
     RECEIVER_PEERS_FILE,
 )
@@ -353,6 +350,7 @@ async def test_bootstrap_first_pair_success(
     assert identity.pin_sha256_formatted in banner
     assert key in banner
     assert "one-time pairing key" in banner
+    assert "window open for 15 minutes" in banner
     # No allowlist: any source may try, the key is the gate.
     assert "Any source may attempt to pair" in banner
     assert any("Paired with 'Main builder'" in r.getMessage() for r in caplog.records)
@@ -400,7 +398,7 @@ async def test_bootstrap_first_pair_window_lapse(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An unpaired window lapse returns False and disarms the flag."""
-    monkeypatch.setattr(rb_pairing_window, "PAIRING_WINDOW_DURATION_SECONDS", 0.05)
+    monkeypatch.setattr(rbo, "BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS", 0.05)
     db = _make_fake_db(tmp_path)
     receiver = db.remote_build_receiver
     assert receiver is not None
@@ -451,7 +449,7 @@ async def test_serve_returns_1_when_bootstrap_lapses(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A lapsed first-pair window makes serve report the not-serving exit code."""
-    monkeypatch.setattr(rb_pairing_window, "PAIRING_WINDOW_DURATION_SECONDS", 0.05)
+    monkeypatch.setattr(rbo, "BOOTSTRAP_PAIRING_WINDOW_DURATION_SECONDS", 0.05)
     db = _make_fake_db(tmp_path)
     assert await rbo._serve(db) == 1  # type: ignore[arg-type]
 

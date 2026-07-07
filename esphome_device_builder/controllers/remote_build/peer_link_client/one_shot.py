@@ -207,6 +207,17 @@ async def drive_initiator_round_trip(
                 read_timeout_seconds=timeout_seconds,
                 expected_pin_sha256=expected_pin_sha256,
             )
+    except PeerLinkPinMismatchError as exc:
+        # Security-relevant: the responder's key didn't match the previewed
+        # pin, so we aborted before sending msg3 (and any pairing key).
+        # Log loudly — receiver identity rotated, or an active MITM.
+        _LOGGER.warning(
+            "%s aborted: responder pin %s does not match the previewed pin; "
+            "msg3 (and any pairing key) was not sent",
+            label,
+            exc.observed_pin_sha256,
+        )
+        raise
     except (TimeoutError, aiohttp.ClientError, OSError, ValueError, TypeError) as exc:
         msg = f"{label} failed: {exc}"
         _LOGGER.debug(msg, exc_info=True)
