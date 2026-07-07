@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from ...helpers.event_bus import Event
+from ...helpers.pairing_psk import pairing_psk_matches
 from ...models import (
     EventType,
     IntentResponse,
@@ -48,6 +49,7 @@ async def record_pair_request(
     static_x25519_pub: bytes,
     label: str,
     peer_ip: str,
+    psk: str | None = None,
 ) -> IntentOutcome:
     """
     Process an ``intent="pair_request"`` Noise session.
@@ -64,10 +66,11 @@ async def record_pair_request(
       so the receiver UI surfaces the inbox row.
     * ``APPROVED`` (auto) — ``state.auto_approve_first_pair``
       armed inside an open window with zero APPROVED rows
-      (the ``--remote-build-only`` first-pair bootstrap):
-      the row lands directly in ``approved_peers``, is
-      flushed to disk before the wire response, and the
-      one-shot flag disarms.
+      (the ``--remote-build-only`` first-pair bootstrap) and
+      *psk* matches ``state.bootstrap_psk``: the row lands
+      directly in ``approved_peers``, is flushed to disk
+      before the wire response, and the one-shot flag
+      disarms.
     * ``REJECTED`` — APPROVED row exists but pin doesn't
       match: offloader rotated identity, or someone is
       claiming a stranger's ``dashboard_id``. Refused
@@ -104,6 +107,7 @@ async def record_pair_request(
             static_x25519_pub=static_x25519_pub,
             label=label,
             peer_ip=peer_ip,
+            psk=psk,
         )
 
     # Refuse to overwrite a PENDING entry's pubkey — defense
@@ -243,16 +247,25 @@ async def _auto_approve_or_refuse(
     static_x25519_pub: bytes,
     label: str,
     peer_ip: str,
+    psk: str | None,
 ) -> IntentOutcome:
     """
-    First-pair window is armed: auto-approve *peer_ip*, or refuse it.
+    First-pair window is armed: auto-approve the request, or refuse it.
 
-    Honours ``--allow-pairing-source``. A source that isn't on the
-    allowlist is refused WITHOUT disarming — the window stays armed so
-    the intended builder can still pair — and gets the same
-    ``NO_PAIRING_WINDOW`` a closed window returns, leaking nothing
-    about the filter.
+    Requires *psk* to match ``state.bootstrap_psk`` (fail closed when
+    no key is armed) and honours ``--allow-pairing-source``. Refusals
+    never disarm and return the same ``NO_PAIRING_WINDOW`` a closed
+    window does, leaking nothing about which gate fired.
     """
+    expected_psk = controller.state.bootstrap_psk
+    if expected_psk is None or not pairing_psk_matches(expected_psk, psk):
+        _LOGGER.warning(
+            "Refused auto-pair from %s (dashboard_id=%s): pairing key %s",
+            peer_ip,
+            dashboard_id,
+            "missing" if not psk else "mismatch",
+        )
+        return IntentOutcome(IntentResponse.NO_PAIRING_WINDOW)
     if _pairing_source_allowed(controller, peer_ip):
         return await _auto_approve_pair_request(
             controller,
@@ -303,8 +316,8 @@ async def _auto_approve_pair_request(
     """
     First-pair bootstrap: approve the request without the inbox dance.
 
-    Trust-on-first-use — a documented accepted risk (see
-    docs/THREAT_MODEL.md "Out of scope"). Disarms the one-shot flag
+    Caller has already verified the bootstrap pairing key (and the
+    source allowlist, when set). Disarms the one-shot flag
     *before* the store flush so a second request arriving during the
     await can't also auto-approve. The flush is awaited (not
     debounced) — this write is the mode's single trust-establishing

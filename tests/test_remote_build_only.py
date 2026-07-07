@@ -44,10 +44,17 @@ from .conftest import RemoteBuildTestHandles as RemoteBuildController
 
 _RBO_LOGGER = "esphome_device_builder._remote_build_only"
 
+_PSK = "ABCD-EFGH-JKMN-PQRS"
+
 
 def _pubkey_and_pin(seed: bytes) -> tuple[bytes, str]:
     pubkey = seed * 32
     return pubkey, hashlib.sha256(pubkey).hexdigest()
+
+
+def _arm_bootstrap(controller: RemoteBuildController, *, psk: str | None = _PSK) -> None:
+    controller.receiver.state.auto_approve_first_pair = True
+    controller.receiver.state.bootstrap_psk = psk
 
 
 async def _send_pair_request(
@@ -57,6 +64,7 @@ async def _send_pair_request(
     seed: bytes = b"\xaa",
     label: str = "Main builder",
     peer_ip: str = "192.168.1.10",
+    psk: str | None = _PSK,
 ) -> Any:
     pubkey, pin = _pubkey_and_pin(seed)
     return await controller.receiver.record_pair_request(
@@ -65,6 +73,7 @@ async def _send_pair_request(
         static_x25519_pub=pubkey,
         label=label,
         peer_ip=peer_ip,
+        psk=psk,
     )
 
 
@@ -147,7 +156,7 @@ async def test_auto_approve_first_pair_approves_and_persists(tmp_path: Path) -> 
     controller = make_remote_build_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
     await controller.receiver.set_pairing_window(open=True, client="cli")
-    controller.receiver.state.auto_approve_first_pair = True
+    _arm_bootstrap(controller)
     controller.offloader._db.bus.fire.reset_mock()
 
     response = await _send_pair_request(controller)
@@ -200,7 +209,7 @@ async def test_auto_approve_is_one_shot(tmp_path: Path) -> None:
     controller = make_remote_build_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
     await controller.receiver.set_pairing_window(open=True, client="cli")
-    controller.receiver.state.auto_approve_first_pair = True
+    _arm_bootstrap(controller)
 
     first = await _send_pair_request(controller, dashboard_id="first", seed=b"\xaa")
     second = await _send_pair_request(controller, dashboard_id="second", seed=b"\xbb")
@@ -217,7 +226,7 @@ async def test_auto_approve_honours_source_allowlist(tmp_path: Path) -> None:
     controller.offloader._db.bus = MagicMock()
     controller.receiver._db.settings.allow_pairing_sources = ["192.168.1.50"]
     await controller.receiver.set_pairing_window(open=True, client="cli")
-    controller.receiver.state.auto_approve_first_pair = True
+    _arm_bootstrap(controller)
 
     # Wrong source: refused as a closed window, nothing approved, still armed.
     stranger = await _send_pair_request(
@@ -243,7 +252,7 @@ async def test_auto_approve_source_allowlist_normalises_ipv6(tmp_path: Path) -> 
     controller.offloader._db.bus = MagicMock()
     controller.receiver._db.settings.allow_pairing_sources = ["2001:db8::1"]
     await controller.receiver.set_pairing_window(open=True, client="cli")
-    controller.receiver.state.auto_approve_first_pair = True
+    _arm_bootstrap(controller)
 
     response = await _send_pair_request(
         controller, dashboard_id="main", peer_ip="2001:0db8:0000:0000:0000:0000:0000:0001"
@@ -257,11 +266,46 @@ async def test_auto_approve_source_allowlist_rejects_unparseable_peer_ip(tmp_pat
     controller.offloader._db.bus = MagicMock()
     controller.receiver._db.settings.allow_pairing_sources = ["192.168.1.50"]
     await controller.receiver.set_pairing_window(open=True, client="cli")
-    controller.receiver.state.auto_approve_first_pair = True
+    _arm_bootstrap(controller)
 
     response = await _send_pair_request(controller, dashboard_id="main", peer_ip="")
     assert response.response == "no_pairing_window"
     assert controller.receiver.state.approved_peers == {}
+
+
+async def test_auto_approve_requires_matching_psk(tmp_path: Path) -> None:
+    """A wrong key is refused as a closed window without disarming; a retry works."""
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    await controller.receiver.set_pairing_window(open=True, client="cli")
+    _arm_bootstrap(controller)
+
+    wrong = await _send_pair_request(controller, psk="WRNG-WRNG-WRNG-WRNG")
+    assert wrong.response == "no_pairing_window"
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.auto_approve_first_pair
+
+    missing = await _send_pair_request(controller, psk=None)
+    assert missing.response == "no_pairing_window"
+    assert controller.receiver.state.auto_approve_first_pair
+
+    # Loose retyping matches: case, separators, and whitespace are ignored.
+    ok = await _send_pair_request(controller, psk=" abcd efgh jkmn pqrs ")
+    assert ok.response == "approved"
+    assert not controller.receiver.state.auto_approve_first_pair
+
+
+async def test_auto_approve_fails_closed_when_armed_without_psk(tmp_path: Path) -> None:
+    """An armed flag with no key refuses every request."""
+    controller = make_remote_build_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    await controller.receiver.set_pairing_window(open=True, client="cli")
+    _arm_bootstrap(controller, psk=None)
+
+    response = await _send_pair_request(controller)
+    assert response.response == "no_pairing_window"
+    assert controller.receiver.state.approved_peers == {}
+    assert controller.receiver.state.auto_approve_first_pair
 
 
 # ---------------------------------------------------------------------------
@@ -281,13 +325,16 @@ async def test_bootstrap_first_pair_success(
         bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
         await _wait_until(receiver.is_pairing_window_open)
         assert receiver.state.auto_approve_first_pair
+        psk = receiver.state.bootstrap_psk
+        assert psk is not None
 
-        response = await _send_pair_request(RemoteBuildController(MagicMock(), receiver))
+        response = await _send_pair_request(RemoteBuildController(MagicMock(), receiver), psk=psk)
         assert response.response == "approved"
         assert await asyncio.wait_for(bootstrap, timeout=2.0) is True
 
     assert not receiver.is_pairing_window_open()
     assert not receiver.state.auto_approve_first_pair
+    assert receiver.state.bootstrap_psk is None
     identity = await db.peer_link_identity_store.async_load()
     banner = next(
         r.getMessage() for r in caplog.records if "REMOTE BUILD PAIRING" in r.getMessage()
@@ -295,10 +342,10 @@ async def test_bootstrap_first_pair_success(
     assert pin_emoji(identity.pin_sha256) in banner
     assert pin_emoji_names(identity.pin_sha256) in banner
     assert identity.pin_sha256_formatted in banner
-    # No allowlist = the operator chose --allow-any-pairing-source; the
-    # banner names that explicit any-source posture.
-    assert "--allow-any-pairing-source" in banner
-    assert "ANY source" in banner
+    assert psk in banner
+    assert "one-time pairing key" in banner
+    # No allowlist: any source may try, the key is the gate.
+    assert "Any source may attempt to pair" in banner
     assert any("Paired with 'Main builder'" in r.getMessage() for r in caplog.records)
 
 
@@ -314,18 +361,21 @@ async def test_bootstrap_first_pair_with_source_allowlist(
     with caplog.at_level("INFO", logger=_RBO_LOGGER):
         bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
         await _wait_until(receiver.is_pairing_window_open)
+        psk = receiver.state.bootstrap_psk
+        assert psk is not None
 
         # A stranger is refused; the window stays armed.
         refused = await _send_pair_request(
             RemoteBuildController(MagicMock(), receiver),
             dashboard_id="stranger",
             peer_ip="10.0.0.9",
+            psk=psk,
         )
         assert refused.response == "no_pairing_window"
         assert not bootstrap.done()
 
         # The allowlisted builder pairs.
-        ok = await _send_pair_request(RemoteBuildController(MagicMock(), receiver))
+        ok = await _send_pair_request(RemoteBuildController(MagicMock(), receiver), psk=psk)
         assert ok.response == "approved"
         assert await asyncio.wait_for(bootstrap, timeout=2.0) is True
 
@@ -350,6 +400,7 @@ async def test_bootstrap_first_pair_window_lapse(
         assert await rbo._bootstrap_first_pair(db, receiver) is False
 
     assert not receiver.state.auto_approve_first_pair
+    assert receiver.state.bootstrap_psk is None
     assert receiver.state.approved_peers == {}
     assert any("No pairing request arrived" in r.getMessage() for r in caplog.records)
 
@@ -374,7 +425,9 @@ async def test_serve_parks_after_bootstrap_pair(tmp_path: Path) -> None:
     serve = asyncio.create_task(rbo._serve(db))  # type: ignore[arg-type]
 
     await _wait_until(receiver.is_pairing_window_open)
-    await _send_pair_request(RemoteBuildController(MagicMock(), receiver))
+    await _send_pair_request(
+        RemoteBuildController(MagicMock(), receiver), psk=receiver.state.bootstrap_psk
+    )
     await _wait_until(lambda: not receiver.is_pairing_window_open())
     await asyncio.sleep(0.05)
 
@@ -631,16 +684,17 @@ def test_validate_mode_flags_accepts_valid_allowlist() -> None:
     main_module._validate_mode_flags(parser, args)  # does not raise
 
 
-def test_main_requires_pairing_source_choice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """--remote-build-only with neither pairing-source flag is refused."""
-    monkeypatch.setattr(
-        sys, "argv", ["esphome-device-builder", str(tmp_path), "--remote-build-only"]
+def test_validate_mode_flags_accepts_no_pairing_source_choice() -> None:
+    """--remote-build-only alone is valid; the pairing key gates the window."""
+    parser = argparse.ArgumentParser()
+    args = SimpleNamespace(
+        remote_build_only=True,
+        ha_addon=False,
+        configuration="/var/lib/esphome-builder",
+        allow_pairing_source="",
+        allow_any_pairing_source=False,
     )
-    with pytest.raises(SystemExit) as excinfo:
-        main_module.main()
-    assert excinfo.value.code == 2
+    main_module._validate_mode_flags(parser, args)  # does not raise
 
 
 def test_main_rejects_both_pairing_source_flags(

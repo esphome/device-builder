@@ -51,6 +51,19 @@ class PeerLinkClientError(RuntimeError):
     """
 
 
+class PeerLinkPinMismatchError(PeerLinkClientError):
+    """
+    The responder's static key didn't hash to the pinned pin.
+
+    Raised after msg2, before the msg3 payload (which may carry a
+    secret) is written.
+    """
+
+    def __init__(self, observed_pin_sha256: str) -> None:
+        super().__init__(f"responder pin mismatch (observed {observed_pin_sha256})")
+        self.observed_pin_sha256 = observed_pin_sha256
+
+
 @dataclass(frozen=True)
 class InitiatorRoundTrip:
     """One offloader-side Noise XX round-trip's outputs.

@@ -45,10 +45,11 @@ from ._validators import (
     validate_bool,
     validate_hostname,
     validate_pair_label,
+    validate_pairing_psk,
     validate_pin_sha256,
     validate_port,
 )
-from .peer_link_client import PeerLinkClientError
+from .peer_link_client import PeerLinkClientError, PeerLinkPinMismatchError
 from .peer_link_client import preview_pair as peer_link_preview_pair
 from .peer_link_client import request_pair as peer_link_request_pair
 
@@ -127,14 +128,15 @@ async def request_pair(
     pin_sha256: str,
     receiver_label: str,
     offloader_label: str,
+    psk: str | None = None,
 ) -> PairingSummary:
     """
     Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
 
-    Sends ``{"label": offloader_label, "dashboard_id":
-    <ours>}`` in the encrypted msg3; the receiver's response
-    decides what state the local :class:`StoredPairing` row
-    lands in.
+    Sends ``{"label": offloader_label, "dashboard_id": <ours>}``
+    — plus ``psk`` when supplied — in the encrypted msg3; the
+    receiver's response decides what state the local
+    :class:`StoredPairing` row lands in.
 
     Two labels: *receiver_label* is the offloader-side
     display name (stored locally, never sent); *offloader_label*
@@ -143,8 +145,8 @@ async def request_pair(
     name.
 
     TOCTOU defense: the *pin_sha256* arg is compared against
-    the receiver's actual pubkey from the live handshake; a
-    mismatch (rotation or MITM) returns
+    the receiver's actual pubkey mid-handshake, before msg3 (and
+    any ``psk`` in it) is written; a mismatch returns
     ``PRECONDITION_FAILED`` and persists nothing.
 
     Only APPROVED rows reach disk. PENDING lives in-memory
@@ -158,6 +160,7 @@ async def request_pair(
     clean_offloader_label = validate_pair_label(
         offloader_label, field=PairLabelField.OFFLOADER_LABEL
     )
+    clean_psk = validate_pairing_psk(psk)
     peer_link_identity, dashboard_identity = await controller._load_offloader_identities_async()
 
     try:
@@ -168,7 +171,12 @@ async def request_pair(
             label=clean_offloader_label,
             dashboard_id=dashboard_identity.dashboard_id,
             resolver=controller.state.peer_link_resolver,
+            psk=clean_psk,
+            expected_pin_sha256=clean_pin,
         )
+    except PeerLinkPinMismatchError as exc:
+        enforce_pin_match(expected=clean_pin, observed=exc.observed_pin_sha256)
+        raise  # pragma: no cover — enforce_pin_match always raises on mismatch
     except PeerLinkClientError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
 

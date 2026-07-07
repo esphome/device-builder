@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from aiohttp.web import GracefulExit
 
 from .controllers.remote_build.pairing_window import PAIRING_WINDOW_DURATION_SECONDS
+from .helpers.pairing_psk import generate_pairing_psk
 from .helpers.pin_emoji import pin_emoji, pin_emoji_names
 from .models import EventType
 
@@ -104,8 +105,12 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     closed behind it — exactly one pairing); ``False`` when the
     window lapses unpaired. The 5-minute lifetime is the pairing
     window's own idle deadline — the bootstrap client never extends it.
+
+    Pairing requires the banner-printed key; ``bootstrap_psk`` arms
+    and clears together with ``auto_approve_first_pair``.
     """
     receiver.state.auto_approve_first_pair = True
+    receiver.state.bootstrap_psk = generate_pairing_psk()
     paired = asyncio.Event()
     window_closed = asyncio.Event()
 
@@ -123,9 +128,12 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     ):
         await receiver.set_pairing_window(open=True, client=_BOOTSTRAP_WINDOW_CLIENT)
         identity = await db.peer_link_identity_store.async_load()
-        _log_pairing_banner(identity, db.settings.allow_pairing_sources)
+        _log_pairing_banner(
+            identity, db.settings.allow_pairing_sources, receiver.state.bootstrap_psk
+        )
         await _wait_first(paired, window_closed)
     receiver.state.auto_approve_first_pair = False
+    receiver.state.bootstrap_psk = None
     if not paired.is_set():
         _LOGGER.error(
             "No pairing request arrived within %d minutes; exiting. Re-run to "
@@ -139,16 +147,18 @@ async def _bootstrap_first_pair(db: DeviceBuilder, receiver: ReceiverController)
     return True
 
 
-def _log_pairing_banner(identity: PeerLinkIdentity, allow_pairing_sources: list[str]) -> None:
-    """Print the fingerprint the operator verifies on the main builder's pair dialog."""
+def _log_pairing_banner(
+    identity: PeerLinkIdentity, allow_pairing_sources: list[str], psk: str | None
+) -> None:
+    """Print the fingerprint + one-shot pairing key the operator uses in the pair dialog."""
     banner = "=" * 70
     if allow_pairing_sources:
         source_line = f" Only auto-approving a request from: {', '.join(allow_pairing_sources)}\n"
     else:
         source_line = (
-            " Accepting the first pairing request from ANY source\n"
-            " (--allow-any-pairing-source). Anyone on this LAN who pairs\n"
-            " before your builder does wins — watch this console.\n"
+            " Any source may attempt to pair; the pairing key above is\n"
+            " required to succeed (add --allow-pairing-source <IP> to also\n"
+            " restrict the source address).\n"
         )
     _LOGGER.info(
         "\n%s\n"
@@ -160,6 +170,11 @@ def _log_pairing_banner(identity: PeerLinkIdentity, allow_pairing_sources: list[
         "   (%s)\n"
         "   %s\n"
         "\n"
+        " In the pair dialog expand 'Pairing a headless build server?'\n"
+        " and enter this one-time pairing key:\n"
+        "\n"
+        "   %s\n"
+        "\n"
         "%s"
         " The window closes on the first pairing (exactly one pairing).\n"
         " This process exits if nothing pairs before the window lapses.\n"
@@ -169,6 +184,7 @@ def _log_pairing_banner(identity: PeerLinkIdentity, allow_pairing_sources: list[
         pin_emoji(identity.pin_sha256),
         pin_emoji_names(identity.pin_sha256),
         identity.pin_sha256_formatted,
+        psk,
         source_line,
         banner,
     )

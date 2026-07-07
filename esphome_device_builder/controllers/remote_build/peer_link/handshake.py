@@ -68,6 +68,7 @@ class _DispatchInput:
     pin_sha256: str
     static_x25519_pub: bytes
     peer_ip: str
+    psk: str | None = None
 
 
 async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are the handshake's natural failure cliffs
@@ -125,6 +126,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     pin = pin_sha256_for_pubkey(remote_static_pub)
     dashboard_id = _str_or_empty(msg3.get("dashboard_id"))
     label = _normalize_label(msg3.get("label"))
+    psk = _str_or_empty(msg3.get("psk")) or None
 
     outcome = await _dispatch_intent(
         controller,
@@ -135,6 +137,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             pin_sha256=pin,
             static_x25519_pub=remote_static_pub,
             peer_ip=peer_ip,
+            psk=psk,
         ),
     )
     # Log the decision, not the bare handshake; "ok" here used to
@@ -215,6 +218,7 @@ async def _dispatch_intent(
             static_x25519_pub=inp.static_x25519_pub,
             label=inp.label,
             peer_ip=inp.peer_ip,
+            psk=inp.psk,
         )
     if inp.intent is PeerLinkIntent.PEER_LINK:
         return await controller.lookup_peer_for_session(

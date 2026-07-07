@@ -276,13 +276,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "served, only the peer-link receiver listener (remote-build is "
             "force-enabled regardless of persisted Settings). On first run "
             "(no paired dashboard yet) a 5-minute pairing window opens and "
-            "the fingerprint to verify is printed to the console; the first "
-            "pairing request is approved automatically and the window "
-            "closes — exactly one pairing is allowed. Exits with status 1 "
-            "if nothing pairs before the window lapses. Requires an "
-            "explicit configuration directory and a pairing-source choice "
-            "(--allow-pairing-source <IP> or --allow-any-pairing-source); "
-            "not compatible with --ha-addon"
+            "the fingerprint plus a one-time pairing key are printed to "
+            "the console; the first pairing request presenting that key is "
+            "approved automatically and the window closes — exactly one "
+            "pairing is allowed. Exits with status 1 if nothing pairs "
+            "before the window lapses. Requires an explicit configuration "
+            "directory; not compatible with --ha-addon"
         ),
     )
     parser.add_argument(
@@ -290,11 +289,10 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default="",
         help=(
             "Comma-separated source IP allowlist for the "
-            "--remote-build-only first-pair window. When set, only a "
+            "--remote-build-only first-pair window; optional defense in "
+            "depth on top of the printed pairing key. When set, only a "
             "pairing request from one of these addresses is "
-            "auto-approved — closes the window against any other LAN "
-            "peer that times it. Requires --remote-build-only; you must "
-            "know the main builder's address in advance. Mutually "
+            "auto-approved. Requires --remote-build-only; mutually "
             "exclusive with --allow-any-pairing-source"
         ),
     )
@@ -302,11 +300,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--allow-any-pairing-source",
         action="store_true",
         help=(
-            "Explicitly accept the --remote-build-only first pairing "
-            "from ANY source (trust-on-first-use). Required when "
-            "--remote-build-only is used without --allow-pairing-source, "
-            "so opening the window to any LAN peer is always a conscious "
-            "choice rather than a silent default"
+            "Accept the --remote-build-only first pairing from any "
+            "source address. This is already the default now that the "
+            "printed pairing key gates the window; the flag is kept for "
+            "compatibility with pre-key deployments. Mutually exclusive "
+            "with --allow-pairing-source"
         ),
     )
     parser.add_argument(
@@ -577,19 +575,13 @@ def _validate_pairing_source_flags(
     if not args.remote_build_only:
         return
 
-    # Force a conscious choice: either restrict the window to a known
-    # address, or explicitly opt into accepting any LAN peer. Never a
-    # silent trust-on-first-use default.
+    # The console-printed pairing key gates the first-pair window, so
+    # no source choice is required; --allow-pairing-source remains as
+    # optional defense in depth, --allow-any-pairing-source as a
+    # compatibility no-op restating the default.
     if raw_sources and allow_any:
         parser.error(
             "pass either --allow-pairing-source <IP> or --allow-any-pairing-source, not both."
-        )
-    if not raw_sources and not allow_any:
-        parser.error(
-            "--remote-build-only requires a pairing-source choice: pass "
-            "--allow-pairing-source <IP> to restrict the first-pair window "
-            "to a known address, or --allow-any-pairing-source to accept the "
-            "first pairing from any LAN peer (trust-on-first-use)."
         )
     for entry in raw_sources.split(","):
         candidate = entry.strip()

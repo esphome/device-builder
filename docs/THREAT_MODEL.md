@@ -147,33 +147,33 @@ These are explicitly *not* threats the dashboard defends against:
   authenticated client.** They can already crash their own
   dashboard; reliability is a quality bar, not a security
   boundary.
-- **A LAN attacker winning the `--remote-build-only` first-pair
-  window.** The headless build server's bootstrap auto-approves the
-  first `pair_request` that arrives inside its operator-initiated,
-  single-use, 5-minute pairing window — Bluetooth-style
-  trust-on-first-use, and only when the operator explicitly chose
-  `--allow-any-pairing-source` (the mode refuses to start without
-  either that flag or `--allow-pairing-source`, so this posture is
-  never a silent default). An attacker who races the window can become
-  the server's one approved peer without OOB confirmation; that
-  peer can then submit build jobs (arbitrary code execution on the
-  build server, as any approved peer has). Accepted because the
-  exposure is narrow and the failure is loud: the window exists
-  only in the moments after the operator deliberately started the
-  process (they are watching the console), it closes permanently on
-  the first pairing, the legitimate operator's own pair attempt
-  then fails with a pin mismatch — so a hijacked window is
-  *detected*, not silent — the auto-approved peer's label, IP, and
-  pin are logged at INFO, and recovery is deleting
-  `.receiver_peers.json` and re-running. An operator who knows the
-  main builder's address closes the vector entirely with
-  `--allow-pairing-source <IP>` — the bootstrap then auto-approves
-  only a request from that address and refuses every other LAN peer
-  (as a closed window, leaking nothing). What we still defend: the
+- **A console reader taking the `--remote-build-only` first-pair
+  key.** The headless build server's bootstrap auto-approves the
+  first `pair_request` inside its operator-initiated, single-use,
+  5-minute pairing window **only when it presents the one-time
+  pairing key printed on the server console** (16 chars from a
+  30-char alphabet, ~2^78; compared constant-time after
+  normalisation). Racing the window is therefore no longer
+  sufficient: a wrong or missing key is refused *without*
+  disarming, indistinguishably from a closed window, so probing
+  leaks nothing and the legitimate builder can still pair. There
+  is deliberately no failure lockout — a lockout would let an
+  attacker deny the pairing with garbage keys, and the keyspace
+  makes brute force inside the window moot. On the wire the key
+  rides only in the encrypted Noise msg3, sent only after the
+  offloader has verified the receiver's static key against the
+  previewed fingerprint, so an active MITM never sees it. What
+  remains accepted: an attacker who can read the server's console
+  or journal can take the key — that is local-shell trust, out of
+  scope per the first bullet — and the key is worthless once the
+  window closes or the first pairing lands (never persisted,
+  never in argv or env). `--allow-pairing-source <IP>` composes
+  as optional defense in depth. What we still defend: the
   auto-approve is one-shot, never fires while an APPROVED peer
-  exists, honours the source allowlist when set, and no UI or WS
-  surface can re-open the window in this mode — a regression on any
-  of those *is* a security bug.
+  exists, requires the key match (failing closed when armed
+  without one), honours the source allowlist when set, and no UI
+  or WS surface can re-open the window in this mode — a
+  regression on any of those *is* a security bug.
 - **An operator who deliberately opened the front door.** On the HA
   add-on, enabling "Disable external authentication"
   (`leave_front_door_open`) *and* mapping port 6052 binds the public

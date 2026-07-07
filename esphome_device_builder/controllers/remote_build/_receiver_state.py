@@ -31,17 +31,16 @@ class ReceiverState:
 
     # Armed by ``--remote-build-only`` first-pair bootstrap: while
     # True (and zero peers are APPROVED), the next ``pair_request``
-    # inside the open window is approved without the inbox dance.
-    # One-shot — ``record_pair_request`` disarms it on use.
-    # Trust-on-first-use by default: an attacker racing the window can
-    # win the pairing (documented accepted risk — see
-    # docs/THREAT_MODEL.md "Out of scope"). An operator who knows the
-    # builder's address closes that vector with
-    # ``--allow-pairing-source`` (``settings.allow_pairing_sources``),
-    # which ``pair_flow`` enforces before this flag is honoured. The
-    # one-shot disarm and the zero-APPROVED-rows guard are the
-    # load-bearing limits either way.
+    # inside the open window presenting ``bootstrap_psk`` is approved
+    # without the inbox dance. One-shot — ``record_pair_request``
+    # disarms it on use. A wrong/missing key or disallowed source is
+    # refused WITHOUT disarming, indistinguishably from a closed
+    # window (docs/THREAT_MODEL.md).
     auto_approve_first_pair: bool = False
+    # Pairing key printed in the bootstrap banner; armed and cleared
+    # with the flag above. ``pair_flow`` fails closed when the flag is
+    # armed without a key. Never persisted.
+    bootstrap_psk: str | None = None
 
     # PENDING StoredPeer rows keyed on ``dashboard_id``; never
     # persisted, cleared on window auto-close.
