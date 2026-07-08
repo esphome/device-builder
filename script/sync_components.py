@@ -1077,11 +1077,9 @@ def load_index(schema_dir: Path) -> SchemaIndex:
     Read every index in the bundle into one merged SchemaIndex.
 
     Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
-    ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set) —
-    without this a new upstream domain's ``<domain>.json`` is never
-    opened, and the gap self-perpetuates into the next shipped index.
-    A bundle with no ``core.platforms`` fails loud rather than silently
-    syncing against the stale shipped set.
+    ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
+    a bundle with no ``core.platforms`` fails loud, and a shipped
+    domain missing from the fresh bundle logs a warning.
     """
     global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
