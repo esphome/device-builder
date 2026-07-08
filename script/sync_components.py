@@ -141,21 +141,15 @@ from script._light_schemas import (  # noqa: E402
 )
 
 
+def _domains_from_ids(component_ids: Iterable[str]) -> frozenset[str]:
+    """Platform domains among *component_ids* — the ``<domain>.<stem>`` dotted-id prefixes."""
+    return frozenset(cid.split(".", 1)[0] for cid in component_ids if "." in cid)
+
+
 def _platform_domains_from_shipped_index() -> frozenset[str]:
-    """Platform domains present in the checked-in catalog (dotted-id prefixes)."""
+    """Platform domains present in the checked-in catalog."""
     payload = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
-    return frozenset(c["id"].split(".", 1)[0] for c in payload["components"] if "." in c["id"])
-
-
-def _derive_platform_domains(core: dict) -> frozenset[str]:
-    """
-    Authoritative platform domains: the schema bundle's ``core.platforms`` keys.
-
-    Upstream's schema generator fills ``core.platforms`` from exactly the
-    components marked ``IS_PLATFORM_COMPONENT = True``, so a new entity
-    domain lands here without any hand-maintained list.
-    """
-    return frozenset(core.get("platforms") or {})
+    return _domains_from_ids(c["id"] for c in payload["components"])
 
 
 def _require_component_categories(domains: frozenset[str]) -> None:
@@ -172,10 +166,8 @@ def _require_component_categories(domains: frozenset[str]) -> None:
 # Top-level platform domains in the schema. Components are keyed as
 # ``<id>.<domain>`` in the schema files — e.g. ``dht.sensor`` lives in
 # dht.json under the key ``dht.sensor``. Seeded from the shipped catalog
-# so importers (tests, sibling scripts) see the set without a schema
-# bundle; ``load_index`` refreshes it from the fresh bundle's
-# ``core.platforms`` so a new upstream domain joins the walk the same
-# sync it appears.
+# so importing the module needs no schema bundle; ``load_index``
+# refreshes it from the fresh bundle.
 _PLATFORM_DOMAINS: frozenset[str] = _platform_domains_from_shipped_index()
 
 # Top-level components whose ``CONFIG_SCHEMA`` is a ``cv.ensure_list`` (a list of
@@ -1085,9 +1077,11 @@ def load_index(schema_dir: Path) -> SchemaIndex:
     Read every index in the bundle into one merged SchemaIndex.
 
     Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
-    ``core.platforms`` — without this a new upstream domain's
-    ``<domain>.json`` is never opened, and the gap self-perpetuates
-    into the next shipped index.
+    ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set) —
+    without this a new upstream domain's ``<domain>.json`` is never
+    opened, and the gap self-perpetuates into the next shipped index.
+    A bundle with no ``core.platforms`` fails loud rather than silently
+    syncing against the stale shipped set.
     """
     global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
@@ -1099,12 +1093,18 @@ def load_index(schema_dir: Path) -> SchemaIndex:
         core = {}
     for cid, meta in (core.get("components") or {}).items():
         metadata[cid] = meta or {}
-    for pid, meta in (core.get("platforms") or {}).items():
+    platforms = core.get("platforms") or {}
+    for pid, meta in platforms.items():
         metadata[pid] = meta or {}
 
-    if fresh_domains := _derive_platform_domains(core):
-        _require_component_categories(fresh_domains)
-        _PLATFORM_DOMAINS = fresh_domains
+    if not platforms:
+        raise SystemExit(
+            f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
+            "empty); refusing to sync against the stale shipped domain set."
+        )
+    fresh_domains = frozenset(platforms)
+    _require_component_categories(fresh_domains)
+    _PLATFORM_DOMAINS = fresh_domains
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -6974,7 +6974,7 @@ def build_automations(  # noqa: C901
     # gates the action/condition id flip in :func:`_automation_id_prefix`.
     # Derived from the just-built component set, not ``_PLATFORM_DOMAINS``,
     # so the flip decision rests on the same evidence as ``_automation_domain``.
-    platform_domains = {cid.split(".", 1)[0] for cid in component_ids if "." in cid}
+    platform_domains = _domains_from_ids(component_ids)
 
     for path in iter_schema_files(schema_dir):
         try:

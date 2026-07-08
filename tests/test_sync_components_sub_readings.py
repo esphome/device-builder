@@ -11,12 +11,12 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _PLATFORM_DOMAINS,
     _apply_auto_loaded_reference_advanced,
     _convert_field,
-    _derive_platform_domains,
     _is_own_id_field,
     _mark_platform_domains_multi_conf,
     _multi_instance_targets,
     _require_component_categories,
     _resolve_auto_load,
+    load_index,
 )
 
 _UNUSED_SCHEMA_DIR = Path("/unused")
@@ -229,12 +229,8 @@ def test_platform_domains_have_component_categories() -> None:
     """Every platform domain needs a ``ComponentCategory`` member, else it loads as MISC."""
     # A domain in the set but missing from the enum is silently coerced to MISC at
     # load time, breaking the category filter — the exact bug #1832 fixed.
-    from esphome_device_builder.models.components import (  # noqa: PLC0415
-        ComponentCategory,
-    )
-
     assert _PLATFORM_DOMAINS
-    assert set(_PLATFORM_DOMAINS) <= {c.value for c in ComponentCategory}
+    _require_component_categories(_PLATFORM_DOMAINS)
 
 
 def test_platform_domains_exclude_camera() -> None:
@@ -244,18 +240,16 @@ def test_platform_domains_exclude_camera() -> None:
     assert "camera" not in _PLATFORM_DOMAINS
 
 
-def test_derive_platform_domains_reads_core_platforms() -> None:
-    """The derived set is exactly ``core.platforms``' keys."""
-    core = {"platforms": {"sensor": {}, "valve": {"docs": None}}, "components": {"wifi": {}}}
-    assert _derive_platform_domains(core) == frozenset({"sensor", "valve"})
-    assert _derive_platform_domains({}) == frozenset()
-
-
 def test_require_component_categories_fails_loud_on_unknown_domain() -> None:
     """A new upstream domain without an enum member kills the sync, naming it."""
-    _require_component_categories(_PLATFORM_DOMAINS)
     with pytest.raises(SystemExit, match="brand_new_domain"):
         _require_component_categories(frozenset({"sensor", "brand_new_domain"}))
+
+
+def test_load_index_refuses_bundle_without_platforms(tmp_path: Path) -> None:
+    """A bundle with no ``core.platforms`` fails loud instead of syncing the stale set."""
+    with pytest.raises(SystemExit, match=r"core\.platforms"):
+        load_index(tmp_path)
 
 
 def test_resolve_auto_load_handles_callable() -> None:

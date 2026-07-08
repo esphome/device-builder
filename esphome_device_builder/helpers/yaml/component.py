@@ -21,19 +21,16 @@ if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
 
 
-def _platform_domain(component_id: str) -> str | None:
+def _split_platform_id(component_id: str) -> tuple[str | None, str]:
     """
-    Domain prefix of a qualified ``<domain>.<platform>`` catalog id, else None.
+    Split a catalog id into ``(domain, stem)``; ``(None, id)`` when undotted.
 
-    A dotted id is the catalog's platform marker — those entries render as
-    ``<domain>: [- platform: ...]`` blocks. The id, not ``category``, is
-    the evidence: a domain whose ``ComponentCategory`` member lags upstream
-    loads as MISC, and a bare-id entry with an entity category (the
-    ``ota`` / ``time`` umbrellas) is the legacy bare-mapping form, not a
-    platform.
+    A dotted ``<domain>.<platform>`` id is the catalog's platform marker;
+    a bare-id entry (the ``ota`` / ``time`` umbrellas) is not a platform
+    even when it carries an entity category.
     """
-    domain, sep, _stem = component_id.partition(".")
-    return domain if sep else None
+    domain, sep, stem = component_id.partition(".")
+    return (domain, stem) if sep else (None, component_id)
 
 
 def merge_component_yaml(
@@ -62,7 +59,7 @@ def merge_component_yaml(
     block = generate_component_yaml(component, fields)
     if _redefines_existing_id(existing, block, fields.get("id")):
         return existing
-    domain = _platform_domain(component.id)
+    domain, _ = _split_platform_id(component.id)
     if domain is not None:
         spliced = _splice_into_domain_block(existing, domain, block)
         if spliced is not None:
@@ -107,13 +104,11 @@ def generate_component_yaml(  # noqa: C901
     _coerce_string_map_values(component, fields)
     comp_id = component.id
 
-    domain = _platform_domain(comp_id)
-
     # Catalog ids are qualified as ``<domain>.<platform>`` (e.g.
     # ``output.gpio``, ``light.binary``) so distinct platforms can
     # share a stem across categories. ESPHome YAML expects the bare
-    # platform stem under ``platform:``, so strip the qualifier.
-    unqualified = comp_id.split(".", 1)[1] if domain is not None else comp_id
+    # platform stem under ``platform:``.
+    domain, unqualified = _split_platform_id(comp_id)
 
     # Resolve the top-level id once. We only emit it when the caller
     # explicitly opted in by including ``id`` in fields; when they
