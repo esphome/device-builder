@@ -1104,6 +1104,13 @@ def load_index(schema_dir: Path) -> SchemaIndex:
         )
     fresh_domains = frozenset(platforms)
     _require_component_categories(fresh_domains)
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
     _PLATFORM_DOMAINS = fresh_domains
 
     # 2. Each <domain>.json — domain.components map. Key under both the

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -250,6 +251,20 @@ def test_load_index_refuses_bundle_without_platforms(tmp_path: Path) -> None:
     """A bundle with no ``core.platforms`` fails loud instead of syncing the stale set."""
     with pytest.raises(SystemExit, match=r"core\.platforms"):
         load_index(tmp_path)
+
+
+def test_load_index_warns_on_dropped_domain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A domain in the shipped set but gone from the fresh bundle logs a warning."""
+    from script import sync_components  # noqa: PLC0415
+
+    monkeypatch.setattr(sync_components, "_PLATFORM_DOMAINS", frozenset({"sensor", "switch"}))
+    (tmp_path / "esphome.json").write_text(json.dumps({"core": {"platforms": {"sensor": {}}}}))
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        sync_components.load_index(tmp_path)
+    assert "switch" in caplog.text
+    assert frozenset({"sensor"}) == sync_components._PLATFORM_DOMAINS
 
 
 def test_resolve_auto_load_handles_callable() -> None:
