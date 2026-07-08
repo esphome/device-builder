@@ -1304,15 +1304,18 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
     """
     Fill each component's ``provides`` from referenced interface classes.
 
-    Provides ``ns`` when an id class is a referenced ``use_id`` target
-    whose namespace differs from the component's own domain — same-domain
-    refs (``i2c``, ``sensor``) already resolve via the top-level-key scan,
-    leaving only homeless interfaces like ``voltage_sampler``. For each
-    *nested* providing id (path deeper than the component root), records a
-    path under ``provides_id_paths[ns]`` so the frontend descends to it
-    instead of the section's own id; a namespace's paths are deduped and
-    sorted for a stable, walk-order-independent catalog. Pops the
-    ``_impl_class_paths`` scratch field. In-place.
+    Provides ``ns`` when an id class is a referenced ``use_id`` target.
+    Cross-domain namespaces (``voltage_sampler``) always count; the
+    component's *own* domain counts only when a providing id sits at a
+    nested path (a multi-entity platform's ``temperature.id``) — a
+    root-only own-domain id already resolves via the top-level-key scan.
+    For each *nested* providing id (path deeper than the component root),
+    records a path under ``provides_id_paths[ns]`` so the frontend
+    descends to it instead of the section's own id; a same-domain entry
+    also keeps its root path so hybrid platforms (``pulse_counter``: the
+    root id is itself the entity) stay offerable. A namespace's paths are
+    deduped and sorted for a stable, walk-order-independent catalog.
+    Pops the ``_impl_class_paths`` scratch field. In-place.
     """
     referenced = _collect_referenced_classes(schema_dir)
     for entry in entries:
@@ -1322,12 +1325,19 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
         id_paths: dict[str, set[tuple[str, ...]]] = {}
         for cls in impl_paths.keys() & referenced:
             namespace = _reference_namespace(cls)
-            if not namespace or namespace == own_domain:
+            if not namespace:
+                continue
+            paths = [tuple(p) for p in impl_paths[cls]]
+            nested = {p for p in paths if len(p) > 1}
+            if namespace == own_domain:
+                if not nested:
+                    continue
+                provides.add(namespace)
+                id_paths.setdefault(namespace, set()).update(paths)
                 continue
             provides.add(namespace)
-            for path in impl_paths[cls]:
-                if len(path) > 1:
-                    id_paths.setdefault(namespace, set()).add(tuple(path))
+            for path in nested:
+                id_paths.setdefault(namespace, set()).add(path)
         entry["provides"] = sorted(provides)
         entry["provides_id_paths"] = {
             ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
@@ -2181,7 +2191,7 @@ def build_component_entry(
         "provides": [],
         "config_entries": config_entries,
     }
-    component["_impl_class_paths"] = _implemented_classes(section)
+    component["_impl_class_paths"] = _implemented_classes(section, schema_dir)
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
@@ -3417,23 +3427,24 @@ def _config_schema(section: dict) -> dict:
     return (section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}
 
 
-def _implemented_classes(section: dict) -> dict[str, list[list[str]]]:
+def _implemented_classes(section: dict, schema_dir: Path) -> dict[str, list[list[str]]]:
     """
     Each implemented ``ns::Class`` → every YAML key-path declaring such an id.
 
     Walks the whole ``CONFIG_SCHEMA`` subtree (nested objects/lists plus
     ``types`` variants, which are flattened in YAML so add no path segment);
     a class may appear at several paths and all are kept. Matched against
-    referenced classes by full class, not namespace. A nested id contributes
-    only the parent (interface) classes it implements; a top-level own-class
-    id (``len(path) == 1``) also counts. See :func:`_record_id_classes`.
+    referenced classes by full class, not namespace. An ``id`` declared
+    only on an ``extends`` base (``sensor._SENSOR_SCHEMA``) is resolved in,
+    so multi-entity sub-blocks count. See :func:`_record_id_classes` for
+    which classes a path contributes.
     """
     config_schema = _config_schema(section)
     out: dict[str, list[list[str]]] = {}
     # (config_vars, path) frontier. A typed variant shares its parent's
     # path (the ``types`` discriminator is flattened in YAML).
     frontier: list[tuple[Any, list[str]]] = []
-    _push_config_vars(frontier, config_schema, [])
+    _push_config_vars(frontier, config_schema, [], schema_dir)
     while frontier:
         config_vars, path = frontier.pop()
         if not isinstance(config_vars, dict):
@@ -3443,14 +3454,43 @@ def _implemented_classes(section: dict) -> dict[str, list[list[str]]]:
                 continue
             field_path = [*path, name]
             _record_id_classes(out, field_def, field_path)
-            _push_config_vars(frontier, field_def, field_path)
+            _push_config_vars(frontier, field_def, field_path, schema_dir)
     return out
 
 
-def _push_config_vars(frontier: list[tuple[Any, list[str]]], node: dict, path: list[str]) -> None:
+def _push_config_vars(
+    frontier: list[tuple[Any, list[str]]], node: dict, path: list[str], schema_dir: Path
+) -> None:
     """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
-    frontier.append((_schema_config_vars(node), path))
+    config_vars = _schema_config_vars(node)
+    # Merge ONLY the inherited ``id`` from extends bases. A full merge would
+    # also pull ``mqtt_id`` / ``zigbee_sensor`` id declarations out of every
+    # entity base schema, silently turning every platform into an mqtt/zigbee
+    # provider the day those classes gain a use_id reference.
+    inherited_id = _inherited_id_config_var(node, schema_dir)
+    if inherited_id is not None and (not isinstance(config_vars, dict) or "id" not in config_vars):
+        config_vars = {**(config_vars if isinstance(config_vars, dict) else {}), "id": inherited_id}
+    frontier.append((config_vars, path))
     frontier.extend((cv, path) for cv in _variant_config_vars(node))
+
+
+def _inherited_id_config_var(node: dict, schema_dir: Path) -> dict | None:
+    """Return the ``id`` config var *node*'s ``extends`` chain declares, if any."""
+    schema = node.get("schema")
+    if not isinstance(schema, dict):
+        return None
+    for ref in schema.get("extends") or []:
+        inherited = _extends_id_config_var(ref, schema_dir)
+        if inherited is not None:
+            return inherited
+    return None
+
+
+@cache
+def _extends_id_config_var(ref: str, schema_dir: Path) -> dict | None:
+    """Return one ``extends`` base's ``id`` config var, cached (hot: entity base schemas)."""
+    inherited = _resolve_extends(ref, schema_dir).get("id")
+    return inherited if isinstance(inherited, dict) else None
 
 
 def _schema_config_vars(node: dict) -> Any:
@@ -3472,18 +3512,21 @@ def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: l
     Append *path* to ``out`` for each id-creation class *field_def* declares.
 
     Parent (interface) classes count at any depth; the leaf own-class counts
-    only at the component root (``len(path) == 1``, not the literal ``"id"``
-    key, which can be ``output_id`` / ``raw_data_id`` / ...).
+    at the component root (``len(path) == 1``, not the literal ``"id"`` key,
+    which can be ``output_id`` / ``raw_data_id`` / ...) and, nested, only
+    for entity (platform-domain) classes — a sub-entity's ``sensor::Sensor``.
     """
     id_type = field_def.get("id_type")
     if not isinstance(id_type, dict) or "use_id_type" in field_def:
         return
     classes = [p for p in id_type.get("parents") or [] if isinstance(p, str)]
-    # A nested own-class id is the sub-entity's own identity, not a foreign
-    # interface; advertising it would conflate same-namespace classes (a
-    # ``pipsolar`` output posing as the ``pipsolar`` hub a ``pipsolar_id`` wants).
-    if len(path) == 1 and isinstance(id_type.get("class"), str):
-        classes.append(id_type["class"])
+    # A nested non-entity own-class id stays unrecorded; advertising it
+    # would conflate same-namespace classes (a ``pipsolar`` output posing
+    # as the ``pipsolar`` hub a ``pipsolar_id`` wants).
+    if isinstance(id_type.get("class"), str):
+        leaf_namespace = _reference_namespace(id_type["class"])
+        if len(path) == 1 or (leaf_namespace and leaf_namespace in _PLATFORM_DOMAINS):
+            classes.append(id_type["class"])
     for cls in classes:
         out.setdefault(cls, []).append(path)
 
