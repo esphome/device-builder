@@ -1327,17 +1327,17 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
             namespace = _reference_namespace(cls)
             if not namespace:
                 continue
-            paths = [tuple(p) for p in impl_paths[cls]]
+            paths = {tuple(p) for p in impl_paths[cls]}
             nested = {p for p in paths if len(p) > 1}
-            if namespace == own_domain:
-                if not nested:
-                    continue
-                provides.add(namespace)
-                id_paths.setdefault(namespace, set()).update(paths)
+            same_domain = namespace == own_domain
+            if same_domain and not nested:
                 continue
             provides.add(namespace)
-            for path in nested:
-                id_paths.setdefault(namespace, set()).add(path)
+            # Same-domain keeps the root path too (a hybrid's own id is the
+            # entity); cross-domain roots resolve via the section id.
+            keep = paths if same_domain else nested
+            if keep:
+                id_paths.setdefault(namespace, set()).update(keep)
         entry["provides"] = sorted(provides)
         entry["provides_id_paths"] = {
             ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
@@ -3463,34 +3463,18 @@ def _push_config_vars(
 ) -> None:
     """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
     config_vars = _schema_config_vars(node)
-    # Merge ONLY the inherited ``id`` from extends bases. A full merge would
-    # also pull ``mqtt_id`` / ``zigbee_sensor`` id declarations out of every
-    # entity base schema, silently turning every platform into an mqtt/zigbee
-    # provider the day those classes gain a use_id reference.
-    inherited_id = _inherited_id_config_var(node, schema_dir)
-    if inherited_id is not None and (not isinstance(config_vars, dict) or "id" not in config_vars):
-        config_vars = {**(config_vars if isinstance(config_vars, dict) else {}), "id": inherited_id}
+    base = config_vars if isinstance(config_vars, dict) else {}
+    schema = node.get("schema")
+    # Pull ONLY the inherited ``id`` from extends bases (a sub-entity block
+    # declares its id on ``sensor._SENSOR_SCHEMA``). Merging every inherited
+    # field would also record the parent classes of sibling id declarations
+    # (``mqtt_id``, ``zigbee_sensor``) at this path.
+    if "id" not in base and isinstance(schema, dict) and schema.get("extends"):
+        inherited_id = _merge_extends_config_vars(schema, schema_dir).get("id")
+        if isinstance(inherited_id, dict):
+            config_vars = {**base, "id": inherited_id}
     frontier.append((config_vars, path))
     frontier.extend((cv, path) for cv in _variant_config_vars(node))
-
-
-def _inherited_id_config_var(node: dict, schema_dir: Path) -> dict | None:
-    """Return the ``id`` config var *node*'s ``extends`` chain declares, if any."""
-    schema = node.get("schema")
-    if not isinstance(schema, dict):
-        return None
-    for ref in schema.get("extends") or []:
-        inherited = _extends_id_config_var(ref, schema_dir)
-        if inherited is not None:
-            return inherited
-    return None
-
-
-@cache
-def _extends_id_config_var(ref: str, schema_dir: Path) -> dict | None:
-    """Return one ``extends`` base's ``id`` config var, cached (hot: entity base schemas)."""
-    inherited = _resolve_extends(ref, schema_dir).get("id")
-    return inherited if isinstance(inherited, dict) else None
 
 
 def _schema_config_vars(node: dict) -> Any:
@@ -3523,10 +3507,10 @@ def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: l
     # A nested non-entity own-class id stays unrecorded; advertising it
     # would conflate same-namespace classes (a ``pipsolar`` output posing
     # as the ``pipsolar`` hub a ``pipsolar_id`` wants).
-    if isinstance(id_type.get("class"), str):
-        leaf_namespace = _reference_namespace(id_type["class"])
-        if len(path) == 1 or (leaf_namespace and leaf_namespace in _PLATFORM_DOMAINS):
-            classes.append(id_type["class"])
+    if isinstance(id_type.get("class"), str) and (
+        len(path) == 1 or _reference_namespace(id_type["class"]) in _PLATFORM_DOMAINS
+    ):
+        classes.append(id_type["class"])
     for cls in classes:
         out.setdefault(cls, []).append(path)
 
