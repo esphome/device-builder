@@ -963,7 +963,11 @@ def main() -> int:
     # flattens to bare ``<domain>`` so the action surfaces whenever
     # a matching base domain is configured.
     component_ids = {c["id"] for c in catalog}
-    automations = build_automations(schema_dir=schema_dir, component_ids=component_ids)
+    automations = build_automations(
+        schema_dir=schema_dir,
+        component_ids=component_ids,
+        registry_groups=_collect_automation_registry_groups(),
+    )
     _LOGGER.info(
         "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
         len(automations["triggers"]),
@@ -6215,6 +6219,30 @@ def _required_group_from_validator(node: Any) -> dict[str, Any] | None:
     return {"kind": kind, "keys": str_keys}
 
 
+def _groups_in_all_chain(node: Any) -> list[dict[str, Any]]:
+    """
+    Surface every ``cv.has_*_one_key`` validator in a ``vol.All`` chain.
+
+    The iteration cap bounds a misbehaving cyclic chain.
+    """
+    out: list[dict[str, Any]] = []
+    for _ in range(8):
+        if not isinstance(node, vol.All):
+            return out
+        for child in node.validators:
+            group = _required_group_from_validator(child)
+            if group is not None:
+                out.append(group)
+        inner = next(
+            (v for v in node.validators if isinstance(v, vol.All)),
+            None,
+        )
+        if inner is None:
+            return out
+        node = inner
+    return out
+
+
 def _collect_inclusive_groups(
     manifest: Any,
 ) -> dict[tuple[str, ...], str]:
@@ -6252,7 +6280,7 @@ def _collect_inclusive_groups(
     return out
 
 
-def _collect_required_groups(  # noqa: C901
+def _collect_required_groups(
     manifest: Any,
 ) -> dict[tuple[str, ...], list[dict[str, Any]]]:
     """
@@ -6281,30 +6309,11 @@ def _collect_required_groups(  # noqa: C901
     out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
     visited: set[int] = set()
 
-    def collect_at(node: Any, path: tuple[str, ...]) -> None:
-        # Walk through ``vol.All`` wrappers at the current level
-        # surfacing every ``cv.has_*_one_key`` validator. The cap
-        # mirrors the ``unwrap`` budget below — a misbehaving
-        # cyclic ``vol.All`` chain can't lock the walker.
-        for _ in range(8):
-            if not isinstance(node, vol.All):
-                return
-            for child in node.validators:
-                group = _required_group_from_validator(child)
-                if group is not None:
-                    out.setdefault(path, []).append(group)
-            inner = next(
-                (v for v in node.validators if isinstance(v, vol.All)),
-                None,
-            )
-            if inner is None:
-                return
-            node = inner
-
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
             return
-        collect_at(node, path)
+        if groups := _groups_in_all_chain(node):
+            out.setdefault(path, []).extend(groups)
         target = _unwrap_schema_to_dict(node)
         if target is None:
             return
@@ -6319,6 +6328,31 @@ def _collect_required_groups(  # noqa: C901
         walk(schema, (), 0)
     except Exception:
         _LOGGER.debug("required-groups walk aborted on %r", schema, exc_info=True)
+    return out
+
+
+def _collect_automation_registry_groups() -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """
+    Collect ``{registry_id: [{kind, keys}, ...]}`` per registry type from live esphome.
+
+    The ``action`` / ``condition`` registries fill during :func:`build_catalog`'s
+    import sweep, so call this after it; ``--limit-component`` runs yield partial
+    data. Empty when esphome isn't importable.
+    """
+    try:
+        automation = importlib.import_module("esphome.automation")
+        registries = {
+            "action": automation.ACTION_REGISTRY,
+            "condition": automation.CONDITION_REGISTRY,
+        }
+    except Exception:
+        _LOGGER.debug("automation registries unavailable", exc_info=True)
+        return {}
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for registry_type, registry in registries.items():
+        for registry_id, entry in registry.items():
+            if groups := _groups_in_all_chain(getattr(entry, "raw_schema", None)):
+                out.setdefault(registry_type, {})[registry_id] = groups
     return out
 
 
@@ -6941,6 +6975,7 @@ def build_automations(  # noqa: C901
     *,
     schema_dir: Path,
     component_ids: set[str],
+    registry_groups: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
@@ -6957,6 +6992,10 @@ def build_automations(  # noqa: C901
     as a component) or just an organisational namespace
     (``page.display`` ⇒ no ``display.page`` component, so actions
     surface against the bare ``display`` domain).
+
+    *registry_groups* is :func:`_collect_automation_registry_groups`
+    output; matching actions / conditions gain ``required_groups``
+    and their group members are promoted off ``advanced``.
     """
     triggers: list[dict] = []
     actions: list[dict] = []
@@ -6997,6 +7036,7 @@ def build_automations(  # noqa: C901
                     name=name,
                     body=body,
                     schema_dir=schema_dir,
+                    group_index=(registry_groups or {}).get("action"),
                 )
                 if entry is not None:
                     actions.append(entry)
@@ -7008,6 +7048,7 @@ def build_automations(  # noqa: C901
                     name=name,
                     body=body,
                     schema_dir=schema_dir,
+                    group_index=(registry_groups or {}).get("condition"),
                 )
                 if entry is not None:
                     conditions.append(entry)
@@ -7099,6 +7140,24 @@ def _automation_id_prefix(top_key: str, *, platform_domains: set[str]) -> str:
     return f"{base}.{stem}" if base in platform_domains else top_key
 
 
+def _automation_required_groups(
+    group_index: dict[str, list[dict[str, Any]]] | None,
+    qualified: str,
+    config_entries: list[dict],
+) -> list[dict[str, Any]]:
+    """
+    Live-registry ``required_groups`` for the *qualified* automation id.
+
+    Groups with keys outside *config_entries* are dropped — ``if``'s
+    ``then`` / ``condition`` groups live on the control-flow editor,
+    not the params form.
+    """
+    if not group_index:
+        return []
+    keys = {e["key"] for e in config_entries}
+    return [dict(g) for g in group_index.get(qualified, []) if all(k in keys for k in g["keys"])]
+
+
 def _convert_automation_action(
     *,
     top_key: str,
@@ -7107,6 +7166,7 @@ def _convert_automation_action(
     name: str,
     body: dict,
     schema_dir: Path,
+    group_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict | None:
     """Build one ``AutomationAction`` dict from a schema registry entry."""
     if not isinstance(body, dict):
@@ -7134,7 +7194,10 @@ def _convert_automation_action(
         body=body,
         schema_dir=schema_dir,
     )
-    return {
+    required_groups = _automation_required_groups(group_index, qualified, config_entries)
+    if required_groups:
+        config_entries = _promote_constraint_members(config_entries, required_groups)
+    entry = {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
         "description": docs.text,
@@ -7146,6 +7209,10 @@ def _convert_automation_action(
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
     }
+    if required_groups:
+        entry["required_groups"] = required_groups
+        _annotate_constraint_descriptions(entry)
+    return entry
 
 
 def _convert_automation_condition(
@@ -7156,6 +7223,7 @@ def _convert_automation_condition(
     name: str,
     body: dict,
     schema_dir: Path,
+    group_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict | None:
     """Build one ``AutomationCondition`` dict from a schema registry entry."""
     if not isinstance(body, dict):
@@ -7181,7 +7249,10 @@ def _convert_automation_condition(
         body=body,
         schema_dir=schema_dir,
     )
-    return {
+    required_groups = _automation_required_groups(group_index, qualified, config_entries)
+    if required_groups:
+        config_entries = _promote_constraint_members(config_entries, required_groups)
+    entry = {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
         "description": docs.text,
@@ -7191,6 +7262,10 @@ def _convert_automation_condition(
         "accepts_condition_list": accepts_condition_list,
         "scalar_shorthand_key": scalar_shorthand_key,
     }
+    if required_groups:
+        entry["required_groups"] = required_groups
+        _annotate_constraint_descriptions(entry)
+    return entry
 
 
 def _scalar_shorthand_key(body: dict, schema_dir: Path) -> str | None:

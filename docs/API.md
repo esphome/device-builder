@@ -262,7 +262,7 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 >
 > Models: [`AutomationTrigger`, `AutomationAction`, `AutomationCondition`, `LightEffect`, `AutomationTree`, `ActionNode`, `ConditionNode`, `ParsedAutomation`, `AutomationLocation`, `YamlDiff`](../esphome_device_builder/models/automations.py)
 
-The automations API is the structured editor's wire surface. The catalog (triggers / actions / conditions / light effects) ships pre-rendered as `definitions/automations.json`, emitted at sync time by `script/sync_components.py`. Parameter schemas come out in the same `ConfigEntry[]` shape the component form already speaks — the editor reuses one form pipeline.
+The automations API is the structured editor's wire surface. The catalog (triggers / actions / conditions / light effects) ships pre-rendered as `definitions/automations.json`, emitted at sync time by `script/sync_components.py`. Parameter schemas come out in the same `ConfigEntry[]` shape the component form already speaks — the editor reuses one form pipeline. Action / condition bodies carry `required_groups` (`[{kind, keys}]`, same shape and kinds as the component catalog's) when the upstream schema wraps them in `cv.has_*_one_key(...)` (e.g. `sensor.in_range` requires at least one of `above` / `below`); group members are never `advanced`.
 
 Parsing and writing live on the backend: the frontend exchanges structured `AutomationTree` blobs through `parse` / `upsert` / `delete`, and the writer returns a `YamlDiff = {fromLine, toLine, replacement}` the device editor splices into the YAML pane through the existing optimistic-update path. The backend does *not* persist the YAML in `upsert` / `delete` — the device editor's config-write debounce handles that.
 

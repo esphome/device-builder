@@ -159,3 +159,13 @@ def test_load_index_returns_empty_skeleton_when_missing() -> None:
     finally:
         catalog._load_index.cache_clear()
         catalog._load_index()  # repopulate for the next test in this xdist worker
+
+
+async def test_get_bodies_serves_sensor_in_range_required_group() -> None:
+    """The shipped ``sensor.in_range`` body carries the #1905 constraint, not advanced fields."""
+    result = await _hydrate_bodies([{"type": "conditions", "id": "sensor.in_range"}])
+    body = result["conditions/sensor.in_range"]
+    assert body["required_groups"] == [{"kind": "at_least_one", "keys": ["above", "below"]}]
+    by_key = {e["key"]: e for e in body["config_entries"]}
+    assert by_key["above"]["advanced"] is False
+    assert by_key["below"]["advanced"] is False
