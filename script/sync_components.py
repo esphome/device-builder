@@ -128,6 +128,7 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTrigger,
     AutomationTriggerIndex,
     ComponentCatalogEntry,
+    ComponentCategory,
     Filter,
     FilterIndex,
     LightEffect,
@@ -139,51 +140,43 @@ from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
 )
 
-# Top-level platform domains in the schema (also keys in our category enum).
-# Components keyed as ``<id>.<domain>`` in the schema files — e.g.
-# ``dht.sensor`` lives in dht.json under the key ``dht.sensor``.
-_PLATFORM_DOMAINS: frozenset[str] = frozenset(
-    {
-        "sensor",
-        "binary_sensor",
-        "switch",
-        "light",
-        "fan",
-        "cover",
-        "climate",
-        "button",
-        "number",
-        "select",
-        "text",
-        "text_sensor",
-        "lock",
-        "valve",
-        "media_player",
-        "speaker",
-        "microphone",
-        "camera",
-        "display",
-        "touchscreen",
-        "output",
-        "datetime",
-        "event",
-        "update",
-        "alarm_control_panel",
-        "stepper",
-        "audio_adc",
-        "audio_dac",
-        "media_source",
-        "one_wire",
-        "canbus",
-        "infrared",
-        "time",
-        "water_heater",
-        "ota",
-        "packet_transport",
-        "motion",
-        "radio_frequency",
-    }
-)
+
+def _platform_domains_from_shipped_index() -> frozenset[str]:
+    """Platform domains present in the checked-in catalog (dotted-id prefixes)."""
+    payload = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
+    return frozenset(c["id"].split(".", 1)[0] for c in payload["components"] if "." in c["id"])
+
+
+def _derive_platform_domains(core: dict) -> frozenset[str]:
+    """
+    Authoritative platform domains: the schema bundle's ``core.platforms`` keys.
+
+    Upstream's schema generator fills ``core.platforms`` from exactly the
+    components marked ``IS_PLATFORM_COMPONENT = True``, so a new entity
+    domain lands here without any hand-maintained list.
+    """
+    return frozenset(core.get("platforms") or {})
+
+
+def _require_component_categories(domains: frozenset[str]) -> None:
+    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
+    missing = sorted(domains - {c.value for c in ComponentCategory})
+    if missing:
+        raise SystemExit(
+            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
+            "Add the enum member(s) in esphome_device_builder/models/components.py and "
+            "coordinate the frontend category UI, then re-run."
+        )
+
+
+# Top-level platform domains in the schema. Components are keyed as
+# ``<id>.<domain>`` in the schema files — e.g. ``dht.sensor`` lives in
+# dht.json under the key ``dht.sensor``. Seeded from the shipped catalog
+# so importers (tests, sibling scripts) see the set without a schema
+# bundle; ``load_index`` refreshes it from the fresh bundle's
+# ``core.platforms`` so a new upstream domain joins the walk the same
+# sync it appears.
+_PLATFORM_DOMAINS: frozenset[str] = _platform_domains_from_shipped_index()
 
 # Top-level components whose ``CONFIG_SCHEMA`` is a ``cv.ensure_list`` (a list of
 # instances) but which don't set the component-registry ``MULTI_CONF`` flag, so
@@ -1088,7 +1081,15 @@ class SchemaIndex:
 
 
 def load_index(schema_dir: Path) -> SchemaIndex:
-    """Read every index in the bundle into one merged SchemaIndex."""
+    """
+    Read every index in the bundle into one merged SchemaIndex.
+
+    Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
+    ``core.platforms`` — without this a new upstream domain's
+    ``<domain>.json`` is never opened, and the gap self-perpetuates
+    into the next shipped index.
+    """
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1100,6 +1101,10 @@ def load_index(schema_dir: Path) -> SchemaIndex:
         metadata[cid] = meta or {}
     for pid, meta in (core.get("platforms") or {}).items():
         metadata[pid] = meta or {}
+
+    if fresh_domains := _derive_platform_domains(core):
+        _require_component_categories(fresh_domains)
+        _PLATFORM_DOMAINS = fresh_domains
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -4284,9 +4289,9 @@ def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:
     platform manifest can't tank the whole sync.
 
     Iterates ``_PLATFORM_DOMAINS`` (the same set the catalog walk
-    already uses for schema-keyed platform entries) so adding a
-    domain in one place automatically covers the introspection
-    walk too — no parallel list to keep in sync. Sorted so the
+    already uses for schema-keyed platform entries) so a domain
+    derived from the schema bundle automatically covers the
+    introspection walk too — no parallel list. Sorted so the
     catalog output is deterministic across runs — frozenset
     iteration is hash-randomised per process and would otherwise
     flip refinement results between syncs when two platform
