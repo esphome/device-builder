@@ -34,7 +34,7 @@ def _board_entry(component_id: str) -> dict | None:
 def test_deprecated_and_combobox_sets_are_disjoint() -> None:
     """A platform is either variant-driven (deprecated) or board-combobox, never both."""
     deprecated_board = {cid for cid, key in _DEPRECATED_FIELDS if key == "board"}
-    assert deprecated_board == {"esp32", "rp2040"}
+    assert deprecated_board == {"esp32", "rp2", "rp2040"}
     assert {"esp8266", "nrf52", "bk72xx", "rtl87xx", "ln882x"} == _BOARD_COMBOBOX_PLATFORMS
     assert deprecated_board.isdisjoint(_BOARD_COMBOBOX_PLATFORMS)
 

@@ -308,6 +308,9 @@ _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
         ("rp2040", "board"),
+        # esphome 2026.7's rename of the rp2040 component; extraction runs
+        # before ``_fold_rp2_component_alias`` re-keys it onto rp2040.
+        ("rp2", "board"),
     }
 )
 
@@ -1226,6 +1229,9 @@ def build_catalog(
                 continue
             out.append(entry)
 
+    # Before every later pass so they all see final ids.
+    _fold_rp2_component_alias(out)
+
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
     _repair_field_bullet_descriptions(out)
@@ -1276,6 +1282,33 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
         domain, _, stem = entry["id"].partition(".")
         if stem and domain in _PLATFORM_DOMAINS:
             entry["multi_conf"] = True
+
+
+def _fold_rp2_component_alias(entries: list[dict]) -> None:
+    """
+    Collapse the ``rp2``/``rp2040`` component pair onto the canonical ``rp2040``.
+
+    esphome 2026.7 renamed the platform component to ``rp2``, leaving ``rp2040``
+    as a degraded alias shell (no ``board`` field). The catalog stays keyed on
+    ``rp2040`` until the runtime floor reaches 2026.7 (see ``normalize_platform``
+    in models/boards.py; esphome/backlog#155 tracks the flip), so the real
+    schema is re-keyed onto the canonical id, the shell's identity fields kept,
+    and ``dependencies`` folded so ``rp2040:`` blocks satisfy them.
+    """
+    by_id = {entry["id"]: entry for entry in entries}
+    if (rp2 := by_id.get("rp2")) is not None:
+        rp2["id"] = "rp2040"
+        if (shell := by_id.get("rp2040")) is not None:
+            for key in ("name", "image_url", "category"):
+                if shell.get(key) is not None:
+                    rp2[key] = shell[key]
+            entries.remove(shell)
+    for entry in entries:
+        deps = entry.get("dependencies")
+        if deps and "rp2" in deps:
+            entry["dependencies"] = list(
+                dict.fromkeys("rp2040" if dep == "rp2" else dep for dep in deps)
+            )
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
