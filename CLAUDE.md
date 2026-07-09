@@ -304,9 +304,9 @@ against legacy behaviour before assuming the simpler version suffices.
   `run_bulk_per_device` collects `{configuration, success, error}`
   rows). Never inline the per-item body in a bulk loop — that's how
   `install_bulk` missed the offline deferral (#1928). New pairs ship
-  with parity coverage: `tests/test_single_bulk_parity.py` (every
-  `*_bulk` command has a single twin) plus per-verb scenarios in
-  `tests/controllers/{firmware,devices}/test_single_bulk_parity.py`.
+  with parity coverage: the inventory guards in
+  `tests/test_single_bulk_parity.py` plus per-verb scenarios beside
+  each controller suite.
 - **Event payloads use TypedDict, not dataclass.** Mirrors HA core's
   `Event[_DataT]` / `EventStateChangedData` pattern. Each event-specific
   shape gets a `TypedDict` next to the controller that fires it (e.g.

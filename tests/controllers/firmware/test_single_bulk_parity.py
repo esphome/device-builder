@@ -6,9 +6,15 @@ import pytest
 
 from esphome_device_builder.controllers.firmware.controller import FirmwareController
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import DeviceState, ErrorCode, JobType
+from esphome_device_builder.models import DeviceState, ErrorCode, JobSource, JobType
 from tests.conftest import make_device
-from tests.controllers.firmware.conftest import FirmwareControllerFactory, StubDevices
+from tests.controllers.firmware.conftest import (
+    FirmwareControllerFactory,
+    StubDevices,
+    build_scheduler_inputs,
+    stub_offloader,
+    stub_pairing,
+)
 
 
 def _job_shapes(controller: FirmwareController) -> list[tuple]:
@@ -88,12 +94,25 @@ async def test_install_parity_traversal_rejected_from_both_entry_points(
 async def test_compile_parity_threads_force_local(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
+    """Both entry points stay LOCAL even when scheduler routing would pick REMOTE."""
     device = make_device("kitchen", state=DeviceState.ONLINE)
     single = _controller(firmware_controller_factory, device)
     bulk = _controller(firmware_controller_factory, device)
+    pin = "a" * 64
+    for controller in (single, bulk):
+        stub_offloader(
+            controller,
+            build_scheduler_inputs(
+                pairings=[stub_pairing(pin_sha256=pin)],
+                open_pins={pin},
+                idle_pins={pin},
+            ),
+        )
 
     await single.compile(configuration="kitchen.yaml", force_local=True)
     await bulk.compile_bulk(configurations=["kitchen.yaml"], force_local=True)
 
     assert _job_shapes(single) == _job_shapes(bulk)
-    assert [job.job_type for job in single.state.jobs.values()] == [JobType.COMPILE]
+    jobs = list(single.state.jobs.values())
+    assert [job.job_type for job in jobs] == [JobType.COMPILE]
+    assert jobs[0].source is JobSource.LOCAL
