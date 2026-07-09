@@ -1,0 +1,1 @@
+{"id":"provisioning.on_timeout","name":"Provisioning → On Timeout","description":"An automation to perform when the provisioning window closes.","docs_url":"https://esphome.io/components/provisioning#configuration-variables","applies_to":["provisioning"],"is_device_level":false,"supports_list":false,"config_entries":[]}
