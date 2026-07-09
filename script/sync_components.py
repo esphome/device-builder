@@ -5806,65 +5806,48 @@ def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
             break
 
 
-def _ethernet_platform_split() -> tuple[dict[str, list[dict[str, str]]], dict[str, list[str]]]:
+def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
     """
-    Ethernet's per-platform ``type`` choices and per-field platform gates.
+    Ethernet's per-platform ``type`` choices from the live module constants.
 
-    The split (``RP2_ETHERNET_TYPES``, the per-type and per-field
-    ``cv.only_on`` wrappers) lives only in validator code, so the schema
-    bundle ships a flat 17-type union. ``(options, field_constraints)``;
-    both empty when esphome's ethernet isn't importable.
+    The schema bundle ships a flat union; empty when esphome's ethernet
+    isn't importable or predates the split.
     """
     try:
         from esphome.components import ethernet as _ethernet
     except ImportError:
         _LOGGER.warning("esphome ethernet not importable — type platform split skipped")
-        return {}, {}
+        return {}
     if not hasattr(_ethernet, "RP2_ETHERNET_TYPES"):
         # Catalog syncs always run on 2026.7+; this only keeps test runs
         # under an older interpreter (CI stable leg) from crashing.
         _LOGGER.debug("installed esphome predates RP2_ETHERNET_TYPES — ethernet split skipped")
-        return {}, {}
+        return {}
     rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
-    # Everything except the RP2-only chips; ``SPI_ETHERNET_TYPES`` is the
-    # esp32-side SPI set, so the difference is exactly W5100/W6100/W6300.
+    # Everything except the RP2-only chips.
     esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
-    options = {
+    return {
         "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
-        normalize_platform("rp2"): [{"label": t, "value": t} for t in sorted(rp2)],
+        "rp2040": [{"label": t, "value": t} for t in sorted(rp2)],
     }
-    field_constraints: dict[str, list[str]] = {}
-
-    def visit(_key: Any, key_name: str, val: Any, path: tuple[str, ...]) -> None:
-        constraint = _platform_set(val)
-        if constraint and len(path) == 1:
-            field_constraints[key_name] = sorted(constraint)
-
-    _walk_schema_keys(_ethernet.SPI_SCHEMA, visit)
-    return options, field_constraints
 
 
 def _apply_ethernet_platform_split(component: dict) -> None:
     """
-    Stamp ethernet's platform split; the schema bundle drops it entirely.
+    Stamp ethernet's ``type`` ``platform_options`` from the live split.
 
-    ``type`` gains ``platform_options`` (resolved to ``options`` per target
-    by the component controller), the ``cv.only_on_esp32`` SPI sub-fields
-    gain ``supported_platforms``, and the component's platforms are the
-    option-map keys — ``type`` is required, so no valid type means no
-    platform support.
+    The component's ``supported_platforms`` becomes the option-map keys;
+    ``type`` is required, so no valid type means no platform support.
     """
     if component["id"] != "ethernet":
         return
-    options, field_constraints = _ethernet_platform_split()
+    options = _ethernet_type_platform_options()
     if not options:
         return
     for entry in component["config_entries"]:
-        key = entry["key"]
-        if key == "type":
+        if entry["key"] == "type":
             entry["platform_options"] = options
-        elif key in field_constraints:
-            entry["supported_platforms"] = _expand_libretiny(field_constraints[key])
+            break
     component["supported_platforms"] = sorted(options)
 
 
