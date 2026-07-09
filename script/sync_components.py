@@ -4042,11 +4042,14 @@ def _infer_misc_category(top_key: str) -> str:
 # no-op and the catalog ships without those fields populated.
 
 # Target-platform component ids — components named after a chip family
-# that act as the "platform" entry in YAML.
+# that act as the "platform" entry in YAML. ``rp2`` is the 2026.7 rename
+# of ``rp2040``; both stay listed so a dependency on either surfaces,
+# and ``_expand_libretiny`` folds the emitted key onto ``rp2040``.
 _TARGET_PLATFORMS: frozenset[str] = frozenset(
     {
         "esp32",
         "esp8266",
+        "rp2",
         "rp2040",
         "bk72xx",
         "rtl87xx",
@@ -6822,9 +6825,15 @@ def _libretiny_families() -> tuple[str, ...]:
 
 
 def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
-    """Replace the ``libretiny`` umbrella token with its concrete families."""
+    """
+    Replace the ``libretiny`` umbrella token with its concrete families.
+
+    Every ``supported_platforms`` list funnels through here, so renamed
+    platform tokens also fold onto the catalog's canonical keys
+    (``rp2`` → ``rp2040``, see models/boards.py).
+    """
     expanded = (
-        name
+        normalize_platform(name)
         for platform in platforms
         for name in (_libretiny_families() if platform == "libretiny" else (platform,))
     )
