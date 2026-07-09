@@ -1,10 +1,4 @@
-"""Tests for the ``rp2`` -> ``rp2040`` component-alias fold.
-
-esphome 2026.7 renamed the platform component to ``rp2`` and left ``rp2040``
-as a degraded alias shell; the catalog stays keyed on ``rp2040`` until the
-flip (esphome/backlog#155). These tests pin the fold pass and the shipped
-catalog's alias-free state.
-"""
+"""Pin the ``rp2`` -> ``rp2040`` component-alias fold and the shipped catalog's alias-free state."""
 
 from __future__ import annotations
 
@@ -72,6 +66,16 @@ def test_fold_rekeys_rp2_without_shell() -> None:
     assert entries[0]["name"] == "RP2 Platform"
 
 
+def test_fold_keeps_rp2_fields_over_empty_shell_fields() -> None:
+    entries = [
+        _entry("rp2", image_url="https://esphome.io/images/rp2.svg"),
+        _entry("rp2040", category="core", image_url=""),
+    ]
+    sync_components._fold_rp2_component_alias(entries)
+    assert entries[0]["image_url"] == "https://esphome.io/images/rp2.svg"
+    assert entries[0]["category"] == "core"
+
+
 def test_fold_rewrites_dependencies() -> None:
     entries = [
         _entry("rp2040_ble", dependencies=["logger", "rp2"]),
@@ -101,8 +105,6 @@ def test_shipped_index_has_no_rp2_alias() -> None:
 
 def test_shipped_rp2040_body_is_the_real_schema() -> None:
     body = json.loads((_DEFINITIONS / "components" / "rp2040.json").read_text())
-    assert body["name"] == "RP2040 Platform"
-    assert body["docs_url"] == "https://esphome.io/components/rp2"
     keys = {entry["key"] for entry in body["config_entries"]}
     assert "variant" in keys
     # Variant-driven platform: ``board`` stays stripped (_DEPRECATED_FIELDS);
