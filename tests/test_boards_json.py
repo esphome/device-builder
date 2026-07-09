@@ -32,6 +32,7 @@ from esphome_device_builder.definitions import (
     load_featured_components_index,
 )
 from esphome_device_builder.models.boards import (
+    RP2_CANONICAL_PLATFORM,
     BoardCatalogEntry,
     BoardCatalogIndex,
     BoardEsphomeConfig,
@@ -108,7 +109,12 @@ def test_split_artefacts_match_manifests() -> None:
     _stamp_featured_requires(from_yaml.boards)
     _consolidate_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
-    generated = set(_LIBRETINY_FAMILIES) | {"rp2040", _NRF52_PLATFORM, "esp32", "esp8266"}
+    generated = set(_LIBRETINY_FAMILIES) | {
+        RP2_CANONICAL_PLATFORM,
+        _NRF52_PLATFORM,
+        "esp32",
+        "esp8266",
+    }
     esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}

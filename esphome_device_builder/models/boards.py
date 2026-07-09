@@ -35,9 +35,8 @@ class Connectivity(StrEnum):
     LORA = "lora"
 
 
-# Canonical spelling of the RP2 platform key across the catalog and wire,
-# plus the other accepted spelling (esphome#17145 rename). Swap the two
-# values to flip the canonical key once 2026.7 is the runtime floor.
+# Canonical and accepted-alias spellings of the RP2 platform key
+# (esphome#17145 rename); a canonical-key flip starts by swapping these.
 RP2_CANONICAL_PLATFORM = "rp2040"
 RP2_ALIAS_PLATFORM = "rp2"
 
@@ -53,6 +52,14 @@ class Platform(StrEnum):
     LN882X = "ln882x"
     NRF52 = "nrf52"
     HOST = "host"
+
+    @classmethod
+    def _missing_(cls, value: object) -> Platform | None:
+        # Hand-curated manifests and wire payloads may carry either RP2
+        # spelling; fold both onto the canonical member.
+        if isinstance(value, str) and value.lower() in RP2_PLATFORM_ALIASES:
+            return cls.RP2040
+        return None
 
 
 # Inbound platform strings may use either spelling; the catalog stays keyed
