@@ -173,6 +173,21 @@ async def test_install_bootloader_refuses_offline_device(
 
 
 @pytest.mark.asyncio
+async def test_bootloader_offline_refusal_wins_over_source_resolution(
+    firmware_controller: FirmwareController,
+) -> None:
+    """The offline refusal fires before build-source resolution can raise NO_COMPATIBLE_PEER."""
+    firmware_controller._resolve_install_source = MagicMock(  # type: ignore[method-assign]
+        side_effect=CommandError(ErrorCode.NO_COMPATIBLE_PEER, "no eligible peer")
+    )
+
+    with pytest.raises(CommandError) as err:
+        await firmware_controller.install(configuration="test_device.yaml", bootloader=True)
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.asyncio
 async def test_install_bootloader_refuses_offline_device_with_explicit_target(
     firmware_controller: FirmwareController,
     mock_device: MagicMock,

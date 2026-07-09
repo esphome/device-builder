@@ -330,7 +330,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_upload_target(port, bootloader=bootloader)
         await self._validate_configuration_boundary(configuration)
 
-        build_source = self._resolve_install_source(force_local=force_local)
         # Install is a compile + a dependent local upload. The compile (local
         # or dispatched to a receiver) materialises the binary locally; the
         # upload then flashes on the upload lane, freeing the compile lane to
@@ -340,7 +339,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             self,
             configuration=configuration,
             port=port,
-            build_source=build_source,
+            force_local=force_local,
             flash_bootloader=bootloader,
         )
 

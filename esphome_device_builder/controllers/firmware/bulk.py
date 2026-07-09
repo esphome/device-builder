@@ -142,12 +142,11 @@ async def install_bulk(
     jobs: list[FirmwareJob] = []
     for config in _configuration_order(controller, configurations):
         try:
-            build_source = controller._resolve_install_source()
             # A chain (COMPILE + dependent UPLOAD) per device, same as single
             # install — so device B's compile pipelines against device A's
             # upload instead of a fused job pinning both to the compile lane.
             job = await factories.enqueue_install_or_defer(
-                controller, configuration=config, port=port, build_source=build_source
+                controller, configuration=config, port=port
             )
         except CommandError as exc:
             if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
