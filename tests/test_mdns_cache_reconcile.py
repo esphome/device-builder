@@ -3,50 +3,58 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from esphome.zeroconf import DEFAULT_TIMEOUT_MS
+from zeroconf import DNSText, current_time_millis
+from zeroconf.const import _CLASS_IN, _TYPE_TXT
 
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
-from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
+from esphome_device_builder.models import DeviceState, ReachabilitySource
 
-from .conftest import make_device, make_state_monitor_with_callbacks
+from .conftest import make_online_api_device, make_state_monitor_with_callbacks
 
-
-def _device(**overrides: Any) -> Device:
-    base: dict[str, Any] = {
-        "state": DeviceState.ONLINE,
-        "api_enabled": True,
-        "loaded_integrations": ["api", "wifi"],
-    }
-    base.update(overrides)
-    return make_device(**base)
+_SERVICE_NAME = "kitchen._esphomelib._tcp.local."
 
 
-def _seed_cache_hit(monitor: Any, monkeypatch: pytest.MonkeyPatch, props: dict[str, str]) -> None:
-    """Wire a fake zeroconf whose cache resolves the kitchen service with *props*."""
-    monitor._mdns._zeroconf = MagicMock()
-    fake_info = MagicMock()
-    fake_info.load_from_cache.return_value = True
-    fake_info.decoded_properties = props
-    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+def _txt_record(props: dict[str, str], *, age_ms: int = 1_000, ttl: int = 4500) -> DNSText:
+    payload = b"".join(
+        bytes([len(entry)]) + entry for entry in (f"{k}={v}".encode() for k, v in props.items())
+    )
+    return DNSText(
+        name=_SERVICE_NAME,
+        type_=_TYPE_TXT,
+        class_=_CLASS_IN,
+        ttl=ttl,
+        text=payload,
+        created=current_time_millis() - age_ms,
+    )
 
 
-def test_reconcile_applies_txt_fields_without_claiming(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A cache hit fills version/config_hash/mac/encryption but never state, IP, or ownership."""
-    device = _device()
+def _seed_txt_cache(monitor: Any, records: list[DNSText]) -> None:
+    """Wire a fake zeroconf whose cache serves *records* for the kitchen TXT lookup."""
+    fake_zeroconf = MagicMock()
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=records)
+    monitor._mdns._zeroconf = fake_zeroconf
+
+
+def test_reconcile_applies_txt_fields_without_claiming() -> None:
+    """A cached TXT fills version/config_hash/mac/encryption but never state, IP, or ownership."""
+    device = make_online_api_device()
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    _seed_cache_hit(
+    _seed_txt_cache(
         monitor,
-        monkeypatch,
-        {
-            "version": "2026.6.4",
-            "config_hash": "abcd1234",
-            "mac": "94c9601f8cf1",
-            "api_encryption": "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
-        },
+        [
+            _txt_record(
+                {
+                    "version": "2026.6.4",
+                    "config_hash": "abcd1234",
+                    "mac": "94c9601f8cf1",
+                    "api_encryption": "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+                }
+            )
+        ],
     )
 
     monitor.reconcile_from_mdns_cache("kitchen")
@@ -64,11 +72,27 @@ def test_reconcile_applies_txt_fields_without_claiming(monkeypatch: pytest.Monke
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
 
 
-def test_reconcile_never_flips_an_offline_device_online(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reconcile_works_without_a_cached_address_record() -> None:
+    """The steady state this exists for: TXT still cached (4500s TTL) after the A (120s) expired.
+
+    ``AsyncServiceInfo.load_from_cache`` returns False without an
+    unexpired address record, which is why the reconcile reads the
+    TXT record directly.
+    """
+    device = make_online_api_device(ip="", ip_addresses=[])
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    _seed_txt_cache(monitor, [_txt_record({"version": "2026.6.4"}, age_ms=600_000)])
+
+    monitor.reconcile_from_mdns_cache("kitchen")
+
+    assert device.deployed_version == "2026.6.4"
+
+
+def test_reconcile_never_flips_an_offline_device_online() -> None:
     """A stale cache entry for a dead device must not claim ONLINE (the #1776 latch)."""
-    device = _device(state=DeviceState.OFFLINE)
+    device = make_online_api_device(state=DeviceState.OFFLINE)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
-    _seed_cache_hit(monitor, monkeypatch, {"version": "2026.6.4"})
+    _seed_txt_cache(monitor, [_txt_record({"version": "2026.6.4"})])
 
     monitor.reconcile_from_mdns_cache("kitchen")
 
@@ -76,23 +100,29 @@ def test_reconcile_never_flips_an_offline_device_online(monkeypatch: pytest.Monk
     assert callbacks.calls_for("on_state_change") == []
 
 
-def test_reconcile_cache_miss_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No cached service → no callbacks and no wire traffic."""
-    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
-    monitor._mdns._zeroconf = MagicMock()
-    fake_info = MagicMock()
-    fake_info.load_from_cache.return_value = False
-    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: fake_info)
+def test_reconcile_skips_expired_txt_records() -> None:
+    """A TXT past its TTL is history, not a live payload; don't apply it."""
+    monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
+    _seed_txt_cache(monitor, [_txt_record({"version": "2026.6.4"}, age_ms=5_000_000, ttl=4500)])
 
     monitor.reconcile_from_mdns_cache("kitchen")
 
     assert callbacks.calls == []
-    fake_info.async_request.assert_not_called()
+
+
+def test_reconcile_cache_miss_is_a_noop() -> None:
+    """No cached TXT → no callbacks."""
+    monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
+    _seed_txt_cache(monitor, [])
+
+    monitor.reconcile_from_mdns_cache("kitchen")
+
+    assert callbacks.calls == []
 
 
 def test_reconcile_without_zeroconf_is_a_noop() -> None:
     """Zeroconf failed to start → nothing to read; don't raise."""
-    monitor, callbacks = make_state_monitor_with_callbacks([_device()])
+    monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     monitor._mdns._zeroconf = None
 
     monitor.reconcile_from_mdns_cache("kitchen")
@@ -100,17 +130,14 @@ def test_reconcile_without_zeroconf_is_a_noop() -> None:
     assert callbacks.calls == []
 
 
-async def test_sweep_heals_blank_device_from_cache_end_to_end(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
     """The #1910 shape: blank record + populated cache → one sweep fills it, no API connect."""
-    device = _device(ip="192.168.1.50", ip_addresses=["192.168.1.50"])
+    device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    _seed_cache_hit(
+    _seed_txt_cache(
         monitor,
-        monkeypatch,
-        {"version": "2026.6.4", "config_hash": "abcd1234", "mac": "94c9601f8cf1"},
+        [_txt_record({"version": "2026.6.4", "config_hash": "abcd1234", "mac": "94c9601f8cf1"})],
     )
     fetch = MagicMock()
     monitor._api_info._fetch = fetch  # type: ignore[method-assign]
@@ -125,6 +152,44 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end(
     fetch.assert_not_called()
 
 
+async def test_resolve_then_dedupes_inflight_service_names() -> None:
+    """A second resolve for a service already being resolved is dropped, not stacked."""
+    monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
+    source = monitor._mdns
+    source._inflight_resolves.add(_SERVICE_NAME)
+    info = MagicMock()
+    info.name = _SERVICE_NAME
+    info.async_request = AsyncMock()
+    apply = MagicMock()
+
+    await source._resolve_then(MagicMock(), info, "kitchen", apply)
+
+    info.async_request.assert_not_called()
+    apply.assert_not_called()
+    # Still in flight — the guard entry belongs to the first resolver.
+    assert _SERVICE_NAME in source._inflight_resolves
+
+
+async def test_resolve_then_clears_inflight_after_completion() -> None:
+    """The in-flight guard releases once the resolve finishes, so retries stay possible."""
+    monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
+    source = monitor._mdns
+    info = MagicMock()
+    info.name = _SERVICE_NAME
+    info.async_request = AsyncMock(return_value=True)
+    apply = MagicMock()
+
+    await source._resolve_then(MagicMock(), info, "kitchen", apply)
+
+    apply.assert_called_once_with("kitchen", info)
+    assert _SERVICE_NAME not in source._inflight_resolves
+
+
 def test_resolve_timeout_matches_upstream_default() -> None:
-    """Service resolves get upstream esphome's window; 2s dropped slow ESP responders."""
+    """Local mirror of upstream esphome's resolve window; 2s dropped slow ESP responders.
+
+    Mirrored (not imported) because ``DEFAULT_TIMEOUT_MS`` only exists
+    in esphome >= 2025.5 while the declared floor is older; this pin
+    catches upstream drift at CI time instead.
+    """
     assert mdns_module._MDNS_RESOLVE_TIMEOUT_MS == DEFAULT_TIMEOUT_MS

@@ -981,6 +981,19 @@ def make_device(name: str = "kitchen", **overrides: Any) -> Device:
     return Device(**base)
 
 
+def make_online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
+    """Online device that exposes a Native API, with a routable IP, missing mac/version."""
+    base: dict[str, Any] = {
+        "state": DeviceState.ONLINE,
+        "api_enabled": True,
+        "loaded_integrations": ["api", "wifi"],
+        "ip": "192.168.1.50",
+        "ip_addresses": ["192.168.1.50"],
+    }
+    base.update(overrides)
+    return make_device(name, **base)
+
+
 def make_peer_link_session(
     *,
     dashboard_id: str = "alpha",

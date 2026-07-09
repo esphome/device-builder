@@ -85,7 +85,10 @@ class ApiInfoSource:
         # the mDNS-cache reconcile pass needs no API worker.
         self._api_available = importlib.util.find_spec("aioesphomeapi") is not None
         if not self._api_available:
-            _LOGGER.debug("aioesphomeapi not installed; Native API info fallback disabled")
+            _LOGGER.debug(
+                "aioesphomeapi not installed; Native API connect stage disabled "
+                "(mDNS-cache reconcile still active)"
+            )
         await asyncio.sleep(_BOOTSTRAP_DELAY)
         monitor = self._monitor
         while True:
@@ -151,18 +154,18 @@ class ApiInfoSource:
     def _reconcile_from_mdns_cache(self, devices: list[Device]) -> None:
         """Re-apply cached TXT payloads for online API devices missing monitor fields."""
         monitor = self._monitor
-        seen: set[str] = set()
-        for device in devices:
-            if (
-                device.state is DeviceState.ONLINE
-                and device.api_enabled
-                and device.name not in seen
-                and not (
-                    device.mac_address and device.deployed_version and device.deployed_config_hash
-                )
-            ):
-                seen.add(device.name)
-                monitor.reconcile_from_mdns_cache(device.name)
+        # ``deployed_config_hash`` widens this gate beyond ``_is_due``'s
+        # mac+version: the cached TXT carries it but the API worker can't
+        # fetch it.
+        names = {
+            device.name
+            for device in devices
+            if device.state is DeviceState.ONLINE
+            and device.api_enabled
+            and not (device.mac_address and device.deployed_version and device.deployed_config_hash)
+        }
+        for name in sorted(names):
+            monitor.reconcile_from_mdns_cache(name)
 
     def _is_due(self, device: Device) -> bool:
         """
