@@ -198,6 +198,18 @@ async def enqueue_install_or_defer(
     )
 
 
+async def enqueue_compile(
+    controller: FirmwareController,
+    *,
+    configuration: str,
+    force_local: bool = False,
+) -> FirmwareJob:
+    """Enqueue one COMPILE job with build-scheduler routing; the single/bulk shared core."""
+    build_source = controller._resolve_install_source(force_local=force_local)
+    job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+    return await controller._enqueue(job)
+
+
 async def commit_chain(
     controller: FirmwareController,
     head: FirmwareJob,

@@ -659,9 +659,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         is the catalog → YAML match key. See ``_archive_single``
         for the full keep / clear rationale.
         """
-        _validate_archive_configuration(configuration)
         try:
-            await self._archive_single(configuration)
+            await self._archive_single_checked(configuration)
         except FileNotFoundError as exc:
             raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
         await self._scanner.scan()
@@ -739,12 +738,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         consume a single per-device result list instead of fanning out
         N separate ``devices/archive`` calls.
         """
-
-        async def _archive(configuration: str) -> None:
-            _validate_archive_configuration(configuration)
-            await self._archive_single(configuration)
-
-        return await self._run_bulk_per_device(configurations, _archive)
+        return await self._run_bulk_per_device(configurations, self._archive_single_checked)
 
     async def _run_bulk_per_device(
         self,
@@ -1196,6 +1190,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     async def _archive_single(self, configuration: str) -> None:
         await archive.archive_single(self, configuration)
+
+    async def _archive_single_checked(self, configuration: str) -> None:
+        await archive.archive_single_checked(self, configuration)
 
     async def _unarchive_single(self, configuration: str) -> None:
         await archive.unarchive_single(self, configuration)

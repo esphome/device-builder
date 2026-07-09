@@ -229,13 +229,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         "Download firmware binary" button.
         """
         await self._validate_configuration_boundary(configuration)
-        build_source = self._resolve_install_source(force_local=force_local)
-        job = self._create_job(
-            configuration,
-            JobType.COMPILE,
-            build_source=build_source,
+        return await factories.enqueue_compile(
+            self, configuration=configuration, force_local=force_local
         )
-        return await self._enqueue(job)
 
     @api_command("firmware/upload")
     async def upload(

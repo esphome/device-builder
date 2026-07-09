@@ -19,7 +19,7 @@ from ...helpers.build_artifacts import (
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
-from .helpers import require_file_exists
+from .helpers import _validate_archive_configuration, require_file_exists
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -27,6 +27,12 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def archive_single_checked(controller: DevicesController, configuration: str) -> None:
+    """Boundary-validate the archive filename, then archive; the single/bulk shared core."""
+    _validate_archive_configuration(configuration)
+    await archive_single(controller, configuration)
 
 
 async def archive_single(controller: DevicesController, configuration: str) -> None:

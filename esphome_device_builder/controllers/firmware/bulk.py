@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING, NamedTuple
 
 from ...helpers.api import CommandError
-from ...models import OTA_PORT, ErrorCode, FirmwareJob, JobType
+from ...models import OTA_PORT, ErrorCode, FirmwareJob
 from . import factories
 from .helpers import _validate_port
 
@@ -104,13 +104,9 @@ async def compile_bulk(
     jobs: list[FirmwareJob] = []
     for config in _configuration_order(controller, configurations):
         try:
-            build_source = controller._resolve_install_source(force_local=force_local)
-            job = controller._create_job(
-                config,
-                JobType.COMPILE,
-                build_source=build_source,
+            job = await factories.enqueue_compile(
+                controller, configuration=config, force_local=force_local
             )
-            await controller._enqueue(job)
         except CommandError as exc:
             if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
                 # Fleet-wide policy refusal — re-raise so the
