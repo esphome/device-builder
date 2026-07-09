@@ -128,6 +128,7 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTrigger,
     AutomationTriggerIndex,
     ComponentCatalogEntry,
+    ComponentCategory,
     Filter,
     FilterIndex,
     LightEffect,
@@ -139,51 +140,35 @@ from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
 )
 
-# Top-level platform domains in the schema (also keys in our category enum).
-# Components keyed as ``<id>.<domain>`` in the schema files — e.g.
-# ``dht.sensor`` lives in dht.json under the key ``dht.sensor``.
-_PLATFORM_DOMAINS: frozenset[str] = frozenset(
-    {
-        "sensor",
-        "binary_sensor",
-        "switch",
-        "light",
-        "fan",
-        "cover",
-        "climate",
-        "button",
-        "number",
-        "select",
-        "text",
-        "text_sensor",
-        "lock",
-        "valve",
-        "media_player",
-        "speaker",
-        "microphone",
-        "camera",
-        "display",
-        "touchscreen",
-        "output",
-        "datetime",
-        "event",
-        "update",
-        "alarm_control_panel",
-        "stepper",
-        "audio_adc",
-        "audio_dac",
-        "media_source",
-        "one_wire",
-        "canbus",
-        "infrared",
-        "time",
-        "water_heater",
-        "ota",
-        "packet_transport",
-        "motion",
-        "radio_frequency",
-    }
-)
+
+def _domains_from_ids(component_ids: Iterable[str]) -> frozenset[str]:
+    """Platform domains among *component_ids* — the ``<domain>.<stem>`` dotted-id prefixes."""
+    return frozenset(cid.split(".", 1)[0] for cid in component_ids if "." in cid)
+
+
+def _platform_domains_from_shipped_index() -> frozenset[str]:
+    """Platform domains present in the checked-in catalog."""
+    payload = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
+    return _domains_from_ids(c["id"] for c in payload["components"])
+
+
+def _require_component_categories(domains: frozenset[str]) -> None:
+    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
+    missing = sorted(domains - {c.value for c in ComponentCategory})
+    if missing:
+        raise SystemExit(
+            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
+            "Add the enum member(s) in esphome_device_builder/models/components.py and "
+            "coordinate the frontend category UI, then re-run."
+        )
+
+
+# Top-level platform domains in the schema. Components are keyed as
+# ``<id>.<domain>`` in the schema files — e.g. ``dht.sensor`` lives in
+# dht.json under the key ``dht.sensor``. Seeded from the shipped catalog
+# so importing the module needs no schema bundle; ``load_index``
+# refreshes it from the fresh bundle.
+_PLATFORM_DOMAINS: frozenset[str] = _platform_domains_from_shipped_index()
 
 # Top-level components whose ``CONFIG_SCHEMA`` is a ``cv.ensure_list`` (a list of
 # instances) but which don't set the component-registry ``MULTI_CONF`` flag, so
@@ -1092,7 +1077,15 @@ class SchemaIndex:
 
 
 def load_index(schema_dir: Path) -> SchemaIndex:
-    """Read every index in the bundle into one merged SchemaIndex."""
+    """
+    Read every index in the bundle into one merged SchemaIndex.
+
+    Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
+    ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
+    a bundle with no ``core.platforms`` fails loud, and a shipped
+    domain missing from the fresh bundle logs a warning.
+    """
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1102,8 +1095,25 @@ def load_index(schema_dir: Path) -> SchemaIndex:
         core = {}
     for cid, meta in (core.get("components") or {}).items():
         metadata[cid] = meta or {}
-    for pid, meta in (core.get("platforms") or {}).items():
+    platforms = core.get("platforms") or {}
+    for pid, meta in platforms.items():
         metadata[pid] = meta or {}
+
+    if not platforms:
+        raise SystemExit(
+            f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
+            "empty); refusing to sync against the stale shipped domain set."
+        )
+    fresh_domains = frozenset(platforms)
+    _require_component_categories(fresh_domains)
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
+    _PLATFORM_DOMAINS = fresh_domains
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -4288,9 +4298,9 @@ def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:
     platform manifest can't tank the whole sync.
 
     Iterates ``_PLATFORM_DOMAINS`` (the same set the catalog walk
-    already uses for schema-keyed platform entries) so adding a
-    domain in one place automatically covers the introspection
-    walk too — no parallel list to keep in sync. Sorted so the
+    already uses for schema-keyed platform entries) so a domain
+    derived from the schema bundle automatically covers the
+    introspection walk too — no parallel list. Sorted so the
     catalog output is deterministic across runs — frozenset
     iteration is hash-randomised per process and would otherwise
     flip refinement results between syncs when two platform
@@ -7008,7 +7018,7 @@ def build_automations(  # noqa: C901
     # gates the action/condition id flip in :func:`_automation_id_prefix`.
     # Derived from the just-built component set, not ``_PLATFORM_DOMAINS``,
     # so the flip decision rests on the same evidence as ``_automation_domain``.
-    platform_domains = {cid.split(".", 1)[0] for cid in component_ids if "." in cid}
+    platform_domains = _domains_from_ids(component_ids)
 
     for path in iter_schema_files(schema_dir):
         try:

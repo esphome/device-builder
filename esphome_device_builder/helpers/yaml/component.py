@@ -21,58 +21,16 @@ if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
 
 
-# Platform categories that use the list-under-platform YAML pattern
-# (`sensor: [- platform: ...]`) rather than a single top-level key.
-# Must include every ComponentCategory value whose components carry
-# `<domain>.<platform>` ids in the catalog — otherwise add_component
-# falls through to writing the qualified id literally as a top-level
-# YAML key (`time.homeassistant:`), which ESPHome rejects and our own
-# YAML parser can't handle either (the regex only accepts
-# `[a-zA-Z_][a-zA-Z0-9_]*:`, no dots).
-_ENTITY_CATEGORIES = {
-    # Home Assistant entity domains
-    "sensor",
-    "binary_sensor",
-    "switch",
-    "light",
-    "fan",
-    "cover",
-    "climate",
-    "button",
-    "number",
-    "select",
-    "text",
-    "text_sensor",
-    "lock",
-    "valve",
-    "media_player",
-    "speaker",
-    "microphone",
-    "camera",
-    "display",
-    "touchscreen",
-    "output",
-    "datetime",
-    "event",
-    "update",
-    "alarm_control_panel",
-    # Other platform-pattern domains the sync script tags as their
-    # own categories. Each one shows up in YAML as `<domain>: [-
-    # platform: ...]` blocks.
-    "ota",
-    "time",
-    "audio_adc",
-    "audio_dac",
-    "canbus",
-    "infrared",
-    "media_source",
-    "motion",
-    "one_wire",
-    "packet_transport",
-    "radio_frequency",
-    "stepper",
-    "water_heater",
-}
+def _split_platform_id(component_id: str) -> tuple[str | None, str]:
+    """
+    Split a catalog id into ``(domain, stem)``; ``(None, id)`` when undotted.
+
+    A dotted ``<domain>.<platform>`` id is the catalog's platform marker;
+    a bare-id entry (the ``ota`` / ``time`` umbrellas) is not a platform
+    even when it carries an entity category.
+    """
+    domain, sep, stem = component_id.partition(".")
+    return (domain, stem) if sep else (None, component_id)
 
 
 def merge_component_yaml(
@@ -101,9 +59,9 @@ def merge_component_yaml(
     block = generate_component_yaml(component, fields)
     if _redefines_existing_id(existing, block, fields.get("id")):
         return existing
-    is_platform = component.category in _ENTITY_CATEGORIES
-    if is_platform:
-        spliced = _splice_into_domain_block(existing, str(component.category), block)
+    domain, _ = _split_platform_id(component.id)
+    if domain is not None:
+        spliced = _splice_into_domain_block(existing, domain, block)
         if spliced is not None:
             return spliced
     elif component.multi_conf:
@@ -115,7 +73,7 @@ def merge_component_yaml(
     return _append_block(existing, block)
 
 
-def generate_component_yaml(  # noqa: C901, PLR0912
+def generate_component_yaml(  # noqa: C901
     component: ComponentCatalogEntry,
     fields: dict[str, Any],
 ) -> str:
@@ -123,7 +81,7 @@ def generate_component_yaml(  # noqa: C901, PLR0912
     Generate a YAML block for adding a component to a device config.
 
     Platform-style components (``sensor``, ``switch``, ...) are emitted
-    as a list under their category with a ``- platform: <id>`` entry;
+    as a list under their domain with a ``- platform: <id>`` entry;
     everything else is emitted as a top-level mapping keyed by the
     component id.
 
@@ -144,19 +102,13 @@ def generate_component_yaml(  # noqa: C901, PLR0912
     """
     fields = dict(fields)
     _coerce_string_map_values(component, fields)
-    category = component.category
     comp_id = component.id
 
-    is_platform = category in _ENTITY_CATEGORIES
-
-    if is_platform:
-        # Catalog ids are qualified as ``<domain>.<platform>`` (e.g.
-        # ``output.gpio``, ``light.binary``) so distinct platforms can
-        # share a stem across categories. ESPHome YAML expects the bare
-        # platform stem under ``platform:``, so strip the qualifier.
-        unqualified = comp_id.split(".", 1)[1] if "." in comp_id else comp_id
-    else:
-        unqualified = comp_id
+    # Catalog ids are qualified as ``<domain>.<platform>`` (e.g.
+    # ``output.gpio``, ``light.binary``) so distinct platforms can
+    # share a stem across categories. ESPHome YAML expects the bare
+    # platform stem under ``platform:``.
+    domain, unqualified = _split_platform_id(comp_id)
 
     # Resolve the top-level id once. We only emit it when the caller
     # explicitly opted in by including ``id`` in fields; when they
@@ -193,8 +145,8 @@ def generate_component_yaml(  # noqa: C901, PLR0912
         autofill.update(sub)
         fields[entry.key] = autofill
 
-    if is_platform:
-        lines = [f"{category}:", f"{ESPHOME_YAML_INDENT}- platform: {unqualified}"]
+    if domain is not None:
+        lines = [f"{domain}:", f"{ESPHOME_YAML_INDENT}- platform: {unqualified}"]
         indent = ESPHOME_YAML_INDENT * 2
         for key, value in fields.items():
             lines.extend(_emit_field(key, value, indent))

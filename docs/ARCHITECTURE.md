@@ -258,8 +258,12 @@ select is optional with the right default) come from the live package.
 Platform-domain entries (`sensor.*`, `output.*`, ...) are additionally stamped
 `multi_conf=True` regardless of upstream `MULTI_CONF`, which is absent on
 platform stems; a platform domain is an unbounded YAML list, so every variant is
-repeatable (the `_PLATFORM_DOMAINS` set in `sync_components.py` must match the
-YAML serializer's `_ENTITY_CATEGORIES`, pinned by a test).
+repeatable. The platform-domain set itself is derived, not hand-curated: the
+schema bundle's `core.platforms` (upstream's `IS_PLATFORM_COMPONENT` markers)
+refreshes `_PLATFORM_DOMAINS` at sync time, the shipped catalog's dotted-id
+prefixes seed it at import, and the YAML serializer reads platform-ness off the
+dotted id directly. A new upstream domain missing a `ComponentCategory` member
+fails the sync loudly instead of degrading to MISC.
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
 
