@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 
 from .conftest import MakeControllerFactory
@@ -208,5 +210,17 @@ async def test_delete_raises_when_yaml_missing(
     """Missing YAML pre-check still fires before any cleanup runs."""
     controller = make_controller(tmp_path)
 
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._delete_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_delete_device_missing_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``, not internal_error."""
+    controller = make_controller(tmp_path)
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.delete_device(configuration="ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND

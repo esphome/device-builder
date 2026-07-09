@@ -316,8 +316,9 @@ async def test_archive_missing_file_raises_file_not_found(
     succeed.
     """
     controller = make_controller(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._archive_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
 async def test_archive_device_full_flow_calls_scanner(
@@ -389,14 +390,7 @@ async def test_list_archived_full_flow(
 async def test_archive_device_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client.
-
-    The internal ``_archive_single`` raises ``FileNotFoundError`` so
-    delete / archive symmetry is preserved at the helper level, but
-    the public ``archive_device`` wraps it so a stale dashboard
-    reference shows up as a clean ``not_found`` over the wire
-    instead of a generic ``internal_error``.
-    """
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client."""
     controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.archive_device(configuration="ghost.yaml")
@@ -471,8 +465,9 @@ async def test_unarchive_missing_archive_file_raises(
 ) -> None:
     """Unarchiving a name that isn't in the archive raises cleanly."""
     controller = make_controller(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._unarchive_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -661,19 +656,15 @@ async def test_delete_archived_missing_raises_file_not_found(
 ) -> None:
     """Permanent delete of a non-existent archive entry raises cleanly."""
     controller = make_controller(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._delete_archived_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
 async def test_delete_archived_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``.
-
-    Mirrors ``archive_device`` / ``unarchive_device`` — the helper
-    raises ``FileNotFoundError`` so internal callers can catch by
-    type, but the public command translates to a clean WS error.
-    """
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``."""
     controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.delete_archived(configuration="ghost.yaml")

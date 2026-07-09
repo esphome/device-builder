@@ -658,10 +658,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         is the catalog → YAML match key. See ``_archive_single``
         for the full keep / clear rationale.
         """
-        try:
-            await self._archive_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._archive_single(configuration)
         await self._scanner.scan()
 
     @api_command("devices/unarchive")
@@ -672,10 +669,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ``DEVICE_ADDED`` so the dashboard's active list refreshes
         without a manual reload.
         """
-        try:
-            await self._unarchive_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._unarchive_single(configuration)
         await self._scanner.scan()
 
     @api_command("devices/list_archived")
@@ -707,10 +701,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         when the archive entry is gone — symmetric with
         ``unarchive``.
         """
-        try:
-            await self._delete_archived_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._delete_archived_single(configuration)
 
     @api_command("devices/delete_bulk")
     async def delete_bulk(
