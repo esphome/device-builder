@@ -164,7 +164,8 @@ async def enqueue_install_or_defer(
     build_source: JobBuildSource,
     flash_bootloader: bool = False,
 ) -> FirmwareJob:
-    """Enqueue an install chain, or a deferred compile-only job when the OTA target is OFFLINE.
+    """
+    Enqueue an install chain, or a deferred compile-only job when the OTA target is OFFLINE.
 
     A deferred compile arms ``Device.queued_update`` on completion; the
     wake dispatch flashes an upload-only job when the device comes back.
