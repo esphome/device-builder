@@ -135,6 +135,7 @@ from esphome_device_builder.models import (  # noqa: E402
     LightEffectIndex,
     PinFeature,
     PinMode,
+    normalize_platform,
 )
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
@@ -4826,7 +4827,10 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
                 continue
             if value is vol.UNDEFINED or not _is_json_safe(value):
                 continue
-            per_platform[str(plat)] = value
+            # The catalog stays keyed on ``rp2040``; esphome 2026.7's
+            # ``SplitDefault(rp2=...)`` keys must fold onto it or the
+            # resolver never matches (see models/boards.py).
+            per_platform[normalize_platform(str(plat))] = value
         if per_platform:
             out[path] = per_platform
 

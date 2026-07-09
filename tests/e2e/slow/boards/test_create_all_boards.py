@@ -32,6 +32,7 @@ from esphome_device_builder.definitions import (
     load_board_index,
 )
 from esphome_device_builder.helpers.device_yaml import generate_device_yaml
+from tests.conftest import catalog_releases_ahead
 
 if TYPE_CHECKING:
     from esphome_device_builder.models import BoardCatalogEntry, ComponentCatalogEntry
@@ -102,6 +103,16 @@ def test_every_board_creates_a_valid_config() -> None:
         results = pool.map(_validate_board, board_ids, chunksize=1)
 
     failures = {board_id: errors for board_id, errors in results if errors}
+    # A board catalog generated from a newer esphome carries board ids the
+    # installed release doesn't know yet; only that error is skew, every
+    # other validation failure stays fatal. Strictness lives on the matrix
+    # leg whose esphome matches the catalog stamp.
+    if catalog_releases_ahead("boards.index.json") > 0:
+        failures = {
+            board_id: errors
+            for board_id, errors in failures.items()
+            if not all("This board is unknown" in err for err in errors)
+        }
     assert not failures, "boards fail ESPHome validation:\n" + "\n".join(
         f"{board_id}: {'; '.join(errs)}" for board_id, errs in sorted(failures.items())
     )

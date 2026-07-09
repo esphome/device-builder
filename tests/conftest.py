@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import re
 import sys
 import tempfile as _tempfile
 from collections.abc import Callable, Iterator
@@ -1041,3 +1043,25 @@ def record_argv_esphome(state: Any, argv_log: Path) -> None:
         "print('INFO ok')\n"
         "sys.exit(0)\n",
     ]
+
+
+def release_ordinal(version: str) -> int:
+    """Calendar-release ordinal (year*12 + month) of an esphome version string."""
+    m = re.match(r"(\d+)\.(\d+)", version)
+    assert m, f"unparsable esphome version: {version!r}"
+    return int(m.group(1)) * 12 + int(m.group(2))
+
+
+def catalog_releases_ahead(stamp_file: str = "components.index.json") -> int:
+    """
+    Calendar releases the committed catalog leads the installed esphome.
+
+    Negative = behind. *stamp_file* picks which committed index to read
+    (``boards.index.json`` for the board catalog).
+    """
+    from esphome.const import __version__ as esphome_version  # noqa: PLC0415
+
+    index = Path(__file__).resolve().parent.parent / "esphome_device_builder/definitions"
+    payload = json.loads((index / stamp_file).read_bytes())
+    stamp = payload.get("esphome_schema_version") or payload["esphome_version"]
+    return release_ordinal(stamp) - release_ordinal(esphome_version)
