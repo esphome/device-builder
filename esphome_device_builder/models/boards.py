@@ -35,8 +35,8 @@ class Connectivity(StrEnum):
     LORA = "lora"
 
 
-# Canonical and accepted-alias spellings of the RP2 platform key
-# (esphome#17145 rename); a canonical-key flip starts by swapping these.
+# Canonical and accepted-alias spellings of the RP2 platform key;
+# a canonical-key flip starts by swapping these values.
 RP2_CANONICAL_PLATFORM = "rp2040"
 RP2_ALIAS_PLATFORM = "rp2"
 

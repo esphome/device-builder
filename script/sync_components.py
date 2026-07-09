@@ -1288,11 +1288,11 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
 
 def _fold_rp2_component_alias(entries: list[dict]) -> None:
     """
-    Collapse esphome 2026.7's renamed ``rp2`` component onto the canonical ``rp2040``.
+    Collapse esphome 2026.7's renamed ``rp2`` component onto the canonical id.
 
-    The richer ``rp2`` schema is re-keyed, the alias shell dropped (its identity
-    fields kept), and ``dependencies`` folded so ``rp2040:`` blocks satisfy them.
-    The catalog stays keyed on ``rp2040`` — see ``normalize_platform``.
+    The richer renamed schema is re-keyed, the alias shell dropped (its
+    identity fields kept), and ``dependencies`` folded so blocks spelled with
+    the canonical key satisfy them — see ``normalize_platform``.
     """
     by_id = {entry["id"]: entry for entry in entries}
     if (rp2 := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
