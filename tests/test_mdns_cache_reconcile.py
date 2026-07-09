@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-from esphome.zeroconf import DEFAULT_TIMEOUT_MS
+import pytest
+from esphome import zeroconf as esphome_zeroconf
 from zeroconf import DNSText, current_time_millis
 from zeroconf.const import _CLASS_IN, _TYPE_TXT
 
@@ -192,4 +193,7 @@ def test_resolve_timeout_matches_upstream_default() -> None:
     in esphome >= 2025.5 while the declared floor is older; this pin
     catches upstream drift at CI time instead.
     """
-    assert mdns_module._MDNS_RESOLVE_TIMEOUT_MS == DEFAULT_TIMEOUT_MS
+    upstream = getattr(esphome_zeroconf, "DEFAULT_TIMEOUT_MS", None)
+    if upstream is None:
+        pytest.skip("installed esphome predates DEFAULT_TIMEOUT_MS")
+    assert upstream == mdns_module._MDNS_RESOLVE_TIMEOUT_MS

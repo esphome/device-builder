@@ -71,7 +71,7 @@ def test_select_targets_skips_non_api_device() -> None:
     assert monitor._api_info._select_targets() == []
 
 
-def test_select_targets_picks_uncompiledmake_online_api_device() -> None:
+def test_select_targets_picks_uncompiled_online_api_device() -> None:
     """An online ``api:`` device never compiled here (empty loaded_integrations) is still probed."""
     devices = [make_online_api_device(loaded_integrations=[])]  # api_enabled set from YAML scan
     monitor, _ = make_state_monitor_with_callbacks(devices)
@@ -582,6 +582,7 @@ async def test_sweep_reconciles_only_blank_online_api_devices() -> None:
         mac_address="94:C9:60:1F:8C:F1",
         deployed_version="2026.6.4",
         deployed_config_hash="abcd1234",
+        api_encryption_active="",
     )
     offline = make_online_api_device("dark", state=DeviceState.OFFLINE)
     no_api = make_online_api_device("web", api_enabled=False, loaded_integrations=["web_server"])
@@ -594,6 +595,26 @@ async def test_sweep_reconciles_only_blank_online_api_devices() -> None:
     await monitor._api_info._sweep()
 
     assert reconciled == ["blank"]
+
+
+async def test_sweep_reconciles_unknown_encryption_state_even_when_fields_full() -> None:
+    """mac+version+hash present but encryption never observed → reconcile runs, no API probe."""
+    device = make_online_api_device(
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.6.4",
+        deployed_config_hash="abcd1234",
+    )
+    assert device.api_encryption_active is None
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    fetch = AsyncMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+    fetch.assert_not_called()
 
 
 async def test_sweep_reconciles_missing_config_hash_even_when_not_api_due() -> None:

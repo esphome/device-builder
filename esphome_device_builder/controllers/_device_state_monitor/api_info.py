@@ -154,15 +154,21 @@ class ApiInfoSource:
     def _reconcile_from_mdns_cache(self, devices: list[Device]) -> None:
         """Re-apply cached TXT payloads for online API devices missing monitor fields."""
         monitor = self._monitor
-        # ``deployed_config_hash`` widens this gate beyond ``_is_due``'s
-        # mac+version: the cached TXT carries it but the API worker can't
-        # fetch it.
+        # ``deployed_config_hash`` and the ``api_encryption_active``
+        # tri-state (``None`` = never observed) widen this gate beyond
+        # ``_is_due``'s mac+version: the cached TXT carries them but the
+        # API worker can't fetch them.
         names = {
             device.name
             for device in devices
             if device.state is DeviceState.ONLINE
             and device.api_enabled
-            and not (device.mac_address and device.deployed_version and device.deployed_config_hash)
+            and (
+                device.api_encryption_active is None
+                or not (
+                    device.mac_address and device.deployed_version and device.deployed_config_hash
+                )
+            )
         }
         for name in sorted(names):
             monitor.reconcile_from_mdns_cache(name)
