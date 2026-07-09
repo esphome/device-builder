@@ -49,7 +49,6 @@ from esphome_device_builder.models.common import FieldPreset, PinFeature
 from script.sync_boards import (
     _LIBRETINY_FAMILIES,
     _NRF52_PLATFORM,
-    _RP2040_PLATFORM,
     _augment_rmii_data_pins,
     _augment_rp2040_onboard_ethernet_pins,
     _backfill_esp32_engineering_sample,
@@ -109,7 +108,7 @@ def test_split_artefacts_match_manifests() -> None:
     _stamp_featured_requires(from_yaml.boards)
     _consolidate_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
-    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
+    generated = set(_LIBRETINY_FAMILIES) | {"rp2040", _NRF52_PLATFORM, "esp32", "esp8266"}
     esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}

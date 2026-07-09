@@ -8,6 +8,7 @@ import string
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
+from ...models.boards import RP2_CANONICAL_PLATFORM
 from ..yaml import _safe_yaml_scalar, merge_component_yaml
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ _AP_SSID_MAX_LEN = 32
 # allowlist). The fallback is emitted only here; a bare ``ap:`` without
 # a portal can't recover credentials, so other platforms get neither.
 _CAPTIVE_PORTAL_PLATFORMS: frozenset[str] = frozenset(
-    {"esp8266", "esp32", "bk72xx", "ln882x", "rp2040", "rtl87xx"}
+    {"esp8266", "esp32", "bk72xx", "ln882x", RP2_CANONICAL_PLATFORM, "rtl87xx"}
 )
 
 # TODO comment block emitted by ``generate_device_yaml`` for
@@ -136,7 +137,7 @@ def _has_native_wifi(
     """
     if platform == "esp32":
         return not (variant and variant.lower() in _ESP32_NO_WIFI_VARIANTS)
-    if platform == "rp2040":
+    if platform == RP2_CANONICAL_PLATFORM:
         return board is None or board not in _RP2040_NO_WIFI_BOARDS
     return platform in _WIFI_FIRST_PLATFORMS
 

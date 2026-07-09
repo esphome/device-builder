@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-TARGET_PLATFORM = "rp2040"
+from ....models.boards import RP2_CANONICAL_PLATFORM
+
+TARGET_PLATFORM = RP2_CANONICAL_PLATFORM
 
 BUILD_FILES: tuple[str, ...] = (
     ".pioenvs/{name}/firmware.bin",

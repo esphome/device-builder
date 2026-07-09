@@ -121,6 +121,8 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
+    RP2_ALIAS_PLATFORM,
+    RP2_CANONICAL_PLATFORM,
     AutomationAction,
     AutomationActionIndex,
     AutomationCondition,
@@ -307,10 +309,10 @@ _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
-        ("rp2040", "board"),
+        (RP2_CANONICAL_PLATFORM, "board"),
         # esphome 2026.7's rename of the rp2040 component; extraction runs
-        # before ``_fold_rp2_component_alias`` re-keys it onto rp2040.
-        ("rp2", "board"),
+        # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
+        (RP2_ALIAS_PLATFORM, "board"),
     }
 )
 
@@ -1293,16 +1295,16 @@ def _fold_rp2_component_alias(entries: list[dict]) -> None:
     The catalog stays keyed on ``rp2040`` — see ``normalize_platform``.
     """
     by_id = {entry["id"]: entry for entry in entries}
-    if (rp2 := by_id.get("rp2")) is not None:
-        rp2["id"] = "rp2040"
-        if (shell := by_id.get("rp2040")) is not None:
+    if (rp2 := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
+        rp2["id"] = RP2_CANONICAL_PLATFORM
+        if (shell := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
             for key in ("name", "image_url", "category"):
                 if shell.get(key):
                     rp2[key] = shell[key]
             entries.remove(shell)
     for entry in entries:
         deps = entry.get("dependencies")
-        if deps and "rp2" in deps:
+        if deps and RP2_ALIAS_PLATFORM in deps:
             entry["dependencies"] = list(dict.fromkeys(normalize_platform(dep) for dep in deps))
 
 
@@ -3235,7 +3237,7 @@ def _emit_platform_capabilities_index() -> None:
     # dependent and stay out of the index — device-builder-helper handles them.
     sentinel = SimpleNamespace(name="{name}")
     download_types: dict[str, list[dict[str, str]]] = {}
-    for component in ("esp32", "esp8266", "rp2040"):
+    for component in ("esp32", "esp8266", RP2_CANONICAL_PLATFORM):
         module = importlib.import_module(f"esphome.components.{component}")
         download_types[component] = [
             {
@@ -4020,10 +4022,10 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     # them explicitly here makes the override authoritative.
     "esp32": "core",
     "esp8266": "core",
-    "rp2040": "core",
+    RP2_CANONICAL_PLATFORM: "core",
     # esphome 2026.7's rename of rp2040; extraction categorizes before
-    # ``_fold_rp2_component_alias`` re-keys the entry onto rp2040.
-    "rp2": "core",
+    # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
+    RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
     "rtl87xx": "core",
     "ln882x": "core",
@@ -4081,8 +4083,8 @@ _TARGET_PLATFORMS: frozenset[str] = frozenset(
     {
         "esp32",
         "esp8266",
-        "rp2",
-        "rp2040",
+        RP2_ALIAS_PLATFORM,
+        RP2_CANONICAL_PLATFORM,
         "bk72xx",
         "rtl87xx",
         "ln882x",
@@ -5782,7 +5784,7 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     for component, values in _logger.UART_SELECTION_LIBRETINY.items():
         add(component, values)
     add("esp8266", _logger.UART_SELECTION_ESP8266)
-    add("rp2040", _logger.UART_SELECTION_RP2040)
+    add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
     return out
 
@@ -5828,7 +5830,7 @@ def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
     esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
     return {
         "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
-        "rp2040": [{"label": t, "value": t} for t in sorted(rp2)],
+        RP2_CANONICAL_PLATFORM: [{"label": t, "value": t} for t in sorted(rp2)],
     }
 
 
