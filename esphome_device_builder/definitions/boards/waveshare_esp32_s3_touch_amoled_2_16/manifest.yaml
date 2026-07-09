@@ -20,6 +20,9 @@ hardware:
   - bluetooth
 tags:
 - display
+- speaker
+images:
+- https://www.waveshare.com/media/catalog/product/e/s/esp32-s3-touch-amoled-2.16-1.jpg
 docs_url: https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.16
 pins:
 - gpio: 0
