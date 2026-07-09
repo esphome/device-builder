@@ -236,7 +236,7 @@ async def test_get_component_bodies_omits_unknown_ids() -> None:
 async def test_get_component_bodies_resolves_rp2_alias() -> None:
     """A ``rp2`` request hydrates the canonical ``rp2040`` body, keyed as requested."""
     cat = ComponentCatalog()
-    cat.load()
+    await asyncio.to_thread(cat.load)
     bodies = await cat.get_component_bodies(component_ids=["rp2"])
     assert bodies["rp2"].id == "rp2040"
 
