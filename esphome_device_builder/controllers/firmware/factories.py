@@ -168,16 +168,24 @@ async def enqueue_install_or_defer(
 
     A deferred compile arms ``Device.queued_update`` on completion; the
     wake dispatch flashes an upload-only job when the device comes back.
+    A bootloader flash never defers — the wake dispatch re-uploads the
+    app, not the bootloader — so an OFFLINE device raises ``INVALID_ARGS``.
     """
     device = controller._device_for_configuration(configuration)
-    # Deferral gated ONLY on OFFLINE (not UNKNOWN startup states), OTA
-    # targets, and app images — the wake dispatch re-uploads the app,
-    # never a bootloader.
-    if port == OTA_PORT and not flash_bootloader and device and device.state == DeviceState.OFFLINE:
-        _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
-        job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
-        job.is_deferred_install = True
-        return await controller._enqueue(job)
+    # Deferral gated ONLY on OFFLINE, avoiding UNKNOWN startup states.
+    if device and device.state == DeviceState.OFFLINE:
+        # An explicit IP/hostname target doesn't make a known-OFFLINE
+        # device reachable, so the bootloader refusal skips the port gate.
+        if flash_bootloader:
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                "Bootloader update requires the device online",
+            )
+        if port == OTA_PORT:
+            _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
+            job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+            job.is_deferred_install = True
+            return await controller._enqueue(job)
     return await enqueue_install_chain(
         controller,
         configuration=configuration,

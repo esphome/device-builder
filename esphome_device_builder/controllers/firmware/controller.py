@@ -330,24 +330,12 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         _validate_upload_target(port, bootloader=bootloader)
         await self._validate_configuration_boundary(configuration)
 
-        device = self._device_for_configuration(configuration)
-        # No deferral for a bootloader flash — the wake dispatch re-uploads
-        # the app, not the bootloader — and an explicit IP/hostname target
-        # doesn't make a known-OFFLINE device reachable either.
-        if bootloader and device and device.state == DeviceState.OFFLINE:
-            raise CommandError(
-                ErrorCode.INVALID_ARGS,
-                "Bootloader update requires the device online",
-            )
-
         build_source = self._resolve_install_source(force_local=force_local)
         # Install is a compile + a dependent local upload. The compile (local
         # or dispatched to a receiver) materialises the binary locally; the
         # upload then flashes on the upload lane, freeing the compile lane to
         # build the next device — so a slow flash never blocks a compile, and
-        # a remote receiver keeps compiling while we upload locally. An
-        # OFFLINE OTA target defers to a compile-only job that flashes on
-        # the device's next wake.
+        # a remote receiver keeps compiling while we upload locally.
         return await factories.enqueue_install_or_defer(
             self,
             configuration=configuration,

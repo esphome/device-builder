@@ -146,8 +146,6 @@ async def install_bulk(
             # A chain (COMPILE + dependent UPLOAD) per device, same as single
             # install — so device B's compile pipelines against device A's
             # upload instead of a fused job pinning both to the compile lane.
-            # An OFFLINE OTA target defers to a compile-only job that flashes
-            # on the device's next wake, instead of a doomed upload (#1928).
             job = await factories.enqueue_install_or_defer(
                 controller, configuration=config, port=port, build_source=build_source
             )
