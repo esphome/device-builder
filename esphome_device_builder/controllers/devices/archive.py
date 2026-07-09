@@ -68,6 +68,10 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
             await run_in_executor(_archive_sync)
         except FileExistsError as exc:
             raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+        except FileNotFoundError as exc:
+            # A concurrent delete can win between the pre-check and the
+            # move; keep the not_found surface stable.
+            raise CommandError(ErrorCode.NOT_FOUND, f"File not found: {configuration}") from exc
         # Drop volatile fields across both stores: live mDNS state and
         # build-dir caches in the data_dir store, plus ``mac_address``
         # in the shared sidecar (intrinsic to the physical board, but
@@ -101,6 +105,11 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
         await run_in_executor(_unarchive_sync)
     except FileExistsError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    except FileNotFoundError as exc:
+        # A concurrent delete can win between the pre-check and the move.
+        raise CommandError(
+            ErrorCode.NOT_FOUND, f"Archived file not found: {configuration}"
+        ) from exc
 
 
 def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
@@ -156,7 +165,13 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         unlink_compiled_config(configuration)
         return True
 
-    sidecars_purged = await run_in_executor(_delete_all)
+    try:
+        sidecars_purged = await run_in_executor(_delete_all)
+    except FileNotFoundError as exc:
+        # A concurrent delete can win between the pre-check and the unlink.
+        raise CommandError(
+            ErrorCode.NOT_FOUND, f"Archived file not found: {configuration}"
+        ) from exc
     if sidecars_purged:
         # Drop the per-device metadata entry (both the store +
         # shared identity sidecar) on the event loop side and

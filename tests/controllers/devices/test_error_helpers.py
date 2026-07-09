@@ -46,7 +46,7 @@ def test_require_file_exists_passes_when_present(tmp_path: Path) -> None:
 def test_require_file_exists_raises_when_absent(tmp_path: Path) -> None:
     with pytest.raises(CommandError, match=re.escape("File not found: living.yaml")) as exc_info:
         require_file_exists(tmp_path / "living.yaml", "living.yaml")
-    assert exc_info.value.code == ErrorCode.NOT_FOUND
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
 
 
 def test_require_file_exists_archived_prefix(tmp_path: Path) -> None:
@@ -54,4 +54,4 @@ def test_require_file_exists_archived_prefix(tmp_path: Path) -> None:
         CommandError, match=re.escape("Archived file not found: living.yaml")
     ) as exc_info:
         require_file_exists(tmp_path / "living.yaml", "living.yaml", archived=True)
-    assert exc_info.value.code == ErrorCode.NOT_FOUND
+    assert exc_info.value.code is ErrorCode.NOT_FOUND

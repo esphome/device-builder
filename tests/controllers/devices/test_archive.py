@@ -30,6 +30,7 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
+from esphome_device_builder.controllers.devices import archive as archive_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_artifacts import unlink_storage_sidecar
 from esphome_device_builder.models import ErrorCode
@@ -318,6 +319,22 @@ async def test_archive_missing_file_raises_not_found(
     controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc_info:
         await controller._archive_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_archive_concurrent_delete_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: Any
+) -> None:
+    """A YAML vanishing between the pre-check and the move still surfaces NOT_FOUND."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+
+    def _vanished(*_args: Any) -> None:
+        raise FileNotFoundError("gone mid-archive")
+
+    monkeypatch.setattr(archive_module.shutil, "move", _vanished)
+    with pytest.raises(CommandError) as exc_info:
+        await controller.archive_device(configuration="kitchen.yaml")
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
