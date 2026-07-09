@@ -7181,15 +7181,20 @@ def _apply_automation_required_groups(
 
     Mirrors the component path's ``_apply_required_groups``: members are
     promoted off ``advanced`` and their descriptions gain the constraint hint.
+    Members also drop per-field ``required`` — the group is the requirement,
+    but the bundle stamps ``Required`` on a preferred alias (``action`` on
+    ``homeassistant.service``), which would flag a legitimately blank sibling.
     """
     for entry in entries:
         groups = _automation_required_groups(group_index, entry["id"], entry["config_entries"])
         if not groups:
             continue
-        entry["config_entries"] = [
-            _strip_entry_defaults(e)
-            for e in _promote_constraint_members(entry["config_entries"], groups)
-        ]
+        members = {key for g in groups for key in g["keys"]}
+        promoted = _promote_constraint_members(entry["config_entries"], groups)
+        for e in promoted:
+            if e["key"] in members:
+                e["required"] = False
+        entry["config_entries"] = [_strip_entry_defaults(e) for e in promoted]
         entry["required_groups"] = groups
         _annotate_constraint_descriptions(entry)
 

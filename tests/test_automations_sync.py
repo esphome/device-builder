@@ -982,6 +982,43 @@ def test_build_automations_stamps_registry_required_groups(tmp_path: Path) -> No
     )
 
 
+def test_build_automations_clears_required_on_group_members(tmp_path: Path) -> None:
+    """A bundle-Required member of an exactly-one group loses per-field required."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "homeassistant.json",
+        {
+            "homeassistant": {
+                "action": {
+                    "service": {
+                        "schema": {
+                            "config_vars": {
+                                "action": {"key": "Required", "type": "string"},
+                                "service": {"key": "Optional", "type": "string"},
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "Call a Home Assistant action.",
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir,
+        component_ids=set(),
+        registry_groups={
+            "action": {
+                "homeassistant.service": [{"kind": "exactly_one", "keys": ["service", "action"]}],
+            },
+        },
+    )
+    action = next(a for a in result["actions"] if a["id"] == "homeassistant.service")
+    by_key = {e["key"]: e for e in action["config_entries"]}
+    assert not by_key["action"].get("required")
+    assert not by_key["service"].get("required")
+
+
 def test_build_automations_without_registry_groups_keeps_optional_fields_advanced(
     tmp_path: Path,
 ) -> None:
