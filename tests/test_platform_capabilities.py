@@ -11,7 +11,6 @@ start) lives in test_cold_import_floor.py.
 from __future__ import annotations
 
 import importlib
-import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,7 +19,6 @@ from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
 from esphome.components.rp2040.boards import BOARDS
 from esphome.components.wifi import NO_WIFI_VARIANTS
-from esphome.const import __version__ as _esphome_version
 
 from esphome_device_builder.definitions import (
     PlatformCapabilities,
@@ -29,27 +27,9 @@ from esphome_device_builder.definitions import (
     load_platform_capabilities_index,
 )
 
+from .conftest import catalog_releases_ahead as _catalog_releases_ahead
+
 _EMPTY = PlatformCapabilities([], [], [], [], {}, [])
-
-_COMPONENTS_INDEX = (
-    Path(__file__).resolve().parent.parent
-    / "esphome_device_builder"
-    / "definitions"
-    / "components.index.json"
-)
-
-
-def _release_ordinal(version: str) -> int:
-    """Calendar-release ordinal (year*12 + month) of an esphome version string."""
-    m = re.match(r"(\d+)\.(\d+)", version)
-    assert m, f"unparsable esphome version: {version!r}"
-    return int(m.group(1)) * 12 + int(m.group(2))
-
-
-def _catalog_releases_ahead() -> int:
-    """Calendar releases the committed catalog leads the installed esphome (negative = behind)."""
-    schema_version = orjson.loads(_COMPONENTS_INDEX.read_bytes())["esphome_schema_version"]
-    return _release_ordinal(schema_version) - _release_ordinal(_esphome_version)
 
 
 def test_loader_returns_known_platforms() -> None:
@@ -57,7 +37,12 @@ def test_loader_returns_known_platforms() -> None:
     caps = load_platform_capabilities_index()
     assert "ESP32" in caps.esp32_variants
     assert "ESP32S3" in caps.esp32_variants
-    assert set(caps.esp32_no_wifi_variants) == {"ESP32H2", "ESP32P4"}
+    # Subset, not equality — upstream grows the no-wifi set (2026.7 added
+    # ESP32H21 / ESP32H4); pin the stable members plus wifi-capable
+    # exclusions so a new variant doesn't churn this smoke test.
+    assert {"ESP32H2", "ESP32P4"} <= set(caps.esp32_no_wifi_variants)
+    assert "ESP32" not in caps.esp32_no_wifi_variants
+    assert "ESP32S3" not in caps.esp32_no_wifi_variants
     assert "bk72xx" in caps.libretiny_families
     # Plain Pico has no native wifi; the Pico W is absent from the no-wifi set.
     assert "rpipico" in caps.rp2040_no_wifi_boards
