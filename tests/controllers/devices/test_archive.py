@@ -338,6 +338,42 @@ async def test_archive_concurrent_delete_surfaces_not_found(
     assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
+async def test_unarchive_concurrent_delete_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: Any
+) -> None:
+    """An archive entry vanishing between the pre-check and the move still surfaces NOT_FOUND."""
+    controller = make_controller(tmp_path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+
+    def _vanished(*_args: Any) -> None:
+        raise FileNotFoundError("gone mid-unarchive")
+
+    monkeypatch.setattr(archive_module.shutil, "move", _vanished)
+    with pytest.raises(CommandError) as exc_info:
+        await controller.unarchive_device(configuration="kitchen.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_delete_archived_concurrent_delete_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: Any
+) -> None:
+    """An archive entry vanishing between the pre-check and the unlink still surfaces NOT_FOUND."""
+    controller = make_controller(tmp_path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+
+    def _vanished(*_args: Any, **_kwargs: Any) -> None:
+        raise FileNotFoundError("gone mid-delete")
+
+    monkeypatch.setattr(Path, "unlink", _vanished)
+    with pytest.raises(CommandError) as exc_info:
+        await controller.delete_archived(configuration="kitchen.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
 async def test_archive_device_full_flow_calls_scanner(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
