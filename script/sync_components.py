@@ -7036,7 +7036,6 @@ def build_automations(  # noqa: C901
                     name=name,
                     body=body,
                     schema_dir=schema_dir,
-                    group_index=(registry_groups or {}).get("action"),
                 )
                 if entry is not None:
                     actions.append(entry)
@@ -7048,7 +7047,6 @@ def build_automations(  # noqa: C901
                     name=name,
                     body=body,
                     schema_dir=schema_dir,
-                    group_index=(registry_groups or {}).get("condition"),
                 )
                 if entry is not None:
                     conditions.append(entry)
@@ -7087,10 +7085,15 @@ def build_automations(  # noqa: C901
                 )
             )
 
+    actions = _dedupe_by_id(actions)
+    conditions = _dedupe_by_id(conditions)
+    groups_by_type = registry_groups or {}
+    _apply_automation_required_groups(actions, groups_by_type.get("action"))
+    _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
     return {
         "triggers": _dedupe_by_id(triggers),
-        "actions": _dedupe_by_id(actions),
-        "conditions": _dedupe_by_id(conditions),
+        "actions": actions,
+        "conditions": conditions,
         "light_effects": _dedupe_by_id(effects),
         "filters": _dedupe_filters(filters),
     }
@@ -7152,10 +7155,33 @@ def _automation_required_groups(
     ``then`` / ``condition`` groups live on the control-flow editor,
     not the params form.
     """
-    if not group_index:
+    groups = (group_index or {}).get(qualified)
+    if not groups:
         return []
     keys = {e["key"] for e in config_entries}
-    return [dict(g) for g in group_index.get(qualified, []) if all(k in keys for k in g["keys"])]
+    return [dict(g) for g in groups if all(k in keys for k in g["keys"])]
+
+
+def _apply_automation_required_groups(
+    entries: list[dict],
+    group_index: dict[str, list[dict[str, Any]]] | None,
+) -> None:
+    """
+    Stamp live-registry ``required_groups`` onto built actions / conditions.
+
+    Mirrors the component path's ``_apply_required_groups``: members are
+    promoted off ``advanced`` and their descriptions gain the constraint hint.
+    """
+    for entry in entries:
+        groups = _automation_required_groups(group_index, entry["id"], entry["config_entries"])
+        if not groups:
+            continue
+        entry["config_entries"] = [
+            _strip_entry_defaults(e)
+            for e in _promote_constraint_members(entry["config_entries"], groups)
+        ]
+        entry["required_groups"] = groups
+        _annotate_constraint_descriptions(entry)
 
 
 def _convert_automation_action(
@@ -7166,7 +7192,6 @@ def _convert_automation_action(
     name: str,
     body: dict,
     schema_dir: Path,
-    group_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict | None:
     """Build one ``AutomationAction`` dict from a schema registry entry."""
     if not isinstance(body, dict):
@@ -7194,10 +7219,7 @@ def _convert_automation_action(
         body=body,
         schema_dir=schema_dir,
     )
-    required_groups = _automation_required_groups(group_index, qualified, config_entries)
-    if required_groups:
-        config_entries = _promote_constraint_members(config_entries, required_groups)
-    entry = {
+    return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
         "description": docs.text,
@@ -7209,10 +7231,6 @@ def _convert_automation_action(
         "accepts_action_list": accepts_action_list,
         "scalar_shorthand_key": scalar_shorthand_key,
     }
-    if required_groups:
-        entry["required_groups"] = required_groups
-        _annotate_constraint_descriptions(entry)
-    return entry
 
 
 def _convert_automation_condition(
@@ -7223,7 +7241,6 @@ def _convert_automation_condition(
     name: str,
     body: dict,
     schema_dir: Path,
-    group_index: dict[str, list[dict[str, Any]]] | None = None,
 ) -> dict | None:
     """Build one ``AutomationCondition`` dict from a schema registry entry."""
     if not isinstance(body, dict):
@@ -7249,10 +7266,7 @@ def _convert_automation_condition(
         body=body,
         schema_dir=schema_dir,
     )
-    required_groups = _automation_required_groups(group_index, qualified, config_entries)
-    if required_groups:
-        config_entries = _promote_constraint_members(config_entries, required_groups)
-    entry = {
+    return {
         "id": qualified,
         "name": _automation_label(domain, name, docs.name),
         "description": docs.text,
@@ -7262,10 +7276,6 @@ def _convert_automation_condition(
         "accepts_condition_list": accepts_condition_list,
         "scalar_shorthand_key": scalar_shorthand_key,
     }
-    if required_groups:
-        entry["required_groups"] = required_groups
-        _annotate_constraint_descriptions(entry)
-    return entry
 
 
 def _scalar_shorthand_key(body: dict, schema_dir: Path) -> str | None:
