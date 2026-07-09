@@ -15,6 +15,9 @@ class _DevicesController:
     def get_devices(self) -> list[Device]:
         return self._devices
 
+    def get_by_configuration(self, configuration: str) -> Device | None:
+        return next((d for d in self._devices if d.configuration == configuration), None)
+
 
 def _device(
     configuration: str,

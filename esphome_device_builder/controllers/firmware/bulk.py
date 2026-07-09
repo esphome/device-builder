@@ -130,6 +130,8 @@ async def install_bulk(
 
     ``port`` is shared across every queued job — pass an explicit IP
     only when every device should install against the same target.
+    An OFFLINE device with an OTA target queues a deferred compile-only
+    job (flashed on its next wake) instead of a chain.
     Per-device errors skip that device and keep going; a fleet-wide
     ``NO_COMPATIBLE_PEER`` (``EXACT_REQUIRED`` with no eligible
     peer) re-raises so the operator gets one consolidated error
@@ -144,7 +146,9 @@ async def install_bulk(
             # A chain (COMPILE + dependent UPLOAD) per device, same as single
             # install — so device B's compile pipelines against device A's
             # upload instead of a fused job pinning both to the compile lane.
-            job = await factories.enqueue_install_chain(
+            # An OFFLINE OTA target defers to a compile-only job that flashes
+            # on the device's next wake, instead of a doomed upload (#1928).
+            job = await factories.enqueue_install_or_defer(
                 controller, configuration=config, port=port, build_source=build_source
             )
         except CommandError as exc:

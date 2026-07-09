@@ -159,7 +159,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 | `firmware/clear_queued_update` | `{configuration}` | — | Clears a staged offline update for a device that hasn't woken up yet. |
 | `firmware/reset_build_env` | — | `FirmwareJob` | Queue full reset of `.esphome/` build dirs and PIO cache. **Cancels every in-flight job on both lanes first** (the wipe trashes the whole tree, which a concurrent compile or upload would race). |
 | `firmware/compile_bulk` | `{configurations: string[]}` | `[FirmwareJob]` | Queue multiple compiles |
-| `firmware/install_bulk` | `{configurations: string[], port?: "OTA" \| serial \| ip \| hostname}` | `[FirmwareJob]` | Queue multiple installs. `port` defaults to `"OTA"` and is shared across every queued job — almost always callers want that default rather than a single explicit target across the fleet. Same `port` validation as `firmware/install`. |
+| `firmware/install_bulk` | `{configurations: string[], port?: "OTA" \| serial \| ip \| hostname}` | `[FirmwareJob]` | Queue multiple installs. `port` defaults to `"OTA"` and is shared across every queued job — almost always callers want that default rather than a single explicit target across the fleet. Same `port` validation as `firmware/install`, and the same OFFLINE deferral: an OFFLINE device with an `"OTA"` target queues a single deferred `COMPILE` job that flashes on the device's next wake, instead of a chain whose upload would fail. |
 | `firmware/get_jobs` | `{status?, configuration?}` | `[FirmwareJob]` | List jobs with filters |
 | `firmware/get_job` | `{job_id}` | `FirmwareJob` | Get job with full output |
 | `firmware/follow_job` | `{job_id}` | Streaming | Historical output + live stream for one job |
