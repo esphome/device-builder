@@ -305,7 +305,7 @@ async def test_archive_collision_raises_invalid_args(
     assert (tmp_path / "kitchen.yaml").read_text() == "second version\n"
 
 
-async def test_archive_missing_file_raises_file_not_found(
+async def test_archive_missing_file_raises_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """An archive of a non-existent configuration raises cleanly.
@@ -651,7 +651,7 @@ async def test_delete_archived_succeeds_without_sidecars(
     assert not (archive_dir / "kitchen.yaml").exists()
 
 
-async def test_delete_archived_missing_raises_file_not_found(
+async def test_delete_archived_missing_raises_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """Permanent delete of a non-existent archive entry raises cleanly."""
