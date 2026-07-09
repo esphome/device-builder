@@ -183,7 +183,7 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
 
     # Public port bound on all interfaces.
     assert captured["port"] == 6052
-    assert captured["host"] == [] if unix_socket else ["0.0.0.0"]
+    assert captured["host"] == ([] if unix_socket else ["0.0.0.0"])
     assert captured["path"] == unix_socket
     # Not a trusted site: the WS origin/Host gate stays active (auth is a no-op
     # without a password), so a plain cross-origin drive-by is still rejected.
@@ -326,7 +326,7 @@ def test_ha_addon_with_password_binds_public_site_normally(
 
     # Public port bound (auth gates it via using_password).
     assert captured["port"] == 6052
-    assert captured["host"] == [] if unix_socket else ["0.0.0.0"]
+    assert captured["host"] == ([] if unix_socket else ["0.0.0.0"])
     assert captured["path"] == unix_socket
     assert captured["trusted"] is False
 
@@ -365,7 +365,7 @@ def test_non_ha_addon_binds_public_site_normally(
     # Public port bound — non-add-on deployments get the legacy
     # default of "no auth required, user opts in via PASSWORD".
     assert captured["port"] == 6052
-    assert captured["host"] == [] if unix_socket else ["0.0.0.0"]
+    assert captured["host"] == ([] if unix_socket else ["0.0.0.0"])
     assert captured["path"] == unix_socket
     # We own the stop signal end-to-end (see DeviceBuilder.run); aiohttp
     # must not install its own handler.
