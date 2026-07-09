@@ -890,7 +890,7 @@ class DeviceBuilder:
         _LOGGER.warning(
             "\n%s\n"
             " FRONT DOOR OPEN: external authentication is DISABLED.\n"
-            " The dashboard is serving on %s:%d with NO authentication.\n"
+            " The dashboard is serving on %s%s%s with NO authentication.\n"
             " ANYONE on your network can flash firmware and run code on this host.\n"
             ' You enabled this with the add-on option "Disable external\n'
             ' authentication" (leave_front_door_open) plus a mapped port %d.\n'
@@ -898,8 +898,9 @@ class DeviceBuilder:
             " Turn that option OFF (or unmap the port) for ingress-only access.\n"
             "%s",
             banner,
-            settings.host,
-            settings.port,
+            settings.unix_socket or settings.host,
+            "" if settings.unix_socket else ":",
+            "" if settings.unix_socket else settings.port,
             settings.port,
             banner,
         )
