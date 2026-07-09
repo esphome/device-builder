@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Iterator
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
@@ -408,12 +408,20 @@ def upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> Firmw
 
 @dataclass
 class StubDevices:
-    """Narrow ``DevicesController`` stand-in returning empty cache args.
+    """Narrow ``DevicesController`` stand-in: empty cache args, optional device catalog.
 
     The runner's ``_build_cache_args`` calls ``get_address_cache_args`` /
     ``get_ota_address_cache_args`` on the install / upload / rename paths;
-    returning ``[]`` keeps the build command shape minimal.
+    returning ``[]`` keeps the build command shape minimal. ``devices``
+    backs ``get_devices`` / ``get_by_configuration`` for tests driving
+    the bulk ordering or the offline-deferral device lookup.
     """
+
+    devices: list[Any] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Build the configuration-keyed index, mirroring production's O(1) lookup."""
+        self._by_configuration = {d.configuration: d for d in self.devices}
 
     def get_address_cache_args(self, _configuration: str) -> list[str]:
         return []
@@ -421,14 +429,11 @@ class StubDevices:
     def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
         return []
 
-    def get_devices(self) -> list:
-        """Return an empty list to satisfy the offline queue discovery checks."""
-        return []
+    def get_devices(self) -> list[Any]:
+        return self.devices
 
     def get_by_configuration(self, configuration: str) -> Any | None:
-        """Test double for the O(1) shadow index lookup."""
-        # The stub holds no devices (get_devices returns []), so lookups safely yield None.
-        return None
+        return self._by_configuration.get(configuration)
 
 
 def wire_devices(controller: FirmwareController) -> None:

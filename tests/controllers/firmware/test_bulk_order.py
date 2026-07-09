@@ -5,18 +5,7 @@ from __future__ import annotations
 from esphome_device_builder.controllers.firmware.bulk import _esphome_version_sort_key
 from esphome_device_builder.models import Device, JobType
 from tests.conftest import make_device
-from tests.controllers.firmware.conftest import FirmwareControllerFactory
-
-
-class _DevicesController:
-    def __init__(self, devices: list[Device]) -> None:
-        self._devices = devices
-
-    def get_devices(self) -> list[Device]:
-        return self._devices
-
-    def get_by_configuration(self, configuration: str) -> Device | None:
-        return next((d for d in self._devices if d.configuration == configuration), None)
+from tests.controllers.firmware.conftest import FirmwareControllerFactory, StubDevices
 
 
 def _device(
@@ -44,7 +33,7 @@ async def test_install_bulk_queues_stale_devices_before_pending_changes(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device("current.yaml"),
             _device("pending.yaml", has_pending_changes=True),
@@ -87,7 +76,7 @@ async def test_bulk_order_preserves_tail_input_order(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device("current-a.yaml", deployed_version="2026.5.0"),
             _device("current-b.yaml", deployed_version="2026.5.0"),
@@ -119,7 +108,7 @@ async def test_bulk_order_keeps_newer_deployed_versions_in_tail(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device(
                 "newer.yaml",
@@ -149,7 +138,7 @@ async def test_bulk_order_uses_update_available_as_stale_gate(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device(
                 "behind-but-not-flagged.yaml",
@@ -177,7 +166,7 @@ async def test_bulk_order_sorts_prerelease_numbers_numerically(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device(
                 "beta-10.yaml",
@@ -203,7 +192,7 @@ async def test_bulk_order_keeps_missing_versions_out_of_stale_bucket(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device("missing-deployed.yaml", deployed_version="", update_available=True),
             _device(
@@ -238,7 +227,7 @@ async def test_bulk_order_treats_unknown_deployed_version_as_oldest_stale(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device(
                 "local-build.yaml",
@@ -262,7 +251,7 @@ async def test_compile_bulk_uses_stale_first_order(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     controller = firmware_controller_factory(with_queue=True)
-    controller._db.devices = _DevicesController(
+    controller._db.devices = StubDevices(
         [
             _device("fresh.yaml"),
             _device("old.yaml", deployed_version="2025.1.0", update_available=True),
