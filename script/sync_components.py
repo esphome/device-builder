@@ -1205,6 +1205,7 @@ def build_catalog(
     """Walk every schema file and produce ConfigCatalogEntry-shaped dicts."""
     index = load_index(schema_dir)
     image_map = load_image_map()
+    _require_image_map(image_map)
     out: list[dict] = []
     for path in iter_schema_files(schema_dir):
         try:
@@ -2058,6 +2059,24 @@ def load_image_map() -> dict[str, str]:
             out.setdefault(parts[1], _IMAGE_BASE_URL + image)
     _LOGGER.info("Image map built: %d components", len(out))
     return out
+
+
+# Common components whose docs-index image has shipped for years. Any of
+# them missing from the map means the index fetch failed or its format
+# drifted, not an upstream image removal — emitting anyway strips
+# ``image_url`` catalog-wide (#1911 shipped that way).
+_IMAGE_MAP_SENTINELS = ("wifi", "i2c", "sensor.dht")
+
+
+def _require_image_map(image_map: dict[str, str]) -> None:
+    """Fail the sync loudly when the docs image map lacks a sentinel component."""
+    missing = [cid for cid in _IMAGE_MAP_SENTINELS if cid not in image_map]
+    if missing:
+        raise SystemExit(
+            f"Docs image map is missing {missing} — the components/index.mdx fetch "
+            "failed or its format drifted. Fix the fetch (or update "
+            "_IMAGE_MAP_SENTINELS if the docs page really dropped these) and re-run."
+        )
 
 
 def build_entries_from_file(

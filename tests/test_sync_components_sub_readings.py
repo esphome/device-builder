@@ -16,6 +16,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _mark_platform_domains_multi_conf,
     _multi_instance_targets,
     _require_component_categories,
+    _require_image_map,
     _resolve_auto_load,
     load_index,
 )
@@ -245,6 +246,23 @@ def test_require_component_categories_fails_loud_on_unknown_domain() -> None:
     """A new upstream domain without an enum member kills the sync, naming it."""
     with pytest.raises(SystemExit, match="brand_new_domain"):
         _require_component_categories(frozenset({"sensor", "brand_new_domain"}))
+
+
+def test_require_image_map_passes_with_sentinels_present() -> None:
+    """A map carrying every sentinel component sails through."""
+    _require_image_map({"wifi": "u", "i2c": "u", "sensor.dht": "u", "servo": "u"})
+
+
+def test_require_image_map_fails_loud_on_missing_sentinel() -> None:
+    """A map missing a common component kills the sync, naming it."""
+    with pytest.raises(SystemExit, match=r"sensor\.dht"):
+        _require_image_map({"wifi": "u", "i2c": "u"})
+
+
+def test_require_image_map_fails_loud_on_empty_map() -> None:
+    """A failed docs-index fetch (empty map) refuses to strip images catalog-wide (#1911)."""
+    with pytest.raises(SystemExit, match="wifi"):
+        _require_image_map({})
 
 
 def test_load_index_refuses_bundle_without_platforms(tmp_path: Path) -> None:
