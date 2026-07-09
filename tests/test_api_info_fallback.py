@@ -99,12 +99,30 @@ def test_select_targets_skips_when_only_local_hostname_known() -> None:
     assert monitor._api_info._select_targets() == []
 
 
-def test_select_targets_skips_when_mdns_owns_state() -> None:
-    """MDNS is reaching this device → it gets mac/version for free; don't probe."""
+def test_select_targets_picks_mdns_owned_device_missing_fields() -> None:
+    """MDNS ownership proves a resolve, not an applied TXT — a blank device is still due."""
     devices = [_online_api_device()]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
+
+
+def test_select_targets_skips_forced_reprobe_when_mdns_owns_state() -> None:
+    """A forced re-probe of a fully-populated device defers to a live mDNS announce."""
+    devices = [_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    monitor._api_info.request_reprobe("kitchen")
     assert monitor._api_info._select_targets() == []
+
+
+def test_select_targets_picks_forced_reprobe_when_ping_owned() -> None:
+    """A forced re-probe runs when mDNS isn't reaching the device."""
+    devices = [_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    monitor._api_info.request_reprobe("kitchen")
+    assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
 
 
 def test_select_targets_picks_when_online_via_ping_not_mdns() -> None:
@@ -374,19 +392,43 @@ async def test_sweep_prunes_cooldown_for_removed_devices() -> None:
 # ----------------------------------------------------------------------
 
 
-async def test_run_disabled_when_aioesphomeapi_missing(monkeypatch: Any) -> None:
-    """No aioesphomeapi installed → the loop returns immediately, never sweeping."""
+async def test_run_without_aioesphomeapi_still_sweeps(monkeypatch: Any) -> None:
+    """No aioesphomeapi installed → the loop still runs (the cache reconcile needs no worker)."""
     monitor, _ = make_state_monitor_with_callbacks([_online_api_device()])
+    src = monitor._api_info
     monkeypatch.setattr(
         "esphome_device_builder.controllers._device_state_monitor.api_info.importlib.util.find_spec",
         lambda _name: None,
     )
+    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
     sweep = AsyncMock()
-    monitor._api_info._sweep = sweep  # type: ignore[method-assign]
 
-    await monitor._api_info.run()
+    async def _idle() -> None:
+        raise asyncio.CancelledError
 
-    sweep.assert_not_called()
+    src._sweep = sweep  # type: ignore[method-assign]
+    src._idle = _idle  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await src.run()
+
+    sweep.assert_called_once()
+    assert src._api_available is False
+
+
+async def test_sweep_without_aioesphomeapi_reconciles_but_never_connects() -> None:
+    """The API-connect stage is gated on aioesphomeapi; the cache reconcile is not."""
+    monitor, _ = make_state_monitor_with_callbacks([_online_api_device()])
+    src = monitor._api_info
+    src._api_available = False
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    src._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await src._sweep()
+
+    assert reconciled == ["kitchen"]
+    src._fetch.assert_not_called()
 
 
 async def test_run_sweeps_then_idles(monkeypatch: Any) -> None:
@@ -513,6 +555,76 @@ async def test_sweep_noop_when_no_targets() -> None:
     monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
     await monitor._api_info._sweep()
     monitor._api_info._fetch.assert_not_called()
+
+
+async def test_sweep_skips_api_probe_when_cache_reconcile_fills_fields() -> None:
+    """A device the zeroconf cache repairs drops out before the API-connect stage."""
+    device = _online_api_device()
+    monitor, _ = make_state_monitor_with_callbacks([device])
+
+    def _fill(_name: str) -> None:
+        device.mac_address = "94:C9:60:1F:8C:F1"
+        device.deployed_version = "2026.6.4"
+        device.deployed_config_hash = "abcd1234"
+
+    monitor.reconcile_from_mdns_cache = _fill  # type: ignore[method-assign]
+    monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    monitor._api_info._fetch.assert_not_called()
+
+
+async def test_sweep_probes_when_cache_reconcile_cannot_fill() -> None:
+    """A cache miss leaves the device due; the API-connect stage still runs."""
+    monitor, _ = make_state_monitor_with_callbacks([_online_api_device()])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    fetch = AsyncMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+    fetch.assert_called_once()
+
+
+async def test_sweep_reconciles_only_blank_online_api_devices() -> None:
+    """Fully-populated, offline, and non-API devices skip the reconcile pass."""
+    populated = _online_api_device(
+        "full",
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.6.4",
+        deployed_config_hash="abcd1234",
+    )
+    offline = _online_api_device("dark", state=DeviceState.OFFLINE)
+    no_api = _online_api_device("web", api_enabled=False, loaded_integrations=["web_server"])
+    blank = _online_api_device("blank")
+    monitor, _ = make_state_monitor_with_callbacks([populated, offline, no_api, blank])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["blank"]
+
+
+async def test_sweep_reconciles_missing_config_hash_even_when_not_api_due() -> None:
+    """mac+version present but no config_hash → cache reconcile runs, API probe doesn't."""
+    device = _online_api_device(
+        mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.4", deployed_config_hash=""
+    )
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    fetch = AsyncMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+    fetch.assert_not_called()
 
 
 async def test_sweep_caps_probes_per_sweep(monkeypatch: Any) -> None:

@@ -479,6 +479,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """Eagerly resolve a device's ``_esphomelib._tcp.local.`` service."""
         self._importable.probe_device(device_name, service_name)
 
+    def reconcile_from_mdns_cache(self, device_name: str) -> None:
+        """Re-apply the zeroconf-cached TXT payload; never claims state or IP."""
+        self._mdns.reconcile_from_cache(device_name)
+
     def probe_device_ping(self, device_name: str) -> None:
         """
         Wake the ICMP sweep loop when *device_name* warrants a probe.

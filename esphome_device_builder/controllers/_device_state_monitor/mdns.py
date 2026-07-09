@@ -44,7 +44,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_MDNS_RESOLVE_TIMEOUT_MS = 2000
+# Matches upstream esphome's ``zeroconf.DEFAULT_TIMEOUT`` — slow ESP32/ESP8266
+# nodes routinely need most of it, and ``async_request`` keeps re-querying the
+# wire inside the window, so a short one-shot silently drops their announce.
+_MDNS_RESOLVE_TIMEOUT_MS = 10_000
 
 # Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
 # hang on a wedged socket; shutdown must not block on it.
@@ -278,6 +281,23 @@ class MdnsSource:
         addresses = info.parsed_scoped_addresses(IPVersion.All)
         return addresses or None
 
+    def reconcile_from_cache(self, device_name: str) -> None:
+        """
+        Re-apply the cached TXT payload without claiming state or IP.
+
+        Level-triggered repair for the edge-triggered apply path: a
+        drop window (cold-start probe no-op, timed-out resolve) leaves
+        the record blank while the cache holds the TXT, and zeroconf's
+        same-content TTL refreshes never re-fire the browser handler.
+        No ONLINE claim — a cache hit can be stale, and a claim here
+        has no browser ``Removed`` counterpart (#1776).
+        """
+        if (zc := self._zeroconf) is None:
+            return
+        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
+        if info.load_from_cache(zc.zeroconf):
+            self._apply_txt_properties(device_name, info)
+
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
     ) -> None:
@@ -362,6 +382,11 @@ class MdnsSource:
         # devices surface every IP.
         if addresses := info.parsed_scoped_addresses(IPVersion.All):
             monitor.apply_ip_addresses(device_name, addresses)
+        self._apply_txt_properties(device_name, info)
+
+    def _apply_txt_properties(self, device_name: str, info: AsyncServiceInfo) -> None:
+        """Apply version / config_hash / mac / api_encryption off a populated service."""
+        monitor = self._monitor
         props = info.decoded_properties
         if version := props.get("version"):
             monitor.apply_version(device_name, version)
