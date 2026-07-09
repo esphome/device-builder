@@ -12,6 +12,8 @@ from . import factories
 from .helpers import _validate_port
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,6 +91,29 @@ def _configuration_order(controller: FirmwareController, configurations: list[st
     return [config for _, config in sorted(enumerate(configurations), key=sort_key)]
 
 
+async def _run_bulk(
+    controller: FirmwareController,
+    configurations: list[str],
+    verb: str,
+    enqueue_one: Callable[[str], Awaitable[FirmwareJob]],
+) -> list[FirmwareJob]:
+    """Enqueue one job per config in stale-first order; the shared bulk error policy."""
+    jobs: list[FirmwareJob] = []
+    for config in _configuration_order(controller, configurations):
+        try:
+            job = await enqueue_one(config)
+        except CommandError as exc:
+            if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
+                # Fleet-wide policy refusal — re-raise so the
+                # operator gets one toast instead of N silent
+                # per-config skips. See issue #985.
+                raise
+            _LOGGER.info("Skipping %s in %s: %s", config, verb, exc.message)
+            continue
+        jobs.append(job)
+    return jobs
+
+
 async def compile_bulk(
     controller: FirmwareController,
     *,
@@ -101,22 +126,13 @@ async def compile_bulk(
     auto-routing may send some REMOTE).
     """
     await controller._validate_configurations_boundary(configurations)
-    jobs: list[FirmwareJob] = []
-    for config in _configuration_order(controller, configurations):
-        try:
-            job = await factories.enqueue_compile(
-                controller, configuration=config, force_local=force_local
-            )
-        except CommandError as exc:
-            if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
-                # Fleet-wide policy refusal — re-raise so the
-                # operator gets one toast instead of N silent
-                # per-config skips. See bulk.py docstring + issue #985.
-                raise
-            _LOGGER.info("Skipping %s in compile_bulk: %s", config, exc.message)
-            continue
-        jobs.append(job)
-    return jobs
+
+    async def _enqueue_one(config: str) -> FirmwareJob:
+        return await factories.enqueue_compile(
+            controller, configuration=config, force_local=force_local
+        )
+
+    return await _run_bulk(controller, configurations, "compile_bulk", _enqueue_one)
 
 
 async def install_bulk(
@@ -135,19 +151,11 @@ async def install_bulk(
     """
     _validate_port(port)
     await controller._validate_configurations_boundary(configurations)
-    jobs: list[FirmwareJob] = []
-    for config in _configuration_order(controller, configurations):
-        try:
-            # A chain (COMPILE + dependent UPLOAD) per device, same as single
-            # install — so device B's compile pipelines against device A's
-            # upload instead of a fused job pinning both to the compile lane.
-            job = await factories.enqueue_install_or_defer(
-                controller, configuration=config, port=port
-            )
-        except CommandError as exc:
-            if exc.code is ErrorCode.NO_COMPATIBLE_PEER:
-                raise
-            _LOGGER.info("Skipping %s in install_bulk: %s", config, exc.message)
-            continue
-        jobs.append(job)
-    return jobs
+
+    async def _enqueue_one(config: str) -> FirmwareJob:
+        # A chain (COMPILE + dependent UPLOAD) per device, same as single
+        # install — so device B's compile pipelines against device A's
+        # upload instead of a fused job pinning both to the compile lane.
+        return await factories.enqueue_install_or_defer(controller, configuration=config, port=port)
+
+    return await _run_bulk(controller, configurations, "install_bulk", _enqueue_one)
