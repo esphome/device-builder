@@ -1,1 +1,1 @@
-{"id":"media_source.audio_file","name":"Audio File Media Source","description":"Audio File media source in ESPHome.","category":"media_source","docs_url":"https://esphome.io/components/media_source/audio_file","image_url":"https://esphome.io/images/file-document-box.svg","dependencies":["audio_file"],"multi_conf":true}
+{"id":"media_source.audio_file","name":"Audio File Media Source","description":"Audio File media source in ESPHome.","category":"media_source","docs_url":"https://esphome.io/components/media_source/audio_file","dependencies":["audio_file"],"multi_conf":true}
