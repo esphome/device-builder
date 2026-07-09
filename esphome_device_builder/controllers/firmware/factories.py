@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -10,7 +11,9 @@ from ...helpers.api import CommandError
 from ...helpers.build_scheduler import BuildPath, pick_build_path
 from ...models import (
     LOCAL_JOB_BUILD_SOURCE,
+    OTA_PORT,
     REMOTE_PENDING_JOB_BUILD_SOURCE,
+    DeviceState,
     ErrorCode,
     EventType,
     FirmwareJob,
@@ -22,6 +25,8 @@ from .helpers import _fire_job_lifecycle, _names_touched_by_job
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def create_job(
@@ -149,6 +154,60 @@ async def enqueue_install_chain(
     )
     await commit_chain(controller, compile_job, upload_job, supersede_configuration=configuration)
     return compile_job
+
+
+async def enqueue_install_or_defer(
+    controller: FirmwareController,
+    *,
+    configuration: str,
+    port: str,
+    force_local: bool = False,
+    flash_bootloader: bool = False,
+) -> FirmwareJob:
+    """
+    Enqueue an install chain, or a deferred compile-only job when the OTA target is OFFLINE.
+
+    A deferred compile arms ``Device.queued_update`` on completion; the
+    wake dispatch flashes an upload-only job when the device comes back.
+    A bootloader flash never defers — the wake dispatch re-uploads the
+    app, not the bootloader — so an OFFLINE device raises ``INVALID_ARGS``,
+    ahead of build-source resolution so it wins over ``NO_COMPATIBLE_PEER``.
+    """
+    device = controller._device_for_configuration(configuration)
+    # Deferral gated ONLY on OFFLINE, avoiding UNKNOWN startup states.
+    offline = device is not None and device.state == DeviceState.OFFLINE
+    # An explicit IP/hostname target doesn't make a known-OFFLINE
+    # device reachable, so the bootloader refusal skips the port gate.
+    if offline and flash_bootloader:
+        raise CommandError(
+            ErrorCode.INVALID_ARGS,
+            "Bootloader update requires the device online",
+        )
+    build_source = controller._resolve_install_source(force_local=force_local)
+    if offline and port == OTA_PORT:
+        _LOGGER.info("Device %s is offline. Queuing compile-only job.", configuration)
+        job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+        job.is_deferred_install = True
+        return await controller._enqueue(job)
+    return await enqueue_install_chain(
+        controller,
+        configuration=configuration,
+        port=port,
+        build_source=build_source,
+        flash_bootloader=flash_bootloader,
+    )
+
+
+async def enqueue_compile(
+    controller: FirmwareController,
+    *,
+    configuration: str,
+    force_local: bool = False,
+) -> FirmwareJob:
+    """Enqueue one COMPILE job with build-scheduler routing; the single/bulk shared core."""
+    build_source = controller._resolve_install_source(force_local=force_local)
+    job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
+    return await controller._enqueue(job)
 
 
 async def commit_chain(

@@ -15,63 +15,22 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
+from .scan import block_end_index, find_block_header, leading_ws
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
 
 
-# Platform categories that use the list-under-platform YAML pattern
-# (`sensor: [- platform: ...]`) rather than a single top-level key.
-# Must include every ComponentCategory value whose components carry
-# `<domain>.<platform>` ids in the catalog — otherwise add_component
-# falls through to writing the qualified id literally as a top-level
-# YAML key (`time.homeassistant:`), which ESPHome rejects and our own
-# YAML parser can't handle either (the regex only accepts
-# `[a-zA-Z_][a-zA-Z0-9_]*:`, no dots).
-_ENTITY_CATEGORIES = {
-    # Home Assistant entity domains
-    "sensor",
-    "binary_sensor",
-    "switch",
-    "light",
-    "fan",
-    "cover",
-    "climate",
-    "button",
-    "number",
-    "select",
-    "text",
-    "text_sensor",
-    "lock",
-    "valve",
-    "media_player",
-    "speaker",
-    "microphone",
-    "camera",
-    "display",
-    "touchscreen",
-    "output",
-    "datetime",
-    "event",
-    "update",
-    "alarm_control_panel",
-    # Other platform-pattern domains the sync script tags as their
-    # own categories. Each one shows up in YAML as `<domain>: [-
-    # platform: ...]` blocks.
-    "ota",
-    "time",
-    "audio_adc",
-    "audio_dac",
-    "canbus",
-    "infrared",
-    "media_source",
-    "motion",
-    "one_wire",
-    "packet_transport",
-    "radio_frequency",
-    "stepper",
-    "water_heater",
-}
+def _split_platform_id(component_id: str) -> tuple[str | None, str]:
+    """
+    Split a catalog id into ``(domain, stem)``; ``(None, id)`` when undotted.
+
+    A dotted ``<domain>.<platform>`` id is the catalog's platform marker;
+    a bare-id entry (the ``ota`` / ``time`` umbrellas) is not a platform
+    even when it carries an entity category.
+    """
+    domain, sep, stem = component_id.partition(".")
+    return (domain, stem) if sep else (None, component_id)
 
 
 def merge_component_yaml(
@@ -100,9 +59,9 @@ def merge_component_yaml(
     block = generate_component_yaml(component, fields)
     if _redefines_existing_id(existing, block, fields.get("id")):
         return existing
-    is_platform = component.category in _ENTITY_CATEGORIES
-    if is_platform:
-        spliced = _splice_into_domain_block(existing, str(component.category), block)
+    domain, _ = _split_platform_id(component.id)
+    if domain is not None:
+        spliced = _splice_into_domain_block(existing, domain, block)
         if spliced is not None:
             return spliced
     elif component.multi_conf:
@@ -114,7 +73,7 @@ def merge_component_yaml(
     return _append_block(existing, block)
 
 
-def generate_component_yaml(  # noqa: C901, PLR0912
+def generate_component_yaml(  # noqa: C901
     component: ComponentCatalogEntry,
     fields: dict[str, Any],
 ) -> str:
@@ -122,7 +81,7 @@ def generate_component_yaml(  # noqa: C901, PLR0912
     Generate a YAML block for adding a component to a device config.
 
     Platform-style components (``sensor``, ``switch``, ...) are emitted
-    as a list under their category with a ``- platform: <id>`` entry;
+    as a list under their domain with a ``- platform: <id>`` entry;
     everything else is emitted as a top-level mapping keyed by the
     component id.
 
@@ -143,19 +102,13 @@ def generate_component_yaml(  # noqa: C901, PLR0912
     """
     fields = dict(fields)
     _coerce_string_map_values(component, fields)
-    category = component.category
     comp_id = component.id
 
-    is_platform = category in _ENTITY_CATEGORIES
-
-    if is_platform:
-        # Catalog ids are qualified as ``<domain>.<platform>`` (e.g.
-        # ``output.gpio``, ``light.binary``) so distinct platforms can
-        # share a stem across categories. ESPHome YAML expects the bare
-        # platform stem under ``platform:``, so strip the qualifier.
-        unqualified = comp_id.split(".", 1)[1] if "." in comp_id else comp_id
-    else:
-        unqualified = comp_id
+    # Catalog ids are qualified as ``<domain>.<platform>`` (e.g.
+    # ``output.gpio``, ``light.binary``) so distinct platforms can
+    # share a stem across categories. ESPHome YAML expects the bare
+    # platform stem under ``platform:``.
+    domain, unqualified = _split_platform_id(comp_id)
 
     # Resolve the top-level id once. We only emit it when the caller
     # explicitly opted in by including ``id`` in fields; when they
@@ -192,8 +145,8 @@ def generate_component_yaml(  # noqa: C901, PLR0912
         autofill.update(sub)
         fields[entry.key] = autofill
 
-    if is_platform:
-        lines = [f"{category}:", f"{ESPHOME_YAML_INDENT}- platform: {unqualified}"]
+    if domain is not None:
+        lines = [f"{domain}:", f"{ESPHOME_YAML_INDENT}- platform: {unqualified}"]
         indent = ESPHOME_YAML_INDENT * 2
         for key, value in fields.items():
             lines.extend(_emit_field(key, value, indent))
@@ -317,29 +270,14 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
     trailing blank lines so an inserted item lands directly after the
     last content line. Returns ``None`` when no matching header exists.
     """
-    header_re = re.compile(rf"^{re.escape(key)}:\s*(?:#.*)?$")
-    block_start: int | None = None
-    for idx, line in enumerate(file_lines):
-        if header_re.match(line.rstrip("\n\r")):
-            block_start = idx
-            break
+    block_start = find_block_header(file_lines, key)
     if block_start is None:
         return None
 
-    block_end = len(file_lines)
-    for idx in range(block_start + 1, len(file_lines)):
-        stripped = file_lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
-            block_end = idx
-            break
+    block_end = block_end_index(file_lines, block_start)
     while block_end > block_start + 1 and not file_lines[block_end - 1].strip():
         block_end -= 1
     return block_start, block_end
-
-
-def _leading_ws(line: str) -> str:
-    """Leading whitespace of *line*."""
-    return line[: len(line) - len(line.lstrip())]
 
 
 def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:
@@ -353,7 +291,7 @@ def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> s
         if not stripped or stripped.startswith("#"):
             continue
         if stripped.startswith("- ") or stripped == "-":
-            return _leading_ws(file_lines[idx].rstrip("\n\r"))
+            return leading_ws(file_lines[idx].rstrip("\n\r"))
     return ESPHOME_YAML_INDENT
 
 
@@ -376,7 +314,7 @@ def _splice_into_domain_block(existing: str, domain: str, block: str) -> str | N
     block_start, last_content = bounds
 
     dash_indent = _list_item_indent(file_lines, block_start, last_content)
-    src_indent = _leading_ws(block_lines[1])
+    src_indent = leading_ws(block_lines[1])
     items: list[str] = []
     for line in block_lines[1:]:
         if not line.strip():
@@ -443,7 +381,7 @@ def _mapping_body_to_list_item(body_lines: list[str]) -> list[str]:
     body_indent = ""
     for line in body_lines:
         if line.strip() and not line.lstrip().startswith("#"):
-            body_indent = _leading_ws(line)
+            body_indent = leading_ws(line)
             break
     result: list[str] = []
     marked = False

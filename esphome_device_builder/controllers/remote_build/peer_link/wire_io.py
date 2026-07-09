@@ -106,6 +106,7 @@ async def _send_response(
     response: IntentResponse,
     *,
     reason: RejectReason | None,
+    requires_pairing_key: bool = False,
 ) -> None:
     """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
 
@@ -119,6 +120,11 @@ async def _send_response(
     *reason* rides along on non-OK responses (additive field;
     older offloaders ignore it) so the offloader can tell a
     terminal rejection apart from a transient one.
+
+    *requires_pairing_key* is set only on the ``preview`` response
+    (never on ``pair_request``, so a refusal stays indistinguishable
+    from a closed window): it tells the offloader this is a key-mode
+    server so the UI can require the bootstrap key up front.
     """
     payload: dict[str, str | bool] = {
         "intent_response": response.value,
@@ -127,6 +133,8 @@ async def _send_response(
     }
     if reason is not None:
         payload["reason"] = reason.value
+    if requires_pairing_key:
+        payload["requires_pairing_key"] = True
     body = _json.dumps(payload)
     try:
         encrypted = session.encrypt(body)

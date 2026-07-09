@@ -51,6 +51,34 @@ class PeerLinkClientError(RuntimeError):
     """
 
 
+class PeerLinkPinMismatchError(PeerLinkClientError):
+    """
+    The responder's static key didn't hash to the pinned pin.
+
+    Raised after msg2, before the msg3 payload (which may carry a
+    secret) is written.
+    """
+
+    def __init__(self, observed_pin_sha256: str) -> None:
+        super().__init__(f"responder pin mismatch (observed {observed_pin_sha256})")
+        self.observed_pin_sha256 = observed_pin_sha256
+
+
+@dataclass(frozen=True)
+class PreviewResult:
+    """Outcome of an ``intent="preview"`` round-trip.
+
+    ``requires_pairing_key`` is the receiver reporting it's a
+    key-mode (``--remote-build-only``) server, so the offloader UI
+    requires the bootstrap key up front. Static on the server's mode
+    (not on whether a window is open), so it never reveals the
+    window-open state.
+    """
+
+    pin_sha256: str
+    requires_pairing_key: bool
+
+
 @dataclass(frozen=True)
 class InitiatorRoundTrip:
     """One offloader-side Noise XX round-trip's outputs.

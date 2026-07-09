@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from script.sync_esphome_devices import _extract_ethernet  # type: ignore[import-not-found]
 
 
@@ -21,7 +23,69 @@ def test_extracts_rmii_and_marks_pins_occupied() -> None:
     assert entry is not None
     assert entry["component_id"] == "ethernet"
     assert entry["fields"]["type"] == {"value": "LAN8720", "locked": True}
+    assert entry["fields"]["clk"] == {
+        "value": {"pin": "GPIO17", "mode": "CLK_OUT"},
+        "locked": True,
+    }
+    assert "clk_mode" not in entry["fields"]
     assert occ == {23: "Ethernet MDC", 18: "Ethernet MDIO", 17: "Ethernet CLK"}
+
+
+@pytest.mark.parametrize(
+    ("clk_mode", "pin", "mode"),
+    [
+        pytest.param("GPIO0_IN", "GPIO0", "CLK_EXT_IN", id="gpio0_in"),
+        pytest.param("GPIO0_OUT", "GPIO0", "CLK_OUT", id="gpio0_out"),
+        pytest.param("GPIO16_OUT", "GPIO16", "CLK_OUT", id="gpio16_out"),
+        pytest.param("GPIO17_OUT", "GPIO17", "CLK_OUT", id="gpio17_out"),
+        pytest.param("GPIO2_OUT", "GPIO2", "CLK_OUT", id="any_pin_generalizes"),
+        pytest.param("gpio17 out", "GPIO17", "CLK_OUT", id="enum_case_space_tolerant"),
+    ],
+)
+def test_normalizes_each_deprecated_clk_mode(clk_mode: str, pin: str, mode: str) -> None:
+    """A GPIO<n>_(IN|OUT) clk_mode folds into nested clk + occupancy (any pin)."""
+    entry, occ = _extract_ethernet(
+        {"ethernet": {"type": "LAN8720", "mdc_pin": "GPIO23", "clk_mode": clk_mode}}
+    )
+    assert entry is not None
+    assert entry["fields"]["clk"] == {"value": {"pin": pin, "mode": mode}, "locked": True}
+    assert "clk_mode" not in entry["fields"]
+    assert occ[int(pin.removeprefix("GPIO"))] == "Ethernet CLK"
+
+
+def test_skips_block_on_unknown_clk_mode() -> None:
+    """A clk_mode that isn't GPIO<n>_(IN|OUT) would fail upstream validation; skip the block."""
+    assert _extract_ethernet(
+        {"ethernet": {"type": "LAN8720", "mdc_pin": "GPIO23", "clk_mode": "EXTERNAL"}}
+    ) == (None, {})
+
+
+def test_skips_block_when_clk_mode_without_rmii_shape() -> None:
+    """clk_mode is RMII-only; carried on an SPI-shaped block (no mdc_pin) it's invalid."""
+    assert _extract_ethernet(
+        {"ethernet": {"type": "W5500", "cs_pin": 17, "clk_mode": "GPIO17_OUT"}}
+    ) == (None, {})
+
+
+def test_nested_clk_wins_over_clk_mode() -> None:
+    """When both forms are present the nested clk is kept and clk_mode dropped."""
+    entry, occ = _extract_ethernet(
+        {
+            "ethernet": {
+                "type": "LAN8720",
+                "mdc_pin": "GPIO23",
+                "clk_mode": "GPIO17_OUT",
+                "clk": {"pin": "GPIO0", "mode": "CLK_EXT_IN"},
+            }
+        }
+    )
+    assert entry is not None
+    assert entry["fields"]["clk"] == {
+        "value": {"pin": "GPIO0", "mode": "CLK_EXT_IN"},
+        "locked": True,
+    }
+    assert "clk_mode" not in entry["fields"]
+    assert occ[0] == "Ethernet CLK"
 
 
 def test_extracts_spi_pins() -> None:

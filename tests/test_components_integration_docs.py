@@ -57,7 +57,7 @@ async def test_top_level_components_resolved(catalog: ComponentCatalog) -> None:
     docs = await catalog.get_integration_docs()
     for name in ("api", "wifi", "ethernet", "mdns", "logger", "web_server"):
         assert name in docs, f"missing top-level docs for {name}"
-        assert docs[name].startswith("https://esphome.io/components/")
+        assert docs[name]["url"].startswith("https://esphome.io/components/")
 
 
 async def test_category_landing_pages_resolved(catalog: ComponentCatalog) -> None:
@@ -68,7 +68,7 @@ async def test_category_landing_pages_resolved(catalog: ComponentCatalog) -> Non
     docs = await catalog.get_integration_docs()
     for category in ("sensor", "binary_sensor", "ota", "light", "switch"):
         assert category in docs, f"missing category landing for {category}"
-        assert docs[category].rstrip("/").endswith(f"/components/{category}")
+        assert docs[category]["url"].rstrip("/").endswith(f"/components/{category}")
 
 
 async def test_stem_match_for_category_scoped_components(
@@ -80,7 +80,7 @@ async def test_stem_match_for_category_scoped_components(
     # Pin the exact path so a regression that silently picks a
     # different category for the stem fails this assertion instead of
     # trivially passing on a substring.
-    assert docs["ltr390"].rstrip("/").endswith("/components/sensor/ltr390")
+    assert docs["ltr390"]["url"].rstrip("/").endswith("/components/sensor/ltr390")
 
 
 async def test_top_level_wins_over_stem(catalog: ComponentCatalog) -> None:
@@ -92,7 +92,7 @@ async def test_top_level_wins_over_stem(catalog: ComponentCatalog) -> None:
     """
     docs = await catalog.get_integration_docs()
     assert "api" in docs, "api top-level component must always resolve"
-    assert docs["api"].rstrip("/").endswith("/components/api")
+    assert docs["api"]["url"].rstrip("/").endswith("/components/api")
 
 
 async def test_ambiguous_stems_omitted(catalog: ComponentCatalog) -> None:
@@ -117,6 +117,54 @@ async def test_ambiguous_stems_omitted(catalog: ComponentCatalog) -> None:
             "binary_sensor/switch/output gpio variants have distinct docs URLs"
         )
         raise AssertionError(msg)
+
+
+async def test_qualified_log_tag_aliases(catalog: ComponentCatalog) -> None:
+    """Both orders of every qualified id resolve (upstream tag order varies)."""
+    docs = await catalog.get_integration_docs()
+    assert docs["esphome.ota"]["url"].rstrip("/").endswith("/components/ota/esphome")
+    assert docs["gpio.binary_sensor"]["url"].rstrip("/").endswith("/components/binary_sensor/gpio")
+    assert docs["switch.gpio"]["url"].rstrip("/").endswith("/components/switch/gpio")
+
+
+async def test_qualified_alias_does_not_shadow_bare_names(
+    catalog: ComponentCatalog,
+) -> None:
+    """The dotted aliases leave every bare-name resolution untouched."""
+    docs = await catalog.get_integration_docs()
+    assert docs["esphome"]["url"].rstrip("/").endswith("/components/esphome")
+    assert docs["ota"]["url"].rstrip("/").endswith("/components/ota")
+
+
+async def test_helper_alias_for_undocumented_internals(
+    catalog: ComponentCatalog,
+) -> None:
+    """Undocumented internals inherit their longest documented multi-word prefix."""
+    docs = await catalog.get_integration_docs()
+    assert docs["esp32_ble_client"]["url"].rstrip("/").endswith("/components/esp32_ble")
+    assert docs["web_server_base"]["url"].rstrip("/").endswith("/components/web_server")
+    assert "esp32_rmt" not in docs
+
+
+async def test_entries_carry_display_names(catalog: ComponentCatalog) -> None:
+    """Entries carry the catalog display name; landings fall back to the key."""
+    docs = await catalog.get_integration_docs()
+    assert docs["ethernet"]["name"] == "Ethernet Component"
+    assert docs["sensor"]["name"] == "sensor"
+    assert docs["esp32_ble_client"]["name"] == docs["esp32_ble"]["name"]
+
+
+async def test_entries_carry_trimmed_descriptions(catalog: ComponentCatalog) -> None:
+    """Entries carry the first sentence of the catalog description, markdown flattened."""
+    docs = await catalog.get_integration_docs()
+    assert (
+        docs["ethernet"]["description"]
+        == "This ESPHome component enables wired Ethernet connections for ESP32 and RP2040 boards."
+    )
+    # Category landings have no catalog entry, so no description.
+    assert docs["sensor"]["description"] == ""
+    # Trimming is a hard cap — no entry ships a full markdown paragraph.
+    assert all(len(entry["description"]) <= 242 for entry in docs.values())
 
 
 async def test_unknown_integration_omitted(catalog: ComponentCatalog) -> None:

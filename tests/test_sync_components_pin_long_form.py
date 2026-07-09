@@ -218,20 +218,40 @@ def test_pin_long_form_extras_returns_empty_for_malformed_bundle(
 def test_convert_field_attaches_long_form_extras_to_pin_entries(
     schema_dir: Path,
 ) -> None:
-    """A ``type: pin`` config_var lands with the long-form extras nested.
+    """A pin-schema config_var (``schema: true``) lands with the long-form extras nested.
 
     End-to-end check that ``_convert_field`` actually wires
     ``_pin_long_form_extras`` into the produced entry — without
     this the catalog stays short-form-only and the visual editor
     bug behind issue #420 persists.
     """
-    raw = {"key": "Required", "modes": ["input"], "type": "pin"}
+    raw = {"key": "Required", "modes": ["input"], "schema": True, "type": "pin"}
     entry = _convert_field("pin", raw, schema_dir)
 
     assert entry is not None
     assert entry["type"] == "pin"
     assert entry["config_entries"] is not None
     assert [e["key"] for e in entry["config_entries"]] == ["mode", "inverted"]
+
+
+def test_convert_field_keeps_number_only_pin_entries_bare(
+    schema_dir: Path,
+) -> None:
+    """A number-only pin validator (no ``schema`` flag) gets no long-form extras.
+
+    ``internal_gpio_pin_number`` fields (ethernet ``mdc_pin`` /
+    ``clk.pin`` and its SPI-PHY ``clk_pin``, spi ``data_pins``, ...)
+    reject the mapping form, so offering mode flags / ``inverted``
+    in the editor produces invalid YAML. Identical to the positive
+    test's raw entry minus the ``schema`` flag — the flag alone is
+    the discriminator.
+    """
+    raw = {"key": "Required", "modes": ["input"], "type": "pin"}
+    entry = _convert_field("mdc_pin", raw, schema_dir)
+
+    assert entry is not None
+    assert entry["type"] == "pin"
+    assert entry["config_entries"] is None
 
 
 def test_convert_field_does_not_attach_pin_extras_to_non_pin_entries(

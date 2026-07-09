@@ -1,0 +1,249 @@
+id: waveshare_esp32_s3_touch_amoled_2_16
+name: Waveshare ESP32-S3-Touch-AMOLED-2.16
+description: >-
+  Waveshare ESP32-S3-Touch-AMOLED-2.16: an ESP32-S3 board with a 2.16" 480x480 CO5300
+  AMOLED panel driven over a quad-SPI (QSPI) bus, a CST9220 capacitive touch panel, and
+  an ES8311 audio codec with onboard speaker — the touch and codec share one I2C bus
+  (SDA 15 / SCL 14). The panel is self-emissive, so there is no backlight; display
+  CS/reset are supplied by the model. The 8MB octal PSRAM backs the display buffer, so it
+  is part of the Display bundle. Requires ESPHome 2026.7.0+ for the CST9220 touch.
+manufacturer: Waveshare
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- display
+- speaker
+images:
+- https://www.waveshare.com/media/catalog/product/e/s/esp32-s3-touch-amoled-2.16-1.jpg
+docs_url: https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-2.16
+pins:
+- gpio: 0
+  available: false
+  occupied_by: boot_button
+  notes: BOOT button (strapping pin, active low)
+- gpio: 4
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data0
+- gpio: 5
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data1
+- gpio: 6
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data2
+- gpio: 7
+  available: false
+  occupied_by: lcd_spi
+  notes: Display QSPI data3
+- gpio: 8
+  available: false
+  occupied_by: onboard_speaker
+  notes: I2S audio data out (speaker)
+- gpio: 9
+  available: false
+  occupied_by: audio_bus
+  notes: I2S bit clock
+- gpio: 11
+  available: false
+  occupied_by: lcd_touch
+  notes: CST9220 touch interrupt
+- gpio: 12
+  available: false
+  occupied_by: lcd_display
+  notes: Display CS
+- gpio: 14
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_scl
+  notes: Shared I2C SCL (touch + IMU + codec)
+- gpio: 15
+  available: false
+  occupied_by: i2c_bus
+  features:
+  - i2c_sda
+  notes: Shared I2C SDA (touch + IMU + codec)
+- gpio: 38
+  available: false
+  occupied_by: lcd_spi
+  features:
+  - spi_clk
+  notes: Display QSPI clock
+- gpio: 39
+  available: false
+  occupied_by: lcd_display
+  notes: Display reset
+- gpio: 40
+  available: false
+  occupied_by: lcd_touch
+  notes: CST9220 touch reset
+- gpio: 42
+  available: false
+  occupied_by: audio_bus
+  notes: I2S master clock
+- gpio: 45
+  available: false
+  occupied_by: audio_bus
+  notes: I2S word-select (LRCLK)
+- gpio: 46
+  available: false
+  occupied_by: audio_amplifier
+  notes: Power-amp enable (active high)
+featured_components:
+- id: lcd_spi
+  component_id: spi
+  fields:
+    type: quad
+    clk_pin:
+      value: 38
+      locked: true
+    data_pins:
+      value:
+      - 4
+      - 5
+      - 6
+      - 7
+      locked: true
+    id:
+      value: lcd_spi
+      locked: true
+- id: lcd_psram
+  component_id: psram
+  fields:
+    mode: octal
+    speed: 80MHz
+- id: i2c_bus
+  component_id: i2c
+  fields:
+    sda:
+      value: 15
+      locked: true
+    scl:
+      value: 14
+      locked: true
+    frequency: 400kHz
+    scan: true
+    id:
+      value: i2c_bus
+      locked: true
+- id: lcd_display
+  component_id: display.mipi_spi
+  fields:
+    model: WAVESHARE-ESP32-S3-TOUCH-AMOLED-2.16
+    spi_id:
+      value: lcd_spi
+      locked: true
+    show_test_card: true
+    id: lcd_display
+  requires:
+  - lcd_spi
+  - lcd_psram
+- id: audio_bus
+  component_id: i2s_audio
+  fields:
+    i2s_mclk_pin:
+      value: 42
+      locked: true
+    i2s_bclk_pin:
+      value: 9
+      locked: true
+    i2s_lrclk_pin:
+      value: 45
+      locked: true
+    id:
+      value: audio_bus
+      locked: true
+- id: es8311_dac
+  component_id: audio_dac.es8311
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    address: 0x18
+    id: es8311_dac
+  requires:
+  - i2c_bus
+- id: onboard_speaker
+  component_id: speaker.i2s_audio
+  fields:
+    i2s_audio_id:
+      value: audio_bus
+      locked: true
+    i2s_dout_pin:
+      value: 8
+      locked: true
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    id: onboard_speaker
+  requires:
+  - audio_bus
+  - es8311_dac
+- id: audio_amplifier
+  component_id: switch.gpio
+  fields:
+    name: Audio Amplifier
+    icon: mdi:volume-high
+    restore_mode: ALWAYS_ON
+    pin:
+      value: 46
+      locked: true
+    id: audio_amplifier
+- id: lcd_touch
+  component_id: touchscreen.cst9220
+  fields:
+    i2c_id:
+      value: i2c_bus
+      locked: true
+    interrupt_pin:
+      value: 11
+      locked: true
+    reset_pin:
+      value: 40
+      locked: true
+    display: lcd_display
+    id: lcd_touch
+  requires:
+  - i2c_bus
+  - lcd_display
+- id: boot_button
+  component_id: binary_sensor.gpio
+  fields:
+    name: BOOT Button
+    pin:
+      value:
+        number: 0
+        inverted: true
+        ignore_strapping_warning: true
+      locked: true
+    id: boot_button
+featured_bundles:
+- id: display_setup
+  name: Display (full setup)
+  component_ids:
+  - lcd_spi
+  - lcd_psram
+  - lcd_display
+- id: touchscreen_setup
+  name: Touchscreen (full setup)
+  component_ids:
+  - i2c_bus
+  - lcd_touch
+- id: audio_setup
+  name: Speaker (full setup)
+  component_ids:
+  - i2c_bus
+  - audio_bus
+  - es8311_dac
+  - onboard_speaker
+  - audio_amplifier

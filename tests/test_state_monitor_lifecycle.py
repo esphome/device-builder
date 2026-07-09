@@ -1428,31 +1428,7 @@ async def test_start_disables_sweep_when_privilege_probe_returns_none(
             await _stop_and_drain(monitor)
 
     monitor.state.dns_cache.async_resolve.assert_not_called()
-    assert any("privileges are insufficient" in rec.message for rec in caplog.records)
-
-
-async def test_start_with_icmplib_unavailable_skips_dns_resolution(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``icmp_ping is None`` (icmplib not installed) → sweep returns immediately.
-
-    Drives via the public ``start``: the bootstrap sleep elapses,
-    the loop reaches ``_ping_sweep``, the sweep sees no icmp
-    primitive, and bails before touching the DNS cache. Pinning
-    the negative — DNS cache untouched — anchors the early-return.
-    """
-    monitor, _callbacks = _make_monitor()
-
-    monkeypatch.setattr(ping_module, "icmp_ping", None)
-    monitor.state.dns_cache.async_resolve = AsyncMock()
-    _shrink_ping_intervals(monkeypatch)
-
-    await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
-    try:
-        await _let_ping_loop_run_briefly(monitor)
-        monitor.state.dns_cache.async_resolve.assert_not_called()
-    finally:
-        await _stop_and_drain(monitor)
+    assert any("ICMP ping sweep disabled" in rec.message for rec in caplog.records)
 
 
 async def test_start_marks_offline_on_icmp_exception(

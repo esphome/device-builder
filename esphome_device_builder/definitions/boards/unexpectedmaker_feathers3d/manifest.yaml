@@ -5,6 +5,7 @@ esphome:
   platform: esp32
   board: esp32-s3-devkitc-1
   variant: esp32s3
+  logger_hardware_uart: USB_CDC
 hardware:
   connectivity:
   - wifi

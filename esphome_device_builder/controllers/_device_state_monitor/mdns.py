@@ -3,7 +3,8 @@ mDNS source: zeroconf responder, browser, and cache accessors.
 
 :class:`MdnsSource` owns the ``AsyncEsphomeZeroconf`` responder and
 the ``AsyncServiceBrowser`` it drives, the esphomelib service-state
-callback that reaches into the monitor's apply path, and the
+callback that reaches into the monitor's apply path, the ``_http._tcp``
+fallback callback that reads a non-API device's ``version`` TXT, and the
 cache-inspection accessors the drawer's reachability snapshot reads.
 """
 
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
@@ -43,7 +44,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_MDNS_RESOLVE_TIMEOUT_MS = 2000
+# Matches upstream esphome's ``zeroconf.DEFAULT_TIMEOUT`` — slow ESP32/ESP8266
+# nodes routinely need most of it, and ``async_request`` keeps re-querying the
+# wire inside the window, so a short one-shot silently drops their announce.
+_MDNS_RESOLVE_TIMEOUT_MS = 10_000
 
 # Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
 # hang on a wedged socket; shutdown must not block on it.
@@ -61,6 +65,11 @@ class MdnsSource:
         # bookkeeping versus two parallel browsers.
         self._mdns_browser: AsyncServiceBrowser | None = None
         self._interface_monitor_task: asyncio.Task[None] | None = None
+        # Full service names with a wire resolve in flight. Browser event
+        # churn on a still-unresolved service (Added then Updated) would
+        # otherwise stack concurrent resolvers, each holding a global
+        # zeroconf listener for the whole resolve window.
+        self._inflight_resolves: set[str] = set()
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
@@ -90,6 +99,7 @@ class MdnsSource:
                 self._on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
                 importable.browser_callback(zeroconf, service_type, name, state_change)
             elif service_type == _HTTP_SERVICE_TYPE:
+                self._on_http_service_state_change(zeroconf, service_type, name, state_change)
                 importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
         try:
@@ -276,6 +286,34 @@ class MdnsSource:
         addresses = info.parsed_scoped_addresses(IPVersion.All)
         return addresses or None
 
+    def reconcile_from_cache(self, device_name: str) -> None:
+        """
+        Re-apply the cached TXT payload without claiming state or IP.
+
+        Level-triggered repair for the edge-triggered apply path: a
+        drop window (cold-start probe no-op, timed-out resolve) leaves
+        the record blank while the cache holds the TXT, and zeroconf's
+        same-content TTL refreshes never re-fire the browser handler.
+        No ONLINE claim — a cache hit can be stale, and a claim here
+        has no browser ``Removed`` counterpart (#1776).
+        """
+        if (zc := self._zeroconf) is None:
+            return
+        # Read the TXT record directly rather than via
+        # ``AsyncServiceInfo.load_from_cache``, whose success requires an
+        # unexpired *address* record — the A (120s TTL) routinely expires
+        # while the TXT (4500s) is still cached, exactly the state this
+        # pass repairs.
+        service_name = f"{device_name}.{_ESPHOME_SERVICE_TYPE}"
+        now_ms = current_time_millis()
+        records = [
+            record
+            for record in zc.zeroconf.cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN)
+            if not record.is_expired(now_ms)
+        ]
+        if props := _decode_mdns_txt_records(records):
+            self._apply_txt_properties(device_name, props)
+
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
     ) -> None:
@@ -333,13 +371,19 @@ class MdnsSource:
         HTTP browser paths: spawn a task on cache miss,
         ``async_request`` the record, swallow exceptions to a
         debug log, dispatch to the per-type applier on success.
+        At most one resolve per service name is in flight.
         """
+        if info.name in self._inflight_resolves:
+            return
+        self._inflight_resolves.add(info.name)
         try:
             if not await info.async_request(zeroconf, timeout=_MDNS_RESOLVE_TIMEOUT_MS):
                 return
         except Exception:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
             return
+        finally:
+            self._inflight_resolves.discard(info.name)
         apply(device_name, info)
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
@@ -360,7 +404,11 @@ class MdnsSource:
         # devices surface every IP.
         if addresses := info.parsed_scoped_addresses(IPVersion.All):
             monitor.apply_ip_addresses(device_name, addresses)
-        props = info.decoded_properties
+        self._apply_txt_properties(device_name, info.decoded_properties)
+
+    def _apply_txt_properties(self, device_name: str, props: Mapping[str, str | None]) -> None:
+        """Apply version / config_hash / mac / api_encryption from decoded TXT properties."""
+        monitor = self._monitor
         if version := props.get("version"):
             monitor.apply_version(device_name, version)
         if config_hash := props.get("config_hash"):
@@ -392,6 +440,40 @@ class MdnsSource:
             monitor.apply_api_encryption(device_name, value if isinstance(value, str) else "")
         elif props:
             monitor.apply_api_encryption(device_name, "")
+
+    def _on_http_service_state_change(
+        self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
+    ) -> None:
+        """
+        Read the ``version`` TXT off a non-API device's ``_http._tcp`` fallback.
+
+        Skipped when every config for the name exposes the API (the
+        esphomelib path carries their version, and the fallback isn't
+        published with the API on). No ONLINE claim; reachability stays
+        owned by the active-resolve / MQTT / ping paths.
+        """
+        if state_change == ServiceStateChange.Removed:
+            return
+        monitor = self._monitor
+        device_name = device_name_from_service(name)
+        # Look at the whole name bucket, not just bucket[0]: sibling
+        # YAMLs can share an ``esphome.name`` (a config + a ``foo (1)``
+        # copy), and an all-API bucket is the only one to skip.
+        bucket = monitor._get_devices_by_name(device_name)
+        if not bucket or all(device.api_enabled for device in bucket):
+            return
+        info = AsyncServiceInfo(service_type, name)
+        if info.load_from_cache(zeroconf):
+            self._apply_http_version(device_name, info)
+            return
+        monitor._track_task(
+            self._resolve_then(zeroconf, info, device_name, self._apply_http_version)
+        )
+
+    def _apply_http_version(self, device_name: str, info: AsyncServiceInfo) -> None:
+        """Apply the ``version`` TXT from a resolved ``_http._tcp`` fallback service."""
+        if version := info.decoded_properties.get("version"):
+            self._monitor.apply_version(device_name, version)
 
     def _get_address_records(self, name: str) -> list[Any]:
         """Return cached A and AAAA records for *name*, or ``[]``."""

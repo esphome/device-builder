@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ...helpers.api import CommandError
+from ...helpers.yaml.scan import block_end_index, find_block_header, top_list_item_starts
 from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
 
@@ -17,42 +18,18 @@ def _indent_for_top_list(rendered_item: str) -> str:
     return rendered_item
 
 
-def _locate_top_list_item(  # noqa: C901
+def _locate_top_list_item(
     lines: list[str],
     domain: str,
     index: int,
 ) -> tuple[int, int]:
     """Return the line range of the *index*'th item under ``<domain>:``."""
-    domain_start: int | None = None
-    for idx, line in enumerate(lines):
-        stripped = line.rstrip("\n\r")
-        if stripped == f"{domain}:" or stripped.startswith(f"{domain}:"):
-            domain_start = idx
-            break
+    domain_start = find_block_header(lines, domain)
     if domain_start is None:
         msg = f"Block {domain!r} not present"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    domain_end = len(lines)
-    for idx in range(domain_start + 1, len(lines)):
-        stripped = lines[idx].rstrip("\n\r")
-        if stripped and stripped[0].isalpha() and not stripped.startswith(" "):
-            domain_end = idx
-            break
-    # Only column-2 dashes count as top-level list items; deeper
-    # dashes belong to nested action lists inside the item body.
-    item_indent: str | None = None
-    item_starts: list[int] = []
-    for idx in range(domain_start + 1, domain_end):
-        raw = lines[idx].rstrip("\n\r")
-        stripped = raw.lstrip(" ")
-        if not stripped.startswith("- "):
-            continue
-        prefix = raw[: len(raw) - len(stripped)]
-        if item_indent is None:
-            item_indent = prefix
-        if prefix != item_indent:
-            continue
-        item_starts.append(idx)
+    domain_end = block_end_index(lines, domain_start)
+    item_starts = top_list_item_starts(lines, domain_start, domain_end)
     if index < 0 or index >= len(item_starts):
         msg = f"{domain}[{index}] out of range (have {len(item_starts)})"
         raise CommandError(ErrorCode.NOT_FOUND, msg)

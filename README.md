@@ -439,6 +439,35 @@ that path. The wire is Noise-encrypted regardless of how you
 reach it, and the emoji-fingerprint comparison still gates
 pairing the same way.
 
+### Headless build server (`--remote-build-only`)
+
+A machine whose only job is lending CPU can run as a
+dedicated build server with no dashboard UI:
+
+```
+esphome-device-builder --remote-build-only /var/lib/esphome-builder
+```
+
+The config-dir argument holds the server's identity and build
+state — keep it persistent. On first run it prints a
+fingerprint and a **one-time pairing key** to the console:
+
+```
+   📌 🍎 🐙 ☎️ 🚀 🌏 🐰
+   ...
+   8MC5-KAXV-NN6N-PWAA
+```
+
+To pair, on your main dashboard open **Settings → Send builds
+→ Pair with a build server**, enter the headless server's
+hostname and peer-link port (default 6055), and Continue.
+Check the emoji fingerprint matches the console; the dialog
+detects it's a headless server and shows a pairing-key field —
+enter the printed key and send. That's it — the server pairs
+and starts serving builds. Re-run the server if you don't pair
+within the window it prints. `--allow-pairing-source <IP>`
+optionally restricts which address may pair.
+
 ### Install coverage
 
 Remote build runs the compile on a paired receiver for **every

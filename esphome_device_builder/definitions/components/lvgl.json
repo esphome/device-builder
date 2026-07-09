@@ -1,1 +1,1 @@
-{"id":"lvgl","name":"LVGL","description":"","category":"misc","docs_url":"https://esphome.io/components/lvgl","dependencies":["display"]}
+{"id":"lvgl","name":"LVGL","description":"","category":"misc","docs_url":"https://esphome.io/components/lvgl","dependencies":["display"],"provides":["lvgl"],"provides_id_paths":{"lvgl":[["gradients","id"]]}}

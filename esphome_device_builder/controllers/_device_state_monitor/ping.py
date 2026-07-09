@@ -7,17 +7,13 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING
 
+from icmplib import async_ping as icmp_ping
+from icmplib.exceptions import ICMPLibError
+
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
 from . import shared
 from .helpers import _pick_ipv4
-
-try:
-    from icmplib import async_ping as icmp_ping
-    from icmplib.exceptions import ICMPLibError
-except ImportError:  # pragma: no cover — icmplib is optional
-    icmp_ping = None  # type: ignore[assignment]
-    ICMPLibError = Exception  # type: ignore[misc,assignment]
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -51,8 +47,6 @@ async def _can_use_icmp_lib_with_privilege() -> bool | None:
     not set by default. ``None`` when neither works (sweep
     disabled, state follows mDNS only).
     """
-    if icmp_ping is None:
-        return None
     try:
         await icmp_ping("127.0.0.1", count=0, timeout=0, privileged=True)
     except (ICMPLibError, OSError):
@@ -93,8 +87,10 @@ class PingSource:
         privileged = await _can_use_icmp_lib_with_privilege()
         if privileged is None:
             _LOGGER.warning(
-                "Cannot use icmplib because privileges are insufficient; "
-                "ICMP ping sweep disabled, device state will only update via mDNS"
+                "ICMP ping sweep disabled: opening an ICMP socket was denied in both "
+                "privileged and unprivileged modes (needs CAP_NET_RAW, or "
+                "net.ipv4.ping_group_range covering this process's group); "
+                "device state will only update via mDNS"
             )
             return
         self._privileged = privileged
@@ -124,8 +120,6 @@ class PingSource:
             await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
 
     async def _ping_sweep(self) -> None:
-        if icmp_ping is None:
-            return
         pingable, dns_failed = self._select_ping_targets()
         if not pingable and not dns_failed:
             return

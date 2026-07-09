@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import logging
 import os
 from dataclasses import dataclass, field
@@ -29,6 +30,32 @@ from ...models import ErrorCode
 _LOGGER = logging.getLogger(__name__)
 
 _DASHBOARD_SENTINEL_FILE = "___DASHBOARD_SENTINEL___.yaml"
+
+
+def normalize_pairing_sources(raw: str) -> list[str]:
+    """
+    Parse ``--allow-pairing-source`` into a normalised source-IP list.
+
+    Splits on commas, normalises each entry through :mod:`ipaddress`
+    so the ``pair_flow`` compare is wire-form-agnostic (``::1`` vs
+    ``0:0:0:0:0:0:0:1``), and silently drops unparseable entries —
+    format is validated loudly at the parser, this is just the
+    lossless normalisation both the parser and settings share.
+    Preserves order, deduplicates.
+    """
+    out: list[str] = []
+    for entry in raw.split(","):
+        candidate = entry.strip()
+        if not candidate:
+            continue
+        try:
+            normalized = str(ipaddress.ip_address(candidate))
+        except ValueError:
+            continue
+        if normalized not in out:
+            out.append(normalized)
+    return out
+
 
 # Upper bound on the ESPHome Desktop wrapper version string; a value past this
 # is treated as unset rather than rendered in the footer.
@@ -80,6 +107,24 @@ class DashboardSettings:
     # latter is resolved at bind time to every IPv4 / IPv6 address
     # on the interface (see :func:`helpers.network_interfaces.resolve_bind_host`).
     remote_build_host: str = "0.0.0.0"
+    # Headless remote-build server mode (``--remote-build-only``): no
+    # HTTP dashboard is served and the peer-link listener binds
+    # regardless of the persisted ``RemoteBuildSettings.enabled``
+    # toggle — with no UI to flip the toggle, an on-disk ``False``
+    # would otherwise brick the mode. Pairing bootstrap (15-minute
+    # key-gated auto-approve window, console fingerprint banner) lives
+    # in ``_remote_build_only.py``.
+    remote_build_only: bool = False
+    # Optional source-IP allowlist for the ``--remote-build-only``
+    # first-pair auto-approve window. When non-empty, the bootstrap
+    # only auto-approves a ``pair_request`` whose peer IP is in this
+    # set — closing the "any LAN peer who times the window wins the
+    # pairing" vector bdraco flagged (the residual accepted risk when
+    # unset is documented in docs/THREAT_MODEL.md). Entries are
+    # normalised through :mod:`ipaddress` so ``192.168.1.5`` matches
+    # regardless of the wire form. Empty (the default) keeps the
+    # trust-on-first-use behaviour.
+    allow_pairing_sources: list[str] = field(default_factory=list)
     # In dev mode the SPA shell is served with ``Cache-Control: no-cache``
     # so a re-deployed wheel isn't masked by a browser-cached
     # ``index.html`` pointing at a now-deleted hashed bundle. In
@@ -209,6 +254,15 @@ class DashboardSettings:
         else:
             env_remote_build_host = os.getenv("ESPHOME_REMOTE_BUILD_HOST", "").strip()
             self.remote_build_host = env_remote_build_host or "0.0.0.0"
+        self.remote_build_only = bool(getattr(args, "remote_build_only", False))
+        # ``--allow-pairing-source a,b`` — comma-separated source IPs,
+        # normalised through ``ipaddress`` so the compare in
+        # ``pair_flow`` is wire-form-agnostic. Format is validated at the
+        # parser (``__main__._validate_mode_flags``); any entry that
+        # slips through unparseable is dropped rather than raising here.
+        self.allow_pairing_sources = normalize_pairing_sources(
+            getattr(args, "allow_pairing_source", "") or ""
+        )
         self.dev_mode = bool(getattr(args, "dev", False))
         # ``--trusted-domains a,b,c`` (or ``$ESPHOME_TRUSTED_DOMAINS``).
         # Comma-separated. Lower-cased for the case-insensitive match

@@ -30,6 +30,7 @@ from esphome_device_builder.controllers.config import (
     get_device_metadata,
     set_device_metadata,
 )
+from esphome_device_builder.controllers.devices import archive as archive_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_artifacts import unlink_storage_sidecar
 from esphome_device_builder.models import ErrorCode
@@ -305,7 +306,7 @@ async def test_archive_collision_raises_invalid_args(
     assert (tmp_path / "kitchen.yaml").read_text() == "second version\n"
 
 
-async def test_archive_missing_file_raises_file_not_found(
+async def test_archive_missing_file_raises_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """An archive of a non-existent configuration raises cleanly.
@@ -316,8 +317,61 @@ async def test_archive_missing_file_raises_file_not_found(
     succeed.
     """
     controller = make_controller(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._archive_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_archive_concurrent_delete_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: Any
+) -> None:
+    """A YAML vanishing between the pre-check and the move still surfaces NOT_FOUND."""
+    controller = make_controller(tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+
+    def _vanished(*_args: Any) -> None:
+        raise FileNotFoundError("gone mid-archive")
+
+    monkeypatch.setattr(archive_module.shutil, "move", _vanished)
+    with pytest.raises(CommandError) as exc_info:
+        await controller.archive_device(configuration="kitchen.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_unarchive_concurrent_delete_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: Any
+) -> None:
+    """An archive entry vanishing between the pre-check and the move still surfaces NOT_FOUND."""
+    controller = make_controller(tmp_path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+
+    def _vanished(*_args: Any) -> None:
+        raise FileNotFoundError("gone mid-unarchive")
+
+    monkeypatch.setattr(archive_module.shutil, "move", _vanished)
+    with pytest.raises(CommandError) as exc_info:
+        await controller.unarchive_device(configuration="kitchen.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_delete_archived_concurrent_delete_surfaces_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: Any
+) -> None:
+    """An archive entry vanishing between the pre-check and the unlink still surfaces NOT_FOUND."""
+    controller = make_controller(tmp_path)
+    archive_dir = tmp_path / "archive"
+    archive_dir.mkdir()
+    (archive_dir / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n")
+
+    def _vanished(*_args: Any, **_kwargs: Any) -> None:
+        raise FileNotFoundError("gone mid-delete")
+
+    monkeypatch.setattr(Path, "unlink", _vanished)
+    with pytest.raises(CommandError) as exc_info:
+        await controller.delete_archived(configuration="kitchen.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
 async def test_archive_device_full_flow_calls_scanner(
@@ -389,14 +443,7 @@ async def test_list_archived_full_flow(
 async def test_archive_device_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client.
-
-    The internal ``_archive_single`` raises ``FileNotFoundError`` so
-    delete / archive symmetry is preserved at the helper level, but
-    the public ``archive_device`` wraps it so a stale dashboard
-    reference shows up as a clean ``not_found`` over the wire
-    instead of a generic ``internal_error``.
-    """
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)`` to the client."""
     controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.archive_device(configuration="ghost.yaml")
@@ -471,8 +518,9 @@ async def test_unarchive_missing_archive_file_raises(
 ) -> None:
     """Unarchiving a name that isn't in the archive raises cleanly."""
     controller = make_controller(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._unarchive_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
 # ---------------------------------------------------------------------------
@@ -656,24 +704,20 @@ async def test_delete_archived_succeeds_without_sidecars(
     assert not (archive_dir / "kitchen.yaml").exists()
 
 
-async def test_delete_archived_missing_raises_file_not_found(
+async def test_delete_archived_missing_raises_not_found(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """Permanent delete of a non-existent archive entry raises cleanly."""
     controller = make_controller(tmp_path)
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(CommandError) as exc_info:
         await controller._delete_archived_single("ghost.yaml")
+    assert exc_info.value.code == ErrorCode.NOT_FOUND
 
 
 async def test_delete_archived_translates_missing_to_command_error(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``.
-
-    Mirrors ``archive_device`` / ``unarchive_device`` — the helper
-    raises ``FileNotFoundError`` so internal callers can catch by
-    type, but the public command translates to a clean WS error.
-    """
+    """The WS-layer entry point surfaces ``CommandError(NOT_FOUND)``."""
     controller = make_controller(tmp_path)
     with pytest.raises(CommandError) as exc:
         await controller.delete_archived(configuration="ghost.yaml")

@@ -18,6 +18,7 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
+from tests.conftest import make_device
 
 
 def _job(
@@ -55,6 +56,10 @@ def mock_device() -> MagicMock:
     mock.queued_update = False
     mock.name = "test_device"
     mock.configuration = "test_device.yaml"
+    # Real bools so install_bulk's stale-first sort doesn't touch
+    # MagicMock version attributes.
+    mock.update_available = False
+    mock.has_pending_changes = False
     return mock
 
 
@@ -98,6 +103,61 @@ async def test_install_queues_deferred_compile_for_offline_device(
 
 
 @pytest.mark.asyncio
+async def test_install_bulk_queues_deferred_compile_for_offline_device(
+    firmware_controller: FirmwareController,
+) -> None:
+    """Bulk install defers an OFFLINE device to a compile-only job — no UPLOAD queued."""
+    jobs = await firmware_controller.install_bulk(configurations=["test_device.yaml"])
+
+    assert len(jobs) == 1
+    assert jobs[0].is_deferred_install is True
+    job_types = {job.job_type for job in firmware_controller.state.jobs.values()}
+    assert job_types == {JobType.COMPILE}
+
+
+@pytest.mark.asyncio
+async def test_install_bulk_mixed_defers_only_the_offline_device(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """Mixed bulk queues a full chain for the online device, a deferred compile for the offline."""
+    online_device = make_device("online_device", state=DeviceState.ONLINE)
+    devices = {d.configuration: d for d in (mock_device, online_device)}
+    firmware_controller._db.devices.get_devices.return_value = list(devices.values())
+    firmware_controller._db.devices.get_by_configuration.side_effect = devices.get
+
+    jobs = await firmware_controller.install_bulk(
+        configurations=["online_device.yaml", "test_device.yaml"]
+    )
+
+    assert len(jobs) == 2
+    by_config: dict[str, list] = {}
+    for job in firmware_controller.state.jobs.values():
+        by_config.setdefault(job.configuration, []).append(job)
+    online_jobs = by_config["online_device.yaml"]
+    assert {job.job_type for job in online_jobs} == {JobType.COMPILE, JobType.UPLOAD}
+    assert all(job.is_deferred_install is False for job in online_jobs)
+    offline_jobs = by_config["test_device.yaml"]
+    assert [job.job_type for job in offline_jobs] == [JobType.COMPILE]
+    assert offline_jobs[0].is_deferred_install is True
+
+
+@pytest.mark.asyncio
+async def test_install_bulk_explicit_target_does_not_defer(
+    firmware_controller: FirmwareController,
+) -> None:
+    """An explicit IP target keeps the full chain even for an OFFLINE device."""
+    jobs = await firmware_controller.install_bulk(
+        configurations=["test_device.yaml"], port="192.168.1.50"
+    )
+
+    assert len(jobs) == 1
+    assert jobs[0].is_deferred_install is False
+    job_types = {job.job_type for job in firmware_controller.state.jobs.values()}
+    assert job_types == {JobType.COMPILE, JobType.UPLOAD}
+
+
+@pytest.mark.asyncio
 async def test_install_bootloader_refuses_offline_device(
     firmware_controller: FirmwareController,
     mock_device: MagicMock,
@@ -110,6 +170,21 @@ async def test_install_bootloader_refuses_offline_device(
 
     assert err.value.code == ErrorCode.INVALID_ARGS
     assert not firmware_controller.state.jobs
+
+
+@pytest.mark.asyncio
+async def test_bootloader_offline_refusal_wins_over_source_resolution(
+    firmware_controller: FirmwareController,
+) -> None:
+    """The offline refusal fires before build-source resolution can raise NO_COMPATIBLE_PEER."""
+    firmware_controller._resolve_install_source = MagicMock(  # type: ignore[method-assign]
+        side_effect=CommandError(ErrorCode.NO_COMPATIBLE_PEER, "no eligible peer")
+    )
+
+    with pytest.raises(CommandError) as err:
+        await firmware_controller.install(configuration="test_device.yaml", bootloader=True)
+
+    assert err.value.code == ErrorCode.INVALID_ARGS
 
 
 @pytest.mark.asyncio

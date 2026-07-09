@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import logging
 import re
 import shutil
@@ -53,6 +52,9 @@ from esphome_device_builder.constants import (  # noqa: E402
 )
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
+from script._component_catalog import load_component_catalog  # noqa: E402
+from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
+from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -91,7 +93,9 @@ _ESP32_VARIANT_DEFAULT_BOARD: dict[str, str] = {
     "esp32c6": "esp32-c6-devkitc-1",
     "esp32c61": "esp32-c61-devkitc1",
     "esp32h2": "esp32-h2-devkitm-1",
-    "esp32p4": "esp32-p4-function-ev-board",
+    # Pre-rev3 board on purpose: ES firmware boots on both silicon revisions,
+    # rev3-min firmware faults at boot on pre-rev3 chips.
+    "esp32p4": "esp32-p4-evboard",
 }
 
 # ESPHome esp32 board ids encode the chip variant (``esp32-p4-evboard``,
@@ -222,9 +226,10 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
 # unsafe to surface as a preset value or as an ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
 
-# Legacy flat ``clk_mode: GPIO17_OUT`` encodes the RMII clock pin in the
-# mode string; this pulls the GPIO number out for the occupancy map.
-_CLK_MODE_PIN_RE = re.compile(r"GPIO(\d+)_")
+# Deprecated flat ``clk_mode: GPIO<n>_(IN|OUT)`` encodes the RMII clock
+# pin and direction in the mode string; folded into nested ``clk``
+# ``{mode, pin}`` (upstream removal 2026.9.0).
+_CLK_MODE_RE = re.compile(r"GPIO(\d+)_(IN|OUT)")
 
 # Hardware fields of a top-level ``ethernet:`` block worth locking as a
 # featured-component preset (the PHY/pinout). Network/runtime fields
@@ -238,7 +243,6 @@ _ETHERNET_HW_FIELDS: frozenset[str] = frozenset(
         "mdc_pin",
         "mdio_pin",
         "clk",
-        "clk_mode",
         "clk_pin",
         "phy_addr",
         "power_pin",
@@ -417,40 +421,20 @@ def _ensure_devices_repo(*, pull: bool = True) -> Path | None:
     which is what the smoke test does so it inspects the same revision
     the sync just produced.
     """
-    target = _DEVICES_CLONE_DIR
-    if (target / ".git").exists():
-        if not pull:
-            return target
-        result = subprocess.run(
-            ["git", "-C", str(target), "pull", "-q", "--ff-only"],
-            check=False,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            _LOGGER.warning("git pull failed in %s — using existing snapshot", target)
-        return target
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning devices.esphome.io (shallow) to %s", target)
-    try:
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "-q",
-                "--depth=1",
-                "--single-branch",
-                f"--branch={_DEVICES_REPO_BRANCH}",
-                _DEVICES_REPO_URL,
-                str(target),
-            ],
-            check=True,
-            timeout=300,
-        )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        _LOGGER.error("Could not clone devices.esphome.io: %s", exc)
-        return None
-    return target
+    return ensure_shallow_git_repo(
+        _DEVICES_REPO_URL,
+        _DEVICES_CLONE_DIR,
+        _DEVICES_REPO_BRANCH,
+        label="devices.esphome.io",
+        pull=pull,
+        pull_timeout=120,
+        clone_timeout=300,
+        # Primary data source: a clone miss (empty catalog) or a stale-pull
+        # (regenerating from outdated upstream) both need operator attention,
+        # so keep both loud (clone was ERROR; pull elevated to match).
+        clone_fail_level=logging.ERROR,
+        pull_fail_level=logging.ERROR,
+    )
 
 
 def _get_repo_revision(repo: Path) -> str:
@@ -1381,6 +1365,27 @@ def _eth_value_safe(value: Any) -> bool:
     return True
 
 
+def _normalized_clk(eth: dict[str, Any]) -> dict[str, Any] | None:
+    """Fold deprecated flat ``clk_mode`` into nested ``clk``; ``None`` when unmappable."""
+    if "clk_mode" not in eth:
+        return eth
+    # clk_mode exists only in upstream's RMII schema (SPI PHYs use clk_pin);
+    # a block carrying it without the RMII-required mdc_pin is invalid upstream.
+    if "mdc_pin" not in eth:
+        return None
+    without = {k: v for k, v in eth.items() if k != "clk_mode"}
+    if "clk" in eth:
+        return without
+    clk_mode = eth["clk_mode"]
+    # Upstream validates with cv.enum(upper=True, space="_"); mirror it.
+    normalized = clk_mode.strip().upper().replace(" ", "_") if isinstance(clk_mode, str) else ""
+    match = _CLK_MODE_RE.fullmatch(normalized)
+    if match is None:
+        return None
+    mode = "CLK_EXT_IN" if match.group(2) == "IN" else "CLK_OUT"
+    return {**without, "clk": {"pin": f"GPIO{match.group(1)}", "mode": mode}}
+
+
 def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[int, str]]:
     """
     Mine a top-level ``ethernet:`` block into a locked featured component.
@@ -1398,6 +1403,9 @@ def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, di
     """
     eth = config.get("ethernet")
     if not isinstance(eth, dict) or not isinstance(eth.get("type"), str):
+        return None, {}
+    eth = _normalized_clk(eth)
+    if eth is None:
         return None, {}
     fields: dict[str, Any] = {}
     occupancy: dict[int, str] = {}
@@ -1421,9 +1429,6 @@ def _extract_ethernet(config: dict[str, Any]) -> tuple[dict[str, Any] | None, di
         if gpio is None:
             return None, {}
         occupancy[gpio] = "Ethernet CLK"
-    clk_mode = eth.get("clk_mode")
-    if isinstance(clk_mode, str) and (m := _CLK_MODE_PIN_RE.match(clk_mode)):
-        occupancy[int(m.group(1))] = "Ethernet CLK"
     entry = {
         "id": "onboard_ethernet",
         "component_id": "ethernet",
@@ -2064,7 +2069,9 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
         "id": _slugify(src.folder_name),
         "name": title.strip(),
         "description": "Imported from devices.esphome.io — see linked docs for community notes.",
-        "esphome": _build_esphome_block(soc, board, variant, framework),
+        "esphome": _build_esphome_block(
+            soc, board, variant, framework, _extract_logger_hardware_uart(src.config_yaml)
+        ),
     }
 
     connectivity = list(_connectivity_for(soc, variant) or [])
@@ -2106,7 +2113,11 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
 
 
 def _build_esphome_block(
-    soc: str, board: str, variant: str | None, framework: str | None
+    soc: str,
+    board: str,
+    variant: str | None,
+    framework: str | None,
+    logger_hardware_uart: str | None = None,
 ) -> dict[str, Any]:
     """Compose the manifest's ``esphome:`` block, omitting empty optional fields."""
     out: dict[str, Any] = {"platform": soc, "board": board}
@@ -2114,7 +2125,25 @@ def _build_esphome_block(
         out["variant"] = variant
     if framework in ("arduino", "esp-idf"):
         out["framework"] = framework
+    if logger_hardware_uart:
+        out["logger_hardware_uart"] = logger_hardware_uart
     return out
+
+
+# ESPHome's logger ``hardware_uart`` targets the manifest schema accepts.
+_LOGGER_HARDWARE_UARTS = frozenset({"UART0", "UART1", "UART2", "USB_CDC", "USB_SERIAL_JTAG"})
+
+
+def _extract_logger_hardware_uart(config: dict[str, Any]) -> str | None:
+    """Lift the page's explicit ``logger.hardware_uart`` when it names a known target."""
+    logger = config.get("logger")
+    if not isinstance(logger, dict):
+        return None
+    value = logger.get("hardware_uart")
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().upper()
+    return normalized if normalized in _LOGGER_HARDWARE_UARTS else None
 
 
 def _connectivity_for(soc: str, variant: str | None) -> list[str] | None:
@@ -2196,10 +2225,13 @@ def _read_manifest_dict(manifest_path: Path) -> dict[str, Any] | None:
     if not manifest_path.is_file():
         return None
     try:
-        data = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+        return load_manifest_dict(manifest_path)
+    except (OSError, ManifestError) as exc:
+        # A present-but-corrupt/unreadable manifest still returns None (the prior
+        # state is unrecoverable either way), but log it so it isn't silently
+        # indistinguishable from a manifest that never existed.
+        _LOGGER.warning("Ignoring unreadable manifest %s: %s", manifest_path, exc)
         return None
-    return data if isinstance(data, dict) else None
 
 
 def _imported_remote_id(prior: dict[str, Any] | None) -> tuple[bool, str | None]:
@@ -2248,19 +2280,7 @@ def _load_components_index() -> dict[str, dict[str, Any]]:
         raise SystemExit(
             f"{_COMPONENTS_INDEX_JSON} not found — run script/sync_components.py first."
         )
-    raw = json.loads(_COMPONENTS_INDEX_JSON.read_text(encoding="utf-8"))
-    by_id: dict[str, dict[str, Any]] = {}
-    for comp in raw.get("components", []):
-        cid = comp.get("id")
-        if not cid:
-            continue
-        body_path = _COMPONENTS_BODIES_DIR / f"{cid}.json"
-        if body_path.is_file():
-            body = json.loads(body_path.read_text(encoding="utf-8"))
-            by_id[cid] = {**comp, **body}
-        else:
-            by_id[cid] = comp
-    return by_id
+    return load_component_catalog(_COMPONENTS_INDEX_JSON, _COMPONENTS_BODIES_DIR)
 
 
 def _parse_args() -> argparse.Namespace:

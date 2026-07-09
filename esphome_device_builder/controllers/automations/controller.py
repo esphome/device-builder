@@ -371,26 +371,26 @@ def _scope_component_instances(
     """
     Pick configured component instance ids under one domain.
 
-    A multi-entity platform also surfaces each ided sub-entity (``parent_id``
-    set) and flags the container ``is_entity_container``.
+    A multi-entity platform surfaces each configured sub-entity
+    (``parent_id`` set) and flags the container ``is_entity_container``.
     """
     out: list[AvailableComponentInstance] = []
     for idx, item in enumerate(section):
         if not isinstance(item, dict):
             continue
         catalog_id = parsing.catalog_id(domain, item.get("platform"))
-        subs = list(parsing.iter_subentities(domain, item))
-        comp_id = item.get("id")
-        instance_id = str(comp_id) if comp_id else f"{domain}_{idx}"
-        # Surface the instance as a target unless it's an id-less container —
-        # an id-less leaf (a gpio binary_sensor, an uptime sensor) keys on the
-        # same f"{domain}_{idx}" synthetic id the parser and writer use, so it
-        # round-trips. Mark a container only when it surfaces ided sub-entities;
-        # the frontend hides containers and redirects to those sub-entities, so
-        # an id-less container has nothing to redirect to and is left out.
-        if comp_id or not subs:
-            out.append(_component_instance(catalog_id, instance_id, item, is_container=bool(subs)))
-        for sub_domain, sub, sub_id, _sub_key in subs:
+        # An id-less instance keys on the parser and writer's declared-or-
+        # positional id, so it round-trips. Container-ness comes from the
+        # catalog definition, not from which sub-blocks the YAML happens to
+        # configure: a multi-entity platform is never a leaf, or entity
+        # triggers would splice onto the platform item and produce invalid
+        # YAML (#1886).
+        instance_id = parsing.instance_id(domain, item, idx, is_list=True)
+        is_container = bool(parsing.platform_subentity_keys(catalog_id))
+        out.append(_component_instance(catalog_id, instance_id, item, is_container=is_container))
+        for sub_domain, sub, sub_id, _sub_key in parsing.iter_subentities(
+            domain, item, instance_id
+        ):
             out.append(_component_instance(sub_domain, sub_id, sub, parent_id=instance_id))
     return out
 

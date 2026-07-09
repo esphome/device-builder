@@ -33,6 +33,7 @@ import sys
 import threading
 from contextlib import nullcontext
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -1176,34 +1177,101 @@ def test_rel_path_bounds_control_byte_payload(make_settings: MakeSettingsFactory
 # ---------------------------------------------------------------------------
 
 
+def _patch_port_scan(
+    monkeypatch: pytest.MonkeyPatch,
+    ports: list[SerialPort],
+    usb: list[SimpleNamespace] | None = None,
+) -> None:
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.serial_ports.get_serial_ports",
+        lambda: ports,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.serial_ports.comports",
+        lambda include_links: usb or [],
+    )
+
+
 async def test_get_serial_ports_returns_path_and_desc(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Each upstream ``SerialPort`` round-trips as ``{port, desc}``.
+    """Each upstream ``SerialPort`` round-trips as ``{port, desc, vid, pid, hint}``.
 
     Pin the field renaming (``path`` → ``port``,
     ``description`` → ``desc``). The executor-route is asserted
     separately in ``test_get_serial_ports_runs_in_executor`` —
-    monkeypatching ``get_serial_ports`` to a sync lambda here
-    means a regression that dropped ``run_in_executor`` would
-    still pass this test, so the contract gets its own dedicated
-    pin.
+    monkeypatching the port scan to sync lambdas here means a
+    regression that dropped ``run_in_executor`` would still pass
+    this test, so the contract gets its own dedicated pin.
     """
-    fake_ports = [
-        SerialPort(path="/dev/ttyUSB0", description="USB Serial"),
-        SerialPort(path="/dev/ttyACM0", description="Arduino Uno"),
-    ]
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.controller.get_serial_ports",
-        lambda: fake_ports,
+    _patch_port_scan(
+        monkeypatch,
+        [
+            SerialPort(path="/dev/ttyUSB0", description="USB Serial"),
+            SerialPort(path="/dev/ttyACM0", description="Arduino Uno"),
+        ],
     )
     controller = _make_controller(tmp_path)
 
     result = await controller.get_serial_ports_cmd()
 
     assert result == [
-        {"port": "/dev/ttyUSB0", "desc": "USB Serial"},
-        {"port": "/dev/ttyACM0", "desc": "Arduino Uno"},
+        {"port": "/dev/ttyUSB0", "desc": "USB Serial", "vid": None, "pid": None, "hint": None},
+        {"port": "/dev/ttyACM0", "desc": "Arduino Uno", "vid": None, "pid": None, "hint": None},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("vid", "hint"),
+    [
+        pytest.param(0x303A, "esp", id="espressif"),
+        pytest.param(0x10C4, "bridge", id="cp210x"),
+        pytest.param(0x1A86, "bridge", id="ch340"),
+        pytest.param(0x0403, "bridge", id="ftdi"),
+        pytest.param(0x067B, "bridge", id="prolific"),
+        pytest.param(0x2341, None, id="unknown-vid"),
+        pytest.param(None, None, id="no-vid"),
+    ],
+)
+async def test_get_serial_ports_usb_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, vid: int | None, hint: str | None
+) -> None:
+    """USB VID classifies the port: Espressif → ``esp``, UART bridges → ``bridge``."""
+    _patch_port_scan(
+        monkeypatch,
+        [SerialPort(path="/dev/ttyUSB0", description="USB Serial")],
+        [SimpleNamespace(device="/dev/ttyUSB0", vid=vid, pid=0x1001)],
+    )
+    controller = _make_controller(tmp_path)
+
+    result = await controller.get_serial_ports_cmd()
+
+    assert result == [
+        {"port": "/dev/ttyUSB0", "desc": "USB Serial", "vid": vid, "pid": 0x1001, "hint": hint}
+    ]
+
+
+async def test_get_serial_ports_without_usb_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A port absent from the ``comports`` scan (by-id symlink) gets null USB fields."""
+    _patch_port_scan(
+        monkeypatch,
+        [SerialPort(path="/dev/serial/by-id/usb-foo", description="USB Serial Port")],
+        [SimpleNamespace(device="/dev/ttyUSB0", vid=0x303A, pid=0x1001)],
+    )
+    controller = _make_controller(tmp_path)
+
+    result = await controller.get_serial_ports_cmd()
+
+    assert result == [
+        {
+            "port": "/dev/serial/by-id/usb-foo",
+            "desc": "USB Serial Port",
+            "vid": None,
+            "pid": None,
+            "hint": None,
+        }
     ]
 
 
@@ -1230,8 +1298,11 @@ async def test_get_serial_ports_runs_in_executor(
         return [SerialPort(path="/dev/ttyUSB0", description="USB Serial")]
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.controller.get_serial_ports",
+        "esphome_device_builder.controllers.config.serial_ports.get_serial_ports",
         _record_thread,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.config.serial_ports.comports", lambda include_links: []
     )
     controller = _make_controller(tmp_path)
 
@@ -1257,15 +1328,14 @@ async def test_get_serial_ports_substitutes_path_for_na_description(
     the fallback would make the chooser look broken without
     actually being broken.
     """
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.controller.get_serial_ports",
-        lambda: [SerialPort(path="/dev/ttyUSB0", description="n/a")],
-    )
+    _patch_port_scan(monkeypatch, [SerialPort(path="/dev/ttyUSB0", description="n/a")])
     controller = _make_controller(tmp_path)
 
     result = await controller.get_serial_ports_cmd()
 
-    assert result == [{"port": "/dev/ttyUSB0", "desc": "/dev/ttyUSB0"}]
+    assert result == [
+        {"port": "/dev/ttyUSB0", "desc": "/dev/ttyUSB0", "vid": None, "pid": None, "hint": None}
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -1758,10 +1828,7 @@ async def test_get_serial_ports_returns_empty_when_no_ports(
     ports available" off an empty list; a regression that
     returned ``None`` would break iteration in the frontend.
     """
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.config.controller.get_serial_ports",
-        list,
-    )
+    _patch_port_scan(monkeypatch, [])
     controller = _make_controller(tmp_path)
 
     result = await controller.get_serial_ports_cmd()

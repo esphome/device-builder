@@ -162,6 +162,47 @@ These are explicitly *not* threats the dashboard defends against:
   place the socket in a directory with appropriate permissions
   or use default ACLs. A report that the socket's default mode
   is too open (or too closed) is not a security bug.
+- **A console reader taking the `--remote-build-only` first-pair
+  key.** The headless build server's bootstrap auto-approves the
+  first `pair_request` inside its operator-initiated, single-use,
+  15-minute pairing window **only when it presents the one-time
+  pairing key printed on the server console** (16 chars from a
+  30-char alphabet, ~2^78; compared constant-time after
+  normalisation). Racing the window is therefore no longer
+  sufficient: a wrong or missing key is refused *without*
+  disarming, indistinguishably from a closed window, so probing
+  leaks nothing and the legitimate builder can still pair. There
+  is deliberately no failure lockout — a lockout would let an
+  attacker deny the pairing with garbage keys, and the keyspace
+  makes brute force inside the window moot. On the
+  builder-to-receiver peer-link wire the key rides only in the
+  encrypted Noise msg3, sent only after the offloader has verified
+  the receiver's static key against the previewed fingerprint, so
+  an active MITM on that hop never sees it. The operator types the
+  key into the *builder's* pair dialog, so it also crosses the
+  browser-to-dashboard WS — plaintext `ws://` on a default HTTP
+  deployment, the same channel that already carries the login
+  password and every YAML secret; a sniffer on that segment is the
+  pre-existing dashboard trust boundary, not new exposure. What
+  remains accepted: an attacker who can read the server's console
+  or journal can take the key — that is local-shell trust, out of
+  scope per the first bullet — and the key is worthless once the
+  window closes or the first pairing lands (never persisted,
+  never in argv or env). `--allow-pairing-source <IP>` composes
+  as optional defense in depth. The `preview` response reports
+  `requires_pairing_key` so the pairing UI can require the key up
+  front; it's static on the server's mode (always true for a
+  `--remote-build-only` server, independent of whether a window is
+  open), so a previewer learns only "this server uses a key" — never
+  the key, and never whether a window is currently open. The flag
+  rides only on the `preview` response, never on a `pair_request`
+  refusal, so the actual pairing attempt stays indistinguishable
+  from a closed window. What we still defend: the auto-approve is
+  one-shot, never fires while an APPROVED peer exists, requires
+  the key match (failing closed when armed without one), honours
+  the source allowlist when set, and no UI or WS surface can
+  re-open the window in this mode — a regression on any of those
+  *is* a security bug.
 - **An operator who deliberately opened the front door.** On the HA
   add-on, enabling "Disable external authentication"
   (`leave_front_door_open`) *and* mapping port 6052 binds the public

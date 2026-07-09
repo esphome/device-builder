@@ -30,13 +30,15 @@ def _stub_metadata(_config_dir: Path, _filename: str) -> DeviceFileMetadata:
     return DeviceFileMetadata(board_id="", ip="", expected_config_hash="")
 
 
-def _make_scanner(config_dir: Path) -> tuple[DeviceScanner, list[tuple[ScanChange, Device]]]:
+def _make_scanner(
+    config_dir: Path,
+) -> tuple[DeviceScanner, list[tuple[ScanChange, Device, Device | None]]]:
     """Build a scanner with a recording on_change callback."""
-    events: list[tuple[ScanChange, Device]] = []
+    events: list[tuple[ScanChange, Device, Device | None]] = []
     scanner = DeviceScanner(
         config_dir=config_dir,
         get_metadata=_stub_metadata,
-        on_change=lambda kind, device: events.append((kind, device)),
+        on_change=lambda kind, device, previous: events.append((kind, device, previous)),
     )
     return scanner, events
 
@@ -169,7 +171,7 @@ async def test_reload_swallows_oserror_on_post_load_stat(tmp_path: Path) -> None
 
     assert ok is True
     # RELOADED still fired with the freshly-loaded Device.
-    assert [(kind, dev.friendly_name) for kind, dev in events] == [
+    assert [(kind, dev.friendly_name) for kind, dev, _prev in events] == [
         (ScanChange.RELOADED, "Kitchen Renamed")
     ]
 
@@ -218,3 +220,81 @@ async def test_scan_skips_yamls_that_fail_to_stat(tmp_path: Path) -> None:
     assert [d.name for d in scanner.devices] == ["good"]
     assert good in scanner.by_path
     assert broken not in scanner.by_path
+
+
+# ---------------------------------------------------------------------------
+# on_change previous-device argument
+# ---------------------------------------------------------------------------
+
+
+async def test_scan_updated_passes_previous_device(tmp_path: Path) -> None:
+    """UPDATED carries the previously indexed Device; ADDED carries None."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    yaml_path = _write_yaml(cfg, "kitchen")
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, events = _make_scanner(cfg)
+        await scanner.scan()
+        assert [(kind, prev) for kind, _dev, prev in events] == [(ScanChange.ADDED, None)]
+        first_device = events[0][1]
+        events.clear()
+
+        # Bump the cache key so the next scan classifies UPDATED.
+        yaml_path.write_text("esphome:\n  name: kitchen\n# edit\n", encoding="utf-8")
+        await scanner.scan()
+
+    assert [kind for kind, _dev, _prev in events] == [ScanChange.UPDATED]
+    # Identity, not equality — an equal rebuilt Device must not pass.
+    assert events[0][2] is first_device
+
+
+async def test_reload_passes_previous_device(tmp_path: Path) -> None:
+    """RELOADED carries the pre-reload Device as previous."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, events = _make_scanner(cfg)
+        await scanner.scan()
+        first_device = events[0][1]
+        events.clear()
+        assert await scanner.reload("kitchen.yaml") is True
+
+    assert [kind for kind, _dev, _prev in events] == [ScanChange.RELOADED]
+    # Identity, not equality — an equal rebuilt Device must not pass.
+    assert events[0][2] is first_device
+
+
+async def test_scan_removed_passes_none_previous(tmp_path: Path) -> None:
+    """REMOVED carries None: the fired Device already is the prior indexed one."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    yaml_path = _write_yaml(cfg, "kitchen")
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, events = _make_scanner(cfg)
+        await scanner.scan()
+        events.clear()
+        yaml_path.unlink()
+        await scanner.scan()
+
+    assert [(kind, dev.name, prev) for kind, dev, prev in events] == [
+        (ScanChange.REMOVED, "kitchen", None)
+    ]

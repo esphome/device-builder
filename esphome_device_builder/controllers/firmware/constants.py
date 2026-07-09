@@ -53,8 +53,9 @@ _NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
 #   * PlatformIO Arduino compile:    ``[ 17%] Compiling foo.cpp.o``
 #     The percentage MUST start the line and live inside square
 #     brackets so PIO's ESP-IDF builds (which don't emit a per-file
-#     percent at all) and the package-extract bar (no ``[NN%]`` shape)
-#     never trip it.
+#     percent at all — their ninja ``[N/M]`` counter is handled
+#     separately by ``_NINJA_PROGRESS_PATTERN``) and the
+#     package-extract bar (no ``[NN%]`` shape) never trip it.
 #   * esptool serial flash (legacy):  ``Writing at 0x10000... (45 %)``
 #     We match a bare parenthesized percentage anywhere in the line:
 #     ``(\s*\d{1,3}\s*%\s*\)``. In practice that is enough for the
@@ -102,6 +103,22 @@ _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\(\s*(\d{1,3})\s*%\s*\)"),
     re.compile(r"Writing at\b.*?(\d{1,3})(?:\.\d+)?\s*%"),
     re.compile(r"^\s*Uploading:.*?\b(\d{1,3})\s*%"),
+)
+
+# ESP-IDF / ninja per-target counter: ``[907/1424] Building C object …``.
+# Kept out of ``_PROGRESS_PATTERNS`` because it carries no percentage —
+# ``_parse_progress`` derives one from the two capture groups. Anchored
+# to the line start and to ninja's literal space after the ``]`` so
+# mid-line ``[N/M]`` text and bare bracketed fragments never trip it;
+# the start anchor tolerates ANSI CSI prefixes (``\x1b[2K`` etc.) —
+# same production concern as the ``Writing at`` pattern above. Counters
+# with totals under ``_NINJA_MIN_TOTAL`` are ignored: ``[1/2]
+# Re-running CMake...`` sub-steps and the ~97-step bootloader
+# ExternalProject sub-build would otherwise spike the gauge to ~100
+# before the app build starts.
+_NINJA_MIN_TOTAL = 100
+_NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
+    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
 )
 
 # History retention.

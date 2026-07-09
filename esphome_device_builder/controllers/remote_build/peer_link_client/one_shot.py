@@ -39,6 +39,8 @@ from .._client_models import (
     InitiatorRoundTrip,
     PairStatusResult,
     PeerLinkClientError,
+    PeerLinkPinMismatchError,
+    PreviewResult,
     RequestPairResult,
 )
 from ..peer_link import PEER_LINK_PATH
@@ -127,6 +129,7 @@ async def _drive_initiator_handshake_and_read_response(
     intent: PeerLinkIntent,
     msg3_payload: bytes,
     read_timeout_seconds: float,
+    expected_pin_sha256: str | None = None,
 ) -> bytes:
     """
     Drive Noise XX msg1/msg2/msg3 + read the post-handshake response ciphertext.
@@ -135,12 +138,21 @@ async def _drive_initiator_handshake_and_read_response(
     :meth:`PeerLinkClient._run_one_session`. Pre: *ws* is
     connected; *sess* is a fresh initiator. Post: *sess* is in
     transport mode.
+
+    *expected_pin_sha256* is verified against the responder's
+    static key after msg2, BEFORE msg3 is written; a mismatch
+    raises :class:`PeerLinkPinMismatchError` with the payload
+    unsent. Required when *msg3_payload* carries a secret.
     """
     msg1 = _json.dumps({"intent": intent.value})
     await ws.send_bytes(sess.write_handshake_message(msg1))
     sess.read_handshake_message(
         await asyncio.wait_for(ws.receive_bytes(), timeout=read_timeout_seconds)
     )
+    if expected_pin_sha256 is not None:
+        observed = pin_sha256_for_pubkey(sess.remote_static_pub)
+        if observed != expected_pin_sha256:
+            raise PeerLinkPinMismatchError(observed)
     await ws.send_bytes(sess.write_handshake_message(msg3_payload))
     return await asyncio.wait_for(ws.receive_bytes(), timeout=read_timeout_seconds)
 
@@ -154,6 +166,7 @@ async def drive_initiator_round_trip(
     msg3_payload: bytes = b"",
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     resolver: AbstractResolver | None = None,
+    expected_pin_sha256: str | None = None,
 ) -> InitiatorRoundTrip:
     """
     Run one Noise XX round-trip from the initiator side.
@@ -165,6 +178,11 @@ async def drive_initiator_round_trip(
     decode failure with the underlying exception attached as
     ``__cause__``; callers branch on
     :attr:`InitiatorRoundTrip.intent_response` per intent.
+
+    *expected_pin_sha256* aborts with
+    :class:`PeerLinkPinMismatchError` before msg3 is written when
+    the responder's static key doesn't match — required when
+    *msg3_payload* carries a secret.
     """
     sess = PeerLinkNoiseSession.initiator(identity_priv)
     timeout = aiohttp.ClientTimeout(total=timeout_seconds)
@@ -188,7 +206,19 @@ async def drive_initiator_round_trip(
                 intent=intent,
                 msg3_payload=msg3_payload,
                 read_timeout_seconds=timeout_seconds,
+                expected_pin_sha256=expected_pin_sha256,
             )
+    except PeerLinkPinMismatchError as exc:
+        # Security-relevant: the responder's key didn't match the previewed
+        # pin, so we aborted before sending msg3 (and any pairing key).
+        # Log loudly — receiver identity rotated, or an active MITM.
+        _LOGGER.warning(
+            "%s aborted: responder pin %s does not match the previewed pin; "
+            "msg3 (and any pairing key) was not sent",
+            label,
+            exc.observed_pin_sha256,
+        )
+        raise
     except (TimeoutError, aiohttp.ClientError, OSError, ValueError, TypeError) as exc:
         msg = f"{label} failed: {exc}"
         _LOGGER.debug(msg, exc_info=True)
@@ -232,13 +262,15 @@ async def preview_pair(
     port: int,
     identity_priv: bytes,
     resolver: AbstractResolver | None = None,
-) -> str:
+) -> PreviewResult:
     """
-    Run an ``intent="preview"`` round-trip; return the receiver's pin_sha256.
+    Run an ``intent="preview"`` round-trip; return the receiver's pin + key flag.
 
-    The returned pin renders for OOB verification against the
-    receiver's "Build server" Settings card before the offloader
-    calls ``request_pair``.
+    The pin renders for OOB verification against the receiver's
+    "Build server" Settings card before the offloader calls
+    ``request_pair``. ``requires_pairing_key`` reflects whether the
+    receiver's next ``pair_request`` needs the ``--remote-build-only``
+    bootstrap key.
     """
     rt = await drive_initiator_round_trip(
         hostname=hostname,
@@ -250,7 +282,10 @@ async def preview_pair(
     if rt.intent_response != IntentResponse.OK.value:
         msg = f"peer-link preview rejected with intent_response={rt.intent_response!r}"
         raise PeerLinkClientError(msg)
-    return pin_sha256_for_pubkey(rt.remote_static_pub)
+    return PreviewResult(
+        pin_sha256=pin_sha256_for_pubkey(rt.remote_static_pub),
+        requires_pairing_key=rt.response.get("requires_pairing_key") is True,
+    )
 
 
 async def request_pair(
@@ -261,24 +296,39 @@ async def request_pair(
     label: str,
     dashboard_id: str,
     resolver: AbstractResolver | None = None,
+    pairing_key: str | None = None,
+    expected_pin_sha256: str | None = None,
 ) -> RequestPairResult:
     """
     Run an ``intent="pair_request"`` round-trip; return the receiver's response.
 
-    Caller is responsible for the TOCTOU pin check: compare
+    When *expected_pin_sha256* is set the pin is verified
+    mid-handshake and a mismatch raises
+    :class:`PeerLinkPinMismatchError` before msg3 is sent;
+    callers that omit it must compare
     :attr:`RequestPairResult.pin_sha256` against the value the
-    user OOB-confirmed in ``preview_pair`` BEFORE persisting any
+    user OOB-confirmed in ``preview_pair`` before persisting any
     state. Unknown ``intent_response`` strings raise
     :class:`PeerLinkClientError`.
+
+    *pairing_key* rides in the encrypted msg3 and requires
+    *expected_pin_sha256* so the secret never reaches an
+    unverified responder.
     """
-    msg3_payload = _json.dumps({"label": label, "dashboard_id": dashboard_id})
+    if pairing_key is not None and expected_pin_sha256 is None:
+        msg = "request_pair: pairing_key requires expected_pin_sha256 (secret in msg3)"
+        raise ValueError(msg)
+    payload: dict[str, str] = {"label": label, "dashboard_id": dashboard_id}
+    if pairing_key is not None:
+        payload["pairing_key"] = pairing_key
     rt = await drive_initiator_round_trip(
         hostname=hostname,
         port=port,
         identity_priv=identity_priv,
         intent=PeerLinkIntent.PAIR_REQUEST,
-        msg3_payload=msg3_payload,
+        msg3_payload=_json.dumps(payload),
         resolver=resolver,
+        expected_pin_sha256=expected_pin_sha256,
     )
     try:
         status = IntentResponse(rt.intent_response)

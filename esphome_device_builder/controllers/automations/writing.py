@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
+    SubEntityRef,
     _block_end,
     _indent_block,
     _splice_into_domain_block,
@@ -67,9 +68,11 @@ from .writing_lists import (
     delete_light_effect,
     delete_list_entry,
     delete_list_entry_for,
+    delete_subentity_list_entry,
     upsert_component_on_entry,
     upsert_light_effect,
     upsert_list_entry,
+    upsert_subentity_on_entry,
     wrap_handler_list_block,
 )
 
@@ -280,21 +283,26 @@ def _upsert_subentity_on(
     target: ComponentTarget,
 ) -> tuple[str, YamlDiff]:
     """Splice an ``on_*:`` handler under a nested sub-entity (``aht20_temperature``)."""
-    parent_domain, parent_id, sub_key = _subentity_context(target)
-    _require_trigger(target.domain, location)
+    ref = _subentity_context(target)
+    trigger = _require_trigger(target.domain, location)
+    if location.index is not None:
+        return upsert_subentity_on_entry(
+            yaml_text,
+            ref,
+            tree=tree,
+            component_id=location.component_id,
+            trigger_key=location.trigger,
+            trigger=trigger,
+            index=location.index,
+        )
     rendered = render_trigger_handler(tree, key=location.trigger)
     res = upsert_subentity_handler(
-        yaml_text,
-        parent_domain=parent_domain,
-        parent_id=parent_id,
-        sub_key=sub_key,
-        handler_key=location.trigger,
-        rendered_yaml=rendered,
+        yaml_text, ref, handler_key=location.trigger, rendered_yaml=rendered
     )
     if res is None:
         msg = (
             f"Sub-entity id={location.component_id!r} not found under "
-            f"{parent_domain!r}; can't splice handler {location.trigger!r}"
+            f"{ref.parent_domain!r}; can't splice handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     new_text, from_line, to_line, replacement = res
@@ -636,18 +644,20 @@ def _delete_subentity_on(
     target: ComponentTarget,
 ) -> tuple[str, YamlDiff]:
     """Drop an ``on_*:`` handler from a nested sub-entity (``aht20_temperature``)."""
-    parent_domain, parent_id, sub_key = _subentity_context(target)
-    res = remove_subentity_handler(
-        yaml_text,
-        parent_domain=parent_domain,
-        parent_id=parent_id,
-        sub_key=sub_key,
-        handler_key=location.trigger,
-    )
+    ref = _subentity_context(target)
+    if location.index is not None:
+        return delete_subentity_list_entry(
+            yaml_text,
+            ref,
+            component_id=location.component_id,
+            handler_key=location.trigger,
+            index=location.index,
+        )
+    res = remove_subentity_handler(yaml_text, ref, handler_key=location.trigger)
     if res is None:
         msg = (
             f"Sub-entity id={location.component_id!r} not found under "
-            f"{parent_domain!r}; can't delete handler {location.trigger!r}"
+            f"{ref.parent_domain!r}; can't delete handler {location.trigger!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res
@@ -739,12 +749,12 @@ def _require_trigger(domain: str, location: ComponentOnLocation) -> AutomationTr
     return trigger
 
 
-def _subentity_context(target: ComponentTarget) -> tuple[str, str, str]:
+def _subentity_context(target: ComponentTarget) -> SubEntityRef:
     """Parent context for a sub-entity target; raise if it's incomplete."""
     if target.parent_domain is None or target.parent_id is None or target.sub_key is None:
         msg = f"sub-entity target is missing parent context: {target!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return target.parent_domain, target.parent_id, target.sub_key
+    return SubEntityRef(target.parent_domain, target.parent_id, target.sub_key)
 
 
 def _component_domain(location: ComponentOnLocation) -> str:

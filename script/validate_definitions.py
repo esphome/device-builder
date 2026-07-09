@@ -19,8 +19,6 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import yaml
-
 try:
     import jsonschema
 
@@ -34,6 +32,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 # Imported from the stdlib-only constants module so this script stays light.
 from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
+from script._component_catalog import load_component_catalog  # noqa: E402
+from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 
 DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
@@ -154,12 +154,9 @@ def validate_board(manifest: Path, components_index: dict | None = None) -> list
     board_id = manifest.parent.name
 
     try:
-        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        return [f"{board_id}: invalid YAML: {exc}"]
-
-    if not isinstance(data, dict):
-        return [f"{board_id}: manifest is not a YAML mapping"]
+        data = load_manifest_dict(manifest)
+    except ManifestError as exc:
+        return [f"{board_id}: {exc}"]
 
     # JSON Schema validation
     errors.extend(_validate_against_schema(data, _BOARD_SCHEMA, board_id))
@@ -218,19 +215,7 @@ def _build_components_index() -> dict | None:
             file=sys.stderr,
         )
         return None
-    raw = json.loads(COMPONENTS_INDEX_JSON.read_text(encoding="utf-8"))
-    by_id: dict[str, dict] = {}
-    for comp in raw.get("components", []):
-        cid = comp.get("id")
-        if not cid:
-            continue
-        body_path = COMPONENTS_BODIES_DIR / f"{cid}.json"
-        if body_path.is_file():
-            body = json.loads(body_path.read_text(encoding="utf-8"))
-            by_id[cid] = {**comp, **body}
-        else:
-            by_id[cid] = comp
-    return by_id
+    return load_component_catalog(COMPONENTS_INDEX_JSON, COMPONENTS_BODIES_DIR)
 
 
 def _validate_featured(  # noqa: C901
@@ -619,12 +604,9 @@ def validate_component(manifest: Path) -> list[str]:
     comp_id = manifest.parent.name
 
     try:
-        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        return [f"{comp_id}: invalid YAML: {exc}"]
-
-    if not isinstance(data, dict):
-        return [f"{comp_id}: manifest is not a YAML mapping"]
+        data = load_manifest_dict(manifest)
+    except ManifestError as exc:
+        return [f"{comp_id}: {exc}"]
 
     # JSON Schema validation
     errors.extend(_validate_against_schema(data, _COMPONENT_SCHEMA, comp_id))
@@ -675,10 +657,8 @@ def _collect_board_image_urls(boards_dir: Path) -> dict[str, list[str]]:
     urls: dict[str, list[str]] = {}
     for manifest in sorted(boards_dir.glob("*/manifest.yaml")):
         try:
-            data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-        except yaml.YAMLError:
-            continue
-        if not isinstance(data, dict):
+            data = load_manifest_dict(manifest)
+        except ManifestError:
             continue
         board_id = manifest.parent.name
         for img in data.get("images") or []:

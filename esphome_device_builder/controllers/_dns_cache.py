@@ -23,11 +23,7 @@ from contextlib import suppress
 from ipaddress import ip_address
 from typing import cast
 
-try:
-    from icmplib import NameLookupError, async_resolve
-except ImportError:  # pragma: no cover — icmplib is optional
-    NameLookupError = Exception  # type: ignore[assignment, misc]
-    async_resolve = None  # type: ignore[assignment]
+from icmplib import NameLookupError, async_resolve
 
 from ..helpers.hostname import normalize_hostname
 
@@ -112,9 +108,6 @@ class DNSCache:
         normalized = self._normalize(hostname)
         with suppress(ValueError):
             return [str(ip_address(normalized))]
-
-        if async_resolve is None:
-            return None
 
         now = time.monotonic()
         entry = self._cache.get(normalized)

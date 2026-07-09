@@ -57,6 +57,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PeerLinkClient,
     PeerLinkClientError,
     PeerLinkNoSessionError,
+    PeerLinkPinMismatchError,
     RequestPairResult,
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
@@ -193,13 +194,38 @@ async def test_preview_pair_returns_receivers_pin(
     server, _, expected_pin, _ = receiver_server
     initiator_priv = secrets.token_bytes(32)
 
-    pin = await preview_pair(
+    preview = await preview_pair(
         hostname="127.0.0.1",
         port=server.port,
         identity_priv=initiator_priv,
     )
 
-    assert pin == expected_pin
+    assert preview.pin_sha256 == expected_pin
+    # A normal (non-bootstrap) receiver doesn't require a pairing key.
+    assert preview.requires_pairing_key is False
+
+
+async def test_preview_pair_reports_requires_pairing_key_for_headless_receiver(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+) -> None:
+    """A key-mode receiver reports requires_pairing_key even with no armed window.
+
+    Pins the static (mode-based) semantics: the flag rides on
+    ``settings.remote_build_only`` alone, never on whether a
+    bootstrap window is currently open, so previewing can't reveal
+    the window-open state.
+    """
+    server, controller, _, _ = receiver_server
+    controller._db.settings.remote_build_only = True
+    # No bootstrap window armed — the flag is still True.
+    assert not controller.state.auto_approve_first_pair
+
+    preview = await preview_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=secrets.token_bytes(32),
+    )
+    assert preview.requires_pairing_key is True
 
 
 async def test_preview_pair_does_not_persist_state_on_receiver(
@@ -688,6 +714,55 @@ async def test_request_pair_unknown_intent_response_raises_client_error() -> Non
         await server.close()
 
 
+async def test_request_pair_pin_mismatch_aborts_before_msg3() -> None:
+    """A responder whose static key misses the pinned pin never receives msg3."""
+    receiver_priv = secrets.token_bytes(32)
+    msg3_frames: list[bytes] = []
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        sess = PeerLinkNoiseSession.responder(receiver_priv)
+        sess.read_handshake_message(await ws.receive_bytes())
+        await ws.send_bytes(sess.write_handshake_message(b""))
+        msg = await ws.receive()
+        if msg.type is WSMsgType.BINARY:
+            msg3_frames.append(msg.data)
+        return ws
+
+    app = web.Application()
+    app.router.add_get(PEER_LINK_PATH, _handler)
+    server = TestServer(app)
+    await server.start_server()
+    try:
+        with pytest.raises(PeerLinkPinMismatchError):
+            await request_pair(
+                hostname="127.0.0.1",
+                port=server.port,
+                identity_priv=secrets.token_bytes(32),
+                label="green",
+                dashboard_id="abcdef0123456789",
+                pairing_key="ABCD-EFGH-JKMN-PQRS",
+                expected_pin_sha256="0" * 64,
+            )
+    finally:
+        await server.close()
+    assert msg3_frames == []
+
+
+async def test_request_pair_key_requires_expected_pin() -> None:
+    """A pairing key without a pinned pin is refused before any connect."""
+    with pytest.raises(ValueError, match="expected_pin_sha256"):
+        await request_pair(
+            hostname="127.0.0.1",
+            port=1,
+            identity_priv=secrets.token_bytes(32),
+            label="green",
+            dashboard_id="abcdef0123456789",
+            pairing_key="ABCD-EFGH-JKMN-PQRS",
+        )
+
+
 # ---------------------------------------------------------------------------
 # OffloaderController.request_pair — end-to-end through the WS-command shell
 # ---------------------------------------------------------------------------
@@ -774,7 +849,7 @@ async def test_controller_preview_pair_returns_receiver_pin(
         port=server.port,
     )
 
-    assert result == {"pin_sha256": expected_pin}
+    assert result == {"pin_sha256": expected_pin, "requires_pairing_key": False}
     # Preview is read-only on the offloader side too: no StoredPairing
     # row written until the user OOB-confirms and calls request_pair.
     assert await _saved_pairings(offloader) == []

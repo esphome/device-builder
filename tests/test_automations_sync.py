@@ -931,3 +931,151 @@ def test_build_automations_merged_hub_trigger_dedupes_against_base(tmp_path: Pat
     result = sync_components.build_automations(schema_dir=schema_dir, component_ids=set())
     matching = [t for t in result["triggers"] if t["id"] == "fakehub.on_tag"]
     assert len(matching) == 1
+
+
+def _in_range_schema_dir(tmp_path: Path) -> Path:
+    return _write_schema(
+        tmp_path,
+        "sensor.json",
+        {
+            "sensor": {
+                "condition": {
+                    "in_range": {
+                        "schema": {
+                            "config_vars": {
+                                "id": {
+                                    "key": "Required",
+                                    "type": "use_id",
+                                    "use_id_type": "sensor::Sensor",
+                                },
+                                "above": {"key": "Optional", "docs": "**float**: The minimum."},
+                                "below": {"key": "Optional", "docs": "**float**: The maximum."},
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "Passes while inside a range.",
+                    },
+                },
+            },
+        },
+    )
+
+
+def test_build_automations_stamps_registry_required_groups(tmp_path: Path) -> None:
+    """Grouped fields lose ``advanced`` and the body gains ``required_groups`` (#1905)."""
+    result = sync_components.build_automations(
+        schema_dir=_in_range_schema_dir(tmp_path),
+        component_ids=set(),
+        registry_groups={
+            "condition": {
+                "sensor.in_range": [{"kind": "at_least_one", "keys": ["above", "below"]}],
+            },
+        },
+    )
+    cond = next(c for c in result["conditions"] if c["id"] == "sensor.in_range")
+    assert cond["required_groups"] == [{"kind": "at_least_one", "keys": ["above", "below"]}]
+    by_key = {e["key"]: e for e in cond["config_entries"]}
+    assert not by_key["above"].get("advanced")
+    assert not by_key["below"].get("advanced")
+    assert by_key["above"]["description"].startswith(
+        "**Required — set at least one of:** `above`, `below`."
+    )
+
+
+def test_build_automations_clears_required_on_group_members(tmp_path: Path) -> None:
+    """A bundle-Required member of an exactly-one group loses per-field required."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "homeassistant.json",
+        {
+            "homeassistant": {
+                "action": {
+                    "service": {
+                        "schema": {
+                            "config_vars": {
+                                "action": {"key": "Required", "type": "string"},
+                                "service": {"key": "Optional", "type": "string"},
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "Call a Home Assistant action.",
+                    },
+                },
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir,
+        component_ids=set(),
+        registry_groups={
+            "action": {
+                "homeassistant.service": [{"kind": "exactly_one", "keys": ["service", "action"]}],
+            },
+        },
+    )
+    action = next(a for a in result["actions"] if a["id"] == "homeassistant.service")
+    by_key = {e["key"]: e for e in action["config_entries"]}
+    assert not by_key["action"].get("required")
+    assert not by_key["service"].get("required")
+
+
+def test_build_automations_without_registry_groups_keeps_optional_fields_advanced(
+    tmp_path: Path,
+) -> None:
+    result = sync_components.build_automations(
+        schema_dir=_in_range_schema_dir(tmp_path), component_ids=set()
+    )
+    cond = next(c for c in result["conditions"] if c["id"] == "sensor.in_range")
+    assert "required_groups" not in cond
+    by_key = {e["key"]: e for e in cond["config_entries"]}
+    assert by_key["above"]["advanced"] is True
+    assert by_key["below"]["advanced"] is True
+
+
+def test_build_automations_drops_groups_over_non_form_keys(tmp_path: Path) -> None:
+    """A group naming stripped control-flow keys (``if``'s then/else) emits nothing."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "esphome.json",
+        {
+            "core": {
+                "action": {
+                    "if": {
+                        "schema": {
+                            "config_vars": {
+                                "condition": {
+                                    "key": "Required",
+                                    "registry": "condition",
+                                    "type": "registry",
+                                },
+                                "then": {
+                                    "is_list": True,
+                                    "key": "Optional",
+                                    "registry": "action",
+                                    "type": "registry",
+                                },
+                                "else": {
+                                    "is_list": True,
+                                    "key": "Optional",
+                                    "registry": "action",
+                                    "type": "registry",
+                                },
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "Conditional execution.",
+                    },
+                },
+                "condition": {},
+            },
+        },
+    )
+    result = sync_components.build_automations(
+        schema_dir=schema_dir,
+        component_ids=set(),
+        registry_groups={
+            "action": {"if": [{"kind": "at_least_one", "keys": ["then", "else"]}]},
+        },
+    )
+    if_action = next(a for a in result["actions"] if a["id"] == "if")
+    assert "required_groups" not in if_action

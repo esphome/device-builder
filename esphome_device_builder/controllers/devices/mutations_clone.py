@@ -19,6 +19,7 @@ from .helpers import (
     _rewrite_required_yaml_leaf,
     clean_friendly_name,
     friendly_name_slugify,
+    raise_device_name_exists,
 )
 
 if TYPE_CHECKING:
@@ -83,8 +84,7 @@ async def clone_device(  # noqa: C901
 
     source_content, source_meta, target_existed = await run_in_executor(_gather)
     if target_existed:
-        msg = f"A device named {new_filename} already exists"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        raise_device_name_exists(new_filename)
     if source_content is None:
         msg = f"Source device {configuration} not found"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
@@ -152,8 +152,7 @@ async def clone_device(  # noqa: C901
         # gather pass and the ``open(... "x")``. Surface as the
         # same INVALID_ARGS the preflight produces so the
         # frontend renders a single message.
-        msg = f"A device named {new_filename} already exists"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc
+        raise_device_name_exists(new_filename, from_exc=exc)
     if carry_board_id and carry_user_set is True:
         await controller._persist_device_metadata_async(
             new_filename, board_id=carry_board_id, board_id_user_set=True

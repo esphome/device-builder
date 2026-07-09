@@ -291,6 +291,22 @@ against legacy behaviour before assuming the simpler version suffices.
   `devices/list_archived` (cold archive listing, read-once). `labels/list`
   is the snapshot-fetch-then-events holdover — new code lands through
   `initial_state`, not by copying it.
+- **Single/bulk command pairs share one per-item core function.** Every
+  `X` / `X_bulk` verb keeps its per-item behavior in a single callable
+  both handlers invoke (`factories.enqueue_install_or_defer` /
+  `enqueue_compile` for firmware, `archive.archive_single` /
+  `delete_single` passed to `run_bulk_per_device` for devices). The bulk
+  handler adds only bulk-scoped concerns: batched boundary validation
+  (one executor task via `_validate_configurations_boundary`),
+  ordering (`_configuration_order`), and the per-item error policy —
+  itself shared, not copy-pasted (`bulk._run_bulk` skips per-item errors
+  and re-raises fleet-wide `NO_COMPATIBLE_PEER`; devices'
+  `run_bulk_per_device` collects `{configuration, success, error}`
+  rows). Never inline the per-item body in a bulk loop — that's how
+  `install_bulk` missed the offline deferral (#1928). New pairs ship
+  with parity coverage: the inventory guards in
+  `tests/test_single_bulk_parity.py` plus per-verb scenarios beside
+  each controller suite.
 - **Event payloads use TypedDict, not dataclass.** Mirrors HA core's
   `Event[_DataT]` / `EventStateChangedData` pattern. Each event-specific
   shape gets a `TypedDict` next to the controller that fires it (e.g.
@@ -515,6 +531,17 @@ against legacy behaviour before assuming the simpler version suffices.
     has no browser `Removed` counterpart, so it locks out `should_ping` and
     latches the device ONLINE forever (#1776). The `ping`-source result
     (priority 1) stays sweep-eligible so a dead entry demotes.
+  - **`_http._tcp` version fallback** (`MdnsSource._on_http_service_state_change`,
+    for a configured device with `mqtt:` but no `api:`). Such a device never
+    publishes `_esphomelib._tcp` (behind `USE_API`); its only broadcast is a
+    bare `_http._tcp` fallback carrying a lone `version` TXT. Read that
+    `version` through `apply_version` and **nothing else** — `mac` /
+    `config_hash` / api-encryption live only on `_esphomelib._tcp`, and the
+    fallback carries no version TXT once the device gains a web server. Drive
+    **no** state off it (no ONLINE claim, `Removed` ignored): the same shared
+    browser watches `_http._tcp`, but reachability stays owned by the
+    active-resolve / MQTT / ping paths, so an all-API name bucket is skipped
+    (a device broadcasting the API gets its version from the esphomelib path).
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE

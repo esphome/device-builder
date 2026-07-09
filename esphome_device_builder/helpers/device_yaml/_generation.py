@@ -8,10 +8,12 @@ import string
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
+from ...models.boards import RP2_CANONICAL_PLATFORM
 from ..yaml import _safe_yaml_scalar, merge_component_yaml
 
 if TYPE_CHECKING:
     from ...models import BoardCatalogEntry, ComponentCatalogEntry
+    from ...models.boards import BoardEsphomeConfig, BoardHardware
 
 
 # Native-Wi-Fi capability, snapshotted from esphome into
@@ -41,7 +43,7 @@ _AP_SSID_MAX_LEN = 32
 # allowlist). The fallback is emitted only here; a bare ``ap:`` without
 # a portal can't recover credentials, so other platforms get neither.
 _CAPTIVE_PORTAL_PLATFORMS: frozenset[str] = frozenset(
-    {"esp8266", "esp32", "bk72xx", "ln882x", "rp2040", "rtl87xx"}
+    {"esp8266", "esp32", "bk72xx", "ln882x", RP2_CANONICAL_PLATFORM, "rtl87xx"}
 )
 
 # TODO comment block emitted by ``generate_device_yaml`` for
@@ -135,7 +137,7 @@ def _has_native_wifi(
     """
     if platform == "esp32":
         return not (variant and variant.lower() in _ESP32_NO_WIFI_VARIANTS)
-    if platform == "rp2040":
+    if platform == RP2_CANONICAL_PLATFORM:
         return board is None or board not in _RP2040_NO_WIFI_BOARDS
     return platform in _WIFI_FIRST_PLATFORMS
 
@@ -189,34 +191,16 @@ def generate_device_yaml(
     lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
 
-    # Platform config
-    # ESP32: variant + flash_size, board optional
-    # All others: board is REQUIRED, no variant/flash_size
     platform = str(esphome_cfg.platform)
     hardware = board.hardware
-    lines.append(f"{platform}:")
-
-    if platform == "esp32":
-        # ESP32 uses variant instead of board
-        if esphome_cfg.variant:
-            lines.append(f"  variant: {esphome_cfg.variant}")
-        if hardware.flash_size:
-            lines.append(f"  flash_size: {hardware.flash_size}")
-        if esphome_cfg.framework:
-            lines.extend(("  framework:", f"    type: {esphome_cfg.framework}"))
-            if hardware.flash_size == "32MB":
-                # ESPHome refuses ``ota:`` (emitted below whenever a
-                # network exists) with 32MB flash unless this opt-in
-                # is set.
-                lines.extend(("    advanced:", "      enable_idf_experimental_features: true"))
-    else:
-        # esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52 — board is required
-        lines.append(f"  board: {esphome_cfg.board}")
-
-    lines.append("")
+    _append_platform_block(lines, platform, esphome_cfg, hardware)
 
     # Logging
     lines.append("logger:")
+    if esphome_cfg.logger_hardware_uart:
+        # Board-explicit console target; may restate the chip default. On
+        # UART-bridge boards the default console shows no app logs at all.
+        lines.append(f"  hardware_uart: {esphome_cfg.logger_hardware_uart}")
     lines.append("")
 
     # Wi-Fi decision — used both for the ``wifi:`` block below and to
@@ -285,7 +269,8 @@ def generate_device_yaml(
         # commented-out hint lets the user pick.
         lines.extend(_NO_NETWORK_TODO_LINES)
 
-    return _apply_default_components("\n".join(lines), defaults)
+    yaml_text = _apply_default_components("\n".join(lines), defaults)
+    return _append_hosted_firmware_update(yaml_text, defaults)
 
 
 def _wifi_block_lines(ssid: str, psk: str, ap_name: str, platform: str) -> list[str]:
@@ -348,6 +333,79 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
         board=esphome_cfg.board,
         variant=str(esphome_cfg.variant) if esphome_cfg.variant else None,
     )
+
+
+def _append_platform_block(
+    lines: list[str],
+    platform: str,
+    esphome_cfg: BoardEsphomeConfig,
+    hardware: BoardHardware,
+) -> None:
+    """
+    Append the platform block.
+
+    esp32 emits variant / engineering_sample / flash_size / framework with
+    ``board:`` implied; every other platform requires ``board:``.
+    """
+    lines.append(f"{platform}:")
+    if platform == "esp32":
+        if esphome_cfg.variant:
+            lines.append(f"  variant: {esphome_cfg.variant}")
+        if esphome_cfg.engineering_sample:
+            # Pre-rev3 P4 silicon: without this esphome builds rev3-only
+            # firmware that faults at the bootloader on these chips.
+            lines.append("  engineering_sample: true")
+        if hardware.flash_size:
+            lines.append(f"  flash_size: {hardware.flash_size}")
+        if esphome_cfg.framework:
+            lines.extend(("  framework:", f"    type: {esphome_cfg.framework}"))
+            if hardware.flash_size == "32MB":
+                # ESPHome refuses ``ota:`` (emitted below whenever a
+                # network exists) with 32MB flash unless this opt-in
+                # is set.
+                lines.extend(("    advanced:", "      enable_idf_experimental_features: true"))
+    else:
+        # esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52 — board is required
+        lines.append(f"  board: {esphome_cfg.board}")
+    lines.append("")
+
+
+# Co-processor variants with a published firmware manifest at
+# https://esphome.github.io/esp-hosted-firmware/manifest/<variant>.json.
+# Others (c2/c3/s3/h2) 404 — no update entity for them until upstream ships one.
+_HOSTED_FIRMWARE_VARIANTS = frozenset({"esp32", "esp32c5", "esp32c6", "esp32c61"})
+
+_HOSTED_FIRMWARE_MANIFEST_URL = "https://esphome.github.io/esp-hosted-firmware/manifest/{}.json"
+
+
+def _append_hosted_firmware_update(
+    yaml_text: str,
+    defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]] | None,
+) -> str:
+    """
+    Append the hosted radio's firmware update entity.
+
+    Emits ``http_request:`` + ``update.esp32_hosted`` when a hosted radio
+    ships in *defaults* and its variant has a published firmware manifest.
+    """
+    for component, fields in defaults or ():
+        if component.id != "esp32_hosted":
+            continue
+        variant = str(fields.get("variant", "")).lower()
+        if variant not in _HOSTED_FIRMWARE_VARIANTS:
+            return yaml_text
+        label = variant.removeprefix("esp32").upper() or "ESP32"
+        return (
+            f"{yaml_text}\n"
+            "http_request:\n"
+            "\n"
+            "update:\n"
+            "  - platform: esp32_hosted\n"
+            "    type: http\n"
+            f"    source: {_HOSTED_FIRMWARE_MANIFEST_URL.format(variant)}\n"
+            f"    name: {label} Firmware\n"
+        )
+    return yaml_text
 
 
 def _apply_default_components(

@@ -135,11 +135,19 @@ class RemoteBuildLifecycle:
                 return
         rb_settings = await run_in_executor(load_remote_build_settings, settings.config_dir)
         if not rb_settings.enabled:
-            _LOGGER.debug(
-                "Skipping remote-build peer-link site: disabled in settings "
-                "(set ``remote_build/set_settings`` enabled=true to bind)"
+            # ``--remote-build-only`` has no dashboard UI to flip the
+            # persisted toggle back on, and a receiver with no listener
+            # is pointless — the CLI mode overrides the sidecar.
+            if not settings.remote_build_only:
+                _LOGGER.debug(
+                    "Skipping remote-build peer-link site: disabled in settings "
+                    "(set ``remote_build/set_settings`` enabled=true to bind)"
+                )
+                return
+            _LOGGER.info(
+                "Remote-build is disabled in the persisted settings but "
+                "--remote-build-only forces the peer-link listener on"
             )
-            return
 
         try:
             runner, identity, port = await self._build_and_start_runner()

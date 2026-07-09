@@ -68,6 +68,7 @@ class _DispatchInput:
     pin_sha256: str
     static_x25519_pub: bytes
     peer_ip: str
+    pairing_key: str | None = None
 
 
 async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are the handshake's natural failure cliffs
@@ -125,6 +126,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     pin = pin_sha256_for_pubkey(remote_static_pub)
     dashboard_id = _str_or_empty(msg3.get("dashboard_id"))
     label = _normalize_label(msg3.get("label"))
+    pairing_key = _str_or_empty(msg3.get("pairing_key")) or None
 
     outcome = await _dispatch_intent(
         controller,
@@ -135,6 +137,7 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             pin_sha256=pin,
             static_x25519_pub=remote_static_pub,
             peer_ip=peer_ip,
+            pairing_key=pairing_key,
         ),
     )
     # Log the decision, not the bare handshake; "ok" here used to
@@ -158,7 +161,22 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             dashboard_id,
             pin,
         )
-    await _send_response(session, ws, outcome.response, reason=outcome.reason)
+    # Tell a previewing offloader this is a key-mode (--remote-build-only)
+    # server, so its UI can require the bootstrap key up front. Static on
+    # the server's mode, NOT on whether a window is currently armed —
+    # always-true for a headless server reveals only "uses a key", never
+    # "a window is open right now", so the window-open state stays secret.
+    # Preview only; a pair_request refusal never carries it.
+    requires_pairing_key = (
+        intent is PeerLinkIntent.PREVIEW and controller._db.settings.remote_build_only
+    )
+    await _send_response(
+        session,
+        ws,
+        outcome.response,
+        reason=outcome.reason,
+        requires_pairing_key=requires_pairing_key,
+    )
 
     # Hand off to the long-lived application session on an
     # OK-authed peer_link; every other intent (incl. REJECTED
@@ -215,6 +233,7 @@ async def _dispatch_intent(
             static_x25519_pub=inp.static_x25519_pub,
             label=inp.label,
             peer_ip=inp.peer_ip,
+            pairing_key=inp.pairing_key,
         )
     if inp.intent is PeerLinkIntent.PEER_LINK:
         return await controller.lookup_peer_for_session(

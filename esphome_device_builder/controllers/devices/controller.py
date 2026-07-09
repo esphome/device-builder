@@ -84,7 +84,7 @@ from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _build_address_cache_args,
-    _validate_archive_configuration,
+    raise_device_not_found,
 )
 from .metadata import DeviceMetadataBase
 
@@ -658,11 +658,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         is the catalog → YAML match key. See ``_archive_single``
         for the full keep / clear rationale.
         """
-        _validate_archive_configuration(configuration)
-        try:
-            await self._archive_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._archive_single(configuration)
         await self._scanner.scan()
 
     @api_command("devices/unarchive")
@@ -673,11 +669,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ``DEVICE_ADDED`` so the dashboard's active list refreshes
         without a manual reload.
         """
-        _validate_archive_configuration(configuration)
-        try:
-            await self._unarchive_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._unarchive_single(configuration)
         await self._scanner.scan()
 
     @api_command("devices/list_archived")
@@ -709,11 +701,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         when the archive entry is gone — symmetric with
         ``unarchive``.
         """
-        _validate_archive_configuration(configuration)
-        try:
-            await self._delete_archived_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._delete_archived_single(configuration)
 
     @api_command("devices/delete_bulk")
     async def delete_bulk(
@@ -738,12 +726,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         consume a single per-device result list instead of fanning out
         N separate ``devices/archive`` calls.
         """
-
-        async def _archive(configuration: str) -> None:
-            _validate_archive_configuration(configuration)
-            await self._archive_single(configuration)
-
-        return await self._run_bulk_per_device(configurations, _archive)
+        return await self._run_bulk_per_device(configurations, self._archive_single)
 
     async def _run_bulk_per_device(
         self,
@@ -758,7 +741,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         try:
             return await self._read_yaml_async(self._db.settings.rel_path(configuration))
         except FileNotFoundError as err:
-            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
+            raise_device_not_found(configuration, from_exc=err)
 
     @api_command("devices/update_config")
     async def update_config(
@@ -1083,8 +1066,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Read *path* as UTF-8 text off the executor."""
         return await run_in_executor(path.read_text, "utf-8")
 
-    def _on_scan_change(self, kind: ScanChange, device: Device) -> None:
-        scan_change.on_scan_change(self, kind, device)
+    def _on_scan_change(
+        self, kind: ScanChange, device: Device, previous: Device | None = None
+    ) -> None:
+        scan_change.on_scan_change(self, kind, device, previous)
 
     def _devices_by_name(self, name: str) -> list[Device]:
         """Every configured device whose ``name`` field matches ``name``.

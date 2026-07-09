@@ -6,6 +6,7 @@ esphome:
   board: esp32-p4-evboard
   variant: esp32p4
   framework: esp-idf
+  logger_hardware_uart: UART0
 hardware:
   connectivity:
   - ethernet

@@ -47,7 +47,7 @@ jobs:
         # Python isn't marked externally-managed, so ``uv pip
         # install --system`` works on macos / windows runners that
         # would otherwise refuse a brew-shipped Python under PEP 668.
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
         with:
           enable-cache: true
 
@@ -495,7 +495,7 @@ jobs:
           python-version: "3.13"
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
         with:
           enable-cache: true
 
@@ -516,7 +516,7 @@ jobs:
         # worst-case (the catalog-load benchmark, which exercises
         # every BoardCatalogEntry's nested dataclass deserialisation)
         # with ~5x headroom over the observed 3-5 minute floor.
-        uses: CodSpeedHQ/action@a4a36bb07c0638b0b4ca52bf1f3dad1b4289e52f  # v4.18.1
+        uses: CodSpeedHQ/action@9f3a37ece7abc84992501a7fcd54d1704f3458fa  # v4.18.4
         with:
           mode: simulation
           # ``--durations 10`` prints the 10 slowest benchmark wall

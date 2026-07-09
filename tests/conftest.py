@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
+import re
 import sys
 import tempfile as _tempfile
 from collections.abc import Callable, Iterator
@@ -343,6 +345,13 @@ def make_remote_build_controller(
     db._dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    # Empty allowlist = trust-on-first-use (the default); a bare
+    # MagicMock here would be truthy and break the ``pair_flow``
+    # source guard's "no allowlist configured" branch.
+    db.settings.allow_pairing_sources = []
+    # A bare MagicMock is truthy, which would make every receiver look
+    # like a headless key-mode server on preview; default it off.
+    db.settings.remote_build_only = False
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     db.create_background_task = asyncio.create_task
     _idle = QueueStatus(idle=True, running=False, queue_depth=0)
@@ -974,6 +983,19 @@ def make_device(name: str = "kitchen", **overrides: Any) -> Device:
     return Device(**base)
 
 
+def make_online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
+    """Online device that exposes a Native API, with a routable IP, missing mac/version."""
+    base: dict[str, Any] = {
+        "state": DeviceState.ONLINE,
+        "api_enabled": True,
+        "loaded_integrations": ["api", "wifi"],
+        "ip": "192.168.1.50",
+        "ip_addresses": ["192.168.1.50"],
+    }
+    base.update(overrides)
+    return make_device(name, **base)
+
+
 def make_peer_link_session(
     *,
     dashboard_id: str = "alpha",
@@ -1034,3 +1056,25 @@ def record_argv_esphome(state: Any, argv_log: Path) -> None:
         "print('INFO ok')\n"
         "sys.exit(0)\n",
     ]
+
+
+def release_ordinal(version: str) -> int:
+    """Calendar-release ordinal (year*12 + month) of an esphome version string."""
+    m = re.match(r"(\d+)\.(\d+)", version)
+    assert m, f"unparsable esphome version: {version!r}"
+    return int(m.group(1)) * 12 + int(m.group(2))
+
+
+def catalog_releases_ahead(stamp_file: str = "components.index.json") -> int:
+    """
+    Calendar releases the committed catalog leads the installed esphome.
+
+    Negative = behind. *stamp_file* picks which committed index to read
+    (``boards.index.json`` for the board catalog).
+    """
+    from esphome.const import __version__ as esphome_version  # noqa: PLC0415
+
+    index = Path(__file__).resolve().parent.parent / "esphome_device_builder/definitions"
+    payload = json.loads((index / stamp_file).read_bytes())
+    stamp = payload.get("esphome_schema_version") or payload["esphome_version"]
+    return release_ordinal(stamp) - release_ordinal(esphome_version)

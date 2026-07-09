@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypedDict
 
 from .common import ConfigEntry, DashboardModel, PagedResponse, RequiredGroup
+
+
+class IntegrationDocEntry(TypedDict):
+    """One ``components/get_integration_docs`` map value."""
+
+    url: str
+    name: str
+    description: str
 
 
 class ComponentCategory(StrEnum):
@@ -57,6 +65,7 @@ class ComponentCategory(StrEnum):
     AUDIO_ADC = "audio_adc"
     AUDIO_DAC = "audio_dac"
     CANBUS = "canbus"
+    IMAGE = "image"
     INFRARED = "infrared"
     MEDIA_SOURCE = "media_source"
     MOTION = "motion"
@@ -96,10 +105,13 @@ class ComponentCatalogIndexEntry(DashboardModel):
     dependencies: list[str] = field(default_factory=list)
     multi_conf: bool = False
     supported_platforms: list[str] = field(default_factory=list)
-    # Interface namespaces this component can be referenced *as* beyond
-    # its own domain (e.g. an ``adc`` sensor provides ``voltage_sampler``).
-    # Lets the frontend resolve cross-domain ``references_component``
-    # fields whose providers don't live under a matching top-level key.
+    # Interface namespaces this component can be referenced *as*: a
+    # cross-domain interface (an ``adc`` sensor provides
+    # ``voltage_sampler``) or its own domain when the referenceable ids
+    # are nested sub-entities (``sensor.aht10`` provides ``sensor`` via
+    # ``temperature.id`` / ``humidity.id``). Lets the frontend resolve
+    # ``references_component`` fields whose target ids aren't a matching
+    # section's own top-level ``id``.
     provides: list[str] = field(default_factory=list)
 
     # For a provided interface whose id lives at *nested* paths rather than
@@ -107,7 +119,9 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # via ``channels[].id``), the YAML key-paths the frontend descends to
     # collect candidate ids. Keyed by interface namespace, one entry per
     # nested location (``sprinkler`` exposes ``switch`` at several); absent
-    # for the common own-id case (resolved via the section id).
+    # for the common own-id case (resolved via the section id). A
+    # same-domain provider may also carry the root path ``["id"]`` when the
+    # component's own id is itself an entity (``sensor.pulse_counter``).
     provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
 
 
@@ -165,17 +179,21 @@ class ComponentCatalogEntry(DashboardModel):
     # available components based on the device's selected board.
     supported_platforms: list[str] = field(default_factory=list)
 
-    # Interface namespaces this component can be referenced *as* beyond
-    # its own domain (e.g. an ``adc`` sensor provides ``voltage_sampler``,
-    # so it satisfies ``ct_clamp``'s ``sensor:`` reference). Frontend
-    # joins this against a field's ``references_component`` to find
-    # valid targets that live under a different domain.
+    # Interface namespaces this component can be referenced *as*: a
+    # cross-domain interface (an ``adc`` sensor provides ``voltage_sampler``,
+    # so it satisfies ``ct_clamp``'s ``sensor:`` reference) or its own
+    # domain when the referenceable ids are nested sub-entities
+    # (``sensor.aht10`` provides ``sensor`` via ``temperature.id``).
+    # Frontend joins this against a field's ``references_component`` to
+    # find valid targets beyond a matching section's own top-level ``id``.
     provides: list[str] = field(default_factory=list)
 
     # Nested id-path locators for entries in ``provides`` whose id isn't
     # the component's own top-level ``id`` (``usb_uart`` → ``{"uart":
     # [["channels", "id"]]}``). Keyed by interface namespace, one path per
-    # nested location; absent for own-id providers.
+    # nested location; absent for own-id providers. Same-domain providers
+    # may include the root path ``["id"]`` for hybrid platforms whose own
+    # id is also an entity (``sensor.pulse_counter``).
     provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
 
     # The component's own configuration fields. Nested config blocks

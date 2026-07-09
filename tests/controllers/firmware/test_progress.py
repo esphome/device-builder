@@ -6,7 +6,10 @@ progress. The ``_parse_progress`` whitelist has to pick out the
 real ones (PlatformIO ``[ NN%]`` per-file markers, esptool
 ``(NN %)``, ESPHome OTA ``Uploading: 100%``) and skip everything
 else (PIO platform-extract bars, memory-usage reports, stray
-percentages in narrative log text).
+percentages in narrative log text). ESP-IDF builds emit no percent
+at all — their ninja ``[N/M]`` counter derives one, with a total
+floor so ``[1/2] Re-running CMake...`` sub-steps and the bootloader
+sub-build never drive the gauge.
 
 The regression these tests guard against: a wide-open
 ``\d{1,3}%`` regex pinned ``job.progress`` to 100 the moment
@@ -179,3 +182,61 @@ class TestOutOfRange:
         # 100 is allowed; the regex accepts up to three digits to
         # cover this exact value.
         assert _parse_progress("[100%] Linking firmware.elf") == 100
+
+
+class TestNinjaCounterLines:
+    """Ninja ``[N/M]`` counters resolve to a percentage above the total floor."""
+
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            (
+                "[907/1424] Building C object esp-idf/bt/CMakeFiles/__idf_bt.dir/"
+                "host/bluedroid/bta/av/bta_av_cfg.c.obj",
+                63,
+            ),
+            (
+                "[707/1473] Building C object esp-idf/mbedtls/mbedtls/library/"
+                "CMakeFiles/mbedtls.dir/mbedtls_debug.c.obj",
+                47,
+            ),
+            ("[1424/1424] Linking .pioenvs/firmware.elf", 100),
+            ("[1/1424] Generating memory view", 0),
+            # Total exactly at the floor still counts.
+            ("[50/100] Building C object foo.c.obj", 50),
+            ("    [907/1424] Building C object foo.c.obj", 63),
+            # CR-terminated in-place refresh chunk.
+            ("[907/1424] Building C object foo.c.obj\r", 63),
+            # ANSI clear-line prefix — a bare ``^\s*`` anchor would
+            # silently fail in production while passing plain-text tests
+            # (same trap as the esptool ``Writing at`` pattern).
+            ("\x1b[2K[907/1424] Building C object foo.c.obj", 63),
+        ],
+    )
+    def test_counter_lines_parse(self, line: str, expected: int) -> None:
+        assert _parse_progress(line) == expected
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            # Totals under the floor: CMake sub-steps, bootloader
+            # sub-build, tiny incremental rebuilds.
+            "[1/2] Re-running CMake...",
+            "[97/97] Linking bootloader.elf",
+            "[3/7] Building C object foo.c.obj",
+            "[0/0] nothing",
+            # Malformed: done past total.
+            "[150/100] Building C object foo.c.obj",
+            # Mid-line counters are narrative text, not progress.
+            "note: see [110/200] above",
+            # Ninja always puts a space after the ``]`` — a bare or
+            # glued counter isn't its output shape.
+            "[907/1424]",
+            "[907/1424]Building C object foo.c.obj",
+            # Build noise that brackets digits without being a counter.
+            "otadata,data,ota,0x9000,8K,",
+            "*" * 79,
+        ],
+    )
+    def test_non_counter_lines_ignored(self, line: str) -> None:
+        assert _parse_progress(line) is None

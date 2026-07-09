@@ -113,6 +113,7 @@ from _catalog_split import (  # noqa: E402
     swap_split_catalog_in,
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
+from _repo_cache import ensure_shallow_git_repo  # noqa: E402
 
 from esphome_device_builder.controllers.components import (  # noqa: E402
     INTERNAL_COMPONENT_IDS as _INTERNAL_COMPONENT_IDS,
@@ -120,6 +121,8 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
+    RP2_ALIAS_PLATFORM,
+    RP2_CANONICAL_PLATFORM,
     AutomationAction,
     AutomationActionIndex,
     AutomationCondition,
@@ -127,62 +130,48 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTrigger,
     AutomationTriggerIndex,
     ComponentCatalogEntry,
+    ComponentCategory,
     Filter,
     FilterIndex,
     LightEffect,
     LightEffectIndex,
     PinFeature,
     PinMode,
+    normalize_platform,
 )
 from script._light_schemas import (  # noqa: E402
     resolve_light_effects_applies_to,
 )
 
-# Top-level platform domains in the schema (also keys in our category enum).
-# Components keyed as ``<id>.<domain>`` in the schema files — e.g.
-# ``dht.sensor`` lives in dht.json under the key ``dht.sensor``.
-_PLATFORM_DOMAINS: frozenset[str] = frozenset(
-    {
-        "sensor",
-        "binary_sensor",
-        "switch",
-        "light",
-        "fan",
-        "cover",
-        "climate",
-        "button",
-        "number",
-        "select",
-        "text",
-        "text_sensor",
-        "lock",
-        "valve",
-        "media_player",
-        "speaker",
-        "microphone",
-        "camera",
-        "display",
-        "touchscreen",
-        "output",
-        "datetime",
-        "event",
-        "update",
-        "alarm_control_panel",
-        "stepper",
-        "audio_adc",
-        "audio_dac",
-        "media_source",
-        "one_wire",
-        "canbus",
-        "infrared",
-        "time",
-        "water_heater",
-        "ota",
-        "packet_transport",
-        "motion",
-        "radio_frequency",
-    }
-)
+
+def _domains_from_ids(component_ids: Iterable[str]) -> frozenset[str]:
+    """Platform domains among *component_ids* — the ``<domain>.<stem>`` dotted-id prefixes."""
+    return frozenset(cid.split(".", 1)[0] for cid in component_ids if "." in cid)
+
+
+def _platform_domains_from_shipped_index() -> frozenset[str]:
+    """Platform domains present in the checked-in catalog."""
+    payload = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
+    return _domains_from_ids(c["id"] for c in payload["components"])
+
+
+def _require_component_categories(domains: frozenset[str]) -> None:
+    """Fail the sync loudly when a platform domain has no ``ComponentCategory`` member."""
+    missing = sorted(domains - {c.value for c in ComponentCategory})
+    if missing:
+        raise SystemExit(
+            f"New upstream platform domain(s) without a ComponentCategory member: {missing}. "
+            "Add the enum member(s) in esphome_device_builder/models/components.py and "
+            "coordinate the frontend category UI, then re-run."
+        )
+
+
+# Top-level platform domains in the schema. Components are keyed as
+# ``<id>.<domain>`` in the schema files — e.g. ``dht.sensor`` lives in
+# dht.json under the key ``dht.sensor``. Seeded from the shipped catalog
+# so importing the module needs no schema bundle; ``load_index``
+# refreshes it from the fresh bundle.
+_PLATFORM_DOMAINS: frozenset[str] = _platform_domains_from_shipped_index()
 
 # Top-level components whose ``CONFIG_SCHEMA`` is a ``cv.ensure_list`` (a list of
 # instances) but which don't set the component-registry ``MULTI_CONF`` flag, so
@@ -320,7 +309,10 @@ _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
-        ("rp2040", "board"),
+        (RP2_CANONICAL_PLATFORM, "board"),
+        # esphome 2026.7's rename of the rp2040 component; extraction runs
+        # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
+        (RP2_ALIAS_PLATFORM, "board"),
     }
 )
 
@@ -655,7 +647,7 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     },
     # ``ethernet.clk`` is ``cv.Optional`` in the schema but a final-validate
     # step requires it for RMII PHYs unless the deprecated ``clk_mode``
-    # migrates into it (removal scheduled 2026.7.0). Mark it required on the
+    # migrates into it (removal scheduled 2026.9.0). Mark it required on the
     # main form; the variant gate already scopes it to the RMII types.
     ("ethernet", "clk"): {
         "required": True,
@@ -962,7 +954,11 @@ def main() -> int:
     # flattens to bare ``<domain>`` so the action surfaces whenever
     # a matching base domain is configured.
     component_ids = {c["id"] for c in catalog}
-    automations = build_automations(schema_dir=schema_dir, component_ids=component_ids)
+    automations = build_automations(
+        schema_dir=schema_dir,
+        component_ids=component_ids,
+        registry_groups=_collect_automation_registry_groups(),
+    )
     _LOGGER.info(
         "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
         len(automations["triggers"]),
@@ -1087,7 +1083,15 @@ class SchemaIndex:
 
 
 def load_index(schema_dir: Path) -> SchemaIndex:
-    """Read every index in the bundle into one merged SchemaIndex."""
+    """
+    Read every index in the bundle into one merged SchemaIndex.
+
+    Also refreshes ``_PLATFORM_DOMAINS`` from the fresh bundle's
+    ``core.platforms`` (upstream's ``IS_PLATFORM_COMPONENT`` set):
+    a bundle with no ``core.platforms`` fails loud, and a shipped
+    domain missing from the fresh bundle logs a warning.
+    """
+    global _PLATFORM_DOMAINS  # noqa: PLW0603 — sync-wide refresh; every consumer runs after load_index
     metadata: dict[str, dict[str, Any]] = {}
 
     # 1. esphome.json — core.components and core.platforms.
@@ -1097,8 +1101,25 @@ def load_index(schema_dir: Path) -> SchemaIndex:
         core = {}
     for cid, meta in (core.get("components") or {}).items():
         metadata[cid] = meta or {}
-    for pid, meta in (core.get("platforms") or {}).items():
+    platforms = core.get("platforms") or {}
+    for pid, meta in platforms.items():
         metadata[pid] = meta or {}
+
+    if not platforms:
+        raise SystemExit(
+            f"Schema bundle at {schema_dir} has no core.platforms (esphome.json missing or "
+            "empty); refusing to sync against the stale shipped domain set."
+        )
+    fresh_domains = frozenset(platforms)
+    _require_component_categories(fresh_domains)
+    if dropped := sorted(_PLATFORM_DOMAINS - fresh_domains):
+        _LOGGER.warning(
+            "Platform domain(s) in the shipped catalog but absent from the fresh "
+            "schema bundle: %s. Expected for a genuine upstream removal; check the "
+            "catalog diff if not.",
+            dropped,
+        )
+    _PLATFORM_DOMAINS = fresh_domains
 
     # 2. Each <domain>.json — domain.components map. Key under both the
     # bare stem and the qualified ``<domain>.<stem>`` form so lookups
@@ -1190,6 +1211,7 @@ def build_catalog(
     """Walk every schema file and produce ConfigCatalogEntry-shaped dicts."""
     index = load_index(schema_dir)
     image_map = load_image_map()
+    _require_image_map(image_map)
     out: list[dict] = []
     for path in iter_schema_files(schema_dir):
         try:
@@ -1208,6 +1230,9 @@ def build_catalog(
             if entry["id"] in _INTERNAL_COMPONENT_IDS:
                 continue
             out.append(entry)
+
+    # Before every later pass so they all see final ids.
+    _fold_rp2_component_alias(out)
 
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
@@ -1261,6 +1286,28 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
             entry["multi_conf"] = True
 
 
+def _fold_rp2_component_alias(entries: list[dict]) -> None:
+    """
+    Collapse esphome 2026.7's renamed ``rp2`` component onto the canonical id.
+
+    The richer renamed schema is re-keyed, the alias shell dropped (its
+    identity fields kept), and ``dependencies`` folded so blocks spelled with
+    the canonical key satisfy them — see ``normalize_platform``.
+    """
+    by_id = {entry["id"]: entry for entry in entries}
+    if (rp2 := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
+        rp2["id"] = RP2_CANONICAL_PLATFORM
+        if (shell := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
+            for key in ("name", "image_url", "category"):
+                if shell.get(key):
+                    rp2[key] = shell[key]
+            entries.remove(shell)
+    for entry in entries:
+        deps = entry.get("dependencies")
+        if deps and RP2_ALIAS_PLATFORM in deps:
+            entry["dependencies"] = list(dict.fromkeys(normalize_platform(dep) for dep in deps))
+
+
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
     """
     Re-derive metadata borrowed from another component's docs page.
@@ -1303,15 +1350,18 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
     """
     Fill each component's ``provides`` from referenced interface classes.
 
-    Provides ``ns`` when an id class is a referenced ``use_id`` target
-    whose namespace differs from the component's own domain — same-domain
-    refs (``i2c``, ``sensor``) already resolve via the top-level-key scan,
-    leaving only homeless interfaces like ``voltage_sampler``. For each
-    *nested* providing id (path deeper than the component root), records a
-    path under ``provides_id_paths[ns]`` so the frontend descends to it
-    instead of the section's own id; a namespace's paths are deduped and
-    sorted for a stable, walk-order-independent catalog. Pops the
-    ``_impl_class_paths`` scratch field. In-place.
+    Provides ``ns`` when an id class is a referenced ``use_id`` target.
+    Cross-domain namespaces (``voltage_sampler``) always count; the
+    component's *own* domain counts only when a providing id sits at a
+    nested path (a multi-entity platform's ``temperature.id``) — a
+    root-only own-domain id already resolves via the top-level-key scan.
+    For each *nested* providing id (path deeper than the component root),
+    records a path under ``provides_id_paths[ns]`` so the frontend
+    descends to it instead of the section's own id; a same-domain entry
+    also keeps its root path so hybrid platforms (``pulse_counter``: the
+    root id is itself the entity) stay offerable. A namespace's paths are
+    deduped and sorted for a stable, walk-order-independent catalog.
+    Pops the ``_impl_class_paths`` scratch field. In-place.
     """
     referenced = _collect_referenced_classes(schema_dir)
     for entry in entries:
@@ -1321,12 +1371,19 @@ def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
         id_paths: dict[str, set[tuple[str, ...]]] = {}
         for cls in impl_paths.keys() & referenced:
             namespace = _reference_namespace(cls)
-            if not namespace or namespace == own_domain:
+            if not namespace:
+                continue
+            paths = {tuple(p) for p in impl_paths[cls]}
+            nested = {p for p in paths if len(p) > 1}
+            same_domain = namespace == own_domain
+            if same_domain and not nested:
                 continue
             provides.add(namespace)
-            for path in impl_paths[cls]:
-                if len(path) > 1:
-                    id_paths.setdefault(namespace, set()).add(tuple(path))
+            # Same-domain keeps the root path too (a hybrid's own id is the
+            # entity); cross-domain roots resolve via the section id.
+            keep = paths if same_domain else nested
+            if keep:
+                id_paths.setdefault(namespace, set()).update(keep)
         entry["provides"] = sorted(provides)
         entry["provides_id_paths"] = {
             ns: [list(p) for p in sorted(paths)] for ns, paths in sorted(id_paths.items())
@@ -1881,44 +1938,15 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
 
 def _ensure_docs_repo() -> Path | None:
     """Clone or update the esphome.io repo (shallow). Returns its path."""
-    import subprocess
-
-    target = _CACHE_ROOT / _DOCS_CLONE_DIR
-    if (target / ".git").exists():
-        # Refresh in-place. ``-q`` and ``--ff-only`` keep it quiet and
-        # safe; failure here just means we keep using the existing
-        # snapshot.
-        subprocess.run(
-            ["git", "-C", str(target), "pull", "-q", "--ff-only"],
-            check=False,
-            timeout=60,
-        )
-        return target
-    if target.exists():
-        # Pre-existing non-git directory — leave alone, use as-is.
-        return target
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    _LOGGER.info("Cloning esphome.io (shallow) to %s", target)
-    try:
-        subprocess.run(
-            [
-                "git",
-                "clone",
-                "-q",
-                "--depth=1",
-                "--single-branch",
-                f"--branch={_DOCS_REPO_BRANCH}",
-                _DOCS_REPO_URL,
-                str(target),
-            ],
-            check=True,
-            timeout=120,
-        )
-    except Exception:
-        _LOGGER.warning("Could not clone esphome.io — descriptions stay empty")
-        return None
-    return target
+    return ensure_shallow_git_repo(
+        _DOCS_REPO_URL,
+        _CACHE_ROOT / _DOCS_CLONE_DIR,
+        _DOCS_REPO_BRANCH,
+        label="esphome.io",
+        pull_timeout=60,
+        clone_timeout=120,
+        allow_existing_non_git=True,
+    )
 
 
 # Frontmatter description matcher — captures the value of the
@@ -2062,6 +2090,24 @@ def load_image_map() -> dict[str, str]:
             out.setdefault(parts[1], _IMAGE_BASE_URL + image)
     _LOGGER.info("Image map built: %d components", len(out))
     return out
+
+
+# Common components whose docs-index image has shipped for years. Any of
+# them missing from the map means the index fetch failed or its format
+# drifted, not an upstream image removal — emitting anyway strips
+# ``image_url`` catalog-wide (#1911 shipped that way).
+_IMAGE_MAP_SENTINELS = ("wifi", "i2c", "sensor.dht")
+
+
+def _require_image_map(image_map: dict[str, str]) -> None:
+    """Fail the sync loudly when the docs image map lacks a sentinel component."""
+    missing = [cid for cid in _IMAGE_MAP_SENTINELS if cid not in image_map]
+    if missing:
+        raise SystemExit(
+            f"Docs image map is missing {missing} — the components/index.mdx fetch "
+            "failed or its format drifted. Fix the fetch (or update "
+            "_IMAGE_MAP_SENTINELS if the docs page really dropped these) and re-run."
+        )
 
 
 def build_entries_from_file(
@@ -2209,7 +2255,7 @@ def build_component_entry(
         "provides": [],
         "config_entries": config_entries,
     }
-    component["_impl_class_paths"] = _implemented_classes(section)
+    component["_impl_class_paths"] = _implemented_classes(section, schema_dir)
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
@@ -2220,6 +2266,7 @@ def build_component_entry(
     # rule to the user as readable prose — issue #924. Drops out
     # naturally once the FE renders the structured fields inline.
     _annotate_constraint_descriptions(component)
+    _apply_ethernet_platform_split(component)
     return component
 
 
@@ -2923,8 +2970,14 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         # pin field. Without this the visual editor only supports
         # the short ``pin: GPIO5`` form, which blocks configurations
         # like ``pin: { number: GPIO5, mode: { input: true, pullup:
-        # true } }`` (issue #420).
-        entry["config_entries"] = list(_pin_long_form_extras(schema_dir)) or None
+        # true } }`` (issue #420). Number-only validators
+        # (``internal_gpio_pin_number``: ethernet ``mdc_pin`` /
+        # ``clk.pin``, ...) emit no ``schema`` flag and reject the
+        # mapping form, so they keep the bare picker.
+        if raw.get("schema"):
+            entry["config_entries"] = list(_pin_long_form_extras(schema_dir)) or None
+        else:
+            entry["config_entries"] = None
     else:
         entry["config_entries"] = None
 
@@ -3171,6 +3224,7 @@ def _emit_platform_capabilities_index() -> None:
     """
     from types import SimpleNamespace
 
+    import esphome
     from esphome.components.esp32.const import VARIANTS
     from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
@@ -3183,7 +3237,7 @@ def _emit_platform_capabilities_index() -> None:
     # dependent and stay out of the index — device-builder-helper handles them.
     sentinel = SimpleNamespace(name="{name}")
     download_types: dict[str, list[dict[str, str]]] = {}
-    for component in ("esp32", "esp8266", "rp2040"):
+    for component in ("esp32", "esp8266", RP2_CANONICAL_PLATFORM):
         module = importlib.import_module(f"esphome.components.{component}")
         download_types[component] = [
             {
@@ -3194,7 +3248,19 @@ def _emit_platform_capabilities_index() -> None:
             for entry in module.get_download_types(sentinel)
         ]
 
+    # Every shipped component directory name (documented or not). The
+    # dashboard derives log-tag doc aliases for undocumented internals
+    # (esp32_ble_client, web_server_base) from this, instead of importing
+    # or scanning esphome at runtime.
+    components_dir = Path(esphome.__file__).parent / "components"
+    component_names = sorted(
+        entry.name
+        for entry in components_dir.iterdir()
+        if entry.is_dir() and not entry.name.startswith("_")
+    )
+
     payload = {
+        "component_names": component_names,
         "esp32_variants": sorted(VARIANTS),
         "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
         "libretiny_families": list(_libretiny_families()),
@@ -3426,23 +3492,24 @@ def _config_schema(section: dict) -> dict:
     return (section.get("schemas") or {}).get("CONFIG_SCHEMA") or {}
 
 
-def _implemented_classes(section: dict) -> dict[str, list[list[str]]]:
+def _implemented_classes(section: dict, schema_dir: Path) -> dict[str, list[list[str]]]:
     """
     Each implemented ``ns::Class`` → every YAML key-path declaring such an id.
 
     Walks the whole ``CONFIG_SCHEMA`` subtree (nested objects/lists plus
     ``types`` variants, which are flattened in YAML so add no path segment);
     a class may appear at several paths and all are kept. Matched against
-    referenced classes by full class, not namespace. A nested id contributes
-    only the parent (interface) classes it implements; a top-level own-class
-    id (``len(path) == 1``) also counts. See :func:`_record_id_classes`.
+    referenced classes by full class, not namespace. An ``id`` declared
+    only on an ``extends`` base (``sensor._SENSOR_SCHEMA``) is resolved in,
+    so multi-entity sub-blocks count. See :func:`_record_id_classes` for
+    which classes a path contributes.
     """
     config_schema = _config_schema(section)
     out: dict[str, list[list[str]]] = {}
     # (config_vars, path) frontier. A typed variant shares its parent's
     # path (the ``types`` discriminator is flattened in YAML).
     frontier: list[tuple[Any, list[str]]] = []
-    _push_config_vars(frontier, config_schema, [])
+    _push_config_vars(frontier, config_schema, [], schema_dir)
     while frontier:
         config_vars, path = frontier.pop()
         if not isinstance(config_vars, dict):
@@ -3452,13 +3519,26 @@ def _implemented_classes(section: dict) -> dict[str, list[list[str]]]:
                 continue
             field_path = [*path, name]
             _record_id_classes(out, field_def, field_path)
-            _push_config_vars(frontier, field_def, field_path)
+            _push_config_vars(frontier, field_def, field_path, schema_dir)
     return out
 
 
-def _push_config_vars(frontier: list[tuple[Any, list[str]]], node: dict, path: list[str]) -> None:
+def _push_config_vars(
+    frontier: list[tuple[Any, list[str]]], node: dict, path: list[str], schema_dir: Path
+) -> None:
     """Queue *node*'s own and per-variant ``config_vars`` for the walk, under *path*."""
-    frontier.append((_schema_config_vars(node), path))
+    config_vars = _schema_config_vars(node)
+    base = config_vars if isinstance(config_vars, dict) else {}
+    schema = node.get("schema")
+    # Pull ONLY the inherited ``id`` from extends bases (a sub-entity block
+    # declares its id on ``sensor._SENSOR_SCHEMA``). Merging every inherited
+    # field would also record the parent classes of sibling id declarations
+    # (``mqtt_id``, ``zigbee_sensor``) at this path.
+    if "id" not in base and isinstance(schema, dict) and schema.get("extends"):
+        inherited_id = _merge_extends_config_vars(schema, schema_dir).get("id")
+        if isinstance(inherited_id, dict):
+            config_vars = {**base, "id": inherited_id}
+    frontier.append((config_vars, path))
     frontier.extend((cv, path) for cv in _variant_config_vars(node))
 
 
@@ -3481,17 +3561,20 @@ def _record_id_classes(out: dict[str, list[list[str]]], field_def: dict, path: l
     Append *path* to ``out`` for each id-creation class *field_def* declares.
 
     Parent (interface) classes count at any depth; the leaf own-class counts
-    only at the component root (``len(path) == 1``, not the literal ``"id"``
-    key, which can be ``output_id`` / ``raw_data_id`` / ...).
+    at the component root (``len(path) == 1``, not the literal ``"id"`` key,
+    which can be ``output_id`` / ``raw_data_id`` / ...) and, nested, only
+    for entity (platform-domain) classes — a sub-entity's ``sensor::Sensor``.
     """
     id_type = field_def.get("id_type")
     if not isinstance(id_type, dict) or "use_id_type" in field_def:
         return
     classes = [p for p in id_type.get("parents") or [] if isinstance(p, str)]
-    # A nested own-class id is the sub-entity's own identity, not a foreign
-    # interface; advertising it would conflate same-namespace classes (a
-    # ``pipsolar`` output posing as the ``pipsolar`` hub a ``pipsolar_id`` wants).
-    if len(path) == 1 and isinstance(id_type.get("class"), str):
+    # A nested non-entity own-class id stays unrecorded; advertising it
+    # would conflate same-namespace classes (a ``pipsolar`` output posing
+    # as the ``pipsolar`` hub a ``pipsolar_id`` wants).
+    if isinstance(id_type.get("class"), str) and (
+        len(path) == 1 or _reference_namespace(id_type["class"]) in _PLATFORM_DOMAINS
+    ):
         classes.append(id_type["class"])
     for cls in classes:
         out.setdefault(cls, []).append(path)
@@ -3939,7 +4022,10 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     # them explicitly here makes the override authoritative.
     "esp32": "core",
     "esp8266": "core",
-    "rp2040": "core",
+    RP2_CANONICAL_PLATFORM: "core",
+    # esphome 2026.7's rename of rp2040; extraction categorizes before
+    # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
+    RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
     "rtl87xx": "core",
     "ln882x": "core",
@@ -3990,12 +4076,15 @@ def _infer_misc_category(top_key: str) -> str:
 # no-op and the catalog ships without those fields populated.
 
 # Target-platform component ids — components named after a chip family
-# that act as the "platform" entry in YAML.
+# that act as the "platform" entry in YAML. ``rp2`` is the 2026.7 rename
+# of ``rp2040``; both stay listed so a dependency on either surfaces,
+# and ``_expand_libretiny`` folds the emitted key onto ``rp2040``.
 _TARGET_PLATFORMS: frozenset[str] = frozenset(
     {
         "esp32",
         "esp8266",
-        "rp2040",
+        RP2_ALIAS_PLATFORM,
+        RP2_CANONICAL_PLATFORM,
         "bk72xx",
         "rtl87xx",
         "ln882x",
@@ -4266,9 +4355,9 @@ def _enumerate_platform_manifests(loader: Any, stem: str) -> list[Any]:
     platform manifest can't tank the whole sync.
 
     Iterates ``_PLATFORM_DOMAINS`` (the same set the catalog walk
-    already uses for schema-keyed platform entries) so adding a
-    domain in one place automatically covers the introspection
-    walk too — no parallel list to keep in sync. Sorted so the
+    already uses for schema-keyed platform entries) so a domain
+    derived from the schema bundle automatically covers the
+    introspection walk too — no parallel list. Sorted so the
     catalog output is deterministic across runs — frozenset
     iteration is hash-randomised per process and would otherwise
     flip refinement results between syncs when two platform
@@ -4775,7 +4864,10 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
                 continue
             if value is vol.UNDEFINED or not _is_json_safe(value):
                 continue
-            per_platform[str(plat)] = value
+            # The catalog stays keyed on ``rp2040``; esphome 2026.7's
+            # ``SplitDefault(rp2=...)`` keys must fold onto it or the
+            # resolver never matches (see models/boards.py).
+            per_platform[normalize_platform(str(plat))] = value
         if per_platform:
             out[path] = per_platform
 
@@ -5692,7 +5784,7 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     for component, values in _logger.UART_SELECTION_LIBRETINY.items():
         add(component, values)
     add("esp8266", _logger.UART_SELECTION_ESP8266)
-    add("rp2040", _logger.UART_SELECTION_RP2040)
+    add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
     return out
 
@@ -5714,6 +5806,51 @@ def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
             entry["platform_options"] = _LOGGER_UART_PLATFORM_OPTIONS
             entry["allow_custom_value"] = True
             break
+
+
+def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
+    """
+    Ethernet's per-platform ``type`` choices from the live module constants.
+
+    The schema bundle ships a flat union; empty when esphome's ethernet
+    isn't importable or predates the split.
+    """
+    try:
+        from esphome.components import ethernet as _ethernet
+    except ImportError:
+        _LOGGER.warning("esphome ethernet not importable — type platform split skipped")
+        return {}
+    if not hasattr(_ethernet, "RP2_ETHERNET_TYPES"):
+        # Catalog syncs always run on 2026.7+; this only keeps test runs
+        # under an older interpreter (CI stable leg) from crashing.
+        _LOGGER.debug("installed esphome predates RP2_ETHERNET_TYPES — ethernet split skipped")
+        return {}
+    rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
+    # Everything except the RP2-only chips.
+    esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
+    return {
+        "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
+        RP2_CANONICAL_PLATFORM: [{"label": t, "value": t} for t in sorted(rp2)],
+    }
+
+
+def _apply_ethernet_platform_split(component: dict) -> None:
+    """
+    Stamp ethernet's ``type`` ``platform_options`` from the live split.
+
+    The component's ``supported_platforms`` becomes the option-map keys;
+    ``type`` is required, so no valid type means no platform support.
+    """
+    if component["id"] != "ethernet":
+        return
+    options = _ethernet_type_platform_options()
+    if not options:
+        return
+    for entry in component["config_entries"]:
+        if entry["key"] == "type":
+            entry["platform_options"] = options
+            break
+    component["supported_platforms"] = sorted(options)
 
 
 @contextlib.contextmanager
@@ -6197,6 +6334,30 @@ def _required_group_from_validator(node: Any) -> dict[str, Any] | None:
     return {"kind": kind, "keys": str_keys}
 
 
+def _groups_in_all_chain(node: Any) -> list[dict[str, Any]]:
+    """
+    Surface every ``cv.has_*_one_key`` validator in a ``vol.All`` chain.
+
+    The iteration cap bounds a misbehaving cyclic chain.
+    """
+    out: list[dict[str, Any]] = []
+    for _ in range(8):
+        if not isinstance(node, vol.All):
+            return out
+        for child in node.validators:
+            group = _required_group_from_validator(child)
+            if group is not None:
+                out.append(group)
+        inner = next(
+            (v for v in node.validators if isinstance(v, vol.All)),
+            None,
+        )
+        if inner is None:
+            return out
+        node = inner
+    return out
+
+
 def _collect_inclusive_groups(
     manifest: Any,
 ) -> dict[tuple[str, ...], str]:
@@ -6234,7 +6395,7 @@ def _collect_inclusive_groups(
     return out
 
 
-def _collect_required_groups(  # noqa: C901
+def _collect_required_groups(
     manifest: Any,
 ) -> dict[tuple[str, ...], list[dict[str, Any]]]:
     """
@@ -6263,30 +6424,11 @@ def _collect_required_groups(  # noqa: C901
     out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
     visited: set[int] = set()
 
-    def collect_at(node: Any, path: tuple[str, ...]) -> None:
-        # Walk through ``vol.All`` wrappers at the current level
-        # surfacing every ``cv.has_*_one_key`` validator. The cap
-        # mirrors the ``unwrap`` budget below — a misbehaving
-        # cyclic ``vol.All`` chain can't lock the walker.
-        for _ in range(8):
-            if not isinstance(node, vol.All):
-                return
-            for child in node.validators:
-                group = _required_group_from_validator(child)
-                if group is not None:
-                    out.setdefault(path, []).append(group)
-            inner = next(
-                (v for v in node.validators if isinstance(v, vol.All)),
-                None,
-            )
-            if inner is None:
-                return
-            node = inner
-
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
             return
-        collect_at(node, path)
+        if groups := _groups_in_all_chain(node):
+            out.setdefault(path, []).extend(groups)
         target = _unwrap_schema_to_dict(node)
         if target is None:
             return
@@ -6301,6 +6443,31 @@ def _collect_required_groups(  # noqa: C901
         walk(schema, (), 0)
     except Exception:
         _LOGGER.debug("required-groups walk aborted on %r", schema, exc_info=True)
+    return out
+
+
+def _collect_automation_registry_groups() -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """
+    Collect ``{registry_id: [{kind, keys}, ...]}`` per registry type from live esphome.
+
+    The ``action`` / ``condition`` registries fill during :func:`build_catalog`'s
+    import sweep, so call this after it; ``--limit-component`` runs yield partial
+    data. Empty when esphome isn't importable.
+    """
+    try:
+        automation = importlib.import_module("esphome.automation")
+        registries = {
+            "action": automation.ACTION_REGISTRY,
+            "condition": automation.CONDITION_REGISTRY,
+        }
+    except Exception:
+        _LOGGER.debug("automation registries unavailable", exc_info=True)
+        return {}
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for registry_type, registry in registries.items():
+        for registry_id, entry in registry.items():
+            if groups := _groups_in_all_chain(getattr(entry, "raw_schema", None)):
+                out.setdefault(registry_type, {})[registry_id] = groups
     return out
 
 
@@ -6737,9 +6904,15 @@ def _libretiny_families() -> tuple[str, ...]:
 
 
 def _expand_libretiny(platforms: Iterable[str]) -> list[str]:
-    """Replace the ``libretiny`` umbrella token with its concrete families."""
+    """
+    Replace the ``libretiny`` umbrella token with its concrete families.
+
+    Every ``supported_platforms`` list funnels through here, so renamed
+    platform tokens also fold onto the catalog's canonical keys
+    (``rp2`` → ``rp2040``, see models/boards.py).
+    """
     expanded = (
-        name
+        normalize_platform(name)
         for platform in platforms
         for name in (_libretiny_families() if platform == "libretiny" else (platform,))
     )
@@ -6923,6 +7096,7 @@ def build_automations(  # noqa: C901
     *,
     schema_dir: Path,
     component_ids: set[str],
+    registry_groups: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
@@ -6939,6 +7113,10 @@ def build_automations(  # noqa: C901
     as a component) or just an organisational namespace
     (``page.display`` ⇒ no ``display.page`` component, so actions
     surface against the bare ``display`` domain).
+
+    *registry_groups* is :func:`_collect_automation_registry_groups`
+    output; matching actions / conditions gain ``required_groups``
+    and their group members are promoted off ``advanced``.
     """
     triggers: list[dict] = []
     actions: list[dict] = []
@@ -6951,7 +7129,7 @@ def build_automations(  # noqa: C901
     # gates the action/condition id flip in :func:`_automation_id_prefix`.
     # Derived from the just-built component set, not ``_PLATFORM_DOMAINS``,
     # so the flip decision rests on the same evidence as ``_automation_domain``.
-    platform_domains = {cid.split(".", 1)[0] for cid in component_ids if "." in cid}
+    platform_domains = _domains_from_ids(component_ids)
 
     for path in iter_schema_files(schema_dir):
         try:
@@ -7028,10 +7206,15 @@ def build_automations(  # noqa: C901
                 )
             )
 
+    actions = _dedupe_by_id(actions)
+    conditions = _dedupe_by_id(conditions)
+    groups_by_type = registry_groups or {}
+    _apply_automation_required_groups(actions, groups_by_type.get("action"))
+    _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
     return {
         "triggers": _dedupe_by_id(triggers),
-        "actions": _dedupe_by_id(actions),
-        "conditions": _dedupe_by_id(conditions),
+        "actions": actions,
+        "conditions": conditions,
         "light_effects": _dedupe_by_id(effects),
         "filters": _dedupe_filters(filters),
     }
@@ -7079,6 +7262,52 @@ def _automation_id_prefix(top_key: str, *, platform_domains: set[str]) -> str:
         return top_key
     stem, base = top_key.split(".", 1)
     return f"{base}.{stem}" if base in platform_domains else top_key
+
+
+def _automation_required_groups(
+    group_index: dict[str, list[dict[str, Any]]] | None,
+    qualified: str,
+    config_entries: list[dict],
+) -> list[dict[str, Any]]:
+    """
+    Live-registry ``required_groups`` for the *qualified* automation id.
+
+    Groups with keys outside *config_entries* are dropped — ``if``'s
+    ``then`` / ``condition`` groups live on the control-flow editor,
+    not the params form.
+    """
+    groups = (group_index or {}).get(qualified)
+    if not groups:
+        return []
+    keys = {e["key"] for e in config_entries}
+    return [dict(g) for g in groups if all(k in keys for k in g["keys"])]
+
+
+def _apply_automation_required_groups(
+    entries: list[dict],
+    group_index: dict[str, list[dict[str, Any]]] | None,
+) -> None:
+    """
+    Stamp live-registry ``required_groups`` onto built actions / conditions.
+
+    Mirrors the component path's ``_apply_required_groups``: members are
+    promoted off ``advanced`` and their descriptions gain the constraint hint.
+    Members also drop per-field ``required`` — the group is the requirement,
+    but the bundle stamps ``Required`` on a preferred alias (``action`` on
+    ``homeassistant.service``), which would flag a legitimately blank sibling.
+    """
+    for entry in entries:
+        groups = _automation_required_groups(group_index, entry["id"], entry["config_entries"])
+        if not groups:
+            continue
+        members = {key for g in groups for key in g["keys"]}
+        promoted = _promote_constraint_members(entry["config_entries"], groups)
+        for e in promoted:
+            if e["key"] in members:
+                e["required"] = False
+        entry["config_entries"] = [_strip_entry_defaults(e) for e in promoted]
+        entry["required_groups"] = groups
+        _annotate_constraint_descriptions(entry)
 
 
 def _convert_automation_action(

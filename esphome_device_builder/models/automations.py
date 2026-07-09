@@ -22,7 +22,7 @@ from typing import Annotated, Any, Literal
 from mashumaro.config import BaseConfig
 from mashumaro.types import Discriminator
 
-from .common import ConfigEntry, DashboardModel
+from .common import ConfigEntry, DashboardModel, RequiredGroup
 
 # ---------------------------------------------------------------------------
 # Catalog
@@ -82,6 +82,10 @@ class AutomationAction(DashboardModel):
     # ``light.turn_on: id`` is ``{id: id}``. ``None`` for actions with no
     # scalar shorthand.
     scalar_shorthand_key: str | None = None
+    # Cross-field cardinality constraints over ``config_entries``, same
+    # shape as ``ComponentCatalogEntry.required_groups``. Members are
+    # never ``advanced``.
+    required_groups: list[RequiredGroup] = field(default_factory=list)
 
 
 @dataclass
@@ -104,6 +108,9 @@ class AutomationCondition(DashboardModel):
     # See :class:`AutomationAction.scalar_shorthand_key` — e.g.
     # ``display.is_displaying_page: <page_id>`` maps to ``{page_id: …}``.
     scalar_shorthand_key: str | None = None
+    # See :class:`AutomationAction.required_groups` — e.g.
+    # ``sensor.in_range`` requires at least one of ``above`` / ``below``.
+    required_groups: list[RequiredGroup] = field(default_factory=list)
 
 
 @dataclass

@@ -4,10 +4,12 @@ Native API fallback source for MAC address and ESPHome version.
 When mDNS multicast doesn't reach the dashboard (the common Docker-bridge
 case) a device can be ONLINE via ping yet have a blank ``mac_address`` /
 ``deployed_version`` — those fields come only from the ``_esphomelib._tcp``
-TXT records. This source connects to such devices over the Native API in a
-short-lived subprocess and fills the two fields. It only ever supplies
-mac/version; it never drives ONLINE/OFFLINE, so it stays out of the
-source-precedence ledger.
+TXT records. Each sweep first re-applies zeroconf-cached TXT payloads for
+free (the browser handler can miss an announce whose records still landed in
+the cache), then connects to still-blank devices over the Native API in a
+short-lived subprocess. It only ever supplies the TXT-derived fields; it
+never drives ONLINE/OFFLINE, so it stays out of the source-precedence
+ledger.
 """
 
 from __future__ import annotations
@@ -65,6 +67,9 @@ class ApiInfoSource:
         # One-shot latch for the systemic WARNING; re-arms once the count of
         # distinct devices stuck failing drops back below the threshold.
         self._warned_systemic = False
+        # Re-checked by ``run``; without aioesphomeapi the sweep still runs
+        # its mDNS-cache reconcile but skips the API-connect stage.
+        self._api_available = True
         if monitor._presence is not None:
             monitor._presence.add_subscriber_callback(self._wake.set)
 
@@ -76,10 +81,14 @@ class ApiInfoSource:
     async def run(self) -> None:
         # ``find_spec`` resolves without importing, so ``aioesphomeapi``
         # never loads into the dashboard process — only the per-fetch
-        # worker child imports it.
-        if importlib.util.find_spec("aioesphomeapi") is None:
-            _LOGGER.debug("aioesphomeapi not installed; Native API info fallback disabled")
-            return
+        # worker child imports it. The sweep loop still runs without it:
+        # the mDNS-cache reconcile pass needs no API worker.
+        self._api_available = importlib.util.find_spec("aioesphomeapi") is not None
+        if not self._api_available:
+            _LOGGER.debug(
+                "aioesphomeapi not installed; Native API connect stage disabled "
+                "(mDNS-cache reconcile still active)"
+            )
         await asyncio.sleep(_BOOTSTRAP_DELAY)
         monitor = self._monitor
         while True:
@@ -103,9 +112,17 @@ class ApiInfoSource:
         # Strictly one probe at a time: an API connect is far heavier
         # than an ICMP probe, and the fallback is a rare-path repair,
         # not a fleet sweep — serialising keeps it unobtrusive.
-        live = {device.name for device in self._monitor._get_devices()}
+        devices = self._monitor._get_devices()
+        live = {device.name for device in devices}
         self._cooldown = {name: t for name, t in self._cooldown.items() if name in live}
         self._force_reprobe &= live
+        # Free repair first: a device the browser handler missed (timed-out
+        # resolve, cold-start probe no-op) sits blank while the zeroconf cache
+        # holds its TXT, and same-content TTL refreshes never re-fire the
+        # handler. Devices the cache fills drop out of ``_select_targets``.
+        self._reconcile_from_mdns_cache(devices)
+        if not self._api_available:
+            return
         # Cap probes per sweep so an mDNS-dark fleet where every probe runs
         # the full subprocess timeout doesn't churn out back-to-back
         # interpreter spawns for minutes. The overflow rolls to the next
@@ -134,24 +151,52 @@ class ApiInfoSource:
                 self._record_failure(device)
         self._evaluate_systemic_health()
 
+    def _reconcile_from_mdns_cache(self, devices: list[Device]) -> None:
+        """Re-apply cached TXT payloads for online API devices missing monitor fields."""
+        monitor = self._monitor
+        # ``deployed_config_hash`` and the ``api_encryption_active``
+        # tri-state (``None`` = never observed) widen this gate beyond
+        # ``_is_due``'s mac+version: the cached TXT carries them but the
+        # API worker can't fetch them.
+        names = {
+            device.name
+            for device in devices
+            if device.state is DeviceState.ONLINE
+            and device.api_enabled
+            and (
+                device.api_encryption_active is None
+                or not (
+                    device.mac_address and device.deployed_version and device.deployed_config_hash
+                )
+            )
+        }
+        for name in sorted(names):
+            monitor.reconcile_from_mdns_cache(name)
+
     def _is_due(self, device: Device) -> bool:
         """
         Report whether *device* needs an API probe, ignoring cooldown.
 
-        Due means: online, exposes a Native API, not owned by the mDNS source
-        (so the ``_esphomelib._tcp`` TXT records aren't arriving), reachable by
-        IP, and either still missing a field or flagged for a forced re-probe
-        (post-flash version verification, which probes even when both fields
-        are already filled).
+        Due means: online, exposes a Native API, reachable by IP, and either
+        still missing a field or flagged for a forced re-probe (post-flash
+        version verification, which probes even when both fields are filled).
+        Only the forced case defers to mDNS ownership — the announce carries
+        the fields, so the re-probe is redundant there. The missing-field case
+        deliberately doesn't: ownership proves an announce resolved once, not
+        that its TXT payload was ever applied (#1910), and the sweep's cache
+        reconcile has already run, so reaching here means the cache can't fill
+        the gap.
         """
         monitor = self._monitor
         return (
             device.state is DeviceState.ONLINE
             and device.api_enabled
-            and monitor.priority_for(device.name) != ReachabilitySource.MDNS
             and (
-                device.name in self._force_reprobe
-                or not (device.mac_address and device.deployed_version)
+                not (device.mac_address and device.deployed_version)
+                or (
+                    device.name in self._force_reprobe
+                    and monitor.priority_for(device.name) != ReachabilitySource.MDNS
+                )
             )
             and bool(self._candidate_addresses(device))
         )

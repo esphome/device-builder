@@ -40,7 +40,7 @@ from .helpers import (
 from .importable import ImportableDiscovery
 from .mdns import MdnsSource
 from .ping import PingSource
-from .shared import _SOURCE_PRIORITY
+from .shared import _SOURCE_PRIORITY, should_ping
 
 _LOGGER = logging.getLogger(__name__)
 # Cap on draining the ping / API-info / resolve tasks at shutdown.
@@ -479,9 +479,22 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """Eagerly resolve a device's ``_esphomelib._tcp.local.`` service."""
         self._importable.probe_device(device_name, service_name)
 
+    def reconcile_from_mdns_cache(self, device_name: str) -> None:
+        """Re-apply the zeroconf-cached TXT payload; never claims state or IP."""
+        self._mdns.reconcile_from_cache(device_name)
+
     def probe_device_ping(self, device_name: str) -> None:
-        """Wake the ICMP sweep loop; a herd of N adds collapses into one early sweep."""
-        self._ping.wake()
+        """
+        Wake the ICMP sweep loop when *device_name* warrants a probe.
+
+        Skipped when :func:`should_ping` says every matching device is
+        already ONLINE under a higher-priority source (the sweep would
+        filter it out anyway); unknown names fail open. A herd of N
+        calls collapses into one early sweep.
+        """
+        devices = self._get_devices_by_name(device_name)
+        if not devices or any(should_ping(self, d) for d in devices):
+            self._ping.wake()
 
     def revisit_importable(self, device_name: str) -> None:
         """Re-fire ``on_importable_added`` for *device_name* if upstream still has it cached."""

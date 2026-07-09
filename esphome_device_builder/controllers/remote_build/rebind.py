@@ -69,12 +69,14 @@ async def probe_pairing_endpoint(
     """
     assert controller.state.offloader_peer_link_priv is not None
     try:
-        observed_pin = await peer_link_preview_pair(
-            hostname=new_hostname,
-            port=new_port,
-            identity_priv=controller.state.offloader_peer_link_priv,
-            resolver=controller.state.peer_link_resolver,
-        )
+        observed_pin = (
+            await peer_link_preview_pair(
+                hostname=new_hostname,
+                port=new_port,
+                identity_priv=controller.state.offloader_peer_link_priv,
+                resolver=controller.state.peer_link_resolver,
+            )
+        ).pin_sha256
     except PeerLinkClientError as exc:
         return RebindProbeResult(RebindProbeOutcome.UNREACHABLE, transport_error=exc)
     if observed_pin != pairing.pin_sha256:

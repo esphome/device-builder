@@ -25,6 +25,8 @@ from esphome import automation  # noqa: E402
 
 from esphome_device_builder.controllers.automations import catalog  # noqa: E402
 
+from .conftest import catalog_releases_ahead  # noqa: E402
+
 # Known single=False triggers -> a YAML list of handlers is valid.
 _LIST_CAPABLE = (
     "on_boot",
@@ -109,8 +111,14 @@ def test_shipped_catalog_matches_live_introspection() -> None:
 
     Deterministic guard: recompute the flag from the same resolver the sync uses
     and assert equality, so the emitter and resolver never diverge and the
-    committed catalog can't go stale against the installed esphome.
+    committed catalog can't go stale against the installed esphome. Only
+    meaningful when the catalog and the installed esphome are the same release
+    — across a release boundary an upstream ``single=`` change is legitimate
+    drift (2026.7 flipped ``online_image.on_download_finished`` / ``on_error``),
+    so the skewed matrix legs skip and the matching leg stays strict.
     """
+    if (ahead := catalog_releases_ahead()) != 0:
+        pytest.skip(f"catalog is {ahead:+} releases from the installed esphome")
     mismatches: list[tuple[str, bool, bool | None]] = []
     for trigger in catalog.all_triggers():
         if trigger.is_device_level:

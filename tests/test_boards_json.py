@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import orjson
+from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 
 from esphome_device_builder.definitions import (
     build_board_catalog_from_manifests,
@@ -31,6 +32,7 @@ from esphome_device_builder.definitions import (
     load_featured_components_index,
 )
 from esphome_device_builder.models.boards import (
+    RP2_CANONICAL_PLATFORM,
     BoardCatalogEntry,
     BoardCatalogIndex,
     BoardEsphomeConfig,
@@ -48,9 +50,9 @@ from esphome_device_builder.models.common import FieldPreset, PinFeature
 from script.sync_boards import (
     _LIBRETINY_FAMILIES,
     _NRF52_PLATFORM,
-    _RP2040_PLATFORM,
     _augment_rmii_data_pins,
     _augment_rp2040_onboard_ethernet_pins,
+    _backfill_esp32_engineering_sample,
     _backfill_esp32_variants,
     _backfill_libretiny_mcu,
     _backfill_rp2040_mcu,
@@ -97,6 +99,7 @@ def test_split_artefacts_match_manifests() -> None:
     # so apply them here too or esp32 boards carrying only a PIO board id (and rp2040
     # / LibreTiny boards lacking the WiFi tag or chip series) mismatch disk.
     _backfill_esp32_variants(from_yaml.boards)
+    _backfill_esp32_engineering_sample(from_yaml.boards)
     _backfill_rp2040_wifi(from_yaml.boards)
     _backfill_rp2040_mcu(from_yaml.boards)
     _backfill_libretiny_mcu(from_yaml.boards)
@@ -106,7 +109,12 @@ def test_split_artefacts_match_manifests() -> None:
     _stamp_featured_requires(from_yaml.boards)
     _consolidate_full_setup_bundles(from_yaml.boards)
     from_disk = load_board_catalog()
-    generated = set(_LIBRETINY_FAMILIES) | {_RP2040_PLATFORM, _NRF52_PLATFORM, "esp32", "esp8266"}
+    generated = set(_LIBRETINY_FAMILIES) | {
+        RP2_CANONICAL_PLATFORM,
+        _NRF52_PLATFORM,
+        "esp32",
+        "esp8266",
+    }
     esphome_filled = set(_LIBRETINY_FAMILIES)
     manifest_ids = {b.id for b in from_yaml.boards}
     disk_by_id = {b.id: b for b in from_disk.boards}
@@ -639,6 +647,74 @@ def test_libretiny_boards_carry_the_chip_series_mcu() -> None:
         b.id for b in index if b.esphome.platform.value in _LIBRETINY_FAMILIES and not b.esphome.mcu
     ]
     assert not stranded, stranded
+
+
+def test_esp32_engineering_sample_matches_esphome_boards_table() -> None:
+    """Every esp32 entry's ``engineering_sample`` mirrors ESPHome's ``BOARDS`` flag.
+
+    A pre-rev3 P4 board missing the flag generates rev3-only firmware that
+    faults at boot; a rev3 board wrongly carrying it faults the other way.
+    """
+    index = [b for b in load_board_index() if b.esphome.platform.value == "esp32"]
+    assert index
+    mismatched = [
+        b.id
+        for b in index
+        if b.esphome.engineering_sample
+        != bool(ESP32_BOARDS.get(b.esphome.board, {}).get("engineering_sample"))
+    ]
+    assert not mismatched, mismatched
+    # The known pre-rev3 products are flagged; the rev3 generics are not.
+    flagged = {b.id for b in index if b.esphome.engineering_sample}
+    assert "waveshare_esp32_p4_wifi6" in flagged
+    assert "generic-esp32p4" in flagged
+    assert "esp32-p4_r3" not in flagged
+    assert "esp32-p4_r3-evboard" not in flagged
+
+
+def test_logger_hardware_uart_pins_known_console_wirings() -> None:
+    """UART-bridge consoles pin UART0; native-JTAG boards keep the default.
+
+    Every Waveshare P4 routes its console Type-C through a CH343P on UART0.
+    Native-JTAG boards get the default either implicitly (olimex, no field)
+    or restated explicitly when the upstream page pins it (guition).
+    """
+    uarts = {b.id: b.esphome.logger_hardware_uart for b in load_board_index()}
+    for board_id in (
+        "waveshare_esp32_p4_wifi6",
+        "waveshare_esp32_p4_nano",
+        "waveshare_esp32_p4_pico",
+        "waveshare_esp32_p4_eth",
+        "waveshare_esp32_p4_module_dev_kit",
+        "waveshare_esp32_p4_wifi6_dev_kit",
+        "waveshare_esp32_p4_wifi6_poe_eth",
+    ):
+        assert uarts[board_id] == "UART0", board_id
+    # Native USB-Serial-JTAG consoles: the upstream page pins the default
+    # explicitly (guition) or the board needs nothing (olimex).
+    assert uarts["guition_esp32_p4_m3_dev"] == "USB_SERIAL_JTAG"
+    assert uarts["esp32-p4-pc"] is None
+    # Non-P4 lifts ride the same import path.
+    assert uarts["shelly_em_gen3"] == "UART0"
+    assert uarts["mirabella_door_window_sensor"] == "UART1"
+
+
+def test_p4_generated_boards_take_the_revision_matching_generic_pinout() -> None:
+    """GPIO54 is a GPIO on pre-rev3 P4 silicon but the VDD_HP_1 rail on rev3.
+
+    Generated boards must inherit the generic pinout of their own revision;
+    keying on variant alone let one revision's GPIO54 leak into the other's.
+    """
+    bodies = {b.id: b for b in load_board_catalog().boards}
+    for board_id, usable in (
+        ("esp32-p4", True),
+        ("esp32-p4_r3", False),
+        ("esp32-p4_r3-evboard", False),
+        ("generic-esp32p4", True),
+        ("generic-esp32p4-r3", False),
+    ):
+        pin = next(p for p in bodies[board_id].pins if p.gpio == 54)
+        assert (pin.available is not False) == usable, board_id
 
 
 def test_every_board_has_a_docs_url() -> None:

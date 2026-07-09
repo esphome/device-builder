@@ -62,6 +62,8 @@ def _make_esp32_board(
     variant: Esp32Variant | None = None,
     flash_size: str | None = None,
     framework: str | None = None,
+    engineering_sample: bool = False,
+    logger_hardware_uart: str | None = None,
 ) -> BoardCatalogEntry:
     """Build a minimal ESP32 ``BoardCatalogEntry`` for the YAML generator.
 
@@ -79,6 +81,8 @@ def _make_esp32_board(
             board="esp32dev",
             variant=variant,
             framework=framework,
+            engineering_sample=engineering_sample,
+            logger_hardware_uart=logger_hardware_uart,
         ),
         hardware=BoardHardware(
             flash_size=flash_size,
@@ -1170,6 +1174,56 @@ def test_generate_yaml_omits_esp32_branch_fields_when_unset() -> None:
     assert "variant:" not in yaml
     assert "flash_size:" not in yaml
     assert "framework:" not in yaml
+
+
+def test_generate_yaml_emits_engineering_sample_for_prerev3_p4() -> None:
+    """ES-flagged board → ``engineering_sample: true`` between variant and flash_size.
+
+    Without it esphome defaults ``variant: esp32p4`` to rev3-only firmware
+    that faults at the bootloader on pre-rev3 silicon.
+    """
+    board = _make_esp32_board(
+        variant=Esp32Variant.ESP32P4,
+        flash_size="32MB",
+        framework="esp-idf",
+        engineering_sample=True,
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "esp32:\n  variant: esp32p4\n  engineering_sample: true\n  flash_size: 32MB\n" in yaml
+
+
+def test_generate_yaml_omits_engineering_sample_by_default() -> None:
+    """Non-ES board → no ``engineering_sample`` line (rev3 P4s must not get it)."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "engineering_sample" not in yaml
+
+
+def test_generate_yaml_pins_logger_hardware_uart_when_set() -> None:
+    """``logger_hardware_uart`` set → the logger block pins the console UART.
+
+    Boards whose console USB port is a UART bridge (CH343 on UART0) show ROM
+    output but no app logs on the chip-default console.
+    """
+    board = _make_esp32_board(
+        variant=Esp32Variant.ESP32P4,
+        framework="esp-idf",
+        logger_hardware_uart="UART0",
+    )
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "logger:\n  hardware_uart: UART0\n" in yaml
+
+
+def test_generate_yaml_leaves_logger_bare_by_default() -> None:
+    """No ``logger_hardware_uart`` → bare ``logger:`` (ESPHome's default console)."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
+
+    assert "logger:\n\n" in yaml
+    assert "hardware_uart" not in yaml
 
 
 def test_generate_yaml_emits_all_three_esp32_fields_together() -> None:
@@ -2797,6 +2851,44 @@ def test_generate_device_yaml_hosted_radio_enables_wifi_on_p4() -> None:
     assert "no native Wi-Fi" not in out
 
 
+def test_generate_device_yaml_hosted_default_appends_firmware_update() -> None:
+    """An ``esp32_hosted`` default appends ``http_request:`` and its update entity."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    out = generate_device_yaml(
+        "kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=_hosted_defaults()
+    )
+
+    assert "http_request:\n" in out
+    assert (
+        "update:\n"
+        "  - platform: esp32_hosted\n"
+        "    type: http\n"
+        "    source: https://esphome.github.io/esp-hosted-firmware/manifest/esp32c6.json\n"
+        "    name: C6 Firmware\n"
+    ) in out
+    # The update block lands after the hosted component it updates.
+    assert out.index("esp32_hosted:") < out.index("update:")
+
+
+def test_generate_device_yaml_hosted_variant_without_firmware_manifest_skips_update() -> None:
+    """No published firmware manifest for the variant → no update entity, no dead URL."""
+    defaults = [(_make_component("esp32_hosted"), {"variant": "ESP32C3"})]
+    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=defaults)
+
+    assert "http_request:" not in out
+    assert "update:" not in out
+
+
+def test_generate_device_yaml_no_hosted_default_appends_no_update() -> None:
+    """Boards without a hosted radio get neither ``http_request:`` nor ``update:``."""
+    board = _make_esp32_board(variant=Esp32Variant.ESP32S3, framework="esp-idf")
+    out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw")
+
+    assert "http_request:" not in out
+    assert "update:" not in out
+
+
 def test_generate_device_yaml_p4_wifi_claim_without_radio_gets_network_todo() -> None:
     """A wifi-claiming P4 with no radio provider in defaults must not emit ``wifi:``.
 
@@ -2943,6 +3035,9 @@ async def test_generate_device_yaml_wt32_eth01_suppresses_wifi_with_ethernet(
         pytest.param("esp32-poe-iso", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="esp32-poe-iso"),
         pytest.param("esp32-evb", {"pin": "GPIO0", "mode": "CLK_EXT_IN"}, id="esp32-evb"),
         pytest.param("esp32-gateway", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="esp32-gateway"),
+        pytest.param(
+            "kincony_kc868_a128", {"pin": "GPIO17", "mode": "CLK_OUT"}, id="kincony_kc868_a128"
+        ),
     ],
 )
 async def test_every_curated_ethernet_board_generates_wired_only_config(
@@ -2952,8 +3047,9 @@ async def test_every_curated_ethernet_board_generates_wired_only_config(
 ) -> None:
     """Each curated onboard-ethernet board emits its ``ethernet:`` block and no ``wifi:``.
 
-    Pins the four hand-curated manifests to their sourced pinouts so a
-    bad edit (wrong clk mode/pin) surfaces here.
+    Pins the hand-curated manifests to their sourced pinouts (a bad edit
+    — wrong clk mode/pin — surfaces here) plus one imported board whose
+    preset was normalized from legacy ``clk_mode`` at ingest.
     """
     board = await session_component_catalog._db.boards.get_board(board_id=board_id)
     assert board is not None

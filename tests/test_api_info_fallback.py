@@ -29,21 +29,7 @@ from esphome_device_builder.helpers import api_device_info
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
 
-from .conftest import make_device, make_state_monitor_with_callbacks
-
-
-def _online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
-    """Online device that exposes a Native API, with a routable IP, missing mac/version."""
-    base: dict[str, Any] = {
-        "state": DeviceState.ONLINE,
-        "api_enabled": True,
-        "loaded_integrations": ["api", "wifi"],
-        "ip": "192.168.1.50",
-        "ip_addresses": ["192.168.1.50"],
-    }
-    base.update(overrides)
-    return make_device(name, **base)
-
+from .conftest import make_device, make_online_api_device, make_state_monitor_with_callbacks
 
 # ----------------------------------------------------------------------
 # Self-gating — _select_targets
@@ -52,64 +38,82 @@ def _online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
 
 def test_select_targets_picks_online_api_device_missing_fields() -> None:
     """The target case: ONLINE, API-capable, blank mac+version, routable IP."""
-    devices = [_online_api_device()]
+    devices = [make_online_api_device()]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
 
 
 def test_select_targets_picks_when_only_one_field_missing() -> None:
     """A device with a MAC but no version still needs a fetch."""
-    devices = [_online_api_device(mac_address="94:C9:60:1F:8C:F1")]
+    devices = [make_online_api_device(mac_address="94:C9:60:1F:8C:F1")]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
 
 
 def test_select_targets_skips_when_both_fields_present() -> None:
     """MDNS already supplied both → never connect."""
-    devices = [_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
+    devices = [make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert monitor._api_info._select_targets() == []
 
 
 def test_select_targets_skips_offline_device() -> None:
     """Only ONLINE devices are probed."""
-    devices = [_online_api_device(state=DeviceState.OFFLINE)]
+    devices = [make_online_api_device(state=DeviceState.OFFLINE)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert monitor._api_info._select_targets() == []
 
 
 def test_select_targets_skips_non_api_device() -> None:
     """A device that exposes no Native API can't be reached over it."""
-    devices = [_online_api_device(api_enabled=False, loaded_integrations=["web_server"])]
+    devices = [make_online_api_device(api_enabled=False, loaded_integrations=["web_server"])]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert monitor._api_info._select_targets() == []
 
 
 def test_select_targets_picks_uncompiled_online_api_device() -> None:
     """An online ``api:`` device never compiled here (empty loaded_integrations) is still probed."""
-    devices = [_online_api_device(loaded_integrations=[])]  # api_enabled set from YAML scan
+    devices = [make_online_api_device(loaded_integrations=[])]  # api_enabled set from YAML scan
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
 
 
 def test_select_targets_skips_when_only_local_hostname_known() -> None:
     """No IP and only a ``.local`` address → unresolvable when mDNS is down."""
-    devices = [_online_api_device(ip="", ip_addresses=[], address="kitchen.local")]
+    devices = [make_online_api_device(ip="", ip_addresses=[], address="kitchen.local")]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     assert monitor._api_info._select_targets() == []
 
 
-def test_select_targets_skips_when_mdns_owns_state() -> None:
-    """MDNS is reaching this device → it gets mac/version for free; don't probe."""
-    devices = [_online_api_device()]
+def test_select_targets_picks_mdns_owned_device_missing_fields() -> None:
+    """MDNS ownership proves a resolve, not an applied TXT — a blank device is still due."""
+    devices = [make_online_api_device()]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
+
+
+def test_select_targets_skips_forced_reprobe_when_mdns_owns_state() -> None:
+    """A forced re-probe of a fully-populated device defers to a live mDNS announce."""
+    devices = [make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    monitor._api_info.request_reprobe("kitchen")
     assert monitor._api_info._select_targets() == []
+
+
+def test_select_targets_picks_forced_reprobe_when_ping_owned() -> None:
+    """A forced re-probe runs when mDNS isn't reaching the device."""
+    devices = [make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")]
+    monitor, _ = make_state_monitor_with_callbacks(devices)
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    monitor._api_info.request_reprobe("kitchen")
+    assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
 
 
 def test_select_targets_picks_when_online_via_ping_not_mdns() -> None:
     """ONLINE via ping but not mDNS → mDNS is broken for this device; probe it."""
-    devices = [_online_api_device()]
+    devices = [make_online_api_device()]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
     assert [d.name for d in monitor._api_info._select_targets()] == ["kitchen"]
@@ -121,22 +125,22 @@ def test_select_targets_picks_when_online_via_ping_not_mdns() -> None:
 
 
 def test_candidate_addresses_prefers_full_address_list() -> None:
-    device = _online_api_device(ip="192.168.1.50", ip_addresses=["192.168.1.50", "fe80::1"])
+    device = make_online_api_device(ip="192.168.1.50", ip_addresses=["192.168.1.50", "fe80::1"])
     assert ApiInfoSource._candidate_addresses(device) == ["192.168.1.50", "fe80::1"]
 
 
 def test_candidate_addresses_falls_back_to_single_ip() -> None:
-    device = _online_api_device(ip="192.168.1.50", ip_addresses=[])
+    device = make_online_api_device(ip="192.168.1.50", ip_addresses=[])
     assert ApiInfoSource._candidate_addresses(device) == ["192.168.1.50"]
 
 
 def test_candidate_addresses_accepts_non_local_hostname() -> None:
-    device = _online_api_device(ip="", ip_addresses=[], address="device.example.com")
+    device = make_online_api_device(ip="", ip_addresses=[], address="device.example.com")
     assert ApiInfoSource._candidate_addresses(device) == ["device.example.com"]
 
 
 def test_candidate_addresses_rejects_local_hostname() -> None:
-    device = _online_api_device(ip="", ip_addresses=[], address="kitchen.local")
+    device = make_online_api_device(ip="", ip_addresses=[], address="kitchen.local")
     assert ApiInfoSource._candidate_addresses(device) == []
 
 
@@ -147,7 +151,7 @@ def test_candidate_addresses_rejects_local_hostname() -> None:
 
 async def test_fetch_applies_mac_and_version() -> None:
     """A worker hit writes the normalized MAC and the version through the monitor."""
-    device = _online_api_device(address="")
+    device = make_online_api_device(address="")
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor._api_info._run_worker = AsyncMock(  # type: ignore[method-assign]
         return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
@@ -163,7 +167,7 @@ async def test_fetch_applies_mac_and_version() -> None:
 
 async def test_fetch_failure_sets_cooldown_and_skips_next_select() -> None:
     """A failed fetch parks the device so the next sweep doesn't reconnect it."""
-    device = _online_api_device()
+    device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     monitor._api_info._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
@@ -174,7 +178,7 @@ async def test_fetch_failure_sets_cooldown_and_skips_next_select() -> None:
 
 async def test_fetch_passes_resolved_key_and_port_to_worker() -> None:
     """An encrypted device's key and configured port reach the worker request."""
-    device = _online_api_device(address="")
+    device = make_online_api_device(address="")
     monitor = DeviceStateMonitor(
         get_devices=lambda: [device],
         on_state_change=lambda *_: None,
@@ -194,7 +198,7 @@ async def test_fetch_passes_resolved_key_and_port_to_worker() -> None:
 
 async def test_fetch_uses_plaintext_default_port_when_no_resolver() -> None:
     """Unwired resolver → empty PSK (plaintext) and the default 6053 port."""
-    device = _online_api_device(address="")
+    device = make_online_api_device(address="")
     monitor, _ = make_state_monitor_with_callbacks([device])
     monitor._api_info._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
@@ -207,7 +211,7 @@ async def test_fetch_uses_plaintext_default_port_when_no_resolver() -> None:
 
 async def test_fetch_connected_but_empty_sets_cooldown() -> None:
     """A probe that connects but returns no data still backs off (no every-sweep reconnect)."""
-    device = _online_api_device()
+    device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     monitor._api_info._run_worker = AsyncMock(  # type: ignore[method-assign]
         return_value={"mac_address": "", "esphome_version": ""}
@@ -220,7 +224,7 @@ async def test_fetch_connected_but_empty_sets_cooldown() -> None:
 
 async def test_fetch_partial_fill_is_progress_not_failure() -> None:
     """A probe that fills only the MAC isn't cooled down and stays eligible for the rest."""
-    device = _online_api_device(address="")
+    device = make_online_api_device(address="")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src._run_worker = AsyncMock(  # type: ignore[method-assign]
@@ -237,7 +241,7 @@ async def test_fetch_partial_fill_is_progress_not_failure() -> None:
 
 async def test_fetch_no_new_fill_is_a_failure() -> None:
     """Re-sending an already-known MAC with no version is a miss (cooldown)."""
-    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", address="")
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", address="")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src._run_worker = AsyncMock(  # type: ignore[method-assign]
@@ -251,7 +255,7 @@ async def test_fetch_no_new_fill_is_a_failure() -> None:
 
 async def test_fetch_resolver_failure_is_a_recorded_miss() -> None:
     """A resolver exception records a miss and skips the doomed plaintext probe."""
-    device = _online_api_device(address="")
+    device = make_online_api_device(address="")
     monitor = DeviceStateMonitor(
         get_devices=lambda: [device],
         on_state_change=lambda *_: None,
@@ -268,7 +272,7 @@ async def test_fetch_resolver_failure_is_a_recorded_miss() -> None:
 
 async def test_fetch_skips_encrypted_device_without_key() -> None:
     """A declared-encrypted device with no resolvable key is a recorded miss, not a probe."""
-    device = _online_api_device(api_encrypted=True, address="")
+    device = make_online_api_device(api_encrypted=True, address="")
     monitor = DeviceStateMonitor(
         get_devices=lambda: [device],
         on_state_change=lambda *_: None,
@@ -285,7 +289,7 @@ async def test_fetch_skips_encrypted_device_without_key() -> None:
 
 async def test_fetch_skips_when_addresses_emptied_after_select() -> None:
     """A select→fetch TOCTOU (no addresses left) is a recorded miss, not an IndexError."""
-    device = _online_api_device(ip="", ip_addresses=[], address="kitchen.local")
+    device = make_online_api_device(ip="", ip_addresses=[], address="kitchen.local")
     monitor, _ = make_state_monitor_with_callbacks([device])
     monitor._api_info._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
@@ -300,7 +304,7 @@ async def test_systemic_warning_fires_once_when_many_devices_failing(
 ) -> None:
     """A sweep that leaves >= threshold distinct devices on cooldown logs one WARNING."""
     monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)  # probe all in one sweep
-    devices = [_online_api_device(f"dev{i}") for i in range(10)]
+    devices = [make_online_api_device(f"dev{i}") for i in range(10)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     src = monitor._api_info
     src._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
@@ -318,8 +322,8 @@ async def test_systemic_warning_not_masked_by_one_healthy_device(
 ) -> None:
     """A healthy probe among broken ones doesn't suppress the WARNING (counts distinct failures)."""
     monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)
-    devices = [_online_api_device(f"bad{i}") for i in range(10)]
-    healthy = _online_api_device("good")
+    devices = [make_online_api_device(f"bad{i}") for i in range(10)]
+    healthy = make_online_api_device("good")
     monitor, _ = make_state_monitor_with_callbacks([*devices, healthy])
     src = monitor._api_info
 
@@ -339,7 +343,7 @@ async def test_systemic_warning_not_masked_by_one_healthy_device(
 async def test_systemic_warning_rearms_after_recovery(monkeypatch: Any) -> None:
     """When the failing-device count drops below threshold, the WARNING re-arms."""
     monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)
-    devices = [_online_api_device(f"dev{i}") for i in range(10)]
+    devices = [make_online_api_device(f"dev{i}") for i in range(10)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     src = monitor._api_info
     src._run_worker = AsyncMock(return_value=None)  # type: ignore[method-assign]
@@ -357,7 +361,7 @@ async def test_systemic_warning_rearms_after_recovery(monkeypatch: Any) -> None:
 
 async def test_sweep_prunes_cooldown_for_removed_devices() -> None:
     """A cooldown entry for a device no longer in the catalog is dropped."""
-    device = _online_api_device()
+    device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src._cooldown = {"ghost": 1e18, "kitchen": 1e18}
@@ -374,19 +378,43 @@ async def test_sweep_prunes_cooldown_for_removed_devices() -> None:
 # ----------------------------------------------------------------------
 
 
-async def test_run_disabled_when_aioesphomeapi_missing(monkeypatch: Any) -> None:
-    """No aioesphomeapi installed → the loop returns immediately, never sweeping."""
-    monitor, _ = make_state_monitor_with_callbacks([_online_api_device()])
+async def test_run_without_aioesphomeapi_still_sweeps(monkeypatch: Any) -> None:
+    """No aioesphomeapi installed → the loop still runs (the cache reconcile needs no worker)."""
+    monitor, _ = make_state_monitor_with_callbacks([make_online_api_device()])
+    src = monitor._api_info
     monkeypatch.setattr(
         "esphome_device_builder.controllers._device_state_monitor.api_info.importlib.util.find_spec",
         lambda _name: None,
     )
+    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
     sweep = AsyncMock()
-    monitor._api_info._sweep = sweep  # type: ignore[method-assign]
 
-    await monitor._api_info.run()
+    async def _idle() -> None:
+        raise asyncio.CancelledError
 
-    sweep.assert_not_called()
+    src._sweep = sweep  # type: ignore[method-assign]
+    src._idle = _idle  # type: ignore[method-assign]
+
+    with pytest.raises(asyncio.CancelledError):
+        await src.run()
+
+    sweep.assert_called_once()
+    assert src._api_available is False
+
+
+async def test_sweep_without_aioesphomeapi_reconciles_but_never_connects() -> None:
+    """The API-connect stage is gated on aioesphomeapi; the cache reconcile is not."""
+    monitor, _ = make_state_monitor_with_callbacks([make_online_api_device()])
+    src = monitor._api_info
+    src._api_available = False
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    src._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await src._sweep()
+
+    assert reconciled == ["kitchen"]
+    src._fetch.assert_not_called()
 
 
 async def test_run_sweeps_then_idles(monkeypatch: Any) -> None:
@@ -449,7 +477,7 @@ async def test_run_waits_for_subscriber_when_presence_wired(monkeypatch: Any) ->
     """With a presence gate, the loop registers a wake callback and waits per cycle."""
     presence = _FakePresence()
     monitor = DeviceStateMonitor(
-        get_devices=lambda: [_online_api_device()],
+        get_devices=lambda: [make_online_api_device()],
         on_state_change=lambda *_: None,
         on_ip_change=lambda *_: None,
         presence=presence,
@@ -495,7 +523,7 @@ async def test_idle_times_out_when_not_woken(monkeypatch: Any) -> None:
 async def test_sweep_fetches_each_selected_target() -> None:
     """Every selected device is probed, one at a time."""
     monitor, _ = make_state_monitor_with_callbacks(
-        [_online_api_device("alpha"), _online_api_device("beta")]
+        [make_online_api_device("alpha"), make_online_api_device("beta")]
     )
     fetched: list[str] = []
 
@@ -515,10 +543,101 @@ async def test_sweep_noop_when_no_targets() -> None:
     monitor._api_info._fetch.assert_not_called()
 
 
+async def test_sweep_skips_api_probe_when_cache_reconcile_fills_fields() -> None:
+    """A device the zeroconf cache repairs drops out before the API-connect stage."""
+    device = make_online_api_device()
+    monitor, _ = make_state_monitor_with_callbacks([device])
+
+    def _fill(_name: str) -> None:
+        device.mac_address = "94:C9:60:1F:8C:F1"
+        device.deployed_version = "2026.6.4"
+        device.deployed_config_hash = "abcd1234"
+
+    monitor.reconcile_from_mdns_cache = _fill  # type: ignore[method-assign]
+    monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    monitor._api_info._fetch.assert_not_called()
+
+
+async def test_sweep_probes_when_cache_reconcile_cannot_fill() -> None:
+    """A cache miss leaves the device due; the API-connect stage still runs."""
+    monitor, _ = make_state_monitor_with_callbacks([make_online_api_device()])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    fetch = AsyncMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+    fetch.assert_called_once()
+
+
+async def test_sweep_reconciles_only_blank_online_api_devices() -> None:
+    """Fully-populated, offline, and non-API devices skip the reconcile pass."""
+    populated = make_online_api_device(
+        "full",
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.6.4",
+        deployed_config_hash="abcd1234",
+        api_encryption_active="",
+    )
+    offline = make_online_api_device("dark", state=DeviceState.OFFLINE)
+    no_api = make_online_api_device("web", api_enabled=False, loaded_integrations=["web_server"])
+    blank = make_online_api_device("blank")
+    monitor, _ = make_state_monitor_with_callbacks([populated, offline, no_api, blank])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["blank"]
+
+
+async def test_sweep_reconciles_unknown_encryption_state_even_when_fields_full() -> None:
+    """mac+version+hash present but encryption never observed → reconcile runs, no API probe."""
+    device = make_online_api_device(
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.6.4",
+        deployed_config_hash="abcd1234",
+    )
+    assert device.api_encryption_active is None
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    fetch = AsyncMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+    fetch.assert_not_called()
+
+
+async def test_sweep_reconciles_missing_config_hash_even_when_not_api_due() -> None:
+    """mac+version present but no config_hash → cache reconcile runs, API probe doesn't."""
+    device = make_online_api_device(
+        mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.4", deployed_config_hash=""
+    )
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    fetch = AsyncMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+    fetch.assert_not_called()
+
+
 async def test_sweep_caps_probes_per_sweep(monkeypatch: Any) -> None:
     """A large due fleet is probed in bounded batches; the overflow rolls to the next sweep."""
     monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 3)
-    devices = [_online_api_device(f"dev{i}") for i in range(7)]
+    devices = [make_online_api_device(f"dev{i}") for i in range(7)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     fetched: list[str] = []
 
@@ -532,7 +651,7 @@ async def test_sweep_caps_probes_per_sweep(monkeypatch: Any) -> None:
 
 async def test_sweep_isolates_a_failing_fetch() -> None:
     """One device whose fetch raises is cooled down; the sweep finishes the rest."""
-    a, b = _online_api_device("a"), _online_api_device("b")
+    a, b = make_online_api_device("a"), make_online_api_device("b")
     monitor, _ = make_state_monitor_with_callbacks([a, b])
     src = monitor._api_info
     fetched: list[str] = []
@@ -554,7 +673,7 @@ async def test_sweep_exceptions_cool_down_and_count_as_failing(
 ) -> None:
     """An unexpected per-device error logs at WARNING, cools the device down, and counts."""
     monkeypatch.setattr(api_info_module, "_MAX_PROBES_PER_SWEEP", 20)
-    devices = [_online_api_device(f"dev{i}") for i in range(10)]
+    devices = [make_online_api_device(f"dev{i}") for i in range(10)]
     monitor, _ = make_state_monitor_with_callbacks(devices)
     src = monitor._api_info
 
@@ -757,7 +876,7 @@ def test_log_task_exit_logs_crash(caplog: Any) -> None:
 
 def test_request_reprobe_makes_filled_device_due() -> None:
     """A forced re-probe overrides the mac+version guard that would skip the device."""
-    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     assert src._select_targets() == []  # both fields present → normally skipped
@@ -767,7 +886,7 @@ def test_request_reprobe_makes_filled_device_due() -> None:
 
 def test_request_reprobe_bypasses_cooldown() -> None:
     """A forced re-probe is deliberate — it ignores the per-device failure cooldown."""
-    device = _online_api_device()
+    device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src._cooldown["kitchen"] = time.monotonic() + 600
@@ -778,7 +897,7 @@ def test_request_reprobe_bypasses_cooldown() -> None:
 
 async def test_forced_reprobe_probes_then_clears_itself() -> None:
     """The forced probe runs even with both fields set, then the flag is consumed."""
-    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src.request_reprobe("kitchen")
@@ -795,7 +914,7 @@ async def test_forced_reprobe_probes_then_clears_itself() -> None:
 
 async def test_forced_reprobe_confirming_existing_version_is_not_a_failure() -> None:
     """A forced probe that connected and confirmed the version isn't cooled down."""
-    device = _online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.2")
+    device = make_online_api_device(mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.2")
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src.request_reprobe("kitchen")
@@ -811,7 +930,7 @@ async def test_forced_reprobe_confirming_existing_version_is_not_a_failure() -> 
 
 async def test_sweep_prunes_force_reprobe_for_dead_devices() -> None:
     """A force flag for a device that's no longer present is dropped on the next sweep."""
-    device = _online_api_device()
+    device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
     src.request_reprobe("ghost")  # not a live device
@@ -824,7 +943,7 @@ async def test_sweep_prunes_force_reprobe_for_dead_devices() -> None:
 
 def test_monitor_request_version_reprobe_forwards_to_api_info() -> None:
     """The monitor facade forwards a version re-probe request to the API source."""
-    device = _online_api_device()
+    device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     monitor.request_version_reprobe("kitchen")
     assert "kitchen" in monitor._api_info._force_reprobe

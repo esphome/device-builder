@@ -1091,9 +1091,8 @@ def test_merge_component_yaml_preserves_following_blocks_after_splice() -> None:
 def test_merge_component_yaml_appends_non_platform_component() -> None:
     """A non-platform component (e.g. ``i2c``) emits as a top-level mapping.
 
-    These don't carry a ``platform`` key and aren't in
-    ``_ENTITY_CATEGORIES``, so they always fall through to the
-    plain-append path.
+    These carry a bare (undotted) id and no ``platform`` key, so they
+    always fall through to the plain-append path.
     """
     component = _component(component_id="i2c", category=ComponentCategory.BUS)
     fields: dict[str, Any] = {"sda": "GPIO21", "scl": "GPIO22"}
@@ -1353,12 +1352,11 @@ def test_merge_component_yaml_accepts_incomplete_draft() -> None:
 def test_merge_component_yaml_splices_other_platform_categories(
     category: ComponentCategory,
 ) -> None:
-    """Splice works for every category in ``_ENTITY_CATEGORIES``.
+    """Splice works across platform domains, not just ``sensor``.
 
-    Pin a couple of representative platform domains beyond
-    ``sensor`` so a regression that hardcodes the splice to one
-    domain shows up in CI. Add new ones if a future bug points at
-    a specific category.
+    Pin a couple of representative domains so a regression that
+    hardcodes the splice to one domain shows up in CI. Add new ones
+    if a future bug points at a specific domain.
     """
     component_id = f"{category.value}.gpio"
     component = _component(component_id=component_id, category=category)
@@ -1371,6 +1369,23 @@ def test_merge_component_yaml_splices_other_platform_categories(
     assert result.count(f"{category.value}:\n") == 1
     assert "- platform: ledc" in result
     assert "- platform: gpio" in result
+
+
+def test_merge_component_yaml_umbrella_entry_emits_legacy_bare_mapping() -> None:
+    """A bare-id entry with an entity category (the ``ota`` umbrella) is not a platform.
+
+    The legacy bare-mapping form is what the umbrella documents;
+    ``- platform: ota`` names a platform that doesn't exist.
+    """
+    component = _component(component_id="ota", category=ComponentCategory.OTA)
+
+    result = merge_component_yaml("esphome:\n  name: kitchen\n", component, {})
+    assert "ota:" in result
+    assert "- platform: ota" not in result
+
+    # Re-adding over an existing ota block is a no-op, not a duplicate key.
+    existing = "esphome:\n  name: kitchen\n\nota:\n  - platform: esphome\n"
+    assert merge_component_yaml(existing, component, {}) == existing
 
 
 _RTTTL_MAPPING = "rtttl:\n  id: rtttl_1\n  output: buzz\n"

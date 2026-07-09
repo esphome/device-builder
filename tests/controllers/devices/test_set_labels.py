@@ -273,6 +273,38 @@ async def test_set_labels_yaml_deleted_mid_write_does_not_orphan(
     assert "labels" not in meta
 
 
+async def test_set_labels_device_gone_after_reload_raises_not_found(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A device that passes the pre-write check but is gone after ``reload`` raises NOT_FOUND.
+
+    Models a ``devices/delete`` landing between the sidecar write and
+    the post-reload re-fetch; the handler refuses rather than
+    returning a stale reference.
+    """
+    await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])
+
+    controller = make_controller(tmp_path)
+    _attach_reloading_scanner(controller, tmp_path, _make_device())
+
+    real_lookup = controller.get_by_configuration
+    seen = {"n": 0}
+
+    def _lookup(configuration: str) -> Device | None:
+        seen["n"] += 1
+        # First call (pre-write guard) sees the device; the post-reload
+        # re-fetch finds it gone.
+        return None if seen["n"] > 1 else real_lookup(configuration)
+
+    controller.get_by_configuration = _lookup  # type: ignore[method-assign]
+
+    with pytest.raises(CommandError) as exc_info:
+        await controller.set_labels(configuration="kitchen.yaml", label_ids=["lbl-a"])
+
+    assert exc_info.value.code is ErrorCode.NOT_FOUND
+
+
 async def test_set_device_labels_refuses_missing_yaml(tmp_path: Path) -> None:
     """``set_device_labels`` raises ``FileNotFoundError`` and writes nothing when YAML is absent."""
     await asyncio.to_thread(save_labels, tmp_path, [Label(id="lbl-a", name="Alpha")])

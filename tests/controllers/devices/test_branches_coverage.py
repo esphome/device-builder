@@ -1075,6 +1075,62 @@ def test_on_scan_change_reloaded_skips_yaml_updated(
     assert [e.event_type for e in captured] == [EventType.DEVICE_UPDATED]
 
 
+def test_on_scan_change_reloaded_address_change_wakes_ping(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A reload that swaps in a new address wakes the ICMP sweep."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(
+        ScanChange.RELOADED,
+        make_device(name="kitchen", address="192.168.1.50"),
+        make_device(name="kitchen", address="kitchen.local"),
+    )
+
+    assert ("probe_device_ping", "kitchen") in controller._state_monitor.calls
+
+
+def test_on_scan_change_updated_address_change_wakes_ping(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A YAML edit that changes the address wakes the ICMP sweep."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(name="kitchen", address="192.168.1.50"),
+        make_device(name="kitchen", address="kitchen.local"),
+    )
+
+    assert ("probe_device_ping", "kitchen") in controller._state_monitor.calls
+
+
+def test_on_scan_change_reloaded_same_address_skips_ping(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A reload with an unchanged address doesn't trigger a fleet sweep."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(
+        ScanChange.RELOADED,
+        make_device(name="kitchen", address="kitchen.local"),
+        make_device(name="kitchen", address="kitchen.local"),
+    )
+
+    assert ("probe_device_ping", "kitchen") not in controller._state_monitor.calls
+
+
+def test_on_scan_change_reloaded_without_previous_skips_ping(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A reload with no previous device stays inert."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(ScanChange.RELOADED, make_device(name="kitchen", address="x"))
+
+    assert ("probe_device_ping", "kitchen") not in controller._state_monitor.calls
+
+
 def test_on_scan_change_removed_revisits_importables(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

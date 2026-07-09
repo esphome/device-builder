@@ -699,7 +699,7 @@ def test_pack_build_artifacts_logs_download_types_failure(
     monkeypatch.setattr(
         download_mod,
         "_capabilities",
-        lambda: download_mod.PlatformCapabilities([], [], [], [], {}),
+        lambda: download_mod.PlatformCapabilities([], [], [], [], {}, []),
     )
 
     def _raise(*_args: object, **_kwargs: object) -> object:

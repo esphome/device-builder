@@ -34,6 +34,8 @@ from esphome_device_builder.controllers.components import (
     _FeaturedRecord,
 )
 from esphome_device_builder.controllers.components import _resolve as components_module
+from esphome_device_builder.controllers.components import controller as comp_controller
+from esphome_device_builder.definitions import PlatformCapabilities
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -189,6 +191,37 @@ async def test_get_integration_docs_skips_entries_with_no_id_or_no_docs() -> Non
     assert "no_docs" not in docs
 
 
+async def test_helper_aliases_come_from_the_capabilities_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Derived helper aliases read the sync-time component_names snapshot."""
+    cat = ComponentCatalog()
+    cat._components = [
+        _make_entry(entry_id="esp32_ble", docs_url="https://esphome.io/components/esp32_ble"),
+    ]
+    monkeypatch.setattr(
+        comp_controller,
+        "load_platform_capabilities_index",
+        lambda: PlatformCapabilities([], [], [], [], {}, ["esp32_ble_client"]),
+    )
+    docs = await cat.get_integration_docs()
+    assert docs["esp32_ble_client"]["url"] == "https://esphome.io/components/esp32_ble"
+
+
+def test_summarize_description_truncates_unpunctuated_text() -> None:
+    """A run-on description with no sentence end still caps at 240 chars."""
+    assert comp_controller._summarize_description("word " * 100) == ("word " * 100)[:240]
+
+
+def test_summarize_description_keeps_intra_word_underscores() -> None:
+    """Markdown flattening strips emphasis but not snake_case identifiers."""
+    text = "The `zwave_proxy` component proxies frames via *ESPHome's* _Api_."
+    assert (
+        comp_controller._summarize_description(text)
+        == "The zwave_proxy component proxies frames via ESPHome's Api."
+    )
+
+
 # ── get_component_bodies() unknown-id branch ────────────────────────
 
 
@@ -200,12 +233,26 @@ async def test_get_component_bodies_omits_unknown_ids() -> None:
     assert await cat.get_component_bodies(component_ids=["does-not-exist"]) == {}
 
 
+async def test_get_component_bodies_resolves_rp2_alias() -> None:
+    """A ``rp2`` request hydrates the canonical ``rp2040`` body, keyed as requested."""
+    cat = ComponentCatalog()
+    await asyncio.to_thread(cat.load)
+    bodies = await cat.get_component_bodies(component_ids=["rp2"])
+    assert bodies["rp2"].id == "rp2040"
+
+
 def test_index_title_returns_catalog_name_or_none() -> None:
     """``index_title`` is the slim-index name for a known id, else ``None``."""
     cat = ComponentCatalog()
     cat._by_id = {"wifi": _make_entry(entry_id="wifi", name="WiFi Component")}
     assert cat.index_title("wifi") == "WiFi Component"
     assert cat.index_title("does-not-exist") is None
+
+
+def test_index_title_resolves_rp2_alias() -> None:
+    cat = ComponentCatalog()
+    cat._by_id = {"rp2040": _make_entry(entry_id="rp2040", name="RP2040 Platform")}
+    assert cat.index_title("rp2") == "RP2040 Platform"
 
 
 # ── get_components() ────────────────────────────────────────────────

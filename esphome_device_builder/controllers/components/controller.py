@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import (
     load_featured_components_index,
     load_pin_registry_modes_index,
+    load_platform_capabilities_index,
 )
 from ...helpers.api import api_command
 from ...helpers.device_yaml import NETWORK_PROVIDER_COMPONENT_IDS
@@ -18,6 +20,7 @@ from ...models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
     ComponentCategory,
+    IntegrationDocEntry,
     PagedComponentsResponse,
 )
 from ...models.boards import normalize_platform
@@ -40,6 +43,19 @@ if TYPE_CHECKING:
     from ...models import BoardCatalogEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+# Intra-word underscores are literal (``zwave_proxy``), not emphasis.
+_MD_EMPHASIS_RE = re.compile(r"[*`]|(?<!\w)_|_(?!\w)")
+_FIRST_SENTENCE_RE = re.compile(r"(.{1,240}?\.)(?:\s|$)")
+
+
+def _summarize_description(text: str) -> str:
+    """First sentence of *text* with markdown flattened, capped at 240 chars."""
+    flat = " ".join(_MD_EMPHASIS_RE.sub("", _MD_LINK_RE.sub(r"\1", text)).split())
+    match = _FIRST_SENTENCE_RE.match(flat)
+    return match.group(1) if match else flat[:240]
 
 
 def variant_to_key(variant: str) -> str:
@@ -160,8 +176,8 @@ class ComponentCatalog:
         return self._pin_registry_modes
 
     @api_command("components/get_integration_docs")
-    async def get_integration_docs(self, **kwargs: Any) -> dict[str, str]:
-        """Return ``{integration_name: docs_url}`` for resolvable integrations.
+    async def get_integration_docs(self, **kwargs: Any) -> dict[str, IntegrationDocEntry]:
+        """Return ``{integration_name: {url, name, description}}`` per integration.
 
         Returns a map covering every loaded-integration identifier we can
         resolve to an esphome.io docs page.
@@ -178,11 +194,21 @@ class ComponentCatalog:
         3. Category match (``sensor`` → ``https://esphome.io/components/sensor``,
            the parent path of any ``sensor.*`` component's docs URL).
            Only fills a slot a top-level component hasn't already claimed.
+        4. Qualified alias (``esphome.ota`` / ``ota.esphome`` →
+           ``ota.esphome``'s docs URL): both orders of every dotted id,
+           for platform log tags, whose order is inconsistent upstream.
+        5. Derived helper alias (``esp32_ble_client`` → ``esp32_ble``'s
+           page): a component in the sync-time ``component_names`` snapshot
+           with no page of its own inherits its longest documented
+           multi-word name prefix.
 
         Names with no catalog hit are simply omitted — the frontend
         renders them as plain text. The catalog's ``docs_url`` is sourced
         from the live esphome.io docs index, so a present URL is also a
-        guarantee that the page exists.
+        guarantee that the page exists. ``name`` is the catalog display
+        name (``ethernet`` → "Ethernet Component") and ``description`` its
+        first sentence; category landings, which have no catalog entry,
+        fall back to the bare key and an empty description.
         """
         # Three sources, applied in priority order:
         #   1. Top-level component (id without ``.``) — wins outright.
@@ -199,17 +225,24 @@ class ComponentCatalog:
         #      stem is dropped and the frontend renders it as plain
         #      text. "If we have a docs page for it" demands one
         #      unambiguous answer, not the first one we happen to see.
-        top_level: dict[str, str] = {}
-        category_urls: dict[str, str] = {}
-        stem_candidates: dict[str, set[str]] = {}
+        top_level: dict[str, IntegrationDocEntry] = {}
+        category_urls: dict[str, IntegrationDocEntry] = {}
+        stem_candidates: dict[str, dict[str, IntegrationDocEntry]] = {}
+        qualified: list[tuple[str, IntegrationDocEntry]] = []
         for comp in self._components:
             comp_id = comp.id
             docs = comp.docs_url
             if not comp_id or not docs:
                 continue
+            entry = IntegrationDocEntry(
+                url=docs,
+                name=comp.name,
+                description=_summarize_description(comp.description),
+            )
             if "." not in comp_id:
-                top_level[comp_id] = docs
+                top_level[comp_id] = entry
                 continue
+            qualified.append((comp_id, entry))
             category, stem = comp_id.split(".", 1)
             # ESPHome's docs site serves a real index page at
             # ``/components/<category>/`` for every category that has
@@ -221,25 +254,35 @@ class ComponentCatalog:
             marker = f"/components/{category}/"
             idx = docs.find(marker)
             if idx != -1:
-                category_urls.setdefault(category, docs[: idx + len(marker) - 1])
-            stem_candidates.setdefault(stem, set()).add(docs)
+                category_urls.setdefault(
+                    category,
+                    IntegrationDocEntry(
+                        url=docs[: idx + len(marker) - 1], name=category, description=""
+                    ),
+                )
+            stem_candidates.setdefault(stem, {})[docs] = entry
 
         # Stems are unambiguous only when every category that owns the
         # stem agrees on the same docs URL. Multi-platform components
         # (``at581x``, ``rotary_encoder``) hit this path because they
         # share a single docs page across categories.
-        stems: dict[str, str] = {
-            stem: next(iter(urls)) for stem, urls in stem_candidates.items() if len(urls) == 1
+        stems: dict[str, IntegrationDocEntry] = {
+            stem: next(iter(by_url.values()))
+            for stem, by_url in stem_candidates.items()
+            if len(by_url) == 1
         }
 
         # ``dict.update()`` overwrites existing keys, so later writes
         # win. Apply lowest priority first (stems), then category, then
         # top-level — that way a colliding key is overridden by the
         # more-specific page.
-        result: dict[str, str] = {}
+        result: dict[str, IntegrationDocEntry] = {}
         result.update(stems)
         result.update(category_urls)
         result.update(top_level)
+        self._add_docs_aliases(
+            result, qualified, load_platform_capabilities_index().component_names
+        )
         return result
 
     async def get_component(
@@ -453,7 +496,7 @@ class ComponentCatalog:
 
     def index_title(self, component_id: str) -> str | None:
         """Catalog title for *component_id* from the in-RAM slim index, or ``None``."""
-        entry = self._by_id.get(component_id)
+        entry = self._by_id.get(normalize_platform(component_id))
         return entry.name if entry else None
 
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
@@ -464,6 +507,39 @@ class ComponentCatalog:
         """Batched variant of :meth:`get_body`; one executor hop per call."""
         return await self._body_store.get_many(component_ids)
 
+    def _add_docs_aliases(
+        self,
+        result: dict[str, IntegrationDocEntry],
+        qualified: list[tuple[str, IntegrationDocEntry]],
+        component_names: list[str],
+    ) -> None:
+        """
+        Add log-tag alias keys to the map in place.
+
+        Both orders of every qualified id (upstream tag order is
+        inconsistent); id-exact keys land before reversed aliases, then
+        undocumented ``component_names`` inherit their family's page.
+        """
+        for comp_id, entry in qualified:
+            result.setdefault(comp_id, entry)
+        for comp_id, entry in qualified:
+            category, stem = comp_id.split(".", 1)
+            result.setdefault(f"{stem}.{category}", entry)
+
+        # Undocumented internal helpers (esp32_ble_client, web_server_base)
+        # inherit the docs page of their longest documented name prefix.
+        # The prefix must itself stay multi-word — a one-word prefix hit
+        # (``sensor``, ``time``) is coincidence, not component family.
+        for name in component_names:
+            if name in result:
+                continue
+            prefix = name
+            while "_" in (prefix := prefix.rsplit("_", 1)[0]):
+                family = result.get(prefix)
+                if family:
+                    result[name] = family
+                    break
+
     def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
         return self._featured_by_id.get(component_id)
@@ -472,13 +548,15 @@ class ComponentCatalog:
         """
         Map a wire id to the catalog body it resolves to.
 
-        Regular ids return unchanged. ``featured.<board>.<local>``
-        ids return the underlying ``<domain>.<stem>`` id from the
-        featured registry. Returns ``None`` when the featured id
-        is unknown so callers can skip it cleanly.
+        Regular ids return unchanged, except esphome 2026.7's ``rp2``
+        spelling, which resolves to the canonical ``rp2040`` body.
+        ``featured.<board>.<local>`` ids return the underlying
+        ``<domain>.<stem>`` id from the featured registry. Returns
+        ``None`` when the featured id is unknown so callers can skip
+        it cleanly.
         """
         if not component_id.startswith(_FEATURED_PREFIX):
-            return component_id
+            return normalize_platform(component_id)
         record = self._featured_by_id.get(component_id)
         return record.underlying_id if record is not None else None
 
@@ -509,7 +587,7 @@ class ComponentCatalog:
             target_platform = self._resolve_platform(platform, record.board_id)
             target_variant = self._resolve_variant(record.board_id)
             return _materialise_featured(record, body, target_platform, target_variant)
-        body = bodies.get(component_id)
+        body = bodies.get(normalize_platform(component_id))
         if body is None:
             return None
         target_platform = self._resolve_platform(platform, board_id)

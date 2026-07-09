@@ -20,6 +20,9 @@ upstream shapes (a new combinator class, a custom wrapper around
 
 from __future__ import annotations
 
+import sys
+import types
+
 import esphome.config_validation as cv
 import pytest
 import voluptuous as vol
@@ -28,8 +31,10 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _annotate_constraint_descriptions,
     _apply_inclusive_groups,
     _apply_required_groups,
+    _collect_automation_registry_groups,
     _collect_inclusive_groups,
     _collect_required_groups,
+    _groups_in_all_chain,
     _promote_constraint_members,
     _required_group_from_validator,
 )
@@ -645,3 +650,67 @@ def test_collect_against_live_wifi_eap_nested_schema() -> None:
     assert cert_path in inclusive
     assert key_path in inclusive
     assert inclusive[cert_path] == inclusive[key_path]
+
+
+# ---------------------------------------------------------------------------
+# _groups_in_all_chain / _collect_automation_registry_groups
+# ---------------------------------------------------------------------------
+
+
+def test_groups_in_all_chain_surfaces_validators() -> None:
+    schema = cv.All(
+        vol.Schema({vol.Optional("above"): float, vol.Optional("below"): float}),
+        cv.has_at_least_one_key("above", "below"),
+    )
+    assert _groups_in_all_chain(schema) == [{"kind": "at_least_one", "keys": ["above", "below"]}]
+
+
+def test_groups_in_all_chain_returns_empty_for_non_all() -> None:
+    assert _groups_in_all_chain(vol.Schema({})) == []
+    assert _groups_in_all_chain(None) == []
+
+
+def test_groups_in_all_chain_descends_nested_all() -> None:
+    inner = cv.All(vol.Schema({}), cv.has_exactly_one_key("a", "b"))
+    outer = cv.All(inner, cv.has_at_most_one_key("c", "d"))
+    kinds = {g["kind"] for g in _groups_in_all_chain(outer)}
+    assert kinds == {"exactly_one", "at_most_one"}
+
+
+def test_collect_automation_registry_groups_reads_fake_registries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = types.ModuleType("esphome.automation")
+    fake.ACTION_REGISTRY = {  # type: ignore[attr-defined]
+        "fake.flash": types.SimpleNamespace(
+            raw_schema=cv.All(vol.Schema({}), cv.has_exactly_one_key("md5", "md5_url"))
+        ),
+        "fake.plain": types.SimpleNamespace(raw_schema=vol.Schema({})),
+    }
+    fake.CONDITION_REGISTRY = {  # type: ignore[attr-defined]
+        "fake.in_range": types.SimpleNamespace(
+            raw_schema=cv.All(vol.Schema({}), cv.has_at_least_one_key("above", "below"))
+        ),
+        "fake.no_schema": types.SimpleNamespace(),
+    }
+    monkeypatch.setitem(sys.modules, "esphome.automation", fake)
+    assert _collect_automation_registry_groups() == {
+        "action": {"fake.flash": [{"kind": "exactly_one", "keys": ["md5", "md5_url"]}]},
+        "condition": {"fake.in_range": [{"kind": "at_least_one", "keys": ["above", "below"]}]},
+    }
+
+
+def test_collect_automation_registry_groups_empty_when_unimportable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(sys.modules, "esphome.automation", None)
+    assert _collect_automation_registry_groups() == {}
+
+
+def test_collect_against_live_sensor_in_range_condition() -> None:
+    """End-to-end: the live registry surfaces sensor.in_range's constraint (issue #1905)."""
+    pytest.importorskip("esphome.components.sensor")
+    out = _collect_automation_registry_groups()
+    assert out["condition"]["sensor.in_range"] == [
+        {"kind": "at_least_one", "keys": ["above", "below"]}
+    ]

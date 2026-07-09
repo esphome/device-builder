@@ -71,7 +71,7 @@ async def test_reload_rereads_state_and_fires_reloaded(tmp_path: Path) -> None:
     scanner = DeviceScanner(
         config_dir=tmp_path,
         get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
-        on_change=lambda kind, device: changes.append((kind, device)),
+        on_change=lambda kind, device, _previous: changes.append((kind, device)),
     )
 
     # Seed the scanner with an initial in-memory snapshot — pre-install
@@ -93,7 +93,7 @@ async def test_reload_unknown_filename_is_noop(tmp_path: Path) -> None:
     scanner = DeviceScanner(
         config_dir=tmp_path,
         get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
-        on_change=lambda kind, device: changes.append((kind, device)),
+        on_change=lambda kind, device, _previous: changes.append((kind, device)),
     )
 
     assert await scanner.reload("ghost.yaml") is False
@@ -656,7 +656,7 @@ def test_scanner_get_by_configuration(tmp_path: Path) -> None:
     scanner = DeviceScanner(
         config_dir=tmp_path,
         get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
-        on_change=lambda _kind, _device: None,
+        on_change=lambda _kind, _device, _previous: None,
     )
     device = _device()
     scanner._index.set(tmp_path / "kitchen.yaml", device, (0, 0, 0.0, 0))

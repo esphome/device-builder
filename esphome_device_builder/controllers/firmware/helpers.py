@@ -34,6 +34,8 @@ from .constants import (
     _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
+    _NINJA_MIN_TOTAL,
+    _NINJA_PROGRESS_PATTERN,
     _NO_ESPHOME_MODULE_MARKER,
     _OUTPUT_TRIM_NOTICE_PREFIX,
     _PROGRESS_PATTERNS,
@@ -180,8 +182,9 @@ def _parse_progress(line: str) -> int | None:
     """Extract a 0-100 progress percentage from a build/flash output line.
 
     Returns ``None`` when the line doesn't match one of the known
-    progress shapes (see ``_PROGRESS_PATTERNS``). Stray ``%`` signs
-    elsewhere in the build output (Unpacking bars, memory-usage
+    percent shapes (see ``_PROGRESS_PATTERNS``) or a ninja ``[N/M]``
+    counter with at least ``_NINJA_MIN_TOTAL`` steps. Stray ``%``
+    signs elsewhere in the build output (Unpacking bars, memory-usage
     reports) are intentionally ignored.
     """
     for pattern in _PROGRESS_PATTERNS:
@@ -191,6 +194,10 @@ def _parse_progress(line: str) -> int | None:
         value = int(match.group(1))
         if 0 <= value <= 100:
             return value
+    if match := _NINJA_PROGRESS_PATTERN.match(line):
+        done, total = int(match.group(1)), int(match.group(2))
+        if total >= _NINJA_MIN_TOTAL and done <= total:
+            return done * 100 // total
     return None
 
 

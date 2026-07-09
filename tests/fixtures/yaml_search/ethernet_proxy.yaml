@@ -12,6 +12,8 @@ ethernet:
   type: LAN8720
   mdc_pin: GPIO23
   mdio_pin: GPIO18
+  # Deliberately the deprecated flat form: user YAML is never auto-migrated,
+  # so search/scan must keep tolerating it.
   clk_mode: GPIO0_IN
   phy_addr: 0
 

@@ -73,9 +73,11 @@ class ScanChange(StrEnum):
 
 
 # Callback invoked for every detected change. Receives the kind of
-# change and the affected ``Device`` model. The owner is responsible
-# for firing whatever events / state updates are appropriate.
-ScanCallback = Callable[[ScanChange, Device], None]
+# change, the affected ``Device`` model, and the previously indexed
+# ``Device`` the change replaced (``None`` for ADDED / REMOVED). The
+# owner is responsible for firing whatever events / state updates are
+# appropriate.
+ScanCallback = Callable[[ScanChange, Device, Device | None], None]
 
 # Callback that resolves the persisted sidecar metadata for a device
 # file. Called once per (added or updated) file during a scan.
@@ -347,6 +349,7 @@ class DeviceScanner(WakeWorker[str]):
             # makes a miss here impossible since
             # ``find_path_by_filename`` just located *path*.
             previous_cache_key = self._index.cache_key(path)
+            previous = self._index.by_path.get(path)
             loaded = await run_in_executor(self._load_devices, {path})
             device = loaded.get(path)
             if device is None:
@@ -366,7 +369,7 @@ class DeviceScanner(WakeWorker[str]):
             except OSError:
                 cache_key = previous_cache_key
             self._index.set(path, device, cache_key)
-            self._on_change(ScanChange.RELOADED, device)
+            self._on_change(ScanChange.RELOADED, device, previous)
             return True
 
     # ------------------------------------------------------------------
@@ -410,13 +413,14 @@ class DeviceScanner(WakeWorker[str]):
             loaded = await run_in_executor(self._load_devices, paths_to_load)
             for path, device in loaded.items():
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
+                previous = self._index.by_path.get(path)
                 self._index.set(path, device, path_to_cache_key[path])
-                self._on_change(kind, device)
+                self._on_change(kind, device, previous)
 
         for path in removed_paths:
             removed_device = self._index.pop(path)
             if removed_device is not None:
-                self._on_change(ScanChange.REMOVED, removed_device)
+                self._on_change(ScanChange.REMOVED, removed_device, None)
 
         # Re-key the index in lexicographic-path order so the
         # ``devices`` read returns a stable order across restarts —

@@ -45,10 +45,11 @@ from ._validators import (
     validate_bool,
     validate_hostname,
     validate_pair_label,
+    validate_pairing_key,
     validate_pin_sha256,
     validate_port,
 )
-from .peer_link_client import PeerLinkClientError
+from .peer_link_client import PeerLinkClientError, PeerLinkPinMismatchError
 from .peer_link_client import preview_pair as peer_link_preview_pair
 from .peer_link_client import request_pair as peer_link_request_pair
 
@@ -91,7 +92,7 @@ async def set_pairing_enabled(
 
 async def preview_pair(
     controller: OffloaderController, *, hostname: str, port: int
-) -> dict[str, str]:
+) -> dict[str, str | bool]:
     """
     Open a brief Noise XX WS to *hostname*:*port* and return the receiver's pin.
 
@@ -99,15 +100,19 @@ async def preview_pair(
     X25519 pubkey from the handshake transcript. The
     frontend renders the returned ``pin_sha256`` for the
     user to OOB-verify against the receiver's "Build
-    server" Settings card before calling ``request_pair``.
+    server" Settings card (or the ``--remote-build-only``
+    CLI pairing banner) before calling ``request_pair``.
 
-    Returns ``{"pin_sha256": "<lowercase-hex-64>"}``.
+    Returns ``{"pin_sha256": "<lowercase-hex-64>",
+    "requires_pairing_key": <bool>}`` — the flag lets the pair
+    dialog require the bootstrap key up front for a headless
+    receiver instead of failing the first attempt.
     """
     clean_host = validate_hostname(hostname, context=HostFieldContext.RECEIVER)
     clean_port = validate_port(port, context=HostFieldContext.RECEIVER)
     identity = await controller._db.peer_link_identity_store.async_load()
     try:
-        pin = await peer_link_preview_pair(
+        preview = await peer_link_preview_pair(
             hostname=clean_host,
             port=clean_port,
             identity_priv=identity.private_bytes,
@@ -115,7 +120,10 @@ async def preview_pair(
         )
     except PeerLinkClientError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
-    return {"pin_sha256": pin}
+    return {
+        "pin_sha256": preview.pin_sha256,
+        "requires_pairing_key": preview.requires_pairing_key,
+    }
 
 
 async def request_pair(
@@ -126,14 +134,15 @@ async def request_pair(
     pin_sha256: str,
     receiver_label: str,
     offloader_label: str,
+    pairing_key: str | None = None,
 ) -> PairingSummary:
     """
     Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
 
-    Sends ``{"label": offloader_label, "dashboard_id":
-    <ours>}`` in the encrypted msg3; the receiver's response
-    decides what state the local :class:`StoredPairing` row
-    lands in.
+    Sends ``{"label": offloader_label, "dashboard_id": <ours>}``
+    — plus ``pairing_key`` when supplied — in the encrypted msg3; the
+    receiver's response decides what state the local
+    :class:`StoredPairing` row lands in.
 
     Two labels: *receiver_label* is the offloader-side
     display name (stored locally, never sent); *offloader_label*
@@ -142,8 +151,8 @@ async def request_pair(
     name.
 
     TOCTOU defense: the *pin_sha256* arg is compared against
-    the receiver's actual pubkey from the live handshake; a
-    mismatch (rotation or MITM) returns
+    the receiver's actual pubkey mid-handshake, before msg3 (and
+    any ``pairing_key`` in it) is written; a mismatch returns
     ``PRECONDITION_FAILED`` and persists nothing.
 
     Only APPROVED rows reach disk. PENDING lives in-memory
@@ -157,6 +166,7 @@ async def request_pair(
     clean_offloader_label = validate_pair_label(
         offloader_label, field=PairLabelField.OFFLOADER_LABEL
     )
+    clean_key = validate_pairing_key(pairing_key)
     peer_link_identity, dashboard_identity = await controller._load_offloader_identities_async()
 
     try:
@@ -167,11 +177,18 @@ async def request_pair(
             label=clean_offloader_label,
             dashboard_id=dashboard_identity.dashboard_id,
             resolver=controller.state.peer_link_resolver,
+            pairing_key=clean_key,
+            expected_pin_sha256=clean_pin,
         )
+    except PeerLinkPinMismatchError as exc:
+        # The mid-handshake pin check already refused before msg3 (and any
+        # pairing_key) was sent; translate to the same PRECONDITION_FAILED a
+        # post-round-trip mismatch would have raised, carrying both pins.
+        enforce_pin_match(expected=clean_pin, observed=exc.observed_pin_sha256)
+        raise  # pragma: no cover — enforce_pin_match always raises on mismatch
     except PeerLinkClientError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
 
-    enforce_pin_match(expected=clean_pin, observed=result.pin_sha256)
     if (err := intent_response_to_command_error(result.status)) is not None:
         raise err
     if result.status not in (IntentResponse.PENDING, IntentResponse.APPROVED):

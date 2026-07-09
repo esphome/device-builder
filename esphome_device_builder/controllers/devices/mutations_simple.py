@@ -28,6 +28,7 @@ from ..config import set_device_labels
 from ..firmware.rename_flow import RENAME_REMEDY
 from . import archive
 from .firmware_sync import migrate_metadata_then_scan
+from .helpers import raise_device_name_exists, raise_device_not_found
 from .mutations_create import save_device_storage
 
 if TYPE_CHECKING:
@@ -109,7 +110,7 @@ async def set_labels(
     # to a non-existent device.
     device = controller.get_by_configuration(configuration)
     if device is None:
-        raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
+        raise_device_not_found(configuration)
 
     config_dir = controller._db.settings.config_dir
 
@@ -118,7 +119,7 @@ async def set_labels(
             set_device_labels(config_dir, configuration, label_ids)
         except FileNotFoundError as err:
             # YAML vanished mid-write (racing ``devices/delete``) — surface NOT_FOUND.
-            raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found") from err
+            raise_device_not_found(configuration, from_exc=err)
         except (TypeError, ValueError) as err:
             # ``set_device_labels`` raises ``TypeError`` for non-string
             # items and ``ValueError`` for unknown label ids; both
@@ -132,7 +133,7 @@ async def set_labels(
     # the index, so the reference held above is stale.
     refreshed = controller.get_by_configuration(configuration)
     if refreshed is None:
-        raise CommandError(ErrorCode.NOT_FOUND, f"Device {configuration!r} not found")
+        raise_device_not_found(configuration)
     return refreshed
 
 
@@ -247,8 +248,7 @@ async def rename_device(
         # collision check (with its active-retry exemption) lives in
         # ``firmware.rename_chain``.
         if not in_place and await run_in_executor(new_path.exists):
-            msg = f"A device named {new_filename} already exists"
-            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+            raise_device_name_exists(new_filename)
         return await _config_only_rename(
             controller,
             configuration=configuration,
