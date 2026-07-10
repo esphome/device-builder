@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import MISSING, Field, fields
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,7 +12,7 @@ from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...models import RUNTIME_CARRY_FIELDS, Device, DeviceState, ReachabilitySource
+from ...models import RUNTIME_CARRY_FIELDS, Device
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
@@ -125,10 +126,9 @@ def load_device_from_storage(
     board-id edits.
 
     *previous* is the prior in-memory Device for this path, when one
-    exists. Runtime-only fields populated by monitors (``state``,
-    ``deployed_config_hash``, ``ip_addresses``,
-    ``api_encryption_active``) carry forward from it so a reload
-    doesn't wipe what mDNS / ping has already discovered.
+    exists. The monitor-populated ``RUNTIME_CARRY_FIELDS`` carry
+    forward from it so a reload doesn't wipe what mDNS / ping has
+    already discovered.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
@@ -201,9 +201,6 @@ def load_device_from_storage(
         deployed_version=deployed_version,
         api_encryption_active=api_encryption_active,
         queued_update=queued_update,
-        state=DeviceState.UNKNOWN,
-        active_source=ReachabilitySource.UNKNOWN,
-        ip_addresses=[],
     )
     deployed_config_hash = carried["deployed_config_hash"]
     deployed_version = carried["deployed_version"]
@@ -542,20 +539,32 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
     return isinstance(config, dict) and extract_ota_partition_access(config)
 
 
-def _carry_runtime_state(previous: Device | None, **defaults: Any) -> dict[str, Any]:
+_CARRY_FIELD_SPECS: dict[str, Field[Any]] = {
+    f.name: f for f in fields(Device) if f.name in RUNTIME_CARRY_FIELDS
+}
+
+
+def _carry_runtime_state(previous: Device | None, **overrides: Any) -> dict[str, Any]:
     """
     Resolve the monitor-observed fields for a Device rebuild.
 
-    In-memory *previous* wins over *defaults* (an apply since the last
-    scan is fresher than disk); ``RUNTIME_CARRY_FIELDS`` is the single
-    list of what must survive a rebuild.
+    In-memory *previous* wins (an apply since the last scan is fresher
+    than disk); *overrides* seed the store-backed fields when there is
+    no previous, and the rest fall back to their declared defaults.
     """
-    if set(defaults) != set(RUNTIME_CARRY_FIELDS):
-        drift = sorted(set(defaults) ^ set(RUNTIME_CARRY_FIELDS))
-        raise ValueError(f"runtime-carry defaults out of sync with RUNTIME_CARRY_FIELDS: {drift}")
-    if previous is None:
-        return defaults
-    carried = {name: getattr(previous, name) for name in defaults}
+    if not overrides.keys() <= _CARRY_FIELD_SPECS.keys():
+        unknown = sorted(overrides.keys() - _CARRY_FIELD_SPECS.keys())
+        raise ValueError(f"not runtime-carry fields: {unknown}")
+    if previous is not None:
+        return {
+            name: list(value) if isinstance(value := getattr(previous, name), list) else value
+            for name in _CARRY_FIELD_SPECS
+        }
     return {
-        name: list(value) if isinstance(value, list) else value for name, value in carried.items()
+        name: overrides[name] if name in overrides else _declared_default(spec)
+        for name, spec in _CARRY_FIELD_SPECS.items()
     }
+
+
+def _declared_default(spec: Field[Any]) -> Any:
+    return spec.default_factory() if spec.default_factory is not MISSING else spec.default
