@@ -40,12 +40,16 @@ class ReachabilitySource(StrEnum):
 @dataclass
 class DeviceRuntimeState(DashboardModel):
     """
-    Monitor-observed device state with no disk source of truth.
+    Monitor-observed device state, grouped so a rebuild carries it whole.
 
-    Populated by the mDNS / MQTT / ping monitors after startup; a
-    Device rebuild carries the whole object from the previous
-    in-memory instance, or the observations are lost until the
-    device's next announce.
+    Populated by the mDNS / MQTT / ping monitors after startup; the
+    fields the metadata sidecar persists (``deployed_version``,
+    ``deployed_config_hash``, ``queued_update``,
+    ``api_encryption_active``) are also seeded from disk on cold load,
+    while ``state`` / ``active_source`` / ``ip_addresses`` start empty
+    and repopulate on the next announce. A Device rebuild carries the
+    whole object from the previous in-memory instance so a re-scan
+    doesn't wipe what the monitors have discovered since.
     """
 
     state: DeviceState = DeviceState.UNKNOWN
