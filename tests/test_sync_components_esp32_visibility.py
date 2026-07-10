@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import orjson
+import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
@@ -105,3 +106,9 @@ def test_variant_gate_derived_from_esphome() -> None:
     assert _esp32_variant_gate("sram1_as_iram") == ("esp32", "ESP32")
     # A field with no variant restriction is valid everywhere → no gate stamped.
     assert _esp32_variant_gate("disable_fatfs") is None
+
+
+def test_variant_gate_fails_loud_when_underivable() -> None:
+    """A key no variant's base config accepts raises, rather than silently ungating."""
+    with pytest.raises(RuntimeError):
+        _esp32_variant_gate("not_a_real_advanced_field")

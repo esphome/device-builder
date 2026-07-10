@@ -6179,13 +6179,26 @@ def _esp32_variant_gate(field_key: str) -> tuple[str, ...] | None:
                 esp32.final_validate(config)
                 accepted.append(variant)
             except cv.Invalid as err:
+                # Rejected specifically for this field (its key in the error's
+                # path or message) → gated off this variant; any other error
+                # means the field itself is fine here. Checking both path and
+                # message keeps this robust if esphome moves where it reports.
                 errors = getattr(err, "errors", [err])
-                if not any(field_key in (e.path or []) for e in errors):
-                    accepted.append(variant)  # rejected for an unrelated reason
+                if not any(field_key in (e.path or []) or field_key in str(e) for e in errors):
+                    accepted.append(variant)
             finally:
                 fv.full_config.reset(token)
-    if not accepted or len(accepted) == tested:
-        return None  # valid on every testable variant → no gate
+    # Fail loud on the degenerate cases rather than silently ungating: a curated
+    # advanced field must be valid on at least one variant, and if no variant's
+    # base config validated the derivation itself is broken (upstream schema shift).
+    if tested == 0:
+        raise RuntimeError(
+            f"esp32 variant gate for {field_key!r}: no variant validated a base config"
+        )
+    if not accepted:
+        raise RuntimeError(f"esp32 variant gate: {field_key!r} is rejected on every variant")
+    if len(accepted) == tested:
+        return None  # valid on every variant → no gate
     return tuple(dict.fromkeys(v for var in accepted for v in (var.lower(), var)))
 
 
