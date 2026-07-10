@@ -1,4 +1,4 @@
-"""Tests for ``Device.active_source`` tracking on the device snapshot."""
+"""Tests for ``Device.runtime_state.active_source`` tracking on the device snapshot."""
 
 from __future__ import annotations
 

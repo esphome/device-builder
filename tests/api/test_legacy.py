@@ -51,6 +51,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
+    Device,
     DeviceRuntimeState,
     DeviceState,
     ErrorCode,
@@ -179,7 +180,9 @@ async def test_devices_returns_configured_and_importable_lists(
     ``devices``) would silently break the integration.
     """
     devices = _make_devices_mock(
-        configured=[_StubDevice({"name": "kitchen", "configuration": "kitchen.yaml"})],
+        configured=[
+            _StubDevice({"name": "kitchen", "configuration": "kitchen.yaml", "runtime_state": {}})
+        ],
         importable={
             "garage": _StubDevice(
                 {"name": "garage", "package_import_url": "github://owner/repo/garage.yaml"}
@@ -197,6 +200,46 @@ async def test_devices_returns_configured_and_importable_lists(
     assert body["importable"] == [
         {"name": "garage", "package_import_url": "github://owner/repo/garage.yaml"}
     ]
+
+
+async def test_devices_serializes_runtime_state_flat(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``configured`` entries carry the runtime fields flat, never nested.
+
+    HA's ``esphome-dashboard-api`` ``ConfiguredDevice`` TypedDict (and
+    HA core diagnostics) read ``deployed_version`` at the top level, so
+    the legacy wire shape must stay flat even though ``Device`` nests
+    these under ``runtime_state``.
+    """
+    device = Device(
+        name="kitchen",
+        friendly_name="Kitchen",
+        configuration="kitchen.yaml",
+        address="kitchen.local",
+        current_version="2026.6.0",
+        runtime_state=DeviceRuntimeState(
+            state=DeviceState.ONLINE,
+            deployed_version="2026.5.0",
+            deployed_config_hash="deadbeef",
+            ip_addresses=["192.168.1.5"],
+        ),
+    )
+    devices = _make_devices_mock(configured=[device])
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    body = await (await client.get("/devices")).json()
+
+    (entry,) = body["configured"]
+    assert "runtime_state" not in entry
+    assert entry["deployed_version"] == "2026.5.0"
+    assert entry["deployed_config_hash"] == "deadbeef"
+    assert entry["state"] == "online"
+    assert entry["active_source"] == "unknown"
+    assert entry["ip_addresses"] == ["192.168.1.5"]
+    assert entry["queued_update"] is False
+    assert entry["api_encryption_active"] is None
+    assert entry["current_version"] == "2026.6.0"
 
 
 async def test_devices_filters_ignored_importable_entries(
@@ -237,7 +280,9 @@ async def test_devices_filters_already_configured_importable_entries(
     ``not in configured_names`` guard.
     """
     devices = _make_devices_mock(
-        configured=[_StubDevice({"name": "kitchen", "configuration": "kitchen.yaml"})],
+        configured=[
+            _StubDevice({"name": "kitchen", "configuration": "kitchen.yaml", "runtime_state": {}})
+        ],
         importable={
             "kitchen": _StubDevice({"name": "kitchen"}),
             "garage": _StubDevice({"name": "garage"}),
@@ -312,7 +357,7 @@ async def test_devices_route_call_chain_matches_real_controller(
     method lookup), not just the handler body.
     """
     devices = _make_devices_mock(
-        configured=[_StubDevice({"name": "kitchen"})],
+        configured=[_StubDevice({"name": "kitchen", "runtime_state": {}})],
     )
     client = await aiohttp_client(_make_app(tmp_path, devices=devices))
 

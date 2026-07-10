@@ -197,7 +197,7 @@ async def test_mdns_takes_ownership_after_ping_set_online(
     override the still-true mDNS view.
     """
     devices = [_device("kitchen")]
-    devices[0].state = DeviceState.ONLINE  # ping already saw it
+    devices[0].runtime_state.state = DeviceState.ONLINE  # ping already saw it
     monitor, _callbacks = make_state_monitor_with_callbacks(devices)
     monitor.state.state_source["kitchen"] = "ping"
 

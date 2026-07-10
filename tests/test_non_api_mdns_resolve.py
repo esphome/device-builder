@@ -265,7 +265,7 @@ async def test_resolve_picks_ipv4_for_apply_ip() -> None:
     """Active resolve forwards every IP; primary picks IPv4 when present.
 
     ``Device.ip`` only carries one address — cross-subnet ICMP and
-    OTA cache args both prefer V4 — but ``Device.ip_addresses``
+    OTA cache args both prefer V4 — but ``runtime_state.ip_addresses``
     keeps the full announced set so the dashboard can surface every
     IP a multi-homed device claims.
     """

@@ -490,7 +490,7 @@ For Home Assistant ESPHome integration backward compat only.
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /devices` | List devices |
+| `GET /devices` | List devices. `configured` entries keep the flat legacy shape — `runtime_state` is flattened to top-level keys (`deployed_version` etc.), which HA's `esphome-dashboard-api` `ConfiguredDevice` reads |
 | `GET /ping` | Online-status map `{<config>.yaml: true\|false\|null}` (third-party widgets, e.g. homepage) |
 | `GET /json-config?configuration=...` | Fully-resolved config (substitutions/packages/includes/secrets) as JSON, via `esphome config`; 404 missing, 422 invalid, 503 unavailable, 403 traversal |
 | `GET /compile` (WebSocket) | Compile via spawn protocol |

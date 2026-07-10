@@ -2703,7 +2703,7 @@ def test_load_device_api_encrypted_falls_back_to_wire_signal(tmp_path: Path) -> 
 
     Drives the scan path (not the mDNS-callback path covered by
     ``test_on_api_encryption_change_promotes_api_encrypted_when_yaml_missed_it``)
-    by setting ``previous.api_encryption_active`` to a cipher
+    by setting ``previous.runtime_state.api_encryption_active`` to a cipher
     string and reloading; the YAML itself has no ``encryption:``
     block so the YAML signal still says false.
     """
@@ -3137,3 +3137,20 @@ def test_device_to_dict_nests_runtime_state() -> None:
     assert payload["runtime_state"]["deployed_version"] == "2025.1.0"
     for flat_key in ("state", "active_source", "deployed_version"):
         assert flat_key not in payload
+
+
+def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
+    """An all-default runtime_state still serializes every key; the frontend requires it."""
+    payload = Device(
+        name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml"
+    ).to_dict()
+
+    assert payload["runtime_state"] == {
+        "state": "unknown",
+        "active_source": "unknown",
+        "ip_addresses": [],
+        "deployed_version": "",
+        "deployed_config_hash": "",
+        "queued_update": False,
+        "api_encryption_active": None,
+    }
