@@ -65,7 +65,11 @@ async def _wait_queued_update(db: DeviceBuilder, *, expected: bool, timeout: flo
 
     def _check(_event: Any = None) -> None:
         device = db.devices.get_by_configuration("kitchen.yaml")
-        if device is not None and device.queued_update is expected and not flag.done():
+        if (
+            device is not None
+            and device.runtime_state.queued_update is expected
+            and not flag.done()
+        ):
             flag.set_result(None)
 
     unsub = db.bus.add_listener(EventType.DEVICE_UPDATED, _check)
