@@ -11,7 +11,7 @@ from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...models import Device, DeviceState, ReachabilitySource
+from ...models import RUNTIME_CARRY_FIELDS, Device, DeviceState, ReachabilitySource
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
@@ -195,22 +195,19 @@ def load_device_from_storage(
     if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
         bin_mtime = storage.firmware_bin_path.stat().st_mtime
 
-    # Carry-forward: in-memory *previous* wins over the store kwarg
-    # (an apply since the last scan is fresher than disk).
-    if previous is not None:
-        deployed_config_hash = previous.deployed_config_hash
-        deployed_version = previous.deployed_version
-        api_encryption_active = previous.api_encryption_active
-        queued_update = previous.queued_update
-    # ``active_source`` is runtime-only (never persisted); losing it on a
-    # rebuild hides the mDNS-gated dashboard dots until the next announce,
-    # since the monitor re-fires ``on_source_change`` only on a transition.
-    state, active_source = (
-        (previous.state, previous.active_source)
-        if previous
-        else (DeviceState.UNKNOWN, ReachabilitySource.UNKNOWN)
+    carried = _carry_runtime_state(
+        previous,
+        deployed_config_hash=deployed_config_hash,
+        deployed_version=deployed_version,
+        api_encryption_active=api_encryption_active,
+        queued_update=queued_update,
+        state=DeviceState.UNKNOWN,
+        active_source=ReachabilitySource.UNKNOWN,
+        ip_addresses=[],
     )
-    ip_addresses = list(previous.ip_addresses) if previous else []
+    deployed_config_hash = carried["deployed_config_hash"]
+    deployed_version = carried["deployed_version"]
+    api_encryption_active = carried["api_encryption_active"]
 
     has_pending = compute_has_pending_changes(
         yaml_mtime=yaml_mtime,
@@ -319,6 +316,7 @@ def load_device_from_storage(
         or bool(api_encryption_active)
     )
     return Device(
+        **carried,
         name=name,
         friendly_name=friendly_name,
         configuration=filename,
@@ -340,20 +338,14 @@ def load_device_from_storage(
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
         ip=ip,
-        ip_addresses=ip_addresses,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
-        deployed_version=deployed_version,
         expected_config_hash=expected_config_hash,
-        deployed_config_hash=deployed_config_hash,
         loaded_integrations=loaded_integrations,
         directly_referenced_integrations=directly_referenced_integrations,
-        state=state,
-        active_source=active_source,
         has_pending_changes=has_pending,
         pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
-        queued_update=queued_update,
         # ``uses_mqtt`` keeps its prior shape — the resolved config
         # wins, raw-text fills in mid-edit, and we don't have a
         # ``loaded_integrations`` entry that maps cleanly to "uses
@@ -365,7 +357,6 @@ def load_device_from_storage(
         ),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
-        api_encryption_active=api_encryption_active,
         mac_address=mac_address,
         ethernet_mac=ethernet_mac,
         bluetooth_mac=bluetooth_mac,
@@ -549,3 +540,22 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
         _LOGGER.debug("Validated-config cache %s did not parse (%s)", path, type(err).__name__)
         return False
     return isinstance(config, dict) and extract_ota_partition_access(config)
+
+
+def _carry_runtime_state(previous: Device | None, **defaults: Any) -> dict[str, Any]:
+    """
+    Resolve the monitor-observed fields for a Device rebuild.
+
+    In-memory *previous* wins over *defaults* (an apply since the last
+    scan is fresher than disk); ``RUNTIME_CARRY_FIELDS`` is the single
+    list of what must survive a rebuild.
+    """
+    if set(defaults) != set(RUNTIME_CARRY_FIELDS):
+        drift = sorted(set(defaults) ^ set(RUNTIME_CARRY_FIELDS))
+        raise ValueError(f"runtime-carry defaults out of sync with RUNTIME_CARRY_FIELDS: {drift}")
+    if previous is None:
+        return defaults
+    carried = {name: getattr(previous, name) for name in defaults}
+    return {
+        name: list(value) if isinstance(value, list) else value for name, value in carried.items()
+    }

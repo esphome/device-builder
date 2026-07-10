@@ -231,6 +231,23 @@ class Device(DashboardModel):
     ota_partition_access: bool = False
 
 
+# Monitor-observed Device fields with no disk source of truth (or where the
+# live observation outranks the persisted copy): a rebuild must copy them
+# from the previous in-memory instance or the observation is lost until the
+# device's next announce. ``load_device_from_storage`` consumes this list;
+# ``tests/test_device_runtime_carry_contract.py`` walks every Device field
+# against it so a new field can't skip classification.
+RUNTIME_CARRY_FIELDS: tuple[str, ...] = (
+    "deployed_config_hash",
+    "deployed_version",
+    "api_encryption_active",
+    "queued_update",
+    "state",
+    "active_source",
+    "ip_addresses",
+)
+
+
 @dataclass
 class AdoptableDevice(DashboardModel):
     """A discoverable device available for import/adoption."""
