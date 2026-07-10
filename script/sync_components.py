@@ -659,9 +659,13 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
         "advanced": True,
     },
     # ``ota.esphome.allow_partition_access`` gates bootloader / partition-table
-    # OTA updates — a field users actively reach for, not an advanced knob.
+    # OTA updates — a field users actively reach for, not an advanced knob. It's
+    # a bare ``cv.boolean`` whose esp32-only rule lives in FINAL_VALIDATE (no
+    # field-level ``cv.only_on`` for ``_collect_platform_constraints`` to catch),
+    # so gate it here or it renders on every OTA platform's main form.
     ("ota.esphome", "allow_partition_access"): {
         "advanced": False,
+        "supported_platforms": ["esp32"],
     },
     # ``logger.hardware_uart`` is commonly set (USB_SERIAL_JTAG vs UART0 on
     # newer ESP32 variants); keep it on the main form, not behind Advanced.
@@ -6093,6 +6097,8 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
     )
     if not advanced:
         return
+    # Direct children of the group only — every curated key is a leaf of
+    # ``advanced``; a deeper nesting would no-op here (the catalog test catches it).
     promoted = [
         child
         for child in advanced.get("config_entries", [])

@@ -87,7 +87,8 @@ def test_esp32_catalog_surfaces_sram1_under_advanced() -> None:
 
 
 def test_esp32_ota_catalog_promotes_allow_partition_access() -> None:
-    """The generated ota.esphome body surfaces ``allow_partition_access`` on the main form."""
+    """The generated ota.esphome body surfaces ``allow_partition_access``, esp32-gated."""
     allow = _find(_load("ota.esphome")["config_entries"], "allow_partition_access")
     assert allow is not None
     assert not allow.get("advanced")  # core, not behind "Show advanced"
+    assert allow.get("supported_platforms") == ["esp32"]  # only offered where it works
