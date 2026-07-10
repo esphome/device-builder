@@ -10,22 +10,18 @@ fields back out of the form, or leak the whole advanced block into it.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import orjson
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _OUTPUT_BODIES_DIR,
     _surface_esp32_advanced_fields,
-)
-
-_COMPONENTS_DIR = (
-    Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions" / "components"
 )
 
 
 def _load(component_id: str) -> dict[str, Any]:
-    return orjson.loads((_COMPONENTS_DIR / f"{component_id}.json").read_bytes())
+    return orjson.loads((_OUTPUT_BODIES_DIR / f"{component_id}.json").read_bytes())
 
 
 def _find(entries: list[dict], key: str) -> dict | None:
@@ -38,7 +34,9 @@ def _find(entries: list[dict], key: str) -> dict | None:
     return None
 
 
-def _framework_with_advanced() -> dict:
+def _framework_with_advanced(
+    child_keys: tuple[str, ...] = ("sram1_as_iram", "adc_oneshot_in_iram"),
+) -> dict:
     return {
         "key": "framework",
         "config_entries": [
@@ -47,8 +45,7 @@ def _framework_with_advanced() -> dict:
                 "advanced": True,
                 "hidden": True,
                 "config_entries": [
-                    {"key": "sram1_as_iram", "advanced": True, "hidden": True},
-                    {"key": "adc_oneshot_in_iram", "advanced": True, "hidden": True},
+                    {"key": key, "advanced": True, "hidden": True} for key in child_keys
                 ],
             }
         ],
@@ -70,19 +67,7 @@ def test_surface_unhides_sram1_and_group_keeps_siblings_hidden() -> None:
 
 def test_surface_no_op_without_promotable_child() -> None:
     """A framework whose advanced group has no allow-listed child is left hidden."""
-    framework = {
-        "key": "framework",
-        "config_entries": [
-            {
-                "key": "advanced",
-                "advanced": True,
-                "hidden": True,
-                "config_entries": [
-                    {"key": "adc_oneshot_in_iram", "advanced": True, "hidden": True}
-                ],
-            }
-        ],
-    }
+    framework = _framework_with_advanced(child_keys=("adc_oneshot_in_iram",))
     _surface_esp32_advanced_fields(framework)
     assert framework["config_entries"][0]["hidden"] is True
 
