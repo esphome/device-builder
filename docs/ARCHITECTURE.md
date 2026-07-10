@@ -374,6 +374,12 @@ Match is case-insensitive and port-tolerant: `dashboard.example.com` accepts `Da
 
 `--host`, `--ingress-host`, and `--remote-build-host` each accept either an IP literal (the usual `0.0.0.0` / `127.0.0.1` / a specific LAN IP) or a **local network interface name** (`eth0`, `wlan0`, `lo`, …). When the value matches an interface present on the host, the bind expands to every IPv4 / IPv6 address currently assigned to that interface.
 
+### Binding to a UNIX socket
+
+`--socket` allows the public site to be served on a UNIX socket instead of a TCP socket. Authentication and `Origin`/`Host` gates continue to be enforced as normal. The socket file is (re)created with default permissions based on the process `umask` and removed on shutdown.
+
+When listening on a UNIX Socket, the configured `--host` and `--port` are ignored, except that they are still used for the dashboard's mDNS advertisement. When used in conjunction with a reverse proxy, they can be set to the proxy's bound IP and port.
+
 ## Discovery (mDNS)
 
 Two mDNS surfaces ride the same `AsyncEsphomeZeroconf` instance the device state monitor already owns. Sharing one Zeroconf singleton matters: opening a second responder fights for the same multicast socket and silently drops half the packets.

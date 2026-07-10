@@ -12,7 +12,7 @@ classifiers = [
   "Topic :: Home Automation",
 ]
 dependencies = [
-  "esphome-device-builder-frontend==0.1.224",
+  "esphome-device-builder-frontend==0.1.228",
   "aiohttp>=3.9.0",
   # Provides an ``aiohttp.AsyncResolver`` that resolves ``.local``
   # hostnames through an injected ``AsyncZeroconf`` (the same
@@ -69,7 +69,7 @@ test = [
   "codespell==2.4.2",
   "importtime-waterfall==1.0.0",
   "jsonschema>=4.20.0",
-  "mypy==2.1.0",
+  "mypy==2.2.0",
   "pre-commit==4.6.0",
   "pre-commit-hooks==6.0.0",
   "pytest==9.1.1",

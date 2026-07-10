@@ -146,10 +146,6 @@ _PLATFORM_DOCS_URL: dict[Platform, str] = {
     Platform.NRF52: "https://esphome.io/components/nrf52.html",
 }
 
-# RP2040/RP2350 also derive pins from ESPHome board data, but as a GPIO matrix:
-# ``BOARDS`` carries ``max_pin`` (full GPIO range), ``RP2040_BOARD_PINS`` only the
-# conventional default-bus pins.
-_RP2040_PLATFORM = "rp2040"
 
 # ESPHome's ``components/esp32/boards.py`` carries ``BOARDS`` (board ->
 # {name, variant}) and ``ESP32_BOARD_PINS`` (board -> {alias: gpio}). The

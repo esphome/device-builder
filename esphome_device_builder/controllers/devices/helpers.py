@@ -81,10 +81,10 @@ def raise_device_name_exists(name: str, *, from_exc: BaseException | None = None
 
 
 def require_file_exists(path: Path, configuration: str, *, archived: bool = False) -> None:
-    """Raise ``FileNotFoundError`` naming *configuration* when *path* is absent."""
+    """Raise ``CommandError(NOT_FOUND)`` naming *configuration* when *path* is absent."""
     if not path.exists():
         prefix = "Archived file" if archived else "File"
-        raise FileNotFoundError(f"{prefix} not found: {configuration}")
+        raise CommandError(ErrorCode.NOT_FOUND, f"{prefix} not found: {configuration}")
 
 
 # C0 controls, DEL, and C1 controls. ESPHome's friendly_name validator

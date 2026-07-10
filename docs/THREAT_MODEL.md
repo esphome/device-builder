@@ -147,6 +147,21 @@ These are explicitly *not* threats the dashboard defends against:
   authenticated client.** They can already crash their own
   dashboard; reliability is a quality bar, not a security
   boundary.
+- **The `--socket` UNIX socket file's permission bits.** The
+  socket is created with whatever mode the process `umask`
+  yields (see ARCHITECTURE.md "Binding to a UNIX socket"); the
+  dashboard deliberately does not `chmod` it. The legacy
+  dashboard's world-writable socket undermined the point of a
+  UNIX socket, and tightening after bind leaves a race window;
+  socket-file mode bits aren't portable enforcement anyway
+  (some platforms ignore them). The file mode was never the
+  boundary: local filesystem access to the socket is
+  local-shell trust (first bullet), and the auth and `Origin` /
+  `Host` gates apply to traffic arriving through it exactly as
+  they do on TCP. Operators who want OS-level access control
+  place the socket in a directory with appropriate permissions
+  or use default ACLs. A report that the socket's default mode
+  is too open (or too closed) is not a security bug.
 - **A console reader taking the `--remote-build-only` first-pair
   key.** The headless build server's bootstrap auto-approves the
   first `pair_request` inside its operator-initiated, single-use,

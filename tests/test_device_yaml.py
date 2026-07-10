@@ -53,6 +53,7 @@ from esphome_device_builder.models import (
     DefaultComponent,
     Esp32Variant,
     Platform,
+    ReachabilitySource,
 )
 from tests._storage_fixtures import write_storage_json
 
@@ -2674,6 +2675,43 @@ def test_load_device_without_previous_defaults_api_encryption_active_to_none(
     device = load_device_from_storage(yaml_path)
 
     assert device.api_encryption_active is None
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_carries_active_source_from_previous(tmp_path: Path) -> None:
+    """Reload preserves the monitor-observed ``active_source``.
+
+    The frontend gates the update-available and modified dots on
+    ``active_source == "mdns"``, and the monitor re-fires
+    ``on_source_change`` only on a real transition. A rebuild that
+    resets the field to UNKNOWN (the post-compile ``scanner.reload``
+    in a bulk update was the reported shape, issue #1939) therefore
+    hides the dots until the device's next TTL re-announce.
+    """
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    previous = load_device_from_storage(yaml_path)
+    previous.active_source = ReachabilitySource.MDNS
+
+    reloaded = load_device_from_storage(yaml_path, previous=previous)
+
+    assert reloaded.active_source is ReachabilitySource.MDNS
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_without_previous_defaults_active_source_to_unknown(
+    tmp_path: Path,
+) -> None:
+    """First load (no ``previous``) starts at the not-yet-observed sentinel."""
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    write_storage_json(tmp_path, "kitchen.yaml")
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.active_source is ReachabilitySource.UNKNOWN
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

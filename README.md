@@ -277,6 +277,38 @@ Two ways to make it work:
    restriction entirely (handy when the Host varies per request
    — but then operator-supplied auth becomes the only gate).
 
+### Listening on a UNIX socket (`--socket`)
+
+Instead of a TCP port, the public site can listen on a UNIX
+socket — the usual choice when a reverse proxy runs on the
+same host and you don't want the dashboard reachable over
+TCP at all:
+
+```bash
+esphome-device-builder /config --socket /run/esphome/dashboard.sock
+```
+
+`--host` and `--port` are then ignored for binding but still
+feed the dashboard's mDNS advertisement, so point them at
+where the proxy ultimately listens.
+
+The socket file is created with the default permissions your
+process `umask` yields; the dashboard does not manage its
+mode. **Put the socket in a directory readable only by the
+dashboard and the proxy** (for example a dedicated
+`/run/esphome/` owned by the dashboard user with the proxy's
+user granted access via group or ACL) — directory permissions
+are the reliable access control here, since socket-file mode
+bits are not enforced on every platform. Anything that can
+connect to the socket gets the same surface a TCP client
+would, gated by the same auth and `Origin`/`Host` checks.
+
+nginx upstream example:
+
+```nginx
+proxy_pass http://unix:/run/esphome/dashboard.sock;
+```
+
 ### Subpath mounts (X-Forwarded-Prefix)
 
 If you run the standalone dashboard behind an HTTP reverse proxy

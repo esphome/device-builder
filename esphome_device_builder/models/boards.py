@@ -35,27 +35,41 @@ class Connectivity(StrEnum):
     LORA = "lora"
 
 
+# Canonical and accepted-alias spellings of the RP2 platform key;
+# a canonical-key flip starts by swapping these values.
+RP2_CANONICAL_PLATFORM = "rp2040"
+RP2_ALIAS_PLATFORM = "rp2"
+
+
 class Platform(StrEnum):
     """ESPHome target platforms."""
 
     ESP32 = "esp32"
     ESP8266 = "esp8266"
-    RP2040 = "rp2040"
+    RP2040 = RP2_CANONICAL_PLATFORM
     BK72XX = "bk72xx"
     RTL87XX = "rtl87xx"
     LN882X = "ln882x"
     NRF52 = "nrf52"
     HOST = "host"
 
+    @classmethod
+    def _missing_(cls, value: object) -> Platform | None:
+        # Hand-curated manifests and wire payloads may carry either RP2
+        # spelling; fold both onto the canonical member.
+        if isinstance(value, str) and value.lower() in RP2_PLATFORM_ALIASES:
+            return cls.RP2040
+        return None
 
-# Inbound platform strings may use the renamed ``rp2`` key; the catalog stays
-# keyed on ``rp2040``, so both names fold to it at every ingestion boundary.
-RP2_PLATFORM_ALIASES: frozenset[str] = frozenset({"rp2", "rp2040"})
+
+# Inbound platform strings may use either spelling; the catalog stays keyed
+# on the canonical one, so both fold to it at every ingestion boundary.
+RP2_PLATFORM_ALIASES: frozenset[str] = frozenset({RP2_ALIAS_PLATFORM, RP2_CANONICAL_PLATFORM})
 
 
 def normalize_platform(name: str) -> str:
-    """Fold the renamed ``rp2`` platform key onto the catalog's ``rp2040``."""
-    return "rp2040" if name.lower() == "rp2" else name
+    """Fold the non-canonical RP2 platform spelling onto the canonical one."""
+    return RP2_CANONICAL_PLATFORM if name.lower() == RP2_ALIAS_PLATFORM else name
 
 
 class Esp32Variant(StrEnum):

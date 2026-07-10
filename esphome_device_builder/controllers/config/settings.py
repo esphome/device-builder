@@ -81,6 +81,7 @@ class DashboardSettings:
     log_level: str = "info"
     port: int = 6052
     host: str = "0.0.0.0"
+    unix_socket: str | None = None
     ingress_port: int = DEFAULT_INGRESS_PORT
     ingress_host: str = ""
     # Plain-TCP port for the remote-build peer-link receiver site
@@ -201,6 +202,7 @@ class DashboardSettings:
         self.log_level = getattr(args, "log_level", "info")
         self.port = getattr(args, "port", 6052)
         self.host = getattr(args, "host", "0.0.0.0")
+        self.unix_socket = getattr(args, "socket", None)
         self.ingress_port = getattr(args, "ingress_port", DEFAULT_INGRESS_PORT)
         self.ingress_host = getattr(args, "ingress_host", "") or ""
         # ``--remote-build-port`` (or ``$ESPHOME_REMOTE_BUILD_PORT``).

@@ -84,7 +84,6 @@ from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
 from .helpers import (
     _build_address_cache_args,
-    _validate_archive_configuration,
     raise_device_not_found,
 )
 from .metadata import DeviceMetadataBase
@@ -659,11 +658,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         is the catalog → YAML match key. See ``_archive_single``
         for the full keep / clear rationale.
         """
-        _validate_archive_configuration(configuration)
-        try:
-            await self._archive_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._archive_single(configuration)
         await self._scanner.scan()
 
     @api_command("devices/unarchive")
@@ -674,11 +669,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         ``DEVICE_ADDED`` so the dashboard's active list refreshes
         without a manual reload.
         """
-        _validate_archive_configuration(configuration)
-        try:
-            await self._unarchive_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._unarchive_single(configuration)
         await self._scanner.scan()
 
     @api_command("devices/list_archived")
@@ -710,11 +701,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         when the archive entry is gone — symmetric with
         ``unarchive``.
         """
-        _validate_archive_configuration(configuration)
-        try:
-            await self._delete_archived_single(configuration)
-        except FileNotFoundError as exc:
-            raise CommandError(ErrorCode.NOT_FOUND, str(exc)) from exc
+        await self._delete_archived_single(configuration)
 
     @api_command("devices/delete_bulk")
     async def delete_bulk(
@@ -739,12 +726,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         consume a single per-device result list instead of fanning out
         N separate ``devices/archive`` calls.
         """
-
-        async def _archive(configuration: str) -> None:
-            _validate_archive_configuration(configuration)
-            await self._archive_single(configuration)
-
-        return await self._run_bulk_per_device(configurations, _archive)
+        return await self._run_bulk_per_device(configurations, self._archive_single)
 
     async def _run_bulk_per_device(
         self,

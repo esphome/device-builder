@@ -496,7 +496,7 @@ class ComponentCatalog:
 
     def index_title(self, component_id: str) -> str | None:
         """Catalog title for *component_id* from the in-RAM slim index, or ``None``."""
-        entry = self._by_id.get(component_id)
+        entry = self._by_id.get(normalize_platform(component_id))
         return entry.name if entry else None
 
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
@@ -548,13 +548,15 @@ class ComponentCatalog:
         """
         Map a wire id to the catalog body it resolves to.
 
-        Regular ids return unchanged. ``featured.<board>.<local>``
-        ids return the underlying ``<domain>.<stem>`` id from the
-        featured registry. Returns ``None`` when the featured id
-        is unknown so callers can skip it cleanly.
+        Regular ids return unchanged, except esphome 2026.7's ``rp2``
+        spelling, which resolves to the canonical ``rp2040`` body.
+        ``featured.<board>.<local>`` ids return the underlying
+        ``<domain>.<stem>`` id from the featured registry. Returns
+        ``None`` when the featured id is unknown so callers can skip
+        it cleanly.
         """
         if not component_id.startswith(_FEATURED_PREFIX):
-            return component_id
+            return normalize_platform(component_id)
         record = self._featured_by_id.get(component_id)
         return record.underlying_id if record is not None else None
 
@@ -585,7 +587,7 @@ class ComponentCatalog:
             target_platform = self._resolve_platform(platform, record.board_id)
             target_variant = self._resolve_variant(record.board_id)
             return _materialise_featured(record, body, target_platform, target_variant)
-        body = bodies.get(component_id)
+        body = bodies.get(normalize_platform(component_id))
         if body is None:
             return None
         target_platform = self._resolve_platform(platform, board_id)

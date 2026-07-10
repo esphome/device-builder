@@ -121,6 +121,8 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
+    RP2_ALIAS_PLATFORM,
+    RP2_CANONICAL_PLATFORM,
     AutomationAction,
     AutomationActionIndex,
     AutomationCondition,
@@ -307,7 +309,10 @@ _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
-        ("rp2040", "board"),
+        (RP2_CANONICAL_PLATFORM, "board"),
+        # esphome 2026.7's rename of the rp2040 component; extraction runs
+        # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
+        (RP2_ALIAS_PLATFORM, "board"),
     }
 )
 
@@ -1226,6 +1231,9 @@ def build_catalog(
                 continue
             out.append(entry)
 
+    # Before every later pass so they all see final ids.
+    _fold_rp2_component_alias(out)
+
     # Workaround for an upstream esphome.io bug: see
     # ``_repair_field_bullet_descriptions``.
     _repair_field_bullet_descriptions(out)
@@ -1276,6 +1284,28 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
         domain, _, stem = entry["id"].partition(".")
         if stem and domain in _PLATFORM_DOMAINS:
             entry["multi_conf"] = True
+
+
+def _fold_rp2_component_alias(entries: list[dict]) -> None:
+    """
+    Collapse esphome 2026.7's renamed ``rp2`` component onto the canonical id.
+
+    The richer renamed schema is re-keyed, the alias shell dropped (its
+    identity fields kept), and ``dependencies`` folded so blocks spelled with
+    the canonical key satisfy them — see ``normalize_platform``.
+    """
+    by_id = {entry["id"]: entry for entry in entries}
+    if (rp2 := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
+        rp2["id"] = RP2_CANONICAL_PLATFORM
+        if (shell := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
+            for key in ("name", "image_url", "category"):
+                if shell.get(key):
+                    rp2[key] = shell[key]
+            entries.remove(shell)
+    for entry in entries:
+        deps = entry.get("dependencies")
+        if deps and RP2_ALIAS_PLATFORM in deps:
+            entry["dependencies"] = list(dict.fromkeys(normalize_platform(dep) for dep in deps))
 
 
 def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str]) -> None:
@@ -2236,6 +2266,7 @@ def build_component_entry(
     # rule to the user as readable prose — issue #924. Drops out
     # naturally once the FE renders the structured fields inline.
     _annotate_constraint_descriptions(component)
+    _apply_ethernet_platform_split(component)
     return component
 
 
@@ -3206,7 +3237,7 @@ def _emit_platform_capabilities_index() -> None:
     # dependent and stay out of the index — device-builder-helper handles them.
     sentinel = SimpleNamespace(name="{name}")
     download_types: dict[str, list[dict[str, str]]] = {}
-    for component in ("esp32", "esp8266", "rp2040"):
+    for component in ("esp32", "esp8266", RP2_CANONICAL_PLATFORM):
         module = importlib.import_module(f"esphome.components.{component}")
         download_types[component] = [
             {
@@ -3991,7 +4022,10 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     # them explicitly here makes the override authoritative.
     "esp32": "core",
     "esp8266": "core",
-    "rp2040": "core",
+    RP2_CANONICAL_PLATFORM: "core",
+    # esphome 2026.7's rename of rp2040; extraction categorizes before
+    # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
+    RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
     "rtl87xx": "core",
     "ln882x": "core",
@@ -4049,8 +4083,8 @@ _TARGET_PLATFORMS: frozenset[str] = frozenset(
     {
         "esp32",
         "esp8266",
-        "rp2",
-        "rp2040",
+        RP2_ALIAS_PLATFORM,
+        RP2_CANONICAL_PLATFORM,
         "bk72xx",
         "rtl87xx",
         "ln882x",
@@ -5750,7 +5784,7 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
     for component, values in _logger.UART_SELECTION_LIBRETINY.items():
         add(component, values)
     add("esp8266", _logger.UART_SELECTION_ESP8266)
-    add("rp2040", _logger.UART_SELECTION_RP2040)
+    add(RP2_CANONICAL_PLATFORM, _logger.UART_SELECTION_RP2040)
     add("nrf52", _logger.UART_SELECTION_NRF52)
     return out
 
@@ -5772,6 +5806,51 @@ def _apply_logger_uart_options(component_id: str, entries: list[dict]) -> None:
             entry["platform_options"] = _LOGGER_UART_PLATFORM_OPTIONS
             entry["allow_custom_value"] = True
             break
+
+
+def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
+    """
+    Ethernet's per-platform ``type`` choices from the live module constants.
+
+    The schema bundle ships a flat union; empty when esphome's ethernet
+    isn't importable or predates the split.
+    """
+    try:
+        from esphome.components import ethernet as _ethernet
+    except ImportError:
+        _LOGGER.warning("esphome ethernet not importable — type platform split skipped")
+        return {}
+    if not hasattr(_ethernet, "RP2_ETHERNET_TYPES"):
+        # Catalog syncs always run on 2026.7+; this only keeps test runs
+        # under an older interpreter (CI stable leg) from crashing.
+        _LOGGER.debug("installed esphome predates RP2_ETHERNET_TYPES — ethernet split skipped")
+        return {}
+    rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
+    # Everything except the RP2-only chips.
+    esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
+    return {
+        "esp32": [{"label": t, "value": t} for t in sorted(esp32)],
+        RP2_CANONICAL_PLATFORM: [{"label": t, "value": t} for t in sorted(rp2)],
+    }
+
+
+def _apply_ethernet_platform_split(component: dict) -> None:
+    """
+    Stamp ethernet's ``type`` ``platform_options`` from the live split.
+
+    The component's ``supported_platforms`` becomes the option-map keys;
+    ``type`` is required, so no valid type means no platform support.
+    """
+    if component["id"] != "ethernet":
+        return
+    options = _ethernet_type_platform_options()
+    if not options:
+        return
+    for entry in component["config_entries"]:
+        if entry["key"] == "type":
+            entry["platform_options"] = options
+            break
+    component["supported_platforms"] = sorted(options)
 
 
 @contextlib.contextmanager

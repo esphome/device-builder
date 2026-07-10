@@ -19,7 +19,7 @@ from ...helpers.build_artifacts import (
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode
-from .helpers import require_file_exists
+from .helpers import _validate_archive_configuration, require_file_exists
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -31,6 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def archive_single(controller: DevicesController, configuration: str) -> None:
     """Soft-delete: move the YAML into ``<config_dir>/archive/`` and wipe build artifacts."""
+    _validate_archive_configuration(configuration)
     config_path = controller._db.settings.rel_path(configuration)
     config_dir = controller._db.settings.config_dir
 
@@ -67,6 +68,10 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
             await run_in_executor(_archive_sync)
         except FileExistsError as exc:
             raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+        except FileNotFoundError as exc:
+            # A concurrent delete can win between the pre-check and the
+            # move; keep the not_found surface stable.
+            raise CommandError(ErrorCode.NOT_FOUND, f"File not found: {configuration}") from exc
         # Drop volatile fields across both stores: live mDNS state and
         # build-dir caches in the data_dir store, plus ``mac_address``
         # in the shared sidecar (intrinsic to the physical board, but
@@ -81,6 +86,7 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
 
 async def unarchive_single(controller: DevicesController, configuration: str) -> None:
     """Move an archived YAML back into the active config_dir; refuse on filename clash."""
+    _validate_archive_configuration(configuration)
     config_dir = controller._db.settings.config_dir
     archive_path = config_dir / "archive" / configuration
     target = controller._db.settings.rel_path(configuration)
@@ -99,6 +105,11 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
         await run_in_executor(_unarchive_sync)
     except FileExistsError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    except FileNotFoundError as exc:
+        # A concurrent delete can win between the pre-check and the move.
+        raise CommandError(
+            ErrorCode.NOT_FOUND, f"Archived file not found: {configuration}"
+        ) from exc
 
 
 def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
@@ -138,6 +149,7 @@ def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
 
 async def delete_archived_single(controller: DevicesController, configuration: str) -> None:
     """Permanently remove an archived YAML and its sidecars."""
+    _validate_archive_configuration(configuration)
     config_dir = controller._db.settings.config_dir
     archive_path = config_dir / "archive" / configuration
     active_path = controller._db.settings.rel_path(configuration)
@@ -153,7 +165,13 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         unlink_compiled_config(configuration)
         return True
 
-    sidecars_purged = await run_in_executor(_delete_all)
+    try:
+        sidecars_purged = await run_in_executor(_delete_all)
+    except FileNotFoundError as exc:
+        # A concurrent delete can win between the pre-check and the unlink.
+        raise CommandError(
+            ErrorCode.NOT_FOUND, f"Archived file not found: {configuration}"
+        ) from exc
     if sidecars_purged:
         # Drop the per-device metadata entry (both the store +
         # shared identity sidecar) on the event loop side and

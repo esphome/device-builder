@@ -39,6 +39,7 @@ def _make_db(
     on_ha_addon: bool,
     using_password: bool,
     allow_public_port: bool = False,
+    unix_socket: str | None = None,
 ) -> DeviceBuilder:
     """Build a DeviceBuilder with the requested settings shape.
 
@@ -56,6 +57,7 @@ def _make_db(
         settings.username = "admin"
         settings.password_hash = b"x" * 32
     settings.host = "0.0.0.0"
+    settings.unix_socket = unix_socket
     settings.port = 6052
     settings.ingress_port = 6053
     settings.ingress_host = ""
@@ -135,10 +137,12 @@ def test_ha_addon_no_password_with_ingress_runs_ingress_only(
     assert "standalone PyPI install" in warning
 
 
+@pytest.mark.parametrize("unix_socket", [pytest.param(None, id="tcp_socket"), "unix_socket"])
 def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
     make_settings: MakeSettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    unix_socket: str | None,
 ) -> None:
     """Both opt-ins set → public port bound with no auth, ingress kept for the sidebar.
 
@@ -151,15 +155,24 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
     survives.
     """
     monkeypatch.setenv("DISABLE_HA_AUTHENTICATION", "true")
-    db = _make_db(make_settings, on_ha_addon=True, using_password=False, allow_public_port=True)
+    db = _make_db(
+        make_settings,
+        on_ha_addon=True,
+        using_password=False,
+        allow_public_port=True,
+        unix_socket=unix_socket,
+    )
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+    def fake_run_app(
+        app, *, host: list[str], port: int, path: str | None = None, **_: object
+    ) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted_site"] = bool(app.get("trusted_site"))
         captured["ingress_hook"] = db._start_ingress_site in app.on_startup
+        captured["path"] = path
 
     with (
         caplog.at_level("WARNING", logger="esphome_device_builder.device_builder"),
@@ -170,7 +183,8 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
 
     # Public port bound on all interfaces.
     assert captured["port"] == 6052
-    assert captured["host"] == ["0.0.0.0"]
+    assert captured["host"] == ([] if unix_socket else ["0.0.0.0"])
+    assert captured["path"] == unix_socket
     # Not a trusted site: the WS origin/Host gate stays active (auth is a no-op
     # without a password), so a plain cross-origin drive-by is still rejected.
     assert captured["trusted_site"] is False
@@ -184,7 +198,7 @@ def test_ha_addon_front_door_open_with_mapped_port_binds_public_unauthenticated(
 
     banner = [r.getMessage() for r in caplog.records if "FRONT DOOR OPEN" in r.getMessage()]
     assert banner, "expected the loud FRONT DOOR OPEN banner"
-    assert "0.0.0.0:6052" in banner[0]
+    assert (unix_socket or "0.0.0.0:6052") in banner[0]
     assert "NO authentication" in banner[0]
 
 
@@ -287,47 +301,63 @@ def test_front_door_property_truth_table(
     assert settings.create_ingress_site is ingress
 
 
+@pytest.mark.parametrize("unix_socket", [pytest.param(None, id="tcp_socket"), "unix_socket"])
 def test_ha_addon_with_password_binds_public_site_normally(
     make_settings: MakeSettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
+    unix_socket: str | None,
 ) -> None:
     """Password set → normal public-site bind, ingress as a hook."""
     monkeypatch.delenv("DISABLE_HA_AUTHENTICATION", raising=False)
-    db = _make_db(make_settings, on_ha_addon=True, using_password=True)
+    db = _make_db(make_settings, on_ha_addon=True, using_password=True, unix_socket=unix_socket)
 
     captured: dict[str, object] = {}
 
-    def fake_run_app(app, *, host: list[str], port: int, **_: object) -> None:
+    def fake_run_app(
+        app, *, host: list[str], port: int, path: str | None = None, **_: object
+    ) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["trusted"] = bool(app.get("trusted_site"))
+        captured["path"] = path
 
     with patch("esphome_device_builder.device_builder.web.run_app", fake_run_app):
         db.run()
 
     # Public port bound (auth gates it via using_password).
     assert captured["port"] == 6052
-    assert captured["host"] == ["0.0.0.0"]
+    assert captured["host"] == ([] if unix_socket else ["0.0.0.0"])
+    assert captured["path"] == unix_socket
     assert captured["trusted"] is False
 
 
-def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFactory) -> None:
+@pytest.mark.parametrize("unix_socket", [pytest.param(None, id="tcp_socket"), "unix_socket"])
+def test_non_ha_addon_binds_public_site_normally(
+    make_settings: MakeSettingsFactory, unix_socket: str | None
+) -> None:
     """Standalone deployment is unaffected by the HA-add-on logic.
 
     Doesn't need ``monkeypatch`` for ``DISABLE_HA_AUTHENTICATION``:
     when ``on_ha_addon=False`` the property short-circuits and
     returns ``False`` regardless of the env var.
     """
-    db = _make_db(make_settings, on_ha_addon=False, using_password=False)
+    db = _make_db(make_settings, on_ha_addon=False, using_password=False, unix_socket=unix_socket)
 
     captured: dict[str, object] = {}
 
     def fake_run_app(
-        app, *, host: list[str], port: int, handle_signals: bool = True, **_: object
+        app,
+        *,
+        host: list[str],
+        port: int,
+        path: str | None = None,
+        handle_signals: bool = True,
+        **_: object,
     ) -> None:
         captured["host"] = host
         captured["port"] = port
         captured["handle_signals"] = handle_signals
+        captured["path"] = path
 
     with patch("esphome_device_builder.device_builder.web.run_app", fake_run_app):
         db.run()
@@ -335,7 +365,8 @@ def test_non_ha_addon_binds_public_site_normally(make_settings: MakeSettingsFact
     # Public port bound — non-add-on deployments get the legacy
     # default of "no auth required, user opts in via PASSWORD".
     assert captured["port"] == 6052
-    assert captured["host"] == ["0.0.0.0"]
+    assert captured["host"] == ([] if unix_socket else ["0.0.0.0"])
+    assert captured["path"] == unix_socket
     # We own the stop signal end-to-end (see DeviceBuilder.run); aiohttp
     # must not install its own handler.
     assert captured["handle_signals"] is False
