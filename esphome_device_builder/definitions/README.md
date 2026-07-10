@@ -92,11 +92,13 @@ regenerate boards.json from manifests....................................Failed
 pre-commit stashes your unstaged changes, the hook regenerates the same
 files, and restoring the stash conflicts with the hook's writes, so
 pre-commit rolls the hook's output back — every retry reproduces the
-identical failure. The fix is to leave nothing unstaged: run
-`python script/update_board.py`, then `git add` the manifest together with
-the files it prints (`boards.index.json`, `board_bodies/<id>.json`,
-`featured_components.index.json`) and commit again. With a clean working
-tree there is no stash, the hook regenerates the same bytes, and passes.
+identical failure. Unrelated unstaged edits are stashed and restored
+cleanly; the loop needs the regenerated catalog files themselves to be
+unstaged. The fix is to stage them: run `python script/update_board.py`,
+then `git add` the manifest together with the files it prints
+(`boards.index.json`, `board_bodies/<id>.json`,
+`featured_components.index.json`) and commit again. With those staged the
+hook regenerates the same bytes, and passes.
 
 ### Curated vs generated vs imported boards
 
@@ -117,10 +119,7 @@ Create a new subfolder in `boards/` with a `manifest.yaml`:
 ```
 boards/
 └── my-awesome-board/
-    ├── manifest.yaml
-    └── images/           (optional)
-        ├── board-top.png
-        └── pinout.png
+    └── manifest.yaml
 ```
 
 ### Board Manifest Schema
@@ -159,11 +158,13 @@ docs_url: "https://esphome.io/components/esp32.html"
 product_url: "https://example.com/my-awesome-board"
 is_generic: false              # true only for generic fallback boards
 
-# Images; URLs or paths relative to this manifest (first = primary).
-# Prefer a bundled local asset over a hotlinked vendor URL, which can rot.
+# Images: hosted URLs (manufacturer product page), first = primary.
+# Don't commit image files — definitions/ ships in the PyPI wheel, so
+# binaries bloat every install (the generic chip SVGs are the one
+# exception). validate_definitions.py --check-images verifies the URLs.
 images:
-  - "images/board-top.png"
-  - "images/pinout.png"
+  - "https://example.com/media/my-awesome-board-top.jpg"
+  - "https://example.com/media/my-awesome-board-pinout.jpg"
 
 # Pin definitions (see below)
 pins:
