@@ -877,7 +877,12 @@ _ACTION_KEY_SUFFIX = "_action"
 # esp32 ``framework.advanced`` fields surfaced under the "Advanced" disclosure,
 # overriding upstream's group-level ``yaml_only``. ``_surface_esp32_advanced_fields``
 # un-hides only these; the group's other expert knobs stay hidden.
-_ESP32_ADVANCED_VISIBLE: frozenset[str] = frozenset({"sram1_as_iram"})
+# esp32 ``framework.advanced`` fields to surface on the framework form, mapped to
+# the ``variant`` values they're valid on (empty = every variant). ``sram1_as_iram``
+# is classic-ESP32-only (esphome rejects it elsewhere in FINAL_VALIDATE), so it's
+# gated on ``variant`` via ``depends_on``; both cases cover the board-written
+# ``esp32`` and a user-typed ``ESP32``.
+_ESP32_ADVANCED_VISIBLE: dict[str, tuple[str, ...]] = {"sram1_as_iram": ("esp32", "ESP32")}
 
 # ---------------------------------------------------------------------------
 # CLI / main
@@ -6112,6 +6117,12 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
     for child in promoted:
         child["hidden"] = False
         child["advanced"] = False  # render inside the group, not behind its own disclosure
+        variants = _ESP32_ADVANCED_VISIBLE[child["key"]]
+        if variants:
+            # Gate on the sibling ``variant`` at the esp32-component root; the
+            # frontend resolves a nested ``depends_on`` against the component root.
+            child["depends_on"] = "variant"
+            child["depends_on_value_any"] = list(variants)
 
 
 @cache

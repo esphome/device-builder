@@ -57,6 +57,9 @@ def test_surface_unhides_sram1_and_group_keeps_siblings_hidden() -> None:
     assert advanced["hidden"] is False and advanced["advanced"] is False
     sram1 = _find(advanced["config_entries"], "sram1_as_iram")
     assert sram1 is not None and sram1["hidden"] is False and sram1["advanced"] is False
+    # Gated on the classic ESP32 variant (invalid elsewhere).
+    assert sram1["depends_on"] == "variant"
+    assert sram1["depends_on_value_any"] == ["esp32", "ESP32"]
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc["hidden"] is True  # untouched
 
@@ -79,6 +82,9 @@ def test_esp32_catalog_surfaces_sram1_under_advanced() -> None:
     sram1 = _find(advanced["config_entries"], "sram1_as_iram")
     assert sram1 is not None
     assert not sram1.get("hidden") and not sram1.get("advanced")
+    # Variant-gated: only shown on the classic ESP32 (esphome rejects it elsewhere).
+    assert sram1.get("depends_on") == "variant"
+    assert sram1.get("depends_on_value_any") == ["esp32", "ESP32"]
     # Scope guard: a sibling expert knob stays hidden (yaml_only).
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc.get("hidden") is True
