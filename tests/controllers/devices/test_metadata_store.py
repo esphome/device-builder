@@ -17,6 +17,7 @@ from esphome_device_builder.controllers.devices._metadata_store import (
     STORE_FIELDS,
     DeviceMetadataStore,
 )
+from esphome_device_builder.helpers.device_yaml import load_device_from_storage
 
 
 def _make_store(tmp_path: Path) -> DeviceMetadataStore:
@@ -181,12 +182,12 @@ async def test_async_load_preserves_top_level_catalogs(tmp_path: Path) -> None:
     assert shared["_remote_build"] == {"enabled": True}
 
 
-async def test_e2e_pre_pr_shape_migrates_through_resolver(
+async def test_e2e_pre_pr_shape_migrates_and_nests_into_runtime_state(
     tmp_path: Path,
     make_controller: Any,
     seed_device: Any,
 ) -> None:
-    """Pre-PR sidecar shape survives migration end-to-end through the resolver."""
+    """Old flat sidecar survives migration and nests into runtime_state on load."""
     await seed_device(tmp_path, "kitchen.yaml")
     pre_pr = {
         "board_id": "esp32-c3-devkitm-1",
@@ -252,6 +253,27 @@ async def test_e2e_pre_pr_shape_migrates_through_resolver(
         "build_size_dir_mtime": 1714900000,
         "build_size_info_mtime": 1714900050,
     }
+
+    # The on-disk sidecar has always been flat; the loader nests those
+    # flat values into ``runtime_state`` in memory, so an old sidecar
+    # loads with no migration. Mirror the scanner's load call.
+    device = await asyncio.to_thread(
+        load_device_from_storage,
+        tmp_path / "kitchen.yaml",
+        metadata.board_id,
+        metadata.ip,
+        metadata.expected_config_hash,
+        metadata.mac_address,
+        metadata.build_size_bytes,
+        metadata.labels,
+        deployed_config_hash=metadata.deployed_config_hash,
+        deployed_version=metadata.deployed_version,
+        queued_update=metadata.queued_update,
+        api_encryption_active=metadata.api_encryption_active,
+    )
+    assert device.runtime_state.deployed_version == "2026.5.1"
+    assert device.runtime_state.deployed_config_hash == "12345678"
+    assert device.runtime_state.api_encryption_active == ("Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
 
 async def test_async_load_recovers_from_corrupt_store_json(
