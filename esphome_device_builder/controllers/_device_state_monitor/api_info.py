@@ -190,11 +190,12 @@ class ApiInfoSource:
         the gap.
         """
         monitor = self._monitor
+        runtime = device.runtime_state
         return (
-            device.runtime_state.state is DeviceState.ONLINE
+            runtime.state is DeviceState.ONLINE
             and device.api_enabled
             and (
-                not (device.mac_address and device.runtime_state.deployed_version)
+                not (device.mac_address and runtime.deployed_version)
                 or (
                     device.name in self._force_reprobe
                     and monitor.priority_for(device.name) != ReachabilitySource.MDNS
@@ -226,11 +227,10 @@ class ApiInfoSource:
         picked via ``_pick_ipv4``) so the worker doesn't dial a
         link-local IPv6 first, then appends the rest of the announced set.
         """
-        if device.ip or device.runtime_state.ip_addresses:
+        addresses = device.runtime_state.ip_addresses
+        if device.ip or addresses:
             primary = [device.ip] if device.ip else []
-            return primary + [
-                addr for addr in device.runtime_state.ip_addresses if addr != device.ip
-            ]
+            return primary + [addr for addr in addresses if addr != device.ip]
         if device.address and not is_local_hostname(device.address):
             return [device.address]
         return []

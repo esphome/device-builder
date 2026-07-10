@@ -51,6 +51,7 @@ from esphome_device_builder.models import (
     ComponentCategory,
     Connectivity,
     DefaultComponent,
+    Device,
     DeviceRuntimeState,
     DeviceState,
     Esp32Variant,
@@ -3114,3 +3115,25 @@ def test_board_requires_wifi_false_when_board_has_onboard_ethernet() -> None:
 def test_board_requires_wifi_false_for_non_wifi_board() -> None:
     """No native Wi-Fi ⇒ not required (handled by the no-network / Thread path)."""
     assert board_requires_wifi(_board(connectivity=["ethernet"], featured=["ethernet"])) is False
+
+
+def test_device_to_dict_nests_runtime_state() -> None:
+    """The wire payload carries the monitor-observed fields under runtime_state."""
+    device = Device(
+        name="kitchen",
+        friendly_name="Kitchen",
+        configuration="kitchen.yaml",
+        runtime_state=DeviceRuntimeState(
+            state=DeviceState.ONLINE,
+            active_source=ReachabilitySource.MDNS,
+            deployed_version="2025.1.0",
+        ),
+    )
+
+    payload = device.to_dict()
+
+    assert payload["runtime_state"]["state"] == "online"
+    assert payload["runtime_state"]["active_source"] == "mdns"
+    assert payload["runtime_state"]["deployed_version"] == "2025.1.0"
+    for flat_key in ("state", "active_source", "deployed_version"):
+        assert flat_key not in payload

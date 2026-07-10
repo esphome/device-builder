@@ -148,7 +148,7 @@ async def test_handler_does_not_substitute_hyphens(monkeypatch: pytest.MonkeyPat
     """
     devices = [_device("my-device")]
     # The recorder's per-device state-flip mirrors production —
-    # without it, ``device.state`` stays UNKNOWN forever and the
+    # without it, ``runtime_state.state`` stays UNKNOWN forever and the
     # eager ``apply(ONLINE)`` in the browser callback plus the
     # redundant claim in ``_apply_service_info`` would each re-fire
     # against the still-stale state, yielding a misleading double-call.

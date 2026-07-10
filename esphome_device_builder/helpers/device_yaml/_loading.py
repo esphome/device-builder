@@ -126,9 +126,8 @@ def load_device_from_storage(
     board-id edits.
 
     *previous* is the prior in-memory Device for this path, when one
-    exists. The monitor-populated ``RUNTIME_CARRY_FIELDS`` carry
-    forward from it so a reload doesn't wipe what mDNS / ping has
-    already discovered.
+    exists. Its ``runtime_state`` carries forward whole so a reload
+    doesn't wipe what mDNS / ping has already discovered.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))

@@ -78,16 +78,14 @@ def _configuration_order(controller: FirmwareController, configurations: list[st
     def sort_key(item: tuple[int, str]) -> tuple[int, _VersionKey, int]:
         index, config = item
         device = devices.get(config)
-        if (
-            device is not None
-            and device.update_available
-            and _is_older_esphome_version(
-                device.runtime_state.deployed_version, device.current_version
-            )
-        ):
-            return (0, _esphome_version_sort_key(device.runtime_state.deployed_version), index)
-        if device is not None and device.has_pending_changes:
-            return (1, _UNKNOWN_VERSION_KEY, index)
+        if device is not None:
+            deployed = device.runtime_state.deployed_version
+            if device.update_available and _is_older_esphome_version(
+                deployed, device.current_version
+            ):
+                return (0, _esphome_version_sort_key(deployed), index)
+            if device.has_pending_changes:
+                return (1, _UNKNOWN_VERSION_KEY, index)
         return (2, _UNKNOWN_VERSION_KEY, index)
 
     return [config for _, config in sorted(enumerate(configurations), key=sort_key)]

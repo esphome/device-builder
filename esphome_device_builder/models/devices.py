@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import Literal, TypedDict
 
@@ -75,6 +75,10 @@ class DeviceRuntimeState(DashboardModel):
     # confirmed, ``""`` = TXT seen with the key absent (confirmed
     # plaintext), ``None`` = no broadcast yet.
     api_encryption_active: str | None = None
+
+
+# Canonical name set for routing flat attr names onto ``runtime_state``.
+RUNTIME_STATE_FIELD_NAMES = frozenset(f.name for f in fields(DeviceRuntimeState))
 
 
 @dataclass

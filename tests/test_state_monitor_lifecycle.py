@@ -525,7 +525,7 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
     apply-* calls (or reorders in a way that hides a missing one)
     surfaces here. Also the V4-primary preference: ``device.ip``
     holds the IPv4 even when the info also carries V6, while
-    ``device.ip_addresses`` keeps every announced address.
+    ``runtime_state.ip_addresses`` keeps every announced address.
     """
     device = _device()
     monitor, _callbacks = _make_monitor([device])

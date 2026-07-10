@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -30,9 +29,9 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 from ...helpers.async_ import create_eager_task
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import (
+    RUNTIME_STATE_FIELD_NAMES,
     AdoptableDevice,
     Device,
-    DeviceRuntimeState,
     DeviceState,
     ReachabilitySource,
 )
@@ -50,8 +49,6 @@ from .ping import PingSource
 from .shared import _SOURCE_PRIORITY, should_ping
 
 _LOGGER = logging.getLogger(__name__)
-# Monitor-observed fields that live on ``Device.runtime_state``.
-_RUNTIME_STATE_FIELDS = frozenset(f.name for f in dataclasses.fields(DeviceRuntimeState))
 # Cap on draining the ping / API-info / resolve tasks at shutdown.
 _STOP_DRAIN_TIMEOUT = 2.0
 # Padding added to the cached A record's TTL when the drawer's
@@ -478,9 +475,9 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         device matches (stray announcement) or every match already
         carries *value* (steady-state dedupe).
         """
+        on_runtime = attr in RUNTIME_STATE_FIELD_NAMES
         return any(
-            getattr(device.runtime_state if attr in _RUNTIME_STATE_FIELDS else device, attr)
-            != value
+            getattr(device.runtime_state if on_runtime else device, attr) != value
             for device in self._get_devices_by_name(name)
         )
 

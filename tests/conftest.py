@@ -17,7 +17,6 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import inspect
 import json
 import re
@@ -55,6 +54,7 @@ from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.secrets_state import write_secrets_locked
 from esphome_device_builder.models import (
+    RUNTIME_STATE_FIELD_NAMES,
     AdoptableDevice,
     BoardCatalogResponse,
     Device,
@@ -902,10 +902,9 @@ class RecordingMonitorCallbacks:
 
     def _flip(self, name: str, attr: str, value: Any) -> None:
         """Write *value* to *attr* on every matching device (runtime fields via runtime_state)."""
-        runtime_fields = {f.name for f in dataclasses.fields(DeviceRuntimeState)}
         for device in self._devices:
             if device.name == name:
-                target = device.runtime_state if attr in runtime_fields else device
+                target = device.runtime_state if attr in RUNTIME_STATE_FIELD_NAMES else device
                 setattr(target, attr, value)
 
     def calls_for(self, callback_name: str) -> list[tuple[Any, ...]]:
@@ -988,8 +987,7 @@ def make_device(name: str = "kitchen", **overrides: Any) -> Device:
         "address": f"{name}.local",
     }
     base.update(overrides)
-    runtime_fields = {f.name for f in dataclasses.fields(DeviceRuntimeState)}
-    runtime_kwargs = {k: base.pop(k) for k in list(base) if k in runtime_fields}
+    runtime_kwargs = {k: base.pop(k) for k in list(base) if k in RUNTIME_STATE_FIELD_NAMES}
     base.setdefault("runtime_state", DeviceRuntimeState(**runtime_kwargs))
     return Device(**base)
 
