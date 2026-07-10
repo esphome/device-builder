@@ -38,7 +38,7 @@ from esphome_device_builder.controllers._device_state_monitor.importable import 
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import RUNTIME_STATE_FIELD_NAMES, Device, DeviceState
 
 from .conftest import RecordingMonitorCallbacks
 from .conftest import make_device as _device
@@ -880,7 +880,7 @@ async def test_dispatch_added_sparse_announce_preserves_last_known(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        target = device if device_field == "mac_address" else device.runtime_state
+        target = device.runtime_state if device_field in RUNTIME_STATE_FIELD_NAMES else device
         assert getattr(target, device_field) == stored_value, (
             f"{device_field} wiped by sparse announce ({case_id})"
         )

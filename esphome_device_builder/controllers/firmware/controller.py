@@ -142,7 +142,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _handle_device_wake(self, event: Event) -> None:
         """Trigger a device's queued update when it comes online.
 
-        ``Device.queued_update`` is the single arm state — no
+        ``Device.runtime_state.queued_update`` is the single arm state — no
         controller-side set to go stale when a rename moves the
         configuration filename. The active-flash check is the flap
         guard: a wake bouncing mid-flash must not supersede the

@@ -181,7 +181,7 @@ class FirmwareJob(DashboardModel):
     # (``esphome upload --bootloader``); OTA-only.
     flash_bootloader: bool = False
     # In-memory decision input for the deferred-install completion hook;
-    # the durable arm is ``Device.queued_update``.
+    # the durable arm is ``Device.runtime_state.queued_update``.
     is_deferred_install: bool = False
     # New device name for ``rename`` jobs. Plumbed through to the
     # ``esphome rename`` CLI. Empty for every other job type.

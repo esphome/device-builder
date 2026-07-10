@@ -167,8 +167,9 @@ async def enqueue_install_or_defer(
     """
     Enqueue an install chain, or a deferred compile-only job when the OTA target is OFFLINE.
 
-    A deferred compile arms ``Device.queued_update`` on completion; the
-    wake dispatch flashes an upload-only job when the device comes back.
+    A deferred compile arms ``Device.runtime_state.queued_update`` on
+    completion; the wake dispatch flashes an upload-only job when the
+    device comes back.
     A bootloader flash never defers — the wake dispatch re-uploads the
     app, not the bootloader — so an OFFLINE device raises ``INVALID_ARGS``,
     ahead of build-source resolution so it wins over ``NO_COMPATIBLE_PEER``.
