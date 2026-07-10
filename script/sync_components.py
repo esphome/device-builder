@@ -6126,11 +6126,9 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
 @cache
 def _esp32_default_framework() -> str | None:
     """Validate a minimal config so esp32's schema fills in the framework type."""
-    try:
-        from esphome.components import esp32
-        from esphome.const import CONF_FRAMEWORK, CONF_TYPE, CONF_VARIANT
-    except ImportError:
-        return None
+    from esphome.components import esp32
+    from esphome.const import CONF_FRAMEWORK, CONF_TYPE, CONF_VARIANT
+
     # A non-Arduino variant keeps the validate-time migration notice quiet.
     variant = next((v for v in esp32.VARIANTS if v not in esp32.ARDUINO_ALLOWED_VARIANTS), None)
     if variant is None:
