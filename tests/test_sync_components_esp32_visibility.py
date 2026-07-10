@@ -112,3 +112,22 @@ def test_variant_gate_fails_loud_when_underivable() -> None:
     """A key no variant's base config accepts raises, rather than silently ungating."""
     with pytest.raises(RuntimeError):
         _esp32_variant_gate("not_a_real_advanced_field")
+
+
+def test_esp32_advanced_fields_get_docs_descriptions() -> None:
+    """``framework.advanced`` fields carry MDX descriptions + the advanced-config help link."""
+    advanced = _find(
+        _find(_load("esp32")["config_entries"], "framework")["config_entries"], "advanced"
+    )
+    assert advanced is not None
+    sram1 = _find(advanced["config_entries"], "sram1_as_iram")
+    assert sram1 is not None
+    assert (sram1.get("description") or "").startswith("Use the SRAM1 memory region")
+    assert (sram1.get("help_link") or "").endswith("#advanced-configuration")
+    # First-paragraph truncation drops the trailing bootloader note.
+    assert "Important" not in (sram1.get("description") or "")
+    # A hidden sibling still gets hover text (hidden = form-only) and stays hidden.
+    comp = _find(advanced["config_entries"], "compiler_optimization")
+    assert comp is not None and comp.get("hidden") is True
+    assert comp.get("description")
+    assert (comp.get("help_link") or "").endswith("#advanced-configuration")

@@ -1896,25 +1896,16 @@ _CONFIG_VAR_LINE = re.compile(
 )
 
 
-def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
-    """Parse the ``## Configuration variables`` section into a field map.
+def _parse_config_var_bullets(  # noqa: C901
+    body: str, *, first_paragraph_only: bool = False
+) -> dict[str, str]:
+    """Parse a flat ``- **name** (...): ...`` bullet list into a field map.
 
-    Captures one description per top-level bullet — including
-    continuation lines from indented prose, but excluding nested
-    sub-bullets and stopping at sub-headings (``###`` action /
-    trigger sections).
+    One description per top-level bullet, joining indented continuation
+    prose, excluding nested sub-bullets, and stopping at block-quotes /
+    sub-headings. With *first_paragraph_only*, a blank line after the
+    first prose ends the field (drops trailing ``**Important:**`` notes).
     """
-    body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
-
-    section_re = re.compile(
-        r"^(?:##\s+Configuration variables\s*|Configuration variables:\s*)\n"
-        r"(.*?)(?=^##\s|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    match = section_re.search(body)
-    if not match:
-        return {}
-
     descriptions: dict[str, str] = {}
     current_key: str | None = None
     current_parts: list[str] = []
@@ -1930,7 +1921,7 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
         if cleaned:
             descriptions[current_key] = cleaned
 
-    for raw_line in match.group(1).splitlines():
+    for raw_line in body.splitlines():
         line = raw_line.rstrip()
         m = _CONFIG_VAR_LINE.match(line)
         if m:
@@ -1941,6 +1932,13 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
         if current_key is None:
             continue
         stripped = line.strip()
+        # A blank line ends the first paragraph when the caller wants only that.
+        if not stripped:
+            if first_paragraph_only and current_parts:
+                commit()
+                current_key = None
+                current_parts = []
+            continue
         # Block-quotes / GitHub alerts and sub-headings end the field.
         if stripped.startswith((">", "#")):
             commit()
@@ -1950,11 +1948,41 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:  # noqa: C901
         # Sub-bullets describe sub-fields — skip.
         if stripped.startswith(("- ", "* ", "+ ")):
             continue
-        if stripped:
-            current_parts.append(stripped)
+        current_parts.append(stripped)
 
     commit()
     return descriptions
+
+
+def _extract_mdx_section_body(text: str, heading: str) -> str | None:
+    """Return the body of the ``## <heading>`` H2 section, or None if absent."""
+    body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
+    section_re = re.compile(
+        rf"^##\s+{re.escape(heading)}\s*\n(.*?)(?=^##\s|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = section_re.search(body)
+    return match.group(1) if match else None
+
+
+def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:
+    """Parse the ``## Configuration variables`` section into a field map.
+
+    Captures one description per top-level bullet — including
+    continuation lines from indented prose, but excluding nested
+    sub-bullets and stopping at sub-headings (``###`` action /
+    trigger sections).
+    """
+    body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
+    section_re = re.compile(
+        r"^(?:##\s+Configuration variables\s*|Configuration variables:\s*)\n"
+        r"(.*?)(?=^##\s|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    match = section_re.search(body)
+    if not match:
+        return {}
+    return _parse_config_var_bullets(match.group(1))
 
 
 def _ensure_docs_repo() -> Path | None:
@@ -6092,6 +6120,7 @@ def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
     if not framework:
         return
     _surface_esp32_advanced_fields(framework)
+    _apply_esp32_advanced_descriptions(framework)
     default = _esp32_default_framework()
     if default is None:
         return
@@ -6139,6 +6168,58 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
             # frontend resolves a nested ``depends_on`` against the component root.
             child["depends_on"] = "variant"
             child["depends_on_value_any"] = list(gate)
+
+
+_ESP32_ADVANCED_DOCS_ANCHOR = "https://esphome.io/components/esp32#advanced-configuration"
+
+
+@cache
+def _esp32_advanced_field_descriptions() -> dict[str, str]:
+    """
+    ``framework.advanced`` field descriptions from esp32's docs MDX.
+
+    The schema bundle carries no ``docs`` for these; the docs document them under
+    a separate ``## Advanced Configuration`` H2 (a flat bullet list the field
+    extractor skips), so pull them from there. First paragraph only — the notes
+    that follow are one click away via ``help_link``.
+    """
+    docs_dir = _ensure_docs_repo()
+    if docs_dir is None:
+        return {}
+    mdx = docs_dir / "src" / "content" / "docs" / "components" / "esp32.mdx"
+    if not mdx.exists():
+        return {}
+    body = _extract_mdx_section_body(mdx.read_text(encoding="utf-8"), "Advanced Configuration")
+    if not body:
+        return {}
+    return _parse_config_var_bullets(body, first_paragraph_only=True)
+
+
+def _apply_esp32_advanced_descriptions(framework: dict) -> None:
+    """
+    Stamp docs descriptions onto ``framework.advanced`` children lacking one.
+
+    Scoped structurally to the ``advanced`` subtree, so a flat-MDX name can't
+    leak onto a same-named field elsewhere (the reason the generic backfill stays
+    top-level). Covers visible and hidden fields — hidden ones want hover text.
+    """
+    advanced = next(
+        (e for e in framework.get("config_entries", []) if e.get("key") == "advanced"), None
+    )
+    if not advanced:
+        return
+    field_map = _esp32_advanced_field_descriptions()
+    if not field_map:
+        return
+    for child in advanced.get("config_entries", []):
+        text = field_map.get(child.get("key"))
+        if not text:
+            continue
+        existing = (child.get("description") or "").strip()
+        if not existing or _is_truncated_prefix(existing, text):
+            child["description"] = text
+            if not child.get("help_link"):
+                child["help_link"] = _ESP32_ADVANCED_DOCS_ANCHOR
 
 
 @cache
