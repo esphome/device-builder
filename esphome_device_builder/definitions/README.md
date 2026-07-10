@@ -72,6 +72,32 @@ everything against your installed ESPHome and re-stamps that version, so it does
 not check; still run it from the venv so you don't commit catalog-wide changes
 from a different ESPHome.
 
+### Troubleshooting: the pre-commit hook fails on every attempt
+
+The `sync-boards` pre-commit hook reruns the full sync whenever a commit
+touches a board manifest, so committing the manifest without the regenerated
+JSON fails once with `files were modified by this hook` — stage the generated
+files and retry. But if the regenerated JSON is sitting in your working tree
+*unstaged*, the failure loops forever:
+
+```
+[WARNING] Unstaged files detected.
+...
+regenerate boards.json from manifests....................................Failed
+- files were modified by this hook
+...
+[WARNING] Stashed changes conflicted with hook auto-fixes... Rolling back fixes...
+```
+
+pre-commit stashes your unstaged changes, the hook regenerates the same
+files, and restoring the stash conflicts with the hook's writes, so
+pre-commit rolls the hook's output back — every retry reproduces the
+identical failure. The fix is to leave nothing unstaged: run
+`python script/update_board.py`, then `git add` the manifest together with
+the files it prints (`boards.index.json`, `board_bodies/<id>.json`,
+`featured_components.index.json`) and commit again. With a clean working
+tree there is no stash, the hook regenerates the same bytes, and passes.
+
 ### Curated vs generated vs imported boards
 
 - **Curated** (most hand-written manifests): a `manifest.yaml` with no `source:`
