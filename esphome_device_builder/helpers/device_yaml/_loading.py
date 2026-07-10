@@ -11,7 +11,7 @@ from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...models import Device, DeviceState
+from ...models import Device, DeviceState, ReachabilitySource
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
@@ -202,7 +202,14 @@ def load_device_from_storage(
         deployed_version = previous.deployed_version
         api_encryption_active = previous.api_encryption_active
         queued_update = previous.queued_update
-    state = previous.state if previous else DeviceState.UNKNOWN
+    # ``active_source`` is runtime-only (never persisted); losing it on a
+    # rebuild hides the mDNS-gated dashboard dots until the next announce,
+    # since the monitor re-fires ``on_source_change`` only on a transition.
+    state, active_source = (
+        (previous.state, previous.active_source)
+        if previous
+        else (DeviceState.UNKNOWN, ReachabilitySource.UNKNOWN)
+    )
     ip_addresses = list(previous.ip_addresses) if previous else []
 
     has_pending = compute_has_pending_changes(
@@ -342,6 +349,7 @@ def load_device_from_storage(
         loaded_integrations=loaded_integrations,
         directly_referenced_integrations=directly_referenced_integrations,
         state=state,
+        active_source=active_source,
         has_pending_changes=has_pending,
         pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
