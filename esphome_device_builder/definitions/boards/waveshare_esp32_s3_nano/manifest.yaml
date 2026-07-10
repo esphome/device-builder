@@ -24,7 +24,7 @@ product_url: "https://www.waveshare.com/wiki/ESP32-S3-Nano"
 is_generic: false
 
 images:
-  - "images/esp32_s3_nano_top.png"
+  - https://www.waveshare.com/media/catalog/product/cache/1/image/800x800/9df78eab33525d08d6e5fb8d27136e95/e/s/esp32-s3-nano-1.jpg
 
 tags:
   - usb-c
