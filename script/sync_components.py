@@ -6149,22 +6149,19 @@ def _esp32_variant_gate(field_key: str) -> tuple[str, ...] | None:
     (``sram1_as_iram`` → classic ESP32 only). Derive that by enabling the field
     per variant and keeping the ones esphome doesn't reject, so an upstream
     change flows through without a hand-maintained list. Returns esphome's
-    canonical value plus the lowercase form boards write; ``None`` when every
-    testable variant accepts it (no gate needed).
+    canonical value plus the lowercase form boards write; ``None`` only when
+    every testable variant accepts it (no gate needed).
     """
-    try:
-        import esphome.config_validation as cv
-        import esphome.final_validate as fv
-        from esphome.components import esp32
-        from esphome.const import (
-            CONF_ADVANCED,
-            CONF_ESPHOME,
-            CONF_FRAMEWORK,
-            CONF_TYPE,
-            CONF_VARIANT,
-        )
-    except ImportError:
-        return None
+    import esphome.config_validation as cv
+    import esphome.final_validate as fv
+    from esphome.components import esp32
+    from esphome.const import (
+        CONF_ADVANCED,
+        CONF_ESPHOME,
+        CONF_FRAMEWORK,
+        CONF_TYPE,
+        CONF_VARIANT,
+    )
 
     accepted: list[str] = []
     tested = 0
