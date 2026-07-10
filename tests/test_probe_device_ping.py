@@ -13,7 +13,12 @@ from esphome_device_builder.controllers._device_state_monitor import ping as pin
 from esphome_device_builder.controllers._device_state_monitor.controller import (
     DeviceStateMonitor,
 )
-from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
+from esphome_device_builder.models import (
+    Device,
+    DeviceRuntimeState,
+    DeviceState,
+    ReachabilitySource,
+)
 
 from .conftest import make_state_monitor_with_callbacks
 
@@ -25,7 +30,7 @@ def _ping_only_device(name: str = "garage", state: DeviceState = DeviceState.UNK
         friendly_name=name.title(),
         configuration=f"{name}.yaml",
         address=f"{name}.local",
-        state=state,
+        runtime_state=DeviceRuntimeState(state=state),
         loaded_integrations=["wifi"],
     )
 

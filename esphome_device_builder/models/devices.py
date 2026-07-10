@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, TypedDict
 
@@ -37,12 +37,44 @@ class ReachabilitySource(StrEnum):
     MDNS = "mdns"
 
 
-# Marks a monitor-observed field with no disk source of truth (or where the
-# live observation outranks the persisted copy): a Device rebuild copies it
-# from the previous in-memory instance, or the observation is lost until the
-# device's next announce. ``load_device_from_storage`` consumes the derived
-# ``RUNTIME_CARRY_FIELDS`` below; mark new monitor-written fields here.
-_RUNTIME_CARRY_METADATA = {"runtime_carry": True}
+@dataclass
+class DeviceRuntimeState(DashboardModel):
+    """
+    Monitor-observed device state with no disk source of truth.
+
+    Populated by the mDNS / MQTT / ping monitors after startup; a
+    Device rebuild carries the whole object from the previous
+    in-memory instance, or the observations are lost until the
+    device's next announce.
+    """
+
+    state: DeviceState = DeviceState.UNKNOWN
+    # Reachability channel currently driving online state
+    # (``mdns`` > ``mqtt`` > ``ping``); UNKNOWN until a source claims
+    # the device.
+    active_source: ReachabilitySource = ReachabilitySource.UNKNOWN
+    # Every IP currently known for the device. mDNS populates from
+    # zeroconf's ``parsed_scoped_addresses`` (in practice IPv4 first,
+    # then any scoped IPv6 — link-local addresses keep the ``%scope``
+    # suffix); single-IP sources (MQTT discovery, DNS fallback) carry
+    # just the one address they know. ``Device.ip`` always holds the
+    # primary picked for OTA cache args.
+    ip_addresses: list[str] = field(default_factory=list)
+    deployed_version: str = ""
+    # 8-char hex hash of the running firmware, read from the mDNS
+    # ``config_hash`` TXT record (esphome/esphome#16145). When this
+    # and ``Device.expected_config_hash`` are both known they drive
+    # ``has_pending_changes`` instead of the mtime fallback — that's
+    # how we tell "flashed with the latest compile" apart from
+    # "compile succeeded but device still runs older firmware".
+    deployed_config_hash: str = ""
+    # True once a local offline compile finished successfully and is
+    # waiting to be flashed via OTA upon the next mDNS check-in.
+    queued_update: bool = False
+    # Tri-state cipher observed on the wire: truthy string = encryption
+    # confirmed, ``""`` = TXT seen with the key absent (confirmed
+    # plaintext), ``None`` = no broadcast yet.
+    api_encryption_active: str | None = None
 
 
 @dataclass
@@ -66,32 +98,12 @@ class Device(DashboardModel):
     # pre-resolve in the ping sweep, persisted through the device-builder
     # metadata sidecar so the OTA address cache survives a restart.
     ip: str = ""
-    # Every IP currently known for the device. mDNS populates from
-    # zeroconf's ``parsed_scoped_addresses`` (in practice IPv4 first,
-    # then any scoped IPv6 — link-local addresses keep the ``%scope``
-    # suffix); single-IP sources (MQTT discovery, DNS fallback) carry
-    # just the one address they know. ``ip`` always holds the primary
-    # picked for OTA cache args. Runtime-only: not persisted to the
-    # metadata sidecar; the next mDNS pass repopulates after a
-    # restart.
-    ip_addresses: list[str] = field(default_factory=list, metadata=_RUNTIME_CARRY_METADATA)
     web_port: int | None = None
     current_version: str = ""
-    deployed_version: str = field(default="", metadata=_RUNTIME_CARRY_METADATA)
-    # Flag to determine if a local offline compilation has finished
-    # successfully and is waiting to be flashed via OTA upon the next mDNS check-in.
-    queued_update: bool = field(default=False, metadata=_RUNTIME_CARRY_METADATA)
     # 8-char hex hash of the YAML as last successfully compiled.
     # Persisted in the metadata sidecar; matches what ESPHome's
     # runtime publishes via ``App.get_config_hash()``.
     expected_config_hash: str = ""
-    # 8-char hex hash of the running firmware, read from the mDNS
-    # ``config_hash`` TXT record (esphome/esphome#16145). When this
-    # and ``expected_config_hash`` are both known they drive
-    # ``has_pending_changes`` instead of the mtime fallback — that's
-    # how we tell "flashed with the latest compile" apart from
-    # "compile succeeded but device still runs older firmware".
-    deployed_config_hash: str = field(default="", metadata=_RUNTIME_CARRY_METADATA)
     loaded_integrations: list[str] = field(default_factory=list)  # from StorageJSON after compile
     # Subset of ``loaded_integrations`` the user directly wrote in
     # YAML — top-level keys (``api:``, ``wifi:``, ``sensor:``) plus
@@ -109,13 +121,8 @@ class Device(DashboardModel):
     # (mid-edit drafts) — frontend falls back to rendering the
     # whole ``loaded_integrations`` list flat.
     directly_referenced_integrations: list[str] = field(default_factory=list)
-    state: DeviceState = field(default=DeviceState.UNKNOWN, metadata=_RUNTIME_CARRY_METADATA)
-    # Reachability channel currently driving online state
-    # (``mdns`` > ``mqtt`` > ``ping``). Runtime-only, not persisted;
-    # UNKNOWN until a source claims the device.
-    active_source: ReachabilitySource = field(
-        default=ReachabilitySource.UNKNOWN, metadata=_RUNTIME_CARRY_METADATA
-    )
+    # Monitor-observed state; carried whole through rebuilds.
+    runtime_state: DeviceRuntimeState = field(default_factory=DeviceRuntimeState)
     has_pending_changes: bool = True  # True until successfully compiled + deployed
     # True when ``has_pending_changes`` came from the mDNS-sourced config-hash
     # compare (vs the local mtime fallback).
@@ -176,7 +183,6 @@ class Device(DashboardModel):
     #           confirmed live on the device.
     # Drives the four-state lock indicator on the device card / table:
     # active, pending-flash, mismatch, plaintext.
-    api_encryption_active: str | None = field(default=None, metadata=_RUNTIME_CARRY_METADATA)
     # Canonical ``XX:XX:XX:XX:XX:XX`` MAC observed in the device's
     # ``_esphomelib._tcp.local.`` ``mac`` TXT record (e.g.
     # ``"94:C9:60:1F:8C:F1"``). Empty string when mDNS hasn't
@@ -239,11 +245,6 @@ class Device(DashboardModel):
     # *running* firmware has it compiled in is the frontend's half of the
     # gate (deployed hash == expected hash).
     ota_partition_access: bool = False
-
-
-RUNTIME_CARRY_FIELDS: tuple[str, ...] = tuple(
-    f.name for f in fields(Device) if f.metadata.get("runtime_carry")
-)
 
 
 @dataclass

@@ -30,7 +30,7 @@ async def test_on_source_change_updates_device_fires_event_not_persisted() -> No
 
     controller._on_source_change("kitchen", ReachabilitySource.MDNS)
 
-    assert device.active_source == ReachabilitySource.MDNS
+    assert device.runtime_state.active_source == ReachabilitySource.MDNS
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
     # Runtime-only: a reachability flip must not write the metadata sidecar.
     assert "active_source" not in (controller._metadata_store.get(device.configuration) or {})
@@ -39,7 +39,7 @@ async def test_on_source_change_updates_device_fires_event_not_persisted() -> No
 async def test_on_source_change_skips_when_same() -> None:
     """No-op (no event) when the device already carries the source."""
     device = _device()
-    device.active_source = ReachabilitySource.MDNS
+    device.runtime_state.active_source = ReachabilitySource.MDNS
     controller, captured = make_devices_controller_with_bus(
         [device], create_background_task=close_scheduled_coro
     )
@@ -59,7 +59,7 @@ def test_apply_mdns_sets_active_source_then_dedupes() -> None:
 
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
 
-    assert device.active_source == ReachabilitySource.MDNS
+    assert device.runtime_state.active_source == ReachabilitySource.MDNS
     assert callbacks.calls_for("on_source_change") == [
         ("on_source_change", "kitchen", ReachabilitySource.MDNS)
     ]
@@ -79,7 +79,7 @@ def test_forget_resets_active_source_to_unknown() -> None:
 
     monitor.forget("kitchen")
 
-    assert device.active_source == ReachabilitySource.UNKNOWN
+    assert device.runtime_state.active_source == ReachabilitySource.UNKNOWN
     assert callbacks.calls_for("on_source_change")[-1] == (
         "on_source_change",
         "kitchen",
@@ -96,10 +96,10 @@ def test_ping_takes_over_after_mdns_goes_dark() -> None:
     # mDNS TTL expiry: the browser marks it OFFLINE via mdns, then forgets it.
     monitor.apply("kitchen", DeviceState.OFFLINE, "mdns")
     monitor.forget("kitchen")
-    assert device.active_source == ReachabilitySource.UNKNOWN
+    assert device.runtime_state.active_source == ReachabilitySource.UNKNOWN
 
     # Ping still reaches it → ping becomes the authoritative source, so the UI
     # knows the mDNS-sourced deployed_* values are no longer trustworthy.
     monitor.apply("kitchen", DeviceState.ONLINE, "ping")
 
-    assert device.active_source == ReachabilitySource.PING
+    assert device.runtime_state.active_source == ReachabilitySource.PING

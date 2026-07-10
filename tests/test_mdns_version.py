@@ -108,7 +108,7 @@ async def test_on_version_change_updates_device_fires_event_and_persists(
 
     controller._on_version_change("kitchen", "2026.5.0")
 
-    assert device.deployed_version == "2026.5.0"
+    assert device.runtime_state.deployed_version == "2026.5.0"
     # current_version is "2026.5.0" too, so update_available should be False.
     assert device.update_available is False
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
@@ -145,5 +145,5 @@ async def test_on_version_change_marks_update_available_when_behind() -> None:
     # than what's on the device, so an update is available.
     controller._on_version_change("kitchen", "2026.3.0")
 
-    assert device.deployed_version == "2026.3.0"
+    assert device.runtime_state.deployed_version == "2026.3.0"
     assert device.update_available is True

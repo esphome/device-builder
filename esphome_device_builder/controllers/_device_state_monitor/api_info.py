@@ -161,12 +161,14 @@ class ApiInfoSource:
         names = {
             device.name
             for device in devices
-            if device.state is DeviceState.ONLINE
+            if device.runtime_state.state is DeviceState.ONLINE
             and device.api_enabled
             and (
-                device.api_encryption_active is None
+                device.runtime_state.api_encryption_active is None
                 or not (
-                    device.mac_address and device.deployed_version and device.deployed_config_hash
+                    device.mac_address
+                    and device.runtime_state.deployed_version
+                    and device.runtime_state.deployed_config_hash
                 )
             )
         }
@@ -189,10 +191,10 @@ class ApiInfoSource:
         """
         monitor = self._monitor
         return (
-            device.state is DeviceState.ONLINE
+            device.runtime_state.state is DeviceState.ONLINE
             and device.api_enabled
             and (
-                not (device.mac_address and device.deployed_version)
+                not (device.mac_address and device.runtime_state.deployed_version)
                 or (
                     device.name in self._force_reprobe
                     and monitor.priority_for(device.name) != ReachabilitySource.MDNS
@@ -224,9 +226,11 @@ class ApiInfoSource:
         picked via ``_pick_ipv4``) so the worker doesn't dial a
         link-local IPv6 first, then appends the rest of the announced set.
         """
-        if device.ip or device.ip_addresses:
+        if device.ip or device.runtime_state.ip_addresses:
             primary = [device.ip] if device.ip else []
-            return primary + [addr for addr in device.ip_addresses if addr != device.ip]
+            return primary + [
+                addr for addr in device.runtime_state.ip_addresses if addr != device.ip
+            ]
         if device.address and not is_local_hostname(device.address):
             return [device.address]
         return []

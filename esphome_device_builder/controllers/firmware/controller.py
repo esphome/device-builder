@@ -117,7 +117,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         if self._db.devices is None:
             return
         for device in self._db.devices.get_devices():
-            if device.queued_update:
+            if device.runtime_state.queued_update:
                 self._db.devices.clear_queued_update(device.configuration)
 
     def _dispatch_queued_upload(self, configuration: str) -> None:
@@ -153,7 +153,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         config = event.data["configuration"]
         device = self._device_for_configuration(config)
-        if not device or not device.queued_update:
+        if not device or not device.runtime_state.queued_update:
             return
         if any(
             job.is_network_flash and job.configuration == config for job in self.state.active_jobs()
@@ -268,7 +268,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
         devices = self._db.devices
         device = self._device_for_configuration(configuration)
-        if devices is None or not device or not device.queued_update:
+        if devices is None or not device or not device.runtime_state.queued_update:
             return
 
         devices.clear_queued_update(configuration)
@@ -544,7 +544,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         # confirmed ONLINE (OFFLINE, or the narrow UNKNOWN window from a
         # scanner rebuild with previous=None) just waits for that wake.
         devices.set_queued_update(job.configuration)
-        if device.state == DeviceState.ONLINE:
+        if device.runtime_state.state == DeviceState.ONLINE:
             _LOGGER.info(
                 "Device %s is online after deferred compile. Triggering upload now.",
                 job.configuration,
@@ -563,7 +563,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             return
 
         device = self._device_for_configuration(job.configuration)
-        if not device or not device.queued_update:
+        if not device or not device.runtime_state.queued_update:
             return
 
         devices.clear_queued_update(job.configuration)

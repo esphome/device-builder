@@ -44,7 +44,6 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     extract_ota_partition_access,
 )
 from esphome_device_builder.models import (
-    RUNTIME_CARRY_FIELDS,
     BoardCatalogEntry,
     BoardEsphomeConfig,
     BoardHardware,
@@ -52,6 +51,7 @@ from esphome_device_builder.models import (
     ComponentCategory,
     Connectivity,
     DefaultComponent,
+    DeviceRuntimeState,
     DeviceState,
     Esp32Variant,
     Platform,
@@ -2620,11 +2620,11 @@ def test_load_device_carries_plaintext_confirmation_from_previous(tmp_path: Path
     write_storage_json(tmp_path, "kitchen.yaml")
 
     previous = load_device_from_storage(yaml_path)
-    previous.api_encryption_active = ""
+    previous.runtime_state.api_encryption_active = ""
 
     reloaded = load_device_from_storage(yaml_path, previous=previous)
 
-    assert reloaded.api_encryption_active == ""
+    assert reloaded.runtime_state.api_encryption_active == ""
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
@@ -2643,7 +2643,7 @@ def test_load_device_without_previous_defaults_api_encryption_active_to_none(
 
     device = load_device_from_storage(yaml_path)
 
-    assert device.api_encryption_active is None
+    assert device.runtime_state.api_encryption_active is None
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
@@ -2657,38 +2657,33 @@ def test_load_device_without_previous_defaults_active_source_to_unknown(
 
     device = load_device_from_storage(yaml_path)
 
-    assert device.active_source is ReachabilitySource.UNKNOWN
-
-
-# One distinct non-default value per RUNTIME_CARRY_FIELDS member; the
-# coverage assert below forces a new carried field to land here too.
-_RUNTIME_CARRY_VALUES: dict[str, object] = {
-    "deployed_config_hash": "deadbeef",
-    "deployed_version": "2025.1.0",
-    "api_encryption_active": "Noise_NNpsk0_25519_ChaChaPoly_SHA256",
-    "queued_update": True,
-    "state": DeviceState.ONLINE,
-    "active_source": ReachabilitySource.MDNS,
-    "ip_addresses": ["192.168.1.42"],
-}
+    assert device.runtime_state.active_source is ReachabilitySource.UNKNOWN
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
-def test_load_device_carries_every_runtime_field_from_previous(tmp_path: Path) -> None:
-    """Every ``RUNTIME_CARRY_FIELDS`` member survives a rebuild."""
-    assert set(_RUNTIME_CARRY_VALUES) == set(RUNTIME_CARRY_FIELDS)
+def test_load_device_carries_runtime_state_from_previous(tmp_path: Path) -> None:
+    """The whole monitor-observed ``runtime_state`` survives a rebuild."""
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     write_storage_json(tmp_path, "kitchen.yaml")
 
     previous = load_device_from_storage(yaml_path)
-    for name, value in _RUNTIME_CARRY_VALUES.items():
-        setattr(previous, name, value)
+    previous.runtime_state = DeviceRuntimeState(
+        state=DeviceState.ONLINE,
+        active_source=ReachabilitySource.MDNS,
+        ip_addresses=["192.168.1.42"],
+        deployed_version="2025.1.0",
+        deployed_config_hash="deadbeef",
+        queued_update=True,
+        api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+    )
 
     reloaded = load_device_from_storage(yaml_path, previous=previous)
 
-    for name, value in _RUNTIME_CARRY_VALUES.items():
-        assert getattr(reloaded, name) == value, name
+    assert reloaded.runtime_state == previous.runtime_state
+    # Fresh copies, so mutating the new device can't reach back into the old.
+    assert reloaded.runtime_state is not previous.runtime_state
+    assert reloaded.runtime_state.ip_addresses is not previous.runtime_state.ip_addresses
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
@@ -2718,12 +2713,12 @@ def test_load_device_api_encrypted_falls_back_to_wire_signal(tmp_path: Path) -> 
 
     previous = load_device_from_storage(yaml_path)
     assert previous.api_encrypted is False  # YAML signal alone says no
-    previous.api_encryption_active = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    previous.runtime_state.api_encryption_active = "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
 
     reloaded = load_device_from_storage(yaml_path, previous=previous)
 
     assert reloaded.api_encrypted is True
-    assert reloaded.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert reloaded.runtime_state.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
@@ -2744,12 +2739,12 @@ def test_load_device_api_encrypted_stays_false_for_plaintext_wire(tmp_path: Path
     write_storage_json(tmp_path, "kitchen.yaml")
 
     previous = load_device_from_storage(yaml_path)
-    previous.api_encryption_active = ""  # mDNS confirmed plaintext
+    previous.runtime_state.api_encryption_active = ""  # mDNS confirmed plaintext
 
     reloaded = load_device_from_storage(yaml_path, previous=previous)
 
     assert reloaded.api_encrypted is False
-    assert reloaded.api_encryption_active == ""
+    assert reloaded.runtime_state.api_encryption_active == ""
 
 
 def test_every_board_body_generates_creatable_platform_block() -> None:

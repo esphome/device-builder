@@ -87,7 +87,7 @@ async def test_non_api_device_marked_online_when_mdns_resolves() -> None:
 
     await shared.resolve_non_api_mdns_targets(monitor)
 
-    assert devices[0].state == DeviceState.ONLINE
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
     assert devices[0].ip == "192.168.1.42"
     resolver.assert_awaited_once()
 
@@ -105,7 +105,7 @@ async def test_api_device_skipped() -> None:
     await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_not_called()
-    assert devices[0].state == DeviceState.UNKNOWN
+    assert devices[0].runtime_state.state == DeviceState.UNKNOWN
 
 
 async def test_uncompiled_device_skipped() -> None:
@@ -153,7 +153,7 @@ async def test_resolve_miss_is_silent_no_offline_branch_by_design() -> None:
 
     await shared.resolve_non_api_mdns_targets(monitor)
 
-    assert devices[0].state == DeviceState.UNKNOWN  # not OFFLINE
+    assert devices[0].runtime_state.state == DeviceState.UNKNOWN  # not OFFLINE
     assert devices[0].ip == ""
     # Source slot stays empty so ping (priority 1) can claim
     # later — the resolve hasn't earned ownership yet.
@@ -185,12 +185,12 @@ async def test_resolve_exception_does_not_propagate() -> None:
 
     # bedroom resolves cleanly even though kitchen blew up.
     bedroom = next(d for d in devices if d.name == "bedroom")
-    assert bedroom.state == DeviceState.ONLINE
+    assert bedroom.runtime_state.state == DeviceState.ONLINE
     assert bedroom.ip == "192.168.1.50"
     # kitchen stayed UNKNOWN — the exception didn't get re-raised
     # as a state mutation.
     kitchen = next(d for d in devices if d.name == "kitchen")
-    assert kitchen.state == DeviceState.UNKNOWN
+    assert kitchen.runtime_state.state == DeviceState.UNKNOWN
 
 
 async def test_no_zeroconf_is_a_noop() -> None:
@@ -201,7 +201,7 @@ async def test_no_zeroconf_is_a_noop() -> None:
 
     # No exception, no state change.
     await shared.resolve_non_api_mdns_targets(monitor)
-    assert devices[0].state == DeviceState.UNKNOWN
+    assert devices[0].runtime_state.state == DeviceState.UNKNOWN
 
 
 async def test_already_online_via_higher_priority_skipped() -> None:
@@ -238,7 +238,7 @@ async def test_resolve_hit_locks_out_ping() -> None:
 
     await shared.resolve_non_api_mdns_targets(monitor)
 
-    assert devices[0].state == DeviceState.ONLINE
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
     assert monitor.priority_for("kitchen") == "mdns"
     assert shared.should_ping(monitor, devices[0]) is False
 
@@ -258,7 +258,7 @@ async def test_offline_via_ping_still_resolved() -> None:
     await shared.resolve_non_api_mdns_targets(monitor)
 
     resolver.assert_awaited_once()
-    assert devices[0].state == DeviceState.ONLINE
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
 
 
 async def test_resolve_picks_ipv4_for_apply_ip() -> None:
@@ -278,7 +278,7 @@ async def test_resolve_picks_ipv4_for_apply_ip() -> None:
     await shared.resolve_non_api_mdns_targets(monitor)
 
     assert devices[0].ip == "192.168.1.42"
-    assert devices[0].ip_addresses == ["fe80::1%en0", "192.168.1.42", "fe80::2%en0"]
+    assert devices[0].runtime_state.ip_addresses == ["fe80::1%en0", "192.168.1.42", "fe80::2%en0"]
 
 
 async def test_no_candidates_skips_zeroconf_call() -> None:

@@ -17,6 +17,7 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 import json
 import re
@@ -57,6 +58,7 @@ from esphome_device_builder.models import (
     AdoptableDevice,
     BoardCatalogResponse,
     Device,
+    DeviceRuntimeState,
     DeviceState,
     EventType,
     QueueStatus,
@@ -899,10 +901,12 @@ class RecordingMonitorCallbacks:
         self._devices = devices
 
     def _flip(self, name: str, attr: str, value: Any) -> None:
-        """Write *value* to *attr* on every matching device."""
+        """Write *value* to *attr* on every matching device (runtime fields via runtime_state)."""
+        runtime_fields = {f.name for f in dataclasses.fields(DeviceRuntimeState)}
         for device in self._devices:
             if device.name == name:
-                setattr(device, attr, value)
+                target = device.runtime_state if attr in runtime_fields else device
+                setattr(target, attr, value)
 
     def calls_for(self, callback_name: str) -> list[tuple[Any, ...]]:
         """Return every recorded call whose first element equals *callback_name*."""
@@ -971,15 +975,22 @@ def make_state_monitor_with_callbacks(
 
 
 def make_device(name: str = "kitchen", **overrides: Any) -> Device:
-    """Build a ``Device`` deriving friendly_name / configuration / address from *name*."""
+    """
+    Build a ``Device`` deriving friendly_name / configuration / address from *name*.
+
+    Monitor-observed kwargs (``state``, ``deployed_version``, …) route into
+    ``runtime_state`` so call sites stay flat.
+    """
     base: dict[str, Any] = {
         "name": name,
         "friendly_name": name.title(),
         "configuration": f"{name}.yaml",
         "address": f"{name}.local",
-        "state": DeviceState.UNKNOWN,
     }
     base.update(overrides)
+    runtime_fields = {f.name for f in dataclasses.fields(DeviceRuntimeState)}
+    runtime_kwargs = {k: base.pop(k) for k in list(base) if k in runtime_fields}
+    base.setdefault("runtime_state", DeviceRuntimeState(**runtime_kwargs))
     return Device(**base)
 
 

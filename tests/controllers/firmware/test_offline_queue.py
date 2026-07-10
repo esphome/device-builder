@@ -52,8 +52,8 @@ def _completed(job: FirmwareJob) -> Event:
 def mock_device() -> MagicMock:
     """Mock device for offline update tests."""
     mock = MagicMock()
-    mock.state = DeviceState.OFFLINE
-    mock.queued_update = False
+    mock.runtime_state.state = DeviceState.OFFLINE
+    mock.runtime_state.queued_update = False
     mock.name = "test_device"
     mock.configuration = "test_device.yaml"
     # Real bools so install_bulk's stale-first sort doesn't touch
@@ -92,7 +92,7 @@ async def test_install_queues_deferred_compile_for_offline_device(
     mock_device: MagicMock,
 ) -> None:
     """Test that offline devices queue a COMPILE job marked as a deferred install."""
-    mock_device.state = DeviceState.OFFLINE
+    mock_device.runtime_state.state = DeviceState.OFFLINE
 
     with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue:
         await firmware_controller.install(configuration="test_device.yaml")
@@ -163,7 +163,7 @@ async def test_install_bootloader_refuses_offline_device(
     mock_device: MagicMock,
 ) -> None:
     """A bootloader install never defers — the wake dispatch flashes the app, not the bootloader."""
-    mock_device.state = DeviceState.OFFLINE
+    mock_device.runtime_state.state = DeviceState.OFFLINE
 
     with pytest.raises(CommandError) as err:
         await firmware_controller.install(configuration="test_device.yaml", bootloader=True)
@@ -193,7 +193,7 @@ async def test_install_bootloader_refuses_offline_device_with_explicit_target(
     mock_device: MagicMock,
 ) -> None:
     """An explicit IP target doesn't bypass the OFFLINE bootloader rejection."""
-    mock_device.state = DeviceState.OFFLINE
+    mock_device.runtime_state.state = DeviceState.OFFLINE
 
     with pytest.raises(CommandError) as err:
         await firmware_controller.install(
@@ -210,7 +210,7 @@ async def test_compile_does_not_mark_deferred(
     mock_device: MagicMock,
 ) -> None:
     """Test that a plain compile does NOT mark the job as a deferred install."""
-    mock_device.state = DeviceState.OFFLINE
+    mock_device.runtime_state.state = DeviceState.OFFLINE
 
     with patch.object(firmware_controller, "_enqueue", new_callable=AsyncMock) as mock_enqueue:
         await firmware_controller.compile(configuration="test_device.yaml")
@@ -226,8 +226,8 @@ async def test_clear_queued_update_clears_flag(
     mock_device: MagicMock,
 ) -> None:
     """Test that clear_queued_update command resets the queued_update flag."""
-    mock_device.state = DeviceState.OFFLINE
-    mock_device.queued_update = True
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    mock_device.runtime_state.queued_update = True
 
     await firmware_controller.clear_queued_update(configuration="test_device.yaml")
 
@@ -277,7 +277,7 @@ def test_set_queued_update_persists_and_fires(mock_device: MagicMock) -> None:
 
     assert controller.set_queued_update("test_device.yaml") is True
 
-    assert mock_device.queued_update is True
+    assert mock_device.runtime_state.queued_update is True
     controller._metadata_store.update.assert_called_once_with(
         "test_device.yaml", queued_update=True
     )
@@ -285,12 +285,12 @@ def test_set_queued_update_persists_and_fires(mock_device: MagicMock) -> None:
 
 
 def test_clear_queued_update_persists_and_fires(mock_device: MagicMock) -> None:
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
     controller = _devices_controller_with(mock_device)
 
     assert controller.clear_queued_update("test_device.yaml") is True
 
-    assert mock_device.queued_update is False
+    assert mock_device.runtime_state.queued_update is False
     controller._metadata_store.update.assert_called_once_with(
         "test_device.yaml", queued_update=False
     )
@@ -299,7 +299,7 @@ def test_clear_queued_update_persists_and_fires(mock_device: MagicMock) -> None:
 
 def test_set_queued_update_dedupes_same_value(mock_device: MagicMock) -> None:
     """A no-op flip neither persists nor fires."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
     controller = _devices_controller_with(mock_device)
 
     assert controller.set_queued_update("test_device.yaml") is False
@@ -313,7 +313,7 @@ def test_set_queued_update_skips_unknown_configuration(mock_device: MagicMock) -
 
     assert controller.set_queued_update("other_device.yaml") is False
 
-    assert mock_device.queued_update is False
+    assert mock_device.runtime_state.queued_update is False
     controller._metadata_store.update.assert_not_called()
     controller._fire_device_updated.assert_not_called()
 
@@ -324,7 +324,7 @@ def test_handle_device_wake_triggers_upload(
     mock_device: MagicMock,
 ) -> None:
     """Test that an online event for a device with a queued update triggers the upload."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
 
     firmware_controller._handle_device_wake(_wake_event("test_device.yaml"))
 
@@ -340,7 +340,7 @@ def test_handle_device_wake_ignored_if_offline(
     mock_device: MagicMock,
 ) -> None:
     """Test that non-ONLINE state changes are ignored."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
 
     firmware_controller._handle_device_wake(
         _wake_event("test_device.yaml", state=DeviceState.OFFLINE)
@@ -354,7 +354,7 @@ def test_handle_device_wake_ignored_if_no_flag(
     mock_device: MagicMock,
 ) -> None:
     """Test that online devices without the queued_update flag are ignored."""
-    mock_device.queued_update = False
+    mock_device.runtime_state.queued_update = False
 
     firmware_controller._handle_device_wake(_wake_event("test_device.yaml"))
 
@@ -374,7 +374,7 @@ def test_wake_flap_dispatches_a_single_upload(
     mock_device: MagicMock,
 ) -> None:
     """A flap's second wake sees the synchronously-created job and backs off."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
     event = _wake_event("test_device.yaml")
 
     firmware_controller._handle_device_wake(event)
@@ -389,7 +389,7 @@ def test_handle_device_wake_skips_active_flash(
     mock_device: MagicMock,
 ) -> None:
     """A wake bouncing mid-flash must not supersede the upload already running."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
     in_flight = _job(JobType.UPLOAD, JobStatus.RUNNING, port="OTA")
     firmware_controller.state.jobs[in_flight.job_id] = in_flight
 
@@ -403,7 +403,7 @@ def test_handle_device_wake_triggers_after_rename(
     mock_device: MagicMock,
 ) -> None:
     """The arm is the device's persisted flag, so it survives a rename's new filename."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
     mock_device.configuration = "renamed_device.yaml"
     mock_device.name = "renamed_device"
 
@@ -419,7 +419,7 @@ def test_completed_deferred_compile_arms_offline_device(
     mock_device: MagicMock,
 ) -> None:
     """A finished deferred compile for a still-offline device arms it for wake."""
-    mock_device.state = DeviceState.OFFLINE
+    mock_device.runtime_state.state = DeviceState.OFFLINE
 
     firmware_controller._handle_job_completed(
         _completed(_job(JobType.COMPILE, JobStatus.COMPLETED, deferred=True))
@@ -433,7 +433,7 @@ def test_completed_plain_compile_does_not_arm(
     mock_device: MagicMock,
 ) -> None:
     """A plain compile job must NOT arm an auto-flash."""
-    mock_device.state = DeviceState.OFFLINE
+    mock_device.runtime_state.state = DeviceState.OFFLINE
 
     firmware_controller._handle_job_completed(
         _completed(_job(JobType.COMPILE, JobStatus.COMPLETED))
@@ -447,7 +447,7 @@ def test_completed_deferred_compile_flashes_online_device_now(
     mock_device: MagicMock,
 ) -> None:
     """A finished deferred compile for an already-online device arms and flashes."""
-    mock_device.state = DeviceState.ONLINE
+    mock_device.runtime_state.state = DeviceState.ONLINE
 
     firmware_controller._handle_job_completed(
         _completed(_job(JobType.COMPILE, JobStatus.COMPLETED, deferred=True))
@@ -464,7 +464,7 @@ def test_completed_ota_upload_disarms(
     mock_device: MagicMock,
 ) -> None:
     """A delivered OTA upload clears the queued update flag."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
 
     firmware_controller._handle_job_completed(
         _completed(_job(JobType.UPLOAD, JobStatus.COMPLETED, port="OTA"))
@@ -478,7 +478,7 @@ def test_failed_ota_upload_keeps_the_device_armed(
     mock_device: MagicMock,
 ) -> None:
     """A failed OTA upload leaves the flag set so the next wake retries."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
 
     firmware_controller._handle_ota_upload_completion(
         _job(JobType.UPLOAD, JobStatus.FAILED, port="OTA")
@@ -492,7 +492,7 @@ def test_completed_ota_upload_for_unarmed_device_is_ignored(
     mock_device: MagicMock,
 ) -> None:
     """A regular install's OTA upload must not touch the queue machinery."""
-    mock_device.queued_update = False
+    mock_device.runtime_state.queued_update = False
 
     firmware_controller._handle_job_completed(
         _completed(_job(JobType.UPLOAD, JobStatus.COMPLETED, port="OTA"))
@@ -567,7 +567,7 @@ async def test_clean_disarms_queued_update(
     mock_device: MagicMock,
 ) -> None:
     """A wiped build tree can't flash; clean must clear the arm."""
-    mock_device.queued_update = True
+    mock_device.runtime_state.queued_update = True
 
     with patch(
         "esphome_device_builder.controllers.firmware.controller.clean_mod.clean",
@@ -584,9 +584,11 @@ async def test_reset_build_env_disarms_all_queued_updates(
     mock_device: MagicMock,
 ) -> None:
     """The global wipe clears every device's arm, not just one config's."""
-    mock_device.queued_update = True
-    other = MagicMock(configuration="other.yaml", queued_update=True)
-    unarmed = MagicMock(configuration="idle.yaml", queued_update=False)
+    mock_device.runtime_state.queued_update = True
+    other = MagicMock(configuration="other.yaml")
+    other.runtime_state.queued_update = True
+    unarmed = MagicMock(configuration="idle.yaml")
+    unarmed.runtime_state.queued_update = False
     firmware_controller._db.devices.get_devices.return_value = [mock_device, other, unarmed]
 
     with (

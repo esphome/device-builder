@@ -24,7 +24,7 @@ from esphome_device_builder.controllers._device_state_monitor._state import Moni
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceRuntimeState, DeviceState
 
 from .conftest import RecordingMonitorCallbacks
 
@@ -186,7 +186,7 @@ async def test_apply_service_info_claims_online() -> None:
         friendly_name="Kitchen",
         configuration="kitchen.yaml",
         address="kitchen.local",
-        state=DeviceState.UNKNOWN,
+        runtime_state=DeviceRuntimeState(state=DeviceState.UNKNOWN),
     )
     monitor._get_devices = lambda: [device]
     monitor._get_devices_by_name = lambda name: [device] if device.name == name else []
@@ -228,7 +228,7 @@ async def test_apply_service_info_routes_mac_txt_to_apply_mac_address() -> None:
         friendly_name="Kitchen",
         configuration="kitchen.yaml",
         address="kitchen.local",
-        state=DeviceState.UNKNOWN,
+        runtime_state=DeviceRuntimeState(state=DeviceState.UNKNOWN),
     )
     monitor._get_devices = lambda: [device]
     monitor._get_devices_by_name = lambda name: [device] if device.name == name else []

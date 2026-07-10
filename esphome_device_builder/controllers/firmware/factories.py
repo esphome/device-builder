@@ -175,7 +175,7 @@ async def enqueue_install_or_defer(
     """
     device = controller._device_for_configuration(configuration)
     # Deferral gated ONLY on OFFLINE, avoiding UNKNOWN startup states.
-    offline = device is not None and device.state == DeviceState.OFFLINE
+    offline = device is not None and device.runtime_state.state == DeviceState.OFFLINE
     # An explicit IP/hostname target doesn't make a known-OFFLINE
     # device reachable, so the bootloader refusal skips the port gate.
     if offline and flash_bootloader:

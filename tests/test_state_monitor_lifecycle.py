@@ -473,7 +473,7 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Removed,
         )
-        assert device.state == DeviceState.OFFLINE
+        assert device.runtime_state.state == DeviceState.OFFLINE
         assert device.ip == ""
         assert "kitchen" not in monitor.state.state_source
     finally:
@@ -552,12 +552,12 @@ async def test_dispatch_added_cache_hit_propagates_full_txt_bundle(
             ServiceStateChange.Added,
         )
 
-        assert device.state == DeviceState.ONLINE
+        assert device.runtime_state.state == DeviceState.ONLINE
         assert device.ip == "10.0.0.5"
-        assert device.ip_addresses == ["10.0.0.5", "fe80::1%en0"]
-        assert device.deployed_version == "2026.5.0"
-        assert device.deployed_config_hash == "abcd1234"
-        assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+        assert device.runtime_state.ip_addresses == ["10.0.0.5", "fe80::1%en0"]
+        assert device.runtime_state.deployed_version == "2026.5.0"
+        assert device.runtime_state.deployed_config_hash == "abcd1234"
+        assert device.runtime_state.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
         assert monitor._tasks == set()
     finally:
         await _stop_and_drain(monitor)
@@ -591,7 +591,7 @@ async def test_dispatch_added_cache_hit_falls_back_to_v6_when_no_v4(
             ServiceStateChange.Added,
         )
         assert device.ip == "fe80::1%en0"
-        assert device.ip_addresses == ["fe80::1%en0"]
+        assert device.runtime_state.ip_addresses == ["fe80::1%en0"]
     finally:
         await _stop_and_drain(monitor)
 
@@ -625,7 +625,7 @@ async def test_dispatch_added_with_explicit_empty_api_encryption_pushes_empty_st
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert device.api_encryption_active == ""
+        assert device.runtime_state.api_encryption_active == ""
     finally:
         await _stop_and_drain(monitor)
 
@@ -667,7 +667,7 @@ async def test_dispatch_added_without_api_encryption_txt_preserves_last_known(
             ServiceStateChange.Added,
         )
         # Truthy survives.
-        assert device.api_encryption_active == truthy
+        assert device.runtime_state.api_encryption_active == truthy
     finally:
         await _stop_and_drain(monitor)
 
@@ -701,7 +701,7 @@ async def test_dispatch_added_without_api_encryption_txt_keeps_unknown_at_none(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert device.api_encryption_active is None
+        assert device.runtime_state.api_encryption_active is None
     finally:
         await _stop_and_drain(monitor)
 
@@ -752,7 +752,7 @@ async def test_dispatch_added_api_encryption_absent_with_other_content_clears_to
         )
         # Wire authoritatively says no encryption — flip to
         # confirmed-plaintext so the lock indicator follows.
-        assert device.api_encryption_active == ""
+        assert device.runtime_state.api_encryption_active == ""
     finally:
         await _stop_and_drain(monitor)
 
@@ -796,7 +796,7 @@ async def test_dispatch_added_api_encryption_bare_key_pushes_empty_string(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert device.api_encryption_active == ""
+        assert device.runtime_state.api_encryption_active == ""
     finally:
         await _stop_and_drain(monitor)
 
@@ -880,7 +880,8 @@ async def test_dispatch_added_sparse_announce_preserves_last_known(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Added,
         )
-        assert getattr(device, device_field) == stored_value, (
+        target = device if device_field == "mac_address" else device.runtime_state
+        assert getattr(target, device_field) == stored_value, (
             f"{device_field} wiped by sparse announce ({case_id})"
         )
     finally:
@@ -918,7 +919,7 @@ async def test_dispatch_added_cache_miss_resolves_and_applies(
         )
         assert len(monitor._tasks) == 1
         await asyncio.gather(*list(monitor._tasks))
-        assert device.deployed_version == "2026.5.0"
+        assert device.runtime_state.deployed_version == "2026.5.0"
         assert device.ip == "10.0.0.5"
     finally:
         await _stop_and_drain(monitor)
@@ -950,8 +951,8 @@ async def test_dispatch_added_cache_miss_skips_apply_when_request_returns_false(
             ServiceStateChange.Added,
         )
         await asyncio.gather(*list(monitor._tasks))
-        assert device.deployed_version == ""
-        assert device.state == DeviceState.UNKNOWN
+        assert device.runtime_state.deployed_version == ""
+        assert device.runtime_state.state == DeviceState.UNKNOWN
         assert "kitchen" not in monitor.state.state_source
     finally:
         await _stop_and_drain(monitor)
@@ -984,8 +985,8 @@ async def test_dispatch_added_cache_miss_swallows_resolve_exception(
         )
         await asyncio.gather(*list(monitor._tasks), return_exceptions=True)
         # No raise reached the test; an unresolved announce doesn't claim ONLINE.
-        assert device.deployed_version == ""
-        assert device.state == DeviceState.UNKNOWN
+        assert device.runtime_state.deployed_version == ""
+        assert device.runtime_state.state == DeviceState.UNKNOWN
         assert "kitchen" not in monitor.state.state_source
     finally:
         await _stop_and_drain(monitor)
@@ -1003,7 +1004,7 @@ async def test_dispatch_added_phantom_ptr_does_not_revive_ping_offline(
     device = _device()
     monitor, _callbacks = _make_monitor([device])
     monitor.apply("kitchen", DeviceState.OFFLINE, "ping")
-    assert device.state == DeviceState.OFFLINE
+    assert device.runtime_state.state == DeviceState.OFFLINE
 
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
@@ -1019,7 +1020,7 @@ async def test_dispatch_added_phantom_ptr_does_not_revive_ping_offline(
             ServiceStateChange.Added,
         )
         await asyncio.gather(*list(monitor._tasks))
-        assert device.state == DeviceState.OFFLINE
+        assert device.runtime_state.state == DeviceState.OFFLINE
         assert monitor.state.state_source["kitchen"] == "ping"
         assert shared.should_ping(monitor, device) is True
     finally:
@@ -1400,7 +1401,7 @@ async def test_start_drives_ping_pipeline_to_online_state(
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
         await _let_ping_loop_run_briefly(monitor)
-        assert device.state == DeviceState.ONLINE
+        assert device.runtime_state.state == DeviceState.ONLINE
     finally:
         await _stop_and_drain(monitor)
 
@@ -1458,7 +1459,7 @@ async def test_start_marks_offline_on_icmp_exception(
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
         await _let_ping_loop_run_briefly(monitor)
-        assert device.state == DeviceState.OFFLINE
+        assert device.runtime_state.state == DeviceState.OFFLINE
     finally:
         await _stop_and_drain(monitor)
 
@@ -1492,7 +1493,7 @@ async def test_start_skips_ping_for_cached_dns_failures(
         finally:
             await _stop_and_drain(monitor)
 
-    assert device.state == DeviceState.OFFLINE
+    assert device.runtime_state.state == DeviceState.OFFLINE
     assert icmp_called == []
     assert any("cached DNS failure" in rec.message for rec in caplog.records)
 
@@ -1727,7 +1728,7 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
         await _let_ping_loop_run_briefly(monitor)
-        assert device.state == DeviceState.ONLINE
+        assert device.runtime_state.state == DeviceState.ONLINE
         assert device.ip == "fe80::1%en0"
     finally:
         await _stop_and_drain(monitor)
@@ -1765,7 +1766,7 @@ def test_apply_ip_addresses_fires_when_list_changes_but_primary_does_not() -> No
         ("on_ip_change", "kitchen", "10.0.0.1", ["10.0.0.1", "fe80::1%en0"]),
     ]
     assert device.ip == "10.0.0.1"
-    assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
+    assert device.runtime_state.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
 
 
 def test_apply_ip_preserves_multi_ip_list_when_primary_already_known() -> None:
@@ -1784,7 +1785,7 @@ def test_apply_ip_preserves_multi_ip_list_when_primary_already_known() -> None:
 
     assert callbacks.calls_for("on_ip_change") == []
     assert device.ip == "10.0.0.1"
-    assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
+    assert device.runtime_state.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
 
 
 def test_apply_ip_replaces_list_when_primary_is_new() -> None:
@@ -1803,4 +1804,4 @@ def test_apply_ip_replaces_list_when_primary_is_new() -> None:
         ("on_ip_change", "kitchen", "10.0.0.99", ["10.0.0.99"]),
     ]
     assert device.ip == "10.0.0.99"
-    assert device.ip_addresses == ["10.0.0.99"]
+    assert device.runtime_state.ip_addresses == ["10.0.0.99"]

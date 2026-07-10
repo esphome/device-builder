@@ -869,7 +869,7 @@ def _build_state_monitor() -> tuple[
         transitions.append((name, state, source))
         for device in devices:
             if device.name == name:
-                device.state = state
+                device.runtime_state.state = state
 
     monitor = DeviceStateMonitor(
         get_devices=lambda: devices,

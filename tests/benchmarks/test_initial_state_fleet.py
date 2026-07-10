@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pytest_codspeed import BenchmarkFixture
 
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceRuntimeState, DeviceState
 
 
 def _make_devices(n: int) -> list[Device]:
@@ -24,12 +24,14 @@ def _make_devices(n: int) -> list[Device]:
                 target_platform="esp32",
                 address=f"{name}.local",
                 ip=f"192.168.1.{index % 250 + 2}",
-                ip_addresses=[f"192.168.1.{index % 250 + 2}", f"fe80::{index:x}%wlan0"],
                 web_port=None,
                 current_version="2026.5.0",
-                deployed_version="2026.5.0",
                 expected_config_hash=f"{index:08x}",
-                state=DeviceState.ONLINE,
+                runtime_state=DeviceRuntimeState(
+                    state=DeviceState.ONLINE,
+                    ip_addresses=[f"192.168.1.{index % 250 + 2}", f"fe80::{index:x}%wlan0"],
+                    deployed_version="2026.5.0",
+                ),
             )
         )
     return devices

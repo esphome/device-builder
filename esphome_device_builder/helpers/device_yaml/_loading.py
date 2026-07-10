@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import MISSING, Field, fields
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,7 +12,7 @@ from esphome.const import CONF_PACKAGES
 from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
-from ...models import RUNTIME_CARRY_FIELDS, Device
+from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
@@ -195,26 +195,31 @@ def load_device_from_storage(
     if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
         bin_mtime = storage.firmware_bin_path.stat().st_mtime
 
-    carried = _carry_runtime_state(
-        previous,
-        deployed_config_hash=deployed_config_hash,
-        deployed_version=deployed_version,
-        api_encryption_active=api_encryption_active,
-        queued_update=queued_update,
+    # In-memory *previous* wins over the store kwargs (an apply since the
+    # last scan is fresher than disk). Shallow-copy so RELOADED change
+    # handlers can still diff the new device against *previous*.
+    runtime = (
+        replace(previous.runtime_state, ip_addresses=list(previous.runtime_state.ip_addresses))
+        if previous
+        else DeviceRuntimeState(
+            deployed_config_hash=deployed_config_hash,
+            deployed_version=deployed_version,
+            api_encryption_active=api_encryption_active,
+            queued_update=queued_update,
+        )
     )
-    deployed_config_hash = carried["deployed_config_hash"]
-    deployed_version = carried["deployed_version"]
-    api_encryption_active = carried["api_encryption_active"]
 
     has_pending = compute_has_pending_changes(
         yaml_mtime=yaml_mtime,
         bin_mtime=bin_mtime,
         expected_config_hash=expected_config_hash,
-        deployed_config_hash=deployed_config_hash,
+        deployed_config_hash=runtime.deployed_config_hash,
     )
-    pending_via_hash = pending_changes_via_hash(expected_config_hash, deployed_config_hash)
+    pending_via_hash = pending_changes_via_hash(expected_config_hash, runtime.deployed_config_hash)
 
-    update_available = bool(deployed_version and deployed_version != const.__version__)
+    update_available = bool(
+        runtime.deployed_version and runtime.deployed_version != const.__version__
+    )
 
     # ``Device.target_platform`` is the lowercase platform *key*
     # (``esp32``, ``esp8266``, ``rp2040``, …) — the value the
@@ -310,10 +315,10 @@ def load_device_from_storage(
     api_encrypted = (
         get_api_encryption_block(resolved_config) is not None
         or yaml_has_api_encryption(yaml_content)
-        or bool(api_encryption_active)
+        or bool(runtime.api_encryption_active)
     )
     return Device(
-        **carried,
+        runtime_state=runtime,
         name=name,
         friendly_name=friendly_name,
         configuration=filename,
@@ -537,34 +542,3 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
         _LOGGER.debug("Validated-config cache %s did not parse (%s)", path, type(err).__name__)
         return False
     return isinstance(config, dict) and extract_ota_partition_access(config)
-
-
-_CARRY_FIELD_SPECS: dict[str, Field[Any]] = {
-    f.name: f for f in fields(Device) if f.name in RUNTIME_CARRY_FIELDS
-}
-
-
-def _carry_runtime_state(previous: Device | None, **overrides: Any) -> dict[str, Any]:
-    """
-    Resolve the monitor-observed fields for a Device rebuild.
-
-    In-memory *previous* wins (an apply since the last scan is fresher
-    than disk); *overrides* seed the store-backed fields when there is
-    no previous, and the rest fall back to their declared defaults.
-    """
-    if not overrides.keys() <= _CARRY_FIELD_SPECS.keys():
-        unknown = sorted(overrides.keys() - _CARRY_FIELD_SPECS.keys())
-        raise ValueError(f"not runtime-carry fields: {unknown}")
-    if previous is not None:
-        return {
-            name: list(value) if isinstance(value := getattr(previous, name), list) else value
-            for name in _CARRY_FIELD_SPECS
-        }
-    return {
-        name: overrides[name] if name in overrides else _declared_default(spec)
-        for name, spec in _CARRY_FIELD_SPECS.items()
-    }
-
-
-def _declared_default(spec: Field[Any]) -> Any:
-    return spec.default_factory() if spec.default_factory is not MISSING else spec.default

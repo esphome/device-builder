@@ -100,7 +100,7 @@ async def test_on_api_encryption_change_updates_device_and_fires_event() -> None
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
-    assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert device.runtime_state.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
@@ -118,7 +118,7 @@ async def test_on_api_encryption_change_records_empty_string() -> None:
 
     controller._on_api_encryption_change("kitchen", "")
 
-    assert device.api_encryption_active == ""
+    assert device.runtime_state.api_encryption_active == ""
     assert len(captured) == 1
 
 
@@ -165,7 +165,7 @@ async def test_on_api_encryption_change_promotes_api_encrypted_when_yaml_missed_
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
     assert device.api_encrypted is True
-    assert device.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert device.runtime_state.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
     assert len(captured) == 1
 
 
@@ -217,7 +217,7 @@ async def test_on_api_encryption_change_empty_does_not_clear_api_encrypted() -> 
     # ``api_encryption_active`` updated to the new (empty) value;
     # ``api_encrypted`` stayed truthy (state machine handles the
     # mismatch vs pending distinction from there).
-    assert device.api_encryption_active == ""
+    assert device.runtime_state.api_encryption_active == ""
     assert device.api_encrypted is True
     assert len(captured) == 1
 

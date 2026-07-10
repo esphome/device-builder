@@ -86,7 +86,7 @@ def test_reconcile_works_without_a_cached_address_record() -> None:
 
     monitor.reconcile_from_mdns_cache("kitchen")
 
-    assert device.deployed_version == "2026.6.4"
+    assert device.runtime_state.deployed_version == "2026.6.4"
 
 
 def test_reconcile_never_flips_an_offline_device_online() -> None:
@@ -97,7 +97,7 @@ def test_reconcile_never_flips_an_offline_device_online() -> None:
 
     monitor.reconcile_from_mdns_cache("kitchen")
 
-    assert device.state == DeviceState.OFFLINE
+    assert device.runtime_state.state == DeviceState.OFFLINE
     assert callbacks.calls_for("on_state_change") == []
 
 
@@ -145,10 +145,10 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
 
     await monitor._api_info._sweep()
 
-    assert device.deployed_version == "2026.6.4"
-    assert device.deployed_config_hash == "abcd1234"
+    assert device.runtime_state.deployed_version == "2026.6.4"
+    assert device.runtime_state.deployed_config_hash == "abcd1234"
     assert device.mac_address == "94:C9:60:1F:8C:F1"
-    assert device.state == DeviceState.ONLINE
+    assert device.runtime_state.state == DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
     fetch.assert_not_called()
 

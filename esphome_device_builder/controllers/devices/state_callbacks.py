@@ -30,12 +30,12 @@ def _apply_logged_observation(
     log_label: str,
     on_change: Callable[[Device], None] | None = None,
 ) -> None:
-    """Apply *value* to ``device.<field_name>``; log, persist, fire DEVICE_UPDATED."""
+    """Apply *value* to ``device.runtime_state.<field_name>``; log, persist, fire DEVICE_UPDATED."""
     for device in controller._devices_by_name(name):
-        old = getattr(device, field_name)
+        old = getattr(device.runtime_state, field_name)
         if old == value:
             continue
-        setattr(device, field_name, value)
+        setattr(device.runtime_state, field_name, value)
         if on_change is not None:
             on_change(device)
         log = _LOGGER.info if old else _LOGGER.debug
@@ -56,8 +56,8 @@ def on_state_change(
 ) -> None:
     """Forward state monitor updates onto the event bus."""
     for device in controller._devices_by_name(name):
-        old_state = device.state
-        device.state = state
+        old_state = device.runtime_state.state
+        device.runtime_state.state = state
         _LOGGER.info(
             "Device %s (%s): %s → %s (via %s)",
             name,
@@ -82,9 +82,9 @@ def on_state_change(
 def on_source_change(controller: DevicesController, name: str, source: ReachabilitySource) -> None:
     """Update ``active_source`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
     for device in controller._devices_by_name(name):
-        if device.active_source == source:
+        if device.runtime_state.active_source == source:
             continue
-        device.active_source = source
+        device.runtime_state.active_source = source
         controller._fire_device_updated(device)
 
 
@@ -96,11 +96,11 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
     """
     new_addresses = list(addresses)
     for device in controller._devices_by_name(name):
-        if device.ip == ip and device.ip_addresses == new_addresses:
+        if device.ip == ip and device.runtime_state.ip_addresses == new_addresses:
             continue
         ip_changed = device.ip != ip
         device.ip = ip
-        device.ip_addresses = list(new_addresses)
+        device.runtime_state.ip_addresses = list(new_addresses)
         _LOGGER.debug(
             "Device %s (%s) IPs: %s",
             name,
@@ -152,9 +152,9 @@ def on_api_encryption_change(controller: DevicesController, name: str, encryptio
     """
     for device in controller._devices_by_name(name):
         wire_promotes_encrypted = bool(encryption) and not device.api_encrypted
-        if device.api_encryption_active == encryption and not wire_promotes_encrypted:
+        if device.runtime_state.api_encryption_active == encryption and not wire_promotes_encrypted:
             continue
-        device.api_encryption_active = encryption
+        device.runtime_state.api_encryption_active = encryption
         if wire_promotes_encrypted:
             device.api_encrypted = True
         # ``set_field`` (not ``update``): empty string is the

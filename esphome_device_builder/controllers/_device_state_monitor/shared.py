@@ -42,7 +42,7 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     devices always get pinged so off-network hosts mDNS can't reach
     have a path to come online via DNS + ping.
     """
-    if device.state != DeviceState.ONLINE:
+    if device.runtime_state.state != DeviceState.ONLINE:
         return True
     source = monitor.state.state_source.get(device.name, ReachabilitySource.UNKNOWN)
     return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]

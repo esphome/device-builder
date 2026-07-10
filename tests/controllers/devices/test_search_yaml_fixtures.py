@@ -42,7 +42,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceRuntimeState, DeviceState
 
 if TYPE_CHECKING:
     from .conftest import MakeControllerFactory
@@ -73,7 +73,7 @@ def _seed_fleet(tmp_path: Path) -> list[Device]:
                 friendly_name=name.replace("_", " ").title(),
                 configuration=fixture.name,
                 address=f"{name}.local",
-                state=DeviceState.ONLINE,
+                runtime_state=DeviceRuntimeState(state=DeviceState.ONLINE),
             )
         )
     return devices

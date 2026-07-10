@@ -199,14 +199,14 @@ def test_set_queued_update_updates_and_persists(make_controller, tmp_path):
     """Flipping the queued flag updates memory, disk, and the frontend."""
     controller = make_controller(config_dir=tmp_path)
     dev = make_device("kitchen")
-    dev.queued_update = False
+    dev.runtime_state.queued_update = False
     controller._scanner.devices = [dev]
     controller._metadata_store = MagicMock()
     controller._fire_device_updated = MagicMock()
 
     assert controller.set_queued_update("kitchen.yaml") is True
 
-    assert dev.queued_update is True
+    assert dev.runtime_state.queued_update is True
     controller._metadata_store.update.assert_called_once_with("kitchen.yaml", queued_update=True)
     controller._fire_device_updated.assert_called_once_with(dev)
 

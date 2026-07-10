@@ -172,7 +172,7 @@ class PingSource:
                 pingable.append(device)
                 continue
             if monitor.state.dns_cache.has_cached_failure(device.address) and (
-                not device.ip_addresses
+                not device.runtime_state.ip_addresses
             ):
                 # The ``.local`` won't resolve and we have no known IP.
                 # Don't hand the bare hostname to icmplib (it would hammer
@@ -202,7 +202,7 @@ class PingSource:
                 # mDNS-less devices: the ``.local`` won't resolve but a
                 # prior MQTT/DNS observation left a usable IP. Ping that so
                 # ping can confirm a device the network won't resolve.
-                addresses = list(device.ip_addresses)
+                addresses = list(device.runtime_state.ip_addresses)
             if not addresses:
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 return
@@ -213,7 +213,7 @@ class PingSource:
             # so the pinged IP and the drawer's primary stay in lockstep.
             target = _pick_ipv4(addresses)
             # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
-            # and the full ``device.ip_addresses`` list for ``.local`` hosts
+            # and the full ``runtime_state.ip_addresses`` list for ``.local`` hosts
             # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome
             # devices); without it those devices show an em-dash in the
             # drawer's IP row even after successful pings, and forwarding the
@@ -236,7 +236,7 @@ class PingSource:
         # (dashboard cold-start, every device starts UNKNOWN) doesn't
         # immediately label a reachable device OFFLINE on a single
         # dropped packet.
-        needs_retry = device.state is not DeviceState.OFFLINE
+        needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
         privileged = self._privileged
         try:
             result = await icmp_ping(target, count=1, timeout=3, privileged=privileged)

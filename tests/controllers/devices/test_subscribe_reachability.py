@@ -46,6 +46,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
     Device,
+    DeviceRuntimeState,
     DeviceState,
     ErrorCode,
     EventType,
@@ -133,7 +134,7 @@ def _seed_device(controller: Any, name: str = "kitchen") -> Device:
         configuration=f"{name}.yaml",
         address=f"{name}.local",
         ip="10.0.0.42",
-        state=DeviceState.ONLINE,
+        runtime_state=DeviceRuntimeState(state=DeviceState.ONLINE),
     )
     controller._scanner.get_by_name = lambda n: [device] if n == name else []
     return device

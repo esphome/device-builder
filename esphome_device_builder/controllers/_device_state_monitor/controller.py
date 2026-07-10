@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -28,7 +29,13 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...helpers.async_ import create_eager_task
 from ...helpers.subscriber_presence import SubscriberPresence
-from ...models import AdoptableDevice, Device, DeviceState, ReachabilitySource
+from ...models import (
+    AdoptableDevice,
+    Device,
+    DeviceRuntimeState,
+    DeviceState,
+    ReachabilitySource,
+)
 from .._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
 from .._task_controller_base import TaskControllerBase
 from ._state import MonitorState
@@ -43,6 +50,8 @@ from .ping import PingSource
 from .shared import _SOURCE_PRIORITY, should_ping
 
 _LOGGER = logging.getLogger(__name__)
+# Monitor-observed fields that live on ``Device.runtime_state``.
+_RUNTIME_STATE_FIELDS = frozenset(f.name for f in dataclasses.fields(DeviceRuntimeState))
 # Cap on draining the ping / API-info / resolve tasks at shutdown.
 _STOP_DRAIN_TIMEOUT = 2.0
 # Padding added to the cached A record's TTL when the drawer's
@@ -293,7 +302,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # copy, dashboard_import siblings) share the broadcast — if one
         # sibling was rebuilt with state=UNKNOWN the first-match bail
         # would leave it stale.
-        all_match = all(d.state == state for d in devices)
+        all_match = all(d.runtime_state.state == state for d in devices)
         # Online-wins: a positive reachability from any source brings a
         # not-online device online, even one a higher-priority source owns
         # (ping/MQTT reviving a device a stale mdns/mqtt OFFLINE owns). The
@@ -346,7 +355,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # Sample ``ip_addresses`` from the first match — duplicates
         # all flow through ``_dispatch_ip``'s fan-out so they
         # converge regardless of which we read here.
-        existing = devices[0].ip_addresses
+        existing = devices[0].runtime_state.ip_addresses
         addresses = list(existing) if ip in existing else [ip]
         return self._dispatch_ip(name, ip, addresses)
 
@@ -357,7 +366,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Picks an IPv4 primary via :func:`_pick_ipv4` (falling back
         to the first scoped IPv6) so ``device.ip`` stays the single
         target for ICMP / OTA, and forwards the complete list to
-        ``device.ip_addresses``. Empty list clears both.
+        ``runtime_state.ip_addresses``. Empty list clears both.
         """
         primary = _pick_ipv4(addresses) if addresses else ""
         return self._dispatch_ip(name, primary, addresses)
@@ -376,7 +385,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         devices = self._get_devices_by_name(name)
         if not devices:
             return False
-        if all(d.ip == primary and d.ip_addresses == addresses for d in devices):
+        if all(d.ip == primary and d.runtime_state.ip_addresses == addresses for d in devices):
             return False
         self._on_ip_change(name, primary, addresses)
         return True
@@ -469,7 +478,11 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         device matches (stray announcement) or every match already
         carries *value* (steady-state dedupe).
         """
-        return any(getattr(device, attr) != value for device in self._get_devices_by_name(name))
+        return any(
+            getattr(device.runtime_state if attr in _RUNTIME_STATE_FIELDS else device, attr)
+            != value
+            for device in self._get_devices_by_name(name)
+        )
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
         """Return all zeroconf-cached IPs for *host_name* without issuing a query."""

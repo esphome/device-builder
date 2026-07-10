@@ -132,7 +132,7 @@ def build_snapshot(controller: DevicesController, name: str) -> DeviceReachabili
     first = bucket[0]
     return controller._reachability.snapshot(
         name,
-        state=first.state,
+        state=first.runtime_state.state,
         active_source=controller._state_monitor.priority_for(name),
         ip=first.ip,
     )

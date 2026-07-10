@@ -362,9 +362,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         reason — no broadcast ever carries this flag.
         """
         device = self._scanner.get_by_configuration(configuration)
-        if device is None or device.queued_update == is_queued:
+        if device is None or device.runtime_state.queued_update == is_queued:
             return False
-        device.queued_update = is_queued
+        device.runtime_state.queued_update = is_queued
         self._metadata_store.update(device.configuration, queued_update=is_queued)
         self._fire_device_updated(device)
         return True
@@ -391,7 +391,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     @api_command("devices/get_states")
     async def get_device_states(self, **kwargs: Any) -> dict:
         """Get connectivity state for all devices."""
-        return {d.configuration: d.state.value for d in self._scanner.devices}
+        return {d.configuration: d.runtime_state.state.value for d in self._scanner.devices}
 
     @api_command("yaml/search")
     async def search_yaml(

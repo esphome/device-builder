@@ -364,7 +364,10 @@ def create_legacy_routes() -> web.RouteTableDef:
         devices_ctrl = db.devices
         await devices_ctrl.poll()
         return json_response(
-            {d.configuration: _STATE_TO_BOOL.get(d.state) for d in devices_ctrl.get_devices()}
+            {
+                d.configuration: _STATE_TO_BOOL.get(d.runtime_state.state)
+                for d in devices_ctrl.get_devices()
+            }
         )
 
     @routes.get("/json-config")

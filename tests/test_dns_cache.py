@@ -22,7 +22,7 @@ from esphome_device_builder.controllers.config import (
     set_device_metadata,
 )
 from esphome_device_builder.helpers import device_yaml
-from esphome_device_builder.models import Device, DeviceState
+from esphome_device_builder.models import Device, DeviceRuntimeState, DeviceState
 
 from .conftest import (
     make_device,
@@ -722,7 +722,7 @@ async def test_on_ip_change_persists_non_empty_value() -> None:
     controller._on_ip_change("kitchen", "10.0.0.1", ["10.0.0.1", "fe80::1%en0"])
 
     assert device.ip == "10.0.0.1"
-    assert device.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
+    assert device.runtime_state.ip_addresses == ["10.0.0.1", "fe80::1%en0"]
     assert controller._metadata_store.get("kitchen.yaml") == {"ip": "10.0.0.1"}
 
 
@@ -733,7 +733,7 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
         friendly_name="Kitchen",
         configuration="kitchen.yaml",
         ip="10.0.0.1",
-        ip_addresses=["10.0.0.1"],
+        runtime_state=DeviceRuntimeState(ip_addresses=["10.0.0.1"]),
     )
     scheduled: list[object] = []
     controller, _captured = make_devices_controller_with_bus(
@@ -743,7 +743,7 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
     controller._on_ip_change("kitchen", "", [])
 
     assert device.ip == ""
-    assert device.ip_addresses == []
+    assert device.runtime_state.ip_addresses == []
     assert scheduled == []
 
 

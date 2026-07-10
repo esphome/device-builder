@@ -51,6 +51,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
+    DeviceRuntimeState,
     DeviceState,
     ErrorCode,
     EventType,
@@ -330,11 +331,11 @@ async def test_devices_route_call_chain_matches_real_controller(
 
 
 class _StubStateDevice:
-    """Minimal ``Device`` stand-in exposing ``configuration`` + ``state``."""
+    """Minimal ``Device`` stand-in exposing ``configuration`` + ``runtime_state.state``."""
 
     def __init__(self, configuration: str, state: DeviceState) -> None:
         self.configuration = configuration
-        self.state = state
+        self.runtime_state = DeviceRuntimeState(state=state)
 
 
 async def test_ping_returns_tristate_online_map(

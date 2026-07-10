@@ -45,8 +45,8 @@ def test_state_change_fans_out_to_every_matching_device() -> None:
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
 
-    assert a.state == DeviceState.ONLINE
-    assert b.state == DeviceState.ONLINE
+    assert a.runtime_state.state == DeviceState.ONLINE
+    assert b.runtime_state.state == DeviceState.ONLINE
     assert len(captured) == 2
     targeted = sorted(e.data["configuration"] for e in captured)
     assert targeted == ["kitchen (1).yaml", "kitchen.yaml"]
@@ -64,8 +64,8 @@ async def test_ip_change_fans_out_to_every_matching_device() -> None:
 
     assert a.ip == "10.0.0.5"
     assert b.ip == "10.0.0.5"
-    assert a.ip_addresses == ["10.0.0.5"]
-    assert b.ip_addresses == ["10.0.0.5"]
+    assert a.runtime_state.ip_addresses == ["10.0.0.5"]
+    assert b.runtime_state.ip_addresses == ["10.0.0.5"]
     assert len(captured) == 2
     assert sorted(e.data["device"].configuration for e in captured) == [
         "kitchen (1).yaml",
@@ -83,8 +83,8 @@ async def test_version_change_fans_out_to_every_matching_device() -> None:
 
     controller._on_version_change("kitchen", "2026.5.0")
 
-    assert a.deployed_version == "2026.5.0"
-    assert b.deployed_version == "2026.5.0"
+    assert a.runtime_state.deployed_version == "2026.5.0"
+    assert b.runtime_state.deployed_version == "2026.5.0"
     assert len(captured) == 2
     assert sorted(e.data["device"].configuration for e in captured) == [
         "kitchen (1).yaml",
@@ -106,8 +106,8 @@ async def test_config_hash_change_fans_out_to_every_matching_device() -> None:
 
     controller._on_config_hash_change("kitchen", "abcd1234")
 
-    assert a.deployed_config_hash == "abcd1234"
-    assert b.deployed_config_hash == "abcd1234"
+    assert a.runtime_state.deployed_config_hash == "abcd1234"
+    assert b.runtime_state.deployed_config_hash == "abcd1234"
     # Both devices' has_pending_changes should reflect the match.
     assert a.has_pending_changes is False
     assert b.has_pending_changes is False
@@ -124,8 +124,8 @@ async def test_api_encryption_change_fans_out_to_every_matching_device() -> None
 
     controller._on_api_encryption_change("kitchen", "Noise_NNpsk0_25519_ChaChaPoly_SHA256")
 
-    assert a.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
-    assert b.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert a.runtime_state.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
+    assert b.runtime_state.api_encryption_active == "Noise_NNpsk0_25519_ChaChaPoly_SHA256"
     assert len(captured) == 2
 
 
@@ -140,8 +140,8 @@ def test_unrelated_devices_are_not_touched() -> None:
 
     controller._on_state_change("kitchen", DeviceState.ONLINE, "mdns")
 
-    assert kitchen.state == DeviceState.ONLINE
-    assert garage.state == DeviceState.UNKNOWN
+    assert kitchen.runtime_state.state == DeviceState.ONLINE
+    assert garage.runtime_state.state == DeviceState.UNKNOWN
     assert len(captured) == 1
     assert captured[0].data["configuration"] == "kitchen.yaml"
 
@@ -159,13 +159,13 @@ def test_apply_state_repairs_stale_sibling_when_first_match_is_in_sync() -> None
     fires the callback when any one of them is stale.
     """
     primary = _device("kitchen.yaml")
-    primary.state = DeviceState.ONLINE  # already in-sync
+    primary.runtime_state.state = DeviceState.ONLINE  # already in-sync
     sibling = _device("kitchen (1).yaml")  # state=UNKNOWN — was rebuilt
     monitor, callbacks = make_state_monitor_with_callbacks([primary, sibling])
 
     assert monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True) is True
-    assert primary.state == DeviceState.ONLINE
-    assert sibling.state == DeviceState.ONLINE
+    assert primary.runtime_state.state == DeviceState.ONLINE
+    assert sibling.runtime_state.state == DeviceState.ONLINE
     # The claim also flips the authoritative source UNKNOWN → mdns, which fires
     # first; the state fan-out follows.
     assert callbacks.calls == [

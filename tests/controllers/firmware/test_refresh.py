@@ -464,9 +464,9 @@ async def test_sync_after_flash_pins_hash_and_version(monkeypatch: Any) -> None:
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    assert device.deployed_config_hash == "aaaa1111"
+    assert device.runtime_state.deployed_config_hash == "aaaa1111"
     assert device.has_pending_changes is False
-    assert device.deployed_version == "2026.6.2"
+    assert device.runtime_state.deployed_version == "2026.6.2"
     assert device.update_available is False
     # One DEVICE_UPDATED per pin, via the existing _on_*_change callbacks.
     assert [t for t, _p in fired] == [EventType.DEVICE_UPDATED, EventType.DEVICE_UPDATED]
@@ -485,8 +485,8 @@ async def test_sync_after_flash_no_expected_hash_pins_version_only(monkeypatch: 
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    assert device.deployed_config_hash == "bbbb2222"  # untouched
-    assert device.deployed_version == "2026.6.2"
+    assert device.runtime_state.deployed_config_hash == "bbbb2222"  # untouched
+    assert device.runtime_state.deployed_version == "2026.6.2"
     assert [t for t, _p in fired] == [EventType.DEVICE_UPDATED]
 
 
@@ -503,9 +503,9 @@ async def test_sync_after_flash_no_compiled_version_pins_hash_only(monkeypatch: 
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    assert device.deployed_config_hash == "aaaa1111"
+    assert device.runtime_state.deployed_config_hash == "aaaa1111"
     assert device.has_pending_changes is False
-    assert device.deployed_version == "2024.6.4"  # untouched
+    assert device.runtime_state.deployed_version == "2024.6.4"  # untouched
     assert [t for t, _p in fired] == [EventType.DEVICE_UPDATED]
 
 
@@ -541,8 +541,8 @@ async def test_sync_after_flash_unknown_configuration_is_noop(monkeypatch: Any) 
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    assert device.deployed_config_hash == "bbbb2222"  # unchanged
-    assert device.deployed_version == "2024.6.4"  # unchanged
+    assert device.runtime_state.deployed_config_hash == "bbbb2222"  # unchanged
+    assert device.runtime_state.deployed_version == "2024.6.4"  # unchanged
     assert fired == []
 
 

@@ -160,7 +160,7 @@ async def test_fetch_applies_mac_and_version() -> None:
     await monitor._api_info._fetch(device)
 
     assert device.mac_address == "94:C9:60:1F:8C:F1"
-    assert device.deployed_version == "2026.6.1"
+    assert device.runtime_state.deployed_version == "2026.6.1"
     assert ("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1") in callbacks.calls
     assert ("on_version_change", "kitchen", "2026.6.1") in callbacks.calls
 
@@ -234,7 +234,7 @@ async def test_fetch_partial_fill_is_progress_not_failure() -> None:
     await src._fetch(device)
 
     assert device.mac_address == "94:C9:60:1F:8C:F1"
-    assert device.deployed_version == ""  # version still missing
+    assert device.runtime_state.deployed_version == ""  # version still missing
     assert "kitchen" not in src._cooldown  # not cooled down → normal-interval retry
     assert [d.name for d in src._select_targets()] == ["kitchen"]  # still chasing version
 
@@ -354,7 +354,7 @@ async def test_systemic_warning_rearms_after_recovery(monkeypatch: Any) -> None:
     # Devices recover (mDNS fills both) → no longer due → failing count drops.
     for device in devices:
         device.mac_address = "94:C9:60:1F:8C:F1"
-        device.deployed_version = "2026.6.1"
+        device.runtime_state.deployed_version = "2026.6.1"
     src._evaluate_systemic_health()
     assert src._warned_systemic is False
 
@@ -550,8 +550,8 @@ async def test_sweep_skips_api_probe_when_cache_reconcile_fills_fields() -> None
 
     def _fill(_name: str) -> None:
         device.mac_address = "94:C9:60:1F:8C:F1"
-        device.deployed_version = "2026.6.4"
-        device.deployed_config_hash = "abcd1234"
+        device.runtime_state.deployed_version = "2026.6.4"
+        device.runtime_state.deployed_config_hash = "abcd1234"
 
     monitor.reconcile_from_mdns_cache = _fill  # type: ignore[method-assign]
     monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
@@ -604,7 +604,7 @@ async def test_sweep_reconciles_unknown_encryption_state_even_when_fields_full()
         deployed_version="2026.6.4",
         deployed_config_hash="abcd1234",
     )
-    assert device.api_encryption_active is None
+    assert device.runtime_state.api_encryption_active is None
     monitor, _ = make_state_monitor_with_callbacks([device])
     reconciled: list[str] = []
     monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
@@ -907,7 +907,7 @@ async def test_forced_reprobe_probes_then_clears_itself() -> None:
 
     await src._fetch(device)
 
-    assert device.deployed_version == "2026.6.2"
+    assert device.runtime_state.deployed_version == "2026.6.2"
     assert "kitchen" not in src._force_reprobe  # one-shot
     assert src._select_targets() == []  # consumed → no longer due
 

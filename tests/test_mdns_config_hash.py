@@ -6,7 +6,7 @@ distinguish "device is running the YAML I just compiled" from "device
 is on stale firmware". Mirrors the ``version`` TXT pipeline already
 covered by ``test_mdns_version.py`` — we plumb the new TXT through
 the same monitor → controller path so the comparison logic that lands
-later only has to read ``device.deployed_config_hash``.
+later only has to read ``device.runtime_state.deployed_config_hash``.
 """
 
 from __future__ import annotations
@@ -91,17 +91,17 @@ def test_apply_config_hash_refires_after_device_rebuild() -> None:
 
     # First observation: device populated.
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
-    assert devices[0].deployed_config_hash == "1a2b3c4d"
+    assert devices[0].runtime_state.deployed_config_hash == "1a2b3c4d"
 
     # Simulate a scanner rebuild with previous=None: the new Device
     # carries no monitor-derived state.
     devices[0] = _device()
-    assert devices[0].deployed_config_hash == ""
+    assert devices[0].runtime_state.deployed_config_hash == ""
 
     # Same hash arrives again. The monitor must NOT short-circuit on
     # the prior observation; the rebuilt device needs the value back.
     monitor.apply_config_hash("kitchen", "1a2b3c4d")
-    assert devices[0].deployed_config_hash == "1a2b3c4d"
+    assert devices[0].runtime_state.deployed_config_hash == "1a2b3c4d"
     assert [c for c in callbacks.calls if c[0] == "on_config_hash_change"] == [
         ("on_config_hash_change", "kitchen", "1a2b3c4d"),
         ("on_config_hash_change", "kitchen", "1a2b3c4d"),
@@ -139,7 +139,7 @@ async def test_on_config_hash_change_updates_device_and_fires_event() -> None:
 
     controller._on_config_hash_change("kitchen", "1a2b3c4d")
 
-    assert device.deployed_config_hash == "1a2b3c4d"
+    assert device.runtime_state.deployed_config_hash == "1a2b3c4d"
     assert any(e.event_type == EventType.DEVICE_UPDATED for e in captured)
 
 
@@ -173,7 +173,7 @@ async def test_on_config_hash_change_flips_pending_when_hashes_diverge() -> None
 
     controller._on_config_hash_change("kitchen", "deadbeef")
 
-    assert device.deployed_config_hash == "deadbeef"
+    assert device.runtime_state.deployed_config_hash == "deadbeef"
     assert device.has_pending_changes is True
     # The verdict came from the hash compare, so the frontend gates it on mDNS.
     assert device.pending_changes_via_hash is True
@@ -191,7 +191,7 @@ async def test_on_config_hash_change_marks_in_sync_when_hashes_match() -> None:
 
     controller._on_config_hash_change("kitchen", "abc12345")
 
-    assert device.deployed_config_hash == "abc12345"
+    assert device.runtime_state.deployed_config_hash == "abc12345"
     assert device.has_pending_changes is False
     assert device.pending_changes_via_hash is False
 
@@ -207,7 +207,7 @@ async def test_on_config_hash_change_leaves_pending_alone_without_expected_hash(
 
     controller._on_config_hash_change("kitchen", "deadbeef")
 
-    assert device.deployed_config_hash == "deadbeef"
+    assert device.runtime_state.deployed_config_hash == "deadbeef"
     # Stays as the scanner's last computation; the callback only takes
     # over when both hashes are known.
     assert device.has_pending_changes is True

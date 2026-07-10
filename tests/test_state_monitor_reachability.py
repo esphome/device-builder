@@ -66,7 +66,7 @@ def _flip_state(devices: list[Device]) -> Any:
 
     Tests that drive a state monitor without the real
     ``DevicesController`` need the same write so the monitor's
-    dedupe (``all(d.state == state for d in devices)``) sees the
+    dedupe (``all(d.runtime_state.state == state for d in devices)``) sees the
     fresh value on the next call. Without this, the second
     observation under the same source would short-circuit the
     apply path and the test's assumption "we just saw the device
@@ -76,7 +76,7 @@ def _flip_state(devices: list[Device]) -> Any:
     def _cb(name: str, state: DeviceState, _source: str) -> None:
         for d in devices:
             if d.name == name:
-                d.state = state
+                d.runtime_state.state = state
 
     return _cb
 
@@ -199,7 +199,7 @@ def test_lower_priority_online_revives_higher_priority_offline() -> None:
     monitor.state.state_source["kitchen"] = "mqtt"
 
     assert monitor.apply("kitchen", DeviceState.ONLINE, "ping") is True
-    assert devices[0].state is DeviceState.ONLINE
+    assert devices[0].runtime_state.state is DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == "ping"
 
 
@@ -210,7 +210,7 @@ def test_lower_priority_offline_does_not_drop_higher_priority_online() -> None:
     monitor.state.state_source["kitchen"] = "mdns"
 
     assert monitor.apply("kitchen", DeviceState.OFFLINE, "ping") is False
-    assert devices[0].state is DeviceState.ONLINE
+    assert devices[0].runtime_state.state is DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == "mdns"
 
 
@@ -225,7 +225,7 @@ def test_select_ping_targets_keeps_device_with_known_ip_when_dns_failed() -> Non
 
     assert devices[0] in pingable
     assert dns_failed == []
-    assert devices[0].state is DeviceState.OFFLINE
+    assert devices[0].runtime_state.state is DeviceState.OFFLINE
 
 
 async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
@@ -245,7 +245,7 @@ async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
         await monitor._ping._resolve_and_ping(devices[0])
 
     assert mock_ping.await_args.args[0] == "10.0.0.5"
-    assert devices[0].state is DeviceState.ONLINE
+    assert devices[0].runtime_state.state is DeviceState.ONLINE
 
 
 async def test_ping_success_records_rtt_and_observation() -> None:
@@ -313,7 +313,7 @@ async def test_ping_retry_absorbs_transient_miss() -> None:
     # Retry sends multiple packets so a transient drop doesn't
     # flap the indicator.
     assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
-    assert devices[0].state == DeviceState.ONLINE
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.ONLINE, active_source="ping", ip="10.0.0.42"
     )
@@ -335,7 +335,7 @@ async def test_ping_retry_still_offline_when_retry_also_misses() -> None:
         await monitor._ping._ping_device(devices[0], "10.0.0.42")
 
     assert fake_ping.await_count == 2
-    assert devices[0].state == DeviceState.OFFLINE
+    assert devices[0].runtime_state.state == DeviceState.OFFLINE
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="10.0.0.42"
     )
@@ -372,7 +372,7 @@ async def test_ping_no_retry_when_already_offline() -> None:
         await monitor._ping._ping_device(devices[0], "10.0.0.42")
 
     fake_ping.assert_awaited_once()
-    assert devices[0].state == DeviceState.OFFLINE
+    assert devices[0].runtime_state.state == DeviceState.OFFLINE
 
 
 async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
@@ -397,7 +397,7 @@ async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
 
     assert fake_ping.await_count == 2
     assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
-    assert devices[0].state == DeviceState.ONLINE
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
 
 
 async def test_can_use_icmp_lib_with_privilege_picks_raw_when_available() -> None:
@@ -1097,7 +1097,7 @@ async def test_refresh_mdns_calls_resolve_host() -> None:
     await monitor.refresh_mdns("kitchen")
 
     fake_zeroconf.async_resolve_host.assert_awaited_once_with("kitchen.local", 3.0)
-    assert devices[0].state is DeviceState.ONLINE
+    assert devices[0].runtime_state.state is DeviceState.ONLINE
     assert seen.count("kitchen") >= 1
 
 
@@ -1117,7 +1117,7 @@ async def test_refresh_mdns_swallows_resolve_errors() -> None:
     monitor._mdns._zeroconf = fake_zeroconf
 
     await monitor.refresh_mdns("kitchen")
-    assert devices[0].state is DeviceState.UNKNOWN
+    assert devices[0].runtime_state.state is DeviceState.UNKNOWN
 
 
 async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
@@ -1135,4 +1135,4 @@ async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
     monitor._mdns._zeroconf = fake_zeroconf
 
     await monitor.refresh_mdns("kitchen")
-    assert devices[0].state is DeviceState.UNKNOWN
+    assert devices[0].runtime_state.state is DeviceState.UNKNOWN
