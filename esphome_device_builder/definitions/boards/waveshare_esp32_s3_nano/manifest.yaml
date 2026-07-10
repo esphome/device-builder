@@ -1,0 +1,343 @@
+id: waveshare_esp32_s3_nano
+name: Waveshare ESP32-S3-Nano
+description: |
+  Arduino Nano form factor board with ESP32-S3, USB-C, 16 MB flash, 8 MB PSRAM.
+  Has 3 LED (red, green, blue) in one housing and an additional single LED.
+manufacturer: Waveshare
+
+esphome:
+  platform: esp32
+  variant: esp32s3
+  board: arduino_nano_esp32
+  framework: esp-idf
+
+hardware:
+  cpu_frequency: 240MHz
+  flash_size: 16MB
+  ram_size: 524288  # bytes
+  connectivity:
+    - wifi
+    - bluetooth
+
+docs_url: "https://esphome.io/components/esp32.html"
+product_url: "https://www.waveshare.com/wiki/ESP32-S3-Nano"
+is_generic: false
+
+images:
+  - "images/esp32_s3_nano_top.png"
+
+tags:
+  - usb-c
+  - compact
+  - rgb-led
+
+default_components:
+  - id: psram
+    fields:
+      mode: octal
+      speed: 80MHz
+      ignore_not_found: false
+
+featured_components:
+  - id: status_led
+    component_id: light.status_led
+    name: Onboard single status LED
+    description: Onboard red LED connected to GPIO48/D13
+    fields:
+      pin: GPIO48
+
+  - id: mcu_temperature
+    component_id: sensor.internal_temperature
+    name: Internal MCU Temperature
+    description: This allows you to use the integrated temperature sensor of the ESP32 chip.
+    fields:
+      name: Internal MCU Temperature
+      id: mcu_temperature
+      icon: mdi:cpu-32-bit
+      entity_category: diagnostic
+      disabled_by_default: true
+      device_class: temperature
+      unit_of_measurement: °C
+      accuracy_decimals: 1
+
+  - id: restart_button
+    component_id: button.restart
+    name: Restart button
+    description: Allows you to restart your node remotely through Home Assistant.
+    fields:
+      name: Restart
+      entity_category: config
+
+  - id: reset_button
+    component_id: button.factory_reset
+    name: Factory reset
+    description: Allows you to remotely invalidate (reset) all preferences stored in flash memory.
+    fields:
+      name: Restart with Factory Default Settings
+      entity_category: config
+      disabled_by_default: true
+
+  - id: red_channel
+    component_id: output.ledc
+    name: Red channel
+    fields:
+      pin: GPIO46
+      id: red_channel_id
+
+  - id: green_channel
+    component_id: output.ledc
+    name: Green channel
+    fields:
+      pin: GPIO0
+      id: green_channel_id
+
+  - id: blue_channel
+    component_id: output.ledc
+    name: Blue channel
+    fields:
+      pin: GPIO45
+      id: blue_channel_id
+
+  - id: rgb_status
+    component_id: light.rgb
+    name: RGB LED
+    fields:
+      red: red_channel_id
+      green: green_channel_id
+      blue: blue_channel_id
+
+featured_bundles:
+  - id: rgb_status_led
+    name: Onboard status LED (RGB)
+    description: Onboard RGB status LED
+    component_ids: [rgb_status, red_channel, green_channel, blue_channel]
+
+pins:
+  - gpio: 0
+    label: B1
+    features: [strapping, rgb_led]
+    available: true
+    occupied_by: "Onboard RGB LED (green channel)"
+    notes: "Strapping pin, can still be used, but LED will reflect state"
+
+  - gpio: 1
+    label: A0
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 2
+    label: A1
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 3
+    label: A2
+    features: [adc, touch, strapping]
+    available: true
+    notes: "Strapping pin"
+
+  - gpio: 4
+    label: A3
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 5
+    label: D2
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 6
+    label: D3
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 7
+    label: D4
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 8
+    label: D5
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 9
+    label: D6
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 10
+    label: D7
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 11
+    label: A4
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 12
+    label: A5
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 13
+    label: A6
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 14
+    label: A7
+    features: [adc, touch, pwm]
+    available: true
+
+  - gpio: 15
+    features: [adc]
+    available: false
+    occupied_by: "Onboard RTC crystal (32kHz)"
+    notes: "XTAL_32k_P; no external connection"
+
+  - gpio: 16
+    features: [adc]
+    available: false
+    occupied_by: "Onboard RTC crystal (32kHz)"
+    notes: "XTAL_32k_N; no external connection"
+
+  - gpio: 17
+    label: D8
+    features: [adc, pwm]
+    available: true
+
+  - gpio: 18
+    label: D9
+    features: [adc, pwm]
+    available: true
+
+  - gpio: 19
+    features: [adc, usb_dm]
+    available: false
+    occupied_by: "USB D-"
+    notes: "Unmarked TP on bottom"
+
+  - gpio: 20
+    features: [adc, usb_dp]
+    available: false
+    occupied_by: "USB D+"
+    notes: "Unmarked TP on bottom"
+
+  - gpio: 21
+    label: D10
+    features: [pwm]
+    available: true
+
+  - gpio: 26
+    available: false
+    occupied_by: "internal PSRAM"
+
+  - gpio: 27
+    available: false
+    occupied_by: "internal PSRAM / external Flash"
+
+  - gpio: 28
+    available: false
+    occupied_by: "internal PSRAM / external Flash"
+
+  - gpio: 29
+    available: false
+    occupied_by: "external Flash"
+
+  - gpio: 30
+    available: false
+    occupied_by: "internal PSRAM / external Flash"
+
+  - gpio: 31
+    available: false
+    occupied_by: "internal PSRAM / external Flash"
+
+  - gpio: 32
+    available: false
+    occupied_by: "internal PSRAM / external Flash"
+
+  - gpio: 33
+    available: false
+    occupied_by: "internal PSRAM"
+
+  - gpio: 34
+    available: false
+    occupied_by: "internal PSRAM"
+
+  - gpio: 35
+    available: false
+    occupied_by: "internal PSRAM"
+
+  - gpio: 36
+    available: false
+    occupied_by: "internal PSRAM"
+
+  - gpio: 37
+    available: false
+    occupied_by: "internal PSRAM"
+
+  - gpio: 38
+    label: D11
+    features: [pwm]
+    available: true
+
+  - gpio: 39
+    features: [jtag]
+    available: false
+    occupied_by: "JTAG (MTCK)"
+    notes: "Unmarked TP on bottom"
+
+  - gpio: 40
+    features: [jtag]
+    available: false
+    occupied_by: "JTAG (MTDO)"
+    notes: "Unmarked TP on bottom"
+
+  - gpio: 41
+    features: [jtag]
+    available: false
+    occupied_by: "JTAG (MTDI)"
+    notes: "Unmarked TP on bottom"
+
+  - gpio: 42
+    features: [jtag]
+    available: false
+    occupied_by: "JTAG (MTMS)"
+    notes: "Unmarked TP on bottom"
+
+  - gpio: 43
+    label: TX1
+    features: [uart_tx]
+    available: true
+
+  - gpio: 44
+    label: RX0
+    features: [uart_rx]
+    available: true
+
+  - gpio: 45
+    features: [strapping, rgb_led]
+    available: false
+    occupied_by: "Onboard RGB LED (blue channel)"
+    notes: "Strapping pin; no external connection"
+
+  - gpio: 46
+    label: B0
+    features: [strapping, rgb_led]
+    available: true
+    occupied_by: "Onboard RGB LED (red channel)"
+    notes: "Strapping pin, can still be used, but LED will reflect state"
+
+  - gpio: 47
+    label: D12
+    features: [pwm]
+    available: true
+
+  - gpio: 48
+    label: D13
+    features: [pwm]
+    available: true
+    occupied_by: "Single onboard LED (red)"
+    notes: "Additional red LED sharing header D13, can still be used, but LED will reflect state"
