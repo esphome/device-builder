@@ -202,6 +202,37 @@ async def test_devices_returns_configured_and_importable_lists(
     ]
 
 
+async def test_devices_matches_ha_client_contract(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """``configured`` entries carry every key HA's client library declares.
+
+    Pins the ``esphome-dashboard-api`` ``ConfiguredDevice`` TypedDict
+    surface (except ``path``, a known pre-existing absence) so a model
+    reshape can't silently break the HA integration again.
+    """
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    devices = _make_devices_mock(configured=[device])
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    resp = await client.get("/devices")
+    payload = await resp.json()
+
+    [entry] = payload["configured"]
+    ha_client_keys = {
+        "address",
+        "comment",
+        "configuration",
+        "current_version",
+        "deployed_version",
+        "loaded_integrations",
+        "name",
+        "target_platform",
+        "web_port",
+    }
+    assert ha_client_keys <= entry.keys()
+
+
 async def test_devices_serializes_runtime_state_flat(
     tmp_path: Path, aiohttp_client: AiohttpClient
 ) -> None:
