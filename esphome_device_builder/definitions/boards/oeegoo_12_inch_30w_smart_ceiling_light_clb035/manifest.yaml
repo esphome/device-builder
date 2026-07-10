@@ -117,5 +117,5 @@ source:
   type: esphome-devices
   remote_id: OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/OeeGoo-12-inch-30W-Smart-Ceiling-Light-CLB035/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: f74f7398ffa45827f3170b8d00299d8f099541604608589cd951282899ee20e0

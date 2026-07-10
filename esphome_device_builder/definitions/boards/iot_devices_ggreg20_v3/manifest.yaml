@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: IoT-devices-GGreg20-V3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/IoT-devices-GGreg20-V3/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 1185af223494f101eeac51ea08b863a31c152c0a7551a0e10e320c0a4502c2cc

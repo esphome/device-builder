@@ -113,5 +113,5 @@ source:
   type: esphome-devices
   remote_id: Brilliant-Lighting-BL20925-Power-Monitoring-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Brilliant-Lighting-BL20925-Power-Monitoring-Plug/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 1a727c82d5217e6f66f47ce9ef7dc0eb222960996ec0ec34faa45c45ea588ac6

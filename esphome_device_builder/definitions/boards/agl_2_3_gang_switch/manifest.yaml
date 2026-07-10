@@ -88,5 +88,5 @@ source:
   type: esphome-devices
   remote_id: AGL-2-3-Gang-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AGL-2-3-Gang-Switch/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 8c41c1b92ac49e2541dd04fe626a7a8322ae001b6d6a1aab5d733f567b66dbee

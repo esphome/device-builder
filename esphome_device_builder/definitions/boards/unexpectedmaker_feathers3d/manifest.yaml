@@ -73,5 +73,5 @@ source:
   type: esphome-devices
   remote_id: UnexpectedMaker-FeatherS3D
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UnexpectedMaker-FeatherS3D/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 97df3f4c8bbc734c8049403f0ae641f89475ad42b08b8deaff7253f62e0e1460

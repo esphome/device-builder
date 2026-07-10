@@ -116,5 +116,5 @@ source:
   type: esphome-devices
   remote_id: CloudFree-EU-Plug-P1EU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/CloudFree-EU-Plug-P1EU/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 7a5eb5697540c39f63e0830d4046fc236c21e30888a1ba7e718dba7634b46520

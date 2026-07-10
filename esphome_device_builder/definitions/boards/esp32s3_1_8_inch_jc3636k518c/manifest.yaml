@@ -127,5 +127,5 @@ source:
   type: esphome-devices
   remote_id: ESP32S3-1.8-inch-JC3636K518C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESP32S3-1.8-inch-JC3636K518C/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 1617cc473ac6bcc2d854dc91eb31bda702f4ed5f50947a8e88e1021af23c0ce7

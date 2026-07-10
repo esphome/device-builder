@@ -55,5 +55,5 @@ source:
   type: esphome-devices
   remote_id: Waveshare-ESP32-P4-ETH
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Waveshare-ESP32-P4-ETH/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: b6c87d2008a6a77d2a4f2866a8a2bc946733c65b6c00eac3e15bc5b1b925ee6f

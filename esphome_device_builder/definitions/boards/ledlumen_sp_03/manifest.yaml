@@ -88,5 +88,5 @@ source:
   type: esphome-devices
   remote_id: LEDLUMEN-SP-03
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LEDLUMEN-SP-03/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: b0c59d1955a67fde07a44451a32af01225309455dce292de1a29aece59369d1e

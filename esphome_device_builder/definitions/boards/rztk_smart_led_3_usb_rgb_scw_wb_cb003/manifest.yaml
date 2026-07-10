@@ -85,5 +85,5 @@ source:
   type: esphome-devices
   remote_id: RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/RZTK-Smart-LED-3-USB-RGB-SCW-WB-CB003/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 111490fc1fda0de0a3ed9797c0fd2f7a6528c81c12661b28daf86a6381a846c1

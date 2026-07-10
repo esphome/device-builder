@@ -88,5 +88,5 @@ source:
   type: esphome-devices
   remote_id: CurrySmarter-16A-v1.1-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/CurrySmarter-16A-v1.1-Plug/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 614c43f54990e3ee6dbfc8cfff8fa805c4d29303935192560ed8de7f1f4fc67f

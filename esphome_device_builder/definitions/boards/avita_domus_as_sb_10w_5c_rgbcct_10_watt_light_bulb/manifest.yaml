@@ -100,5 +100,5 @@ source:
   type: esphome-devices
   remote_id: Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Avita-Domus-AS-SB-10W-5C-RGBCCT-10-Watt-Light-Bulb/index.md
-  upstream_revision: 99a95f2f6fa1642d773820cdf5d20020358ab9dc
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
   content_hash: 9a78007a7b2db87bfa29d26f01833f589c7db1999f54d7192ce4f0a722fd6e23
