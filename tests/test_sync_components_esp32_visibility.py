@@ -13,6 +13,7 @@ import orjson
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
+    _esp32_variant_gate,
     _surface_esp32_advanced_fields,
 )
 
@@ -96,3 +97,11 @@ def test_esp32_ota_catalog_promotes_allow_partition_access() -> None:
     assert allow is not None
     assert not allow.get("advanced")  # core, not behind "Show advanced"
     assert allow.get("supported_platforms") == ["esp32"]  # only offered where it works
+
+
+def test_variant_gate_derived_from_esphome() -> None:
+    """``sram1_as_iram`` derives to classic-ESP32-only; an ungated field derives to None."""
+    # esphome's FINAL_VALIDATE rejects sram1_as_iram off the classic ESP32.
+    assert _esp32_variant_gate("sram1_as_iram") == ("esp32", "ESP32")
+    # A field with no variant restriction is valid everywhere → no gate stamped.
+    assert _esp32_variant_gate("disable_fatfs") is None
