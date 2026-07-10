@@ -865,6 +865,11 @@ _IMPORTANT_KEYS: frozenset[str] = frozenset(_IMPORTANT_KEY_ORDER)
 # Subset of important keys that stay flagged advanced (id keeps its
 # sort priority but always lives under the advanced section).
 _ADVANCED_IMPORTANT_KEYS: frozenset[str] = frozenset({"id"})
+# Important keys that move under the advanced section when the platform
+# pre-fills them via a schema default (button.restart's icon /
+# device_class); without a default the user must pick the value, so the
+# field keeps its main-form placement.
+_PLATFORM_DEFAULTED_ADVANCED_KEYS: frozenset[str] = frozenset({"device_class", "icon"})
 
 # A ``*.template`` entity's primary fields (``lambda`` + ``optimistic`` +
 # the ``*_action`` handlers) are forced onto the main form by
@@ -2902,6 +2907,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
+    if key in _PLATFORM_DEFAULTED_ADVANCED_KEYS and default_value is not None and not required:
+        advanced = True
     entry: dict[str, Any] = {
         "key": key,
         "type": entry_type,
@@ -3816,11 +3823,22 @@ def _all_inner_advanced(inner: list[dict]) -> bool:
     """Return True iff every inner entry is advanced (else False).
 
     Empty groups return False so a NESTED parent isn't accidentally
-    hidden when its inner entries couldn't be resolved.
+    hidden when its inner entries couldn't be resolved. An entry that
+    is advanced only because the platform pre-filled it (defaulted
+    icon / device_class) doesn't count — a sub-reading whose sole
+    field is a defaulted device_class (as5600 magnitude,
+    xiaomi_mjyd02yla light) must stay discoverable on the main form
+    (#983).
     """
     if not inner:
         return False
-    return all(e.get("advanced") for e in inner)
+    return all(
+        e.get("advanced")
+        and not (
+            e.get("key") in _PLATFORM_DEFAULTED_ADVANCED_KEYS and e.get("default_value") is not None
+        )
+        for e in inner
+    )
 
 
 def _sort_entries(entries: list[dict]) -> list[dict]:
