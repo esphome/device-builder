@@ -50,14 +50,13 @@ def _framework_with_advanced(
 
 
 def test_surface_unhides_sram1_and_group_keeps_siblings_hidden() -> None:
-    """``sram1_as_iram`` and its group un-hide; the sibling stays hidden."""
+    """``sram1_as_iram`` and its group surface on the framework form; the sibling stays hidden."""
     framework = _framework_with_advanced()
     _surface_esp32_advanced_fields(framework)
     advanced = framework["config_entries"][0]
-    assert advanced["hidden"] is False
-    assert advanced["advanced"] is True  # still a disclosure, not core
+    assert advanced["hidden"] is False and advanced["advanced"] is False
     sram1 = _find(advanced["config_entries"], "sram1_as_iram")
-    assert sram1 is not None and sram1["hidden"] is False and sram1["advanced"] is True
+    assert sram1 is not None and sram1["hidden"] is False and sram1["advanced"] is False
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc["hidden"] is True  # untouched
 
@@ -70,14 +69,16 @@ def test_surface_no_op_without_promotable_child() -> None:
 
 
 def test_esp32_catalog_surfaces_sram1_under_advanced() -> None:
-    """The generated esp32 body shows ``sram1_as_iram`` under the visible Advanced group."""
-    entries = _load("esp32")["config_entries"]
-    advanced = _find(entries, "advanced")
+    """The generated esp32 body shows ``sram1_as_iram`` in the framework's Advanced group."""
+    fw = _find(_load("esp32")["config_entries"], "framework")
+    assert fw is not None
+    # The Advanced group renders on the framework form, not behind "Show advanced".
+    advanced = _find(fw["config_entries"], "advanced")
     assert advanced is not None
-    assert not advanced.get("hidden")  # group renders as a disclosure
+    assert not advanced.get("hidden") and not advanced.get("advanced")
     sram1 = _find(advanced["config_entries"], "sram1_as_iram")
     assert sram1 is not None
-    assert not sram1.get("hidden") and sram1.get("advanced") is True
+    assert not sram1.get("hidden") and not sram1.get("advanced")
     # Scope guard: a sibling expert knob stays hidden (yaml_only).
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc.get("hidden") is True

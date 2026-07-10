@@ -6085,11 +6085,13 @@ def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
 
 def _surface_esp32_advanced_fields(framework: dict) -> None:
     """
-    Un-hide ``_ESP32_ADVANCED_VISIBLE`` fields under ``framework.advanced``.
+    Surface ``_ESP32_ADVANCED_VISIBLE`` fields under ``framework.advanced``.
 
     Upstream marks the whole ``advanced`` group ``yaml_only``, so the cascade
-    hides every child. Runs post-cascade: un-hide only the curated fields (and
-    the group, so its disclosure renders); siblings keep ``hidden=True``.
+    hides every child. Runs post-cascade: show the curated fields and their
+    ``advanced`` group on the framework form (the group *is* the disclosure —
+    don't bury it behind the form's generic "Show advanced settings" too);
+    siblings keep ``hidden=True``.
     """
     advanced = next(
         (e for e in framework.get("config_entries", []) if e.get("key") == "advanced"), None
@@ -6105,9 +6107,11 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
     ]
     if not promoted:
         return
-    advanced["hidden"] = False  # keep advanced=True so it renders as a disclosure
+    advanced["hidden"] = False
+    advanced["advanced"] = False  # render the "Advanced" group card on the framework form
     for child in promoted:
-        child["hidden"] = False  # advanced stays True → under the disclosure, not core
+        child["hidden"] = False
+        child["advanced"] = False  # render inside the group, not behind its own disclosure
 
 
 @cache
