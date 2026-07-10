@@ -1,11 +1,8 @@
-"""Tests for ``_surface_esp32_advanced_fields`` in ``script/sync_components.py``.
+"""
+Pin the esp32 ``framework.advanced`` and ota ``allow_partition_access`` visibility.
 
-Upstream marks the whole esp32 ``framework.advanced`` group ``yaml_only``, so the
-visibility cascade hides every child. The post-cascade promotion surfaces
-``sram1_as_iram`` under the "Advanced" disclosure while leaving the group's other
-expert knobs hidden; ``ota.esphome.allow_partition_access`` is promoted fully core
-via ``_FIELD_OVERRIDES``. Pin both so a future sync-script edit can't regress the
-fields back out of the form, or leak the whole advanced block into it.
+``sram1_as_iram`` stays surfaced under the Advanced disclosure with its siblings
+hidden; ``allow_partition_access`` stays core and esp32-gated.
 """
 
 from __future__ import annotations

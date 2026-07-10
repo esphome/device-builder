@@ -658,11 +658,10 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     ("esphome", "comment"): {
         "advanced": True,
     },
-    # ``ota.esphome.allow_partition_access`` gates bootloader / partition-table
-    # OTA updates — a field users actively reach for, not an advanced knob. It's
-    # a bare ``cv.boolean`` whose esp32-only rule lives in FINAL_VALIDATE (no
-    # field-level ``cv.only_on`` for ``_collect_platform_constraints`` to catch),
-    # so gate it here or it renders on every OTA platform's main form.
+    # ``ota.esphome.allow_partition_access``: surface on the main form, esp32-only.
+    # Its esp32 rule lives in FINAL_VALIDATE, not a field-level ``cv.only_on``, so
+    # ``_collect_platform_constraints`` can't gate it — stamp the platform here or
+    # it renders on every OTA platform.
     ("ota.esphome", "allow_partition_access"): {
         "advanced": False,
         "supported_platforms": ["esp32"],
