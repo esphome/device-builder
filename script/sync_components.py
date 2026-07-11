@@ -896,13 +896,13 @@ _OPTIMISTIC_KEY = "optimistic"
 _LAMBDA_KEY = "lambda"
 _ACTION_KEY_SUFFIX = "_action"
 
-# esp32 ``framework.advanced`` fields surfaced under the "Advanced" disclosure,
-# overriding upstream's group-level ``yaml_only``. ``_surface_esp32_advanced_fields``
-# un-hides only these; the group's other expert knobs stay hidden.
-# esp32 ``framework.advanced`` fields to surface on the framework form. Each one's
-# variant restriction (if any) is derived from esphome by ``_esp32_variant_gate``,
-# not hand-listed here.
-_ESP32_ADVANCED_VISIBLE: frozenset[str] = frozenset({"sram1_as_iram"})
+# esp32 ``framework.advanced`` fields to surface on the framework form, mapped to
+# the value that enables each when ``_esp32_variant_gate`` probes it per variant.
+# Variant restrictions are derived from esphome, not hand-listed here.
+_ESP32_ADVANCED_VISIBLE: dict[str, bool | str] = {
+    "sram1_as_iram": True,
+    "minimum_chip_revision": "0.0",
+}
 
 # ---------------------------------------------------------------------------
 # CLI / main
@@ -6327,7 +6327,7 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
     for child in promoted:
         child["hidden"] = False
         child["advanced"] = False  # render inside the group, not behind its own disclosure
-        gate = _esp32_variant_gate(child["key"])
+        gate = _esp32_variant_gate(child["key"], _ESP32_ADVANCED_VISIBLE[child["key"]])
         if gate:
             # Gate on the sibling ``variant`` at the esp32-component root; the
             # frontend resolves a nested ``depends_on`` against the component root.
@@ -6351,16 +6351,16 @@ def _esp32_default_framework() -> str | None:
 
 
 @cache
-def _esp32_variant_gate(field_key: str) -> tuple[str, ...] | None:
+def _esp32_variant_gate(field_key: str, probe_value: bool | str = True) -> tuple[str, ...] | None:
     """
-    Variants a ``framework.advanced`` boolean is valid on — ``None`` for all.
+    Variants a ``framework.advanced`` field is valid on — ``None`` for all.
 
     esphome gates some advanced knobs to specific chips in its FINAL_VALIDATE
-    (``sram1_as_iram`` → classic ESP32 only). Derive that by enabling the field
-    per variant and keeping the ones esphome doesn't reject, so an upstream
-    change flows through without a hand-maintained list. Returns esphome's
-    canonical value plus the lowercase form boards write; ``None`` only when
-    every testable variant accepts it (no gate needed).
+    (``sram1_as_iram`` → classic ESP32 only). Derive that by setting the field
+    to *probe_value* per variant and keeping the ones esphome doesn't reject,
+    so an upstream change flows through without a hand-maintained list. Returns
+    esphome's canonical value plus the lowercase form boards write; ``None``
+    only when every testable variant accepts it (no gate needed).
     """
     import esphome.config_validation as cv
     import esphome.final_validate as fv
@@ -6378,7 +6378,7 @@ def _esp32_variant_gate(field_key: str) -> tuple[str, ...] | None:
     for variant in esp32.VARIANTS:
         raw = {
             CONF_VARIANT: variant,
-            CONF_FRAMEWORK: {CONF_TYPE: "esp-idf", CONF_ADVANCED: {field_key: True}},
+            CONF_FRAMEWORK: {CONF_TYPE: "esp-idf", CONF_ADVANCED: {field_key: probe_value}},
         }
         with _esp32_variant_context(variant):
             try:

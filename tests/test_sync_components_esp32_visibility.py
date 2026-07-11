@@ -1,8 +1,9 @@
 """
 Pin the esp32 ``framework.advanced`` and ota ``allow_partition_access`` visibility.
 
-``sram1_as_iram`` stays surfaced under the Advanced disclosure with its siblings
-hidden; ``allow_partition_access`` stays core and esp32-gated.
+``sram1_as_iram`` and ``minimum_chip_revision`` stay surfaced under the Advanced
+disclosure with their siblings hidden; ``allow_partition_access`` stays core and
+esp32-gated.
 """
 
 from __future__ import annotations
@@ -34,7 +35,11 @@ def _find(entries: list[dict], key: str) -> dict | None:
 
 
 def _framework_with_advanced(
-    child_keys: tuple[str, ...] = ("sram1_as_iram", "adc_oneshot_in_iram"),
+    child_keys: tuple[str, ...] = (
+        "sram1_as_iram",
+        "minimum_chip_revision",
+        "adc_oneshot_in_iram",
+    ),
 ) -> dict:
     return {
         "key": "framework",
@@ -51,17 +56,18 @@ def _framework_with_advanced(
     }
 
 
-def test_surface_unhides_sram1_and_group_keeps_siblings_hidden() -> None:
-    """``sram1_as_iram`` and its group surface on the framework form; the sibling stays hidden."""
+def test_surface_unhides_curated_fields_and_group_keeps_siblings_hidden() -> None:
+    """The curated fields and their group surface on the framework form; siblings stay hidden."""
     framework = _framework_with_advanced()
     _surface_esp32_advanced_fields(framework)
     advanced = framework["config_entries"][0]
     assert advanced["hidden"] is False and advanced["advanced"] is False
-    sram1 = _find(advanced["config_entries"], "sram1_as_iram")
-    assert sram1 is not None and sram1["hidden"] is False and sram1["advanced"] is False
-    # Gated on the classic ESP32 variant (invalid elsewhere).
-    assert sram1["depends_on"] == "variant"
-    assert sram1["depends_on_value_any"] == ["esp32", "ESP32"]
+    for key in ("sram1_as_iram", "minimum_chip_revision"):
+        child = _find(advanced["config_entries"], key)
+        assert child is not None and child["hidden"] is False and child["advanced"] is False
+        # Gated on the classic ESP32 variant (invalid elsewhere).
+        assert child["depends_on"] == "variant"
+        assert child["depends_on_value_any"] == ["esp32", "ESP32"]
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc["hidden"] is True  # untouched
 
@@ -73,20 +79,25 @@ def test_surface_no_op_without_promotable_child() -> None:
     assert framework["config_entries"][0]["hidden"] is True
 
 
-def test_esp32_catalog_surfaces_sram1_under_advanced() -> None:
-    """The generated esp32 body shows ``sram1_as_iram`` in the framework's Advanced group."""
+def test_esp32_catalog_surfaces_curated_fields_under_advanced() -> None:
+    """The generated esp32 body shows the curated fields in the framework's Advanced group."""
     fw = _find(_load("esp32")["config_entries"], "framework")
     assert fw is not None
     # The Advanced group renders on the framework form, not behind "Show advanced".
     advanced = _find(fw["config_entries"], "advanced")
     assert advanced is not None
     assert not advanced.get("hidden") and not advanced.get("advanced")
-    sram1 = _find(advanced["config_entries"], "sram1_as_iram")
-    assert sram1 is not None
-    assert not sram1.get("hidden") and not sram1.get("advanced")
-    # Variant-gated: only shown on the classic ESP32 (esphome rejects it elsewhere).
-    assert sram1.get("depends_on") == "variant"
-    assert sram1.get("depends_on_value_any") == ["esp32", "ESP32"]
+    for key in ("sram1_as_iram", "minimum_chip_revision"):
+        child = _find(advanced["config_entries"], key)
+        assert child is not None
+        assert not child.get("hidden") and not child.get("advanced")
+        # Variant-gated: only shown on the classic ESP32 (esphome rejects it elsewhere).
+        assert child.get("depends_on") == "variant"
+        assert child.get("depends_on_value_any") == ["esp32", "ESP32"]
+    # Surfacing must not strip the enum choices the select renders from.
+    min_rev = _find(advanced["config_entries"], "minimum_chip_revision")
+    assert min_rev is not None
+    assert {o["value"] for o in min_rev["options"]} >= {"0.0", "3.0"}
     # Scope guard: a sibling expert knob stays hidden (yaml_only).
     adc = _find(advanced["config_entries"], "adc_oneshot_in_iram")
     assert adc is not None and adc.get("hidden") is True
@@ -101,9 +112,11 @@ def test_esp32_ota_catalog_promotes_allow_partition_access() -> None:
 
 
 def test_variant_gate_derived_from_esphome() -> None:
-    """``sram1_as_iram`` derives to classic-ESP32-only; an ungated field derives to None."""
+    """The curated fields derive to classic-ESP32-only; an ungated field derives to None."""
     # esphome's FINAL_VALIDATE rejects sram1_as_iram off the classic ESP32.
     assert _esp32_variant_gate("sram1_as_iram") == ("esp32", "ESP32")
+    # A non-boolean field derives through its probe value (True fails its schema).
+    assert _esp32_variant_gate("minimum_chip_revision", "0.0") == ("esp32", "ESP32")
     # A field with no variant restriction is valid everywhere → no gate stamped.
     assert _esp32_variant_gate("disable_fatfs") is None
 
