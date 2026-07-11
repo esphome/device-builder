@@ -79,6 +79,30 @@ def test_slugify_and_dedup() -> None:
     assert "configuration-variables-2" in slugs
 
 
+def test_dedup_counts_bulletless_headings() -> None:
+    # A bulletless "## Configuration variables" still consumes the base slug (the
+    # docs-site slugger sees every rendered heading), so the following bullet-bearing
+    # section anchors at `-1`, not the bare slug.
+    mdx = """\
+---
+title: X
+---
+
+## Configuration variables
+
+Intro prose, no config-var bullets here.
+
+## Networks
+
+### Configuration variables
+
+- **ssid** (*Optional*, string): The name.
+- **bssid** (*Optional*, string): The MAC.
+"""
+    sections = _enumerate_mdx_field_sections(mdx)
+    assert [s["slug"] for s in sections] == ["configuration-variables-1"]
+
+
 def test_automation_section_flagged() -> None:
     # The `### Configuration variables` under the Action heading inherits is_automation.
     action_cvars = next(

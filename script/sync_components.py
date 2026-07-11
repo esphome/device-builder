@@ -2006,11 +2006,14 @@ def _enumerate_mdx_field_sections(text: str) -> list[dict]:
         start = m.end()
         end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
         fields = _parse_config_var_bullets(body[start:end], first_paragraph_only=True)
-        if not fields:
-            continue
+        # Advance the dedup counter for every heading, bullet-bearing or not — the
+        # docs site's slugger sees each rendered heading, so a bulletless duplicate
+        # still shifts a later section's ``-N`` anchor.
         base = _slugify_heading(title)
         n = slug_seen.get(base, 0)
         slug_seen[base] = n + 1
+        if not fields:
+            continue
         slug = base if n == 0 else f"{base}-{n}"
         sections.append(
             {"heading": title, "slug": slug, "fields": fields, "is_automation": is_auto}
