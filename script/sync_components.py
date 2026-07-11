@@ -869,9 +869,10 @@ _IMPORTANT_KEY_ORDER: tuple[str, ...] = (
     "variant",
     "inverted",
     "level",  # logger.level — most users want to see/pick this
-    # Common esphome-block metadata
+    # Common esphome-block metadata. ``areas`` is deliberately absent:
+    # it only pays off with the advanced ``devices`` sub-device grouping,
+    # so it belongs under Advanced with it (``area`` alone stays here).
     "area",
-    "areas",
     "comment",
     # Important fields that stay flagged advanced — keep their sort
     # priority but render under the "Advanced" section.
