@@ -42,6 +42,7 @@ from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
     TERMINAL_JOB_STATUSES,
+    DeviceState,
     EventType,
     FirmwareJob,
     JobType,
@@ -418,8 +419,6 @@ class StubDevices:
     """
 
     devices: list[Any] = field(default_factory=list)
-    # Configurations passed to ``probe_reachability_if_unknown``.
-    probed: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Build the configuration-keyed index, mirroring production's O(1) lookup."""
@@ -438,7 +437,7 @@ class StubDevices:
         return self._by_configuration.get(configuration)
 
     def probe_reachability_if_unknown(self, configuration: str) -> None:
-        self.probed.append(configuration)
+        """No-op; the UNKNOWN-window probe is pinned devices-side."""
 
 
 def wire_devices(controller: FirmwareController) -> None:
@@ -446,14 +445,13 @@ def wire_devices(controller: FirmwareController) -> None:
     controller._db.devices = StubDevices()  # type: ignore[attr-defined]
 
 
-def attach_device(controller: FirmwareController, configuration: str, state: Any) -> MagicMock:
+def attach_device(controller: FirmwareController, configuration: str, state: DeviceState) -> None:
     """Wire one mock device so ``_device_for_configuration`` resolves it; arming is assertable."""
     device = MagicMock()
     device.runtime_state.state = state
     devices = MagicMock()
     devices.get_by_configuration.side_effect = lambda c: device if c == configuration else None
     controller._db.devices = devices
-    return device
 
 
 async def run_until_terminal(

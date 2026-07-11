@@ -506,6 +506,11 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         if not devices or any(should_ping(self, d) for d in devices):
             self._ping.wake()
 
+    def probe_reachability(self, device_name: str) -> None:
+        """Full reachability nudge: eager mDNS resolve + ICMP sweep wake for *device_name*."""
+        self.probe_device(device_name)
+        self.probe_device_ping(device_name)
+
     def revisit_importable(self, device_name: str) -> None:
         """Re-fire ``on_importable_added`` for *device_name* if upstream still has it cached."""
         self._importable.revisit_importable(device_name)

@@ -311,8 +311,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         device = self.get_by_configuration(configuration)
         if device is None or device.runtime_state.state is not DeviceState.UNKNOWN:
             return
-        self._state_monitor.probe_device(device.name)
-        self._state_monitor.probe_device_ping(device.name)
+        self._state_monitor.probe_reachability(device.name)
 
     async def reload_configuration(self, filename: str) -> bool:
         """

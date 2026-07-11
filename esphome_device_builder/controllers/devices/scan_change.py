@@ -36,17 +36,14 @@ def on_scan_change(
     if kind is ScanChange.UPDATED:
         controller._db.bus.fire(EventType.DEVICE_YAML_UPDATED, payload)
     if kind is ScanChange.ADDED:
-        # ``probe_device`` short-circuits to the zeroconf cache
-        # when present; otherwise it spawns a fire-and-forget
-        # resolve task. Without this, YAMLs dropped on disk
-        # outside the API entrypoints (git clone, copy from
-        # another dashboard) sit at "Unknown" until the next
-        # periodic ping sweep.
-        controller._state_monitor.probe_device(device.name)
-        # Paired ICMP probe covers ping-only devices that don't
-        # broadcast ``_esphomelib._tcp``; a cold-start herd of wakes
-        # is absorbed into the first post-bootstrap sweep.
-        controller._state_monitor.probe_device_ping(device.name)
+        # The mDNS half short-circuits to the zeroconf cache when
+        # present; the paired ICMP wake covers ping-only devices that
+        # don't broadcast ``_esphomelib._tcp``. Without the nudge,
+        # YAMLs dropped on disk outside the API entrypoints (git
+        # clone, copy from another dashboard) sit at "Unknown" until
+        # the next periodic sweep; a cold-start herd of wakes is
+        # absorbed into the first post-bootstrap sweep.
+        controller._state_monitor.probe_reachability(device.name)
         # Drop the stale importable row so connected subscribe_events
         # clients stop showing the adopt banner once the device is
         # configured. Idempotent: fires REMOVED only if a row existed.
