@@ -1286,6 +1286,7 @@ def build_catalog(
 
     _resolve_provides(out, schema_dir)
     _apply_libretiny_family_provides(out)
+    _apply_libretiny_family_options(out)
 
     # Multi-instance status needs the whole-catalog multi_conf + provides view.
     _apply_auto_loaded_reference_advanced_all(out)
@@ -1422,6 +1423,28 @@ def _apply_libretiny_family_provides(entries: list[dict]) -> None:
     for entry in entries:
         if entry["id"] in families:
             entry["provides"] = sorted({*entry.get("provides", ()), "libretiny"})
+
+
+def _apply_libretiny_family_options(entries: list[dict]) -> None:
+    """
+    Narrow each libretiny platform's ``family`` options to its own chips.
+
+    The schema's ``family`` enum is the shared all-platform ``FAMILIES``
+    list; the platform restriction lives only in ``FAMILY_COMPONENT``.
+    """
+    from esphome.components.libretiny.const import FAMILY_COMPONENT
+
+    platforms = set(_libretiny_families())
+    for entry in entries:
+        if entry["id"] not in platforms:
+            continue
+        for var in entry.get("config_entries", ()):
+            if var.get("key") != "family" or not var.get("options"):
+                continue
+            kept = [o for o in var["options"] if FAMILY_COMPONENT.get(o["value"]) == entry["id"]]
+            if not kept:
+                raise RuntimeError(f"no FAMILY_COMPONENT family maps to platform {entry['id']!r}")
+            var["options"] = kept
 
 
 # Matches a description that is actually the first bullet of an MDX
