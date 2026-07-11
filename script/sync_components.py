@@ -680,6 +680,12 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
     ("logger", "hardware_uart"): {
         "advanced": False,
     },
+    # ``web_server.version`` picks the UI flavor (users actively switch 2 → 3,
+    # and it gates ``sorting_groups``); keep it on the main form. The generic
+    # key stays advanced elsewhere (``ota.esphome.version`` is a compat knob).
+    ("web_server", "version"): {
+        "advanced": False,
+    },
     # ``logger.baud_rate`` is a bare ``cv.int_`` like ``uart.baud_rate``; offer
     # the same combo box plus logger's documented ``0`` (disable UART logging)
     # sentinel. Merge keeps the field Optional/Advanced with its 115200 default.

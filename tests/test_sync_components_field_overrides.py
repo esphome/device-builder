@@ -180,3 +180,18 @@ def test_shipped_catalog_web_server_sorting_groups_is_version_gated() -> None:
     groups = next(e for e in body["config_entries"] if e["key"] == "sorting_groups")
     assert groups["depends_on"] == "version"
     assert groups["depends_on_value_any"] == [3, "3"]
+
+
+def test_web_server_version_override_promotes_to_main_form() -> None:
+    """``web_server.version`` picks the UI flavor, so it stays off Advanced."""
+    override = _FIELD_OVERRIDES.get(("web_server", "version"))
+    assert override is not None, "missing web_server.version override"
+    assert override == {"advanced": False}
+
+
+def test_shipped_catalog_web_server_version_is_main_form() -> None:
+    """The generated web_server body keeps ``version`` off Advanced with its enum intact."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "web_server.json").read_bytes())
+    version = next(e for e in body["config_entries"] if e["key"] == "version")
+    assert not version.get("advanced")
+    assert [o["value"] for o in version["options"]] == ["1", "2", "3"]
