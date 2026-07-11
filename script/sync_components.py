@@ -1512,7 +1512,7 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:  # noqa: C901
     field_descriptions = _load_mdx_field_descriptions()
     field_sections = _load_mdx_field_sections()
     titles = _load_mdx_titles()
-    if not descriptions and not field_descriptions and not titles:
+    if not descriptions and not field_descriptions and not field_sections and not titles:
         return
     # Titles stay un-aliased so the chip families keep distinct names.
     aliases = _shared_docs_page_aliases(descriptions.keys())
