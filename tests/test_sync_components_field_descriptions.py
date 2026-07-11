@@ -4,21 +4,14 @@ from __future__ import annotations
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _apply_field_descriptions,
-    _extract_mdx_section_body,
     _is_truncated_prefix,
     _parse_config_var_bullets,
 )
 
-# A slice of esp32.mdx's ``## Advanced Configuration`` shape: a flat bullet with a
-# multi-paragraph body (a later ``**Important:**`` note), a bullet with a nested
-# sub-bullet + blockquote, then a following ``##`` heading.
-_ADVANCED_MDX = """\
----
-title: ESP32
----
-
-## Advanced Configuration
-
+# The bullet body of esp32.mdx's ``## Advanced Configuration``: a flat bullet with
+# a multi-paragraph body (a later ``**Important:**`` note), then a bullet with a
+# nested sub-bullet + blockquote.
+_ADVANCED_BODY = """\
 - **sram1_as_iram** (*Optional*, boolean): Use the SRAM1 memory region as additional IRAM.
   This reclaims memory reserved for the bootloader's DRAM. Defaults to `false`.
 
@@ -29,10 +22,6 @@ title: ESP32
 
   > [!NOTE]
   > A note that must not bleed into the description.
-
-## IDF Components
-
-Not config vars.
 """
 
 
@@ -108,36 +97,21 @@ def test_apply_field_descriptions_skips_nested_entries() -> None:
     assert entries[0]["config_entries"][0]["description"] == ""
 
 
-def test_extract_mdx_section_body_slices_named_h2() -> None:
-    """``_extract_mdx_section_body`` returns the section and stops at the next ``##``."""
-    body = _extract_mdx_section_body(_ADVANCED_MDX, "Advanced Configuration")
-    assert body is not None
-    assert "sram1_as_iram" in body
-    assert "IDF Components" not in body  # stopped before the following ``## `` heading
-    assert _extract_mdx_section_body(_ADVANCED_MDX, "No Such Heading") is None
-
-
 def test_parse_bullets_first_paragraph_only_drops_trailing_notes() -> None:
     """With the flag, a blank line ends the field so the ``**Important:**`` note is dropped."""
-    body = _extract_mdx_section_body(_ADVANCED_MDX, "Advanced Configuration")
-    assert body is not None
-    fields = _parse_config_var_bullets(body, first_paragraph_only=True)
+    fields = _parse_config_var_bullets(_ADVANCED_BODY, first_paragraph_only=True)
     assert fields["sram1_as_iram"].startswith("Use the SRAM1 memory region")
     assert "Important" not in fields["sram1_as_iram"]
 
 
 def test_parse_bullets_default_keeps_full_prose() -> None:
     """Default (top-level extractor) behaviour joins continuation paragraphs."""
-    body = _extract_mdx_section_body(_ADVANCED_MDX, "Advanced Configuration")
-    assert body is not None
-    fields = _parse_config_var_bullets(body)
+    fields = _parse_config_var_bullets(_ADVANCED_BODY)
     assert "Important" in fields["sram1_as_iram"]
 
 
 def test_parse_bullets_skips_sub_bullets_and_blockquotes() -> None:
     """A nested sub-bullet isn't a field and a ``> [!NOTE]`` blockquote ends the field."""
-    body = _extract_mdx_section_body(_ADVANCED_MDX, "Advanced Configuration")
-    assert body is not None
-    fields = _parse_config_var_bullets(body, first_paragraph_only=True)
+    fields = _parse_config_var_bullets(_ADVANCED_BODY, first_paragraph_only=True)
     assert "signing_key" not in fields  # sub-bullet, not a top-level field
     assert "must not bleed" not in fields["signed_ota_verification"]  # blockquote excluded
