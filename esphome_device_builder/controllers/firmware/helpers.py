@@ -22,6 +22,7 @@ from ...helpers.api import CommandError
 from ...helpers.subprocess import run_subprocess_capture
 from ...models import (
     OTA_PORT,
+    DeviceState,
     ErrorCode,
     EventType,
     FirmwareJob,
@@ -50,6 +51,7 @@ except ModuleNotFoundError as exc:
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import EventBus
+    from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -363,3 +365,9 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     if progress is None or progress <= (job.progress or 0):
         return
     _fire_job_progress(job, bus, progress)
+
+
+def _target_is_offline(controller: FirmwareController, configuration: str) -> bool:
+    """Whether *configuration*'s device is known-OFFLINE (UNKNOWN stays falsy)."""
+    device = controller._device_for_configuration(configuration)
+    return device is not None and device.runtime_state.state is DeviceState.OFFLINE

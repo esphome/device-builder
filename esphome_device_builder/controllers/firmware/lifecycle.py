@@ -6,10 +6,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.process import terminate_subtree_with_grace
-from ...models import OTA_PORT, DeviceState, EventType, FirmwareJob, JobStatus, JobType
+from ...models import EventType, FirmwareJob, JobStatus, JobType
 from . import rename_flow
 from .constants import _PREREQUISITE_FAILED_ERROR, _TARGET_OFFLINE_DEFERRED_ERROR
-from .helpers import _fire_job_lifecycle, _trim_job_output
+from .helpers import _fire_job_lifecycle, _target_is_offline, _trim_job_output
 
 if TYPE_CHECKING:
     from ._state import Lane
@@ -195,24 +195,21 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
     Flag *job* ``is_deferred_install`` when its OTA target is OFFLINE at terminality.
 
     Two shapes: a COMPLETED chain-head COMPILE whose held OTA upload would
-    flash a dead address (``release_dependents`` cancels it; the
-    JOB_COMPLETED hook arms the device), and a FAILED OTA UPLOAD (armed
-    here — no JOB_COMPLETED fires for it). Re-applies the
+    flash a dead address (``release_dependents`` cancels it), and a FAILED
+    OTA app UPLOAD. Both are armed by the controller's terminal-event
+    hooks off ``is_queued_update_armed``. Re-applies the
     ``factories.enqueue_install_or_defer`` gate, which only saw the
     device state at click time.
     """
     if job.is_deferred_install:
         return
     if job.status is JobStatus.COMPLETED and job.job_type is JobType.COMPILE:
-        held_ota_upload = any(
+        if _target_is_offline(controller, job.configuration) and any(
             dep.depends_on == job.job_id
             and dep.status is JobStatus.QUEUED
-            and dep.job_type is JobType.UPLOAD
-            and dep.port == OTA_PORT
-            and not dep.flash_bootloader
+            and dep.is_ota_app_upload
             for dep in controller.state.jobs.values()
-        )
-        if held_ota_upload and _target_is_offline(controller, job.configuration):
+        ):
             _LOGGER.info(
                 "Device %s went offline during the build; queuing the update instead",
                 job.configuration,
@@ -221,10 +218,7 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
         return
     if (
         job.status is JobStatus.FAILED
-        and job.job_type is JobType.UPLOAD
-        and job.port == OTA_PORT
-        and not job.flash_bootloader
-        and controller._db.devices is not None
+        and job.is_ota_app_upload
         and _target_is_offline(controller, job.configuration)
     ):
         _LOGGER.info(
@@ -232,10 +226,3 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
             job.configuration,
         )
         job.is_deferred_install = True
-        controller._db.devices.set_queued_update(job.configuration)
-
-
-def _target_is_offline(controller: FirmwareController, configuration: str) -> bool:
-    """Whether *configuration*'s device is known-OFFLINE (UNKNOWN stays falsy)."""
-    device = controller._device_for_configuration(configuration)
-    return device is not None and device.runtime_state.state is DeviceState.OFFLINE

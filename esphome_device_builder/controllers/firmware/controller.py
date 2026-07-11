@@ -98,11 +98,15 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         self._unsub_job_completed = self.bus.add_listener(
             EventType.JOB_COMPLETED, self._handle_job_completed
         )
+        self._unsub_job_failed = self.bus.add_listener(
+            EventType.JOB_FAILED, self._handle_job_failed
+        )
 
     def stop(self) -> None:
         """Tear down bus subscriptions registered in __init__."""
         self._unsub_device_wake()
         self._unsub_job_completed()
+        self._unsub_job_failed()
 
     @property
     def bus(self) -> EventBus:
@@ -520,6 +524,19 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         job = event.data["job"]
         self._handle_deferred_compile_completion(job)
         self._handle_ota_upload_completion(job)
+
+    def _handle_job_failed(self, event: Event) -> None:
+        """Arm the queued update for an OTA app upload that failed against an offline device.
+
+        The offline conversion in ``lifecycle`` flags the job before the
+        terminal fire; this hook owns the device-side arm so every
+        ``queued_update`` mutation lives on the controller.
+        """
+        job = event.data["job"]
+        devices = self._db.devices
+        if devices is None or not job.is_queued_update_armed:
+            return
+        devices.set_queued_update(job.configuration)
 
     def _handle_deferred_compile_completion(self, job: FirmwareJob) -> None:
         """After a deferred-install COMPILE finishes, upload now or arm for later.

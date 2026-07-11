@@ -35,6 +35,10 @@ def controller_with_real_bus() -> Iterator[FirmwareController]:
         controller._unsub_job_completed = controller.bus.add_listener(
             EventType.JOB_COMPLETED, controller._handle_job_completed
         )
+        controller._handle_job_failed = MagicMock()
+        controller._unsub_job_failed = controller.bus.add_listener(
+            EventType.JOB_FAILED, controller._handle_job_failed
+        )
         yield controller
 
 
