@@ -195,10 +195,8 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
 
     Two shapes: a COMPLETED chain-head COMPILE whose held OTA upload would
     flash a dead address (``release_dependents`` cancels it), and a FAILED
-    OTA app UPLOAD. Both are armed by the controller's terminal-event
-    hooks off ``is_queued_update_armed``. Re-applies the
-    ``factories.enqueue_install_or_defer`` gate, which only saw the
-    device state at click time.
+    OTA app UPLOAD. The controller's terminal-event hooks arm the device
+    off ``is_queued_update_armed``.
     """
     if job.is_deferred_install:
         return

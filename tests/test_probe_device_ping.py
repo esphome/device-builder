@@ -131,6 +131,22 @@ def test_probe_device_ping_unknown_name_fails_open() -> None:
     assert monitor._ping._wake.is_set() is True
 
 
+def test_probe_reachability_fires_both_probes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The paired nudge forwards the mDNS resolve and wakes the ICMP sweep."""
+    monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
+    probed: list[str] = []
+    monkeypatch.setattr(
+        monitor._importable,
+        "probe_device",
+        lambda name, service_name=None: probed.append(name),
+    )
+
+    monitor.probe_reachability("garage")
+
+    assert probed == ["garage"]
+    assert monitor._ping._wake.is_set() is True
+
+
 def test_probe_device_ping_herd_collapses_to_single_set() -> None:
     """N concurrent scanner-ADDEDs collapse into one wake; no per-device task explosion."""
     devices = [_ping_only_device(f"dev-{i}") for i in range(100)]

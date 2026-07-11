@@ -181,8 +181,6 @@ def _terminal_result_payload(job: FirmwareJob) -> dict[str, Any]:
     """
     Build a terminal job's RESULT frame — snapshot and live paths share one shape.
 
-    ``error`` carries the human-readable failure reason the frontend
-    renders in its red banner (``None`` for successful jobs);
     ``queued_update_armed`` reports whether the job armed a queued
     update, not the raw deferred flag.
     """
