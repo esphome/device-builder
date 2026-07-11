@@ -11,6 +11,7 @@ from ...helpers.event_bus import StreamControls, stream_events
 from ...models import (
     TERMINAL_JOB_EVENTS,
     EventType,
+    FirmwareJob,
     StreamEvent,
 )
 from .persistence import job_dict_without_output, read_job_output
@@ -134,7 +135,7 @@ async def follow_jobs(
 
 async def _stream_job(
     controller: FirmwareController,
-    job: Any,
+    job: FirmwareJob,
     *,
     job_id: str,
     client: Any,
@@ -144,31 +145,13 @@ async def _stream_job(
     # Capture snapshot before ``stream_events`` attaches listeners.
     is_terminal = job.is_terminal
     snapshot = await _initial_snapshot(job, job_id)
-    terminal_status = job.status.value if is_terminal else ""
-    terminal_exit_code = job.exit_code
-    terminal_error = job.error if is_terminal else None
-    terminal_queued_update_armed = job.is_queued_update_armed if is_terminal else False
+    terminal_result = _terminal_result_payload(job) if is_terminal else None
 
     async def _send_initial(controls: StreamControls) -> None:
         for line in snapshot:
             await client.send_event(message_id, StreamEvent.OUTPUT, line)
-        if is_terminal:
-            await client.send_event(
-                message_id,
-                StreamEvent.RESULT,
-                {
-                    "status": terminal_status,
-                    "exit_code": terminal_exit_code,
-                    # ``error`` carries the human-readable failure
-                    # reason the frontend install dialog renders in
-                    # its red banner. Without it the banner falls
-                    # back to a generic "Install failed." that
-                    # misattributes a receiver-restart to a broken
-                    # build env. ``None`` for successful jobs.
-                    "error": terminal_error,
-                    "queued_update_armed": terminal_queued_update_armed,
-                },
-            )
+        if terminal_result is not None:
+            await client.send_event(message_id, StreamEvent.RESULT, terminal_result)
             # End the stream so the helper returns instead of
             # parking on ``queue.get`` — already-terminal job has
             # nothing more to deliver.
@@ -181,17 +164,7 @@ async def _stream_job(
         elif event.event_type in TERMINAL_JOB_EVENTS:
             ev_job = event.data.get("job")
             if ev_job and getattr(ev_job, "job_id", None) == job_id:
-                status = getattr(ev_job, "status", "unknown")
-                status_val = status.value if hasattr(status, "value") else str(status)
-                controls.push_priority(
-                    StreamEvent.RESULT,
-                    {
-                        "status": status_val,
-                        "exit_code": getattr(ev_job, "exit_code", None),
-                        "error": getattr(ev_job, "error", None),
-                        "queued_update_armed": getattr(ev_job, "is_queued_update_armed", False),
-                    },
-                )
+                controls.push_priority(StreamEvent.RESULT, _terminal_result_payload(ev_job))
                 controls.end()
 
     await stream_events(
@@ -204,7 +177,24 @@ async def _stream_job(
     )
 
 
-async def _initial_snapshot(job: Any, job_id: str) -> list[str]:
+def _terminal_result_payload(job: FirmwareJob) -> dict[str, Any]:
+    """
+    Build a terminal job's RESULT frame — snapshot and live paths share one shape.
+
+    ``error`` carries the human-readable failure reason the frontend
+    renders in its red banner (``None`` for successful jobs);
+    ``queued_update_armed`` reports whether the job armed a queued
+    update, not the raw deferred flag.
+    """
+    return {
+        "status": job.status.value,
+        "exit_code": job.exit_code,
+        "error": job.error,
+        "queued_update_armed": job.is_queued_update_armed,
+    }
+
+
+async def _initial_snapshot(job: FirmwareJob, job_id: str) -> list[str]:
     """Output lines to replay before tailing live: RAM while present, else the sidecar.
 
     A live job's RAM buffer is frozen synchronously so the listener

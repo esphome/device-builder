@@ -441,6 +441,16 @@ def wire_devices(controller: FirmwareController) -> None:
     controller._db.devices = StubDevices()  # type: ignore[attr-defined]
 
 
+def attach_device(controller: FirmwareController, configuration: str, state: Any) -> MagicMock:
+    """Wire one mock device so ``_device_for_configuration`` resolves it; arming is assertable."""
+    device = MagicMock()
+    device.runtime_state.state = state
+    devices = MagicMock()
+    devices.get_by_configuration.side_effect = lambda c: device if c == configuration else None
+    controller._db.devices = devices
+    return device
+
+
 async def run_until_terminal(
     controller: FirmwareController, *, timeout: float = 10.0
 ) -> dict[str, list]:

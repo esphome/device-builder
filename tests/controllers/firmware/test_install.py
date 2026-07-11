@@ -44,6 +44,7 @@ from tests.controllers.firmware.conftest import (
     CaptureEnqueueOrderFactory,
     EnqueueStep,
     FirmwareControllerFactory,
+    attach_device,
     build_scheduler_inputs,
     stub_offloader,
     stub_pairing,
@@ -257,17 +258,6 @@ async def test_successful_compile_releases_upload_to_upload_lane(
     assert controller.state.upload_lane.queue.qsize() == 1
 
 
-def _attach_device(controller: Any, configuration: str, state: DeviceState) -> MagicMock:
-    """Wire a single mock device so ``_device_for_configuration`` resolves it."""
-    device = MagicMock()
-    device.runtime_state.state = state
-    device.runtime_state.queued_update = False
-    devices = MagicMock()
-    devices.get_by_configuration.side_effect = lambda c: device if c == configuration else None
-    controller._db.devices = devices
-    return device
-
-
 async def test_compile_completion_defers_upload_when_device_went_offline(
     tmp_path: Path,
     firmware_controller_factory: FirmwareControllerFactory,
@@ -281,7 +271,7 @@ async def test_compile_completion_defers_upload_when_device_went_offline(
     (tmp_path / "kitchen.yaml").write_text("")
     compile_job = await controller.install(configuration="kitchen.yaml")
     upload = _upload_of(controller, compile_job)
-    _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+    attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
 
     controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
 
@@ -315,7 +305,7 @@ async def test_compile_completion_releases_upload_when_not_deferrable(
     (tmp_path / "kitchen.yaml").write_text("")
     compile_job = await controller.install(configuration="kitchen.yaml", **install_kwargs)
     upload = _upload_of(controller, compile_job)
-    _attach_device(controller, "kitchen.yaml", state)
+    attach_device(controller, "kitchen.yaml", state)
 
     controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
 
@@ -332,12 +322,11 @@ async def test_converted_chain_arms_via_the_job_completed_listener(
     controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
     (tmp_path / "kitchen.yaml").write_text("")
     compile_job = await controller.install(configuration="kitchen.yaml")
-    device = _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+    attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
     controller._db.bus.add_listener(EventType.JOB_COMPLETED, controller._handle_job_completed)
 
     controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
 
-    assert device is controller._db.devices.get_by_configuration("kitchen.yaml")
     controller._db.devices.set_queued_update.assert_called_with("kitchen.yaml")
 
 
@@ -351,7 +340,7 @@ async def test_failed_upload_arms_via_the_job_failed_listener(
     compile_job = await controller.install(configuration="kitchen.yaml")
     upload = _upload_of(controller, compile_job)
     controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
-    _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+    attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
     controller._db.bus.add_listener(EventType.JOB_FAILED, controller._handle_job_failed)
 
     controller._finalize_terminal(upload, JobStatus.FAILED, error="resolve failed")

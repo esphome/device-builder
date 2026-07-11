@@ -42,9 +42,8 @@ def finalize_terminal(
     subsequent install.
     """
     job.mark_terminal(status, error=error)
-    # Before the fire: the JOB_COMPLETED arming hook and the follow
-    # stream's terminal frame both read ``is_deferred_install`` off the
-    # job when the event lands.
+    # Flag before the fire — the terminal-event hooks and the follow
+    # stream read the armed state when the event lands.
     _defer_install_if_target_offline(controller, job)
     _release_lane_slot(controller, job)
     _fire_job_lifecycle(job, controller._db.bus, _STATUS_TO_TERMINAL_EVENT[status])
@@ -204,25 +203,19 @@ def _defer_install_if_target_offline(controller: FirmwareController, job: Firmwa
     if job.is_deferred_install:
         return
     if job.status is JobStatus.COMPLETED and job.job_type is JobType.COMPILE:
-        if _target_is_offline(controller, job.configuration) and any(
-            dep.depends_on == job.job_id
-            and dep.status is JobStatus.QUEUED
-            and dep.is_ota_app_upload
-            for dep in controller.state.jobs.values()
-        ):
-            _LOGGER.info(
-                "Device %s went offline during the build; queuing the update instead",
-                job.configuration,
-            )
-            job.is_deferred_install = True
+        message = "Device %s went offline during the build; queuing the update instead"
+    elif job.status is JobStatus.FAILED and job.is_ota_app_upload:
+        message = "OTA upload to %s failed while the device is offline; queuing the update"
+    else:
         return
-    if (
-        job.status is JobStatus.FAILED
-        and job.is_ota_app_upload
-        and _target_is_offline(controller, job.configuration)
+    if not _target_is_offline(controller, job.configuration):
+        return
+    # A compile converts only when it still has a held OTA app upload
+    # to spare from the dead address.
+    if job.job_type is JobType.COMPILE and not any(
+        dep.depends_on == job.job_id and dep.status is JobStatus.QUEUED and dep.is_ota_app_upload
+        for dep in controller.state.jobs.values()
     ):
-        _LOGGER.info(
-            "OTA upload to %s failed while the device is offline; queuing the update",
-            job.configuration,
-        )
-        job.is_deferred_install = True
+        return
+    _LOGGER.info(message, job.configuration)
+    job.is_deferred_install = True
