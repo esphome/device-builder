@@ -418,6 +418,8 @@ class StubDevices:
     """
 
     devices: list[Any] = field(default_factory=list)
+    # Configurations passed to ``probe_reachability_if_unknown``.
+    probed: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Build the configuration-keyed index, mirroring production's O(1) lookup."""
@@ -434,6 +436,9 @@ class StubDevices:
 
     def get_by_configuration(self, configuration: str) -> Any | None:
         return self._by_configuration.get(configuration)
+
+    def probe_reachability_if_unknown(self, configuration: str) -> None:
+        self.probed.append(configuration)
 
 
 def wire_devices(controller: FirmwareController) -> None:

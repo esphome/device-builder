@@ -300,6 +300,20 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Return the configured device for YAML filename *configuration*, or ``None``."""
         return self._scanner.get_by_configuration(configuration)
 
+    def probe_reachability_if_unknown(self, configuration: str) -> None:
+        """
+        Nudge an immediate mDNS resolve + ICMP sweep for a device still UNKNOWN.
+
+        Settled devices (ONLINE / OFFLINE) are left to the normal cadence;
+        the probe exists so a caller about to act on reachability isn't
+        stuck behind the sweep interval in the startup window.
+        """
+        device = self.get_by_configuration(configuration)
+        if device is None or device.runtime_state.state is not DeviceState.UNKNOWN:
+            return
+        self._state_monitor.probe_device(device.name)
+        self._state_monitor.probe_device_ping(device.name)
+
     async def reload_configuration(self, filename: str) -> bool:
         """
         Force-reload one device's state from disk and the metadata sidecar.

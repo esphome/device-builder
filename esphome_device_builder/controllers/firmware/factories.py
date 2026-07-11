@@ -188,6 +188,11 @@ async def enqueue_install_or_defer(
         job = create_job(controller, configuration, JobType.COMPILE, build_source=build_source)
         job.is_deferred_install = True
         return await controller._enqueue(job)
+    if port == OTA_PORT and not flash_bootloader and controller._db.devices is not None:
+        # A device still in the UNKNOWN startup window gets an immediate
+        # reachability probe, so the state has settled by the time the
+        # compile finishes and the release-time re-check runs.
+        controller._db.devices.probe_reachability_if_unknown(configuration)
     return await enqueue_install_chain(
         controller,
         configuration=configuration,

@@ -143,6 +143,37 @@ async def test_install_bulk_mixed_defers_only_the_offline_device(
 
 
 @pytest.mark.asyncio
+async def test_install_probes_reachability_for_unknown_device(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """An UNKNOWN OTA target gets an immediate probe so the re-checks see a settled state."""
+    mock_device.runtime_state.state = DeviceState.UNKNOWN
+
+    await firmware_controller.install(configuration="test_device.yaml")
+
+    firmware_controller._db.devices.probe_reachability_if_unknown.assert_called_once_with(
+        "test_device.yaml"
+    )
+
+
+@pytest.mark.asyncio
+async def test_install_does_not_probe_when_deferred_or_not_deferrable(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """A deferred OFFLINE install, an explicit target, and a bootloader chain skip the probe."""
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    await firmware_controller.install(configuration="test_device.yaml")
+
+    mock_device.runtime_state.state = DeviceState.UNKNOWN
+    await firmware_controller.install(configuration="test_device.yaml", port="192.168.1.5")
+    await firmware_controller.install(configuration="test_device.yaml", bootloader=True)
+
+    firmware_controller._db.devices.probe_reachability_if_unknown.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_install_bulk_explicit_target_does_not_defer(
     firmware_controller: FirmwareController,
 ) -> None:
