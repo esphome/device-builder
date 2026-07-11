@@ -1492,7 +1492,7 @@ def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
         )
 
 
-def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
+def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:  # noqa: C901
     """Fill empty names, descriptions and field docs from the docs MDX.
 
     The prebuilt schema's index sometimes only lists ``dependencies``
@@ -1510,6 +1510,7 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     """
     descriptions = _load_mdx_descriptions()
     field_descriptions = _load_mdx_field_descriptions()
+    field_sections = _load_mdx_field_sections()
     titles = _load_mdx_titles()
     if not descriptions and not field_descriptions and not titles:
         return
@@ -1519,6 +1520,7 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     backfilled_components = 0
     backfilled_names = 0
     backfilled_fields = 0
+    backfilled_nested = 0
     for entry in entries:
         cid = entry["id"]
         stem = cid.split(".", 1)[-1]
@@ -1565,12 +1567,26 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
                 docs_url=entry.get("docs_url") or "",
             )
 
-    if backfilled_components or backfilled_fields or backfilled_names:
+        # Nested fields: match each nested node to the docs section documenting it.
+        sections = (
+            field_sections.get(cid)
+            or field_sections.get(stem)
+            or (field_sections.get(alias) if alias else None)
+        )
+        if sections:
+            backfilled_nested += _apply_nested_field_sections(
+                entry.get("config_entries") or [],
+                sections,
+                docs_url=entry.get("docs_url") or "",
+            )
+
+    if backfilled_components or backfilled_fields or backfilled_names or backfilled_nested:
         _LOGGER.info(
-            "Backfilled from docs MDX: %d names, %d descriptions, %d fields",
+            "Backfilled from docs MDX: %d names, %d descriptions, %d fields, %d nested fields",
             backfilled_names,
             backfilled_components,
             backfilled_fields,
+            backfilled_nested,
         )
 
 
@@ -1983,6 +1999,170 @@ def _extract_mdx_field_descriptions(text: str) -> dict[str, str]:
     if not match:
         return {}
     return _parse_config_var_bullets(match.group(1))
+
+
+_MDX_HEADING = re.compile(r"^(?P<hashes>#{2,4})\s+(?P<title>.*?)\s*$", re.MULTILINE)
+_AUTOMATION_HEADING = re.compile(r"(?i)\b(?:trigger|action|condition)s?\b")
+# Field names too generic to carry a section's identity: they recur under nearly
+# every nested mapping, so a node whose only overlap with a section is these must
+# NOT be matched (this is what keeps ``esphome.areas[].name`` off the top-level map).
+_GENERIC_FIELD_NAMES = frozenset({"id", "name", "lambda", "action", "trigger_id", "platform"})
+# Entry types that aren't leaf config fields — excluded from a node's field set
+# for section matching (nested/map are containers matched on their own recursion).
+_NONFIELD_ENTRY_TYPES = frozenset({"nested", "map", "divider", "label", "alert"})
+
+
+def _slugify_heading(heading: str) -> str:
+    """GitHub-slugger-style anchor for a docs heading (backticks stripped)."""
+    slug = heading.replace("`", "").lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    return slug.strip("-")
+
+
+def _enumerate_mdx_field_sections(text: str) -> list[dict]:
+    """
+    Every H2–H4 section of a docs page that carries a config-var bullet list.
+
+    Each entry: ``{heading, slug, fields, is_automation}``. ``slug`` is
+    de-duplicated in document order (``-1``, ``-2`` …) to mirror the docs site.
+    ``is_automation`` marks sections under a Trigger/Action/Condition heading —
+    their field sets can coincide with a config schema's, so they're excluded
+    from matching rather than relying on field-set overlap to filter them.
+    """
+    body = re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
+    heads = list(_MDX_HEADING.finditer(body))
+    sections: list[dict] = []
+    slug_seen: dict[str, int] = {}
+    auto_stack: list[tuple[int, bool]] = []  # (level, is_automation) for ancestor headings
+    for i, m in enumerate(heads):
+        level = len(m.group("hashes"))
+        title = m.group("title").strip()
+        while auto_stack and auto_stack[-1][0] >= level:
+            auto_stack.pop()
+        is_auto = bool(auto_stack and auto_stack[-1][1]) or bool(_AUTOMATION_HEADING.search(title))
+        auto_stack.append((level, is_auto))
+        start = m.end()
+        end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
+        fields = _parse_config_var_bullets(body[start:end], first_paragraph_only=True)
+        if not fields:
+            continue
+        base = _slugify_heading(title)
+        n = slug_seen.get(base, 0)
+        slug_seen[base] = n + 1
+        slug = base if n == 0 else f"{base}-{n}"
+        sections.append(
+            {"heading": title, "slug": slug, "fields": fields, "is_automation": is_auto}
+        )
+    return sections
+
+
+def _load_mdx_field_sections() -> dict[str, list[dict]]:
+    """Walk the cached docs repo, return ``{component_id: [section, ...]}``.
+
+    Same id / stem keying as :func:`_load_mdx_field_descriptions`; feeds the
+    nested field-description matcher.
+    """
+    docs_dir = _ensure_docs_repo()
+    if docs_dir is None:
+        return {}
+    components_root = docs_dir / "src" / "content" / "docs" / "components"
+    if not components_root.exists():
+        return {}
+    out: dict[str, list[dict]] = {}
+    for mdx_path in components_root.rglob("*.mdx"):
+        rel = mdx_path.relative_to(components_root)
+        parts = rel.with_suffix("").parts
+        if not parts or parts[-1] == "index":
+            continue
+        if len(parts) == 1:
+            component_id = parts[0]
+        elif len(parts) == 2:
+            component_id = f"{parts[0]}.{parts[1]}"
+        else:
+            continue
+        sections = _enumerate_mdx_field_sections(mdx_path.read_text(encoding="utf-8"))
+        if sections:
+            out[component_id] = sections
+            out.setdefault(parts[-1], sections)
+    return out
+
+
+def _match_section_to_node(
+    children: set[str], missing: set[str], sections: list[dict]
+) -> tuple[dict | None, dict[str, str]]:
+    """
+    Pick the docs section that documents a nested node and the descriptions to apply.
+
+    A section is a candidate when its field set overlaps the node's children by
+    at least two *non-generic* names and covers at least half of both the node's
+    children and the section's own fields. The best candidate wins unless a
+    lower-ranked one disagrees on a shared key's prose (ambiguous → skip). Returns
+    ``(section, {key: description})`` limited to the node's still-missing children.
+    """
+    if not children:
+        return None, {}
+    candidates: list[tuple[int, float, dict]] = []
+    for sec in sections:
+        if sec["is_automation"]:
+            continue
+        shared = children & sec["fields"].keys()
+        if len(shared - _GENERIC_FIELD_NAMES) < 2:
+            continue
+        node_cov = len(shared) / len(children)
+        sec_cov = len(shared) / len(sec["fields"])
+        if node_cov < 0.5 or sec_cov < 0.5:
+            continue
+        candidates.append((len(shared - _GENERIC_FIELD_NAMES), node_cov + sec_cov, sec))
+    if not candidates:
+        return None, {}
+    candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    winner = candidates[0][2]
+    # Ambiguity guard: a runner-up that disagrees on a shared key's prose means we
+    # can't trust the pick — decline rather than risk mis-attribution.
+    for _, _, other in candidates[1:]:
+        for key in children & winner["fields"].keys() & other["fields"].keys():
+            if winner["fields"][key] != other["fields"][key]:
+                return None, {}
+    apply = {k: winner["fields"][k] for k in missing & winner["fields"].keys()}
+    return winner, apply
+
+
+def _apply_nested_field_sections(
+    config_entries: list[dict], sections: list[dict], *, docs_url: str
+) -> int:
+    """
+    Backfill a nested node's field descriptions from the docs section documenting it.
+
+    Each node (an entry with ``config_entries``) is matched to a section by
+    field-set overlap and its still-empty leaf children are filled path-scoped.
+    Top-level leaves stay owned by the flat ``_apply_field_descriptions``.
+    """
+    backfilled = 0
+    for entry in config_entries:
+        inner = entry.get("config_entries")
+        if not inner:
+            continue
+        names = {c["key"] for c in inner if c.get("type") not in _NONFIELD_ENTRY_TYPES}
+        missing = {k for k in names if not _child_has_description(inner, k)}
+        if missing:
+            section, apply = _match_section_to_node(names, missing, sections)
+            if section:
+                anchor = f"{docs_url}#{section['slug']}" if docs_url else ""
+                for child in inner:
+                    text = apply.get(child.get("key"))
+                    if not text or (child.get("description") or "").strip():
+                        continue
+                    child["description"] = text
+                    backfilled += 1
+                    if anchor and not child.get("help_link"):
+                        child["help_link"] = anchor
+        backfilled += _apply_nested_field_sections(inner, sections, docs_url=docs_url)
+    return backfilled
+
+
+def _child_has_description(children: list[dict], key: str) -> bool:
+    """Report whether the named leaf child already carries a non-empty description."""
+    return any(c.get("key") == key and (c.get("description") or "").strip() for c in children)
 
 
 def _ensure_docs_repo() -> Path | None:
@@ -6120,7 +6300,6 @@ def _apply_esp32_options(component_id: str, entries: list[dict]) -> None:
     if not framework:
         return
     _surface_esp32_advanced_fields(framework)
-    _apply_esp32_advanced_descriptions(framework)
     default = _esp32_default_framework()
     if default is None:
         return
@@ -6168,58 +6347,6 @@ def _surface_esp32_advanced_fields(framework: dict) -> None:
             # frontend resolves a nested ``depends_on`` against the component root.
             child["depends_on"] = "variant"
             child["depends_on_value_any"] = list(gate)
-
-
-_ESP32_ADVANCED_DOCS_ANCHOR = "https://esphome.io/components/esp32#advanced-configuration"
-
-
-@cache
-def _esp32_advanced_field_descriptions() -> dict[str, str]:
-    """
-    ``framework.advanced`` field descriptions from esp32's docs MDX.
-
-    The schema bundle carries no ``docs`` for these; the docs document them under
-    a separate ``## Advanced Configuration`` H2 (a flat bullet list the field
-    extractor skips), so pull them from there. First paragraph only — the notes
-    that follow are one click away via ``help_link``.
-    """
-    docs_dir = _ensure_docs_repo()
-    if docs_dir is None:
-        return {}
-    mdx = docs_dir / "src" / "content" / "docs" / "components" / "esp32.mdx"
-    if not mdx.exists():
-        return {}
-    body = _extract_mdx_section_body(mdx.read_text(encoding="utf-8"), "Advanced Configuration")
-    if not body:
-        return {}
-    return _parse_config_var_bullets(body, first_paragraph_only=True)
-
-
-def _apply_esp32_advanced_descriptions(framework: dict) -> None:
-    """
-    Stamp docs descriptions onto ``framework.advanced`` children lacking one.
-
-    Scoped structurally to the ``advanced`` subtree, so a flat-MDX name can't
-    leak onto a same-named field elsewhere (the reason the generic backfill stays
-    top-level). Covers visible and hidden fields — hidden ones want hover text.
-    """
-    advanced = next(
-        (e for e in framework.get("config_entries", []) if e.get("key") == "advanced"), None
-    )
-    if not advanced:
-        return
-    field_map = _esp32_advanced_field_descriptions()
-    if not field_map:
-        return
-    for child in advanced.get("config_entries", []):
-        text = field_map.get(child.get("key"))
-        if not text:
-            continue
-        existing = (child.get("description") or "").strip()
-        if not existing or _is_truncated_prefix(existing, text):
-            child["description"] = text
-            if not child.get("help_link"):
-                child["help_link"] = _ESP32_ADVANCED_DOCS_ANCHOR
 
 
 @cache
