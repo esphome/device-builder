@@ -838,6 +838,7 @@ _IMPORTANT_KEY_ORDER: tuple[str, ...] = (
     "password",
     "broker",
     "username",
+    "auth",  # web_server's credentials group — its security banner's target
     # Hardware
     "pin",
     "address",
