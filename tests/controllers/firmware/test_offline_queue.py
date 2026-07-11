@@ -589,6 +589,20 @@ def test_cancelled_ota_upload_never_flags(
     assert job.is_deferred_install is False
 
 
+def test_finalize_of_enqueue_deferred_compile_keeps_the_flag(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """A compile deferred at enqueue time finalizes without re-classification."""
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    job = _job(JobType.COMPILE, JobStatus.RUNNING, deferred=True)
+
+    firmware_controller._finalize_terminal(job, JobStatus.COMPLETED)
+
+    assert job.is_deferred_install is True
+    assert job.is_queued_update_armed is True
+
+
 def test_job_failed_hook_arms_flagged_upload(
     firmware_controller: FirmwareController,
 ) -> None:
