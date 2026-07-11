@@ -479,6 +479,15 @@ _BAUD_RATE_OPTIONS: list[dict[str, str]] = [
 ]
 
 _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
+    # ``web_server.sorting_groups`` is accepted only with ``version: 3``
+    # — enforced upstream by the custom ``validate_sorting_groups``
+    # validator, which the schema bundle can't express. Gate on the
+    # sibling ``version``; the YAML scalar arrives as an int or a
+    # quoted string, so list both shapes.
+    ("web_server", "sorting_groups"): {
+        "depends_on": "version",
+        "depends_on_value_any": [3, "3"],
+    },
     # ``api.encryption`` is validated by a custom function in ESPHome
     # so the schema generator emits only ``{key: Optional, docs: ...}``
     # — no inner schema, no type. The actual YAML shape is a small
