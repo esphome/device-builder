@@ -27,9 +27,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers.firmware.constants import _TARGET_OFFLINE_DEFERRED_ERROR
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.models import (
+    DeviceState,
     ErrorCode,
     EventType,
     JobSource,
@@ -253,6 +255,112 @@ async def test_successful_compile_releases_upload_to_upload_lane(
 
     assert upload.status == JobStatus.QUEUED
     assert controller.state.upload_lane.queue.qsize() == 1
+
+
+def _attach_device(controller: Any, configuration: str, state: DeviceState) -> MagicMock:
+    """Wire a single mock device so ``_device_for_configuration`` resolves it."""
+    device = MagicMock()
+    device.runtime_state.state = state
+    device.runtime_state.queued_update = False
+    device.configuration = configuration
+    devices = MagicMock()
+    devices.get_by_configuration.side_effect = lambda c: device if c == configuration else None
+    controller._db.devices = devices
+    return device
+
+
+async def test_compile_completion_defers_upload_when_device_went_offline(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A device that went OFFLINE during the compile converts the chain to a queued update.
+
+    The enqueue-time check saw a not-yet-OFFLINE device; re-checking at
+    release cancels the held upload instead of flashing a dead address.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    upload = _upload_of(controller, compile_job)
+    _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+
+    controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
+
+    assert compile_job.is_deferred_install is True
+    assert upload.status == JobStatus.CANCELLED
+    assert upload.error == _TARGET_OFFLINE_DEFERRED_ERROR
+    assert controller.state.upload_lane.queue.qsize() == 0
+
+
+@pytest.mark.parametrize("state", [DeviceState.ONLINE, DeviceState.UNKNOWN])
+async def test_compile_completion_releases_upload_when_device_not_offline(
+    tmp_path: Path,
+    state: DeviceState,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Only known-OFFLINE converts; ONLINE and the UNKNOWN startup window release normally."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    upload = _upload_of(controller, compile_job)
+    _attach_device(controller, "kitchen.yaml", state)
+
+    controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
+
+    assert compile_job.is_deferred_install is False
+    assert upload.status == JobStatus.QUEUED
+    assert controller.state.upload_lane.queue.qsize() == 1
+
+
+async def test_compile_completion_still_releases_bootloader_upload_when_offline(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A bootloader chain never converts — the wake dispatch flashes the app, not the bootloader."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml", bootloader=True)
+    upload = _upload_of(controller, compile_job)
+    _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+
+    controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
+
+    assert compile_job.is_deferred_install is False
+    assert upload.status == JobStatus.QUEUED
+
+
+async def test_converted_chain_arms_via_the_job_completed_listener(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The conversion lands before the terminal fire, so the arming hook sees the flag."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml")
+    device = _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+    controller._db.bus.add_listener(EventType.JOB_COMPLETED, controller._handle_job_completed)
+
+    controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
+
+    assert device is controller._db.devices.get_by_configuration("kitchen.yaml")
+    controller._db.devices.set_queued_update.assert_called_with("kitchen.yaml")
+
+
+async def test_compile_completion_still_releases_explicit_target_upload_when_offline(
+    tmp_path: Path,
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An explicit IP/hostname target skips the conversion, mirroring the enqueue-time gate."""
+    controller = firmware_controller_factory(with_queue=True)
+    (tmp_path / "kitchen.yaml").write_text("")
+    compile_job = await controller.install(configuration="kitchen.yaml", port="192.168.1.5")
+    upload = _upload_of(controller, compile_job)
+    _attach_device(controller, "kitchen.yaml", DeviceState.OFFLINE)
+
+    controller._finalize_terminal(compile_job, JobStatus.COMPLETED)
+
+    assert compile_job.is_deferred_install is False
+    assert upload.status == JobStatus.QUEUED
 
 
 async def test_reinstalling_supersedes_prior_chain_without_raising(

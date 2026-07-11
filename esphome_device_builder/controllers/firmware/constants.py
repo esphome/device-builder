@@ -181,3 +181,8 @@ _OUTPUT_TRIM_NOTICE_PREFIX = "... [output trimmed:"
 # and at restore time (prerequisite pruned/gone). Shared so the two sites
 # stay in lockstep.
 _PREREQUISITE_FAILED_ERROR = "prerequisite job did not complete successfully"
+
+# Error stamped on a held OTA UPLOAD cancelled because its device went
+# OFFLINE during the compile; the install is armed as a queued update
+# for the wake dispatch instead of flashing a dead address.
+_TARGET_OFFLINE_DEFERRED_ERROR = "device is offline; update queued for when it reconnects"

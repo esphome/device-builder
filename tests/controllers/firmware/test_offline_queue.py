@@ -487,6 +487,82 @@ def test_failed_ota_upload_keeps_the_device_armed(
     firmware_controller._db.devices.clear_queued_update.assert_not_called()
 
 
+# --- failed-upload offline conversion (finalize-time) ---
+def test_failed_ota_upload_arms_offline_device(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """An OTA upload that failed while its device is OFFLINE arms the queued update."""
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    job = _job(JobType.UPLOAD, JobStatus.RUNNING, port="OTA")
+
+    firmware_controller._finalize_terminal(job, JobStatus.FAILED, error="resolve failed")
+
+    assert job.is_deferred_install is True
+    assert job.is_queued_update_result is True
+    assert job.error == "resolve failed"
+    firmware_controller._db.devices.set_queued_update.assert_called_with("test_device.yaml")
+
+
+@pytest.mark.parametrize("state", [DeviceState.ONLINE, DeviceState.UNKNOWN])
+def test_failed_ota_upload_not_armed_when_device_not_offline(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+    state: DeviceState,
+) -> None:
+    """Only known-OFFLINE arms; a real failure on a reachable device stays a failure."""
+    mock_device.runtime_state.state = state
+    job = _job(JobType.UPLOAD, JobStatus.RUNNING, port="OTA")
+
+    firmware_controller._finalize_terminal(job, JobStatus.FAILED)
+
+    assert job.is_deferred_install is False
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+
+
+def test_failed_serial_upload_never_arms(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """A serial flash has no wake dispatch to hand off to."""
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    job = _job(JobType.UPLOAD, JobStatus.RUNNING, port="/dev/ttyUSB0")
+
+    firmware_controller._finalize_terminal(job, JobStatus.FAILED)
+
+    assert job.is_deferred_install is False
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+
+
+def test_failed_bootloader_upload_never_arms(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """The wake dispatch re-uploads the app, not the bootloader."""
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    job = _job(JobType.UPLOAD, JobStatus.RUNNING, port="OTA")
+    job.flash_bootloader = True
+
+    firmware_controller._finalize_terminal(job, JobStatus.FAILED)
+
+    assert job.is_deferred_install is False
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+
+
+def test_cancelled_ota_upload_never_arms(
+    firmware_controller: FirmwareController,
+    mock_device: MagicMock,
+) -> None:
+    """A user-cancelled upload must not resurrect itself on the next wake."""
+    mock_device.runtime_state.state = DeviceState.OFFLINE
+    job = _job(JobType.UPLOAD, JobStatus.RUNNING, port="OTA")
+
+    firmware_controller._finalize_terminal(job, JobStatus.CANCELLED)
+
+    assert job.is_deferred_install is False
+    firmware_controller._db.devices.set_queued_update.assert_not_called()
+
+
 def test_completed_ota_upload_for_unarmed_device_is_ignored(
     firmware_controller: FirmwareController,
     mock_device: MagicMock,
@@ -631,5 +707,26 @@ def test_is_deferred_compile_success_truth_table() -> None:
     )
     assert (
         _job(JobType.UPLOAD, JobStatus.COMPLETED, deferred=True).is_deferred_compile_success
+        is False
+    )
+
+
+def test_is_queued_update_result_truth_table() -> None:
+    assert _job(JobType.COMPILE, JobStatus.COMPLETED, deferred=True).is_queued_update_result is True
+    # A failed deferred compile armed nothing — must not render as queued.
+    assert _job(JobType.COMPILE, JobStatus.FAILED, deferred=True).is_queued_update_result is False
+    assert (
+        _job(JobType.UPLOAD, JobStatus.FAILED, port="OTA", deferred=True).is_queued_update_result
+        is True
+    )
+    assert _job(JobType.UPLOAD, JobStatus.FAILED, port="OTA").is_queued_update_result is False
+    assert (
+        _job(
+            JobType.UPLOAD, JobStatus.FAILED, port="/dev/ttyUSB0", deferred=True
+        ).is_queued_update_result
+        is False
+    )
+    assert (
+        _job(JobType.UPLOAD, JobStatus.COMPLETED, port="OTA", deferred=True).is_queued_update_result
         is False
     )

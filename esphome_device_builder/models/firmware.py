@@ -373,6 +373,22 @@ class FirmwareJob(DashboardModel):
             and self.is_deferred_install
         )
 
+    @property
+    def is_queued_update_result(self) -> bool:
+        """
+        Whether this terminal job left the device armed for a queued update.
+
+        True for a completed deferred-install COMPILE and for a failed OTA
+        UPLOAD the offline conversion armed; a *failed* deferred COMPILE
+        armed nothing, so it stays False.
+        """
+        return self.is_deferred_compile_success or (
+            self.job_type == JobType.UPLOAD
+            and self.port == OTA_PORT
+            and self.status == JobStatus.FAILED
+            and self.is_deferred_install
+        )
+
     def reset(self) -> None:
         """
         Reset per-run state so the job is ready to be re-executed.

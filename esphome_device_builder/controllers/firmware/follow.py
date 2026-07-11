@@ -147,7 +147,9 @@ async def _stream_job(
     terminal_status = job.status.value if is_terminal else ""
     terminal_exit_code = job.exit_code
     terminal_error = job.error if is_terminal else None
-    terminal_is_deferred_install = job.is_deferred_install if is_terminal else False
+    # "Armed" semantics, not the raw job flag: a failed deferred COMPILE
+    # armed nothing and must not render as queued.
+    terminal_is_deferred_install = job.is_queued_update_result if is_terminal else False
 
     async def _send_initial(controls: StreamControls) -> None:
         for line in snapshot:
@@ -189,7 +191,7 @@ async def _stream_job(
                         "status": status_val,
                         "exit_code": getattr(ev_job, "exit_code", None),
                         "error": getattr(ev_job, "error", None),
-                        "is_deferred_install": getattr(ev_job, "is_deferred_install", False),
+                        "is_deferred_install": getattr(ev_job, "is_queued_update_result", False),
                     },
                 )
                 controls.end()
