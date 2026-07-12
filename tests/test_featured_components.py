@@ -26,7 +26,10 @@ import pytest
 
 from esphome_device_builder import definitions
 from esphome_device_builder.controllers.components import ComponentCatalog
-from esphome_device_builder.controllers.components._resolve import _apply_preset_value
+from esphome_device_builder.controllers.components._resolve import (
+    _apply_preset_value,
+    _featured_display_name,
+)
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
@@ -130,6 +133,31 @@ def test_coerce_dict_pin_value() -> None:
     preset = _coerce_field_preset({"value": rich, "locked": True})
     assert preset.value == rich
     assert preset.locked is True
+
+
+def test_featured_display_name_priority() -> None:
+    """Manifest name wins, then the ``name`` preset, then underlying + id preset."""
+    base = {"id": "lcd_spi", "component_id": "spi"}
+    named = FeaturedComponent.from_dict({**base, "name": "LCD Bus"})
+    assert _featured_display_name(named, "SPI Bus") == "LCD Bus"
+    entity = FeaturedComponent.from_dict({**base, "fields": {"name": {"value": "Relay 1"}}})
+    assert _featured_display_name(entity, "GPIO Switch") == "Relay 1"
+    id_only = FeaturedComponent.from_dict({**base, "fields": {"id": {"value": "lcd_spi"}}})
+    assert _featured_display_name(id_only, "SPI Bus") == "SPI Bus (lcd_spi)"
+    bare = FeaturedComponent.from_dict(base)
+    assert _featured_display_name(bare, "SPI Bus") == "SPI Bus"
+
+
+def test_featured_display_name_ignores_non_string_presets() -> None:
+    """Non-string / empty name and id presets fall through instead of rendering."""
+    fc = FeaturedComponent.from_dict(
+        {
+            "id": "x",
+            "component_id": "spi",
+            "fields": {"name": {"value": {"nested": True}}, "id": {"value": ""}},
+        }
+    )
+    assert _featured_display_name(fc, "SPI Bus") == "SPI Bus"
 
 
 def test_load_featured_component_minimal() -> None:
@@ -513,6 +541,32 @@ async def test_get_components_featured_with_query_filter(
         "motion" in c.name.lower() or "motion" in c.description.lower() or "motion" in c.id.lower()
         for c in page.components
     )
+
+
+async def test_get_components_featured_card_name_distinct_from_catalog_twin(
+    catalog: ComponentCatalog,
+) -> None:
+    """A featured card never shares its exact name with the plain catalog entry."""
+    page = await catalog.get_components(board_id="guition_esp32_s3_4848s040", query="spi", limit=50)
+    by_id = {c.id: c for c in page.components}
+    featured = by_id["featured.guition_esp32_s3_4848s040.lcd_spi"]
+    assert featured.name == "SPI Bus (lcd_spi)"
+    assert featured.underlying_category == ComponentCategory.BUS
+    assert by_id["spi"].name == "SPI Bus"
+    assert by_id["spi"].underlying_category is None
+
+
+async def test_get_components_featured_name_from_entity_preset(
+    catalog: ComponentCatalog,
+) -> None:
+    """Sibling featured cards of one underlying type surface their preset entity names."""
+    page = await catalog.get_components(
+        board_id="guition_esp32_s3_4848s040", category="featured", limit=50
+    )
+    names = {c.id: c.name for c in page.components}
+    assert names["featured.guition_esp32_s3_4848s040.switch_gpio_1"] == "Relay 1"
+    assert names["featured.guition_esp32_s3_4848s040.switch_gpio_2"] == "Relay 2"
+    assert names["featured.guition_esp32_s3_4848s040.switch_gpio_3"] == "Relay 3"
 
 
 async def test_get_categories_surfaces_featured_count(

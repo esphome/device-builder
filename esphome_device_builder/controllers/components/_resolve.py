@@ -94,6 +94,25 @@ class _FeaturedRecord:
     underlying_id: str
 
 
+def _featured_display_name(fc: FeaturedComponent, underlying_name: str) -> str:
+    """
+    Card display name for a featured entry.
+
+    Priority: manifest ``name`` override, preset entity name (``fields.name``,
+    e.g. "Relay 1"), then the underlying name suffixed with the preset id
+    ("SPI Bus (lcd_spi)") so the card never mirrors its plain catalog twin.
+    """
+    if fc.name:
+        return fc.name
+    name_preset = fc.fields.get("name")
+    if name_preset and isinstance(name_preset.value, str) and name_preset.value:
+        return name_preset.value
+    id_preset = fc.fields.get("id")
+    if id_preset and isinstance(id_preset.value, str) and id_preset.value:
+        return f"{underlying_name} ({id_preset.value})"
+    return underlying_name
+
+
 def _materialise_featured_index(
     record: _FeaturedRecord,
     underlying: ComponentCatalogIndexEntry,
@@ -110,9 +129,10 @@ def _materialise_featured_index(
     return replace(
         underlying,
         id=record.full_id,
-        name=fc.name or underlying.name,
+        name=_featured_display_name(fc, underlying.name),
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
+        underlying_category=underlying.category,
         image_url=fc.image_url or underlying.image_url,
     )
 
@@ -136,7 +156,7 @@ def _materialise_featured(
     return replace(
         underlying,
         id=record.full_id,
-        name=fc.name or underlying.name,
+        name=_featured_display_name(fc, underlying.name),
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
         image_url=fc.image_url or underlying.image_url,

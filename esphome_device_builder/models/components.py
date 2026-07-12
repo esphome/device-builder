@@ -124,6 +124,11 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # component's own id is itself an entity (``sensor.pulse_counter``).
     provides_id_paths: dict[str, list[list[str]]] = field(default_factory=dict)
 
+    # Real catalog category behind a ``featured`` entry (``bus`` for a
+    # featured ``spi``), so the card can chip its type alongside its
+    # recommendation status. ``None`` on regular entries.
+    underlying_category: ComponentCategory | None = None
+
 
 @dataclass
 class ComponentCatalogEntry(DashboardModel):
