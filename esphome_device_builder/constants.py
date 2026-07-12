@@ -118,5 +118,7 @@ BUS_CATEGORIES: frozenset[str] = frozenset({"bus", "one_wire", "canbus"})
 # Catalog categories that never appear as featured components — they belong in
 # the dedicated "Add core configuration" dialog, not board recommendations.
 # Shared by the importer (which must not lift such a component as a dependency
-# hub) and the validator (which rejects manifests featuring one).
-FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "time", "update"})
+# hub) and the validator (which rejects manifests featuring one). ``time`` is
+# deliberately absent: a page's ``time:`` platform is a hard dependency of
+# leaves like ``sensor.total_daily_energy``, so imports must carry it.
+FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update"})

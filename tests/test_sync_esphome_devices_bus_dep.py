@@ -11,6 +11,7 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
     _find_consumer_block,
     _fold_requires_into_bundles,
     _is_bus_dep,
+    _LiftState,
     _materialize_bus,
 )
 
@@ -351,7 +352,8 @@ def test_list_pin_field_locks_and_records_occupancy() -> None:
 
 def test_octal_spi_materializes_both_clk_and_data_pins() -> None:
     """End-to-end guard: an octal spi block locks clk_pin and the data_pins list."""
-    entry, local, occ = _materialize_bus("spi", None, {"spi": _spi_block()}, _COMPONENTS, set())
+    state = _LiftState(config={"spi": _spi_block()}, components_index=_COMPONENTS, used_ids=set())
+    entry, local, occ = _materialize_bus("spi", None, state)
     assert entry is not None
     assert local == "display_spi"
     assert entry["fields"]["clk_pin"] == {"value": 21, "locked": True}
@@ -379,16 +381,20 @@ def test_lifts_mapping_bus_without_id() -> None:
 
 def test_materialize_bus_rejects_non_bus_component() -> None:
     """A non-bus dep (a hub also lists, e.g. esp32/output) is never lifted as a bus."""
-    entry, _, _ = _materialize_bus("output", None, {"output": {"x": "y"}}, _COMPONENTS, set())
+    state = _LiftState(config={"output": {"x": "y"}}, components_index=_COMPONENTS, used_ids=set())
+    entry, _, _ = _materialize_bus("output", None, state)
     assert entry is None
 
 
 def test_is_bus_dep_matches_all_known_buses() -> None:
-    """All six ESPHome buses match, both styles; non-bus deps do not."""
+    """Buses and component-less platform-style deps match; catalog non-buses don't."""
     for dep in ("i2c", "spi", "uart", "modbus", "one_wire", "canbus"):
         assert _is_bus_dep(dep, _COMPONENTS) is True
-    for dep in ("output", "esp32", "sensor"):
-        assert _is_bus_dep(dep, _COMPONENTS) is False
+    # In-catalog, non-bus components are hub territory, not bus lifts.
+    assert _is_bus_dep("output", _COMPONENTS) is False
+    # A dep with no top-level component (``time``) may resolve via a
+    # ``<dep>.<platform>`` page block; materialization filters the rest.
+    assert _is_bus_dep("time", _COMPONENTS) is True
 
 
 def test_lifts_platform_style_one_wire_without_id() -> None:
@@ -480,9 +486,12 @@ def test_lifts_platform_style_canbus() -> None:
 
 def test_materialize_platform_bus_direct() -> None:
     """Direct call: an id-less one_wire gpio block resolves the platform component."""
-    entry, local, occ = _materialize_bus(
-        "one_wire", None, {"one_wire": [{"platform": "gpio", "pin": "GPIO4"}]}, _COMPONENTS, set()
+    state = _LiftState(
+        config={"one_wire": [{"platform": "gpio", "pin": "GPIO4"}]},
+        components_index=_COMPONENTS,
+        used_ids=set(),
     )
+    entry, local, occ = _materialize_bus("one_wire", None, state)
     assert entry is not None
     assert entry["component_id"] == "one_wire.gpio"
     assert local == "one_wire_bus"

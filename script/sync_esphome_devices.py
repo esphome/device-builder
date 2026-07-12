@@ -794,9 +794,30 @@ def _extract_featured_components(
 
     survivors = _select_survivors(candidates)
     id_map = _build_id_map(survivors)
-    featured = [_finalize_entry(c, id_map) for c in survivors]
-    bundles = _build_bundles(survivors, id_map)
+    finalized = [(c, _finalize_entry(c, id_map)) for c in survivors]
+    kept: list[tuple[_Candidate, dict[str, Any]]] = []
+    for candidate, entry in finalized:
+        missing = _missing_required_ref(candidate.component, entry["fields"])
+        if missing is None:
+            kept.append((candidate, entry))
+            continue
+        # The ref target didn't survive (or points at a nested sub-entity id
+        # we can't carry) — without it the entry fails ESPHome validation.
+        _LOGGER.info(
+            "Dropping %s: required reference %r is unresolvable", candidate.component_id, missing
+        )
+    featured = [entry for _, entry in kept]
+    bundles = _build_bundles([candidate for candidate, _ in kept], id_map)
     return featured, bundles, gpio_occupancy
+
+
+def _missing_required_ref(component: dict[str, Any], fields: dict[str, Any]) -> str | None:
+    """Key of a required ``type: "id"`` config entry absent from *fields*, or ``None``."""
+    for ce in component.get("config_entries") or []:
+        key = ce.get("key")
+        if ce.get("type") == "id" and ce.get("required") and key and key not in fields:
+            return key
+    return None
 
 
 def _select_survivors(candidates: list[_Candidate]) -> list[_Candidate]:
@@ -1255,6 +1276,10 @@ def _coerce_field_preset(  # noqa: PLR0911 — distinct field shapes each get th
             return {"value": normalized, "locked": True}
         gpio = _gpio_number(normalized)
         if gpio is None:
+            if isinstance(normalized, str) and _NAMED_PIN_RE.fullmatch(normalized):
+                # Board pin aliases (``TX1``, ``D5``, ``A0``) are valid values
+                # ESPHome resolves per-board; no board GPIO to mark occupied.
+                return {"value": normalized, "locked": True}
             # Reference-style pins or lambdas — skip silently.
             return None
         label = _occupancy_label(inline_item, component_id)
@@ -1304,6 +1329,11 @@ def _coerce_pin_list(
 # Field names whose nested value is a group of board pins (``data_pins``);
 # porches / dimensions / init sequences don't match.
 _PIN_TREE_FIELD_RE = re.compile(r"(?:^|_)pins?$")
+
+# Board pin alias names (``TX1``, ``D5``, ``A0``, ``SCL``): short uppercase
+# tokens — id references and lambdas are lowercase / longer, substitutions
+# start with ``$``, and numeric GPIO forms parse before this is consulted.
+_NAMED_PIN_RE = re.compile(r"[A-Z][A-Z0-9]{0,7}")
 
 
 def _coerce_data_tree(
@@ -1426,9 +1456,10 @@ def _is_simple_scalar(value: Any) -> bool:
     if value is None or isinstance(value, bool | int | float):
         return True
     if isinstance(value, str):
-        # Keep things short — long strings are usually templated names
-        # we don't want to lock the user into.
-        return "${" not in value and "\n" not in value and len(value) <= 80
+        # Keep things short — long strings are usually templated names we
+        # don't want to lock the user into. ``$`` covers both substitution
+        # forms (``${var}`` and bare ``$var``).
+        return "$" not in value and "\n" not in value and len(value) <= 80
     return False
 
 
@@ -1704,15 +1735,25 @@ def _collect_expander_refs(
     return consumers, ordered_refs
 
 
+@dataclass(frozen=True)
+class _LiftState:
+    """Shared state threaded through the bus / hub lift passes.
+
+    The holder is frozen; the containers inside mutate as lifts accumulate.
+    """
+
+    config: dict[str, Any]
+    components_index: dict[str, dict[str, Any]]
+    used_ids: set[str]
+    bus_local: dict[tuple[str, str | None], str] = field(default_factory=dict)
+    occupancy: dict[int, str] = field(default_factory=dict)
+    extra: list[dict[str, Any]] = field(default_factory=list)
+
+
 def _ensure_buses(
     hub_component: dict[str, Any],
     hub_block: dict[str, Any],
-    config: dict[str, Any],
-    components_index: dict[str, dict[str, Any]],
-    used_ids: set[str],
-    bus_local: dict[tuple[str, str | None], str],
-    occupancy: dict[int, str],
-    extra: list[dict[str, Any]],
+    state: _LiftState,
 ) -> tuple[list[str], dict[str, str]]:
     """
     Materialize (once) the bus each hub dependency resolves to.
@@ -1729,22 +1770,43 @@ def _ensure_buses(
         instance = hub_block.get(ref_field)
         instance = instance if isinstance(instance, str) and instance else None
         key = (dep, instance)
-        local = bus_local.get(key)
+        local = state.bus_local.get(key)
         if local is None:
-            bus_entry, local, bus_occ = _materialize_bus(
-                dep, instance, config, components_index, used_ids
-            )
+            bus_entry, local, bus_occ = _materialize_bus(dep, instance, state)
             if bus_entry is None:
                 continue
-            used_ids.add(local)
-            bus_local[key] = local
-            occupancy.update(bus_occ)
-            extra.append(bus_entry)
+            state.used_ids.add(local)
+            state.bus_local[key] = local
+            state.occupancy.update(bus_occ)
+            state.extra.append(bus_entry)
+            _chain_bus_deps(bus_entry, dep, instance, state)
         if local not in bus_ids:
             bus_ids.append(local)
         if instance is not None:
             bus_refs[ref_field] = instance
     return bus_ids, bus_refs
+
+
+def _chain_bus_deps(
+    bus_entry: dict[str, Any],
+    bus_domain: str,
+    instance_id: str | None,
+    state: _LiftState,
+) -> None:
+    """
+    Chain a freshly lifted bus's own bus deps (``modbus`` rides ``uart``).
+
+    Without the chain the lifted bus fails ESPHome's dependency validation.
+    """
+    bus_component = state.components_index.get(bus_entry["component_id"])
+    bus_block = _select_bus_block(state.config, bus_domain, instance_id)
+    if bus_component is None or bus_block is None:
+        return
+    sub_ids, sub_refs = _ensure_buses(bus_component, bus_block, state)
+    for sub_field, sub_instance in sub_refs.items():
+        bus_entry["fields"][sub_field] = {"value": sub_instance, "locked": True}
+    if sub_ids:
+        bus_entry["requires"] = sub_ids
 
 
 def _wire_consumer_requires(
@@ -1814,12 +1876,27 @@ def _block_platform(bus_domain: str, block: dict[str, Any]) -> str | None:
     return platform if isinstance(platform, str) and platform else None
 
 
+def _select_bus_block(
+    config: dict[str, Any], bus_domain: str, instance_id: str | None
+) -> dict[str, Any] | None:
+    """
+    Select the page block a bus lift reads: the ``id``-matched, else the sole block.
+
+    A bare key (``modbus:`` with a null body) selects as an empty block.
+    """
+    raw = config.get(bus_domain)
+    if raw is None:
+        return {} if bus_domain in config and instance_id is None else None
+    blocks = _block_mappings(raw)
+    if instance_id is not None:
+        return next((b for b in blocks if b.get("id") == instance_id), None)
+    return blocks[0] if len(blocks) == 1 else None
+
+
 def _materialize_bus(
     bus_domain: str,
     instance_id: str | None,
-    config: dict[str, Any],
-    components_index: dict[str, dict[str, Any]],
-    used_ids: set[str],
+    state: _LiftState,
 ) -> tuple[dict[str, Any] | None, str, dict[int, str]]:
     """
     Lift the bus a consumer depends on into a featured entry, both bus shapes.
@@ -1834,16 +1911,10 @@ def _materialize_bus(
     when the bus is absent, ambiguous (no ``*_id`` and more than one bus), or a
     platform-style block has no resolvable ``platform:``.
     """
-    blocks = _block_mappings(config.get(bus_domain))
-    if instance_id is not None:
-        block = next((b for b in blocks if b.get("id") == instance_id), None)
-    elif len(blocks) == 1:
-        block = blocks[0]
-    else:
-        block = None
+    block = _select_bus_block(state.config, bus_domain, instance_id)
     if block is None:
         return None, "", {}
-    component = components_index.get(bus_domain)
+    component = state.components_index.get(bus_domain)
     if component is not None:
         component_id = bus_domain
     else:
@@ -1851,12 +1922,14 @@ def _materialize_bus(
         if platform is None:
             return None, "", {}
         component_id = f"{bus_domain}.{platform}"
-        component = components_index.get(component_id)
+        component = state.components_index.get(component_id)
         if component is None:
             return None, "", {}
     # A hub binds several deps and ``_ensure_buses`` calls this for each, so confirm
-    # the resolved component is a bus (the id was never the filter).
-    if not _is_bus_category(component):
+    # the resolved component is a bus — or a platform-style provider whose
+    # category equals its domain (``time.homeassistant`` -> ``time``), the same
+    # convention one_wire/canbus use (the id was never the filter).
+    if not _is_bus_category(component) and component.get("category") != bus_domain:
         return None, "", {}
     bus_inst = block.get("id")
     bus_inst = bus_inst if isinstance(bus_inst, str) and bus_inst else None
@@ -1866,7 +1939,9 @@ def _materialize_bus(
         return None, "", {}
     if bus_inst:
         fields["id"] = {"value": bus_inst, "locked": True}
-    local_id = _unique_local_id(_sanitize_local_id(bus_inst or ""), used_ids, f"{bus_domain}_bus")
+    local_id = _unique_local_id(
+        _sanitize_local_id(bus_inst or ""), state.used_ids, f"{bus_domain}_bus"
+    )
     return {"id": local_id, "component_id": component_id, "fields": fields}, local_id, occupancy
 
 
@@ -1922,9 +1997,7 @@ def _materialize_hubs(
     lift and drops a consumer whose hub didn't materialize.
     """
     used_ids = {entry["id"] for entry in featured}
-    extra: list[dict[str, Any]] = []
-    occupancy: dict[int, str] = {}
-    bus_local: dict[tuple[str, str | None], str] = {}
+    state = _LiftState(config=config, components_index=components_index, used_ids=used_ids)
     # Each materialized hub keyed by its ref, carrying the local id + the bus
     # ids it needs — the ordered prerequisite chain a consumer references.
     hub_prereqs: dict[tuple[str, str | None], list[str]] = {}
@@ -1934,23 +2007,29 @@ def _materialize_hubs(
         block = resolve_block(hub_cid, instance_id)
         if hub_component is None or block is None:
             continue
+        # A platform-carrying block (``time: platform: homeassistant``) is a
+        # platform-style hub: the schema and the emitted component id live at
+        # ``<domain>.<platform>``, not the bare domain.
+        component_cid = hub_cid
+        platform = block.get("platform")
+        if isinstance(platform, str) and f"{hub_cid}.{platform}" in components_index:
+            component_cid = f"{hub_cid}.{platform}"
+            hub_component = components_index[component_cid]
         # Record the hub's own pin occupancy locally and merge only on success:
         # a shift-register hub puts board GPIOs (data/clock/latch) here, and a
         # placeholder field part-way through the block must not leave those pins
         # marked occupied for a hub we then drop.
         hub_occ: dict[int, str] = {}
-        fields = _extract_fields(block, hub_component, hub_occ, hub_cid)
-        if fields is None or (driver and not fields):
+        fields = _extract_fields(block, hub_component, hub_occ, component_cid)
+        if fields is None:
             continue
         if driver and not _required_pin_keys(hub_component) <= fields.keys():
             # A required pin didn't parse (lambda / reference): skip the hub and
             # leave ``requires`` unstamped so the dep banner covers it, rather than
             # ship a pinless hub that compiles into an invalid config.
             continue
-        occupancy.update(hub_occ)
-        bus_ids, bus_refs = _ensure_buses(
-            hub_component, block, config, components_index, used_ids, bus_local, occupancy, extra
-        )
+        state.occupancy.update(hub_occ)
+        bus_ids, bus_refs = _ensure_buses(hub_component, block, state)
         base = _sanitize_local_id(instance_id) if instance_id else ""
         hub_id = _unique_local_id(base, used_ids, f"{hub_cid}{'_hub' if driver else ''}")
         used_ids.add(hub_id)
@@ -1962,16 +2041,16 @@ def _materialize_hubs(
         # doesn't fall back to esphome's default i2c pins.
         for ref_field, bus_inst in bus_refs.items():
             fields[ref_field] = {"value": bus_inst, "locked": True}
-        hub_entry: dict[str, Any] = {"id": hub_id, "component_id": hub_cid, "fields": fields}
+        hub_entry: dict[str, Any] = {"id": hub_id, "component_id": component_cid, "fields": fields}
         if bus_ids:
             hub_entry["requires"] = bus_ids
-        extra.append(hub_entry)
+        state.extra.append(hub_entry)
         hub_prereqs[(hub_cid, instance_id)] = [*bus_ids, hub_id]
 
     if not driver:
         _drop_unresolved_consumers(featured, consumers, hub_prereqs)
     _wire_consumer_requires(consumers, hub_prereqs)
-    return extra, occupancy
+    return state.extra, state.occupancy
 
 
 def _required_pin_keys(component: dict[str, Any]) -> set[str]:
@@ -1981,6 +2060,49 @@ def _required_pin_keys(component: dict[str, Any]) -> set[str]:
         for ce in component.get("config_entries") or []
         if ce.get("type") == "pin" and ce.get("required") and isinstance(ce.get("key"), str)
     }
+
+
+def _drop_unsatisfiable_consumers(
+    featured: list[dict[str, Any]],
+    bundles: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Drop featured leaves depending on a featured-excluded domain (``time``).
+
+    Such a dep can never appear in a manifest, so the leaf fails ESPHome's
+    dependency validation in every bundle it joins. Anything subtler (a hub
+    absent from the page, auto-loaded platform deps like ``libretiny``) is
+    left for real validation to decide. Prunes dropped ids from *bundles*.
+    """
+    kept: list[dict[str, Any]] = []
+    dropped_ids: set[str] = set()
+    for entry in featured:
+        component = components_index.get(entry["component_id"]) or {}
+        unsatisfiable = next(
+            (
+                dep
+                for dep in component.get("dependencies") or []
+                if isinstance(dep, str) and dep in FEATURED_EXCLUDED_CATEGORIES
+            ),
+            None,
+        )
+        if unsatisfiable is None:
+            kept.append(entry)
+            continue
+        _LOGGER.info(
+            "Dropping %s: hard dependency %r can't be featured",
+            entry["component_id"],
+            unsatisfiable,
+        )
+        dropped_ids.add(entry["id"])
+    if dropped_ids:
+        for bundle in bundles:
+            bundle["component_ids"] = [
+                member for member in bundle["component_ids"] if member not in dropped_ids
+            ]
+        bundles[:] = [bundle for bundle in bundles if bundle["component_ids"]]
+    return kept
 
 
 def _is_driver_hub(component: dict[str, Any]) -> bool:
@@ -2002,6 +2124,19 @@ def _sole_hub_block(raw: Any) -> dict[str, Any] | None:
     """Return the single top-level hub mapping, or ``None`` if absent/ambiguous."""
     blocks = _block_mappings(raw)
     return blocks[0] if len(blocks) == 1 else None
+
+
+def _hub_block_for(config: dict[str, Any], hub_cid: str) -> dict[str, Any] | None:
+    """
+    Resolve a dependency hub's top-level block, accepting the bare-key form.
+
+    ``tuya:`` with a null body is the common upstream shape for hubs whose
+    bus auto-binds; it lifts fieldless.
+    """
+    raw = config.get(hub_cid)
+    if raw is None:
+        return {} if hub_cid in config else None
+    return _sole_hub_block(raw)
 
 
 def _collect_driver_hub_refs(
@@ -2031,7 +2166,7 @@ def _collect_driver_hub_refs(
             hub = components_index.get(dep)
             if hub is None or not _is_driver_hub(hub):
                 continue
-            block = _sole_hub_block(config.get(dep))
+            block = _hub_block_for(config, dep)
             if block is None:
                 continue
             instance_id = block.get("id") if isinstance(block.get("id"), str) else None
@@ -2074,7 +2209,7 @@ def _extract_driver_hubs(
         components_index,
         consumers,
         ordered_refs,
-        resolve_block=lambda cid, _instance_id: _sole_hub_block(config.get(cid)),
+        resolve_block=lambda cid, _instance_id: _hub_block_for(config, cid),
         driver=True,
     )
 
@@ -2109,14 +2244,16 @@ def _is_bus_dep(dep: str, components_index: dict[str, dict[str, Any]]) -> bool:
     Whether *dep* names one of ESPHome's buses, mapping- or platform-style.
 
     Mapping-style buses (i2c/spi/uart/modbus) resolve to a top-level component
-    whose category is ``"bus"``. Platform-style buses (one_wire/canbus) have no
-    top-level component; their schema lives under ``<dep>.<platform>`` and the
-    dep name itself equals the bus category, so it is matched against the set.
+    whose category is ``"bus"``. Platform-style deps (one_wire/canbus, and
+    non-bus providers like ``time``) have no top-level component; their schema
+    lives under ``<dep>.<platform>``, so any component-less dep is a
+    materialization candidate — ``_materialize_bus`` still requires a
+    platform-resolvable page block, so a stray dep name lifts nothing.
     """
     component = components_index.get(dep)
     if component is not None:
         return _is_bus_category(component)
-    return dep in BUS_CATEGORIES
+    return True
 
 
 def _collect_bus_dep_refs(
@@ -2193,22 +2330,28 @@ def _extract_bus_deps(
     consumers, ordered_refs = _collect_bus_dep_refs(config, featured, components_index)
     if not ordered_refs:
         return [], {}
-    used_ids = {entry["id"] for entry in featured}
-    extra: list[dict[str, Any]] = []
-    occupancy: dict[int, str] = {}
-    bus_local: dict[tuple[str, str | None], str] = {}
+    state = _LiftState(
+        config=config,
+        components_index=components_index,
+        used_ids={entry["id"] for entry in featured},
+    )
     for dep, instance in ordered_refs:
-        bus_entry, local, bus_occ = _materialize_bus(
-            dep, instance, config, components_index, used_ids
-        )
+        bus_entry, local, bus_occ = _materialize_bus(dep, instance, state)
         if bus_entry is None:
             continue
-        used_ids.add(local)
-        bus_local[(dep, instance)] = local
-        occupancy.update(bus_occ)
-        extra.append(bus_entry)
-    _wire_consumer_requires(consumers, {ref: [local] for ref, local in bus_local.items()})
-    return extra, occupancy
+        state.used_ids.add(local)
+        state.bus_local[(dep, instance)] = local
+        state.occupancy.update(bus_occ)
+        state.extra.append(bus_entry)
+        _chain_bus_deps(bus_entry, dep, instance, state)
+    # Lock each consumer onto the specific bus it named upstream — on a
+    # multi-bus board the generated ``<bus>_id`` is otherwise ambiguous.
+    for entry, refs in consumers:
+        for dep, instance in refs:
+            if instance is not None and (dep, instance) in state.bus_local:
+                entry["fields"][f"{dep}_id"] = {"value": instance, "locked": True}
+    _wire_consumer_requires(consumers, {ref: [local] for ref, local in state.bus_local.items()})
+    return state.extra, state.occupancy
 
 
 def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each get their own early exit
@@ -2263,6 +2406,7 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
         if lift_entries:
             featured = [*lift_entries, *featured]
             gpio_occupancy = {**lift_occupancy, **gpio_occupancy}
+    featured = _drop_unsatisfiable_consumers(featured, bundles, components_index)
     # The per-consumer bundle is built from id references before hubs are
     # lifted, so fold each member's ``requires`` (bus/hub) back in — otherwise a
     # "full setup" lands the light + outputs without the driver hub they need.
