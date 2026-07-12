@@ -4,7 +4,8 @@ name: Sync component catalog on ESPHome release
 # for the new schema to publish, then dispatches the component catalog sync so
 # it refreshes immediately instead of waiting for the nightly. The device/board
 # catalog is sourced from devices.esphome.io plus curated manifests, so a
-# release doesn't change it; it stays on its own schedule.
+# release doesn't change it; it stays on its own schedule. Nightly dev builds
+# are dispatched too but skipped: they publish no schema bundle.
 
 on:
   workflow_dispatch:
@@ -26,7 +27,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Check the version is a stable or beta release
+        id: gate
+        # Nightly dev builds (2026.8.0-dev20260712) publish no schema bundle,
+        # so waiting for one just burns 20 minutes and fails; the downstream
+        # sync rejects them with this same pattern anyway.
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(b[0-9]+)?$'; then
+            echo "sync=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Skipping catalog sync for '$VERSION' - not a stable/beta release"
+            echo "sync=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Wait for the schema bundle to publish
+        if: steps.gate.outputs.sync == 'true'
         # The schema build (esphome-schema) and this run fan out from the same
         # release event, so the bundle can lag the release by a few minutes. The
         # component sync consumes it, so wait before kicking that off. ``version``
@@ -51,6 +69,7 @@ jobs:
           exit 1
 
       - name: Dispatch the component catalog sync
+        if: steps.gate.outputs.sync == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
           VERSION: ${{ inputs.version }}
