@@ -85,6 +85,16 @@ def test_not_lifted_on_otherwise_empty_board() -> None:
     assert _lift_psram({"psram": {"mode": "octal"}}, [], _COMPONENTS) == []
 
 
+def test_unliftable_psram_block_warns(caplog: pytest.LogCaptureFixture) -> None:
+    """A configured ``psram:`` block that produces no lift is loud, not silent."""
+    featured = [_display_entry()]
+    assert _lift_psram({"psram": {"mode": "(FILL IN MODE)"}}, featured, _COMPONENTS) == featured
+    assert "can't be represented" in caplog.text
+    caplog.clear()
+    assert _lift_psram({"logger": None}, featured, _COMPONENTS) == featured
+    assert caplog.text == ""
+
+
 def test_psram_allocating_entries_gain_requires(monkeypatch: pytest.MonkeyPatch) -> None:
     """Domain-dir, platform-dir, and psram-dep leaves get the stamp; a relay doesn't."""
     display = _display_entry()

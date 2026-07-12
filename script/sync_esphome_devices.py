@@ -1598,7 +1598,10 @@ def _psram_allocating_components() -> frozenset[str]:
                 continue
             try:
                 text = source.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
+            except OSError as exc:
+                # An unreadable source silently shrinks the allocating set —
+                # and the cached result makes the omission sticky for the run.
+                _LOGGER.warning("Skipping unreadable esphome source %s: %s", source, exc)
                 continue
             if _PSRAM_ALLOC_RE.search(text):
                 allocating.add(child.name)
@@ -1628,6 +1631,10 @@ def _lift_psram(
     """
     psram_entry = _extract_psram(config, components_index) if featured else None
     if psram_entry is None:
+        if featured and "psram" in config:
+            # The page configured PSRAM but the lift failed (placeholder
+            # value or missing catalog entry) — the device ships unstamped.
+            _LOGGER.warning("Dropping psram lift: the page's psram: block can't be represented")
         return featured
     for entry in featured:
         if _needs_psram(entry["component_id"], components_index):
