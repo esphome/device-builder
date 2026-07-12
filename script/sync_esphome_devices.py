@@ -1214,7 +1214,7 @@ def _extract_fields(
             # other required field the page set but we couldn't carry
             # would ship an entry that fails ESPHome validation.
             _LOGGER.info(
-                "Dropping %s: required field %r has an un-representable value",
+                "Dropping %s: required field %r has an unrepresentable value",
                 component_id,
                 fkey,
             )
