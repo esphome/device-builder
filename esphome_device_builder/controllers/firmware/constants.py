@@ -121,6 +121,13 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
 )
 
+# This compile-phase grammar is the authoritative copy: it stamps
+# ``compile_started_at`` / ``compile_ended_at`` on the persisted job. The
+# frontend mirrors these markers in ``src/util/compile-phase.ts`` only to drive
+# the live per-second timer before the stamped fields land over the stream —
+# keep the two in sync (word markers, bracket-percent, ninja counter, end
+# banner).
+#
 # Lines are ANSI-stripped before compile-phase matching: PlatformIO colourises
 # and repaints, so escapes land not only as a leading reset but *inside* tokens
 # — the summary banner is ``[<green><bold>SUCCESS<reset>] Took`` — which an

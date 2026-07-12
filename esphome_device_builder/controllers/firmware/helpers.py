@@ -396,13 +396,20 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
 
     Start on the first build line and end on the summary banner, so the span
     excludes the download and, for an install, the flash. ANSI is stripped
-    first — the ``[SUCCESS] Took`` banner colours *inside* the brackets.
+    first — the ``[SUCCESS] Took`` banner colours *inside* the brackets. Runs
+    per streamed line, so it short-circuits once both stamps are latched (an
+    install flashes long after the compile ends) and pre-filters the end scan
+    on a plain-text substring before paying for the ANSI strip + regex.
     """
-    clean = _ANSI_ESCAPE.sub("", line)
+    if job.compile_ended_at is not None:
+        return
     if job.compile_started_at is None:
-        if _is_compile_start_line(clean):
+        if _is_compile_start_line(_ANSI_ESCAPE.sub("", line)):
             job.compile_started_at = _now_iso()
-    elif job.compile_ended_at is None and _COMPILE_END_PATTERN.search(clean):
+        return
+    # ``Took `` is plain text in the banner (only the [SUCCESS]/[FAILED] token
+    # carries inline ANSI), so this skips the strip + regex on every other line.
+    if "Took " in line and _COMPILE_END_PATTERN.search(_ANSI_ESCAPE.sub("", line)):
         job.compile_ended_at = _now_iso()
 
 
