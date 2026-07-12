@@ -100,7 +100,7 @@ def _featured_display_name(fc: FeaturedComponent, underlying_name: str) -> str:
 
     Priority: manifest ``name`` override, preset entity name (``fields.name``,
     e.g. "Relay 1"), then the underlying name suffixed with the preset id
-    ("SPI Bus (lcd_spi)") so the card never mirrors its plain catalog twin (#1973).
+    ("SPI Bus (lcd_spi)") so the card never mirrors its plain catalog twin.
     """
     if fc.name:
         return fc.name
@@ -132,6 +132,7 @@ def _materialise_featured_index(
         name=_featured_display_name(fc, underlying.name),
         description=fc.description if fc.description is not None else underlying.description,
         category=ComponentCategory.FEATURED,
+        underlying_category=underlying.category,
         image_url=fc.image_url or underlying.image_url,
     )
 

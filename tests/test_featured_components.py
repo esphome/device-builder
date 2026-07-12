@@ -546,11 +546,14 @@ async def test_get_components_featured_with_query_filter(
 async def test_get_components_featured_card_name_distinct_from_catalog_twin(
     catalog: ComponentCatalog,
 ) -> None:
-    """A featured card never shares its exact name with the plain catalog entry (#1973)."""
+    """A featured card never shares its exact name with the plain catalog entry."""
     page = await catalog.get_components(board_id="guition_esp32_s3_4848s040", query="spi", limit=50)
-    names = {c.id: c.name for c in page.components}
-    assert names["featured.guition_esp32_s3_4848s040.lcd_spi"] == "SPI Bus (lcd_spi)"
-    assert names["spi"] == "SPI Bus"
+    by_id = {c.id: c for c in page.components}
+    featured = by_id["featured.guition_esp32_s3_4848s040.lcd_spi"]
+    assert featured.name == "SPI Bus (lcd_spi)"
+    assert featured.underlying_category == ComponentCategory.BUS
+    assert by_id["spi"].name == "SPI Bus"
+    assert by_id["spi"].underlying_category is None
 
 
 async def test_get_components_featured_name_from_entity_preset(
