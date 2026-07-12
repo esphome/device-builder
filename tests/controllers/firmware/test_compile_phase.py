@@ -1,33 +1,34 @@
 """``compile_started_at`` / ``compile_ended_at`` stamping.
 
-The compile clock must count compilation only: it starts on the first line
-that proves the toolchain is building and stops on the summary banner — never
-during the dependency download or CMake configure, and never counting an
-install's flash phase. Two output shapes have to work: PlatformIO's
-``Compiling <path>`` word markers (arduino / esp8266 / libretiny, and esp-idf
-via the pio builder), which carry no percentage, and raw esp-idf ninja
-``[N/M] Building …`` counters (bluetooth-proxy / idf.py builds), which carry no
-``Compiling`` word — the real lines below come from a captured ninja build.
+The compile clock counts compilation only. It starts on the first line that
+proves the toolchain is building and stops on the summary banner — never
+during the dependency download, and never counting an install's flash phase.
+
+Two output shapes must both work:
+
+* PlatformIO ``Compiling <path>`` word markers (esp8266 / esp32-arduino /
+  libretiny, and esp-idf via the pio builder), which carry no percentage.
+* raw esp-idf ninja ``[N/M] Building …`` counters (bluetooth-proxy / idf.py
+  builds), which carry no ``Compiling`` word.
+
+The lines below are captured from real ``platformio.log`` (esp8266) and
+``btp_compile.log`` (esp-idf ninja) builds. Because the download always
+precedes the first ninja counter, the first ``[N/M]`` starts the clock (no
+total floor). A stray percentage while downloading (esptool-style ``(45 %)``,
+an ``Unpacking`` bar) must *not* start it — only the three compile-specific
+shapes do.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.controllers.firmware.helpers import (
-    _parse_progress,
-    _stamp_compile_phase,
-)
+from esphome_device_builder.controllers.firmware.helpers import _stamp_compile_phase
 from esphome_device_builder.models.firmware import FirmwareJob, JobType
 
 
 def _job() -> FirmwareJob:
     return FirmwareJob(job_id="j", configuration="c.yaml", job_type=JobType.COMPILE)
-
-
-def _feed(job: FirmwareJob, line: str) -> None:
-    """Drive one line the way ``_ingest_output_line`` does: parse, then stamp."""
-    _stamp_compile_phase(job, line, _parse_progress(line))
 
 
 class TestPlatformIOWordMarkers:
@@ -36,53 +37,71 @@ class TestPlatformIOWordMarkers:
     @pytest.mark.parametrize(
         "line",
         [
+            # Real esp8266 platformio.log compile lines.
+            "Compiling .pioenvs/simple8266/src/esphome/components/api/api_server.cpp.o",
             "Compiling .pio/build/esp32dev/src/main.cpp.o",
-            "Compiling .pioenvs/apy/esp_hw_support/cpu.c.o",
-            "Compiling .pio/build/nodemcuv2/core/core_esp8266_main.cpp.o",
             "Compiling .pio/build/bk72xx/src/main.cpp.o",
-            "Archiving .pio/build/nodemcuv2/libFrameworkArduino.a",
-            "Linking .pio/build/bk72xx/firmware.elf",
+            "Indexing .pioenvs/simple8266/libFrameworkArduino.a",
+            "Linking .pioenvs/simple8266/firmware.elf",
             "Building in release mode",
         ],
     )
     def test_word_marker_starts_without_percent(self, line: str) -> None:
         job = _job()
-        _feed(job, line)
+        _stamp_compile_phase(job, line)
+        assert job.compile_started_at is not None
+
+    def test_arduino_bracket_percent_starts(self) -> None:
+        job = _job()
+        _stamp_compile_phase(job, "[ 17%] Compiling .pio/build/uno/src/main.cpp.o")
         assert job.compile_started_at is not None
 
 
 class TestRawNinjaCounters:
-    """esp-idf ninja prints ``[N/M] Building …`` with no ``Compiling`` word."""
+    """esp-idf ninja prints ``[N/M]`` counters; the first one is the build start."""
 
     @pytest.mark.parametrize(
         "line",
         [
-            # Real captured lines (CR-split, trailing erase-to-eol escape).
+            # Real captured btp_compile.log chunks (CR-split, trailing erase escape).
+            "[0/2] Re-checking globbed directories...\x1b[K",
+            "[1/2] Re-running CMake...\x1b[K",
             "[1/1547] Generating project_elf_src_esp32s3.c\x1b[K",
             "[6/1547] Building C object esp-idf/esp_adc/adc_cali.c.obj\x1b[K",
-            "[995/1547] Building C object esp-idf/bt/bta_hh_utils.c.obj",
+            "[3/97] Performing build step for 'bootloader'",
             "[1547/1547] Linking CXX executable btp.elf",
         ],
     )
-    def test_counter_starts_via_parsed_progress(self, line: str) -> None:
+    def test_any_counter_starts_the_clock(self, line: str) -> None:
         job = _job()
-        _feed(job, line)
+        _stamp_compile_phase(job, line)
         assert job.compile_started_at is not None
+
+
+class TestStrayPercentDoesNotStart:
+    """Download / flash / OTA percentages are not compilation."""
 
     @pytest.mark.parametrize(
         "line",
         [
-            # CMake reconfigure + globbed-dir re-check: total under the ninja
-            # floor, so no percent parses and the compile hasn't started.
-            "[0/2] Re-checking globbed directories...\x1b[K",
-            "[1/2] Re-running CMake...\x1b[K",
-            "[0/4] Re-checking globbed directories...\x1b[K",
-            "[3/97] Performing build step for 'bootloader'",
+            # Real esp8266 platformio.log download bar (percent outside brackets).
+            "Unpacking  [------------------------------------]    0%",
+            "Library Manager: Installing esphome/noise-c @ 0.1.11",
+            # esptool flash progress — parses as a percent, but it's the flash.
+            "Writing at 0x00010000... (45 %)",
+            "Writing at 0x000cf943 [=>  ]  84.8% 491520/579918 bytes...",
+            # ESPHome OTA upload.
+            "Uploading: [====      ] 35% ...",
+            # Memory-usage report at the end of link.
+            "RAM:   [====      ]  37.7% (used 30900 bytes from 81920 bytes)",
+            "Flash: [====      ]  41.8% (used 428199 bytes from 1023984 bytes)",
+            # A bare parenthesised percent anywhere.
+            "Downloading toolchain (45%)",
         ],
     )
-    def test_configure_counters_do_not_start(self, line: str) -> None:
+    def test_no_start(self, line: str) -> None:
         job = _job()
-        _feed(job, line)
+        _stamp_compile_phase(job, line)
         assert job.compile_started_at is None
 
 
@@ -91,18 +110,41 @@ class TestDownloadAndConfigureExcluded:
         "line",
         [
             "Tool Manager: Installing framework-arduinoespressif32",
-            "Library Manager: Installing esphome/noise-c @ 0.1.11",
-            "Unpacking [####################] 100%",
             "-- Configuring done (3.0s)",
             "-- Building ESP-IDF components for target esp32s3",
             "Executing action: reconfigure",
             "Running ninja in directory /data/build/btp/build",
+            "HARDWARE: ESP8266 80MHz, 80KB RAM, 1MB Flash",
         ],
     )
     def test_no_start(self, line: str) -> None:
         job = _job()
-        _feed(job, line)
+        _stamp_compile_phase(job, line)
         assert job.compile_started_at is None
+
+
+class TestFullSequences:
+    """End-to-end ordering: download first, then the build starts the clock."""
+
+    def test_esp8266_platformio(self) -> None:
+        job = _job()
+        for line in [
+            "Library Manager: Installing esphome/noise-c @ 0.1.11",
+            "Unpacking  [------------------------------------]    0%",
+            "HARDWARE: ESP8266 80MHz, 80KB RAM, 1MB Flash",
+            "Compiling .pioenvs/simple8266/src/esphome/components/api/api_server.cpp.o",
+        ]:
+            assert job.compile_started_at is None or line.startswith("Compiling")
+            _stamp_compile_phase(job, line)
+        assert job.compile_started_at is not None
+
+    def test_esp_idf_ninja_download_before_first_counter(self) -> None:
+        job = _job()
+        # A stray download percent lands before ninja and must not start it.
+        _stamp_compile_phase(job, "Downloading esp-idf tool (45%)")
+        assert job.compile_started_at is None
+        _stamp_compile_phase(job, "[0/2] Re-checking globbed directories...\x1b[K")
+        assert job.compile_started_at is not None
 
 
 class TestCompileEnd:
@@ -115,13 +157,13 @@ class TestCompileEnd:
     )
     def test_banner_ends_after_start(self, line: str) -> None:
         job = _job()
-        _feed(job, "Compiling a.cpp.o")
-        _feed(job, line)
+        _stamp_compile_phase(job, "Compiling a.cpp.o")
+        _stamp_compile_phase(job, line)
         assert job.compile_ended_at is not None
 
     def test_end_ignored_before_start(self) -> None:
         job = _job()
-        _feed(job, "[SUCCESS] Took 1.0 seconds")
+        _stamp_compile_phase(job, "[SUCCESS] Took 1.0 seconds")
         assert job.compile_started_at is None
         assert job.compile_ended_at is None
 
@@ -129,23 +171,23 @@ class TestCompileEnd:
 class TestLatching:
     def test_start_latched_once(self) -> None:
         job = _job()
-        _feed(job, "Compiling a.cpp.o")
+        _stamp_compile_phase(job, "Compiling a.cpp.o")
         first = job.compile_started_at
-        _feed(job, "[6/1547] Building C object b.c.obj")
+        _stamp_compile_phase(job, "[6/1547] Building C object b.c.obj")
         assert job.compile_started_at == first
 
     def test_end_latched_once(self) -> None:
         job = _job()
-        _feed(job, "Compiling a.cpp.o")
-        _feed(job, "[SUCCESS] Took 1.0 seconds")
+        _stamp_compile_phase(job, "Compiling a.cpp.o")
+        _stamp_compile_phase(job, "[SUCCESS] Took 1.0 seconds")
         first = job.compile_ended_at
-        _feed(job, "[FAILED] Took 9.0 seconds")
+        _stamp_compile_phase(job, "[FAILED] Took 9.0 seconds")
         assert job.compile_ended_at == first
 
     def test_cleared_by_clear_run_state(self) -> None:
         job = _job()
-        _feed(job, "Compiling a.cpp.o")
-        _feed(job, "[SUCCESS] Took 1.0 seconds")
+        _stamp_compile_phase(job, "Compiling a.cpp.o")
+        _stamp_compile_phase(job, "[SUCCESS] Took 1.0 seconds")
         job.clear_run_state()
         assert job.compile_started_at is None
         assert job.compile_ended_at is None

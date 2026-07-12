@@ -123,14 +123,23 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
 
 # Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
 # <path>`` is emitted by PlatformIO for every framework (esp-idf, esp32-arduino,
-# esp8266, libretiny); the rest cover a cached build that jumps straight to
-# linking. The bracketed ninja / percent forms are already caught by progress
-# parsing, so they aren't repeated here. None of these appear in the download or
+# esp8266, libretiny) and is the universal one; the rest cover a cached build
+# that jumps straight to linking. None of these appear in the download or
 # CMake-configure phase, whose lines start with ``--`` / ``Tool Manager:`` /
 # ``Library Manager:`` / ``Executing`` / ``Running`` / ``INFO``.
 _COMPILE_PHASE_WORD_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*"
     r"(?:Compiling |Archiving |Linking |Indexing |Generating |Building in )"
+)
+
+# The arduino per-file gauge ``[ 17%] Compiling …`` — percent *inside* the
+# brackets. Kept distinct from the download ``Unpacking [----] 0%`` bar (percent
+# *outside* the brackets) and from esptool ``(45 %)`` / OTA ``Uploading … 45%``,
+# none of which mean "compiling". So a stray percentage during the download
+# never starts the clock — only these three compile-specific shapes do (the
+# ninja ``[N/M]`` counter below is the third).
+_COMPILE_BRACKET_PERCENT: re.Pattern[str] = re.compile(
+    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*\d{1,3}\s*%\s*\]"
 )
 
 # PlatformIO closes each environment with ``===== [SUCCESS] Took N seconds =====``

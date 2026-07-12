@@ -33,6 +33,7 @@ from ...models import (
 )
 from ...models.firmware import _now_iso
 from .constants import (
+    _COMPILE_BRACKET_PERCENT,
     _COMPILE_END_PATTERN,
     _COMPILE_PHASE_WORD_PATTERN,
     _INFLIGHT_TRIM_KEEP,
@@ -364,24 +365,39 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
         _trim_job_output(job, keep=_INFLIGHT_TRIM_KEEP)
     out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
     bus.fire(EventType.JOB_OUTPUT, out_payload)
+    _stamp_compile_phase(job, line)
     progress = _parse_progress(line)
-    _stamp_compile_phase(job, line, progress)
     if progress is None or progress <= (job.progress or 0):
         return
     _fire_job_progress(job, bus, progress)
 
 
-def _stamp_compile_phase(job: FirmwareJob, line: str, progress: int | None) -> None:
+def _is_compile_start_line(line: str) -> bool:
+    """
+    Whether *line* proves compilation has begun.
+
+    True for a PlatformIO ``Compiling`` / ``Linking`` / … word marker, an
+    arduino ``[ NN%]`` per-file gauge, or a ninja ``[N/M]`` counter (any total —
+    download always precedes ninja, so the first counter is the build start).
+    Deliberately *not* the esptool ``(45 %)`` / OTA / download percentages, so a
+    stray percent during the download can't start the clock.
+    """
+    return bool(
+        _COMPILE_PHASE_WORD_PATTERN.match(line)
+        or _COMPILE_BRACKET_PERCENT.match(line)
+        or _NINJA_PROGRESS_PATTERN.match(line)
+    )
+
+
+def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     """
     Stamp the compile-phase wall-clocks off *line*.
 
-    Start on the first build line — a parseable progress percent (ninja /
-    esptool) or a compile-word marker (PlatformIO ``Compiling`` output, which
-    carries no percent) — and end on the summary banner, so the recorded span
+    Start on the first build line and end on the summary banner, so the span
     excludes the download and CMake configure and, for an install, the flash.
     """
     if job.compile_started_at is None:
-        if progress is not None or _COMPILE_PHASE_WORD_PATTERN.match(line):
+        if _is_compile_start_line(line):
             job.compile_started_at = _now_iso()
     elif job.compile_ended_at is None and _COMPILE_END_PATTERN.search(line):
         job.compile_ended_at = _now_iso()
