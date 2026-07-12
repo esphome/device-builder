@@ -51,6 +51,7 @@ from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
     BUS_CATEGORIES,
     DEVICE_IMPORT_SOURCE_TYPE,
+    FEATURED_EXCLUDED_CATEGORIES,
 )
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
@@ -1977,17 +1978,17 @@ def _required_pin_keys(component: dict[str, Any]) -> set[str]:
 
 def _is_driver_hub(component: dict[str, Any]) -> bool:
     """
-    Return True for a hub a consumer binds by catalog dependency that owns board pins.
+    Return True for a hub a consumer binds by catalog dependency.
 
-    LED-driver hubs (``bp5758d``, ``sm2135``, ...) sit as a top-level block with
-    their own ``clock_pin`` / ``data_pin`` and are pulled in by an
-    ``output.<driver>`` platform's ``dependencies`` rather than by a pin
-    reference. Buses (``i2c`` / ``spi`` / ``uart``) are excluded — a hub's own
-    bus is materialized through ``_ensure_buses`` instead.
+    Pin-owning LED-driver hubs (``bp5758d``), bus-attached ones (``tuya``,
+    ``ads1115``, ``modbus_controller``), and pin-less providers (``i2s_audio``)
+    all qualify: without the top-level block the consumer fails ESPHome's
+    dependency validation. Buses are excluded — a hub's own bus is
+    materialized through ``_ensure_buses`` — and featured-excluded categories
+    (core / ota / time / update) belong to the base config, not the manifest.
     """
-    if component.get("category") == "bus":
-        return False
-    return any(ce.get("type") == "pin" for ce in component.get("config_entries") or [])
+    category = component.get("category")
+    return category not in BUS_CATEGORIES and category not in FEATURED_EXCLUDED_CATEGORIES
 
 
 def _sole_hub_block(raw: Any) -> dict[str, Any] | None:

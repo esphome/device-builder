@@ -31,7 +31,11 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 # Imported from the stdlib-only constants module so this script stays light.
-from esphome_device_builder.constants import BOARD_PIN_KEYS, BUS_CATEGORIES  # noqa: E402
+from esphome_device_builder.constants import (  # noqa: E402
+    BOARD_PIN_KEYS,
+    BUS_CATEGORIES,
+    FEATURED_EXCLUDED_CATEGORIES,
+)
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 
@@ -39,10 +43,6 @@ DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 SCHEMAS_DIR = DEFINITIONS_DIR / "schemas"
 COMPONENTS_INDEX_JSON = DEFINITIONS_DIR / "components.index.json"
 COMPONENTS_BODIES_DIR = DEFINITIONS_DIR / "components"
-
-# Categories excluded from featured-component eligibility — these belong in
-# the dedicated "Add core configuration" dialog, not in board recommendations.
-_FEATURED_EXCLUDED_CATEGORIES = {"core", "ota", "time", "update"}
 
 # Network components offered as board "suggested hardware" despite their
 # ``core`` category — auto-pulled in place of wifi: when a board has onboard
@@ -458,7 +458,7 @@ def _validate_featured_component(  # noqa: C901
 
     component = components_index[component_id]
     if (
-        component.get("category") in _FEATURED_EXCLUDED_CATEGORIES
+        component.get("category") in FEATURED_EXCLUDED_CATEGORIES
         and component_id not in _FEATURED_CATEGORY_EXCEPTIONS
     ):
         errors.append(
