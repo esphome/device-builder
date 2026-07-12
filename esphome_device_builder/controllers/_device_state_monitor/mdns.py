@@ -451,8 +451,8 @@ class MdnsSource:
         Read the identity TXT off a non-API device's ``_http._tcp`` service.
 
         New firmware publishes version / mac / config_hash on both the
-        fallback and web_server's service when the API is absent
-        (esphome/esphome#17520); older firmware carries ``version`` only.
+        fallback and web_server's service when the API is absent;
+        older firmware carries ``version`` only.
         Skipped when every config for the name exposes the API (the
         esphomelib path carries their identity, and the ``_http`` TXT
         isn't published with the API on). No ONLINE claim; reachability

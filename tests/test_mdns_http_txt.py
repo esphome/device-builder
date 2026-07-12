@@ -1,10 +1,9 @@
 """
 Reading the identity TXT off a non-API device's ``_http._tcp`` mDNS service.
 
-New firmware publishes ``version`` / ``mac`` / ``config_hash`` there
-(esphome/esphome#17520); older firmware carries ``version`` only.
-``MdnsSource``'s HTTP handler applies whichever keys are present and
-never api_encryption.
+New firmware publishes ``version`` / ``mac`` / ``config_hash`` there;
+older firmware carries ``version`` only. ``MdnsSource``'s HTTP handler
+applies whichever keys are present and never api_encryption.
 """
 
 from __future__ import annotations
