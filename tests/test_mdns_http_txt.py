@@ -193,13 +193,22 @@ def _http_info(props: dict[str, str]) -> MagicMock:
 
 
 def test_apply_http_txt_reads_identity_trio(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Version / config_hash / mac all reach their apply methods; api_encryption never does."""
+    """Version / config_hash / mac reach their apply methods; api_encryption never does."""
     monitor = _make_monitor(_mqtt_device())
     applied = _capture_monitor_applies(monitor, monkeypatch)
 
+    # The stray api_encryption key is ignored, not applied (the capture
+    # helper fails the test if it ever reaches the monitor).
     monitor._mdns._apply_http_txt(
         "klo",
-        _http_info({"version": "2026.8.0", "config_hash": "5a94a12d", "mac": "94c9601f8cf1"}),
+        _http_info(
+            {
+                "version": "2026.8.0",
+                "config_hash": "5a94a12d",
+                "mac": "94c9601f8cf1",
+                "api_encryption": "Noise_NNpsk0",
+            }
+        ),
     )
 
     assert applied == [
@@ -227,17 +236,3 @@ def test_apply_http_txt_empty_props_is_a_noop(monkeypatch: pytest.MonkeyPatch) -
     monitor._mdns._apply_http_txt("klo", _http_info({}))
 
     assert applied == []
-
-
-def test_apply_http_txt_never_applies_api_encryption(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Content-bearing props without an api_encryption key must not stamp plaintext."""
-    monitor = _make_monitor(_mqtt_device())
-    applied = _capture_monitor_applies(monitor, monkeypatch)
-
-    monitor._mdns._apply_http_txt(
-        "klo", _http_info({"version": "2026.8.0", "api_encryption": "Noise_NNpsk0"})
-    )
-
-    # Identity keys apply; the encryption key is ignored (guarded by the
-    # pytest.fail patch in the capture helper).
-    assert applied == [("apply_version", "klo", "2026.8.0")]
