@@ -49,11 +49,14 @@ from script.sync_esphome_devices import (
 # - the simplest classic case (Sonoff BASIC R2 v1.4 — esp8266/esp8285)
 # - an esp32 variant-only config (Shelly EM Gen3 — esp32c3 + esp-idf)
 # - a multi-output light bulb (Athom BR30 — five PWM outputs + rgbct)
+# - an RGB smart screen (Guition 4848S040 — nested display presets +
+#   the psram lift; the #1975 regression guard)
 #
 # Each entry asserts the platform / board / variant / framework
 # resolved by ``_make_record`` plus a list of (component_id, field, key,
 # expected_value) tuples that must appear *somewhere* in the resulting
-# featured_components. The smoke test fails fast on any mismatch.
+# featured_components; ``key`` None compares the field value bare
+# (an unlocked preset). The smoke test fails fast on any mismatch.
 _EXPECTED_OK: list[dict[str, Any]] = [
     {
         "remote_id": "Sonoff-BASIC-R2-v1.4",
@@ -90,6 +93,19 @@ _EXPECTED_OK: list[dict[str, Any]] = [
             ("output.esp8266_pwm", "pin", "value", 14),  # blue
             ("output.esp8266_pwm", "pin", "value", 5),  # white
             ("output.esp8266_pwm", "pin", "value", 13),  # ct
+        ],
+    },
+    {
+        "remote_id": "Guition-ESP32-S3-4848S040",
+        "platform": "esp32",
+        "board": "esp32-s3-devkitc-1",
+        "variant": "esp32s3",
+        "framework": "esp-idf",
+        "featured": [
+            ("display.st7701s", "dimensions", "value", {"width": 480, "height": 480}),
+            ("display.st7701s", "data_pins", "value", {"red": [11, 12, 13, 14, 0]}),
+            ("display.st7701s", "init_sequence", "value", [1, [255, 119, 1, 0, 0, 16], [205, 0]]),
+            ("psram", "mode", None, "octal"),
         ],
     },
 ]
@@ -142,7 +158,7 @@ def _featured_has(
     featured: list[dict[str, Any]],
     component_id: str,
     field_key: str,
-    value_key: str,
+    value_key: str | None,
     expected_value: Any,
 ) -> bool:
     """Return True when *featured* contains an entry matching the given coordinates."""
@@ -151,6 +167,10 @@ def _featured_has(
             continue
         fields = entry.get("fields") or {}
         preset = fields.get(field_key)
+        if value_key is None:
+            if _expect_value(preset, expected_value):
+                return True
+            continue
         if not isinstance(preset, dict):
             continue
         if _expect_value(preset.get(value_key), expected_value):
