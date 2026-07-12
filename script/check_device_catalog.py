@@ -50,7 +50,7 @@ from script.sync_esphome_devices import (
 # - an esp32 variant-only config (Shelly EM Gen3 — esp32c3 + esp-idf)
 # - a multi-output light bulb (Athom BR30 — five PWM outputs + rgbct)
 # - an RGB smart screen (Guition 4848S040 — nested display presets +
-#   the psram lift; the #1975 regression guard)
+#   the psram lift)
 #
 # Each entry asserts the platform / board / variant / framework
 # resolved by ``_make_record`` plus a list of (component_id, field, key,

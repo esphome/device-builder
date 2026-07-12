@@ -1189,7 +1189,7 @@ def _extract_fields(
     sets a catalog-required field to a value we can't represent. The
     caller drops the whole featured-component entry in either case
     rather than emit a preset that would compile but not run — or, for
-    a lost required field, not even compile (#1975).
+    a lost required field, not even compile.
     """
     valid_keys: dict[str, dict[str, Any]] = {}
     for ce in component.get("config_entries") or []:
@@ -1545,9 +1545,7 @@ def _extract_psram(
     Mine a top-level ``psram:`` block into a featured component.
 
     A display's framebuffer needs it at runtime even though the config
-    validates without it, so a page configuring PSRAM keeps it. ``None``
-    when the page has no ``psram:`` key, the catalog lacks the component,
-    or a field value is a placeholder; a bare ``psram:`` lifts fieldless.
+    validates without it, so a page configuring PSRAM keeps it.
     """
     if "psram" not in config:
         return None
@@ -1572,18 +1570,14 @@ def _lift_psram(
     """
     Prepend the page's ``psram:`` lift and stamp it as a display prerequisite.
 
-    Gated on *featured* being non-empty so a psram-only page stays
-    unimportable; the ``requires`` stamp pulls the entry into the display's
-    full-setup bundle via ``_fold_requires_into_bundles``.
+    Gated on *featured* being non-empty so a psram-only page stays unimportable.
     """
     psram_entry = _extract_psram(config, components_index) if featured else None
     if psram_entry is None:
         return featured
     for entry in featured:
         if entry["component_id"].startswith("display."):
-            requires = list(entry.get("requires") or [])
-            if psram_entry["id"] not in requires:
-                entry["requires"] = [*requires, psram_entry["id"]]
+            entry["requires"] = [*(entry.get("requires") or []), psram_entry["id"]]
     return [psram_entry, *featured]
 
 
