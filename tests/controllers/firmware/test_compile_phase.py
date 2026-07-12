@@ -1,22 +1,11 @@
-"""``compile_started_at`` / ``compile_ended_at`` stamping.
+"""
+``compile_started_at`` / ``compile_ended_at`` stamping.
 
-The compile clock counts compilation only. It starts on the first line that
-proves the toolchain is building and stops on the summary banner — never
-during the dependency download, and never counting an install's flash phase.
-
-Two output shapes must both work:
-
-* PlatformIO ``Compiling <path>`` word markers (esp8266 / esp32-arduino /
-  libretiny, and esp-idf via the pio builder), which carry no percentage.
-* raw esp-idf ninja ``[N/M] Building …`` counters (bluetooth-proxy / idf.py
-  builds), which carry no ``Compiling`` word.
-
-The lines below are captured from real ``platformio.log`` (esp8266) and
-``btp_compile.log`` (esp-idf ninja) builds. Because the download always
-precedes the first ninja counter, the first ``[N/M]`` starts the clock (no
-total floor). A stray percentage while downloading (esptool-style ``(45 %)``,
-an ``Unpacking`` bar) must *not* start it — only the three compile-specific
-shapes do.
+The clock starts on the first build line (PlatformIO ``Compiling`` word
+markers with no percentage, or raw esp-idf ninja ``[N/M]`` counters with no
+``Compiling`` word — both pinned from captured builds) and stops at the
+summary banner; the dependency download and an install's flash never count,
+and a stray download/flash percentage never starts it.
 """
 
 from __future__ import annotations
