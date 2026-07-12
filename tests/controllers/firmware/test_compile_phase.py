@@ -110,7 +110,15 @@ class TestStrayPercentDoesNotStart:
         assert job.compile_started_at is None
 
 
-class TestDownloadAndConfigureExcluded:
+class TestDownloadAndNarrationExcluded:
+    """Setup narration never starts the clock on its own.
+
+    In a real esp-idf build the clock is already running by the time these
+    lines stream ("Reading CMake configuration" starts it, since configure is
+    CPU+I/O work of the build); this pins that none of them is a start signal,
+    so a pio build's download phase stays out of the count.
+    """
+
     @pytest.mark.parametrize(
         "line",
         [
