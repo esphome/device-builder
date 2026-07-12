@@ -76,7 +76,9 @@ def _cached_info(monkeypatch: pytest.MonkeyPatch, *, cached: bool) -> MagicMock:
 # ----------------------------------------------------------------------
 
 
-def test_http_cache_hit_applies_version_for_non_api_device(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_http_cache_hit_applies_identity_for_non_api_device(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A cached ``_http._tcp`` service for a configured non-API device applies inline."""
     monitor = _make_monitor(_mqtt_device())
     calls = _capture_apply(monitor, monkeypatch)
@@ -111,7 +113,7 @@ async def test_http_cache_miss_spawns_resolve_task(monkeypatch: pytest.MonkeyPat
 
 
 def test_http_skips_all_api_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An all-API name bucket gets its version from the esphomelib path; HTTP is a no-op."""
+    """An all-API name bucket gets its identity from the esphomelib path; HTTP is a no-op."""
     monitor = _make_monitor(_mqtt_device(api_enabled=True))
     calls = _capture_apply(monitor, monkeypatch)
     _cached_info(monkeypatch, cached=True)
