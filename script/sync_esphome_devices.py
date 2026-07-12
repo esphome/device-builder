@@ -1562,13 +1562,26 @@ def _extract_psram(
     return {"id": "onboard_psram", "component_id": "psram", "name": "PSRAM", "fields": fields}
 
 
+# Categories whose platforms allocate large runtime buffers (framebuffers,
+# audio pipelines) in PSRAM when the device provides it.
+_PSRAM_HUNGRY_CATEGORIES: frozenset[str] = frozenset({"display", "microphone", "speaker"})
+
+
+def _needs_psram(component_id: str, components_index: dict[str, dict[str, Any]]) -> bool:
+    """Whether a featured leaf's component puts large runtime buffers in PSRAM."""
+    component = components_index.get(component_id) or {}
+    return component.get("category") in _PSRAM_HUNGRY_CATEGORIES or "psram" in (
+        component.get("dependencies") or []
+    )
+
+
 def _lift_psram(
     config: dict[str, Any],
     featured: list[dict[str, Any]],
     components_index: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Prepend the page's ``psram:`` lift and stamp it as a display prerequisite.
+    Prepend the page's ``psram:`` lift and stamp it on psram-hungry leaves.
 
     Gated on *featured* being non-empty so a psram-only page stays unimportable.
     """
@@ -1576,7 +1589,7 @@ def _lift_psram(
     if psram_entry is None:
         return featured
     for entry in featured:
-        if entry["component_id"].startswith("display."):
+        if _needs_psram(entry["component_id"], components_index):
             entry["requires"] = [*(entry.get("requires") or []), psram_entry["id"]]
     return [psram_entry, *featured]
 

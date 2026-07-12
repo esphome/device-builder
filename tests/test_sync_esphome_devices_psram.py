@@ -18,6 +18,14 @@ _COMPONENTS: dict[str, dict[str, Any]] = {
             {"key": "speed", "type": "string"},
         ],
     },
+    "display.st7701s": {"category": "display", "config_entries": []},
+    "speaker.i2s_audio": {"category": "speaker", "config_entries": []},
+    "display.mipi_rgb": {
+        "category": "misc",  # miscategorized on purpose: the psram dep must stamp alone
+        "dependencies": ["psram"],
+        "config_entries": [],
+    },
+    "switch.gpio": {"category": "switch", "config_entries": []},
 }
 
 
@@ -65,14 +73,20 @@ def test_not_lifted_on_otherwise_empty_board() -> None:
     assert _lift_psram({"psram": {"mode": "octal"}}, [], _COMPONENTS) == []
 
 
-def test_display_entries_gain_psram_requires() -> None:
-    """The lift prepends the entry and marks it a display prerequisite, merging requires."""
+def test_psram_hungry_entries_gain_requires() -> None:
+    """Psram-hungry categories and psram-dep components get the stamp; a relay doesn't."""
     display = _display_entry()
     display["requires"] = ["lcd_spi"]
+    speaker = {"id": "spkr", "component_id": "speaker.i2s_audio", "fields": {"id": "spkr"}}
+    by_dep = {"id": "rgb", "component_id": "display.mipi_rgb", "fields": {"id": "rgb"}}
     switch = {"id": "relay", "component_id": "switch.gpio", "fields": {"id": "relay"}}
-    featured = _lift_psram({"psram": {"mode": "octal"}}, [display, switch], _COMPONENTS)
+    featured = _lift_psram(
+        {"psram": {"mode": "octal"}}, [display, speaker, by_dep, switch], _COMPONENTS
+    )
     assert featured[0]["id"] == "onboard_psram"
     assert display["requires"] == ["lcd_spi", "onboard_psram"]
+    assert speaker["requires"] == ["onboard_psram"]
+    assert by_dep["requires"] == ["onboard_psram"]
     assert "requires" not in switch
 
 
