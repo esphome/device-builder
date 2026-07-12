@@ -417,6 +417,24 @@ async def test_sweep_without_aioesphomeapi_reconciles_but_never_connects() -> No
     src._fetch.assert_not_called()
 
 
+async def test_sweep_reconciles_non_api_device_missing_identity() -> None:
+    """A non-API device missing an identity field is in the reconcile set."""
+    device = make_online_api_device(
+        api_enabled=False,
+        loaded_integrations=["mqtt", "wifi"],
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.8.0",
+    )
+    monitor, _ = make_state_monitor_with_callbacks([device])
+    reconciled: list[str] = []
+    monitor.reconcile_from_mdns_cache = reconciled.append  # type: ignore[method-assign]
+    monitor._api_info._fetch = AsyncMock()  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert reconciled == ["kitchen"]
+
+
 async def test_run_sweeps_then_idles(monkeypatch: Any) -> None:
     """With aioesphomeapi present the loop bootstraps, sweeps, then idles each cycle."""
     monitor, _ = make_state_monitor_with_callbacks([])
@@ -575,8 +593,8 @@ async def test_sweep_probes_when_cache_reconcile_cannot_fill() -> None:
     fetch.assert_called_once()
 
 
-async def test_sweep_reconciles_only_blank_online_api_devices() -> None:
-    """Fully-populated, offline, and non-API devices skip the reconcile pass."""
+async def test_sweep_reconciles_only_blank_online_devices() -> None:
+    """Fully-populated (API or not) and offline devices skip the reconcile pass."""
     populated = make_online_api_device(
         "full",
         mac_address="94:C9:60:1F:8C:F1",
@@ -585,7 +603,16 @@ async def test_sweep_reconciles_only_blank_online_api_devices() -> None:
         api_encryption_active="",
     )
     offline = make_online_api_device("dark", state=DeviceState.OFFLINE)
-    no_api = make_online_api_device("web", api_enabled=False, loaded_integrations=["web_server"])
+    # A filled non-API device: identity fields complete, and the
+    # api_encryption tri-state doesn't gate it (no API to encrypt).
+    no_api = make_online_api_device(
+        "web",
+        api_enabled=False,
+        loaded_integrations=["web_server"],
+        mac_address="94:C9:60:1F:8C:F2",
+        deployed_version="2026.8.0",
+        deployed_config_hash="ef567890",
+    )
     blank = make_online_api_device("blank")
     monitor, _ = make_state_monitor_with_callbacks([populated, offline, no_api, blank])
     reconciled: list[str] = []

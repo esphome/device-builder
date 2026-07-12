@@ -531,17 +531,23 @@ against legacy behaviour before assuming the simpler version suffices.
     has no browser `Removed` counterpart, so it locks out `should_ping` and
     latches the device ONLINE forever (#1776). The `ping`-source result
     (priority 1) stays sweep-eligible so a dead entry demotes.
-  - **`_http._tcp` version fallback** (`MdnsSource._on_http_service_state_change`,
-    for a configured device with `mqtt:` but no `api:`). Such a device never
-    publishes `_esphomelib._tcp` (behind `USE_API`); its only broadcast is a
-    bare `_http._tcp` fallback carrying a lone `version` TXT. Read that
-    `version` through `apply_version` and **nothing else** — `mac` /
-    `config_hash` / api-encryption live only on `_esphomelib._tcp`, and the
-    fallback carries no version TXT once the device gains a web server. Drive
-    **no** state off it (no ONLINE claim, `Removed` ignored): the same shared
-    browser watches `_http._tcp`, but reachability stays owned by the
-    active-resolve / MQTT / ping paths, so an all-API name bucket is skipped
-    (a device broadcasting the API gets its version from the esphomelib path).
+  - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
+    for a configured device without `api:`). Such a device never publishes
+    `_esphomelib._tcp` (behind `USE_API`); its broadcast is the `_http._tcp`
+    service — the bare fallback, or `web_server`'s own. On new firmware
+    (esphome/esphome#17520) that service carries the identity TXT trio
+    `version` / `mac` / `config_hash`; older firmware carries `version`
+    only on the fallback and nothing on a web_server service. Read the
+    identity keys through the shared `_apply_identity_txt` (each key
+    tolerates absence) and **nothing else** — never api-encryption: the
+    absent-key-means-plaintext rule from the esphomelib path would stamp
+    a false confirmation on a device with no API. Drive **no** state off
+    it (no ONLINE claim, `Removed` ignored): the same shared browser
+    watches `_http._tcp`, but reachability stays owned by the
+    active-resolve / MQTT / ping paths, so an all-API name bucket is
+    skipped (a device broadcasting the API gets its identity from the
+    esphomelib path). The level-triggered repair (`reconcile_from_cache`)
+    reads both services' cached TXT.
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE

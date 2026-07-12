@@ -152,19 +152,20 @@ class ApiInfoSource:
         self._evaluate_systemic_health()
 
     def _reconcile_from_mdns_cache(self, devices: list[Device]) -> None:
-        """Re-apply cached TXT payloads for online API devices missing monitor fields."""
+        """Re-apply cached TXT payloads for online devices missing monitor fields."""
         monitor = self._monitor
         # ``deployed_config_hash`` and the ``api_encryption_active``
         # tri-state (``None`` = never observed) widen this gate beyond
         # ``_is_due``'s mac+version: the cached TXT carries them but the
-        # API worker can't fetch them.
+        # API worker can't fetch them. A non-API device is served by the
+        # ``_http._tcp`` identity TXT instead, which carries no
+        # api_encryption, so only the identity fields gate it.
         names = {
             device.name
             for device in devices
             if device.runtime_state.state is DeviceState.ONLINE
-            and device.api_enabled
             and (
-                device.runtime_state.api_encryption_active is None
+                (device.api_enabled and device.runtime_state.api_encryption_active is None)
                 or not (
                     device.mac_address
                     and device.runtime_state.deployed_version

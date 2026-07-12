@@ -1,9 +1,10 @@
 """
-Reading the firmware version off the ``_http._tcp`` mDNS fallback.
+Reading the identity TXT off a non-API device's ``_http._tcp`` mDNS service.
 
-A non-API device (``mqtt:`` without ``api:``) only broadcasts a bare
-``_http._tcp`` fallback with a lone ``version`` TXT; ``MdnsSource``'s
-HTTP handler surfaces that as the device's firmware version.
+New firmware publishes ``version`` / ``mac`` / ``config_hash`` there
+(esphome/esphome#17520); older firmware carries ``version`` only.
+``MdnsSource``'s HTTP handler applies whichever keys are present and
+never api_encryption.
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ def _mqtt_device(**overrides: Any) -> Device:
 def _capture_apply(monitor: DeviceStateMonitor, monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     calls: list[tuple] = []
     monkeypatch.setattr(
-        monitor._mdns, "_apply_http_version", lambda name, info: calls.append((name, info))
+        monitor._mdns, "_apply_http_txt", lambda name, info: calls.append((name, info))
     )
     return calls
 
@@ -76,7 +77,7 @@ def _cached_info(monkeypatch: pytest.MonkeyPatch, *, cached: bool) -> MagicMock:
 # ----------------------------------------------------------------------
 
 
-def test_http_cache_hit_applies_version_for_non_api_device(monkeypatch) -> None:
+def test_http_cache_hit_applies_version_for_non_api_device(monkeypatch: pytest.MonkeyPatch) -> None:
     """A cached ``_http._tcp`` service for a configured non-API device applies inline."""
     monitor = _make_monitor(_mqtt_device())
     calls = _capture_apply(monitor, monkeypatch)
@@ -90,7 +91,7 @@ def test_http_cache_hit_applies_version_for_non_api_device(monkeypatch) -> None:
     assert not monitor._tasks
 
 
-async def test_http_cache_miss_spawns_resolve_task(monkeypatch) -> None:
+async def test_http_cache_miss_spawns_resolve_task(monkeypatch: pytest.MonkeyPatch) -> None:
     """Cache miss → fire-and-forget resolve task tracked in ``_tasks``."""
     monitor = _make_monitor(_mqtt_device())
     calls = _capture_apply(monitor, monkeypatch)
@@ -110,7 +111,7 @@ async def test_http_cache_miss_spawns_resolve_task(monkeypatch) -> None:
     await asyncio.gather(*monitor._tasks)
 
 
-def test_http_skips_all_api_bucket(monkeypatch) -> None:
+def test_http_skips_all_api_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     """An all-API name bucket gets its version from the esphomelib path; HTTP is a no-op."""
     monitor = _make_monitor(_mqtt_device(api_enabled=True))
     calls = _capture_apply(monitor, monkeypatch)
@@ -123,7 +124,7 @@ def test_http_skips_all_api_bucket(monkeypatch) -> None:
     assert calls == []
 
 
-def test_http_applies_when_bucket_has_a_non_api_sibling(monkeypatch) -> None:
+def test_http_applies_when_bucket_has_a_non_api_sibling(monkeypatch: pytest.MonkeyPatch) -> None:
     """A name shared by an API and a non-API config still applies (whole-bucket check)."""
     monitor = _make_monitor(
         _mqtt_device(api_enabled=True),
@@ -139,7 +140,7 @@ def test_http_applies_when_bucket_has_a_non_api_sibling(monkeypatch) -> None:
     assert calls == [("klo", info)]
 
 
-def test_http_skips_unconfigured_device(monkeypatch) -> None:
+def test_http_skips_unconfigured_device(monkeypatch: pytest.MonkeyPatch) -> None:
     """A ``_http._tcp`` from a name we don't have configured is ignored."""
     monitor = _make_monitor()
     calls = _capture_apply(monitor, monkeypatch)
@@ -152,7 +153,7 @@ def test_http_skips_unconfigured_device(monkeypatch) -> None:
     assert calls == []
 
 
-def test_http_removed_is_a_noop(monkeypatch) -> None:
+def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     """We never drive state off an HTTP ``Removed``; reachability owns that."""
     monitor = _make_monitor(_mqtt_device())
     calls = _capture_apply(monitor, monkeypatch)
@@ -165,35 +166,78 @@ def test_http_removed_is_a_noop(monkeypatch) -> None:
 
 
 # ----------------------------------------------------------------------
-# _apply_http_version — TXT extraction
+# _apply_http_txt — TXT extraction
 # ----------------------------------------------------------------------
 
 
-def test_apply_http_version_reads_version_txt(monkeypatch) -> None:
-    """The ``version`` TXT reaches ``apply_version`` verbatim."""
-    monitor = _make_monitor(_mqtt_device())
-    applied: list[tuple[str, str]] = []
+def _capture_monitor_applies(
+    monitor: DeviceStateMonitor, monkeypatch: pytest.MonkeyPatch
+) -> list[tuple[str, str, str]]:
+    applied: list[tuple[str, str, str]] = []
+    for method in ("apply_version", "apply_config_hash", "apply_mac_address"):
+        monkeypatch.setattr(
+            monitor, method, lambda name, value, m=method: applied.append((m, name, value))
+        )
     monkeypatch.setattr(
-        monitor, "apply_version", lambda name, version: applied.append((name, version))
+        monitor,
+        "apply_api_encryption",
+        lambda name, value: pytest.fail("api_encryption must never be driven from _http._tcp"),
     )
+    return applied
+
+
+def _http_info(props: dict[str, str]) -> MagicMock:
     info = MagicMock()
-    info.decoded_properties = {"version": "2026.6.4"}
-
-    monitor._mdns._apply_http_version("klo", info)
-
-    assert applied == [("klo", "2026.6.4")]
+    info.decoded_properties = props
+    return info
 
 
-def test_apply_http_version_no_version_txt_is_a_noop(monkeypatch) -> None:
-    """A web_server ``_http._tcp`` carries no ``version`` TXT → nothing applied."""
+def test_apply_http_txt_reads_identity_trio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Version / config_hash / mac all reach their apply methods; api_encryption never does."""
     monitor = _make_monitor(_mqtt_device())
-    applied: list[tuple[str, str]] = []
-    monkeypatch.setattr(
-        monitor, "apply_version", lambda name, version: applied.append((name, version))
-    )
-    info = MagicMock()
-    info.decoded_properties = {}
+    applied = _capture_monitor_applies(monitor, monkeypatch)
 
-    monitor._mdns._apply_http_version("klo", info)
+    monitor._mdns._apply_http_txt(
+        "klo",
+        _http_info({"version": "2026.8.0", "config_hash": "5a94a12d", "mac": "94c9601f8cf1"}),
+    )
+
+    assert applied == [
+        ("apply_version", "klo", "2026.8.0"),
+        ("apply_config_hash", "klo", "5a94a12d"),
+        ("apply_mac_address", "klo", "94c9601f8cf1"),
+    ]
+
+
+def test_apply_http_txt_old_firmware_version_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An old-firmware fallback carrying only ``version`` applies that and nothing else."""
+    monitor = _make_monitor(_mqtt_device())
+    applied = _capture_monitor_applies(monitor, monkeypatch)
+
+    monitor._mdns._apply_http_txt("klo", _http_info({"version": "2026.6.4"}))
+
+    assert applied == [("apply_version", "klo", "2026.6.4")]
+
+
+def test_apply_http_txt_empty_props_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An old web_server ``_http._tcp`` carries no TXT at all → nothing applied."""
+    monitor = _make_monitor(_mqtt_device())
+    applied = _capture_monitor_applies(monitor, monkeypatch)
+
+    monitor._mdns._apply_http_txt("klo", _http_info({}))
 
     assert applied == []
+
+
+def test_apply_http_txt_never_applies_api_encryption(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Content-bearing props without an api_encryption key must not stamp plaintext."""
+    monitor = _make_monitor(_mqtt_device())
+    applied = _capture_monitor_applies(monitor, monkeypatch)
+
+    monitor._mdns._apply_http_txt(
+        "klo", _http_info({"version": "2026.8.0", "api_encryption": "Noise_NNpsk0"})
+    )
+
+    # Identity keys apply; the encryption key is ignored (guarded by the
+    # pytest.fail patch in the capture helper).
+    assert applied == [("apply_version", "klo", "2026.8.0")]

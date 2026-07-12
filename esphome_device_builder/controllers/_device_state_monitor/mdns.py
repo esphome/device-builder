@@ -304,15 +304,13 @@ class MdnsSource:
         # unexpired *address* record — the A (120s TTL) routinely expires
         # while the TXT (4500s) is still cached, exactly the state this
         # pass repairs.
-        service_name = f"{device_name}.{_ESPHOME_SERVICE_TYPE}"
-        now_ms = current_time_millis()
-        records = [
-            record
-            for record in zc.zeroconf.cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN)
-            if not record.is_expired(now_ms)
-        ]
-        if props := _decode_mdns_txt_records(records):
+        if props := self._cached_txt_properties(zc, f"{device_name}.{_ESPHOME_SERVICE_TYPE}"):
             self._apply_txt_properties(device_name, props)
+        # The ``_http._tcp`` identity TXT exists only when the API is
+        # absent, so no bucket gate is needed; api_encryption stays
+        # untouched (see ``_apply_http_txt``).
+        if props := self._cached_txt_properties(zc, f"{device_name}.{_HTTP_SERVICE_TYPE}"):
+            self._apply_identity_txt(device_name, props)
 
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -409,12 +407,7 @@ class MdnsSource:
     def _apply_txt_properties(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply version / config_hash / mac / api_encryption from decoded TXT properties."""
         monitor = self._monitor
-        if version := props.get("version"):
-            monitor.apply_version(device_name, version)
-        if config_hash := props.get("config_hash"):
-            monitor.apply_config_hash(device_name, config_hash)
-        if mac := props.get("mac"):
-            monitor.apply_mac_address(device_name, mac)
+        self._apply_identity_txt(device_name, props)
         # api_encryption tri-state semantics on this announce.
         # The four cases are load-bearing — narrative dropped,
         # but the case enumeration captures the empty-string-
@@ -441,16 +434,29 @@ class MdnsSource:
         elif props:
             monitor.apply_api_encryption(device_name, "")
 
+    def _apply_identity_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
+        """Apply the version / config_hash / mac identity TXT keys, tolerating absence."""
+        monitor = self._monitor
+        if version := props.get("version"):
+            monitor.apply_version(device_name, version)
+        if config_hash := props.get("config_hash"):
+            monitor.apply_config_hash(device_name, config_hash)
+        if mac := props.get("mac"):
+            monitor.apply_mac_address(device_name, mac)
+
     def _on_http_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
     ) -> None:
         """
-        Read the ``version`` TXT off a non-API device's ``_http._tcp`` fallback.
+        Read the identity TXT off a non-API device's ``_http._tcp`` service.
 
+        New firmware publishes version / mac / config_hash on both the
+        fallback and web_server's service when the API is absent
+        (esphome/esphome#17520); older firmware carries ``version`` only.
         Skipped when every config for the name exposes the API (the
-        esphomelib path carries their version, and the fallback isn't
-        published with the API on). No ONLINE claim; reachability stays
-        owned by the active-resolve / MQTT / ping paths.
+        esphomelib path carries their identity, and the ``_http`` TXT
+        isn't published with the API on). No ONLINE claim; reachability
+        stays owned by the active-resolve / MQTT / ping paths.
         """
         if state_change == ServiceStateChange.Removed:
             return
@@ -464,16 +470,29 @@ class MdnsSource:
             return
         info = AsyncServiceInfo(service_type, name)
         if info.load_from_cache(zeroconf):
-            self._apply_http_version(device_name, info)
+            self._apply_http_txt(device_name, info)
             return
-        monitor._track_task(
-            self._resolve_then(zeroconf, info, device_name, self._apply_http_version)
-        )
+        monitor._track_task(self._resolve_then(zeroconf, info, device_name, self._apply_http_txt))
 
-    def _apply_http_version(self, device_name: str, info: AsyncServiceInfo) -> None:
-        """Apply the ``version`` TXT from a resolved ``_http._tcp`` fallback service."""
-        if version := info.decoded_properties.get("version"):
-            self._monitor.apply_version(device_name, version)
+    def _apply_http_txt(self, device_name: str, info: AsyncServiceInfo) -> None:
+        """
+        Apply the identity TXT from a resolved ``_http._tcp`` service.
+
+        Identity keys only — never api_encryption: a device without the
+        API has no encryption state, and the absent-key-means-plaintext
+        rule from the esphomelib path would stamp a false confirmation.
+        """
+        self._apply_identity_txt(device_name, info.decoded_properties)
+
+    def _cached_txt_properties(self, zc: Any, service_name: str) -> dict[str, str]:
+        """Decode the unexpired cached TXT records for *service_name*."""
+        now_ms = current_time_millis()
+        records = [
+            record
+            for record in zc.zeroconf.cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN)
+            if not record.is_expired(now_ms)
+        ]
+        return _decode_mdns_txt_records(records)
 
     def _get_address_records(self, name: str) -> list[Any]:
         """Return cached A and AAAA records for *name*, or ``[]``."""

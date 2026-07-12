@@ -192,7 +192,9 @@ class Device(DashboardModel):
     # Drives the four-state lock indicator on the device card / table:
     # active, pending-flash, mismatch, plaintext.
     # Canonical ``XX:XX:XX:XX:XX:XX`` MAC observed in the device's
-    # ``_esphomelib._tcp.local.`` ``mac`` TXT record (e.g.
+    # ``mac`` TXT record — ``_esphomelib._tcp.local.`` for API
+    # devices, the ``_http._tcp.local.`` identity TXT for non-API
+    # devices on new firmware (e.g.
     # ``"94:C9:60:1F:8C:F1"``). Empty string when mDNS hasn't
     # surfaced one yet — the broadcast is reliable for ESPHome
     # firmware so a blank typically means "device hasn't been

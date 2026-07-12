@@ -16,14 +16,21 @@ from esphome_device_builder.models import DeviceState, ReachabilitySource
 from .conftest import make_online_api_device, make_state_monitor_with_callbacks
 
 _SERVICE_NAME = "kitchen._esphomelib._tcp.local."
+_HTTP_SERVICE_NAME = "kitchen._http._tcp.local."
 
 
-def _txt_record(props: dict[str, str], *, age_ms: int = 1_000, ttl: int = 4500) -> DNSText:
+def _txt_record(
+    props: dict[str, str],
+    *,
+    age_ms: int = 1_000,
+    ttl: int = 4500,
+    service_name: str = _SERVICE_NAME,
+) -> DNSText:
     payload = b"".join(
         bytes([len(entry)]) + entry for entry in (f"{k}={v}".encode() for k, v in props.items())
     )
     return DNSText(
-        name=_SERVICE_NAME,
+        name=service_name,
         type_=_TYPE_TXT,
         class_=_CLASS_IN,
         ttl=ttl,
@@ -33,9 +40,11 @@ def _txt_record(props: dict[str, str], *, age_ms: int = 1_000, ttl: int = 4500) 
 
 
 def _seed_txt_cache(monitor: Any, records: list[DNSText]) -> None:
-    """Wire a fake zeroconf whose cache serves *records* for the kitchen TXT lookup."""
+    """Wire a fake zeroconf whose cache serves each record for its own service name."""
     fake_zeroconf = MagicMock()
-    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=records)
+    fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(
+        side_effect=lambda name, *_a: [r for r in records if r.name == name]
+    )
     monitor._mdns._zeroconf = fake_zeroconf
 
 
@@ -121,6 +130,51 @@ def test_reconcile_cache_miss_is_a_noop() -> None:
     assert callbacks.calls == []
 
 
+def test_reconcile_reads_http_identity_txt_for_non_api_device() -> None:
+    """A cached ``_http._tcp`` TXT fills the identity trio; api_encryption is never driven."""
+    device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    _seed_txt_cache(
+        monitor,
+        [
+            _txt_record(
+                {
+                    "version": "2026.8.0",
+                    "config_hash": "abcd1234",
+                    "mac": "94c9601f8cf1",
+                    "api_encryption": "bogus",
+                },
+                service_name=_HTTP_SERVICE_NAME,
+            )
+        ],
+    )
+
+    monitor.reconcile_from_mdns_cache("kitchen")
+
+    assert ("on_version_change", "kitchen", "2026.8.0") in callbacks.calls
+    assert ("on_config_hash_change", "kitchen", "abcd1234") in callbacks.calls
+    assert ("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1") in callbacks.calls
+    assert callbacks.calls_for("on_api_encryption_change") == []
+    assert callbacks.calls_for("on_state_change") == []
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
+
+
+def test_reconcile_http_txt_old_firmware_version_only() -> None:
+    """An old-firmware fallback TXT (version only) fills version and nothing else."""
+    device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    _seed_txt_cache(
+        monitor, [_txt_record({"version": "2026.6.4"}, service_name=_HTTP_SERVICE_NAME)]
+    )
+
+    monitor.reconcile_from_mdns_cache("kitchen")
+
+    assert device.runtime_state.deployed_version == "2026.6.4"
+    assert callbacks.calls_for("on_config_hash_change") == []
+    assert callbacks.calls_for("on_mac_address_change") == []
+
+
 def test_reconcile_without_zeroconf_is_a_noop() -> None:
     """Zeroconf failed to start → nothing to read; don't raise."""
     monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
@@ -150,6 +204,31 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
     assert device.mac_address == "94:C9:60:1F:8C:F1"
     assert device.runtime_state.state == DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
+    fetch.assert_not_called()
+
+
+async def test_sweep_heals_blank_non_api_device_from_http_cache() -> None:
+    """A blank non-API device is repaired from its cached ``_http._tcp`` identity TXT."""
+    device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    _seed_txt_cache(
+        monitor,
+        [
+            _txt_record(
+                {"version": "2026.8.0", "config_hash": "abcd1234", "mac": "94c9601f8cf1"},
+                service_name=_HTTP_SERVICE_NAME,
+            )
+        ],
+    )
+    fetch = MagicMock()
+    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor._api_info._sweep()
+
+    assert device.runtime_state.deployed_version == "2026.8.0"
+    assert device.runtime_state.deployed_config_hash == "abcd1234"
+    assert device.mac_address == "94:C9:60:1F:8C:F1"
     fetch.assert_not_called()
 
 
