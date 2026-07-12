@@ -29,7 +29,9 @@ Usage
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
+import importlib.util
 import logging
 import re
 import shutil
@@ -1562,17 +1564,53 @@ def _extract_psram(
     return {"id": "onboard_psram", "component_id": "psram", "name": "PSRAM", "fields": fields}
 
 
-# Categories whose platforms allocate large runtime buffers (framebuffers,
-# audio pipelines) in PSRAM when the device provides it.
-_PSRAM_HUNGRY_CATEGORIES: frozenset[str] = frozenset({"display", "microphone", "speaker"})
+# PSRAM-capable allocation markers in esphome component sources; a component
+# dir using one puts large runtime buffers (framebuffers, audio pipelines)
+# in PSRAM when the device provides it.
+_PSRAM_ALLOC_RE = re.compile(r"ExternalRAMAllocator|RAMAllocator|MALLOC_CAP_SPIRAM")
+_SOURCE_SUFFIXES = frozenset({".h", ".hpp", ".c", ".cpp", ".py"})
+
+
+@functools.cache
+def _psram_hungry_dirs() -> frozenset[str]:
+    """
+    Scan the installed esphome's component sources for PSRAM allocation.
+
+    Derived, not hand-listed: base domains (``display``) mark every platform
+    of the domain; platform dirs (``i2s_audio``) mark their own leaves.
+    Empty when esphome isn't installed — only declared deps stamp then.
+    """
+    spec = importlib.util.find_spec("esphome")
+    if spec is None or not spec.submodule_search_locations:
+        return frozenset()
+    components = Path(spec.submodule_search_locations[0]) / "components"
+    if not components.is_dir():
+        return frozenset()
+    hungry: set[str] = set()
+    for child in sorted(components.iterdir()):
+        if not child.is_dir():
+            continue
+        for source in child.rglob("*"):
+            if source.suffix not in _SOURCE_SUFFIXES:
+                continue
+            try:
+                text = source.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if _PSRAM_ALLOC_RE.search(text):
+                hungry.add(child.name)
+                break
+    return frozenset(hungry)
 
 
 def _needs_psram(component_id: str, components_index: dict[str, dict[str, Any]]) -> bool:
     """Whether a featured leaf's component puts large runtime buffers in PSRAM."""
     component = components_index.get(component_id) or {}
-    return component.get("category") in _PSRAM_HUNGRY_CATEGORIES or "psram" in (
-        component.get("dependencies") or []
-    )
+    if "psram" in (component.get("dependencies") or []):
+        return True
+    hungry = _psram_hungry_dirs()
+    domain, _, stem = component_id.partition(".")
+    return domain in hungry or (bool(stem) and stem in hungry)
 
 
 def _lift_psram(

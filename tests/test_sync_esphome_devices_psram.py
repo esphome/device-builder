@@ -1,13 +1,17 @@
-"""Pin the top-level ``psram:`` lift and its display ``requires`` stitching."""
+"""Pin the top-level ``psram:`` lift and its ``requires`` stitching."""
 
 from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+import script.sync_esphome_devices as sync  # type: ignore[import-not-found]
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
     _extract_psram,
     _fold_requires_into_bundles,
     _lift_psram,
+    _psram_hungry_dirs,
 )
 
 _COMPONENTS: dict[str, dict[str, Any]] = {
@@ -21,12 +25,18 @@ _COMPONENTS: dict[str, dict[str, Any]] = {
     "display.st7701s": {"category": "display", "config_entries": []},
     "speaker.i2s_audio": {"category": "speaker", "config_entries": []},
     "display.mipi_rgb": {
-        "category": "misc",  # miscategorized on purpose: the psram dep must stamp alone
+        "category": "display",
         "dependencies": ["psram"],
         "config_entries": [],
     },
     "switch.gpio": {"category": "switch", "config_entries": []},
 }
+
+
+@pytest.fixture(autouse=True)
+def _hungry_dirs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the source-scan result so tests don't depend on the installed esphome."""
+    monkeypatch.setattr(sync, "_psram_hungry_dirs", lambda: frozenset({"display", "i2s_audio"}))
 
 
 def _display_entry() -> dict[str, Any]:
@@ -73,21 +83,35 @@ def test_not_lifted_on_otherwise_empty_board() -> None:
     assert _lift_psram({"psram": {"mode": "octal"}}, [], _COMPONENTS) == []
 
 
-def test_psram_hungry_entries_gain_requires() -> None:
-    """Psram-hungry categories and psram-dep components get the stamp; a relay doesn't."""
+def test_psram_hungry_entries_gain_requires(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Domain-dir, platform-dir, and psram-dep leaves get the stamp; a relay doesn't."""
     display = _display_entry()
     display["requires"] = ["lcd_spi"]
     speaker = {"id": "spkr", "component_id": "speaker.i2s_audio", "fields": {"id": "spkr"}}
     by_dep = {"id": "rgb", "component_id": "display.mipi_rgb", "fields": {"id": "rgb"}}
     switch = {"id": "relay", "component_id": "switch.gpio", "fields": {"id": "relay"}}
+    # by_dep must stamp through its declared dependency even with no scan hit.
+    monkeypatch.setattr(sync, "_psram_hungry_dirs", lambda: frozenset({"i2s_audio"}))
     featured = _lift_psram(
         {"psram": {"mode": "octal"}}, [display, speaker, by_dep, switch], _COMPONENTS
     )
     assert featured[0]["id"] == "onboard_psram"
-    assert display["requires"] == ["lcd_spi", "onboard_psram"]
+    assert display["requires"] == ["lcd_spi"]
     assert speaker["requires"] == ["onboard_psram"]
     assert by_dep["requires"] == ["onboard_psram"]
     assert "requires" not in switch
+
+    monkeypatch.setattr(sync, "_psram_hungry_dirs", lambda: frozenset({"display"}))
+    _lift_psram({"psram": {"mode": "octal"}}, [display], _COMPONENTS)
+    assert display["requires"] == ["lcd_spi", "onboard_psram"]
+
+
+def test_psram_hungry_dirs_scans_installed_esphome() -> None:
+    """The real source scan finds the known PSRAM allocators (needs esphome installed)."""
+    pytest.importorskip("esphome")
+    hungry = _psram_hungry_dirs()
+    assert {"display", "i2s_audio", "micro_wake_word"} <= hungry
+    assert "gpio" not in hungry
 
 
 def test_requires_folds_into_full_setup_bundle() -> None:
