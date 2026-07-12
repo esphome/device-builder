@@ -56,6 +56,11 @@ class TestPlatformIOWordMarkers:
         _stamp_compile_phase(job, "[ 17%] Compiling .pio/build/uno/src/main.cpp.o")
         assert job.compile_started_at is not None
 
+    def test_reading_cmake_configuration_starts_esp_idf(self) -> None:
+        job = _job()
+        _stamp_compile_phase(job, "Reading CMake configuration...")
+        assert job.compile_started_at is not None
+
 
 class TestRawNinjaCounters:
     """esp-idf ninja prints ``[N/M]`` counters; the first one is the build start."""
@@ -153,6 +158,9 @@ class TestCompileEnd:
         [
             "===================== [SUCCESS] Took 15.36 seconds =====================",
             "===================== [FAILED] Took 4.10 seconds =====================",
+            # Real ANSI banner: colours sit *inside* the brackets.
+            "\x1b[0m===== [\x1b[32m\x1b[1mSUCCESS\x1b[0m] Took 14.73 seconds =====\x1b[0m",
+            "[\x1b[31m\x1b[1mFAILED\x1b[0m] Took 4.10 seconds",
         ],
     )
     def test_banner_ends_after_start(self, line: str) -> None:

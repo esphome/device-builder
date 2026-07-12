@@ -121,15 +121,22 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
 )
 
+# Lines are ANSI-stripped before compile-phase matching: PlatformIO colourises
+# and repaints, so escapes land not only as a leading reset but *inside* tokens
+# — the summary banner is ``[<green><bold>SUCCESS<reset>] Took`` — which an
+# anchored/literal match would miss.
+_ANSI_ESCAPE: re.Pattern[str] = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
 # Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
-# <path>`` is emitted by PlatformIO for every framework (esp-idf, esp32-arduino,
-# esp8266, libretiny) and is the universal one; the rest cover a cached build
-# that jumps straight to linking. None of these appear in the download or
-# CMake-configure phase, whose lines start with ``--`` / ``Tool Manager:`` /
-# ``Library Manager:`` / ``Executing`` / ``Running`` / ``INFO``.
+# <path>`` is emitted by PlatformIO for every framework (esp32-arduino, esp8266,
+# libretiny, esp-idf-via-pio); ``Reading CMake configuration`` opens an esp-idf
+# build (the real start, after the download); the rest cover a cached build that
+# jumps straight to linking. None appear in the download phase, whose lines
+# start with ``Tool Manager:`` / ``Library Manager:`` / ``Unpacking`` /
+# ``Installing``.
 _COMPILE_PHASE_WORD_PATTERN: re.Pattern[str] = re.compile(
-    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*"
-    r"(?:Compiling |Archiving |Linking |Indexing |Generating |Building in )"
+    r"^\s*(?:Compiling |Archiving |Linking |Indexing |Generating |Building in "
+    r"|Reading CMake configuration)"
 )
 
 # The arduino per-file gauge ``[ 17%] Compiling …`` — percent *inside* the
@@ -138,9 +145,7 @@ _COMPILE_PHASE_WORD_PATTERN: re.Pattern[str] = re.compile(
 # none of which mean "compiling". So a stray percentage during the download
 # never starts the clock — only these three compile-specific shapes do (the
 # ninja ``[N/M]`` counter below is the third).
-_COMPILE_BRACKET_PERCENT: re.Pattern[str] = re.compile(
-    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*\d{1,3}\s*%\s*\]"
-)
+_COMPILE_BRACKET_PERCENT: re.Pattern[str] = re.compile(r"^\s*\[\s*\d{1,3}\s*%\s*\]")
 
 # PlatformIO closes each environment with ``===== [SUCCESS] Took N seconds =====``
 # (or ``[FAILED]``); marks ``compile_ended_at`` so an install's flash phase,

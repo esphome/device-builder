@@ -33,6 +33,7 @@ from ...models import (
 )
 from ...models.firmware import _now_iso
 from .constants import (
+    _ANSI_ESCAPE,
     _COMPILE_BRACKET_PERCENT,
     _COMPILE_END_PATTERN,
     _COMPILE_PHASE_WORD_PATTERN,
@@ -394,12 +395,14 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     Stamp the compile-phase wall-clocks off *line*.
 
     Start on the first build line and end on the summary banner, so the span
-    excludes the download and CMake configure and, for an install, the flash.
+    excludes the download and, for an install, the flash. ANSI is stripped
+    first — the ``[SUCCESS] Took`` banner colours *inside* the brackets.
     """
+    clean = _ANSI_ESCAPE.sub("", line)
     if job.compile_started_at is None:
-        if _is_compile_start_line(line):
+        if _is_compile_start_line(clean):
             job.compile_started_at = _now_iso()
-    elif job.compile_ended_at is None and _COMPILE_END_PATTERN.search(line):
+    elif job.compile_ended_at is None and _COMPILE_END_PATTERN.search(clean):
         job.compile_ended_at = _now_iso()
 
 
