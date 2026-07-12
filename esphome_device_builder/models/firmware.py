@@ -173,6 +173,15 @@ class FirmwareJob(DashboardModel):
     created_at: str = ""  # ISO 8601
     started_at: str | None = None
     completed_at: str | None = None
+    # Wall-clocks bounding the compile phase, download and configure excluded.
+    # ``compile_started_at`` is stamped on the first line that proves the
+    # toolchain is building (a parseable progress percent, or a ``Compiling`` /
+    # ninja build line); ``compile_ended_at`` on the PlatformIO summary banner.
+    # Persisted + snapshotted so a client reconnecting after a page reload or a
+    # restart shows the true compile elapsed, not a clock restarted from the
+    # replayed buffer.
+    compile_started_at: str | None = None
+    compile_ended_at: str | None = None
     exit_code: int | None = None
     output: list[str] = field(default_factory=list)
     error: str | None = None
@@ -490,6 +499,8 @@ class FirmwareJob(DashboardModel):
         self.failure_reason = JobFailureReason.NONE
         self.started_at = None
         self.completed_at = None
+        self.compile_started_at = None
+        self.compile_ended_at = None
         self.exit_code = None
 
     def apply_build_source(self, build_source: JobBuildSource) -> None:

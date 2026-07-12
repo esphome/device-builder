@@ -31,7 +31,10 @@ from ...models import (
     JobProgressData,
     JobType,
 )
+from ...models.firmware import _now_iso
 from .constants import (
+    _COMPILE_END_PATTERN,
+    _COMPILE_PHASE_WORD_PATTERN,
     _INFLIGHT_TRIM_KEEP,
     _MAX_OUTPUT_LINES_INFLIGHT,
     _MAX_OUTPUT_LINES_RETAINED,
@@ -362,9 +365,26 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     out_payload: JobOutputData = {"job_id": job.job_id, "line": line}
     bus.fire(EventType.JOB_OUTPUT, out_payload)
     progress = _parse_progress(line)
+    _stamp_compile_phase(job, line, progress)
     if progress is None or progress <= (job.progress or 0):
         return
     _fire_job_progress(job, bus, progress)
+
+
+def _stamp_compile_phase(job: FirmwareJob, line: str, progress: int | None) -> None:
+    """
+    Stamp the compile-phase wall-clocks off *line*.
+
+    Start on the first build line — a parseable progress percent (ninja /
+    esptool) or a compile-word marker (PlatformIO ``Compiling`` output, which
+    carries no percent) — and end on the summary banner, so the recorded span
+    excludes the download and CMake configure and, for an install, the flash.
+    """
+    if job.compile_started_at is None:
+        if progress is not None or _COMPILE_PHASE_WORD_PATTERN.match(line):
+            job.compile_started_at = _now_iso()
+    elif job.compile_ended_at is None and _COMPILE_END_PATTERN.search(line):
+        job.compile_ended_at = _now_iso()
 
 
 def _target_is_offline(controller: FirmwareController, configuration: str) -> bool:

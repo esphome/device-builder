@@ -121,6 +121,23 @@ _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "
 )
 
+# Compile-phase word markers for stamping ``compile_started_at``. ``Compiling
+# <path>`` is emitted by PlatformIO for every framework (esp-idf, esp32-arduino,
+# esp8266, libretiny); the rest cover a cached build that jumps straight to
+# linking. The bracketed ninja / percent forms are already caught by progress
+# parsing, so they aren't repeated here. None of these appear in the download or
+# CMake-configure phase, whose lines start with ``--`` / ``Tool Manager:`` /
+# ``Library Manager:`` / ``Executing`` / ``Running`` / ``INFO``.
+_COMPILE_PHASE_WORD_PATTERN: re.Pattern[str] = re.compile(
+    r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*"
+    r"(?:Compiling |Archiving |Linking |Indexing |Generating |Building in )"
+)
+
+# PlatformIO closes each environment with ``===== [SUCCESS] Took N seconds =====``
+# (or ``[FAILED]``); marks ``compile_ended_at`` so an install's flash phase,
+# which streams after, isn't counted.
+_COMPILE_END_PATTERN: re.Pattern[str] = re.compile(r"\[(?:SUCCESS|FAILED)\] Took ")
+
 # History retention.
 #   - "Primary" = COMPILE / UPLOAD / INSTALL: dedup'd to the most
 #     recent terminal job per device, then capped globally. The dedup
