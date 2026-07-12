@@ -513,6 +513,14 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
             },
         ],
     },
+    # ``api.actions`` (and its legacy ``services`` alias) is a list of
+    # named callable actions owned by the automations UI — the navigator
+    # lists them and ``<esphome-api-action-editor>`` edits each one. The
+    # generic nested form can't represent the named-list shape and would
+    # duplicate that surface, so hide both from the visual form (YAML
+    # completion still offers them).
+    ("api", "actions"): {"hidden": True},
+    ("api", "services"): {"hidden": True},
     # ``wifi.ap`` is wrapped in a custom validator (``wifi_network_ap``)
     # so the schema bundle drops the inner schema and types it as a
     # bare string. The actual YAML shape is a fallback access point
