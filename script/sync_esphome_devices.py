@@ -1572,13 +1572,15 @@ _SOURCE_SUFFIXES = frozenset({".h", ".hpp", ".c", ".cpp", ".py"})
 
 
 @functools.cache
-def _psram_hungry_dirs() -> frozenset[str]:
+def _psram_allocating_components() -> frozenset[str]:
     """
-    Scan the installed esphome's component sources for PSRAM allocation.
+    Names of installed esphome components whose sources allocate from PSRAM.
 
-    Derived, not hand-listed: base domains (``display``) mark every platform
-    of the domain; platform dirs (``i2s_audio``) mark their own leaves.
-    Empty when esphome isn't installed — only declared deps stamp then.
+    The schema carries no PSRAM signal (a display like st7701s validates
+    without it, so it never declares the dep), so the C++/py sources are
+    the only derivable truth. Base domains (``display``) cover every
+    platform of the domain; platform components (``i2s_audio``) cover
+    their own leaves. Empty when esphome isn't installed.
     """
     spec = importlib.util.find_spec("esphome")
     if spec is None or not spec.submodule_search_locations:
@@ -1586,7 +1588,7 @@ def _psram_hungry_dirs() -> frozenset[str]:
     components = Path(spec.submodule_search_locations[0]) / "components"
     if not components.is_dir():
         return frozenset()
-    hungry: set[str] = set()
+    allocating: set[str] = set()
     for child in sorted(components.iterdir()):
         if not child.is_dir():
             continue
@@ -1598,9 +1600,9 @@ def _psram_hungry_dirs() -> frozenset[str]:
             except OSError:
                 continue
             if _PSRAM_ALLOC_RE.search(text):
-                hungry.add(child.name)
+                allocating.add(child.name)
                 break
-    return frozenset(hungry)
+    return frozenset(allocating)
 
 
 def _needs_psram(component_id: str, components_index: dict[str, dict[str, Any]]) -> bool:
@@ -1608,9 +1610,9 @@ def _needs_psram(component_id: str, components_index: dict[str, dict[str, Any]])
     component = components_index.get(component_id) or {}
     if "psram" in (component.get("dependencies") or []):
         return True
-    hungry = _psram_hungry_dirs()
+    allocating = _psram_allocating_components()
     domain, _, stem = component_id.partition(".")
-    return domain in hungry or (bool(stem) and stem in hungry)
+    return domain in allocating or (bool(stem) and stem in allocating)
 
 
 def _lift_psram(
@@ -1619,7 +1621,7 @@ def _lift_psram(
     components_index: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
-    Prepend the page's ``psram:`` lift and stamp it on psram-hungry leaves.
+    Prepend the page's ``psram:`` lift and stamp it on PSRAM-allocating leaves.
 
     Gated on *featured* being non-empty so a psram-only page stays unimportable.
     """
