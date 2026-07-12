@@ -24,6 +24,10 @@ concurrency:
 
 jobs:
   dispatch:
+    # Expressions can't regex-match, so this job-level check is just the cheap
+    # denylist that spares a nightly runner allocation for dev builds; the gate
+    # step below is the strict allowlist for every other dispatch input.
+    if: ${{ !contains(inputs.version, 'dev') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
