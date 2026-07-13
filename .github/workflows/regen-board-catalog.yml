@@ -132,8 +132,16 @@ jobs:
         if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
         # rm-then-copy so deletions and renames propagate. components/
         # comes along so featured-pin stamping sees the same catalog the
-        # PR tree does even when the PR base is stale.
+        # PR tree does even when the PR base is stale. Symlinks anywhere
+        # under the PR's definitions tree are refused: a symlinked
+        # manifest would make the trusted sync read — and a symlinked
+        # output dir make the copy-back write — arbitrary runner paths.
         run: |
+          if find pr/esphome_device_builder/definitions -type l | grep -q .; then
+            find pr/esphome_device_builder/definitions -type l
+            echo "::error::Symlinks under esphome_device_builder/definitions are not allowed."
+            exit 1
+          fi
           rm -rf base/esphome_device_builder/definitions/boards \
             base/esphome_device_builder/definitions/components
           cp -a pr/esphome_device_builder/definitions/boards \
@@ -204,6 +212,9 @@ jobs:
         if: >-
           steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
           && steps.stage.outputs.changed == 'true'
+        # The patch is a convenience; a flaky artifact store must not
+        # block the push.
+        continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: board-catalog-regen-${{ github.event.pull_request.number }}
@@ -249,7 +260,12 @@ jobs:
             -c user.name="${SLUG}[bot]" \
             -c user.email="${bot_id}+${SLUG}[bot]@users.noreply.github.com" \
             commit -m "Regenerate board catalog for ${BOARD_IDS} [board-catalog-regen]"
-          git -C pr push "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "HEAD:refs/heads/${HEAD_REF}"
+          # Credential via header, not URL — a URL-embedded token would
+          # echo into the log on push errors (masked, but keep it out
+          # entirely).
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+          git -C pr -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push "https://github.com/${REPO}.git" "HEAD:refs/heads/${HEAD_REF}"
 
       - name: Comment on fork PR (sticky)
         if: >-
@@ -259,7 +275,6 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
           CHANGED: ${{ steps.stage.outputs.changed }}
-          BOARD_IDS: ${{ steps.inspect.outputs.board_ids }}
           PIN: ${{ steps.stage.outputs.pin }}
         with:
           script: |
@@ -267,7 +282,9 @@ jobs:
             const { owner, repo } = context.repo;
             const issue_number = context.payload.pull_request.number;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
-            const ids = process.env.BOARD_IDS.split(' ').filter(Boolean);
+            // Full sync, not per-id update_board.py: it handles deleted
+            // and renamed boards too, and mirrors what this run executed.
+            const pin = process.env.PIN || 'esphome';
             const body = process.env.CHANGED === 'true'
               ? [
                   marker,
@@ -277,8 +294,8 @@ jobs:
                   "what's committed. Forks can't receive an automated push, so run locally:",
                   '',
                   '```bash',
-                  `uv pip install '${process.env.PIN}'`,
-                  ...ids.map(id => `python script/update_board.py ${id}`),
+                  `uv pip install '${pin}'`,
+                  'python script/sync_boards.py',
                   'git add -A esphome_device_builder/definitions && git commit -m "Regenerate board catalog" && git push',
                   '```',
                   '',
