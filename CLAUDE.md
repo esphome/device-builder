@@ -377,12 +377,13 @@ against legacy behaviour before assuming the simpler version suffices.
   `script/update_board.py [board-id]` (auto-detects the edited board) to
   regenerate its JSON and validate in one step. It wraps
   `script/sync_boards.py <board-id>` (single board) / `sync_boards.py`
-  (all) + `validate_definitions.py`. Single-board mode refuses unless the
+  (all) + `validate_definitions.py`. Both modes refuse unless the
   installed `esphome` matches the `esphome_version` stamped in
-  `boards.index.json` by the last full sync (betas canonicalized to base, as
-  it rebuilds the shared index from every board); a full sync regenerates
-  everything from the installed esphome and re-stamps it, so it doesn't
-  check. Full contributor workflow: `definitions/README.md`.
+  `boards.index.json` by the last full sync (betas canonicalized to base);
+  `sync_boards.py --restamp` is the explicit opt-in to regenerate every
+  board against the installed esphome and re-stamp that version (the
+  catalog-sync workflows' esphome-bump path). Full contributor workflow:
+  `definitions/README.md`.
 - **Frontend handoff** for the catalog is documented inline in models
   (`ConfigEntry`, `ComponentCatalogEntry`). New `ConfigEntryType` values
   need a frontend update — coordinate.
@@ -786,7 +787,7 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
 | `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
 | `script/update_board.py` | One-step contributor wrapper: regenerate one board's JSON (`sync_boards.py`) + validate (`validate_definitions.py`). Auto-detects the edited board, or takes an id. |
-| `script/sync_boards.py` | Regenerates the split board catalog from the manifests; stamps the generating `esphome_version` into `boards.index.json`. Takes an optional board id to regenerate just one (single-board mode guards installed `esphome` against that stamp). |
+| `script/sync_boards.py` | Regenerates the split board catalog from the manifests; stamps the generating `esphome_version` into `boards.index.json`. Takes an optional board id to regenerate just one. Both modes guard installed `esphome` against that stamp; `--restamp` opts a full sync out to regenerate against a new esphome. |
 | `script/sync_components.py` | Regenerates the component catalog + `platform_capabilities.index.json` |
 | `script/check_catalog.py` | Smoke test for popular components |
 | `script/check_import_time.py` | CI guard: fails if `import …device_builder` regresses past `script/import_time_budget.json` (e.g. a fresh eager `esphome.components.*` import) |

@@ -62,15 +62,15 @@ source .venv/bin/activate    # or call .venv/bin/python directly
 python script/sync_boards.py my-board
 ```
 
-Single-board mode (and `update_board.py`) rewrites one body but rebuilds the
-shared index from every board, so the installed ESPHome must match the version
-the committed catalog was generated against (stamped as `esphome_version` in
-`boards.index.json` by the last full sync, betas canonicalized to their base
-release) or their index entries silently drift; it refuses on a mismatch and
-prints the version to install. A full `python script/sync_boards.py` regenerates
-everything against your installed ESPHome and re-stamps that version, so it does
-not check; still run it from the venv so you don't commit catalog-wide changes
-from a different ESPHome.
+The installed ESPHome must match the version the committed catalog was
+generated against (stamped as `esphome_version` in `boards.index.json` by the
+last full sync, betas canonicalized to their base release) or the derived data
+silently drifts — single-board mode rebuilds the shared index from every
+board, and a full sync rewrites every body. Both modes refuse on a mismatch
+and print the version to install. `python script/sync_boards.py --restamp` is
+the explicit opt-in to regenerate everything against your installed ESPHome
+and re-stamp that version — that's for a deliberate catalog-wide ESPHome bump,
+not a routine board edit.
 
 ### Troubleshooting: the pre-commit hook fails on every attempt
 

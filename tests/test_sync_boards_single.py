@@ -93,3 +93,42 @@ def test_require_matching_esphome(monkeypatch, tmp_path):
     monkeypatch.setattr(esphome.const, "__version__", "2000.0.0")
     with pytest.raises(SystemExit, match=r"2099\.1\.1"):
         sb._require_matching_esphome()
+
+
+def test_require_matching_esphome_names_restamp(monkeypatch, tmp_path):
+    index = tmp_path / "boards.index.json"
+    index.write_bytes(orjson.dumps({"esphome_version": "2099.1.1", "boards": []}))
+    monkeypatch.setattr(sb, "_INDEX_FILE", index)
+    monkeypatch.setattr(esphome.const, "__version__", "2000.0.0")
+    with pytest.raises(SystemExit, match=r"--restamp"):
+        sb._require_matching_esphome()
+
+
+def test_require_matching_esphome_full(monkeypatch, tmp_path):
+    index = tmp_path / "boards.index.json"
+    index.write_bytes(orjson.dumps({"esphome_version": "2099.1.1", "boards": []}))
+    monkeypatch.setattr(sb, "_INDEX_FILE", index)
+
+    monkeypatch.setattr(esphome.const, "__version__", "2099.1.1b3")
+    sb._require_matching_esphome_full()  # beta canonicalizes to the base: no raise
+
+    monkeypatch.setattr(esphome.const, "__version__", "2000.0.0")
+    with pytest.raises(SystemExit, match=r"--restamp"):
+        sb._require_matching_esphome_full()
+
+
+def test_require_matching_esphome_full_missing_stamp_proceeds(monkeypatch, tmp_path):
+    monkeypatch.setattr(sb, "_INDEX_FILE", tmp_path / "boards.index.json")
+    monkeypatch.setattr(esphome.const, "__version__", "2000.0.0")
+    sb._require_matching_esphome_full()  # no index at all: first full sync
+
+    sb._INDEX_FILE.write_bytes(orjson.dumps({"boards": []}))
+    sb._require_matching_esphome_full()  # index without a stamp: same
+
+
+def test_restamp_with_board_id_is_an_argparse_error(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["sync_boards.py", "some_board", "--restamp"])
+    with pytest.raises(SystemExit) as excinfo:
+        sb.main()
+    assert excinfo.value.code == 2
+    assert "--restamp applies to the full sync only" in capsys.readouterr().err

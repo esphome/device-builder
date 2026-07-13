@@ -210,6 +210,26 @@ def test_boards_index_omits_default_fields() -> None:
     assert len(payload["boards"]) > 100
 
 
+def test_boards_index_is_one_entry_per_line() -> None:
+    """The committed index keeps each board on its own line (merge-conflict shape)."""
+    raw = _BOARDS_INDEX_JSON.read_bytes()
+    payload = orjson.loads(raw)
+    assert len(raw.splitlines()) == len(payload["boards"]) + 5
+    entry_lines = raw.splitlines()[2 : 2 + len(payload["boards"])]
+    for line, entry in zip(entry_lines, payload["boards"], strict=True):
+        assert orjson.loads(line.rstrip(b",")) == entry
+
+
+def test_featured_index_is_one_board_per_line() -> None:
+    """The committed featured map keeps each board's list on its own line."""
+    raw = _FEATURED_INDEX_JSON.read_bytes()
+    payload = orjson.loads(raw)
+    lines = raw.splitlines()
+    assert len(lines) == len(payload) + 2
+    for line, key in zip(lines[1:-1], sorted(payload), strict=True):
+        assert orjson.loads(b"{" + line.rstrip(b",") + b"}") == {key: payload[key]}
+
+
 def test_usb_pin_features_match_notes() -> None:
     """A pin noting USB ``D+`` carries ``usb_dp``; ``D-`` carries ``usb_dm``.
 

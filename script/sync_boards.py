@@ -23,18 +23,21 @@ The YAML manifests under ``definitions/boards/<id>/manifest.yaml``
 remain the human-editable source of truth; this script is the only
 thing that writes the three artefacts.
 
-Single-board mode (``BOARD_ID``) must run against the same ESPHome the
-rest of the committed catalog was generated against (the
-``esphome_version`` a full sync stamps into ``boards.index.json``),
-since it rebuilds the shared index from every board; it refuses on a
-mismatch. A full sync regenerates everything from the installed ESPHome
-and re-stamps that version, so it does not check.
+Both modes must run against the same ESPHome the committed catalog was
+generated against (the ``esphome_version`` a full sync stamps into
+``boards.index.json``): single-board mode rebuilds the shared index from
+every board, and a full sync rewrites every body, so either drifts the
+whole catalog on a mismatch. Both refuse unless the versions match;
+``--restamp`` lets a full sync intentionally regenerate against the
+installed ESPHome and re-stamp that version (the catalog-sync workflows'
+esphome-bump path).
 
 Usage
 -----
 
     python script/sync_boards.py              # regenerate every board
     python script/sync_boards.py BOARD_ID     # regenerate only one board
+    python script/sync_boards.py --restamp    # regenerate against a new ESPHome
 """
 
 from __future__ import annotations
@@ -59,6 +62,8 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _catalog_split import (  # noqa: E402
+    dumps_envelope_entries_per_line,
+    dumps_map_entry_per_line,
     emit_body_with_roundtrip,
     prepare_next_bodies_dir,
     swap_split_catalog_in,
@@ -1205,12 +1210,24 @@ def main() -> int:
         help="Board id (the folder name under esphome_device_builder/definitions/boards/) "
         "to regenerate on its own. Omit to regenerate the whole catalog.",
     )
+    parser.add_argument(
+        "--restamp",
+        action="store_true",
+        help="Full sync only: regenerate every board against the installed ESPHome even "
+        "when it does not match the esphome_version stamped in boards.index.json, "
+        "re-stamping that version.",
+    )
     args = parser.parse_args()
 
-    # Only single-board mode needs the match: it rebuilds the shared index from
-    # every board, so a mismatched esphome drifts the others' index entries.
+    # Either mode drifts the whole catalog on a version mismatch: single-board
+    # rebuilds the shared index from every board, a full sync rewrites every
+    # body. --restamp is the explicit opt-in for the intentional full regen.
     if args.board:
+        if args.restamp:
+            parser.error("--restamp applies to the full sync only; drop the board id")
         _require_matching_esphome()
+    elif not args.restamp:
+        _require_matching_esphome_full()
 
     # Abort the sync on the first bad manifest — partial output here
     # would silently ship a board-shaped hole to every install.
@@ -1303,7 +1320,8 @@ def _emit_split_catalog(
         live_index=_INDEX_FILE,
         index_cls=BoardCatalogIndex,
         index_entries_key="boards",
-        sort_keys=True,
+        # per-line output always sorts, so no sort_keys here
+        entries_per_line=True,
     )
 
 
@@ -1342,29 +1360,57 @@ def _write_index(full_payloads: list[dict[str, Any]]) -> None:
     for entry in index_payload["boards"]:
         BoardCatalogIndex.from_dict(entry)
     next_index = _INDEX_FILE.with_suffix(".json.next")
-    next_index.write_bytes(
-        orjson.dumps(index_payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
-    )
+    next_index.write_bytes(dumps_envelope_entries_per_line(index_payload, "boards"))
     next_index.replace(_INDEX_FILE)
+
+
+def _committed_esphome_stamp() -> str | None:
+    """Return the ``esphome_version`` stamped in boards.index.json, or None if unreadable."""
+    try:
+        stamp = orjson.loads(_INDEX_FILE.read_bytes())["esphome_version"]
+    except (OSError, orjson.JSONDecodeError, KeyError):
+        return None
+    return stamp if isinstance(stamp, str) else None
+
+
+_RESTAMP_ALT_FIX = (
+    "Or intentionally regenerate every board against your installed ESPHome\n"
+    "and re-stamp boards.index.json:\n"
+    "    python script/sync_boards.py --restamp"
+)
 
 
 def _require_matching_esphome() -> None:
     """Abort unless installed ESPHome matches the ``esphome_version`` boards.index.json was built with."""
-    try:
-        expected = orjson.loads(_INDEX_FILE.read_bytes())["esphome_version"]
-    except (OSError, orjson.JSONDecodeError, KeyError):
+    expected = _committed_esphome_stamp()
+    if expected is None:
         raise SystemExit(
             f"sync_boards: could not read esphome_version from {_INDEX_FILE}.\n"
-            f"To fix, regenerate the whole catalog first: python script/sync_boards.py"
-        ) from None
+            f"To fix, regenerate the whole catalog first: python script/sync_boards.py --restamp"
+        )
     assert_installed_esphome(
         expected,
         what="sync_boards single-board mode",
         normalize=_canonical_esphome_version,
-        alt_fix=(
-            "Or regenerate the whole catalog against your installed ESPHome instead:\n"
-            "    python script/sync_boards.py"
-        ),
+        alt_fix=_RESTAMP_ALT_FIX,
+    )
+
+
+def _require_matching_esphome_full() -> None:
+    """Abort a full sync on an ESPHome mismatch unless no stamp is readable (nothing to guard)."""
+    expected = _committed_esphome_stamp()
+    if expected is None:
+        _LOGGER.info(
+            "no readable esphome_version stamp in %s (missing or corrupt index) — "
+            "nothing to guard against, regenerating from the installed ESPHome",
+            _INDEX_FILE,
+        )
+        return
+    assert_installed_esphome(
+        expected,
+        what="sync_boards full sync",
+        normalize=_canonical_esphome_version,
+        alt_fix=_RESTAMP_ALT_FIX,
     )
 
 
@@ -1382,9 +1428,7 @@ def _emit_featured_components_index(boards: list[BoardCatalogEntry]) -> None:
             continue
         payload[board.id] = [fc.to_dict() for fc in board.featured_components]
     next_path = _FEATURED_INDEX_FILE.with_suffix(".json.next")
-    next_path.write_bytes(
-        orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
-    )
+    next_path.write_bytes(dumps_map_entry_per_line(payload))
     next_path.replace(_FEATURED_INDEX_FILE)
 
 
