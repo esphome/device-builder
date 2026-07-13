@@ -59,6 +59,7 @@ def test_is_unsafe_catalog_id_passes_flat_catalog_ids(good: str) -> None:
         "C:evil.png",
         "\\rooted.png",
         "..\\other\\x.jpg",
+        "evil\x00.png",
     ],
 )
 def test_is_unsafe_manifest_path_rejects_escaping_shapes(bad: str) -> None:

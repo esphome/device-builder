@@ -53,9 +53,11 @@ def is_unsafe_manifest_path(raw: str) -> bool:
 
     Checked under both path flavours so the verdict is host-independent:
     ``anchor`` catches POSIX-absolute plus the Windows drive / rooted
-    forms (``C:x``, ``\x``) on any OS.
+    forms (``C:x``, ``\x``) on any OS. A NUL byte (reachable via a
+    YAML ``"\0"`` escape) is rejected rather than silently failing
+    every filesystem probe downstream.
     """
-    return any(
+    return "\x00" in raw or any(
         bool(path.anchor) or ".." in path.parts
         for path in (PurePosixPath(raw), PureWindowsPath(raw))
     )
