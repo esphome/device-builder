@@ -231,8 +231,10 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
 # was skipped) — unsafe to surface as a preset value or ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
 
-# A token with no letter or digit is placeholder noise ("***"), not a name.
-_ALNUM_RE = re.compile(r"[A-Za-z0-9]")
+# A token with no letter or digit (unicode-aware, so "Спот" survives) is
+# placeholder noise ("***"), not a name. Stripped from name edges only so
+# interior separators ("gosund_sp111 - Status") stay.
+_ALNUM_RE = re.compile(r"[^\W_]")
 
 # Deprecated flat ``clk_mode: GPIO<n>_(IN|OUT)`` encodes the RMII clock
 # pin and direction in the mode string; folded into nested ``clk``
@@ -1483,8 +1485,11 @@ def _clean_entity_name(inline_item: dict[str, Any]) -> str:
         candidate = inline_item.get(key)
         if not isinstance(candidate, str):
             continue
-        cleaned = _TEMPLATE_VAR_RE.sub("", candidate)
-        tokens = [t for t in cleaned.split() if _ALNUM_RE.search(t)]
+        tokens = _TEMPLATE_VAR_RE.sub("", candidate).split()
+        while tokens and not _ALNUM_RE.search(tokens[0]):
+            tokens.pop(0)
+        while tokens and not _ALNUM_RE.search(tokens[-1]):
+            tokens.pop()
         cleaned = " ".join(tokens).strip(" -_")
         if cleaned:
             return cleaned

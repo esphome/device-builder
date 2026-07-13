@@ -104,6 +104,25 @@ def test_placeholder_substitution_value_is_dropped_from_names() -> None:
     assert occupancy == {5: "Button"}
 
 
+@pytest.mark.parametrize(
+    ("upstream", "expected"),
+    [
+        pytest.param("Спот", "Спот", id="unicode_kept"),
+        pytest.param("gosund_sp111 - Status", "gosund_sp111 - Status", id="interior_dash_kept"),
+        pytest.param("Energy Meter kWh +", "Energy Meter kWh", id="trailing_symbol_stripped"),
+    ],
+)
+def test_edge_symbol_tokens_only_are_stripped(upstream: str, expected: str) -> None:
+    parsed: dict[str, Any] = {
+        "substitutions": {"x": "y"},
+        "binary_sensor": [{"platform": "gpio", "name": upstream, "pin": 5}],
+    }
+    featured, _, _ = _extract_featured_components(
+        _resolve_page_substitutions(parsed, "board"), _INDEX
+    )
+    assert featured[0]["fields"]["name"] == expected
+
+
 def test_loratap_shaped_page_extracts_after_resolution() -> None:
     """The #1988 shape: substitution-valued pins and durations extract like literals."""
     parsed: dict[str, Any] = {
