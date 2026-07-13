@@ -40,7 +40,7 @@ from esphome_device_builder.controllers._device_state_monitor.ping import PingSo
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
 from esphome_device_builder.models import RUNTIME_STATE_FIELD_NAMES, Device, DeviceState
 
-from .conftest import RecordingMonitorCallbacks
+from .conftest import RecordingMonitorCallbacks, stub_async_service_info
 from .conftest import make_device as _device
 
 # The service-type strings the production code uses; pinned here so
@@ -458,16 +458,6 @@ async def test_start_continues_when_browser_construct_fails(
 # ---------------------------------------------------------------------------
 
 
-def _stub_removed_verify(monkeypatch: pytest.MonkeyPatch, *, resolved: bool) -> MagicMock:
-    """Stub the ``Removed`` branch's wire verify to hit or miss deterministically."""
-    info = MagicMock()
-    info.async_request = AsyncMock(return_value=resolved)
-    info.parsed_scoped_addresses.return_value = ["10.0.0.1"]
-    info.decoded_properties = {"version": "2026.7.0"}
-    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: info)
-    return info
-
-
 async def _drain_tracked_tasks(monitor: DeviceStateMonitor) -> None:
     """Await the fire-and-forget tasks a dispatch spawned."""
     while monitor._tasks:
@@ -482,7 +472,7 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
     monitor, _callbacks = _make_monitor([device])
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
-    _stub_removed_verify(monkeypatch, resolved=False)
+    stub_async_service_info(monkeypatch)
     try:
         dispatch(
             monitor._mdns._zeroconf.zeroconf,
@@ -506,7 +496,7 @@ async def test_dispatch_removed_event_stays_online_when_verify_resolves(
     monitor, _callbacks = _make_monitor([device])
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
-    _stub_removed_verify(monkeypatch, resolved=True)
+    stub_async_service_info(monkeypatch, resolved=True, addresses=("10.0.0.1",))
     try:
         dispatch(
             monitor._mdns._zeroconf.zeroconf,
@@ -542,7 +532,7 @@ async def test_dispatch_removed_event_clears_reachability_tracker(
     tracker.observe("kitchen", "ping")
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
-    _stub_removed_verify(monkeypatch, resolved=False)
+    stub_async_service_info(monkeypatch)
     try:
         dispatch(
             monitor._mdns._zeroconf.zeroconf,

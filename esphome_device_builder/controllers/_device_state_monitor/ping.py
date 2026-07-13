@@ -106,8 +106,12 @@ class PingSource:
             if monitor._presence is not None:
                 await monitor._presence.wait_for_subscriber()
             self._wake.clear()
-            await shared.resolve_non_api_mdns_targets(monitor)
-            await shared.resolve_api_mdns_targets(monitor)
+            # Disjoint candidate sets — resolve both concurrently so a
+            # wire-miss in one doesn't delay the sweep behind the other.
+            await asyncio.gather(
+                shared.resolve_non_api_mdns_targets(monitor),
+                shared.resolve_api_mdns_targets(monitor),
+            )
             await self._ping_sweep()
             await self._idle()
 

@@ -37,6 +37,7 @@ from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import mdns as _mdns_module
 from esphome_device_builder.controllers._device_state_monitor import ping as _ping_module
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
@@ -1003,6 +1004,25 @@ def make_online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
     }
     base.update(overrides)
     return make_device(name, **base)
+
+
+def stub_async_service_info(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    cached: bool = False,
+    resolved: bool = False,
+    addresses: tuple[str, ...] = ("192.168.1.50",),
+    properties: dict[str, str] | None = None,
+) -> MagicMock:
+    """Patch ``mdns.AsyncServiceInfo`` with a stub that hits the cache, the wire, or misses."""
+    info = MagicMock()
+    info.name = "kitchen._esphomelib._tcp.local."
+    info.load_from_cache.return_value = cached
+    info.async_request = AsyncMock(return_value=resolved)
+    info.parsed_scoped_addresses.return_value = list(addresses)
+    info.decoded_properties = properties if properties is not None else {"version": "2026.7.0"}
+    monkeypatch.setattr(_mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: info)
+    return info
 
 
 def make_peer_link_session(

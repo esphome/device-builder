@@ -38,12 +38,11 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     Decide whether *device* needs an ICMP probe this sweep.
 
     Skip the device only when it's already ONLINE *and* a
-    higher-priority source (mDNS / MQTT) owns it. OFFLINE / UNKNOWN
+    higher-priority source (mDNS / MQTT) owns it — except an
+    mdns-owned API device with no live PTR (no ``Removed`` will
+    fire for it), which stays sweep-eligible. OFFLINE / UNKNOWN
     devices always get pinged so off-network hosts mDNS can't reach
-    have a path to come online via DNS + ping. An mdns claim on an
-    API device without a live PTR (sweep / removed-verify resolve)
-    has no browser ``Removed`` counterpart, so it keeps sweep
-    eligibility — the sweep is its offline-detection substitute.
+    have a path to come online via DNS + ping.
     """
     if device.runtime_state.state != DeviceState.ONLINE:
         return True
@@ -53,7 +52,7 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     return (
         source == ReachabilitySource.MDNS
         and device.api_enabled
-        and not monitor.has_live_mdns_ptr(device.name)
+        and not monitor._mdns.has_live_ptr(device.name)
     )
 
 
@@ -79,11 +78,9 @@ async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     """
     Resolve the esphomelib service for ONLINE API devices the sweep would ping.
 
-    An mDNS answer is cheaper than an ICMP probe and repairs a ledger
-    stuck on ``ping`` after a missed browser resolve (#1993); a miss
-    claims nothing and the ICMP sweep decides. Devices with no mDNS
-    trace in the cache are skipped so an mDNS-dark deployment
-    (Docker bridge) gains no multicast traffic.
+    A hit claims mdns and ends their ICMP eligibility; a miss claims
+    nothing and the ICMP sweep decides. Devices with no cached mDNS
+    trace at all are skipped.
     """
     if monitor._mdns.zeroconf is None:
         return

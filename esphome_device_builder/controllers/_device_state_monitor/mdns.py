@@ -49,6 +49,11 @@ _LOGGER = logging.getLogger(__name__)
 # wire inside the window, so a short one-shot silently drops their announce.
 _MDNS_RESOLVE_TIMEOUT_MS = 10_000
 
+# The ping sweep's resolve-first pass runs before the ICMP sweep it feeds, so
+# it gets the same 3s bound as the non-API active resolve — a slow node the
+# window misses is pinged this sweep and re-resolved next.
+_SWEEP_RESOLVE_TIMEOUT_MS = 3_000
+
 # Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
 # hang on a wedged socket; shutdown must not block on it.
 _MDNS_CLOSE_TIMEOUT = 1.0
@@ -229,12 +234,7 @@ class MdnsSource:
             *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
             *txt_dns_records,
         ]
-        # PTR is owned by the type-domain
-        # (``_esphomelib._tcp.local.``) and carries the
-        # service-instance as its ``alias``;
-        # ``current_entry_with_name_and_alias`` is the
-        # zeroconf-API-canonical way to look it up.
-        ptr = cache.current_entry_with_name_and_alias(_ESPHOME_SERVICE_TYPE, service_name)
+        ptr = self._cached_ptr(service_name)
         if ptr is not None:
             records.append(ptr)
         if not records:
@@ -313,28 +313,24 @@ class MdnsSource:
             self._apply_identity_txt(device_name, props)
 
     async def resolve_and_claim(self, device_name: str) -> None:
-        """
-        Resolve the esphomelib service (cache first, wire fallback) and claim mdns.
-
-        The ping sweep's resolve-first step for API devices: an mDNS answer
-        replaces the ICMP probe and repairs a ledger stuck on ``ping`` after
-        a missed browser resolve (#1993). A miss claims nothing — ICMP decides.
-        """
+        """Resolve the esphomelib service (cache first, wire fallback) and claim mdns on a hit."""
         if (zc := self._zeroconf) is None:
             return
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
         if info.load_from_cache(zc.zeroconf):
             self._apply_service_info(device_name, info)
             return
-        await self._resolve_then(zc.zeroconf, info, device_name, self._apply_service_info)
+        await self._resolve_then(
+            zc.zeroconf,
+            info,
+            device_name,
+            self._apply_service_info,
+            timeout_ms=_SWEEP_RESOLVE_TIMEOUT_MS,
+        )
 
     def has_live_ptr(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired esphomelib PTR for *device_name*."""
-        if self._zeroconf is None:
-            return False
-        ptr = self._zeroconf.zeroconf.cache.current_entry_with_name_and_alias(
-            _ESPHOME_SERVICE_TYPE, f"{device_name}.{_ESPHOME_SERVICE_TYPE}"
-        )
+        ptr = self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
         return ptr is not None and not ptr.is_expired(current_time_millis())
 
     def _on_esphomelib_service_state_change(
@@ -377,25 +373,14 @@ class MdnsSource:
         await self._resolve_then(zeroconf, info, device_name, self._apply_service_info)
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
-        """
-        Resolve before honouring a ``Removed`` — an answering device stays ONLINE.
-
-        A lossy-multicast PTR expiry must not demote a reachable device
-        (the #1993 ping-takeover trigger); only a failed resolve applies
-        the OFFLINE and its cleanup. Also bridges the goodbye + reboot
-        gap of an OTA flash.
-        """
-        if name not in self._inflight_resolves:
-            self._inflight_resolves.add(name)
-            info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, name)
-            try:
-                if await info.async_request(zeroconf, timeout=_MDNS_RESOLVE_TIMEOUT_MS):
-                    self._apply_service_info(device_name, info)
-                    return
-            except Exception:
-                _LOGGER.debug("mDNS removed-verify failed for %s", device_name, exc_info=True)
-            finally:
-                self._inflight_resolves.discard(name)
+        """Resolve before honouring a ``Removed``; only a failed resolve applies OFFLINE."""
+        if name in self._inflight_resolves:
+            # A concurrent resolve decides; a dead device demotes via the
+            # sweep (no live PTR keeps it sweep-eligible).
+            return
+        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, name)
+        if await self._resolve_then(zeroconf, info, device_name, self._apply_service_info):
+            return
         monitor = self._monitor
         monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
         monitor.apply_ip(device_name, "")
@@ -409,7 +394,9 @@ class MdnsSource:
         info: AsyncServiceInfo,
         device_name: str,
         apply: Callable[[str, AsyncServiceInfo], None],
-    ) -> None:
+        *,
+        timeout_ms: float = _MDNS_RESOLVE_TIMEOUT_MS,
+    ) -> bool:
         """
         Resolve a cache-miss service and hand the result to *apply*.
 
@@ -417,20 +404,22 @@ class MdnsSource:
         HTTP browser paths: spawn a task on cache miss,
         ``async_request`` the record, swallow exceptions to a
         debug log, dispatch to the per-type applier on success.
-        At most one resolve per service name is in flight.
+        At most one resolve per service name is in flight. Returns
+        True iff the service resolved and *apply* ran.
         """
         if info.name in self._inflight_resolves:
-            return
+            return False
         self._inflight_resolves.add(info.name)
         try:
-            if not await info.async_request(zeroconf, timeout=_MDNS_RESOLVE_TIMEOUT_MS):
-                return
+            if not await info.async_request(zeroconf, timeout=timeout_ms):
+                return False
         except Exception:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
-            return
+            return False
         finally:
             self._inflight_resolves.discard(info.name)
         apply(device_name, info)
+        return True
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """
@@ -531,6 +520,21 @@ class MdnsSource:
         rule from the esphomelib path would stamp a false confirmation.
         """
         self._apply_identity_txt(device_name, info.decoded_properties)
+
+    def _cached_ptr(self, service_name: str) -> Any | None:
+        """
+        Look up the cached esphomelib PTR for *service_name*, expired or not.
+
+        PTR is owned by the type-domain (``_esphomelib._tcp.local.``) and
+        carries the service-instance as its ``alias``;
+        ``current_entry_with_name_and_alias`` is the zeroconf-API-canonical
+        way to look it up.
+        """
+        if self._zeroconf is None:
+            return None
+        return self._zeroconf.zeroconf.cache.current_entry_with_name_and_alias(
+            _ESPHOME_SERVICE_TYPE, service_name
+        )
 
     def _cached_txt_properties(self, zc: Any, service_name: str) -> dict[str, str]:
         """Decode the unexpired cached TXT records for *service_name*."""
