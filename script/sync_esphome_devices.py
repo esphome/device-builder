@@ -2674,7 +2674,7 @@ def main() -> int:
     # Static extraction can't see everything ESPHome enforces (pin modes,
     # cross-platform constraints, stale upstream pages) — validate every
     # record's full setup for real and repair or refuse before emitting.
-    gate_skips = apply_validation_gate([record for _, record in pending])
+    gate_skips = apply_validation_gate([record for _, record in pending], components_index)
 
     for src, record in pending:
         gate_reason = gate_skips.get(record["id"])
