@@ -622,23 +622,29 @@ def _esp32_board_pins(generic: list[BoardPin], board_pins: dict[str, int] | None
     return out
 
 
+def esp32_variant_for_board(board_id: str) -> str | None:
+    """Variant name for a PIO board id from esphome's authoritative ``BOARDS`` map."""
+    module = importlib.import_module(_ESP32_BOARDS_MODULE)
+    board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
+    meta = board_list.get(board_id)
+    return meta["variant"].lower() if meta is not None else None
+
+
 def _backfill_esp32_variants(boards: list[BoardCatalogEntry]) -> None:
     """Fill ``esphome.variant`` from the PIO board id for esp32 boards missing it.
 
     Imported manifests sometimes carry only ``board:`` (no ``variant:``). Without
     a variant the generated ``esp32:`` block has neither key (the schema needs at
     least one) and the picker tags the board as bare ESP32 instead of its
-    sub-variant. ``BOARDS`` is the authoritative board -> variant map.
+    sub-variant.
     """
-    module = importlib.import_module(_ESP32_BOARDS_MODULE)
-    board_list: dict[str, Any] = getattr(module, _ESP32_BOARDS_ATTR)
     for board in boards:
         cfg = board.esphome
         if cfg.platform.value != "esp32" or cfg.variant is not None:
             continue
-        meta = board_list.get(cfg.board)
-        if meta is not None:
-            cfg.variant = Esp32Variant(meta["variant"].lower())
+        variant = esp32_variant_for_board(cfg.board)
+        if variant is not None:
+            cfg.variant = Esp32Variant(variant)
 
 
 def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:

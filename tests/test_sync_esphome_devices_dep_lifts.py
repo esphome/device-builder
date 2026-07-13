@@ -7,16 +7,15 @@ from typing import Any
 from script.sync_esphome_devices import (  # type: ignore[import-not-found]
     _coerce_field_preset,
     _dep_already_featured,
-    _drop_unsatisfiable_consumers,
     _extract_bus_deps,
     _extract_driver_hubs,
     _extract_featured_components,
-    _hub_block_for,
     _is_driver_hub,
     _is_simple_scalar,
     _LiftState,
     _materialize_bus,
     _missing_required_ref,
+    _select_block,
 )
 
 _COMPONENTS: dict[str, dict[str, Any]] = {
@@ -56,11 +55,11 @@ def test_is_driver_hub_accepts_pinless_bus_attached_hubs() -> None:
     assert _is_driver_hub({"category": "core"}) is False
 
 
-def test_hub_block_for_accepts_bare_key() -> None:
-    """``tuya:`` with a null body lifts as an empty block; an absent key doesn't."""
-    assert _hub_block_for({"tuya": None}, "tuya") == {}
-    assert _hub_block_for({}, "tuya") is None
-    assert _hub_block_for({"tuya": {"uart_id": "bus"}}, "tuya") == {"uart_id": "bus"}
+def test_select_block_accepts_bare_key() -> None:
+    """``tuya:`` with a null body selects as an empty block; an absent key doesn't."""
+    assert _select_block({"tuya": None}, "tuya", None) == {}
+    assert _select_block({}, "tuya", None) is None
+    assert _select_block({"tuya": {"uart_id": "bus"}}, "tuya", None) == {"uart_id": "bus"}
 
 
 def test_bare_tuya_hub_lifts_and_chains_its_uart() -> None:
@@ -131,22 +130,6 @@ def test_extract_drops_entry_missing_required_ref() -> None:
     inline = {"sensor": [{"platform": "total_daily_energy", "power_id": "nested_sub_id"}]}
     featured, _, _ = _extract_featured_components(inline, _COMPONENTS)
     assert featured == []
-
-
-def test_drop_unsatisfiable_consumers_only_fires_on_excluded_domains() -> None:
-    """An ``ota``-dep leaf drops; unknown deps are left for the validation gate."""
-    components = {
-        "button.safe_mode": {"dependencies": ["ota"], "config_entries": []},
-        "output.libretiny_pwm": {"dependencies": ["libretiny"], "config_entries": []},
-    }
-    featured = [
-        {"id": "reboot", "component_id": "button.safe_mode", "fields": {}},
-        {"id": "pwm", "component_id": "output.libretiny_pwm", "fields": {}},
-    ]
-    bundles = [{"id": "all", "name": "All", "component_ids": ["reboot", "pwm"]}]
-    kept = _drop_unsatisfiable_consumers(featured, bundles, components)
-    assert [entry["id"] for entry in kept] == ["pwm"]
-    assert bundles[0]["component_ids"] == ["pwm"]
 
 
 def test_materialize_bus_accepts_bare_mapping_key() -> None:

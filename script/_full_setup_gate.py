@@ -6,7 +6,7 @@ wizard's "all recommended" flow and run through the real
 ``esphome.config.load_config`` in a forked worker (ESPHome accumulates
 module-global state across validations, so every validation gets a fresh
 process — same isolation the slow e2e suite uses). A failing entry is
-dropped by mapping the error's ``@ data['<domain>'][i]`` path back to the
+dropped by mapping the error's structured config path back to the
 generated item's ``id``; the record revalidates until clean. Boards left
 featureless (or with an unmappable failure) are skipped entirely.
 """
@@ -16,16 +16,18 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
-import re
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
+if TYPE_CHECKING:
+    from esphome_device_builder.models import BoardCatalogEntry, ComponentCatalogEntry
+
 _LOGGER = logging.getLogger("sync_esphome_devices")
 
-_ERROR_PATH_RE = re.compile(r"@ data\['([a-z_0-9]+)'\](?:\[(\d+)\])?")
 # Each pass drops at least one entry per failing board; ESPHome often stops
 # at the first error per domain, so a page with many same-shaped broken
 # entries (one bad expander pin copied eight times) needs a pass per entry.
@@ -42,23 +44,28 @@ def apply_validation_gate(records: list[dict[str, Any]]) -> dict[str, str]:
     if "fork" not in mp.get_all_start_methods():
         _LOGGER.warning("Skipping full-setup validation: no fork start method")
         return {}
+    # Import once in the parent: every forked worker then inherits the
+    # clean pre-validation module state instead of re-importing esphome.
+    import esphome.config  # noqa: F401
+
     ctx = mp.get_context("fork")
     skipped: dict[str, str] = {}
     pending = list(records)
     for _ in range(_MAX_PASSES):
         if not pending:
             break
-        with ctx.Pool(processes=min(8, os.cpu_count() or 4), maxtasksperchild=1) as pool:
+        processes = min(8, os.cpu_count() or 4, len(pending))
+        with ctx.Pool(processes=processes, maxtasksperchild=1) as pool:
             results = pool.map(_validate_record, pending, chunksize=1)
         retry: list[dict[str, Any]] = []
         for record, outcome in zip(pending, results, strict=True):
-            if outcome is None or not outcome.drop_ids:
+            if outcome is None or not outcome.drops:
                 if outcome is not None and outcome.errors:
                     skipped[record["id"]] = f"full setup fails validation: {outcome.errors[0]}"
                 continue
-            for local_id, error in zip(outcome.drop_ids, outcome.drop_errors, strict=True):
+            for local_id, error in outcome.drops:
                 _LOGGER.info("%s: dropping %s — %s", record["id"], local_id, error)
-            _apply_drops(record, set(outcome.drop_ids))
+            _apply_drops(record, {local_id for local_id, _ in outcome.drops})
             if record.get("featured_components"):
                 retry.append(record)
             else:
@@ -70,20 +77,45 @@ def apply_validation_gate(records: list[dict[str, Any]]) -> dict[str, str]:
     return skipped
 
 
+def run_esphome_validation(
+    board_id: str,
+    board: BoardCatalogEntry,
+    defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]],
+) -> tuple[str, list[Any]]:
+    """
+    Generate *board*'s YAML with *defaults* and run real ESPHome validation.
+
+    Returns ``(yaml_text, errors)`` — errors are ``vol.Invalid`` (carrying a
+    structured ``.path``) or a single ``EsphomeError``. Shared with the slow
+    e2e boards suite; call from a fresh (forked) process only.
+    """
+    from esphome.config import load_config
+    from esphome.core import CORE, EsphomeError
+
+    from esphome_device_builder.helpers.device_yaml import generate_device_yaml
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Inline creds keep the YAML ``!secret``-free so it validates standalone.
+        yaml_path = Path(tmp) / f"{board_id}.yaml"
+        yaml_text = generate_device_yaml(
+            "repro", "Repro", board, ssid="ssid", psk="password", defaults=defaults
+        )
+        yaml_path.write_text(yaml_text, encoding="utf-8")
+        CORE.config_path = yaml_path
+        try:
+            return yaml_text, list(load_config({}, skip_external_update=True).errors)
+        except EsphomeError as err:
+            return yaml_text, [err]
+
+
+@dataclass(slots=True)
 class _Outcome:
     """One validation result: nothing set means the record validated clean."""
 
-    __slots__ = ("drop_errors", "drop_ids", "errors")
-
-    def __init__(
-        self,
-        drop_ids: list[str] | None = None,
-        drop_errors: list[str] | None = None,
-        errors: list[str] | None = None,
-    ) -> None:
-        self.drop_ids = drop_ids or []
-        self.drop_errors = drop_errors or []
-        self.errors = errors or []
+    # (local id, error text) per entry to drop.
+    drops: list[tuple[str, str]] = field(default_factory=list)
+    # Board-level failures no single entry can absorb.
+    errors: list[str] = field(default_factory=list)
 
 
 def _validate_record(record: dict[str, Any]) -> _Outcome | None:
@@ -93,9 +125,6 @@ def _validate_record(record: dict[str, Any]) -> _Outcome | None:
     Returns ``None`` when the gate doesn't apply (pin-conflict boards keep
     partial bundles, so no combined setup exists to validate).
     """
-    from esphome.config import load_config
-    from esphome.core import CORE, EsphomeError
-
     from esphome_device_builder.controllers.components import _load_body_from_disk
     from esphome_device_builder.definitions import (
         _load_component_multi_conf,
@@ -112,24 +141,12 @@ def _validate_record(record: dict[str, Any]) -> _Outcome | None:
     ]
     if not featured or _has_pin_conflict(featured):
         return None
-    esphome_cfg = _load_esphome_config(record["esphome"], record["id"])
-    if esphome_cfg.platform.value == "esp32" and esphome_cfg.variant is None:
-        # sync_boards backfills the variant from the PIO board id when it
-        # regenerates the catalog; without the same backfill an imported
-        # ``board:``-only manifest fails as "This board is unknown".
-        from esphome.components.esp32.boards import BOARDS
-
-        from esphome_device_builder.models.boards import Esp32Variant
-
-        meta = BOARDS.get(esphome_cfg.board)
-        if meta is not None:
-            esphome_cfg.variant = Esp32Variant(meta["variant"].lower())
     board = BoardCatalogEntry(
         id=record["id"],
         name=record["name"],
         description="",
         manufacturer="",
-        esphome=esphome_cfg,
+        esphome=_load_esphome_config(record["esphome"], record["id"]),
         featured_components=featured,
         full_config=True,
     )
@@ -141,57 +158,45 @@ def _validate_record(record: dict[str, Any]) -> _Outcome | None:
         defaults.append(
             (body, {key: p.value for key, p in fc.fields.items() if p.value is not None})
         )
-
-    from esphome_device_builder.helpers.device_yaml import generate_device_yaml
-
-    with tempfile.TemporaryDirectory() as tmp:
-        yaml_path = Path(tmp) / f"{record['id']}.yaml"
-        yaml_text = generate_device_yaml(
-            "repro", "Repro", board, ssid="ssid", psk="password", defaults=defaults
-        )
-        yaml_path.write_text(yaml_text, encoding="utf-8")
-        CORE.config_path = yaml_path
-        try:
-            errors = [str(err) for err in load_config({}, skip_external_update=True).errors]
-        except EsphomeError as err:
-            errors = [str(err)]
+    yaml_text, errors = run_esphome_validation(record["id"], board, defaults)
     if not errors:
         return _Outcome()
     return _map_errors(errors, yaml_text, record)
 
 
-def _map_errors(errors: list[str], yaml_text: str, record: dict[str, Any]) -> _Outcome:
-    """Map each error's config path to the featured entry that produced it."""
+def _map_errors(errors: list[Any], yaml_text: str, record: dict[str, Any]) -> _Outcome:
+    """Map each error's structured config path to the featured entry that produced it."""
     data = yaml.safe_load(yaml_text)
     entries = record.get("featured_components") or []
     local_ids = {entry["id"] for entry in entries}
-    drop_ids: list[str] = []
-    drop_errors: list[str] = []
+    drops: list[tuple[str, str]] = []
+    seen: set[str] = set()
     for error in errors:
-        match = _ERROR_PATH_RE.search(error)
-        local_id = _entry_for_path(match, data, entries, local_ids) if match else None
+        path = list(getattr(error, "path", None) or [])
+        local_id = _entry_for_path(path, data, entries, local_ids)
         if local_id is None:
             # An error we can't pin on one entry poisons the whole board.
-            return _Outcome(errors=[error])
-        if local_id not in drop_ids:
-            drop_ids.append(local_id)
-            drop_errors.append(error)
-    return _Outcome(drop_ids=drop_ids, drop_errors=drop_errors)
+            return _Outcome(errors=[str(error)])
+        if local_id not in seen:
+            seen.add(local_id)
+            drops.append((local_id, str(error)))
+    return _Outcome(drops=drops)
 
 
 def _entry_for_path(
-    match: re.Match[str],
+    path: list[Any],
     data: dict[str, Any],
     entries: list[dict[str, Any]],
     local_ids: set[str],
 ) -> str | None:
-    """Resolve one ``data['<domain>'][i]`` path to a featured local id."""
-    domain, index = match.group(1), match.group(2)
+    """Resolve one structured config path to a featured local id."""
+    if not path or not isinstance(path[0], str):
+        return None
+    domain = path[0]
     block = data.get(domain)
     item: Any = None
-    if index is not None and isinstance(block, list):
-        i = int(index)
-        item = block[i] if i < len(block) else None
+    if len(path) > 1 and isinstance(path[1], int) and isinstance(block, list):
+        item = block[path[1]] if path[1] < len(block) else None
     elif isinstance(block, dict):
         item = block
     if isinstance(item, dict):

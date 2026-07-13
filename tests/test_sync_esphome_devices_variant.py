@@ -19,8 +19,11 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
         ("esp32_s3_zero", "esp32s3"),
         ("esp32-c61-devkitc1", "esp32c61"),  # longest-first: c61, not c6
         ("esp32-s3-devkitc-1", "esp32s3"),
-        ("esp32dev", None),  # classic esp32 — no variant suffix
-        ("esp32-poe", None),
+        # No variant suffix in the id: the authoritative BOARDS map resolves
+        # these (classic esp32), matching what sync_boards stamps later.
+        ("esp32dev", "esp32"),
+        ("esp32-poe", "esp32"),
+        ("not-a-real-board-id", None),  # unknown everywhere stays unset
     ],
 )
 def test_infers_variant_from_board_id(board: str, expected: str | None) -> None:

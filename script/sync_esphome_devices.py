@@ -728,11 +728,16 @@ def _resolve_board_and_variant(
 
     if soc == "esp32":
         if board and not variant:
-            # Import-time resolver (connectivity is frozen here from the variant);
-            # the catalog's authoritative ``_backfill_esp32_variants`` runs later
-            # and only fixes ``esphome.variant``, not ``hardware.connectivity``.
             match = _ESP32_BOARD_VARIANT_RE.search(board.lower())
             variant = f"esp32{match.group(1)}" if match else None
+            if variant is None:
+                # PIO board ids that don't encode the variant (``esp32s3box``)
+                # resolve through esphome's authoritative board map — the
+                # manifest must carry the variant or the generated ``esp32:``
+                # block reads as an unknown board.
+                from script.sync_boards import esp32_variant_for_board
+
+                variant = esp32_variant_for_board(board)
         elif not board and variant:
             board = _ESP32_VARIANT_DEFAULT_BOARD.get(variant)
 
@@ -1800,7 +1805,7 @@ def _chain_bus_deps(
     Without the chain the lifted bus fails ESPHome's dependency validation.
     """
     bus_component = state.components_index.get(bus_entry["component_id"])
-    bus_block = _select_bus_block(state.config, bus_domain, instance_id)
+    bus_block = _select_block(state.config, bus_domain, instance_id)
     if bus_component is None or bus_block is None:
         return
     sub_ids, sub_refs = _ensure_buses(bus_component, bus_block, state)
@@ -1877,17 +1882,17 @@ def _block_platform(bus_domain: str, block: dict[str, Any]) -> str | None:
     return platform if isinstance(platform, str) and platform else None
 
 
-def _select_bus_block(
-    config: dict[str, Any], bus_domain: str, instance_id: str | None
+def _select_block(
+    config: dict[str, Any], domain: str, instance_id: str | None
 ) -> dict[str, Any] | None:
     """
-    Select the page block a bus lift reads: the ``id``-matched, else the sole block.
+    Select the page block a bus/hub lift reads: the ``id``-matched, else the sole block.
 
-    A bare key (``modbus:`` with a null body) selects as an empty block.
+    A bare key (``modbus:`` / ``tuya:`` with a null body) selects as an empty block.
     """
-    raw = config.get(bus_domain)
+    raw = config.get(domain)
     if raw is None:
-        return {} if bus_domain in config and instance_id is None else None
+        return {} if domain in config and instance_id is None else None
     blocks = _block_mappings(raw)
     if instance_id is not None:
         return next((b for b in blocks if b.get("id") == instance_id), None)
@@ -1912,7 +1917,7 @@ def _materialize_bus(
     when the bus is absent, ambiguous (no ``*_id`` and more than one bus), or a
     platform-style block has no resolvable ``platform:``.
     """
-    block = _select_bus_block(state.config, bus_domain, instance_id)
+    block = _select_block(state.config, bus_domain, instance_id)
     if block is None:
         return None, "", {}
     component = state.components_index.get(bus_domain)
@@ -2063,49 +2068,6 @@ def _required_pin_keys(component: dict[str, Any]) -> set[str]:
     }
 
 
-def _drop_unsatisfiable_consumers(
-    featured: list[dict[str, Any]],
-    bundles: list[dict[str, Any]],
-    components_index: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """
-    Drop featured leaves depending on a featured-excluded domain (``time``).
-
-    Such a dep can never appear in a manifest, so the leaf fails ESPHome's
-    dependency validation in every bundle it joins. Anything subtler (a hub
-    absent from the page, auto-loaded platform deps like ``libretiny``) is
-    left for real validation to decide. Prunes dropped ids from *bundles*.
-    """
-    kept: list[dict[str, Any]] = []
-    dropped_ids: set[str] = set()
-    for entry in featured:
-        component = components_index.get(entry["component_id"]) or {}
-        unsatisfiable = next(
-            (
-                dep
-                for dep in component.get("dependencies") or []
-                if isinstance(dep, str) and dep in FEATURED_EXCLUDED_CATEGORIES
-            ),
-            None,
-        )
-        if unsatisfiable is None:
-            kept.append(entry)
-            continue
-        _LOGGER.info(
-            "Dropping %s: hard dependency %r can't be featured",
-            entry["component_id"],
-            unsatisfiable,
-        )
-        dropped_ids.add(entry["id"])
-    if dropped_ids:
-        for bundle in bundles:
-            bundle["component_ids"] = [
-                member for member in bundle["component_ids"] if member not in dropped_ids
-            ]
-        bundles[:] = [bundle for bundle in bundles if bundle["component_ids"]]
-    return kept
-
-
 def _is_driver_hub(component: dict[str, Any]) -> bool:
     """
     Return True for a hub a consumer binds by catalog dependency.
@@ -2119,25 +2081,6 @@ def _is_driver_hub(component: dict[str, Any]) -> bool:
     """
     category = component.get("category")
     return category not in BUS_CATEGORIES and category not in FEATURED_EXCLUDED_CATEGORIES
-
-
-def _sole_hub_block(raw: Any) -> dict[str, Any] | None:
-    """Return the single top-level hub mapping, or ``None`` if absent/ambiguous."""
-    blocks = _block_mappings(raw)
-    return blocks[0] if len(blocks) == 1 else None
-
-
-def _hub_block_for(config: dict[str, Any], hub_cid: str) -> dict[str, Any] | None:
-    """
-    Resolve a dependency hub's top-level block, accepting the bare-key form.
-
-    ``tuya:`` with a null body is the common upstream shape for hubs whose
-    bus auto-binds; it lifts fieldless.
-    """
-    raw = config.get(hub_cid)
-    if raw is None:
-        return {} if hub_cid in config else None
-    return _sole_hub_block(raw)
 
 
 def _dep_already_featured(dep: str, existing_cids: set[str]) -> bool:
@@ -2172,7 +2115,7 @@ def _collect_driver_hub_refs(
             hub = components_index.get(dep)
             if hub is None or not _is_driver_hub(hub):
                 continue
-            block = _hub_block_for(config, dep)
+            block = _select_block(config, dep, None)
             if block is None:
                 continue
             instance_id = block.get("id") if isinstance(block.get("id"), str) else None
@@ -2215,7 +2158,7 @@ def _extract_driver_hubs(
         components_index,
         consumers,
         ordered_refs,
-        resolve_block=lambda cid, _instance_id: _hub_block_for(config, cid),
+        resolve_block=lambda cid, _instance_id: _select_block(config, cid, None),
         driver=True,
     )
 
@@ -2412,7 +2355,6 @@ def _make_record(  # noqa: C901, PLR0911, PLR0912 — distinct skip reasons each
         if lift_entries:
             featured = [*lift_entries, *featured]
             gpio_occupancy = {**lift_occupancy, **gpio_occupancy}
-    featured = _drop_unsatisfiable_consumers(featured, bundles, components_index)
     # The per-consumer bundle is built from id references before hubs are
     # lifted, so fold each member's ``requires`` (bus/hub) back in — otherwise a
     # "full setup" lands the light + outputs without the driver hub they need.

@@ -9,6 +9,18 @@ from script._full_setup_gate import (  # type: ignore[import-not-found]
     _map_errors,
 )
 
+
+class _Err:
+    """Stand-in for ``vol.Invalid``: a structured path plus a message."""
+
+    def __init__(self, message: str, path: list[Any] | None = None) -> None:
+        self._message = message
+        self.path = path or []
+
+    def __str__(self) -> str:
+        return self._message
+
+
 _YAML = """
 esphome:
   name: repro
@@ -41,49 +53,47 @@ def _record() -> dict[str, Any]:
 
 
 def test_maps_indexed_path_to_item_id() -> None:
-    """``data['sensor'][0]`` resolves through the generated item's ``id``."""
+    """A ``['sensor', 0]`` path resolves through the generated item's ``id``."""
     outcome = _map_errors(
-        ["Component sensor.total_daily_energy requires component time @ data['sensor'][0]"],
+        [_Err("requires component time", ["sensor", 0])],
         _YAML,
         _record(),
     )
-    assert outcome.drop_ids == ["energy"]
+    assert [local_id for local_id, _ in outcome.drops] == ["energy"]
     assert outcome.errors == []
 
 
 def test_maps_mapping_path_to_sole_domain_entry() -> None:
-    """A top-level mapping path (``data['modbus']``) falls back to the domain's sole entry."""
-    outcome = _map_errors(
-        ["Component modbus requires component uart @ data['modbus']"], _YAML, _record()
-    )
-    assert outcome.drop_ids == ["modbus_bus"]
+    """A top-level mapping path (``['modbus']``) falls back to the domain's sole entry."""
+    outcome = _map_errors([_Err("requires component uart", ["modbus"])], _YAML, _record())
+    assert [local_id for local_id, _ in outcome.drops] == ["modbus_bus"]
 
 
 def test_two_errors_one_entry_dedupes() -> None:
     outcome = _map_errors(
         [
-            "bad pin @ data['switch'][0]['pin']",
-            "bad mode @ data['switch'][0]['pin']['mode']",
+            _Err("bad pin", ["switch", 0, "pin"]),
+            _Err("bad mode", ["switch", 0, "pin", "mode"]),
         ],
         _YAML,
         _record(),
     )
-    assert outcome.drop_ids == ["relay"]
+    assert [local_id for local_id, _ in outcome.drops] == ["relay"]
 
 
 def test_unmappable_error_poisons_the_board() -> None:
     """An error with no config path (or an unknown target) maps to a board-level failure."""
-    outcome = _map_errors(["something exploded, no path"], _YAML, _record())
-    assert outcome.drop_ids == []
+    outcome = _map_errors([_Err("something exploded, no path")], _YAML, _record())
+    assert outcome.drops == []
     assert outcome.errors == ["something exploded, no path"]
 
 
 def test_ambiguous_domain_fallback_poisons_the_board() -> None:
     """A path whose item id is unknown and whose domain has several entries can't map."""
     yaml_text = _YAML.replace("id: power", "id: not_featured")
-    outcome = _map_errors(["boom @ data['sensor'][1]"], yaml_text, _record())
-    assert outcome.drop_ids == []
-    assert outcome.errors == ["boom @ data['sensor'][1]"]
+    outcome = _map_errors([_Err("boom", ["sensor", 1])], yaml_text, _record())
+    assert outcome.drops == []
+    assert outcome.errors == ["boom"]
 
 
 def test_apply_drops_prunes_entries_bundles_and_requires() -> None:
