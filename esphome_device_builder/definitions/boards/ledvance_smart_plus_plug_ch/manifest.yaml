@@ -87,6 +87,7 @@ featured_components:
         number: 11
         inverted: true
       locked: true
+    update_interval: 10s
     voltage_divider: 800
     current_resistor: 0.001
     id: sensor_hlw8012_1

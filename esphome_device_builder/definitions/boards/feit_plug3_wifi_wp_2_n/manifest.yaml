@@ -17,7 +17,7 @@ tags:
 pins:
 - gpio: 15
   available: false
-  occupied_by: relay
+  occupied_by: Outdoor Plug
 - gpio: 17
   available: false
   occupied_by: led_status
@@ -53,7 +53,7 @@ featured_components:
       value: 15
       locked: true
     id: relay
-    name: relay
+    name: Outdoor Plug
 source:
   type: esphome-devices
   remote_id: Feit-PLUG3-WIFI-WP-2-N

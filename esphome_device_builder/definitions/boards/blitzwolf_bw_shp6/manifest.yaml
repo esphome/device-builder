@@ -16,12 +16,21 @@ pins:
 - gpio: 0
   available: false
   occupied_by: led
+- gpio: 5
+  available: false
+  occupied_by: sensor.hlw8012
+- gpio: 12
+  available: false
+  occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: button
+  occupied_by: shp6 button
+- gpio: 14
+  available: false
+  occupied_by: sensor.hlw8012
 - gpio: 15
   available: false
-  occupied_by: Relay
+  occupied_by: shp6 Relay
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP6/
 featured_components:
 - id: button
@@ -33,7 +42,7 @@ featured_components:
         inverted: true
       locked: true
     id: button
-    name: button
+    name: shp6 button
 - id: led
   component_id: output.gpio
   fields:
@@ -44,6 +53,25 @@ featured_components:
       value: true
       locked: true
     id: led
+- id: sensor_hlw8012_1
+  component_id: sensor.hlw8012
+  fields:
+    sel_pin:
+      value:
+        number: 12
+        inverted: true
+      locked: true
+    cf_pin:
+      value: 5
+      locked: true
+    cf1_pin:
+      value: 14
+      locked: true
+    current_resistor: '0.00290'
+    voltage_divider: '940'
+    change_mode_every: 4
+    update_interval: 10s
+    id: sensor_hlw8012_1
 - id: relay
   component_id: switch.gpio
   fields:
@@ -52,7 +80,7 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: relay
-    name: Relay
+    name: shp6 Relay
 source:
   type: esphome-devices
   remote_id: BlitzWolf-BW-SHP6

@@ -15,19 +15,19 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: button0
+  occupied_by: sonoff_dualr2_001_button0
 - gpio: 5
   available: false
-  occupied_by: relay2
+  occupied_by: sonoff_dualr2_001_relay2
 - gpio: 9
   available: false
-  occupied_by: button1
+  occupied_by: sonoff_dualr2_001_button1
 - gpio: 10
   available: false
-  occupied_by: button
+  occupied_by: sonoff_dualr2_001_button
 - gpio: 12
   available: false
-  occupied_by: relay
+  occupied_by: sonoff_dualr2_001_relay
 docs_url: https://devices.esphome.io/devices/Sonoff-Dual-R2/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -40,7 +40,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: button
+    name: sonoff_dualr2_001_button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -51,7 +51,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: button0
+    name: sonoff_dualr2_001_button0
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -62,19 +62,19 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_3
-    name: button1
+    name: sonoff_dualr2_001_button1
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 30s
     id: sensor_wifi_signal_1
-    name: wifi_signal
+    name: sonoff_dualr2_001_wifi_signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 120s
     id: sensor_uptime_1
-    name: uptime
+    name: sonoff_dualr2_001_uptime
 - id: relay
   component_id: switch.gpio
   fields:
@@ -82,7 +82,7 @@ featured_components:
       value: 12
       locked: true
     id: relay
-    name: relay
+    name: sonoff_dualr2_001_relay
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -90,7 +90,7 @@ featured_components:
       value: 5
       locked: true
     id: relay2
-    name: relay2
+    name: sonoff_dualr2_001_relay2
 source:
   type: esphome-devices
   remote_id: Sonoff-Dual-R2

@@ -16,7 +16,7 @@ tags:
 pins:
 - gpio: 6
   available: false
-  occupied_by: switch 1
+  occupied_by: oxt-3ch switch 1
 - gpio: 7
   available: false
   occupied_by: relay1
@@ -28,10 +28,10 @@ pins:
   occupied_by: relay3
 - gpio: 24
   available: false
-  occupied_by: switch 2
+  occupied_by: oxt-3ch switch 2
 - gpio: 26
   available: false
-  occupied_by: switch 3
+  occupied_by: oxt-3ch switch 3
 docs_url: https://devices.esphome.io/devices/OXT-WiFi-3CH/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -44,7 +44,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: switch 1
+    name: oxt-3ch switch 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -55,7 +55,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: switch 2
+    name: oxt-3ch switch 2
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -66,7 +66,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_3
-    name: switch 3
+    name: oxt-3ch switch 3
 - id: relay1
   component_id: switch.gpio
   fields:

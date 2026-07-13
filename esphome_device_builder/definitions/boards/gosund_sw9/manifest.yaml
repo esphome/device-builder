@@ -79,18 +79,18 @@ featured_components:
       locked: true
     id: switch_2_led_state
     name: Switch 2 state LED
-- id: entity_id_1
+- id: light_1
   component_id: light.binary
   fields:
     output: relay1
-    id: entity_id_1
-    name: $entity_name_1
-- id: entity_id_2
+    id: light_1
+    name: Light 1
+- id: light_2
   component_id: light.binary
   fields:
     output: relay2
-    id: entity_id_2
-    name: $entity_name_2
+    id: light_2
+    name: Light 2
 - id: relay1
   component_id: output.gpio
   fields:
@@ -110,18 +110,18 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: $name WiFi signal
+    name: gosund-sw9 WiFi signal
 featured_bundles:
-- id: entity_id_1_setup
-  name: $entity_name_1 (full setup)
+- id: light_1_setup
+  name: Light 1 (full setup)
   component_ids:
   - relay1
-  - entity_id_1
-- id: entity_id_2_setup
-  name: $entity_name_2 (full setup)
+  - light_1
+- id: light_2_setup
+  name: Light 2 (full setup)
   component_ids:
   - relay2
-  - entity_id_2
+  - light_2
 source:
   type: esphome-devices
   remote_id: Gosund-SW9

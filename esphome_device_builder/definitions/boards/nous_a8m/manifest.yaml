@@ -61,6 +61,8 @@ featured_components:
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    current_resistor: '0.00112'
+    voltage_divider: '768'
     sel_pin:
       value:
         number: 14

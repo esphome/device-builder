@@ -16,7 +16,7 @@ pins:
   occupied_by: status1
 - gpio: 14
   available: false
-  occupied_by: Button
+  occupied_by: DETA 1G Button
 - gpio: 16
   available: false
   occupied_by: relay1
@@ -34,19 +34,19 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: DETA 1G Button
 - id: restart_button
   component_id: button.restart
   fields:
     disabled_by_default: true
     id: restart_button
-    name: Restart
+    name: DETA 1G Restart
 - id: light1
   component_id: light.binary
   fields:
     output: relay1
     id: light1
-    name: Light
+    name: DETA 1G Light
 - id: status1
   component_id: light.status_led
   fields:
@@ -69,7 +69,7 @@ featured_components:
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
-    name: wifi signal
+    name: DETA 1G wifi signal
 - id: uptime_sensor
   component_id: sensor.uptime
   fields:
@@ -79,7 +79,7 @@ featured_components:
     name: Uptime Sensor
 featured_bundles:
 - id: light1_setup
-  name: Light (full setup)
+  name: DETA 1G Light (full setup)
   component_ids:
   - relay1
   - light1

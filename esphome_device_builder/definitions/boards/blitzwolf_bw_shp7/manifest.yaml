@@ -112,6 +112,8 @@ featured_components:
     cf1_pin:
       value: 5
       locked: true
+    current_resistor: '0.002291'
+    voltage_divider: '940'
     change_mode_every: 4
     update_interval: 10s
     id: sensor_hlw8012_1

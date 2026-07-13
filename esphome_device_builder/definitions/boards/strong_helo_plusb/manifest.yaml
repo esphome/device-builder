@@ -92,6 +92,8 @@ featured_components:
       locked: true
     change_mode_every: 4
     update_interval: 10s
+    current_resistor: '0.00092'
+    voltage_divider: '1655.66630552546'
     id: sensor_hlw8012_1
 - id: switch_skt
   component_id: switch.output
@@ -100,7 +102,7 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_OFF
     output: relay1
     id: switch_skt
-    name: Socket
+    name: Helo PLUSB Plug Socket
 - id: switch_usb
   component_id: switch.output
   fields:
@@ -108,15 +110,15 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_OFF
     output: relay2
     id: switch_usb
-    name: USB
+    name: Helo PLUSB Plug USB
 featured_bundles:
 - id: switch_skt_setup
-  name: Socket (full setup)
+  name: Helo PLUSB Plug Socket (full setup)
   component_ids:
   - relay1
   - switch_skt
 - id: switch_usb_setup
-  name: USB (full setup)
+  name: Helo PLUSB Plug USB (full setup)
   component_ids:
   - relay2
   - switch_usb

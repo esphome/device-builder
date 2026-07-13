@@ -17,13 +17,13 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Switch 1
+  occupied_by: shelly-0-10 Switch 1
 - gpio: 18
   available: false
-  occupied_by: Switch 2
+  occupied_by: shelly-0-10 Switch 2
 - gpio: 25
   available: false
-  occupied_by: Button
+  occupied_by: shelly-0-10 Button
 - gpio: 26
   available: false
   occupied_by: led_output
@@ -43,7 +43,7 @@ featured_components:
       - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_1
-    name: Switch 1
+    name: shelly-0-10 Switch 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -55,7 +55,7 @@ featured_components:
       - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_2
-    name: Switch 2
+    name: shelly-0-10 Switch 2
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -72,7 +72,7 @@ featured_components:
       - delayed_on_off: 5ms
       locked: true
     id: binary_sensor_gpio_3
-    name: Button
+    name: shelly-0-10 Button
 - id: dimmer_out
   component_id: light.monochromatic
   fields:
@@ -80,7 +80,7 @@ featured_components:
     restore_mode: ALWAYS_ON
     output: led_output
     id: dimmer_out
-    name: Light
+    name: shelly-0-10 Light
 - id: led_output
   component_id: output.ledc
   fields:
@@ -114,7 +114,7 @@ featured_components:
     name: temp_analog_reading
 featured_bundles:
 - id: dimmer_out_setup
-  name: Light (full setup)
+  name: shelly-0-10 Light (full setup)
   component_ids:
   - led_output
   - dimmer_out

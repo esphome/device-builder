@@ -39,7 +39,7 @@ featured_components:
     white_brightness: output_brightness
     color_temperature: output_temp
     id: light_rgbct_1
-    name: Rgbct 1
+    name: Lenovo 800lm RGBCCT
 - id: output_r
   component_id: output.esp8266_pwm
   fields:
@@ -79,7 +79,7 @@ featured_components:
     id: output_temp
 featured_bundles:
 - id: light_rgbct_1_setup
-  name: Rgbct (full setup)
+  name: Lenovo 800lm RGBCCT (full setup)
   component_ids:
   - output_r
   - output_g

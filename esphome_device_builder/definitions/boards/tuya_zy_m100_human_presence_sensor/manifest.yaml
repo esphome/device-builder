@@ -43,7 +43,7 @@ featured_components:
     sensor_datapoint: 1
     device_class: occupancy
     id: binary_sensor_tuya_1
-    name: Presence State
+    name: Tuya ZY-M100 Human Prescence Sensor Presence State
   requires:
   - uart_bus
   - tuya_hub
@@ -52,13 +52,13 @@ featured_components:
   fields:
     entity_category: diagnostic
     id: restart_device
-    name: Restart
+    name: Tuya ZY-M100 Human Prescence Sensor Restart
 - id: restart_device_safe_mode
   component_id: button.safe_mode
   fields:
     entity_category: diagnostic
     id: restart_device_safe_mode
-    name: Restart (Safe Mode)
+    name: Tuya ZY-M100 Human Prescence Sensor Restart (Safe Mode)
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -68,7 +68,7 @@ featured_components:
     step: 1
     icon: mdi:ray-vertex
     id: number_tuya_1
-    name: Sensitivity
+    name: Tuya ZY-M100 Human Prescence Sensor Sensitivity
   requires:
   - uart_bus
   - tuya_hub
@@ -83,7 +83,7 @@ featured_components:
     unit_of_measurement: cm
     icon: mdi:signal-distance-variant
     id: number_tuya_2
-    name: Near Detection
+    name: Tuya ZY-M100 Human Prescence Sensor Near Detection
   requires:
   - uart_bus
   - tuya_hub
@@ -98,7 +98,7 @@ featured_components:
     unit_of_measurement: cm
     icon: mdi:signal-distance-variant
     id: number_tuya_3
-    name: Far Detection
+    name: Tuya ZY-M100 Human Prescence Sensor Far Detection
   requires:
   - uart_bus
   - tuya_hub
@@ -113,7 +113,7 @@ featured_components:
     mode: slider
     icon: mdi:clock
     id: number_tuya_4
-    name: Detection Delay
+    name: Tuya ZY-M100 Human Prescence Sensor Detection Delay
   requires:
   - uart_bus
   - tuya_hub
@@ -128,7 +128,7 @@ featured_components:
     mode: slider
     icon: mdi:clock
     id: number_tuya_5
-    name: Fading Time
+    name: Tuya ZY-M100 Human Prescence Sensor Fading Time
   requires:
   - uart_bus
   - tuya_hub
@@ -138,13 +138,13 @@ featured_components:
     update_interval: 60s
     internal: true
     id: sensor_wifi_signal_1
-    name: Signal strength
+    name: Tuya ZY-M100 Human Prescence Sensor Signal strength
 - id: uptime_sensor
   component_id: sensor.uptime
   fields:
     update_interval: 360s
     id: uptime_sensor
-    name: Uptime
+    name: Tuya ZY-M100 Human Prescence Sensor Uptime
 - id: light_intensity
   component_id: sensor.tuya
   fields:
@@ -154,7 +154,7 @@ featured_components:
     device_class: illuminance
     state_class: measurement
     id: light_intensity
-    name: Light Intensity
+    name: Tuya ZY-M100 Human Prescence Sensor Light Intensity
   requires:
   - uart_bus
   - tuya_hub
@@ -167,7 +167,7 @@ featured_components:
     device_class: distance
     state_class: measurement
     id: target_distance
-    name: Target Distance
+    name: Tuya ZY-M100 Human Prescence Sensor Target Distance
   requires:
   - uart_bus
   - tuya_hub

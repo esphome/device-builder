@@ -71,6 +71,8 @@ featured_components:
     cf1_pin:
       value: 4
       locked: true
+    voltage_divider: '1670'
+    update_interval: 15s
     change_mode_every: 1
     id: sensor_hlw8012_1
 - id: analog_buttons

@@ -72,7 +72,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal Strength
+    name: Led Strip CBU Wifi Signal Strength
 featured_bundles:
 - id: rgb_lightstrip1_setup
   name: rgb_strip_01 (full setup)

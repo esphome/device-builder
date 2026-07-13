@@ -73,6 +73,8 @@ featured_components:
       value: 4
       locked: true
     change_mode_every: 4
+    current_resistor: '0.0010829518310527565'
+    voltage_divider: '1541'
     update_interval: 3s
     id: sensor_hlw8012_1
 - id: relay_1

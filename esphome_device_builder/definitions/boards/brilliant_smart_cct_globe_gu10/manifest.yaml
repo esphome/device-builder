@@ -18,7 +18,7 @@ pins:
   occupied_by: ww_color_temp
 docs_url: https://devices.esphome.io/devices/Brilliant-Smart-CCT-Globe-GU10/
 featured_components:
-- id: device_id
+- id: brilliant_gu10_1
   component_id: light.cwww
   fields:
     cold_white_color_temperature: 6500 K
@@ -26,8 +26,8 @@ featured_components:
     constant_brightness: true
     cold_white: cw_color_temp
     warm_white: ww_color_temp
-    id: device_id
-    name: Cwww 1
+    id: brilliant_gu10_1
+    name: Brilliant GU10
 - id: ww_color_temp
   component_id: output.esp8266_pwm
   fields:
@@ -43,12 +43,12 @@ featured_components:
       locked: true
     id: cw_color_temp
 featured_bundles:
-- id: device_id_setup
-  name: Cwww (full setup)
+- id: brilliant_gu10_1_setup
+  name: Brilliant GU10 (full setup)
   component_ids:
   - cw_color_temp
   - ww_color_temp
-  - device_id
+  - brilliant_gu10_1
 source:
   type: esphome-devices
   remote_id: Brilliant-Smart-CCT-Globe-GU10

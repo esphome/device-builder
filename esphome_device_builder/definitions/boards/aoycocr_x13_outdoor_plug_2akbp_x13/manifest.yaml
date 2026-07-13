@@ -18,13 +18,13 @@ pins:
   occupied_by: led2
 - gpio: 12
   available: false
-  occupied_by: $devicename 2
+  occupied_by: aoycocr_x13 2
 - gpio: 13
   available: false
   occupied_by: button
 - gpio: 15
   available: false
-  occupied_by: $devicename 1
+  occupied_by: aoycocr_x13 1
 docs_url: https://devices.esphome.io/devices/Aoycocr-X13-Outdoor-Plug-2AKBP-X13/
 product_url: https://github.com/iprak/esphome/blob/master/x13.yaml
 featured_components:
@@ -55,7 +55,7 @@ featured_components:
       locked: true
     icon: mdi:floor-lamp
     id: relay1
-    name: $devicename 1
+    name: aoycocr_x13 1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -64,7 +64,7 @@ featured_components:
       locked: true
     icon: mdi:floor-lamp
     id: relay2
-    name: $devicename 2
+    name: aoycocr_x13 2
 source:
   type: esphome-devices
   remote_id: Aoycocr-X13-Outdoor-Plug-2AKBP-X13

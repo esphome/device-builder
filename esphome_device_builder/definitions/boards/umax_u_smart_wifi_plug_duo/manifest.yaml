@@ -27,10 +27,10 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 14
   available: false
-  occupied_by: Switch1
+  occupied_by: umax - Switch1
 - gpio: 15
   available: false
-  occupied_by: Switch2
+  occupied_by: umax - Switch2
 docs_url: https://devices.esphome.io/devices/UMAX-U-Smart-Wifi-Plug-Duo/
 featured_components:
 - id: button2
@@ -50,14 +50,14 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: WiFi Signal
+    name: umax - WiFi Signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     icon: mdi:clock-outline
     update_interval: 60s
     id: sensor_uptime_1
-    name: Uptime
+    name: umax - Uptime
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -72,6 +72,8 @@ featured_components:
     cf1_pin:
       value: 5
       locked: true
+    current_resistor: '0.05'
+    voltage_divider: '720'
     change_mode_every: 4
     update_interval: 3s
     id: sensor_hlw8012_1
@@ -84,7 +86,7 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
     id: relay1
-    name: Switch1
+    name: umax - Switch1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -94,7 +96,7 @@ featured_components:
     restore_mode: RESTORE_DEFAULT_OFF
     icon: mdi:power-socket-eu
     id: relay2
-    name: Switch2
+    name: umax - Switch2
 source:
   type: esphome-devices
   remote_id: UMAX-U-Smart-Wifi-Plug-Duo

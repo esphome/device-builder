@@ -27,7 +27,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: button_state
+  occupied_by: gosund_sp111_button_state
 - gpio: 15
   available: false
   occupied_by: relay
@@ -38,8 +38,8 @@ featured_components:
   fields:
     device_class: connectivity
     id: binary_sensor_status_1
-    name: Status
-- id: devicename_button_state
+    name: gosund_sp111 - Status
+- id: gosund_sp111_button_state
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -48,8 +48,8 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: devicename_button_state
-    name: button_state
+    id: gosund_sp111_button_state
+    name: gosund_sp111_button_state
 - id: led_red
   component_id: output.gpio
   fields:
@@ -66,14 +66,14 @@ featured_components:
     update_interval: 60s
     icon: mdi:wifi
     id: sensor_wifi_signal_1
-    name: Wifi Signal
+    name: gosund_sp111 - Wifi Signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 60s
     icon: mdi:clock-outline
     id: sensor_uptime_1
-    name: Uptime
+    name: gosund_sp111 - Uptime
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -82,7 +82,7 @@ featured_components:
       locked: true
     icon: mdi:flash-outline
     id: sensor_adc_1
-    name: VCC Volt
+    name: gosund_sp111 - VCC Volt
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -98,6 +98,8 @@ featured_components:
       value: 4
       locked: true
     change_mode_every: 4
+    current_resistor: '0.00280'
+    voltage_divider: '648'
     update_interval: 3s
     id: sensor_hlw8012_1
 - id: relay
@@ -113,7 +115,7 @@ featured_components:
   fields:
     icon: mdi:cube-outline
     id: text_sensor_version_1
-    name: Version
+    name: gosund_sp111 - Version
 source:
   type: esphome-devices
   remote_id: Gosund-SP111

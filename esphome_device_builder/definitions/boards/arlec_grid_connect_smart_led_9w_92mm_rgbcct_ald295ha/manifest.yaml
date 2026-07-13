@@ -34,7 +34,7 @@ featured_components:
     data_pin:
       value: 24
       locked: true
-- id: id_name
+- id: arlec_rgb_cct
   component_id: light.rgbww
   fields:
     color_interlock: true
@@ -49,7 +49,7 @@ featured_components:
     blue: output_blue
     cold_white: output_cold
     warm_white: output_warm
-    id: id_name
+    id: arlec_rgb_cct
     name: None
 - id: output_red
   component_id: output.bp5758d
@@ -94,7 +94,7 @@ featured_components:
   requires:
   - bp5758d_hub
 featured_bundles:
-- id: id_name_setup
+- id: arlec_rgb_cct_setup
   name: Rgbww (full setup)
   component_ids:
   - bp5758d_hub
@@ -103,7 +103,7 @@ featured_bundles:
   - output_blue
   - output_cold
   - output_warm
-  - id_name
+  - arlec_rgb_cct
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-LED-9W-92mm-RGBCCT-ALD295HA

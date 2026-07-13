@@ -13,16 +13,16 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: WiFi Config Button
+  occupied_by: My PC WiFi Config Button
 - gpio: 5
   available: false
   occupied_by: out_relay
 - gpio: 10
   available: false
-  occupied_by: Case Button
+  occupied_by: My PC Case Button
 - gpio: 12
   available: false
-  occupied_by: Power Status
+  occupied_by: My PC Power Status
 docs_url: https://devices.esphome.io/devices/Sinilink-XY-WPCE/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -35,7 +35,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: WiFi Config Button
+    name: My PC WiFi Config Button
 - id: inp_power_status
   component_id: binary_sensor.gpio
   fields:
@@ -46,7 +46,7 @@ featured_components:
         inverted: true
       locked: true
     id: inp_power_status
-    name: Power Status
+    name: My PC Power Status
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -57,7 +57,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_3
-    name: Case Button
+    name: My PC Case Button
 - id: out_relay
   component_id: output.gpio
   fields:

@@ -17,10 +17,10 @@ tags:
 pins:
 - gpio: 2
   available: false
-  occupied_by: relay
+  occupied_by: Rowi Plug
 - gpio: 4
   available: false
-  occupied_by: Button
+  occupied_by: Rowi Plug Button
 - gpio: 18
   available: false
   occupied_by: red
@@ -45,7 +45,7 @@ featured_components:
       locked: true
     disabled_by_default: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: Rowi Plug Button
 - id: rgb_light
   component_id: light.rgb
   fields:
@@ -54,7 +54,7 @@ featured_components:
     green: green
     blue: blue
     id: rgb_light
-    name: rgb_light
+    name: Rowi Plug
 - id: red
   component_id: output.ledc
   fields:
@@ -87,7 +87,7 @@ featured_components:
   fields:
     disabled_by_default: true
     id: uptime_sensor
-    name: Uptime
+    name: Rowi Plug Uptime
 - id: relay
   component_id: switch.gpio
   fields:
@@ -95,10 +95,10 @@ featured_components:
       value: 2
       locked: true
     id: relay
-    name: relay
+    name: Rowi Plug
 featured_bundles:
 - id: rgb_light_setup
-  name: rgb_light (full setup)
+  name: Rowi Plug (full setup)
   component_ids:
   - red
   - green

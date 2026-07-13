@@ -16,13 +16,13 @@ tags:
 pins:
 - gpio: 6
   available: false
-  occupied_by: switch 3
+  occupied_by: oxt-4ch switch 3
 - gpio: 7
   available: false
-  occupied_by: switch 2
+  occupied_by: oxt-4ch switch 2
 - gpio: 8
   available: false
-  occupied_by: switch 1
+  occupied_by: oxt-4ch switch 1
 - gpio: 16
   available: false
   occupied_by: relay4
@@ -34,10 +34,10 @@ pins:
   occupied_by: relay1
 - gpio: 24
   available: false
-  occupied_by: button
+  occupied_by: oxt-4ch button
 - gpio: 26
   available: false
-  occupied_by: switch 4
+  occupied_by: oxt-4ch switch 4
 - gpio: 28
   available: false
   occupied_by: relay2
@@ -53,7 +53,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: button
+    name: oxt-4ch button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -64,7 +64,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: switch 1
+    name: oxt-4ch switch 1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -75,7 +75,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_3
-    name: switch 2
+    name: oxt-4ch switch 2
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -86,7 +86,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_4
-    name: switch 3
+    name: oxt-4ch switch 3
 - id: binary_sensor_gpio_5
   component_id: binary_sensor.gpio
   fields:
@@ -97,31 +97,31 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_5
-    name: switch 4
+    name: oxt-4ch switch 4
 - id: sw1
   component_id: light.binary
   fields:
     output: relay1
     id: sw1
-    name: relay 1
+    name: oxt-4ch relay 1
 - id: sw2
   component_id: light.binary
   fields:
     output: relay2
     id: sw2
-    name: relay 2
+    name: oxt-4ch relay 2
 - id: sw3
   component_id: light.binary
   fields:
     output: relay3
     id: sw3
-    name: relay 3
+    name: oxt-4ch relay 3
 - id: sw4
   component_id: light.binary
   fields:
     output: relay4
     id: sw4
-    name: relay 4
+    name: oxt-4ch relay 4
 - id: relay1
   component_id: output.gpio
   fields:
@@ -152,22 +152,22 @@ featured_components:
     id: relay4
 featured_bundles:
 - id: sw1_setup
-  name: relay 1 (full setup)
+  name: oxt-4ch relay 1 (full setup)
   component_ids:
   - relay1
   - sw1
 - id: sw2_setup
-  name: relay 2 (full setup)
+  name: oxt-4ch relay 2 (full setup)
   component_ids:
   - relay2
   - sw2
 - id: sw3_setup
-  name: relay 3 (full setup)
+  name: oxt-4ch relay 3 (full setup)
   component_ids:
   - relay3
   - sw3
 - id: sw4_setup
-  name: relay 4 (full setup)
+  name: oxt-4ch relay 4 (full setup)
   component_ids:
   - relay4
   - sw4

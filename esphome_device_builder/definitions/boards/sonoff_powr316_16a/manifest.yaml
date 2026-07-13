@@ -19,13 +19,13 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Button
+  occupied_by: POW Origin 16A - Button
 - gpio: 5
   available: false
   occupied_by: wifi_status_led
 - gpio: 13
   available: false
-  occupied_by: Relay Switch
+  occupied_by: POW Origin 16A - Relay Switch
 - gpio: 18
   available: false
   occupied_by: led
@@ -43,7 +43,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: POW Origin 16A - Button
 - id: switch_led
   component_id: light.monochromatic
   fields:
@@ -85,7 +85,7 @@ featured_components:
       value: 13
       locked: true
     id: relay
-    name: Relay Switch
+    name: POW Origin 16A - Relay Switch
 featured_bundles:
 - id: switch_led_setup
   name: switch_led (full setup)

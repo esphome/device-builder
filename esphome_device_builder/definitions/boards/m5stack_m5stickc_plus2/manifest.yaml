@@ -38,13 +38,13 @@ pins:
   occupied_by: mic
 - gpio: 37
   available: false
-  occupied_by: Button A
+  occupied_by: M5StickC PLUS2 Button A
 - gpio: 38
   available: false
   occupied_by: Battery Voltage
 - gpio: 39
   available: false
-  occupied_by: Button B
+  occupied_by: M5StickC PLUS2 Button B
 docs_url: https://devices.esphome.io/devices/M5Stack-M5StickC-PLUS2/
 product_url: https://docs.m5stack.com/en/core/M5StickC%20PLUS2
 featured_components:
@@ -82,7 +82,7 @@ featured_components:
         inverted: false
       locked: true
     id: binary_sensor_gpio_1
-    name: Button A
+    name: M5StickC PLUS2 Button A
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -92,19 +92,19 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Button B
+    name: M5StickC PLUS2 Button B
 - id: led1
   component_id: light.monochromatic
   fields:
     output: builtin_led
     id: led1
-    name: Led
+    name: M5StickC PLUS2 Led
 - id: display_bl
   component_id: light.monochromatic
   fields:
     output: backlight
     id: display_bl
-    name: Backlight
+    name: M5StickC PLUS2 Backlight
 - id: mic
   component_id: microphone.i2s_audio
   fields:
@@ -173,12 +173,12 @@ featured_components:
   - bus_a
 featured_bundles:
 - id: led1_setup
-  name: Led (full setup)
+  name: M5StickC PLUS2 Led (full setup)
   component_ids:
   - builtin_led
   - led1
 - id: display_bl_setup
-  name: Backlight (full setup)
+  name: M5StickC PLUS2 Backlight (full setup)
   component_ids:
   - backlight
   - display_bl

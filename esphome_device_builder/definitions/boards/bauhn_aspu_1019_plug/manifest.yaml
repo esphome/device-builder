@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Socket
+  occupied_by: Bauhn SmartPlug 1 Socket
 - gpio: 5
   available: false
   occupied_by: relay2
@@ -24,7 +24,7 @@ pins:
   occupied_by: button_led
 - gpio: 14
   available: false
-  occupied_by: Button
+  occupied_by: Bauhn SmartPlug 1 Button
 docs_url: https://devices.esphome.io/devices/Bauhn-ASPU-1019-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -37,7 +37,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: Bauhn SmartPlug 1 Button
 - id: button_led
   component_id: output.gpio
   fields:
@@ -64,7 +64,7 @@ featured_components:
     restore_mode: always on
     icon: mdi:power-socket-au
     id: relay
-    name: Socket
+    name: Bauhn SmartPlug 1 Socket
 source:
   type: esphome-devices
   remote_id: Bauhn-ASPU-1019-Plug

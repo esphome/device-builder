@@ -18,13 +18,13 @@ pins:
   occupied_by: led
 - gpio: 12
   available: false
-  occupied_by: Relay1
+  occupied_by: Acenx SOP04-US Relay1
 - gpio: 13
   available: false
-  occupied_by: Button
+  occupied_by: Acenx SOP04-US Button
 - gpio: 14
   available: false
-  occupied_by: Relay2
+  occupied_by: Acenx SOP04-US Relay2
 docs_url: https://devices.esphome.io/devices/Acenx-SOP04-US/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -37,7 +37,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: Acenx SOP04-US Button
 - id: led
   component_id: output.gpio
   fields:
@@ -53,13 +53,13 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: WiFi signal
+    name: Acenx SOP04-US WiFi signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 60s
     id: sensor_uptime_1
-    name: Uptime
+    name: Acenx SOP04-US Uptime
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -70,7 +70,7 @@ featured_components:
       value: false
       locked: true
     id: relay1
-    name: Relay1
+    name: Acenx SOP04-US Relay1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -81,7 +81,7 @@ featured_components:
       value: false
       locked: true
     id: relay2
-    name: Relay2
+    name: Acenx SOP04-US Relay2
 source:
   type: esphome-devices
   remote_id: Acenx-SOP04-US

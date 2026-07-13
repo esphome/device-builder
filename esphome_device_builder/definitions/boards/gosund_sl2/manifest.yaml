@@ -12,7 +12,7 @@ images:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Pushbutton
+  occupied_by: Markise LED Pushbutton
 - gpio: 5
   available: false
   occupied_by: output_green
@@ -29,7 +29,7 @@ featured_components:
   fields:
     device_class: connectivity
     id: binary_sensor_status_1
-    name: Status
+    name: Markise LED - Status
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -41,7 +41,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Pushbutton
+    name: Markise LED Pushbutton
 - id: led_strip
   component_id: light.rgb
   fields:
@@ -49,7 +49,7 @@ featured_components:
     green: output_green
     blue: output_blue
     id: led_strip
-    name: led_strip
+    name: Markise LED
 - id: output_red
   component_id: output.esp8266_pwm
   fields:
@@ -77,17 +77,17 @@ featured_components:
     update_interval: 60s
     icon: mdi:wifi
     id: sensor_wifi_signal_1
-    name: Wifi Signal
+    name: Markise LED - Wifi Signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 60s
     icon: mdi:clock-outline
     id: sensor_uptime_1
-    name: Uptime
+    name: Markise LED - Uptime
 featured_bundles:
 - id: led_strip_setup
-  name: led_strip (full setup)
+  name: Markise LED (full setup)
   component_ids:
   - output_red
   - output_green

@@ -133,7 +133,9 @@ featured_components:
 - id: sensor_scd4x_1
   component_id: sensor.scd4x
   fields:
+    altitude_compensation: 0m
     address: 98
+    update_interval: 60s
     id: sensor_scd4x_1
   requires:
   - bus_a
@@ -147,9 +149,16 @@ featured_components:
 - id: sen55
   component_id: sensor.sen5x
   fields:
+    temperature_compensation:
+      value:
+        offset: -3.0
+        normalized_offset_slope: 0
+        time_constant: 1200
+      locked: true
     acceleration_mode: low
     store_baseline: true
     address: 105
+    update_interval: 60s
     id: sen55
   requires:
   - bus_a

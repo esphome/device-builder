@@ -16,10 +16,10 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: relay
+  occupied_by: KTNNKG
 - gpio: 12
   available: false
-  occupied_by: Button
+  occupied_by: KTNNKG Button
 - gpio: 13
   available: false
   occupied_by: redLED
@@ -35,7 +35,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: KTNNKG Button
 - id: relay
   component_id: switch.gpio
   fields:
@@ -43,7 +43,7 @@ featured_components:
       value: 4
       locked: true
     id: relay
-    name: relay
+    name: KTNNKG
 - id: redled
   component_id: switch.gpio
   fields:

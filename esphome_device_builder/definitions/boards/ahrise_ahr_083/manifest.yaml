@@ -18,19 +18,19 @@ pins:
   occupied_by: output_component_blue
 - gpio: 5
   available: false
-  occupied_by: Button
+  occupied_by: AHRise Power Strip Button
 - gpio: 12
   available: false
-  occupied_by: Relay 2
+  occupied_by: AHRise Power Strip Relay 2
 - gpio: 13
   available: false
-  occupied_by: Relay 1
+  occupied_by: AHRise Power Strip Relay 1
 - gpio: 14
   available: false
-  occupied_by: Relay 3
+  occupied_by: AHRise Power Strip Relay 3
 - gpio: 15
   available: false
-  occupied_by: Relay 4
+  occupied_by: AHRise Power Strip Relay 4
 docs_url: https://devices.esphome.io/devices/AHRise-AHR-083/
 featured_components:
 - id: button
@@ -41,13 +41,13 @@ featured_components:
       locked: true
     internal: true
     id: button
-    name: Button
+    name: AHRise Power Strip Button
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
     output: output_component_blue
     id: light_monochromatic_1
-    name: Blue LED
+    name: AHRise Power Strip Blue LED
 - id: output_component_blue
   component_id: output.esp8266_pwm
   fields:
@@ -66,7 +66,7 @@ featured_components:
         number: 13
       locked: true
     id: relay1
-    name: Relay 1
+    name: AHRise Power Strip Relay 1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -75,7 +75,7 @@ featured_components:
         number: 12
       locked: true
     id: relay2
-    name: Relay 2
+    name: AHRise Power Strip Relay 2
 - id: relay3
   component_id: switch.gpio
   fields:
@@ -84,7 +84,7 @@ featured_components:
         number: 14
       locked: true
     id: relay3
-    name: Relay 3
+    name: AHRise Power Strip Relay 3
 - id: relay4
   component_id: switch.gpio
   fields:
@@ -93,10 +93,10 @@ featured_components:
         number: 15
       locked: true
     id: relay4
-    name: Relay 4
+    name: AHRise Power Strip Relay 4
 featured_bundles:
 - id: light_monochromatic_1_setup
-  name: Blue LED (full setup)
+  name: AHRise Power Strip Blue LED (full setup)
   component_ids:
   - output_component_blue
   - light_monochromatic_1

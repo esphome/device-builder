@@ -18,13 +18,13 @@ pins:
   occupied_by: led
 - gpio: 13
   available: false
-  occupied_by: Button
+  occupied_by: Avatar AWP02L2 Button
 - gpio: 15
   available: false
-  occupied_by: Relay
+  occupied_by: Avatar AWP02L2 Relay
 docs_url: https://devices.esphome.io/devices/AWP02L2/
 featured_components:
-- id: device_name_button
+- id: avatar_awp02l2_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -33,8 +33,8 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: device_name_button
-    name: Button
+    id: avatar_awp02l2_button
+    name: Avatar AWP02L2 Button
 - id: led
   component_id: output.gpio
   fields:
@@ -45,26 +45,26 @@ featured_components:
       value: true
       locked: true
     id: led
-- id: device_name_wifi_signal
+- id: avatar_awp02l2_wifi_signal
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
-    id: device_name_wifi_signal
-    name: WiFi signal
-- id: device_name_uptime
+    id: avatar_awp02l2_wifi_signal
+    name: Avatar AWP02L2 WiFi signal
+- id: avatar_awp02l2_uptime
   component_id: sensor.uptime
   fields:
     update_interval: 60s
-    id: device_name_uptime
-    name: Uptime
-- id: device_name_relay
+    id: avatar_awp02l2_uptime
+    name: Avatar AWP02L2 Uptime
+- id: avatar_awp02l2_relay
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
-    id: device_name_relay
-    name: Relay
+    id: avatar_awp02l2_relay
+    name: Avatar AWP02L2 Relay
 source:
   type: esphome-devices
   remote_id: AWP02L2

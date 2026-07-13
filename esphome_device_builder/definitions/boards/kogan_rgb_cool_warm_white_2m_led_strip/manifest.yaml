@@ -12,7 +12,7 @@ images:
 pins:
 - gpio: 3
   available: false
-  occupied_by: button
+  occupied_by: kogan_RGBWWSTRIP_1_button
 - gpio: 4
   available: false
   occupied_by: output_red
@@ -40,8 +40,8 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: button
-- id: device_name
+    name: kogan_RGBWWSTRIP_1_button
+- id: kogan_rgbwwstrip_1
   component_id: light.rgbww
   fields:
     default_transition_length: 0s
@@ -52,8 +52,8 @@ featured_components:
     blue: output_blue
     cold_white: output_coldwhite
     warm_white: output_warmwhite
-    id: device_name
-    name: Rgbww 1
+    id: kogan_rgbwwstrip_1
+    name: kogan_RGBWWSTRIP_1
 - id: output_blue
   component_id: output.esp8266_pwm
   fields:
@@ -90,15 +90,15 @@ featured_components:
       locked: true
     id: output_warmwhite
 featured_bundles:
-- id: device_name_setup
-  name: Rgbww (full setup)
+- id: kogan_rgbwwstrip_1_setup
+  name: kogan_RGBWWSTRIP_1 (full setup)
   component_ids:
   - output_red
   - output_green
   - output_blue
   - output_coldwhite
   - output_warmwhite
-  - device_name
+  - kogan_rgbwwstrip_1
 source:
   type: esphome-devices
   remote_id: Kogan-RGB-Cool-Warm-White-2m-LED-Strip

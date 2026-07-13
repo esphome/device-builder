@@ -60,13 +60,14 @@ featured_components:
 - id: relay
   component_id: switch.output
   fields:
+    icon: mdi:power
     restore_mode: ALWAYS_OFF
     output: relayoutput
     id: relay
-    name: Relay
+    name: relayname Relay
 featured_bundles:
 - id: relay_setup
-  name: Relay (full setup)
+  name: relayname Relay (full setup)
   component_ids:
   - relayoutput
   - relay

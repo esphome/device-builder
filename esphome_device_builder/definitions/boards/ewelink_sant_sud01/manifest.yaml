@@ -49,7 +49,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: uptime_sensor_days
-    name: Uptime in Days
+    name: pc_power_switch Uptime in Days
 source:
   type: esphome-devices
   remote_id: eWeLink-SANT-SUD01

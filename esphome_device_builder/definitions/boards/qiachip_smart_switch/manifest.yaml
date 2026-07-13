@@ -17,7 +17,7 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: relay
+  occupied_by: QIACHIP Test
 docs_url: https://devices.esphome.io/devices/QIACHIP-Smart-Switch/
 featured_components:
 - id: relay
@@ -30,7 +30,7 @@ featured_components:
       value: true
       locked: true
     id: relay
-    name: relay
+    name: QIACHIP Test
 source:
   type: esphome-devices
   remote_id: QIACHIP-Smart-Switch

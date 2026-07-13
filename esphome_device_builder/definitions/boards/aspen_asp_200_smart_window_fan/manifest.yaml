@@ -41,26 +41,26 @@ featured_components:
     speed_datapoint: 3
     speed_count: 3
     id: fan_tuya_1
-    name: Tuya 1
+    name: ASP-200 Window Fan
   requires:
   - uart_bus
   - tuya_hub
-- id: device_name_u_temp
+- id: asp_200_temp
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 19
     unit_of_measurement: °F
-    id: device_name_u_temp
-    name: Temperature
+    id: asp_200_temp
+    name: ASP-200 Window Fan Temperature
   requires:
   - uart_bus
   - tuya_hub
-- id: device_name_u_power_switch
+- id: asp_200_power_switch
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
-    id: device_name_u_power_switch
-    name: Power
+    id: asp_200_power_switch
+    name: ASP-200 Window Fan Power
   requires:
   - uart_bus
   - tuya_hub

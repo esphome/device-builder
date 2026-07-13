@@ -18,22 +18,22 @@ pins:
   occupied_by: output_component_blue
 - gpio: 4
   available: false
-  occupied_by: Relay 1
+  occupied_by: Power Strip Relay 1
 - gpio: 5
   available: false
-  occupied_by: Button
+  occupied_by: Power Strip Button
 - gpio: 12
   available: false
-  occupied_by: Relay 3
+  occupied_by: Power Strip Relay 3
 - gpio: 13
   available: false
-  occupied_by: Relay 2
+  occupied_by: Power Strip Relay 2
 - gpio: 14
   available: false
-  occupied_by: Relay 4
+  occupied_by: Power Strip Relay 4
 - gpio: 16
   available: false
-  occupied_by: USB Power
+  occupied_by: Power Strip USB Power
 docs_url: https://devices.esphome.io/devices/Yagala-SM-SO301/
 featured_components:
 - id: button
@@ -44,13 +44,13 @@ featured_components:
       locked: true
     internal: true
     id: button
-    name: Button
+    name: Power Strip Button
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
     output: output_component_blue
     id: light_monochromatic_1
-    name: Blue LED
+    name: Power Strip Blue LED
 - id: output_component_blue
   component_id: output.esp8266_pwm
   fields:
@@ -69,7 +69,7 @@ featured_components:
         number: 16
       locked: true
     id: usb_power
-    name: USB Power
+    name: Power Strip USB Power
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -81,7 +81,7 @@ featured_components:
         number: 4
       locked: true
     id: relay1
-    name: Relay 1
+    name: Power Strip Relay 1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -93,7 +93,7 @@ featured_components:
         number: 13
       locked: true
     id: relay2
-    name: Relay 2
+    name: Power Strip Relay 2
 - id: relay3
   component_id: switch.gpio
   fields:
@@ -105,7 +105,7 @@ featured_components:
         number: 12
       locked: true
     id: relay3
-    name: Relay 3
+    name: Power Strip Relay 3
 - id: relay4
   component_id: switch.gpio
   fields:
@@ -117,10 +117,10 @@ featured_components:
         number: 14
       locked: true
     id: relay4
-    name: Relay 4
+    name: Power Strip Relay 4
 featured_bundles:
 - id: light_monochromatic_1_setup
-  name: Blue LED (full setup)
+  name: Power Strip Blue LED (full setup)
   component_ids:
   - output_component_blue
   - light_monochromatic_1

@@ -14,7 +14,7 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Backlight
+  occupied_by: Switch Living Backlight
 - gpio: 4
   available: false
   occupied_by: button3
@@ -23,13 +23,13 @@ pins:
   occupied_by: button2
 - gpio: 12
   available: false
-  occupied_by: relay2
+  occupied_by: Lamp 2
 - gpio: 13
   available: false
-  occupied_by: relay1
+  occupied_by: Lamp 1
 - gpio: 14
   available: false
-  occupied_by: relay3
+  occupied_by: Lamp 3
 - gpio: 16
   available: false
   occupied_by: button1
@@ -78,31 +78,34 @@ featured_components:
         inverted: true
       locked: true
     id: led_green
-    name: Backlight
+    name: Switch Living Backlight
 - id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
+    restore_mode: ALWAYS_OFF
     id: relay1
-    name: relay1
+    name: Lamp 1
 - id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
+    restore_mode: ALWAYS_OFF
     id: relay2
-    name: relay2
+    name: Lamp 2
 - id: relay3
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
+    restore_mode: ALWAYS_OFF
     id: relay3
-    name: relay3
+    name: Lamp 3
 source:
   type: esphome-devices
   remote_id: Zemismart-Switch-TB22

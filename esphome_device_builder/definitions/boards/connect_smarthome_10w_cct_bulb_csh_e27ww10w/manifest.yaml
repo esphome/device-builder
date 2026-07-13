@@ -26,7 +26,7 @@ featured_components:
     cold_white: cw_color_temp
     warm_white: ww_color_temp
     id: light_cwww_1
-    name: Cwww 1
+    name: Connect SmartHome CSH-E27WW10W
 - id: cw_color_temp
   component_id: output.esp8266_pwm
   fields:
@@ -43,7 +43,7 @@ featured_components:
     id: ww_color_temp
 featured_bundles:
 - id: light_cwww_1_setup
-  name: Cwww (full setup)
+  name: Connect SmartHome CSH-E27WW10W (full setup)
   component_ids:
   - cw_color_temp
   - ww_color_temp

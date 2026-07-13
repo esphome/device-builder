@@ -25,7 +25,7 @@ pins:
   occupied_by: state_led
 - gpio: 24
   available: false
-  occupied_by: switch_1
+  occupied_by: Status Plug 01
 docs_url: https://devices.esphome.io/devices/Status-Wifi-Plug/
 featured_components:
 - id: binary_switch_1
@@ -57,11 +57,13 @@ featured_components:
 - id: switch_1
   component_id: switch.gpio
   fields:
+    icon: mdi:power-socket-uk
+    restore_mode: RESTORE_DEFAULT_OFF
     pin:
       value: 24
       locked: true
     id: switch_1
-    name: switch_1
+    name: Status Plug 01
 featured_bundles:
 - id: led_setup
   name: led (full setup)

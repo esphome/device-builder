@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: Button
+  occupied_by: delock01 Button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -30,7 +30,7 @@ pins:
   occupied_by: led
 - gpio: 14
   available: false
-  occupied_by: Smart Plug
+  occupied_by: delock01 Smart Plug
 docs_url: https://devices.esphome.io/devices/Delock-11827-Power-Monitoring-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -42,7 +42,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: delock01 Button
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -57,6 +57,8 @@ featured_components:
     cf1_pin:
       value: 5
       locked: true
+    voltage_divider: '2182'
+    current_resistor: '0.0009356'
     change_mode_every: 3
     update_interval: 3s
     id: sensor_hlw8012_1
@@ -75,7 +77,7 @@ featured_components:
       value: 14
       locked: true
     id: relay
-    name: Smart Plug
+    name: delock01 Smart Plug
 source:
   type: esphome-devices
   remote_id: Delock-11827-Power-Monitoring-Plug

@@ -12,7 +12,7 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Status Led
+  occupied_by: Galaxy Status Led
 - gpio: 4
   available: false
   occupied_by: red
@@ -33,10 +33,10 @@ pins:
   occupied_by: btn_led_pwm
 - gpio: 16
   available: false
-  occupied_by: Button
+  occupied_by: Galaxy Button
 docs_url: https://devices.esphome.io/devices/RSH-WiFi-Sky01/
 featured_components:
-- id: node_name_button
+- id: esp_galaxy_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -45,8 +45,8 @@ featured_components:
         mode: INPUT_PULLDOWN_16
         inverted: true
       locked: true
-    id: node_name_button
-    name: Button
+    id: esp_galaxy_button
+    name: Galaxy Button
 - id: rgb_light
   component_id: light.rgb
   fields:
@@ -57,7 +57,7 @@ featured_components:
     green: green
     blue: blue
     id: rgb_light
-    name: Light
+    name: Galaxy Light
 - id: laser
   component_id: light.monochromatic
   fields:
@@ -66,8 +66,8 @@ featured_components:
     default_transition_length: 3s
     output: laser_pwm
     id: laser
-    name: Laser
-- id: node_name_status_led
+    name: Galaxy Laser
+- id: esp_galaxy_status_led
   component_id: light.status_led
   fields:
     icon: mdi:led-outline
@@ -76,8 +76,8 @@ featured_components:
       value: 0
       locked: true
     internal: true
-    id: node_name_status_led
-    name: Status Led
+    id: esp_galaxy_status_led
+    name: Galaxy Status Led
 - id: btn_led
   component_id: light.monochromatic
   fields:
@@ -86,7 +86,7 @@ featured_components:
     restore_mode: ALWAYS_OFF
     output: btn_led_pwm
     id: btn_led
-    name: Button Led
+    name: Galaxy Button Led
 - id: red
   component_id: output.esp8266_pwm
   fields:
@@ -147,19 +147,19 @@ featured_components:
     id: btn_led_pwm
 featured_bundles:
 - id: rgb_light_setup
-  name: Light (full setup)
+  name: Galaxy Light (full setup)
   component_ids:
   - red
   - green
   - blue
   - rgb_light
 - id: laser_setup
-  name: Laser (full setup)
+  name: Galaxy Laser (full setup)
   component_ids:
   - laser_pwm
   - laser
 - id: btn_led_setup
-  name: Button Led (full setup)
+  name: Galaxy Button Led (full setup)
   component_ids:
   - btn_led_pwm
   - btn_led

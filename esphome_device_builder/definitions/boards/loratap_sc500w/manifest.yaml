@@ -14,16 +14,16 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: S1 switch input
+  occupied_by: SC500W S1 switch input
 - gpio: 5
   available: false
-  occupied_by: S2 switch input
+  occupied_by: SC500W S2 switch input
 - gpio: 12
   available: false
   occupied_by: relay1
 - gpio: 13
   available: false
-  occupied_by: button
+  occupied_by: SC500W button
 - gpio: 14
   available: false
   occupied_by: relay2
@@ -37,7 +37,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: button
+    name: SC500W button
 - id: button1
   component_id: binary_sensor.gpio
   fields:
@@ -50,7 +50,7 @@ featured_components:
       - invert: null
       locked: true
     id: button1
-    name: S1 switch input
+    name: SC500W S1 switch input
 - id: button2
   component_id: binary_sensor.gpio
   fields:
@@ -63,19 +63,19 @@ featured_components:
       - invert: null
       locked: true
     id: button2
-    name: S2 switch input
+    name: SC500W S2 switch input
 - id: light1
   component_id: light.binary
   fields:
     output: relay1
     id: light1
-    name: L1 output
+    name: SC500W L1 output
 - id: light2
   component_id: light.binary
   fields:
     output: relay2
     id: light2
-    name: L2 output
+    name: SC500W L2 output
 - id: relay1
   component_id: output.gpio
   fields:
@@ -95,15 +95,15 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal Strength
+    name: SC500W Wifi Signal Strength
 featured_bundles:
 - id: light1_setup
-  name: L1 output (full setup)
+  name: SC500W L1 output (full setup)
   component_ids:
   - relay1
   - light1
 - id: light2_setup
-  name: L2 output (full setup)
+  name: SC500W L2 output (full setup)
   component_ids:
   - relay2
   - light2

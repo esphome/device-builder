@@ -19,10 +19,10 @@ pins:
   occupied_by: display.st7701s
 - gpio: 1
   available: false
-  occupied_by: $device_name Relay 3
+  occupied_by: touchdisplay1 Relay 3
 - gpio: 2
   available: false
-  occupied_by: $device_name Relay 2
+  occupied_by: touchdisplay1 Relay 2
 - gpio: 3
   available: false
   occupied_by: display.st7701s
@@ -85,7 +85,7 @@ pins:
   occupied_by: display.st7701s
 - gpio: 40
   available: false
-  occupied_by: $device_name Relay 1
+  occupied_by: touchdisplay1 Relay 1
 - gpio: 46
   available: false
   occupied_by: display.st7701s
@@ -369,14 +369,14 @@ featured_components:
     update_interval: 60s
     entity_category: diagnostic
     id: sensor_wifi
-    name: $device_name WiFi Signal
+    name: touchdisplay1 WiFi Signal
 - id: uptime_sensor
   component_id: sensor.uptime
   fields:
     update_interval: 15s
     entity_category: diagnostic
     id: uptime_sensor
-    name: $device_name Uptime
+    name: touchdisplay1 Uptime
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -384,7 +384,7 @@ featured_components:
       value: 40
       locked: true
     id: relay1
-    name: $device_name Relay 1
+    name: touchdisplay1 Relay 1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -392,7 +392,7 @@ featured_components:
       value: 2
       locked: true
     id: relay2
-    name: $device_name Relay 2
+    name: touchdisplay1 Relay 2
 - id: relay3
   component_id: switch.gpio
   fields:
@@ -400,7 +400,7 @@ featured_components:
       value: 1
       locked: true
     id: relay3
-    name: $device_name Relay 3
+    name: touchdisplay1 Relay 3
 source:
   type: esphome-devices
   remote_id: ESP32-S3-4.0-Inch-Smart-Display

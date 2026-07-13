@@ -21,22 +21,22 @@ pins:
   occupied_by: light_2_output
 - gpio: 4
   available: false
-  occupied_by: socket 1
+  occupied_by: '*** socket 1'
 - gpio: 5
   available: false
-  occupied_by: Button
+  occupied_by: '*** Button'
 - gpio: 12
   available: false
-  occupied_by: socket 3
+  occupied_by: '*** socket 3'
 - gpio: 13
   available: false
-  occupied_by: socket 2
+  occupied_by: '*** socket 2'
 - gpio: 14
   available: false
-  occupied_by: socket 4
+  occupied_by: '*** socket 4'
 - gpio: 16
   available: false
-  occupied_by: USB
+  occupied_by: '*** USB'
 docs_url: https://devices.esphome.io/devices/Generic-Chinese-Brand-WiFi-Smart-Power-Strip/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -48,19 +48,19 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: '*** Button'
 - id: light_binary_1
   component_id: light.binary
   fields:
     output: light_1_output
     id: light_binary_1
-    name: LED 1
+    name: '*** LED 1'
 - id: light_binary_2
   component_id: light.binary
   fields:
     output: light_2_output
     id: light_binary_2
-    name: LED 2
+    name: '*** LED 2'
 - id: light_1_output
   component_id: output.gpio
   fields:
@@ -84,7 +84,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: WiFi Signal Strength
+    name: '*** WiFi Signal Strength'
 - id: relay_socket_1
   component_id: switch.gpio
   fields:
@@ -94,7 +94,7 @@ featured_components:
         inverted: true
       locked: true
     id: relay_socket_1
-    name: socket 1
+    name: '*** socket 1'
 - id: relay_socket_2
   component_id: switch.gpio
   fields:
@@ -104,7 +104,7 @@ featured_components:
         inverted: true
       locked: true
     id: relay_socket_2
-    name: socket 2
+    name: '*** socket 2'
 - id: relay_socket_3
   component_id: switch.gpio
   fields:
@@ -114,7 +114,7 @@ featured_components:
         inverted: true
       locked: true
     id: relay_socket_3
-    name: socket 3
+    name: '*** socket 3'
 - id: relay_socket_4
   component_id: switch.gpio
   fields:
@@ -124,7 +124,7 @@ featured_components:
         inverted: true
       locked: true
     id: relay_socket_4
-    name: socket 4
+    name: '*** socket 4'
 - id: relay_usb
   component_id: switch.gpio
   fields:
@@ -134,15 +134,15 @@ featured_components:
         inverted: false
       locked: true
     id: relay_usb
-    name: USB
+    name: '*** USB'
 featured_bundles:
 - id: light_binary_1_setup
-  name: LED 1 (full setup)
+  name: '*** LED 1 (full setup)'
   component_ids:
   - light_1_output
   - light_binary_1
 - id: light_binary_2_setup
-  name: LED 2 (full setup)
+  name: '*** LED 2 (full setup)'
   component_ids:
   - light_2_output
   - light_binary_2

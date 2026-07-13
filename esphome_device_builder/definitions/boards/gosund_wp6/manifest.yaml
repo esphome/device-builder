@@ -18,13 +18,13 @@ pins:
   occupied_by: led
 - gpio: 3
   available: false
-  occupied_by: Button
+  occupied_by: Gosund WP6 Button
 - gpio: 14
   available: false
-  occupied_by: Relay
+  occupied_by: Gosund WP6 Relay
 docs_url: https://devices.esphome.io/devices/Gosund-WP6/
 featured_components:
-- id: device_name_button
+- id: gosund_wp6_button
   component_id: binary_sensor.gpio
   fields:
     pin:
@@ -33,8 +33,8 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
-    id: device_name_button
-    name: Button
+    id: gosund_wp6_button
+    name: Gosund WP6 Button
 - id: led
   component_id: output.gpio
   fields:
@@ -45,26 +45,26 @@ featured_components:
       value: true
       locked: true
     id: led
-- id: device_name_wifi_signal
+- id: gosund_wp6_wifi_signal
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
-    id: device_name_wifi_signal
-    name: WiFi signal
-- id: device_name_uptime
+    id: gosund_wp6_wifi_signal
+    name: Gosund WP6 WiFi signal
+- id: gosund_wp6_uptime
   component_id: sensor.uptime
   fields:
     update_interval: 60s
-    id: device_name_uptime
-    name: Uptime
-- id: device_name_relay
+    id: gosund_wp6_uptime
+    name: Gosund WP6 Uptime
+- id: gosund_wp6_relay
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
-    id: device_name_relay
-    name: Relay
+    id: gosund_wp6_relay
+    name: Gosund WP6 Relay
 source:
   type: esphome-devices
   remote_id: Gosund-WP6

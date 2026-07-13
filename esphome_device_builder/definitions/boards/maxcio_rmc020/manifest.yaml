@@ -25,19 +25,19 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: red_output
+  occupied_by: maxcio_red_output
 - gpio: 14
   available: false
-  occupied_by: relay
+  occupied_by: Smart Plug Maxcio
 docs_url: https://devices.esphome.io/devices/Maxcio-RMC020/
 featured_components:
-- id: devicename_red_led
+- id: maxcio_red_led
   component_id: light.monochromatic
   fields:
-    output: devicename_red_output
-    id: devicename_red_led
-    name: Light
-- id: devicename_red_output
+    output: maxcio_red_output
+    id: maxcio_red_led
+    name: Smart Plug Maxcio Light
+- id: maxcio_red_output
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -45,7 +45,7 @@ featured_components:
         number: 13
         inverted: true
       locked: true
-    id: devicename_red_output
+    id: maxcio_red_output
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
@@ -55,13 +55,13 @@ featured_components:
       locked: true
     unit_of_measurement: minutes
     id: sensor_uptime_1
-    name: Uptime
+    name: Smart Plug Maxcio Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal
+    name: Smart Plug Maxcio Wifi Signal
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -78,6 +78,8 @@ featured_components:
       locked: true
     change_mode_every: 8
     update_interval: 10s
+    current_resistor: '0.002501592'
+    voltage_divider: '803.2'
     id: sensor_hlw8012_1
 - id: relay
   component_id: switch.gpio
@@ -87,13 +89,13 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_OFF
     id: relay
-    name: relay
+    name: Smart Plug Maxcio
 featured_bundles:
-- id: devicename_red_led_setup
-  name: Light (full setup)
+- id: maxcio_red_led_setup
+  name: Smart Plug Maxcio Light (full setup)
   component_ids:
-  - devicename_red_output
-  - devicename_red_led
+  - maxcio_red_output
+  - maxcio_red_led
 source:
   type: esphome-devices
   remote_id: Maxcio-RMC020

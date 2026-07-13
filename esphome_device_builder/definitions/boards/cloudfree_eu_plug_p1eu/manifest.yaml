@@ -16,7 +16,7 @@ tags:
 pins:
 - gpio: 2
   available: false
-  occupied_by: blue_output
+  occupied_by: cloudfree_smart_plug_1_blue_output
 - gpio: 5
   available: false
   occupied_by: sensor.hlw8012
@@ -25,13 +25,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: Button
+  occupied_by: CloudFree Smart Plug 1 Button
 - gpio: 14
   available: false
   occupied_by: sensor.hlw8012
 - gpio: 15
   available: false
-  occupied_by: relay
+  occupied_by: CloudFree Smart Plug 1
 docs_url: https://devices.esphome.io/devices/CloudFree-EU-Plug-P1EU/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -45,14 +45,14 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
-- id: devicename_blue_led
+    name: CloudFree Smart Plug 1 Button
+- id: cloudfree_smart_plug_1_blue_led
   component_id: light.monochromatic
   fields:
-    output: devicename_blue_output
-    id: devicename_blue_led
-    name: Light
-- id: devicename_blue_output
+    output: cloudfree_smart_plug_1_blue_output
+    id: cloudfree_smart_plug_1_blue_led
+    name: CloudFree Smart Plug 1 Light
+- id: cloudfree_smart_plug_1_blue_output
   component_id: output.esp8266_pwm
   fields:
     pin:
@@ -60,7 +60,7 @@ featured_components:
         number: 2
         inverted: true
       locked: true
-    id: devicename_blue_output
+    id: cloudfree_smart_plug_1_blue_output
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
@@ -70,13 +70,13 @@ featured_components:
       locked: true
     unit_of_measurement: minutes
     id: sensor_uptime_1
-    name: Uptime
+    name: CloudFree Smart Plug 1 Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal
+    name: CloudFree Smart Plug 1 Wifi Signal
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -93,6 +93,8 @@ featured_components:
       locked: true
     change_mode_every: 8
     update_interval: 10s
+    current_resistor: '0.00221'
+    voltage_divider: '955'
     id: sensor_hlw8012_1
 - id: relay
   component_id: switch.gpio
@@ -102,13 +104,13 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: relay
-    name: relay
+    name: CloudFree Smart Plug 1
 featured_bundles:
-- id: devicename_blue_led_setup
-  name: Light (full setup)
+- id: cloudfree_smart_plug_1_blue_led_setup
+  name: CloudFree Smart Plug 1 Light (full setup)
   component_ids:
-  - devicename_blue_output
-  - devicename_blue_led
+  - cloudfree_smart_plug_1_blue_output
+  - cloudfree_smart_plug_1_blue_led
 source:
   type: esphome-devices
   remote_id: CloudFree-EU-Plug-P1EU

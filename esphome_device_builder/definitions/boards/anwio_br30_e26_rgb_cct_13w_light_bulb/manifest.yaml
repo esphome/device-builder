@@ -27,7 +27,7 @@ pins:
   occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb/
 featured_components:
-- id: device
+- id: bar_pendant_left
   component_id: light.rgbct
   fields:
     color_interlock: true
@@ -38,7 +38,7 @@ featured_components:
     blue: output_blue
     color_temperature: output_white_temp
     white_brightness: output_white_brightness
-    id: device
+    id: bar_pendant_left
     name: Light
 - id: output_red
   component_id: output.libretiny_pwm
@@ -85,7 +85,7 @@ featured_components:
     id: sensor_uptime_1
     name: Uptime
 featured_bundles:
-- id: device_setup
+- id: bar_pendant_left_setup
   name: Light (full setup)
   component_ids:
   - output_red
@@ -93,7 +93,7 @@ featured_bundles:
   - output_blue
   - output_white_temp
   - output_white_brightness
-  - device
+  - bar_pendant_left
 source:
   type: esphome-devices
   remote_id: Anwio-BR30-E26-RGB-CCT-13W-Light-Bulb

@@ -30,7 +30,7 @@ pins:
   occupied_by: switch_led
 - gpio: 21
   available: false
-  occupied_by: $friendly_name
+  occupied_by: Sonoff THR316
 - gpio: 25
   available: false
   occupied_by: one_wire.gpio
@@ -97,7 +97,7 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: $friendly_name Wifi RSSI
+    name: Sonoff THR316 Wifi RSSI
 - id: uptime_sensor
   component_id: sensor.uptime
   fields:
@@ -109,7 +109,7 @@ featured_components:
   fields:
     index: 0
     id: temp
-    name: $friendly_name Temperature
+    name: Sonoff THR316 Temperature
   requires:
   - one_wire_bus
 - id: relay
@@ -120,7 +120,7 @@ featured_components:
       locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     id: relay
-    name: $friendly_name
+    name: Sonoff THR316
 - id: sensor_power
   component_id: switch.gpio
   fields:

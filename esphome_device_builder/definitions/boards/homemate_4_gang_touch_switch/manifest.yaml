@@ -13,16 +13,16 @@ images:
 pins:
 - gpio: 20
   available: false
-  occupied_by: Button 3
+  occupied_by: HomeMate 4 Node Touch Button 3
 - gpio: 22
   available: false
-  occupied_by: Button 4
+  occupied_by: HomeMate 4 Node Touch Button 4
 - gpio: 24
   available: false
-  occupied_by: Button 2
+  occupied_by: HomeMate 4 Node Touch Button 2
 - gpio: 26
   available: false
-  occupied_by: Button 1
+  occupied_by: HomeMate 4 Node Touch Button 1
 docs_url: https://devices.esphome.io/devices/HomeMate-4-Gang-Touch-Switch/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -36,7 +36,7 @@ featured_components:
     entity_category: diagnostic
     disabled_by_default: true
     id: binary_sensor_gpio_1
-    name: Button 1
+    name: HomeMate 4 Node Touch Button 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -48,7 +48,7 @@ featured_components:
     entity_category: diagnostic
     disabled_by_default: true
     id: binary_sensor_gpio_2
-    name: Button 2
+    name: HomeMate 4 Node Touch Button 2
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -60,7 +60,7 @@ featured_components:
     entity_category: diagnostic
     disabled_by_default: true
     id: binary_sensor_gpio_3
-    name: Button 3
+    name: HomeMate 4 Node Touch Button 3
 - id: binary_sensor_gpio_4
   component_id: binary_sensor.gpio
   fields:
@@ -72,13 +72,13 @@ featured_components:
     entity_category: diagnostic
     disabled_by_default: true
     id: binary_sensor_gpio_4
-    name: Button 4
+    name: HomeMate 4 Node Touch Button 4
 - id: binary_sensor_status_1
   component_id: binary_sensor.status
   fields:
     entity_category: diagnostic
     id: binary_sensor_status_1
-    name: Status
+    name: HomeMate 4 Node Touch Status
 source:
   type: esphome-devices
   remote_id: HomeMate-4-Gang-Touch-Switch

@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: button
+  occupied_by: ARLEC PC399HA 1 button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -30,7 +30,7 @@ pins:
   occupied_by: button_led
 - gpio: 14
   available: false
-  occupied_by: relay
+  occupied_by: ARLEC PC399HA 1
 docs_url: https://devices.esphome.io/devices/Arlec-PC399HA-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -43,7 +43,7 @@ featured_components:
         mode: INPUT_PULLUP
       locked: true
     id: binary_sensor_gpio_1
-    name: button
+    name: ARLEC PC399HA 1 button
 - id: button_led
   component_id: output.gpio
   fields:
@@ -80,7 +80,7 @@ featured_components:
     restore_mode: always on
     icon: mdi:power-socket-au
     id: relay
-    name: relay
+    name: ARLEC PC399HA 1
 source:
   type: esphome-devices
   remote_id: Arlec-PC399HA-Plug

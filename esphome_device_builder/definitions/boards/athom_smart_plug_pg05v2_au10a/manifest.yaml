@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 5
   available: false
-  occupied_by: Power Button
+  occupied_by: Athom Smart Plug V2 Power Button
 - gpio: 12
   available: false
-  occupied_by: relay
+  occupied_by: Athom Smart Plug V2
 - gpio: 13
   available: false
-  occupied_by: Status LED
+  occupied_by: Athom Smart Plug V2 Status LED
 docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-PG05V2-AU10A/
 product_url: https://github.com/athom-tech/athom-configs/blob/main/athom-smart-plug-v2.yaml
 featured_components:
@@ -36,7 +36,7 @@ featured_components:
       locked: true
     disabled_by_default: true
     id: binary_sensor_gpio_1
-    name: Power Button
+    name: Athom Smart Plug V2 Power Button
 - id: button_safe_mode_1
   component_id: button.safe_mode
   fields:
@@ -53,15 +53,16 @@ featured_components:
         number: 13
       locked: true
     id: blue_led
-    name: Status LED
+    name: Athom Smart Plug V2 Status LED
 - id: relay
   component_id: switch.gpio
   fields:
     pin:
       value: 12
       locked: true
+    restore_mode: RESTORE_DEFAULT_OFF
     id: relay
-    name: relay
+    name: Athom Smart Plug V2
 source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-PG05V2-AU10A

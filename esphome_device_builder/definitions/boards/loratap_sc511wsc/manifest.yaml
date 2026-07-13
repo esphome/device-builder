@@ -9,14 +9,102 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LoraTap-SC511WSC/image.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: SC511WSC S1 switch input
+- gpio: 5
+  available: false
+  occupied_by: SC511WSC S2 switch input
+- gpio: 12
+  available: false
+  occupied_by: 'Relay #1'
+- gpio: 13
+  available: false
+  occupied_by: SC511WSC remote stop switch
+- gpio: 14
+  available: false
+  occupied_by: 'Relay #2'
+- gpio: 15
+  available: false
+  occupied_by: relay3
 docs_url: https://devices.esphome.io/devices/LoraTap-SC511WSC/
 featured_components:
+- id: open_cover_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 4
+      locked: true
+    disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
+    id: open_cover_switch
+    name: SC511WSC S1 switch input
+- id: close_cover_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 5
+      locked: true
+    disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
+    id: close_cover_switch
+    name: SC511WSC S2 switch input
+- id: stop_cover_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
+    id: stop_cover_switch
+    name: SC511WSC remote stop switch
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal Strength
+    name: SC511WSC Wifi Signal Strength
+- id: relay1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 12
+      locked: true
+    internal: true
+    interlock_wait_time: 200ms
+    restore_mode: always off
+    id: relay1
+    name: 'Relay #1'
+- id: relay2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    internal: true
+    interlock_wait_time: 200ms
+    restore_mode: always off
+    id: relay2
+    name: 'Relay #2'
+- id: relay3
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 15
+      locked: true
+    id: relay3
+    name: relay3
 source:
   type: esphome-devices
   remote_id: LoraTap-SC511WSC

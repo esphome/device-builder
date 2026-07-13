@@ -40,7 +40,7 @@ featured_components:
     cold_white: cold_white
     warm_white: warm_white
     id: thelight
-    name: thelight
+    name: Sinvitron Bulb
 - id: red
   component_id: output.esp8266_pwm
   fields:
@@ -93,7 +93,7 @@ featured_components:
     id: warm_white
 featured_bundles:
 - id: thelight_setup
-  name: thelight (full setup)
+  name: Sinvitron Bulb (full setup)
   component_ids:
   - red
   - green

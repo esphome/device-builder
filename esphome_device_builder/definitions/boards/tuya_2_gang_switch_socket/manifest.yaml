@@ -33,7 +33,7 @@ pins:
   occupied_by: relay2
 - gpio: 26
   available: false
-  occupied_by: relay
+  occupied_by: GPO Switch
 docs_url: https://devices.esphome.io/devices/Tuya-2-Gang-Switch-Socket/
 featured_components:
 - id: button_1
@@ -76,13 +76,13 @@ featured_components:
   fields:
     output: relay1
     id: light1
-    name: '1'
+    name: GPO Switch_1
 - id: light2
   component_id: light.binary
   fields:
     output: relay2
     id: light2
-    name: '2'
+    name: GPO Switch_2
 - id: relay1
   component_id: output.gpio
   fields:
@@ -106,7 +106,7 @@ featured_components:
     restore_mode: always on
     icon: mdi:power-socket-au
     id: relay
-    name: relay
+    name: GPO Switch
 - id: top_buttonled
   component_id: switch.gpio
   fields:
@@ -127,12 +127,12 @@ featured_components:
     name: Bottom_buttonLED
 featured_bundles:
 - id: light1_setup
-  name: 1 (full setup)
+  name: GPO Switch_1 (full setup)
   component_ids:
   - relay1
   - light1
 - id: light2_setup
-  name: 2 (full setup)
+  name: GPO Switch_2 (full setup)
   component_ids:
   - relay2
   - light2

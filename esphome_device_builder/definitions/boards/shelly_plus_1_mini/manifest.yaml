@@ -18,7 +18,7 @@ tags:
 pins:
 - gpio: 1
   available: false
-  occupied_by: Button
+  occupied_by: Shelly Plus 1 Mini Button
 - gpio: 3
   available: false
   occupied_by: temp_analog_reading
@@ -27,7 +27,7 @@ pins:
   occupied_by: relay_output
 - gpio: 10
   available: false
-  occupied_by: Switch
+  occupied_by: Shelly Plus 1 Mini Switch
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1-Mini/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -41,7 +41,7 @@ featured_components:
       - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_1
-    name: Switch
+    name: Shelly Plus 1 Mini Switch
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -58,7 +58,7 @@ featured_components:
       - delayed_on_off: 5ms
       locked: true
     id: binary_sensor_gpio_2
-    name: Button
+    name: Shelly Plus 1 Mini Button
 - id: relay_output
   component_id: output.gpio
   fields:
@@ -88,7 +88,7 @@ featured_components:
   fields:
     output: relay_output
     id: relay
-    name: Relay
+    name: Shelly Plus 1 Mini Relay
 featured_bundles:
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
@@ -96,7 +96,7 @@ featured_bundles:
   - temp_analog_reading
   - temp_resistance_reading
 - id: relay_setup
-  name: Relay (full setup)
+  name: Shelly Plus 1 Mini Relay (full setup)
   component_ids:
   - relay_output
   - relay

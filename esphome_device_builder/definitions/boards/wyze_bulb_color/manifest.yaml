@@ -30,15 +30,15 @@ pins:
   occupied_by: output_green
 docs_url: https://devices.esphome.io/devices/wyze-bulb-color/
 featured_components:
-- id: deviceid
+- id: smart_bulb
   component_id: light.rgbw
   fields:
     red: output_red
     green: output_green
     blue: output_blue
     white: output_white
-    id: deviceid
-    name: Rgbw 1
+    id: smart_bulb
+    name: Smart Bulb
 - id: output_red
   component_id: output.ledc
   fields:
@@ -76,14 +76,14 @@ featured_components:
     frequency: 1220hz
     id: output_white
 featured_bundles:
-- id: deviceid_setup
-  name: Rgbw (full setup)
+- id: smart_bulb_setup
+  name: Smart Bulb (full setup)
   component_ids:
   - output_red
   - output_green
   - output_blue
   - output_white
-  - deviceid
+  - smart_bulb
 source:
   type: esphome-devices
   remote_id: wyze-bulb-color

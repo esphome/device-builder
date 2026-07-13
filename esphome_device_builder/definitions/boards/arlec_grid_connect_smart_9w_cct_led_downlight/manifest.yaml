@@ -27,7 +27,7 @@ featured_components:
     cold_white: output_cw
     warm_white: output_ww
     id: light_cwww_1
-    name: Cwww 1
+    name: Living Room Light 1
 - id: output_cw
   component_id: output.esp8266_pwm
   fields:
@@ -44,7 +44,7 @@ featured_components:
     id: output_ww
 featured_bundles:
 - id: light_cwww_1_setup
-  name: Cwww (full setup)
+  name: Living Room Light 1 (full setup)
   component_ids:
   - output_cw
   - output_ww

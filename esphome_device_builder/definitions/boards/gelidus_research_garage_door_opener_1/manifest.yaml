@@ -15,8 +15,61 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/grgdo1.dht22.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/features.secplus.jpg
+pins:
+- gpio: 17
+  available: false
+  occupied_by: Dry contact light
+- gpio: 18
+  available: false
+  occupied_by: Dry contact open
+- gpio: 19
+  available: false
+  occupied_by: Dry contact close
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Garage-Door-Opener-1/
 featured_components:
+- id: grgdo1_dry_contact_open
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 18
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    entity_category: diagnostic
+    id: grgdo1_dry_contact_open
+    name: Dry contact open
+- id: grgdo1_dry_contact_close
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 19
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    entity_category: diagnostic
+    id: grgdo1_dry_contact_close
+    name: Dry contact close
+- id: grgdo1_dry_contact_light
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value:
+        number: 17
+        inverted: true
+        mode:
+          input: true
+          pullup: true
+      locked: true
+    entity_category: diagnostic
+    disabled_by_default: false
+    id: grgdo1_dry_contact_light
+    name: Dry contact light
 - id: restart_button
   component_id: button.restart
   fields:

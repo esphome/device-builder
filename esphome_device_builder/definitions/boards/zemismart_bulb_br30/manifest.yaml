@@ -39,7 +39,7 @@ featured_components:
     blue: output_blue
     white: output_white
     id: light_01
-    name: light
+    name: zemismart_bulb_br30_001_light
 - id: output_white
   component_id: output.my9231
   fields:
@@ -73,16 +73,16 @@ featured_components:
   fields:
     update_interval: 30s
     id: sensor_wifi_signal_1
-    name: wifi_signal
+    name: zemismart_bulb_br30_001_wifi_signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 120s
     id: sensor_uptime_1
-    name: uptime
+    name: zemismart_bulb_br30_001_uptime
 featured_bundles:
 - id: light_01_setup
-  name: light (full setup)
+  name: zemismart_bulb_br30_001_light (full setup)
   component_ids:
   - my9231_hub
   - output_red

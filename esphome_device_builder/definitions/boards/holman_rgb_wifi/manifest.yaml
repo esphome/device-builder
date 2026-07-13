@@ -12,7 +12,7 @@ images:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Panel Button
+  occupied_by: RGB 01 Panel Button
 - gpio: 12
   available: false
   occupied_by: output_component_green
@@ -36,13 +36,13 @@ featured_components:
           pullup: true
       locked: true
     id: panelbutton
-    name: Panel Button
+    name: RGB 01 Panel Button
 - id: restart_button
   component_id: button.restart
   fields:
     disabled_by_default: true
     id: restart_button
-    name: Restart
+    name: RGB 01 Restart
 - id: light_rgb_1
   component_id: light.rgb
   fields:
@@ -77,7 +77,7 @@ featured_components:
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
-    name: wifi signal
+    name: RGB 01 wifi signal
 - id: uptime_sensor
   component_id: sensor.uptime
   fields:

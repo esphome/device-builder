@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 3
   available: false
-  occupied_by: $upper_devicename Power Button
+  occupied_by: Athom Plug AU Power Button
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -30,7 +30,7 @@ pins:
   occupied_by: blue_led
 - gpio: 14
   available: false
-  occupied_by: $devicename
+  occupied_by: athom-au-plug
 docs_url: https://devices.esphome.io/devices/Athom-Smart-Plug-AU/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -43,7 +43,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: $upper_devicename Power Button
+    name: Athom Plug AU Power Button
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -79,7 +79,7 @@ featured_components:
       value: 14
       locked: true
     id: relay
-    name: $devicename
+    name: athom-au-plug
 source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-AU

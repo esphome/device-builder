@@ -17,16 +17,16 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Button 1
+  occupied_by: Socket 1 Button 1
 - gpio: 5
   available: false
-  occupied_by: rele 2
+  occupied_by: Socket 1 rele 2
 - gpio: 9
   available: false
-  occupied_by: Button 2
+  occupied_by: Socket 1 Button 2
 - gpio: 12
   available: false
-  occupied_by: rele 1
+  occupied_by: Socket 1 rele 1
 docs_url: https://devices.esphome.io/devices/XtendLan-IP66-Dual/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -41,7 +41,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button 1
+    name: Socket 1 Button 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -54,13 +54,13 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_2
-    name: Button 2
+    name: Socket 1 Button 2
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: WiFi Signal Sensor
+    name: Socket 1 WiFi Signal Sensor
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -68,7 +68,7 @@ featured_components:
       value: 12
       locked: true
     id: relay1
-    name: rele 1
+    name: Socket 1 rele 1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -76,7 +76,7 @@ featured_components:
       value: 5
       locked: true
     id: relay2
-    name: rele 2
+    name: Socket 1 rele 2
 source:
   type: esphome-devices
   remote_id: XtendLan-IP66-Dual

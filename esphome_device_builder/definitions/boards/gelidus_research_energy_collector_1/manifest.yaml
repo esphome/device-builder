@@ -16,14 +16,36 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.circuit.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/photo.sens.1m.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.connection.pins.jpg
+pins:
+- gpio: 25
+  available: false
+  occupied_by: digi_pot_voltage
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Energy-Collector-1/
 featured_components:
+- id: homeassistant_time
+  component_id: time.homeassistant
+  fields:
+    id:
+      value: homeassistant_time
+      locked: true
+- id: digi_pot_voltage
+  component_id: output.esp32_dac
+  fields:
+    pin:
+      value: 25
+      locked: true
+    id: digi_pot_voltage
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 120s
     id: sensor_wifi_signal_1
-    name: WiFi Signal
+    name: GREC1 - WiFi Signal
+featured_bundles:
+- id: sensor_total_daily_energy_setup
+  name: GREC1 - Daily Energy (full setup)
+  component_ids:
+  - homeassistant_time
 source:
   type: esphome-devices
   remote_id: Gelidus-Research-Energy-Collector-1

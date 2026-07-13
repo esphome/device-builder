@@ -60,14 +60,14 @@ featured_components:
     update_interval: 60s
     icon: mdi:wifi
     id: sensor_wifi_signal_1
-    name: Wifi Signal
+    name: smartplug - Wifi Signal
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 60s
     icon: mdi:clock-outline
     id: sensor_uptime_1
-    name: Uptime
+    name: smartplug - Uptime
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -76,7 +76,7 @@ featured_components:
       locked: true
     icon: mdi:flash-outline
     id: sensor_adc_1
-    name: VCC Volt
+    name: smartplug - VCC Volt
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -92,6 +92,8 @@ featured_components:
       value: 5
       locked: true
     change_mode_every: 4
+    current_resistor: '0.00280'
+    voltage_divider: '775'
     update_interval: 3s
     id: sensor_hlw8012_1
 - id: relay
@@ -108,7 +110,7 @@ featured_components:
   fields:
     hide_timestamp: true
     id: text_sensor_version_1
-    name: ESPHome Version
+    name: smartplug - ESPHome Version
 source:
   type: esphome-devices
   remote_id: Nous-A1t

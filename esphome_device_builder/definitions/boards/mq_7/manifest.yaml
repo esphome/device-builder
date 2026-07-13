@@ -15,20 +15,82 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7-heater-mod.webp
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7-device.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MQ-7/mq-7-history.png
+pins:
+- gpio: 25
+  available: false
+  occupied_by: mq7_heater_pin
+- gpio: 33
+  available: false
+  occupied_by: MQ7 Voltage
 docs_url: https://devices.esphome.io/devices/MQ-7/
 featured_components:
-- id: temperature_sensor_id
+- id: mq7_heater_pin
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 25
+      locked: true
+    id: mq7_heater_pin
+- id: temperature
   component_id: sensor.homeassistant
   fields:
     entity_id: sensor.temperature
-    id: temperature_sensor_id
-    name: Homeassistant 1
-- id: humidity_sensor_id
+    id: temperature
+    name: temperature
+- id: humidity
   component_id: sensor.homeassistant
   fields:
     entity_id: sensor.humidity
-    id: humidity_sensor_id
-    name: Homeassistant 2
+    id: humidity
+    name: humidity
+- id: mq7_raw
+  component_id: sensor.adc
+  fields:
+    entity_category: diagnostic
+    disabled_by_default: true
+    pin:
+      value: 33
+      locked: true
+    attenuation: auto
+    update_interval: never
+    id: mq7_raw
+    name: MQ7 Voltage
+- id: mq7_resistance
+  component_id: sensor.resistance
+  fields:
+    icon: mdi:omega
+    entity_category: diagnostic
+    disabled_by_default: true
+    configuration: UPSTREAM
+    resistor: '1000'
+    reference_voltage: 5.0V
+    filters:
+      value:
+      - lambda: return (x - 470);
+      locked: true
+    sensor: mq7_raw
+    id: mq7_resistance
+    name: MQ7 Resistance
+- id: mq7_heater
+  component_id: switch.output
+  fields:
+    icon: mdi:fire
+    entity_category: diagnostic
+    disabled_by_default: true
+    output: mq7_heater_pin
+    id: mq7_heater
+    name: MQ7 Heater
+featured_bundles:
+- id: mq7_resistance_setup
+  name: MQ7 Resistance (full setup)
+  component_ids:
+  - mq7_raw
+  - mq7_resistance
+- id: mq7_heater_setup
+  name: MQ7 Heater (full setup)
+  component_ids:
+  - mq7_heater_pin
+  - mq7_heater
 source:
   type: esphome-devices
   remote_id: MQ-7

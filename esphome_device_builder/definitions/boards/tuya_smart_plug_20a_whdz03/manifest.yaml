@@ -32,7 +32,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 26
   available: false
-  occupied_by: Relay Switch
+  occupied_by: Socket 20A Relay Switch
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Plug-20A-WHDZ03/
 featured_components:
 - id: binary_switch
@@ -88,7 +88,7 @@ featured_components:
       value: 26
       locked: true
     id: relay
-    name: Relay Switch
+    name: Socket 20A Relay Switch
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Plug-20A-WHDZ03

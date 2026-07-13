@@ -16,10 +16,10 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: button
+  occupied_by: waveshare button
 - gpio: 36
   available: false
-  occupied_by: Battery voltage
+  occupied_by: waveshare Battery voltage
 docs_url: https://devices.esphome.io/devices/Waveshare-epaper-cloud-module/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -38,7 +38,7 @@ featured_components:
       - delayed_on: 50ms
       locked: true
     id: binary_sensor_gpio_1
-    name: button
+    name: waveshare button
 - id: battery_voltage
   component_id: sensor.adc
   fields:
@@ -54,7 +54,7 @@ featured_components:
       locked: true
     update_interval: 60s
     id: battery_voltage
-    name: Battery voltage
+    name: waveshare Battery voltage
 source:
   type: esphome-devices
   remote_id: Waveshare-epaper-cloud-module

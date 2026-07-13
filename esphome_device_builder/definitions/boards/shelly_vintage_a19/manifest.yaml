@@ -22,7 +22,7 @@ featured_components:
   fields:
     output: brightness
     id: light_monochromatic_1
-    name: Light
+    name: Shelly Vintage A19 Light
 - id: brightness
   component_id: output.esp8266_pwm
   fields:
@@ -32,7 +32,7 @@ featured_components:
     id: brightness
 featured_bundles:
 - id: light_monochromatic_1_setup
-  name: Light (full setup)
+  name: Shelly Vintage A19 Light (full setup)
   component_ids:
   - brightness
   - light_monochromatic_1

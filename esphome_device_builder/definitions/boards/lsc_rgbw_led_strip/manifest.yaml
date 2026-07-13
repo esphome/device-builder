@@ -135,7 +135,7 @@ featured_components:
     blue: pwm_blue
     white: pwm_white
     id: strip
-    name: strip
+    name: lsc-rgbw-strip
 - id: pwm_red
   component_id: output.esp8266_pwm
   fields:
@@ -173,10 +173,10 @@ featured_components:
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Wifi Signal Strength
+    name: lsc-rgbw-strip Wifi Signal Strength
 featured_bundles:
 - id: strip_setup
-  name: strip (full setup)
+  name: lsc-rgbw-strip (full setup)
   component_ids:
   - pwm_red
   - pwm_green

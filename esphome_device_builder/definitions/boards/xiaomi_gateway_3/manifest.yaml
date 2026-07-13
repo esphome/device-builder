@@ -15,16 +15,16 @@ images:
 pins:
 - gpio: 12
   available: false
-  occupied_by: Zigbee Download Mode
+  occupied_by: zb-gw03-coordinator Zigbee Download Mode
 - gpio: 13
   available: false
-  occupied_by: Zigbee nRST
+  occupied_by: zb-gw03-coordinator Zigbee nRST
 - gpio: 14
   available: false
   occupied_by: output0
 - gpio: 34
   available: false
-  occupied_by: Enable Pairing Mode
+  occupied_by: zb-gw03-coordinator Enable Pairing Mode
 docs_url: https://devices.esphome.io/devices/Xiaomi-Gateway-3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -37,13 +37,13 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Enable Pairing Mode
+    name: zb-gw03-coordinator Enable Pairing Mode
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
     output: output0
     id: light_monochromatic_1
-    name: green led
+    name: zb-gw03-coordinator green led
 - id: output0
   component_id: output.ledc
   fields:
@@ -66,7 +66,7 @@ featured_components:
     internal: true
     restore_mode: ALWAYS_OFF
     id: zigbee_rst
-    name: Zigbee nRST
+    name: zb-gw03-coordinator Zigbee nRST
 - id: download_mode
   component_id: switch.gpio
   fields:
@@ -78,10 +78,10 @@ featured_components:
       locked: true
     restore_mode: ALWAYS_OFF
     id: download_mode
-    name: Zigbee Download Mode
+    name: zb-gw03-coordinator Zigbee Download Mode
 featured_bundles:
 - id: light_monochromatic_1_setup
-  name: green led (full setup)
+  name: zb-gw03-coordinator green led (full setup)
   component_ids:
   - output0
   - light_monochromatic_1

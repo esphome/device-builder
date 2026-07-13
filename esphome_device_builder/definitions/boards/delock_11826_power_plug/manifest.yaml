@@ -15,10 +15,10 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: Button
+  occupied_by: delock01 Button
 - gpio: 12
   available: false
-  occupied_by: Smart Plug
+  occupied_by: delock01 Smart Plug
 - gpio: 13
   available: false
   occupied_by: led
@@ -33,7 +33,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: delock01 Button
 - id: led
   component_id: switch.gpio
   fields:
@@ -49,7 +49,7 @@ featured_components:
       value: 12
       locked: true
     id: relay
-    name: Smart Plug
+    name: delock01 Smart Plug
 source:
   type: esphome-devices
   remote_id: Delock-11826-Power-Plug

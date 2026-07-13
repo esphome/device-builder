@@ -27,7 +27,7 @@ featured_components:
     color_temperature: output_temperature
     brightness: output_brightness
     id: light_color_temperature_1
-    name: Color Temperature 1
+    name: Living Room Light 1
 - id: output_temperature
   component_id: output.esp8266_pwm
   fields:
@@ -47,7 +47,7 @@ featured_components:
     id: output_brightness
 featured_bundles:
 - id: light_color_temperature_1_setup
-  name: Color Temperature (full setup)
+  name: Living Room Light 1 (full setup)
   component_ids:
   - output_temperature
   - output_brightness

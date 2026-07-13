@@ -128,7 +128,11 @@ featured_components:
     irq_pin:
       value: 4
       locked: true
+    update_interval: 20s
     use_accumulated_energy_registers: true
+    voltage_gain: 3327887
+    current_gain_a: 4787125
+    current_gain_b: 4819989
     id: ade7953_id
   requires:
   - i2c_bus

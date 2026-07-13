@@ -56,7 +56,7 @@ featured_components:
       - multiply: 0.001
       locked: true
     id: sensor_tuya_1
-    name: Current
+    name: Energy Meter Current
   requires:
   - uart_bus
   - tuya_hub
@@ -72,7 +72,7 @@ featured_components:
       - multiply: 0.1
       locked: true
     id: sensor_tuya_2
-    name: Power
+    name: Energy Meter Power
   requires:
   - uart_bus
   - tuya_hub
@@ -88,7 +88,7 @@ featured_components:
       - multiply: 0.1
       locked: true
     id: sensor_tuya_3
-    name: Voltage
+    name: Energy Meter Voltage
   requires:
   - uart_bus
   - tuya_hub
@@ -104,7 +104,7 @@ featured_components:
       - multiply: 0.01
       locked: true
     id: sensor_tuya_4
-    name: kWh +
+    name: Energy Meter kWh +
   requires:
   - uart_bus
   - tuya_hub
@@ -120,7 +120,7 @@ featured_components:
       - multiply: 0.01
       locked: true
     id: sensor_tuya_5
-    name: kWh
+    name: Energy Meter kWh
   requires:
   - uart_bus
   - tuya_hub
@@ -129,7 +129,7 @@ featured_components:
   fields:
     switch_datapoint: 1
     id: power
-    name: Switch
+    name: Energy Meter Switch
   requires:
   - uart_bus
   - tuya_hub

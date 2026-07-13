@@ -22,13 +22,13 @@ featured_components:
   fields:
     update_interval: 600s
     id: sensor_wifi_signal_1
-    name: wifi signal
+    name: heart light wifi signal
 - id: uptime_sensor_days
   component_id: sensor.uptime
   fields:
     update_interval: 60s
     id: uptime_sensor_days
-    name: Uptime in Days
+    name: heart light Uptime in Days
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

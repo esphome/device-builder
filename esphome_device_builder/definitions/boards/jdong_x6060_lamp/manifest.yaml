@@ -39,7 +39,7 @@ featured_components:
     cold_white: output_cold
     warm_white: output_warm
     id: light_rgbww
-    name: light_rgbww
+    name: JDONG X4040
 - id: output_red
   component_id: output.libretiny_pwm
   fields:
@@ -80,10 +80,10 @@ featured_components:
   fields:
     type: seconds
     id: sensor_uptime_1
-    name: Uptime Sensor
+    name: JDONG X4040 Uptime Sensor
 featured_bundles:
 - id: light_rgbww_setup
-  name: light_rgbww (full setup)
+  name: JDONG X4040 (full setup)
   component_ids:
   - output_red
   - output_green

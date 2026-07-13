@@ -15,13 +15,13 @@ tags:
 pins:
 - gpio: 0
   available: false
-  occupied_by: button
+  occupied_by: kogan_strip_1_button
 - gpio: 1
   available: false
   occupied_by: green_led
 - gpio: 3
   available: false
-  occupied_by: plug3
+  occupied_by: kogan_strip_1_plug3
 - gpio: 4
   available: false
   occupied_by: sensor.hlw8012
@@ -33,13 +33,13 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
-  occupied_by: plug1
+  occupied_by: kogan_strip_1_plug1
 - gpio: 14
   available: false
-  occupied_by: plug2
+  occupied_by: kogan_strip_1_plug2
 - gpio: 15
   available: false
-  occupied_by: usb
+  occupied_by: kogan_strip_1_usb
 docs_url: https://devices.esphome.io/devices/Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -52,7 +52,7 @@ featured_components:
         inverted: true
       locked: true
     id: binary_sensor_gpio_1
-    name: button
+    name: kogan_strip_1_button
 - id: green_led
   component_id: light.status_led
   fields:
@@ -77,6 +77,8 @@ featured_components:
     cf1_pin:
       value: 5
       locked: true
+    current_resistor: '0.00250'
+    voltage_divider: '799'
     change_mode_every: 8
     update_interval: 15s
     id: sensor_hlw8012_1
@@ -85,45 +87,53 @@ featured_components:
   fields:
     update_interval: 5min
     id: sensor_wifi_signal_1
-    name: rssi
+    name: kogan_strip_1_rssi
 - id: uptime_sec
   component_id: sensor.uptime
   fields:
     update_interval: 5min
     id: uptime_sec
-    name: uptime
+    name: kogan_strip_1_uptime
 - id: relay1
   component_id: switch.gpio
   fields:
     pin:
       value: 13
       locked: true
+    icon: mdi:power-socket-au
+    restore_mode: ALWAYS_ON
     id: relay1
-    name: plug1
+    name: kogan_strip_1_plug1
 - id: relay2
   component_id: switch.gpio
   fields:
     pin:
       value: 14
       locked: true
+    icon: mdi:power-socket-au
+    restore_mode: ALWAYS_OFF
     id: relay2
-    name: plug2
+    name: kogan_strip_1_plug2
 - id: relay3
   component_id: switch.gpio
   fields:
     pin:
       value: 3
       locked: true
+    icon: mdi:power-socket-au
+    restore_mode: ALWAYS_OFF
     id: relay3
-    name: plug3
+    name: kogan_strip_1_plug3
 - id: relayusb
   component_id: switch.gpio
   fields:
     pin:
       value: 15
       locked: true
+    icon: mdi:usb-port
+    restore_mode: ALWAYS_ON
     id: relayusb
-    name: usb
+    name: kogan_strip_1_usb
 source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Smart-Power-Board-With-Usb-Ports-Energy-Meter

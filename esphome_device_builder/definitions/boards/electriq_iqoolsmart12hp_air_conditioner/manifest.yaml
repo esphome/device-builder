@@ -42,7 +42,7 @@ featured_components:
     target_temperature_datapoint: 2
     current_temperature_datapoint: 3
     id: climate_tuya_1
-    name: Climate
+    name: Electriq air con Climate
   requires:
   - uart_bus
   - tuya_hub
@@ -60,7 +60,7 @@ featured_components:
   fields:
     switch_datapoint: 101
     id: switch_tuya_1
-    name: Sleep Mode
+    name: Electriq air con Sleep Mode
   requires:
   - uart_bus
   - tuya_hub
@@ -69,7 +69,7 @@ featured_components:
   fields:
     switch_datapoint: 104
     id: switch_tuya_2
-    name: Oscillating air paddle
+    name: Electriq air con Oscillating air paddle
   requires:
   - uart_bus
   - tuya_hub

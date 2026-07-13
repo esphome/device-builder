@@ -39,7 +39,7 @@ featured_components:
     warm_white: output_ww
     cold_white: output_cw
     id: light_rgbww_1
-    name: Rgbww 1
+    name: Master Bedroom Light 1
 - id: output_g
   component_id: output.esp8266_pwm
   fields:
@@ -77,7 +77,7 @@ featured_components:
     id: output_cw
 featured_bundles:
 - id: light_rgbww_1_setup
-  name: Rgbww (full setup)
+  name: Master Bedroom Light 1 (full setup)
   component_ids:
   - output_r
   - output_g

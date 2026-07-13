@@ -32,7 +32,7 @@ featured_components:
     separate_modes: false
     cw_current: 30mA
     rgb_current: 20mA
-- id: device
+- id: bar_pendant_left
   component_id: light.rgbww
   fields:
     color_interlock: true
@@ -43,7 +43,7 @@ featured_components:
     blue: output_blue
     warm_white: warm_white
     cold_white: cold_white
-    id: device
+    id: bar_pendant_left
     name: Light
 - id: output_blue
   component_id: output.sm2135
@@ -87,7 +87,7 @@ featured_components:
     id: sensor_uptime_1
     name: Uptime
 featured_bundles:
-- id: device_setup
+- id: bar_pendant_left_setup
   name: Light (full setup)
   component_ids:
   - sm2135_hub
@@ -96,7 +96,7 @@ featured_bundles:
   - output_blue
   - warm_white
   - cold_white
-  - device
+  - bar_pendant_left
 source:
   type: esphome-devices
   remote_id: Anwio-A19-E26-RGBWW-8.5W-Light-Bulb

@@ -28,16 +28,16 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 10
   available: false
-  occupied_by: relay1
+  occupied_by: Outlet 1
 - gpio: 12
   available: false
-  occupied_by: Button 2
+  occupied_by: Dilisens Outlet Button 2
 - gpio: 13
   available: false
-  occupied_by: relay2
+  occupied_by: Outlet 2
 - gpio: 14
   available: false
-  occupied_by: Button 1
+  occupied_by: Dilisens Outlet Button 1
 docs_url: https://devices.esphome.io/devices/NX-SP201-Smart-Plug/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -50,7 +50,7 @@ featured_components:
       locked: true
     internal: false
     id: binary_sensor_gpio_1
-    name: Button 1
+    name: Dilisens Outlet Button 1
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -61,7 +61,7 @@ featured_components:
       locked: true
     internal: false
     id: binary_sensor_gpio_2
-    name: Button 2
+    name: Dilisens Outlet Button 2
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -76,6 +76,7 @@ featured_components:
     cf1_pin:
       value: 5
       locked: true
+    voltage_divider: '814'
     change_mode_every: 3
     update_interval: 3s
     id: sensor_hlw8012_1
@@ -86,7 +87,7 @@ featured_components:
       value: 10
       locked: true
     id: relay1
-    name: relay1
+    name: Outlet 1
 - id: relay2
   component_id: switch.gpio
   fields:
@@ -94,7 +95,7 @@ featured_components:
       value: 13
       locked: true
     id: relay2
-    name: relay2
+    name: Outlet 2
 source:
   type: esphome-devices
   remote_id: NX-SP201-Smart-Plug

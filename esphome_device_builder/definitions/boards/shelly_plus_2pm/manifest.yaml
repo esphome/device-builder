@@ -18,10 +18,10 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Button
+  occupied_by: shelly-plus-2pm Button
 - gpio: 5
   available: false
-  occupied_by: binary_sensor.gpio
+  occupied_by: Input 1
 - gpio: 12
   available: false
   occupied_by: relay_output_2
@@ -30,7 +30,7 @@ pins:
   occupied_by: relay_output_1
 - gpio: 18
   available: false
-  occupied_by: binary_sensor.gpio
+  occupied_by: Input 2
 - gpio: 25
   available: false
   occupied_by: i2c
@@ -67,7 +67,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: shelly-plus-2pm Button
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -82,7 +82,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_2
-    name: Gpio 2
+    name: Input 1
 - id: binary_sensor_gpio_3
   component_id: binary_sensor.gpio
   fields:
@@ -95,7 +95,7 @@ featured_components:
       locked: true
     internal: true
     id: binary_sensor_gpio_3
-    name: Gpio 3
+    name: Input 2
 - id: relay_output_1
   component_id: output.gpio
   fields:
@@ -145,13 +145,13 @@ featured_components:
   fields:
     output: relay_output_1
     id: relay_1
-    name: relay_1
+    name: Output 1
 - id: relay_2
   component_id: switch.output
   fields:
     output: relay_output_2
     id: relay_2
-    name: relay_2
+    name: Output 2
 featured_bundles:
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
@@ -159,12 +159,12 @@ featured_bundles:
   - temp_analog_reading
   - temp_resistance_reading
 - id: relay_1_setup
-  name: relay_1 (full setup)
+  name: Output 1 (full setup)
   component_ids:
   - relay_output_1
   - relay_1
 - id: relay_2_setup
-  name: relay_2 (full setup)
+  name: Output 2 (full setup)
   component_ids:
   - relay_output_2
   - relay_2

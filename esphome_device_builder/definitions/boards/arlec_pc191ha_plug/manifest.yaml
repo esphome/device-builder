@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 6
   available: false
-  occupied_by: relay
+  occupied_by: ARLEC PC191HA 1
 - gpio: 7
   available: false
   occupied_by: sensor.hlw8012
@@ -24,7 +24,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 11
   available: false
-  occupied_by: button
+  occupied_by: arlec_PC191HA_1 button
 - gpio: 24
   available: false
   occupied_by: sensor.hlw8012
@@ -41,7 +41,7 @@ featured_components:
       locked: true
     device_class: window
     id: button
-    name: button
+    name: arlec_PC191HA_1 button
 - id: button_led
   component_id: output.gpio
   fields:
@@ -49,12 +49,12 @@ featured_components:
       value: 26
       locked: true
     id: button_led
-- id: device_name_wifi_signal
+- id: arlec_pc191ha_1_wifi_signal
   component_id: sensor.wifi_signal
   fields:
     update_interval: 30s
-    id: device_name_wifi_signal
-    name: $name WiFi Signal
+    id: arlec_pc191ha_1_wifi_signal
+    name: ARLEC PC191HA 1 WiFi Signal
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -80,12 +80,12 @@ featured_components:
     voltage_divider: 775
     current_resistor: 0.0009
     id: sensor_hlw8012_1
-- id: device_name_uptime
+- id: arlec_pc191ha_1_uptime
   component_id: sensor.uptime
   fields:
     update_interval: 30s
-    id: device_name_uptime
-    name: $name Uptime
+    id: arlec_pc191ha_1_uptime
+    name: ARLEC PC191HA 1 Uptime
 - id: relay
   component_id: switch.gpio
   fields:
@@ -95,7 +95,7 @@ featured_components:
     restore_mode: always off
     icon: mdi:power-socket-au
     id: relay
-    name: relay
+    name: ARLEC PC191HA 1
 source:
   type: esphome-devices
   remote_id: Arlec-PC191HA-Plug

@@ -63,7 +63,7 @@ featured_components:
     restore_mode: restore_default_off
     output: relay_1
     id: light_1
-    name: light_1
+    name: minir4-extreme
 - id: relay_1
   component_id: output.gpio
   fields:
@@ -77,17 +77,17 @@ featured_components:
     update_interval: 90s
     entity_category: diagnostic
     id: sensor_wifi_signal_1
-    name: Wifi Signal Strength
+    name: minir4-extreme Wifi Signal Strength
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     update_interval: 300s
     entity_category: diagnostic
     id: sensor_uptime_1
-    name: Uptime
+    name: minir4-extreme Uptime
 featured_bundles:
 - id: light_1_setup
-  name: light_1 (full setup)
+  name: minir4-extreme (full setup)
   component_ids:
   - relay_1
   - light_1

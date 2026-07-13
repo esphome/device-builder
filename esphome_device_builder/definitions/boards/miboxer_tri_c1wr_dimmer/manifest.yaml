@@ -44,22 +44,23 @@ featured_components:
   fields:
     entity_category: diagnostic
     id: restart_device
-    name: Restart
+    name: Miboxer TRI-C1WR Dimmer Module Restart
 - id: restart_device_safe_mode
   component_id: button.safe_mode
   fields:
     entity_category: diagnostic
     id: restart_device_safe_mode
-    name: Restart (Safe Mode)
-- id: main_device_id
+    name: Miboxer TRI-C1WR Dimmer Module Restart (Safe Mode)
+- id: tuyadimmer
   component_id: light.tuya
   fields:
     dimmer_datapoint: 22
     switch_datapoint: 20
     min_value: 10
     max_value: 1000
-    id: main_device_id
-    name: Tuya 1
+    icon: mdi:lightbulb-spot
+    id: tuyadimmer
+    name: Miboxer TRI-C1WR Dimmer Module
   requires:
   - uart_bus
   - tuya_hub
@@ -71,7 +72,7 @@ featured_components:
     max_value: 255
     step: 1
     id: number_tuya_1
-    name: Minimum Brightness
+    name: Miboxer TRI-C1WR Dimmer Module Minimum Brightness
   requires:
   - uart_bus
   - tuya_hub
@@ -81,19 +82,19 @@ featured_components:
     update_interval: 60s
     internal: true
     id: sensor_wifi_signal_1
-    name: Signal strength
+    name: Miboxer TRI-C1WR Dimmer Module Signal strength
 - id: uptime_sensor
   component_id: sensor.uptime
   fields:
     update_interval: 360s
     id: uptime_sensor
-    name: Uptime
-- id: main_device_id_mode
+    name: Miboxer TRI-C1WR Dimmer Module Uptime
+- id: tuyadimmer_mode
   component_id: switch.tuya
   fields:
     switch_datapoint: 102
-    id: main_device_id_mode
-    name: Switch Only Mode
+    id: tuyadimmer_mode
+    name: Miboxer TRI-C1WR Dimmer Module Switch Only Mode
   requires:
   - uart_bus
   - tuya_hub

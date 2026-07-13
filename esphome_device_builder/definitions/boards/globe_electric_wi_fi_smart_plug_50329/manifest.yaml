@@ -20,7 +20,7 @@ pins:
   occupied_by: led
 - gpio: 24
   available: false
-  occupied_by: Outlet
+  occupied_by: Globe Plug 1 Outlet
 - gpio: 26
   available: false
   occupied_by: button1
@@ -61,13 +61,13 @@ featured_components:
       - lambda: return x / 60.0;
       locked: true
     id: sensor_uptime_1
-    name: Uptime
+    name: Globe Plug 1 Uptime
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 60s
     id: sensor_wifi_signal_1
-    name: Signal
+    name: Globe Plug 1 Signal
 - id: outlet
   component_id: switch.gpio
   fields:
@@ -76,7 +76,7 @@ featured_components:
       locked: true
     icon: mdi:power-socket-us
     id: outlet
-    name: Outlet
+    name: Globe Plug 1 Outlet
 source:
   type: esphome-devices
   remote_id: Globe-Electric-Wi-Fi-Smart-Plug-50329

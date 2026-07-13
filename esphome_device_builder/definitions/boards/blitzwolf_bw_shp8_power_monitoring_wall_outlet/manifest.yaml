@@ -30,7 +30,7 @@ pins:
   occupied_by: sensor.hlw8012
 - gpio: 14
   available: false
-  occupied_by: $hostname power
+  occupied_by: BW-SHP8 power
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BW-SHP8-Power-Monitoring-Wall-Outlet/
 featured_components:
 - id: button
@@ -63,6 +63,8 @@ featured_components:
   component_id: sensor.hlw8012
   fields:
     model: BL0937
+    current_resistor: '0.001'
+    voltage_divider: '1727'
     change_mode_every: 2
     update_interval: 2s
     sel_pin:
@@ -83,9 +85,10 @@ featured_components:
     pin:
       value: 14
       locked: true
+    restore_mode: ALWAYS_ON
     icon: mdi:power-socket-de
     id: relay
-    name: $hostname power
+    name: BW-SHP8 power
 featured_bundles:
 - id: led_setup
   name: led (full setup)

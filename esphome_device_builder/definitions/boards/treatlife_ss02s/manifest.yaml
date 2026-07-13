@@ -13,7 +13,7 @@ images:
 pins:
 - gpio: 6
   available: false
-  occupied_by: Button
+  occupied_by: Treatlife Light Switch Button
 - gpio: 9
   available: false
   occupied_by: white_led_output
@@ -22,21 +22,21 @@ pins:
   occupied_by: switch_output
 docs_url: https://devices.esphome.io/devices/Treatlife-SS02S/
 featured_components:
-- id: device_name_button
+- id: treatlifeswitch_button
   component_id: binary_sensor.gpio
   fields:
     pin:
       value:
         number: 6
       locked: true
-    id: device_name_button
-    name: Button
-- id: device_name
+    id: treatlifeswitch_button
+    name: Treatlife Light Switch Button
+- id: treatlifeswitch
   component_id: light.binary
   fields:
     output: switch_output
-    id: device_name
-    name: Binary 1
+    id: treatlifeswitch
+    name: Treatlife Light Switch
 - id: white_led
   component_id: light.binary
   fields:
@@ -59,11 +59,11 @@ featured_components:
       locked: true
     id: white_led_output
 featured_bundles:
-- id: device_name_setup
-  name: Binary (full setup)
+- id: treatlifeswitch_setup
+  name: Treatlife Light Switch (full setup)
   component_ids:
   - switch_output
-  - device_name
+  - treatlifeswitch
 - id: white_led_setup
   name: white_led (full setup)
   component_ids:

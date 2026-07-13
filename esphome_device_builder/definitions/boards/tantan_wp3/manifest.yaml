@@ -15,7 +15,7 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Button
+  occupied_by: TanTan WP3 Plug Button
 - gpio: 12
   available: false
   occupied_by: red_led
@@ -24,7 +24,7 @@ pins:
   occupied_by: blue_led
 - gpio: 14
   available: false
-  occupied_by: relay
+  occupied_by: TanTan WP3 Plug
 docs_url: https://devices.esphome.io/devices/TanTan-WP3/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -41,7 +41,7 @@ featured_components:
       - delayed_on_off: 100ms
       locked: true
     id: binary_sensor_gpio_1
-    name: Button
+    name: TanTan WP3 Plug Button
 - id: relay
   component_id: switch.gpio
   fields:
@@ -49,7 +49,7 @@ featured_components:
       value: 14
       locked: true
     id: relay
-    name: relay
+    name: TanTan WP3 Plug
 - id: red_led
   component_id: switch.gpio
   fields:

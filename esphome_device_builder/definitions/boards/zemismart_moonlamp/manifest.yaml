@@ -30,7 +30,7 @@ pins:
   occupied_by: output_blue
 docs_url: https://devices.esphome.io/devices/Zemismart-Moonlamp/
 featured_components:
-- id: device_name
+- id: moonlamp
   component_id: light.rgbww
   fields:
     color_interlock: true
@@ -41,8 +41,8 @@ featured_components:
     blue: output_blue
     warm_white: output_warm_white
     cold_white: output_cold_white
-    id: device_name
-    name: Rgbww 1
+    id: moonlamp
+    name: moonlamp
 - id: output_red
   component_id: output.esp8266_pwm
   fields:
@@ -79,15 +79,15 @@ featured_components:
       locked: true
     id: output_cold_white
 featured_bundles:
-- id: device_name_setup
-  name: Rgbww (full setup)
+- id: moonlamp_setup
+  name: moonlamp (full setup)
   component_ids:
   - output_red
   - output_green
   - output_blue
   - output_warm_white
   - output_cold_white
-  - device_name
+  - moonlamp
 source:
   type: esphome-devices
   remote_id: Zemismart-Moonlamp

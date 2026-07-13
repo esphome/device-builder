@@ -18,7 +18,7 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Switch
+  occupied_by: Shelly Plus 1PM Switch
 - gpio: 5
   available: false
   occupied_by: sensor.hlw8012
@@ -36,7 +36,7 @@ pins:
   occupied_by: temp_analog_reading
 - gpio: 33
   available: false
-  occupied_by: Relay Supply Voltage
+  occupied_by: Shelly Plus 1PM Relay Supply Voltage
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1PM/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -50,7 +50,7 @@ featured_components:
       - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_1
-    name: Switch
+    name: Shelly Plus 1PM Switch
 - id: relay_output
   component_id: output.gpio
   fields:
@@ -87,7 +87,7 @@ featured_components:
       - multiply: 8
       locked: true
     id: sensor_adc_2
-    name: Relay Supply Voltage
+    name: Shelly Plus 1PM Relay Supply Voltage
 - id: sensor_hlw8012_1
   component_id: sensor.hlw8012
   fields:
@@ -105,6 +105,8 @@ featured_components:
     cf1_pin:
       value: 18
       locked: true
+    current_resistor: '0.001'
+    voltage_divider: '1925'
     change_mode_every: 2
     update_interval: 10s
     id: sensor_hlw8012_1
@@ -113,7 +115,7 @@ featured_components:
   fields:
     output: relay_output
     id: relay
-    name: Relay
+    name: Shelly Plus 1PM Relay
 featured_bundles:
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
@@ -121,7 +123,7 @@ featured_bundles:
   - temp_analog_reading
   - temp_resistance_reading
 - id: relay_setup
-  name: Relay (full setup)
+  name: Shelly Plus 1PM Relay (full setup)
   component_ids:
   - relay_output
   - relay

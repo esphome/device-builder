@@ -18,25 +18,25 @@ tags:
 pins:
 - gpio: 6
   available: false
-  occupied_by: '1'
+  occupied_by: Bauhn Power Board 1
 - gpio: 7
   available: false
-  occupied_by: '2'
+  occupied_by: Bauhn Power Board 2
 - gpio: 8
   available: false
-  occupied_by: '3'
+  occupied_by: Bauhn Power Board 3
 - gpio: 9
   available: false
-  occupied_by: '4'
+  occupied_by: Bauhn Power Board 4
 - gpio: 22
   available: false
-  occupied_by: Button
+  occupied_by: Bauhn Power Board Button
 - gpio: 24
   available: false
-  occupied_by: '5'
+  occupied_by: Bauhn Power Board 5
 - gpio: 28
   available: false
-  occupied_by: Status LED
+  occupied_by: Bauhn Power Board Status LED
 docs_url: https://devices.esphome.io/devices/bauhn-5-way-powerboard/
 featured_components:
 - id: uart_bus
@@ -65,7 +65,7 @@ featured_components:
         inverted: true
       locked: true
     id: button1
-    name: Button
+    name: Bauhn Power Board Button
 - id: blue_led
   component_id: light.status_led
   fields:
@@ -75,7 +75,7 @@ featured_components:
         number: 28
       locked: true
     id: blue_led
-    name: Status LED
+    name: Bauhn Power Board Status LED
 - id: sensor_bl0942_1
   component_id: sensor.bl0942
   fields:
@@ -93,8 +93,9 @@ featured_components:
       value: 6
       locked: true
     icon: mdi:power-socket-au
+    restore_mode: RESTORE_DEFAULT_OFF
     id: relay_1
-    name: '1'
+    name: Bauhn Power Board 1
 - id: relay_2
   component_id: switch.gpio
   fields:
@@ -102,8 +103,9 @@ featured_components:
       value: 7
       locked: true
     icon: mdi:power-socket-au
+    restore_mode: RESTORE_DEFAULT_OFF
     id: relay_2
-    name: '2'
+    name: Bauhn Power Board 2
 - id: relay_3
   component_id: switch.gpio
   fields:
@@ -111,8 +113,9 @@ featured_components:
       value: 8
       locked: true
     icon: mdi:power-socket-au
+    restore_mode: RESTORE_DEFAULT_OFF
     id: relay_3
-    name: '3'
+    name: Bauhn Power Board 3
 - id: relay_4
   component_id: switch.gpio
   fields:
@@ -120,8 +123,9 @@ featured_components:
       value: 9
       locked: true
     icon: mdi:power-socket-au
+    restore_mode: RESTORE_DEFAULT_OFF
     id: relay_4
-    name: '4'
+    name: Bauhn Power Board 4
 - id: relay_5
   component_id: switch.gpio
   fields:
@@ -129,8 +133,9 @@ featured_components:
       value: 24
       locked: true
     icon: mdi:power-socket-au
+    restore_mode: RESTORE_DEFAULT_OFF
     id: relay_5
-    name: '5'
+    name: Bauhn Power Board 5
 source:
   type: esphome-devices
   remote_id: bauhn-5-way-powerboard

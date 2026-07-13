@@ -18,10 +18,10 @@ tags:
 pins:
 - gpio: 4
   available: false
-  occupied_by: Switch
+  occupied_by: Shelly Plus 1 Switch
 - gpio: 25
   available: false
-  occupied_by: Button
+  occupied_by: Shelly Plus 1 Button
 - gpio: 26
   available: false
   occupied_by: relay_output
@@ -30,7 +30,7 @@ pins:
   occupied_by: temp_analog_reading
 - gpio: 33
   available: false
-  occupied_by: Relay Supply Voltage
+  occupied_by: Shelly Plus 1 Relay Supply Voltage
 docs_url: https://devices.esphome.io/devices/Shelly-Plus-1/
 featured_components:
 - id: binary_sensor_gpio_1
@@ -44,7 +44,7 @@ featured_components:
       - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_1
-    name: Switch
+    name: Shelly Plus 1 Switch
 - id: binary_sensor_gpio_2
   component_id: binary_sensor.gpio
   fields:
@@ -61,7 +61,7 @@ featured_components:
       - delayed_on_off: 5ms
       locked: true
     id: binary_sensor_gpio_2
-    name: Button
+    name: Shelly Plus 1 Button
 - id: relay_output
   component_id: output.gpio
   fields:
@@ -98,13 +98,13 @@ featured_components:
       - multiply: 8
       locked: true
     id: sensor_adc_2
-    name: Relay Supply Voltage
+    name: Shelly Plus 1 Relay Supply Voltage
 - id: relay
   component_id: switch.output
   fields:
     output: relay_output
     id: relay
-    name: Relay
+    name: Shelly Plus 1 Relay
 featured_bundles:
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
@@ -112,7 +112,7 @@ featured_bundles:
   - temp_analog_reading
   - temp_resistance_reading
 - id: relay_setup
-  name: Relay (full setup)
+  name: Shelly Plus 1 Relay (full setup)
   component_ids:
   - relay_output
   - relay

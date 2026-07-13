@@ -77,7 +77,7 @@ featured_components:
   fields:
     internal: true
     id: binary_sensor_status_1
-    name: Status
+    name: gl-s10-bt-proxy Status
 - id: button_safe_mode_1
   component_id: button.safe_mode
   fields:

@@ -39,7 +39,7 @@ featured_components:
     warm_white: warm_white_output
     cold_white: white_output
     id: light_rgbww_1
-    name: Rgbww 1
+    name: Athom RGBWW Light
 - id: red_output
   component_id: output.esp8266_pwm
   fields:
@@ -77,7 +77,7 @@ featured_components:
     id: white_output
 featured_bundles:
 - id: light_rgbww_1_setup
-  name: Rgbww (full setup)
+  name: Athom RGBWW Light (full setup)
   component_ids:
   - red_output
   - green_output

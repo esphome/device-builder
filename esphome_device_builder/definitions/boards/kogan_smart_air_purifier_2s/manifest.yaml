@@ -58,7 +58,7 @@ featured_components:
     max_value: 2
     step: 1
     id: number_tuya_1
-    name: Timer Mode
+    name: kogan-air-purifier Timer Mode
   requires:
   - uart_0
   - tuya_hub
@@ -70,7 +70,7 @@ featured_components:
     max_value: 480
     step: 1
     id: number_tuya_2
-    name: Timer Countdown Mins
+    name: kogan-air-purifier Timer Countdown Mins
   requires:
   - uart_0
   - tuya_hub
@@ -82,7 +82,7 @@ featured_components:
     max_value: 2
     step: 1
     id: number_tuya_3
-    name: LED Brightness
+    name: kogan-air-purifier LED Brightness
   requires:
   - uart_0
   - tuya_hub
@@ -94,7 +94,7 @@ featured_components:
     max_value: 2
     step: 1
     id: number_tuya_4
-    name: Air Quality Level
+    name: kogan-air-purifier Air Quality Level
   requires:
   - uart_0
   - tuya_hub

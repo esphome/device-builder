@@ -1,0 +1,96 @@
+id: loratap_sc411wsc_curtainswitch
+name: LoraTap In-Wall SC411WSC
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/LoraTap-SC411WSC.JPG
+pins:
+- gpio: 7
+  available: false
+  occupied_by: Blind Switch remote stop switch
+- gpio: 9
+  available: false
+  occupied_by: Blind Switch S2 switch input
+- gpio: 14
+  available: false
+  occupied_by: 'Relay #2'
+- gpio: 23
+  available: false
+  occupied_by: Blind Switch S1 switch input
+- gpio: 26
+  available: false
+  occupied_by: 'Relay #1'
+docs_url: https://devices.esphome.io/devices/LoraTap-SC411WSC-CurtainSwitch/
+featured_components:
+- id: open_cover_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 23
+      locked: true
+    disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
+    id: open_cover_switch
+    name: Blind Switch S1 switch input
+- id: close_cover_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 9
+      locked: true
+    disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
+    id: close_cover_switch
+    name: Blind Switch S2 switch input
+- id: stop_cover_switch
+  component_id: binary_sensor.gpio
+  fields:
+    pin:
+      value: 7
+      locked: true
+    disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
+    id: stop_cover_switch
+    name: Blind Switch remote stop switch
+- id: relay1
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 26
+      locked: true
+    internal: true
+    interlock_wait_time: 200ms
+    restore_mode: always off
+    id: relay1
+    name: 'Relay #1'
+- id: relay2
+  component_id: switch.gpio
+  fields:
+    pin:
+      value: 14
+      locked: true
+    internal: true
+    interlock_wait_time: 200ms
+    restore_mode: always off
+    id: relay2
+    name: 'Relay #2'
+source:
+  type: esphome-devices
+  remote_id: LoraTap-SC411WSC-CurtainSwitch
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC411WSC-CurtainSwitch/index.md
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  content_hash: f8e66f46f66096df79279becd6a95881001f216b42adee75b5f70f56860fa277

@@ -34,7 +34,7 @@ featured_components:
     blue: pwm_b
     white: pwm_w
     id: light_rgbw_1
-    name: Rgbw 1
+    name: Shelly Bulb Duo RGBW
 - id: pwm_r
   component_id: output.esp8266_pwm
   fields:
@@ -69,7 +69,7 @@ featured_components:
     id: pwm_w
 featured_bundles:
 - id: light_rgbw_1_setup
-  name: Rgbw (full setup)
+  name: Shelly Bulb Duo RGBW (full setup)
   component_ids:
   - pwm_r
   - pwm_g
