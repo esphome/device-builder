@@ -119,8 +119,7 @@ _BOARD_PIN_FEATURES = {
 
 # Usable RAM per chip as platformio's ``maximum_ram_size`` reports it — the
 # catalog convention for ``hardware.ram_size``. Datasheet SRAM figures differ
-# (esp32c3: 400KB SRAM vs 320KB usable) and are the recurring contributor
-# confusion this check catches.
+# (esp32c3: 400KB SRAM vs 320KB usable).
 _CHIP_MAX_RAM: dict[str, int] = {
     "esp32": 327680,
     "esp32s2": 327680,
@@ -224,8 +223,8 @@ def collect_hardware_warnings(board_id: str, data: dict) -> list[str]:
     """
     Best-effort convention checks on ``hardware`` — warnings, never errors.
 
-    esphome-table lookups skip silently when esphome isn't importable
-    (the pre-commit hook env), so full coverage runs in CI / update_board.
+    Checks needing the installed esphome's board tables skip silently
+    when esphome isn't importable.
     """
     esphome_cfg = data.get("esphome")
     hardware = data.get("hardware")
@@ -278,12 +277,12 @@ def _resolve_chip(esphome_cfg: dict) -> str | None:
     if platform == "esp8266":
         return "esp8266"
     if platform == "rp2040":
-        if (mcu := esphome_cfg.get("mcu")) is not None:
-            return mcu
-        if (tables := _esphome_boards_table("rp2040")) is not None:
+        mcu = esphome_cfg.get("mcu")
+        if mcu is None and (tables := _esphome_boards_table("rp2040")) is not None:
             meta = tables.get(esphome_cfg.get("board"))
             if isinstance(meta, dict):
-                return meta.get("mcu")
+                mcu = meta.get("mcu")
+        return mcu.lower() if isinstance(mcu, str) else None
     return None
 
 

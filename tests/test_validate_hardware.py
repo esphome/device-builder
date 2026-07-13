@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 import script.validate_definitions as vd
+
+
+@pytest.fixture(autouse=True)
+def _no_esphome_tables(monkeypatch):
+    """Pin the table cache to esphome-absent; table tests monkeypatch their own."""
+    for platform in ("esp32", "esp8266", "rp2040"):
+        monkeypatch.setitem(vd._ESPHOME_BOARDS_CACHE, platform, None)
 
 
 def _board(platform: str, board: str, **kwargs) -> dict:
@@ -65,9 +74,7 @@ def test_esp8266_flash_mismatch_warns(monkeypatch):
     assert vd.collect_hardware_warnings("b", data) == []
 
 
-def test_no_esphome_tables_skips_table_checks(monkeypatch):
-    for platform in ("esp32", "esp8266", "rp2040"):
-        monkeypatch.setitem(vd._ESPHOME_BOARDS_CACHE, platform, None)
+def test_no_esphome_tables_skips_table_checks():
     data = _board("esp8266", "d1_mini", flash_size="1MB", ram_size=81920)
     assert vd.collect_hardware_warnings("b", data) == []
     # The stdlib-only ram check still runs off the declared variant.
@@ -78,6 +85,15 @@ def test_no_esphome_tables_skips_table_checks(monkeypatch):
 def test_unknown_chip_and_missing_hardware_are_quiet():
     assert vd.collect_hardware_warnings("b", {"esphome": {"platform": "bk72xx"}}) == []
     data = _board("bk72xx", "cb2s", ram_size=1)
+    assert vd.collect_hardware_warnings("b", data) == []
+
+
+def test_malformed_manifest_values_stay_best_effort():
+    data = _board("rp2040", "rpipico", ram_size=262145)
+    data["esphome"]["mcu"] = {"not": "a string"}
+    assert vd.collect_hardware_warnings("b", data) == []
+    data = _board("esp32", "someboard", ram_size=262145)
+    data["esphome"]["variant"] = ["esp32c3"]
     assert vd.collect_hardware_warnings("b", data) == []
 
 
