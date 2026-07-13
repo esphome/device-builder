@@ -231,6 +231,9 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
 # was skipped) — unsafe to surface as a preset value or ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
 
+# A token with no letter or digit is placeholder noise ("***"), not a name.
+_ALNUM_RE = re.compile(r"[A-Za-z0-9]")
+
 # Deprecated flat ``clk_mode: GPIO<n>_(IN|OUT)`` encodes the RMII clock
 # pin and direction in the mode string; folded into nested ``clk``
 # ``{mode, pin}`` (upstream removal 2026.9.0).
@@ -1469,17 +1472,20 @@ def _clean_entity_name(inline_item: dict[str, Any]) -> str:
     """
     Pick a readable entity name from an inline-yaml item.
 
-    Returns the upstream ``name:`` / ``id:`` value with any
-    ``${...}`` template substitutions removed and surrounding
-    whitespace / separators trimmed. Returns an empty string when no
-    readable label remains — callers fall back to a derived default.
+    Returns the upstream ``name:`` / ``id:`` value with ``${...}``
+    template substitutions and symbol-only placeholder tokens (a
+    ``friendly_name: "***"`` fill-in resolving into the name) removed
+    and surrounding whitespace / separators trimmed. Returns an empty
+    string when no readable label remains — callers fall back to a
+    derived default.
     """
     for key in ("name", "id"):
         candidate = inline_item.get(key)
         if not isinstance(candidate, str):
             continue
-        cleaned = _TEMPLATE_VAR_RE.sub("", candidate).strip(" -_")
-        cleaned = re.sub(r"\s+", " ", cleaned)
+        cleaned = _TEMPLATE_VAR_RE.sub("", candidate)
+        tokens = [t for t in cleaned.split() if _ALNUM_RE.search(t)]
+        cleaned = " ".join(tokens).strip(" -_")
         if cleaned:
             return cleaned
     return ""
