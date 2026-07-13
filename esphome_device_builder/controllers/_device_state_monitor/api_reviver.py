@@ -31,7 +31,10 @@ Coverage is deliberately ``api:`` devices only — MQTT devices revive via
 the broker, and web_server-only / OTA-only devices have no strong
 identity channel.
 Deployments where ICMP is unavailable are not repaired: the negative
-filter can't run, and a verify-only ONLINE would be un-demotable.
+filter can't run, and a verify-only ONLINE would be un-demotable. A
+confirmed mDNS ``Removed`` mid-process also clears the RAM ``Device.ip``
+the cohort gate reads, so that device is only revivable after a restart
+rebuilds it from the sidecar.
 """
 
 from __future__ import annotations
@@ -118,30 +121,45 @@ class ApiReviverSource(ApiSweepSource):
         candidates = self._select_candidates(devices)
         if not candidates:
             return
+        # ``device.ip`` is mutable across every await below (an mDNS
+        # Removed clears it, an invalidation callback clears a same-name
+        # sibling's); bind each candidate's pair once and act only on it.
+        # Deduped by pair: duplicate-name YAMLs normally share one
+        # persisted IP, and dialing it once answers for the whole bucket
+        # (apply fans out by name) — a second dial would just double the
+        # device's slot pressure and double-step the failure backoff.
+        seen: set[tuple[str, str]] = set()
+        pairs: list[tuple[Device, str]] = []
+        for device in candidates:
+            key = (device.name, device.ip)
+            if key not in seen:
+                seen.add(key)
+                pairs.append((device, device.ip))
         # Negative pre-filter: batched, cheap, and inadmissible as ONLINE
         # evidence on its own — silence means no dial this sweep.
-        rtts = await asyncio.gather(*(self._prefilter(device) for device in candidates))
+        rtts = await asyncio.gather(*(self._prefilter(device, ip) for device, ip in pairs))
         now = time.monotonic()
         dials = 0
-        for device, rtt in zip(candidates, rtts, strict=True):
+        for (device, ip), rtt in zip(pairs, rtts, strict=True):
             if rtt is None:
                 continue
+            if device.ip != ip:
+                # The pair we prefiltered is no longer the device's lead
+                # (mDNS re-learned it, or an invalidation cleared it) —
+                # nothing the echo proved applies to the new address.
+                continue
             verified = self._verified.get(device.name)
-            if (
-                verified is not None
-                and verified[0] == device.ip
-                and now - verified[1] <= _VERIFIED_TTL
-            ):
+            if verified is not None and verified[0] == ip and now - verified[1] <= _VERIFIED_TTL:
                 # Recently identity-verified at this pair — the echo
                 # alone revives, same trust RAM addresses get. A stale
                 # pair falls through to a fresh dial instead.
-                self._revive(device, rtt)
+                self._revive(device, ip, rtt)
                 continue
             if dials >= _MAX_DIALS_PER_SWEEP:
                 # Un-cooled overflow rolls to the next sweep.
                 continue
             dials += 1
-            await self._verify_and_revive(device, rtt)
+            await self._verify_and_revive(device, ip, rtt)
 
     def _select_candidates(self, devices: list[Device]) -> list[Device]:
         """Devices with a persisted IP and provably no other reachability signal."""
@@ -157,8 +175,8 @@ class ApiReviverSource(ApiSweepSource):
             and shared.address_resolution_exhausted(self._monitor, device.address)
         ]
 
-    async def _prefilter(self, device: Device) -> float | None:
-        """ICMP the persisted IP; cool the pair down on silence.
+    async def _prefilter(self, device: Device, ip: str) -> float | None:
+        """ICMP the bound persisted *ip*; cool the pair down on silence.
 
         The lossy-path retry is worth its packets here: a single
         dropped echo would otherwise park a revivable device for a
@@ -168,19 +186,17 @@ class ApiReviverSource(ApiSweepSource):
         # budget is global, so an overlapping sweep and pre-filter
         # can't exceed the icmplib reliability bound together.
         async with self._monitor._ping.icmp_concurrency:
-            rtt = await self._monitor._ping.ping_once(device.ip, retry=True)
+            rtt = await self._monitor._ping.ping_once(ip, retry=True)
         if rtt is None:
-            self._cool_down((device.name, device.ip), _ICMP_SILENT_COOLDOWN)
+            self._cool_down((device.name, ip), _ICMP_SILENT_COOLDOWN)
         return rtt
 
-    async def _verify_and_revive(self, device: Device, rtt: float) -> None:
-        """One worker dial; revive on identity match, invalidate on mismatch."""
+    async def _verify_and_revive(self, device: Device, ip: str, rtt: float) -> None:
+        """One worker dial at the bound *ip*; revive on match, invalidate on mismatch."""
         monitor = self._monitor
-        # Bound up front: the invalidation callback below clears
-        # ``device.ip``, and every cooldown must land on the dialed pair.
-        key = (device.name, device.ip)
+        key = (device.name, ip)
         try:
-            info = await self._probe(device, [device.ip])
+            info = await self._probe(device, [ip])
         except ProbeError as exc:
             # Host-side misses (resolve blip, worker spawn/timeout) say
             # nothing about the device — retry as cheaply as an ICMP
@@ -201,50 +217,56 @@ class ApiReviverSource(ApiSweepSource):
         if reported != device.name:
             # Whatever holds the lease now is a different device; the
             # persisted IP is proven stale — invalidate it so neither the
-            # reviver nor the OTA cache trusts it again.
+            # reviver nor the OTA cache trusts it again. ``reported`` is
+            # remote-controlled; truncate it out of the log line.
             _LOGGER.info(
                 "Persisted IP %s for %s now answers as %r; invalidating it",
-                device.ip,
+                ip,
                 device.name,
-                reported,
+                reported[:64],
             )
             # The backoff keeps the stranger un-redialed even when no
             # invalidation callback is wired; the cleared IP then drops
             # the device from the cohort entirely.
             self._record_dial_failure(key)
             if monitor._on_persisted_ip_invalidated is not None:
-                monitor._on_persisted_ip_invalidated(device.name)
+                monitor._on_persisted_ip_invalidated(device.name, ip)
             return
         mac = _normalize_mac(info.get("mac_address", ""))
         persisted_mac = _normalize_mac(device.mac_address)
         if mac and persisted_mac and mac != persisted_mac:
             _LOGGER.warning(
                 "Device at %s reports name %s but MAC %s != persisted %s; not claiming ONLINE",
-                device.ip,
+                ip,
                 device.name,
                 mac,
                 persisted_mac,
             )
             self._record_dial_failure(key)
             return
-        self._verified[device.name] = (device.ip, time.monotonic())
+        self._verified[device.name] = (ip, time.monotonic())
         _LOGGER.info(
             "Revived %s at persisted IP %s (identity verified over the Native API)",
             device.name,
-            device.ip,
+            ip,
         )
-        self._revive(device, rtt, info)
+        self._revive(device, ip, rtt, info)
 
-    def _revive(self, device: Device, rtt: float, info: dict[str, Any] | None = None) -> None:
-        """Seed the verified IP, then claim ONLINE under the ping source.
+    def _revive(
+        self, device: Device, ip: str, rtt: float, info: dict[str, Any] | None = None
+    ) -> None:
+        """Seed the verified *ip*, then claim ONLINE under the ping source.
 
         IP before state so the first post-revival snapshot carries the
         address and the sweep has its target; the ping nudge hands
-        ownership of liveness to the ordinary sweep immediately.
+        ownership of liveness to the ordinary sweep immediately. A
+        fresher mDNS-learned address set that landed mid-dial wins —
+        seed only while RAM is still empty.
         """
         monitor = self._monitor
         name = device.name
-        monitor.apply_ip_addresses(name, [device.ip])
+        if not device.runtime_state.ip_addresses:
+            monitor.apply_ip_addresses(name, [ip])
         if info is not None:
             apply_worker_info(monitor, name, info)
         shared.apply_ping_result(monitor, name, rtt)

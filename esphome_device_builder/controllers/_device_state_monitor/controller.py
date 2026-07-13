@@ -110,10 +110,13 @@ ImportableRemovedCallback = Callable[[str], None]
 # device; an empty key means "connect plaintext".
 ApiConnectionResolver = Callable[[str], Awaitable[tuple[str, int]]]
 
-# Persisted-IP invalidation: the API reviver proved the on-disk
-# last-known IP now belongs to a different device, so the owner must
-# clear it (``on_ip_change`` deliberately keeps last-known on disk).
-PersistedIpInvalidatedCallback = Callable[[str], None]
+# Persisted-IP invalidation, ``(name, stale_ip)``: the API reviver
+# proved the on-disk last-known *stale_ip* now belongs to a different
+# device, so the owner must clear it (``on_ip_change`` deliberately
+# keeps last-known on disk). Carrying the proven IP scopes the clear —
+# a same-name sibling holding a different IP, or an IP mDNS re-learned
+# mid-dial, stays untouched.
+PersistedIpInvalidatedCallback = Callable[[str, str], None]
 
 
 class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
@@ -193,6 +196,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """Start the mDNS browser, the ping sweep, the API info fallback, and the reviver."""
         await self._mdns.start()
         self._ping_task = asyncio.create_task(self._ping.run())
+        self._ping_task.add_done_callback(partial(log_task_exit, "Ping sweep"))
         self._api_info_task = asyncio.create_task(self._api_info.run())
         self._api_info_task.add_done_callback(partial(log_task_exit, "API info fallback"))
         self._api_reviver_task = asyncio.create_task(self._api_reviver.run())
@@ -201,10 +205,14 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
     async def stop(self) -> None:
         """Tear down the browser and drain the ping + API + resolve tasks (bounded)."""
         drain: list[asyncio.Task[Any]] = []
-        # ``drain_tasks`` below owns the cancels.
+        # Cancel the loop tasks eagerly — before the ``cancel_browser``
+        # await below — so a mid-sweep loop can't resume and spawn new
+        # work (a 15s worker subprocess, state applies) during teardown.
+        # ``drain_tasks`` re-cancelling later is a no-op.
         for attr in ("_ping_task", "_api_info_task", "_api_reviver_task"):
             task: asyncio.Task | None = getattr(self, attr)
             if task is not None:
+                task.cancel()
                 drain.append(task)
                 setattr(self, attr, None)
         # Cancel the browser FIRST so it stops dispatching new mDNS

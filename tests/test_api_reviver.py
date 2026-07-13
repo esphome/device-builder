@@ -303,7 +303,7 @@ async def test_name_mismatch_invalidates_the_persisted_ip() -> None:
 
     await src._sweep()
 
-    assert ("on_persisted_ip_invalidated", "kitchen") in callbacks.calls
+    assert ("on_persisted_ip_invalidated", "kitchen", "192.168.1.50") in callbacks.calls
     assert callbacks.calls_for("on_state_change") == []
     assert device.ip == ""
     assert src._verified == {}
@@ -406,6 +406,52 @@ async def test_transient_resolve_failure_retries_soon() -> None:
     src._run_worker.assert_not_called()
     assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
     assert src._cooldown.strikes((device.name, device.ip)) == 0
+
+
+async def test_duplicate_name_siblings_sharing_an_ip_dial_once() -> None:
+    """One dial answers for the whole name bucket; no double slot pressure or double strike."""
+    first = make_stuck_offline_device()
+    second = make_stuck_offline_device()
+    second.configuration = "kitchen (1).yaml"
+    _monitor, _callbacks, src = _reviver([first, second], worker_result=None)
+
+    await src._sweep()
+
+    assert src._run_worker.await_count == 1
+    assert src._cooldown.strikes(("kitchen", "192.168.1.50")) == 1
+
+
+async def test_pair_mutated_between_prefilter_and_dial_is_skipped() -> None:
+    """An IP cleared or re-learned mid-sweep voids what the echo proved."""
+    device = make_stuck_offline_device()
+    monitor, callbacks, src = _reviver([device])
+
+    async def clear_ip(_ip: str, *, retry: bool) -> float:
+        device.ip = ""
+        return 12.5
+
+    monitor._ping.ping_once = clear_ip  # type: ignore[method-assign]
+    await src._sweep()
+
+    src._run_worker.assert_not_called()
+    assert callbacks.calls_for("on_state_change") == []
+
+
+async def test_mid_dial_mdns_address_set_is_not_overwritten() -> None:
+    """A fresher mDNS-learned address set that lands mid-dial survives the revive."""
+    device = make_stuck_offline_device()
+    _monitor, callbacks, src = _reviver([device])
+
+    async def worker_while_mdns_lands(_device: Device, _request: bytes) -> dict[str, str]:
+        device.runtime_state.ip_addresses = ["192.168.1.77", "fe80::1"]
+        return dict(_WORKER_MATCH)
+
+    src._run_worker = worker_while_mdns_lands  # type: ignore[method-assign]
+    await src._sweep()
+
+    assert callbacks.calls_for("on_ip_change") == []
+    assert device.runtime_state.ip_addresses == ["192.168.1.77", "fe80::1"]
+    assert ("on_state_change", "kitchen", DeviceState.ONLINE, "ping") in callbacks.calls
 
 
 async def test_worker_dials_share_one_monitor_wide_slot() -> None:

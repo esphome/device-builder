@@ -1125,8 +1125,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     def _on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
         state_callbacks.on_ip_change(self, name, ip, addresses)
 
-    def _on_persisted_ip_invalidated(self, name: str) -> None:
-        state_callbacks.on_persisted_ip_invalidated(self, name)
+    def _on_persisted_ip_invalidated(self, name: str, stale_ip: str) -> None:
+        state_callbacks.on_persisted_ip_invalidated(self, name, stale_ip)
 
     def _on_source_change(self, name: str, source: ReachabilitySource) -> None:
         state_callbacks.on_source_change(self, name, source)

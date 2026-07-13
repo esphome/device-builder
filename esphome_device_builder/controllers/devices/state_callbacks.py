@@ -112,14 +112,17 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
         controller._fire_device_updated(device)
 
 
-def on_persisted_ip_invalidated(controller: DevicesController, name: str) -> None:
+def on_persisted_ip_invalidated(controller: DevicesController, name: str, stale_ip: str) -> None:
     """Clear a persisted last-known IP the reviver proved belongs to another device.
 
     The explicit counterpart to :func:`on_ip_change`'s keep-on-disk
-    contract — only identity-verified evidence gets to drop the value.
+    contract — only identity-verified evidence gets to drop the value,
+    and only from devices still holding the proven-stale IP (a
+    same-name sibling's independent IP, or one mDNS re-learned while
+    the dial was in flight, is not what the mismatch disproved).
     """
     for device in controller._devices_by_name(name):
-        if not device.ip:
+        if device.ip != stale_ip:
             continue
         _LOGGER.info(
             "Device %s (%s): clearing stale persisted IP %s",

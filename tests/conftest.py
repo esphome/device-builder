@@ -941,9 +941,11 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_mac_address_change", name, mac))
         self._flip(name, "mac_address", mac)
 
-    def on_persisted_ip_invalidated(self, name: str) -> None:
-        self.calls.append(("on_persisted_ip_invalidated", name))
-        self._flip(name, "ip", "")
+    def on_persisted_ip_invalidated(self, name: str, stale_ip: str) -> None:
+        self.calls.append(("on_persisted_ip_invalidated", name, stale_ip))
+        for device in self._devices:
+            if device.name == name and device.ip == stale_ip:
+                device.ip = ""
 
     def on_importable_added(self, device: AdoptableDevice) -> None:
         self.calls.append(("on_importable_added", device))
