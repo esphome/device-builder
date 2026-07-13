@@ -1,7 +1,7 @@
 id: waveshare_esp32_c3_zero
 name: Waveshare ESP32-C3-Zero
 description: >
-  Ultra-compact ESP32-C3 module with castellated pads, 4MB onboard flash, USB-C connector and an onboard ceramic antenna.
+  Ultra-compact ESP32-C3 module with castellated pads, 4MB onboard flash, USB-C connector and an onboard ceramic 2.4GHz antenna.
   No USB-UART bridge chip.
 manufacturer: Waveshare
 
