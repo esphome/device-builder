@@ -72,7 +72,8 @@ def scan_lines(
     max_take: int,
     context_lines: int = DEFAULT_CONTEXT_LINES,
 ) -> tuple[list[dict], int]:
-    """Scan a single file's pre-split line list for *needle*.
+    """
+    Scan a single file's pre-split line list for *needle*.
 
     Synchronous hot path of the search loop — pure Python work
     against an already-loaded ``list[str]``, no I/O, no awaits.
