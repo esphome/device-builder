@@ -21,8 +21,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 if TYPE_CHECKING:
     from esphome_device_builder.models import BoardCatalogEntry, ComponentCatalogEntry
 
@@ -127,6 +125,14 @@ def _validate_record(record: dict[str, Any]) -> _Outcome | None:
     Returns ``None`` when the gate doesn't apply (pin-conflict boards keep
     partial bundles, so no combined setup exists to validate).
     """
+    try:
+        return _validate_record_inner(record)
+    except Exception as exc:
+        return _Outcome(errors=[f"validation crashed: {exc!r}"])
+
+
+def _validate_record_inner(record: dict[str, Any]) -> _Outcome | None:
+    """See :func:`_validate_record`; separated so its crash guard stays total."""
     from esphome_device_builder.controllers.components import _load_body_from_disk
     from esphome_device_builder.definitions import (
         _load_component_multi_conf,
@@ -168,7 +174,13 @@ def _validate_record(record: dict[str, Any]) -> _Outcome | None:
 
 def _map_errors(errors: list[Any], yaml_text: str, record: dict[str, Any]) -> _Outcome:
     """Map each error's structured config path to the featured entry that produced it."""
-    data = yaml.safe_load(yaml_text)
+    # Function-level import: this module loads while sync_esphome_devices is
+    # still importing it, so a top-level import would be circular.
+    from script.sync_esphome_devices import _safe_load_yaml
+
+    # The generated YAML can carry ESPHome-only tags (``!lambda``) that the
+    # plain safe loader rejects.
+    data = _safe_load_yaml(yaml_text) or {}
     entries = record.get("featured_components") or []
     local_ids = {entry["id"] for entry in entries}
     drops: list[tuple[str, str]] = []
