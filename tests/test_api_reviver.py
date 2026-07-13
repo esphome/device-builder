@@ -23,6 +23,7 @@ from esphome_device_builder.controllers._device_state_monitor.api_reviver import
     _ICMP_SILENT_COOLDOWN,
     _MAX_DIALS_PER_SWEEP,
     _NO_KEY_COOLDOWN,
+    _VERIFIED_TTL,
     ApiReviverSource,
 )
 from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
@@ -79,7 +80,8 @@ async def test_match_revives_online_under_ping() -> None:
     assert names.index("on_ip_change") < names.index("on_state_change")
     assert device.runtime_state.state is DeviceState.ONLINE
     assert monitor.priority_for("kitchen") is ReachabilitySource.PING
-    assert src._verified == {"kitchen": "192.168.1.50"}
+    verified_ip, _verified_at = src._verified["kitchen"]
+    assert verified_ip == "192.168.1.50"
     assert monitor._ping._wake.is_set()
 
 
@@ -265,12 +267,26 @@ async def test_second_episode_revives_without_a_dial() -> None:
 async def test_persisted_ip_change_invalidates_the_verified_pair() -> None:
     device = make_stuck_offline_device()
     _monitor, _callbacks, src = _reviver([device])
-    src._verified["kitchen"] = "192.168.1.99"
+    src._verified["kitchen"] = ("192.168.1.99", time.monotonic())
 
     await src._sweep()
 
     src._run_worker.assert_awaited_once()
-    assert src._verified["kitchen"] == "192.168.1.50"
+    assert src._verified["kitchen"][0] == "192.168.1.50"
+
+
+async def test_stale_verification_re_dials() -> None:
+    """Past the TTL the echo alone no longer revives; identity is re-verified."""
+    device = make_stuck_offline_device()
+    _monitor, _callbacks, src = _reviver([device])
+    src._verified["kitchen"] = ("192.168.1.50", time.monotonic() - _VERIFIED_TTL - 1)
+
+    await src._sweep()
+
+    src._run_worker.assert_awaited_once()
+    verified_ip, verified_at = src._verified["kitchen"]
+    assert verified_ip == "192.168.1.50"
+    assert time.monotonic() - verified_at <= _VERIFIED_TTL
 
 
 # ----------------------------------------------------------------------
@@ -385,7 +401,7 @@ async def test_removed_device_drops_all_bookkeeping() -> None:
     devices = [device]
     _monitor, _callbacks, src = _reviver(devices, worker_result=None)
     await src._sweep()
-    src._verified["kitchen"] = "192.168.1.50"
+    src._verified["kitchen"] = ("192.168.1.50", time.monotonic())
 
     devices.clear()
     await src._sweep()

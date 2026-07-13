@@ -589,10 +589,12 @@ against legacy behaviour before assuming the simpler version suffices.
   a stale DHCP lease answering is the #1776 latch class. A name mismatch
   proves the IP stale and clears it through
   `on_persisted_ip_invalidated` (the explicit counterpart to
-  `on_ip_change`'s keep-on-disk contract). At most one dial per stuck
-  device per process (`_verified` pair cache); dials are capped per
-  sweep with escalating backoff because API connects occupy the ESP's
-  scarce connection slots. ICMP-unavailable deployments are deliberately
+  `on_ip_change`'s keep-on-disk contract). A verified pair revives
+  dial-free only within `_VERIFIED_TTL`; a longer silent gap re-dials,
+  so a re-leased IP can't ride a weeks-old verification back to ONLINE.
+  Dials are capped per sweep with escalating backoff because API
+  connects occupy the ESP's scarce connection slots. ICMP-unavailable
+  deployments are deliberately
   not repaired: the pre-filter can't run and a verify-only ONLINE would
   be un-demotable.
 - **The `Device` is the source of truth, not the monitor.**

@@ -23,11 +23,13 @@ strictly last-resort and identity-verified:
    which owns liveness from then on. Name mismatch → the persisted IP is
    proven stale and is invalidated so nothing trusts it again.
 
-A process-lifetime verified ``name → ip`` cache caps the cost at one dial
-per stuck device per process: later flaps revive on the ICMP filter alone,
-the same trust RAM-learned addresses already get. Coverage is deliberately
-``api:`` devices only — MQTT devices revive via the broker, and
-web_server-only / OTA-only devices have no strong identity channel.
+A verified ``name → ip`` cache lets flaps within ``_VERIFIED_TTL`` revive
+on the ICMP filter alone, the same trust RAM-learned addresses already
+get; past the TTL one fresh dial re-verifies, so a lease reassigned
+during a long silent gap can't ride a stale verification back to ONLINE.
+Coverage is deliberately ``api:`` devices only — MQTT devices revive via
+the broker, and web_server-only / OTA-only devices have no strong
+identity channel.
 Deployments where ICMP is unavailable are not repaired: the negative
 filter can't run, and a verify-only ONLINE would be un-demotable.
 """
@@ -62,6 +64,10 @@ _DIAL_FAILURE_COOLDOWN = 1800.0  # seconds
 _DIAL_FAILURE_COOLDOWN_MAX = 21600.0  # seconds
 # Nothing changes until the YAML does.
 _NO_KEY_COOLDOWN = 3600.0  # seconds
+# How long a verified pair revives dial-free. Past this the next revival
+# re-verifies identity: over a long silent gap DHCP can hand the lease to
+# a stranger, and trusting a weeks-old echo would be the #1776 latch again.
+_VERIFIED_TTL = 21600.0  # seconds
 
 
 class ApiReviverSource(ApiSweepSource):
@@ -82,9 +88,9 @@ class ApiReviverSource(ApiSweepSource):
         # (name, persisted ip) -> consecutive dial failures, for the
         # escalating backoff.
         self._dial_failures: dict[tuple[str, str], int] = {}
-        # name -> IP whose responder passed identity verification this
-        # process; revivals at the same pair skip the dial entirely.
-        self._verified: dict[str, str] = {}
+        # name -> (ip, verified-at monotonic) for responders that passed
+        # identity verification; a fresh pair revives without a dial.
+        self._verified: dict[str, tuple[str, float]] = {}
 
     def _prepare(self) -> bool:
         # Unlike api_info there is no lib-less work to do — identity
@@ -113,13 +119,20 @@ class ApiReviverSource(ApiSweepSource):
         # Negative pre-filter: batched, cheap, and inadmissible as ONLINE
         # evidence on its own — silence means no dial this sweep.
         rtts = await asyncio.gather(*(self._prefilter(device) for device in candidates))
+        now = time.monotonic()
         dials = 0
         for device, rtt in zip(candidates, rtts, strict=True):
             if rtt is None:
                 continue
-            if self._verified.get(device.name) == device.ip:
-                # Already identity-verified at this pair this process —
-                # the echo alone revives, same trust RAM addresses get.
+            verified = self._verified.get(device.name)
+            if (
+                verified is not None
+                and verified[0] == device.ip
+                and now - verified[1] <= _VERIFIED_TTL
+            ):
+                # Recently identity-verified at this pair — the echo
+                # alone revives, same trust RAM addresses get. A stale
+                # pair falls through to a fresh dial instead.
                 self._revive(device, rtt)
                 continue
             if dials >= _MAX_DIALS_PER_SWEEP:
@@ -186,7 +199,7 @@ class ApiReviverSource(ApiSweepSource):
             )
             self._record_dial_failure(device)
             return
-        self._verified[device.name] = device.ip
+        self._verified[device.name] = (device.ip, time.monotonic())
         _LOGGER.info(
             "Revived %s at persisted IP %s (identity verified over the Native API)",
             device.name,
@@ -250,4 +263,4 @@ class ApiReviverSource(ApiSweepSource):
 
         self._cooldown = {k: v for k, v in self._cooldown.items() if not stale(k)}
         self._dial_failures = {k: v for k, v in self._dial_failures.items() if not stale(k)}
-        self._verified = {n: ip for n, ip in self._verified.items() if n in current}
+        self._verified = {n: v for n, v in self._verified.items() if n in current}
