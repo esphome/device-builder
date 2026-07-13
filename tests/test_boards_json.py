@@ -640,13 +640,24 @@ def test_libretiny_boards_carry_the_chip_series_mcu() -> None:
     assert mcu["generic-rtl8710bn-2mb-788k"] == "rtl8710b"
     assert mcu["generic-rtl8720cf-2mb-896k"] == "rtl8720c"
     assert mcu["ln-02"] == "ln882h"
-    # A board ESPHome doesn't list still gets the platform's sole token.
-    assert mcu["generic-ln882hki"] == "ln882h"
     # Every LibreTiny board carries a token; none is stranded from the picker.
     stranded = [
         b.id for b in index if b.esphome.platform.value in _LIBRETINY_FAMILIES and not b.esphome.mcu
     ]
     assert not stranded, stranded
+
+
+def test_libretiny_mcu_backfill_falls_back_to_the_sole_token() -> None:
+    """A board ESPHome doesn't list still gets the platform's sole token."""
+    entry = BoardCatalogEntry(
+        id="not-an-esphome-board",
+        name="Not an ESPHome board",
+        description="",
+        manufacturer="",
+        esphome=BoardEsphomeConfig(platform=Platform.LN882X, board="not-an-esphome-board"),
+    )
+    _backfill_libretiny_mcu([entry])
+    assert entry.esphome.mcu == "ln882h"
 
 
 def test_esp32_engineering_sample_matches_esphome_boards_table() -> None:
