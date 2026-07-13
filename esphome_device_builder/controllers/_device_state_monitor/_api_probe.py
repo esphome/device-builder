@@ -129,6 +129,18 @@ async def build_probe_request(
     )
 
 
+def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, Any]) -> bool:
+    """
+    Apply a worker payload's mac/version; True iff either was newly written.
+
+    Judged on the ``apply_*`` returns, not a post-apply Device re-read —
+    apply dedupes and fans out across same-named devices.
+    """
+    filled_mac = monitor.apply_mac_address(name, info.get("mac_address", ""))
+    filled_version = monitor.apply_version(name, info.get("esphome_version", ""))
+    return filled_mac or filled_version
+
+
 async def run_worker(name: str, request: bytes) -> dict[str, Any] | None:
     """Spawn the device-info worker for device *name*; parsed payload, or ``None``."""
     try:

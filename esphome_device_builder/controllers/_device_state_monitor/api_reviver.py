@@ -47,6 +47,7 @@ from ._api_probe import (
     ApiSweepSource,
     ProbeRequestError,
     api_worker_available,
+    apply_worker_info,
     build_probe_request,
 )
 from .helpers import _normalize_mac
@@ -240,8 +241,7 @@ class ApiReviverSource(ApiSweepSource):
         name = device.name
         monitor.apply_ip_addresses(name, [device.ip])
         if info is not None:
-            monitor.apply_mac_address(name, info.get("mac_address", ""))
-            monitor.apply_version(name, info.get("esphome_version", ""))
+            apply_worker_info(monitor, name, info)
         if monitor.state.reachability is not None:
             monitor.state.reachability.record_ping_rtt(name, rtt)
         monitor.apply(name, DeviceState.ONLINE, "ping")

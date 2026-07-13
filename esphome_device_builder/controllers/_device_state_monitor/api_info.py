@@ -25,6 +25,7 @@ from ._api_probe import (
     ApiSweepSource,
     ProbeRequestError,
     api_worker_available,
+    apply_worker_info,
     build_probe_request,
 )
 
@@ -239,16 +240,12 @@ class ApiInfoSource(ApiSweepSource):
             self._record_failure(device)
             return
         info = await self._run_worker(device, request) or {}
-        # ``apply_*`` returns True iff it newly wrote the field. Judge on that,
-        # not a post-apply Device re-read (apply dedupes / fans out across
-        # same-named devices). Any newly-filled field means the connection
-        # worked and made progress: don't cool down, so a device that answered
-        # with mac XOR version chases the rest on the next normal sweep. Nothing
-        # newly filled (connect failed, or only a value we already had) is a
-        # real miss → cool the device down.
-        filled_mac = monitor.apply_mac_address(device.name, info.get("mac_address", ""))
-        filled_version = monitor.apply_version(device.name, info.get("esphome_version", ""))
-        if filled_mac or filled_version:
+        # Any newly-filled field means the connection worked and made
+        # progress: don't cool down, so a device that answered with mac
+        # XOR version chases the rest on the next normal sweep. Nothing
+        # newly filled (connect failed, or only a value we already had)
+        # is a real miss → cool the device down.
+        if apply_worker_info(monitor, device.name, info):
             return
         # A forced re-probe that connected (``info`` truthy) but changed
         # nothing confirmed the existing version — a success, not a miss, so
