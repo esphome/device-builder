@@ -14,7 +14,7 @@ esphome:
 hardware:
   cpu_frequency: 240MHz
   flash_size: 16MB
-  ram_size: 524288  # bytes
+  ram_size: 327680
   connectivity:
     - wifi
     - bluetooth
