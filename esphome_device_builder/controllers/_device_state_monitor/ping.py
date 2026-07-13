@@ -108,10 +108,16 @@ class PingSource:
             self._wake.clear()
             # Disjoint candidate sets — resolve both concurrently so a
             # wire-miss in one doesn't delay the sweep behind the other.
-            await asyncio.gather(
+            # An unguarded raise here must not kill the loop for the
+            # process lifetime; log it and keep sweeping.
+            results = await asyncio.gather(
                 shared.resolve_non_api_mdns_targets(monitor),
                 shared.resolve_api_mdns_targets(monitor),
+                return_exceptions=True,
             )
+            for result in results:
+                if isinstance(result, BaseException):
+                    _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=result)
             await self._ping_sweep()
             await self._idle()
 

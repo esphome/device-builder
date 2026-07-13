@@ -114,6 +114,29 @@ async def test_ping_loop_runs_unconditionally_without_presence(
     assert counts["resolves"] >= 2
 
 
+async def test_ping_loop_survives_a_raising_resolve_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising resolve step is logged and the loop keeps sweeping."""
+    monitor = _build_monitor(presence=None)
+    counts = _instrument_loop(monitor, monkeypatch)
+
+    async def _boom(_monitor: DeviceStateMonitor) -> None:
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _boom)
+
+    task = asyncio.create_task(monitor._ping.run())
+    try:
+        await _drive_until(lambda: counts["sweeps"] >= 2)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert counts["sweeps"] >= 2
+
+
 async def test_ping_loop_parks_until_first_subscriber(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
