@@ -111,8 +111,8 @@ body:
         - PyPI
         - Wheel from a GitHub release
         - From source (script/setup)
-        - ESPHome container (preview toggle)
-        - Home Assistant App (preview toggle)
+        - ESPHome container
+        - Home Assistant App
         - Desktop app
         - Other / not sure
     validations:
