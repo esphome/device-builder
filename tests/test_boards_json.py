@@ -18,10 +18,13 @@ once at startup by the components controller). These tests pin:
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
 import orjson
+import pytest
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 
 from esphome_device_builder.definitions import (
@@ -81,6 +84,11 @@ _BODY_ONLY_KEYS = frozenset(
 )
 
 
+@pytest.mark.skipif(
+    bool(os.environ.get("CI")) and sys.platform != "linux",
+    reason="CI's lint drift gate already regenerates and byte-compares the catalog; "
+    "re-deriving it on the slow Windows/macOS runners buys nothing",
+)
 def test_split_artefacts_match_manifests() -> None:
     """
     The committed artefacts reproduce what the manifests produce.
