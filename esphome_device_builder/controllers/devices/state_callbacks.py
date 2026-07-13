@@ -113,7 +113,8 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
 
 
 def on_persisted_ip_invalidated(controller: DevicesController, name: str, stale_ip: str) -> None:
-    """Clear a persisted last-known IP the reviver proved belongs to another device.
+    """
+    Clear a persisted last-known IP the reviver proved belongs to another device.
 
     The explicit counterpart to :func:`on_ip_change`'s keep-on-disk
     contract — only identity-verified evidence gets to drop the value,

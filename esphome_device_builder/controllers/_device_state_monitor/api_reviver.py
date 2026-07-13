@@ -176,7 +176,8 @@ class ApiReviverSource(ApiSweepSource):
         ]
 
     async def _prefilter(self, device: Device, ip: str) -> float | None:
-        """ICMP the bound persisted *ip*; cool the pair down on silence.
+        """
+        ICMP the bound persisted *ip*; cool the pair down on silence.
 
         The lossy-path retry is worth its packets here: a single
         dropped echo would otherwise park a revivable device for a
@@ -260,7 +261,8 @@ class ApiReviverSource(ApiSweepSource):
     def _revive(
         self, device: Device, ip: str, rtt: float, info: dict[str, Any] | None = None
     ) -> None:
-        """Seed the verified *ip*, then claim ONLINE under the ping source.
+        """
+        Seed the verified *ip*, then claim ONLINE under the ping source.
 
         IP before state so the first post-revival snapshot carries the
         address and the sweep has its target; the ping nudge hands
@@ -286,7 +288,8 @@ class ApiReviverSource(ApiSweepSource):
         self._cooldown.escalate(key, _DIAL_FAILURE_COOLDOWN, _DIAL_FAILURE_COOLDOWN_MAX)
 
     def _prune(self) -> None:
-        """Drop bookkeeping for gone / recovered / re-IP'd devices.
+        """
+        Drop bookkeeping for gone / recovered / re-IP'd devices.
 
         An ONLINE transition (any source) or a persisted-IP change
         resets the escalating backoff so legitimate recovery isn't

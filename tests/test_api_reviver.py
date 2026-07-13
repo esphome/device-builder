@@ -1,4 +1,5 @@
-"""Tests for the persisted-IP last-resort revival source.
+"""
+Tests for the persisted-IP last-resort revival source.
 
 A stuck-offline API device whose only lead is the on-disk last-known IP
 must come back ONLINE only after the ICMP pre-filter answers AND a

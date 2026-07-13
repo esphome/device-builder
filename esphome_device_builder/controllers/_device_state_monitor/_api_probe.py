@@ -1,4 +1,5 @@
-"""Plumbing shared by the Native API sources.
+"""
+Plumbing shared by the Native API sources.
 
 The one-shot ``device_info`` probe helpers plus the presence-gated
 sweep-loop base both ``ApiInfoSource`` and ``ApiReviverSource`` run on.
@@ -85,7 +86,8 @@ class ApiSweepSource:
         raise NotImplementedError
 
     async def _probe(self, device: Device, addresses: list[str]) -> dict[str, Any] | None:
-        """Build the request and dial once; payload, or ``None`` on a worker miss.
+        """
+        Build the request and dial once; payload, or ``None`` on a worker miss.
 
         ``None`` is a device-side rejection (connect/handshake failed);
         host-side misses raise :class:`ProbeError` instead. The dial
@@ -123,7 +125,8 @@ class ProbeError(Exception):
 async def build_probe_request(
     monitor: DeviceStateMonitor, device: Device, addresses: list[str]
 ) -> bytes:
-    """Resolve key/port and encode the worker request; raise when undialable.
+    """
+    Resolve key/port and encode the worker request; raise when undialable.
 
     An undialable device raises :class:`ProbeError` — a plaintext
     connect without the declared key could only fail the handshake,
@@ -162,7 +165,8 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
 
 
 async def run_worker(name: str, request: bytes) -> dict[str, Any] | None:
-    """Spawn the device-info worker for *name*; payload, ``None``, or raise.
+    """
+    Spawn the device-info worker for *name*; payload, ``None``, or raise.
 
     ``None`` is a device-side rejection: the worker ran cleanly and the
     device refused/failed the connect. Host-side misses (spawn failure,
