@@ -326,11 +326,23 @@ def _flash_warning(board_id: str, esphome_cfg: dict, hardware: dict) -> str | No
 def _esphome_boards_table(platform: str) -> dict | None:
     """Return the installed esphome's ``BOARDS`` table for *platform*, or None when unimportable."""
     if platform not in _ESPHOME_BOARDS_CACHE:
+        # Broad except: warnings must never turn into a crash, even on a
+        # broken esphome install.
         try:
             module = __import__(f"esphome.components.{platform}.boards", fromlist=["BOARDS"])
-            _ESPHOME_BOARDS_CACHE[platform] = getattr(module, "BOARDS", None)
-        except ImportError:
+        except Exception:
             _ESPHOME_BOARDS_CACHE[platform] = None
+        else:
+            table = getattr(module, "BOARDS", None)
+            if table is None:
+                # esphome imports but the table moved: say so once, or an
+                # upstream refactor silently disables every table check.
+                print(
+                    f"WARNING: esphome.components.{platform}.boards has no BOARDS "
+                    "table; hardware convention checks that need it are skipped",
+                    file=sys.stderr,
+                )
+            _ESPHOME_BOARDS_CACHE[platform] = table
     return _ESPHOME_BOARDS_CACHE[platform]
 
 
