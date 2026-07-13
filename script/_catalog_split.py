@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -43,11 +44,13 @@ def _dumps_compact_sorted(value: Any) -> bytes:
     return orjson.dumps(value, option=orjson.OPT_SORT_KEYS)
 
 
-def dumps_envelope_entries_per_line(payload: dict[str, Any], entries_key: str) -> bytes:
+def dumps_envelope_entries_per_line(
+    payload: dict[str, Any], entries_keys: Collection[str]
+) -> bytes:
     """
-    Dump *payload* as JSON with each ``payload[entries_key]`` item on its own line.
+    Dump *payload* as JSON with each item of every ``entries_keys`` list on its own line.
 
-    Other top-level keys land compact, one per line, sorted; the entries list
+    Other top-level keys land compact, one per line, sorted; each entries list
     keeps its order (an empty one stays inline). Deterministic sorted-key
     orjson fragments, trailing newline, no trailing whitespace.
     """
@@ -56,7 +59,7 @@ def dumps_envelope_entries_per_line(payload: dict[str, Any], entries_key: str) -
     for i, key in enumerate(top_keys):
         key_prefix = _dumps_compact_sorted(key) + b":"
         tail = b"," if i < len(top_keys) - 1 else b""
-        if key != entries_key or not payload[key]:
+        if key not in entries_keys or not payload[key]:
             lines.append(key_prefix + _dumps_compact_sorted(payload[key]) + tail)
             continue
         entries = payload[key]
@@ -130,10 +133,8 @@ def swap_split_catalog_in(
     live_bodies: Path,
     index_payload: dict[str, Any],
     live_index: Path,
+    index_entries_keys: Collection[str],
     index_cls: type[_FromDict] | None = None,
-    index_entries_key: str | None = None,
-    sort_keys: bool = False,
-    entries_per_line: bool = False,
 ) -> None:
     """Swap a freshly-written next-bodies dir + index into place atomically.
 
@@ -145,28 +146,17 @@ def swap_split_catalog_in(
     the runtime loader degrades gracefully across that window
     (missing body files log a warning, new ids aren't yet listed).
 
-    Pass ``index_cls`` + ``index_entries_key`` to roundtrip-validate
-    every slim entry in ``index_payload[index_entries_key]`` before
-    the swap — catches a sync-time omit_default bug that would ship
-    a wire shape the runtime loader rejects.
-
-    ``entries_per_line`` (requires ``index_entries_key``) writes the
-    index via :func:`dumps_envelope_entries_per_line` instead of one
-    orjson line.
+    The index is written via :func:`dumps_envelope_entries_per_line`
+    with each ``index_entries_keys`` list one entry per line. Pass
+    ``index_cls`` to roundtrip-validate every slim entry in those
+    lists before the swap — catches a sync-time omit_default bug that
+    would ship a wire shape the runtime loader rejects.
     """
-    if index_cls is not None and index_entries_key is not None:
-        for entry in index_payload[index_entries_key]:
-            index_cls.from_dict(entry)
-    if entries_per_line:
-        if index_entries_key is None:
-            msg = "entries_per_line requires index_entries_key"
-            raise ValueError(msg)
-        index_bytes = dumps_envelope_entries_per_line(index_payload, index_entries_key)
-    else:
-        options = orjson.OPT_APPEND_NEWLINE
-        if sort_keys:
-            options |= orjson.OPT_SORT_KEYS
-        index_bytes = orjson.dumps(index_payload, option=options)
+    if index_cls is not None:
+        for key in index_entries_keys:
+            for entry in index_payload[key]:
+                index_cls.from_dict(entry)
+    index_bytes = dumps_envelope_entries_per_line(index_payload, index_entries_keys)
     next_index = live_index.with_suffix(".json.next")
     next_index.write_bytes(index_bytes)
     if live_bodies.exists():
