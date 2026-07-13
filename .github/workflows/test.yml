@@ -107,7 +107,19 @@ jobs:
           if [ -n "$(git status --porcelain -- $paths)" ]; then
             git status --porcelain -- $paths
             git diff -- $paths
-            echo "::error::Board catalog is out of sync with manifests; run script/sync_boards.py and commit."
+            # Name the exact fix: the pinned esphome (a mismatched local
+            # install is the usual cause of a whole-catalog rewrite) and,
+            # when exactly one board's body drifted, its single-board
+            # update_board.py invocation.
+            pin=$(grep -o 'esphome==.*' esphome-constraints.txt)
+            ids=$(git status --porcelain -- esphome_device_builder/definitions/board_bodies/ \
+              | grep 'board_bodies/' | sed -E 's|.*board_bodies/(.+)\.json.*|\1|' | sort -u || true)
+            if [ "$(echo "$ids" | grep -c .)" = "1" ]; then
+              fix="python script/update_board.py $ids"
+            else
+              fix="python script/sync_boards.py"
+            fi
+            echo "::error::Board catalog is out of sync with manifests. Fix locally: uv pip install '$pin' && $fix — then commit the regenerated files (see definitions/README.md)."
             exit 1
           fi
 
