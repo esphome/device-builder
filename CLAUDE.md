@@ -548,6 +548,24 @@ against legacy behaviour before assuming the simpler version suffices.
     skipped (a device broadcasting the API gets its identity from the
     esphomelib path). The level-triggered repair (`reconcile_from_cache`)
     reads both services' cached TXT.
+  - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
+    API devices the ping sweep is about to ICMP). A targeted
+    `AsyncServiceInfo` resolve (cache first, wire fallback) is cheaper
+    than the ICMP it replaces; on success `_apply_service_info` claims
+    mdns and the device leaves the ping rotation — this repairs a ledger
+    stuck on `ping` after a missed browser resolve (#1993). Claims here
+    are **ownership repair, not liveness**: candidates must already be
+    ONLINE (never revive off the cache, #1776) and must have some cached
+    mDNS trace (an mDNS-dark deployment gains no multicast traffic). A
+    miss claims nothing; ICMP decides, same as the active-resolve path.
+    The browser `Removed` branch runs the same verify-resolve before
+    honouring the expiry, so a lossy-multicast PTR drop doesn't demote a
+    device that still answers. Latch guard: an mdns claim on an API
+    device **without a live PTR** (sweep / removed-verify resolves fetch
+    SRV/TXT/A, not PTR) has no `Removed` counterpart, so `should_ping`
+    keeps it sweep-eligible — the sweep is its offline-detection
+    substitute until the PTR returns and normal browser ownership
+    resumes.
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE

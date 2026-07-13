@@ -63,11 +63,12 @@ def _instrument_loop(
     async def _sweep() -> None:
         counts["sweeps"] += 1
 
-    # ``resolve_non_api_mdns_targets`` is a free function in ``shared``;
-    # patch the module attribute so ``PingSource.run``'s call sees the
-    # stub. ``_ping_sweep`` is a method on ``PingSource``; replace it
-    # on the per-test instance.
+    # The resolve steps are free functions in ``shared``; patch the
+    # module attributes so ``PingSource.run``'s calls see the stubs.
+    # ``_ping_sweep`` is a method on ``PingSource``; replace it on the
+    # per-test instance.
     monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
+    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _resolve)
     monitor._ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
     # Skip the bootstrap delay; collapse the post-sweep idle wait

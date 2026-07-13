@@ -107,6 +107,7 @@ class PingSource:
                 await monitor._presence.wait_for_subscriber()
             self._wake.clear()
             await shared.resolve_non_api_mdns_targets(monitor)
+            await shared.resolve_api_mdns_targets(monitor)
             await self._ping_sweep()
             await self._idle()
 

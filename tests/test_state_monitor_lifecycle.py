@@ -458,14 +458,31 @@ async def test_start_continues_when_browser_construct_fails(
 # ---------------------------------------------------------------------------
 
 
+def _stub_removed_verify(monkeypatch: pytest.MonkeyPatch, *, resolved: bool) -> MagicMock:
+    """Stub the ``Removed`` branch's wire verify to hit or miss deterministically."""
+    info = MagicMock()
+    info.async_request = AsyncMock(return_value=resolved)
+    info.parsed_scoped_addresses.return_value = ["10.0.0.1"]
+    info.decoded_properties = {"version": "2026.7.0"}
+    monkeypatch.setattr(mdns_module, "AsyncServiceInfo", lambda *_a, **_kw: info)
+    return info
+
+
+async def _drain_tracked_tasks(monitor: DeviceStateMonitor) -> None:
+    """Await the fire-and-forget tasks a dispatch spawned."""
+    while monitor._tasks:
+        await asyncio.gather(*list(monitor._tasks), return_exceptions=True)
+
+
 async def test_dispatch_removed_event_flips_offline_clears_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``Removed`` esphomelib event flips OFFLINE, clears IP, drops source slot."""
+    """A ``Removed`` whose verify-resolve misses flips OFFLINE, clears IP, drops source slot."""
     device = _device(state=DeviceState.ONLINE, ip="10.0.0.1")
     monitor, _callbacks = _make_monitor([device])
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    _stub_removed_verify(monkeypatch, resolved=False)
     try:
         dispatch(
             monitor._mdns._zeroconf.zeroconf,
@@ -473,9 +490,34 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Removed,
         )
+        await _drain_tracked_tasks(monitor)
         assert device.runtime_state.state == DeviceState.OFFLINE
         assert device.ip == ""
         assert "kitchen" not in monitor.state.state_source
+    finally:
+        await _stop_and_drain(monitor)
+
+
+async def test_dispatch_removed_event_stays_online_when_verify_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``Removed`` whose verify-resolve answers keeps the device ONLINE and mdns-owned."""
+    device = _device(state=DeviceState.ONLINE, ip="10.0.0.1")
+    monitor, _callbacks = _make_monitor([device])
+    monitor.state.state_source["kitchen"] = "mdns"
+    dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    _stub_removed_verify(monkeypatch, resolved=True)
+    try:
+        dispatch(
+            monitor._mdns._zeroconf.zeroconf,
+            ESPHOMELIB_SERVICE_TYPE,
+            f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
+            ServiceStateChange.Removed,
+        )
+        await _drain_tracked_tasks(monitor)
+        assert device.runtime_state.state == DeviceState.ONLINE
+        assert device.ip == "10.0.0.1"
+        assert monitor.state.state_source["kitchen"] == "mdns"
     finally:
         await _stop_and_drain(monitor)
 
@@ -500,6 +542,7 @@ async def test_dispatch_removed_event_clears_reachability_tracker(
     tracker.observe("kitchen", "ping")
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
+    _stub_removed_verify(monkeypatch, resolved=False)
     try:
         dispatch(
             monitor._mdns._zeroconf.zeroconf,
@@ -507,6 +550,7 @@ async def test_dispatch_removed_event_clears_reachability_tracker(
             f"kitchen.{ESPHOMELIB_SERVICE_TYPE}",
             ServiceStateChange.Removed,
         )
+        await _drain_tracked_tasks(monitor)
         snap = tracker.snapshot(
             "kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip=""
         )

@@ -333,6 +333,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         """Read the truthful "last heard via mDNS" age + remaining TTL."""
         return self._mdns.get_mdns_cache_info(name)
 
+    def has_live_mdns_ptr(self, name: str) -> bool:
+        """Whether the cache holds an unexpired esphomelib PTR for *name*."""
+        return self._mdns.has_live_ptr(name)
+
     def apply_ip(self, name: str, ip: str) -> bool:
         """
         Record a single-IP observation. Empty string clears stored IPs.

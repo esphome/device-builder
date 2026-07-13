@@ -40,12 +40,21 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     Skip the device only when it's already ONLINE *and* a
     higher-priority source (mDNS / MQTT) owns it. OFFLINE / UNKNOWN
     devices always get pinged so off-network hosts mDNS can't reach
-    have a path to come online via DNS + ping.
+    have a path to come online via DNS + ping. An mdns claim on an
+    API device without a live PTR (sweep / removed-verify resolve)
+    has no browser ``Removed`` counterpart, so it keeps sweep
+    eligibility — the sweep is its offline-detection substitute.
     """
     if device.runtime_state.state != DeviceState.ONLINE:
         return True
     source = monitor.state.state_source.get(device.name, ReachabilitySource.UNKNOWN)
-    return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]
+    if _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]:
+        return True
+    return (
+        source == ReachabilitySource.MDNS
+        and device.api_enabled
+        and not monitor.has_live_mdns_ptr(device.name)
+    )
 
 
 def apply_resolved_addresses(
@@ -64,6 +73,34 @@ def apply_resolved_addresses(
     if isinstance(addresses, list) and addresses:
         monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
         monitor.apply_ip_addresses(name, addresses)
+
+
+async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
+    """
+    Resolve the esphomelib service for ONLINE API devices the sweep would ping.
+
+    An mDNS answer is cheaper than an ICMP probe and repairs a ledger
+    stuck on ``ping`` after a missed browser resolve (#1993); a miss
+    claims nothing and the ICMP sweep decides. Devices with no mDNS
+    trace in the cache are skipped so an mDNS-dark deployment
+    (Docker bridge) gains no multicast traffic.
+    """
+    if monitor._mdns.zeroconf is None:
+        return
+    candidates = [
+        d
+        for d in monitor._get_devices()
+        if d.api_enabled
+        and d.runtime_state.state is DeviceState.ONLINE
+        and should_ping(monitor, d)
+        and monitor.get_mdns_cache_info(d.name) is not None
+    ]
+    if not candidates:
+        return
+    await asyncio.gather(
+        *(monitor._mdns.resolve_and_claim(d.name) for d in candidates),
+        return_exceptions=True,
+    )
 
 
 async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
