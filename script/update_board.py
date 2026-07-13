@@ -30,6 +30,7 @@ _BOARDS_REL = "esphome_device_builder/definitions/boards"
 _BOARDS_DIR = _REPO_ROOT / _BOARDS_REL
 
 
+# Rehearsal marker: proves the regen workflow skip-guard (removed with the test PR).
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Regenerate, validate, and report one board's catalog files."
