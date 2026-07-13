@@ -186,7 +186,7 @@ class PingSource:
                 # still hold an mDNS address for.
                 pingable.append(device)
                 continue
-            if monitor.state.dns_cache.has_cached_failure(device.address) and (
+            if shared.address_resolution_exhausted(monitor, device.address) and (
                 not device.runtime_state.ip_addresses
             ):
                 # The ``.local`` won't resolve and we have no known IP.
@@ -195,6 +195,8 @@ class PingSource:
                 # ``ping`` source so a future successful resolve can flip
                 # the device back. A device with a known IP (e.g. from MQTT)
                 # falls through to ``pingable`` and is pinged at that IP.
+                # Sharing the predicate with the reviver's cohort gate keeps
+                # "ping has no target" one definition, not two in lockstep.
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 dns_failed.append(device)
                 continue

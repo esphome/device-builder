@@ -48,7 +48,6 @@ from ._api_probe import (
     ProbeRequestError,
     api_worker_available,
     build_probe_request,
-    run_worker,
 )
 from .helpers import _normalize_mac
 
@@ -162,9 +161,14 @@ class ApiReviverSource(ApiSweepSource):
         ]
 
     async def _prefilter(self, device: Device) -> float | None:
-        """ICMP the persisted IP; cool the pair down on silence."""
+        """ICMP the persisted IP; cool the pair down on silence.
+
+        The lossy-path retry is worth its packets here: a single
+        dropped echo would otherwise park a revivable device for a
+        whole ``_ICMP_SILENT_COOLDOWN``.
+        """
         async with self._concurrency:
-            rtt = await self._monitor._ping.ping_once(device.ip)
+            rtt = await self._monitor._ping.ping_once(device.ip, retry=True)
         if rtt is None:
             self._cool_down(device, _ICMP_SILENT_COOLDOWN)
         return rtt
@@ -187,6 +191,11 @@ class ApiReviverSource(ApiSweepSource):
             self._record_dial_failure(device)
             return
         reported = info.get("name", "")
+        if not reported:
+            # Connected but no identity — inconclusive, not proof of a
+            # different device; never burn the only revival lead on it.
+            self._record_dial_failure(device)
+            return
         if reported != device.name:
             # Whatever holds the lease now is a different device; the
             # persisted IP is proven stale — invalidate it so neither the
@@ -197,7 +206,8 @@ class ApiReviverSource(ApiSweepSource):
                 device.name,
                 reported,
             )
-            monitor.invalidate_persisted_ip(device.name)
+            if monitor._on_persisted_ip_invalidated is not None:
+                monitor._on_persisted_ip_invalidated(device.name)
             return
         mac = _normalize_mac(info.get("mac_address", ""))
         persisted_mac = _normalize_mac(device.mac_address)
@@ -237,10 +247,6 @@ class ApiReviverSource(ApiSweepSource):
         monitor.apply(name, DeviceState.ONLINE, "ping")
         monitor.probe_device_ping(name)
 
-    async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
-        """Instance seam over the shared worker runner (tests stub it here)."""
-        return await run_worker(device.name, request)
-
     def _cool_down(self, device: Device, seconds: float) -> None:
         """Skip this ``(name, ip)`` pair until *seconds* from now."""
         self._cooldown[(device.name, device.ip)] = time.monotonic() + seconds
@@ -263,14 +269,21 @@ class ApiReviverSource(ApiSweepSource):
         """
         if not (self._cooldown or self._dial_failures or self._verified):
             return
-        current = {device.name: device for device in devices}
+        # Buckets, not a flat map: duplicate ``esphome.name`` YAMLs (a
+        # config plus a ``foo (1).yaml`` copy) are distinct Devices whose
+        # persisted IPs can differ; a flat map would prune the shadowed
+        # sibling's bookkeeping every sweep.
+        current: dict[str, list[Device]] = {}
+        for device in devices:
+            current.setdefault(device.name, []).append(device)
 
         def stale(key: tuple[str, str]) -> bool:
-            device = current.get(key[0])
-            return (
-                device is None
-                or device.ip != key[1]
-                or device.runtime_state.state is DeviceState.ONLINE
+            bucket = current.get(key[0])
+            if bucket is None:
+                return True
+            return all(
+                device.ip != key[1] or device.runtime_state.state is DeviceState.ONLINE
+                for device in bucket
             )
 
         self._cooldown = {k: v for k, v in self._cooldown.items() if not stale(k)}

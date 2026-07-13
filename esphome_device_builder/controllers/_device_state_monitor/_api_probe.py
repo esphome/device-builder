@@ -43,10 +43,10 @@ class ApiSweepSource:
     """Presence-gated fixed-interval sweep loop; subclasses supply ``_sweep``."""
 
     # Names the source in the crash-continue log line.
-    _sweep_label: str = "API"
+    _sweep_label: str
     # Head start for the passive sources (mDNS browser, ping sweep) so
     # the common case never reaches this source's heavier repair.
-    _bootstrap_delay: float = 0.0
+    _bootstrap_delay: float
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         self._monitor = monitor
@@ -83,6 +83,10 @@ class ApiSweepSource:
 
     async def _sweep(self) -> None:
         raise NotImplementedError
+
+    async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
+        """Instance seam over the shared worker runner (tests stub it here)."""
+        return await run_worker(device.name, request)
 
     async def _idle(self) -> None:
         with contextlib.suppress(TimeoutError):

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
@@ -26,7 +26,6 @@ from ._api_probe import (
     ProbeRequestError,
     api_worker_available,
     build_probe_request,
-    run_worker,
 )
 
 if TYPE_CHECKING:
@@ -233,8 +232,9 @@ class ApiInfoSource(ApiSweepSource):
         try:
             request = await build_probe_request(monitor, device, addresses)
         except ProbeRequestError:
-            self._record_failure(device)
-            return
+            # Transient vs definitive doesn't change this source's
+            # handling — both are one cooldown.
+            request = None
         if request is None:
             self._record_failure(device)
             return
@@ -258,10 +258,6 @@ class ApiInfoSource(ApiSweepSource):
         if forced and info:
             return
         self._record_failure(device)
-
-    async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
-        """Instance seam over the shared worker runner (tests stub it here)."""
-        return await run_worker(device.name, request)
 
     def _record_failure(self, device: Device) -> None:
         """Back *device* off so the next sweep skips it until the cooldown expires."""

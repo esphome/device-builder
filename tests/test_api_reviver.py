@@ -219,7 +219,7 @@ async def test_cohort_includes_device_with_blank_address() -> None:
 
     await src._sweep()
 
-    monitor._ping.ping_once.assert_awaited_once_with("192.168.1.50")
+    monitor._ping.ping_once.assert_awaited_once_with("192.168.1.50", retry=True)
 
 
 async def test_post_revival_flap_is_pings_to_demote_and_keep() -> None:
@@ -315,6 +315,19 @@ async def test_name_mismatch_invalidates_the_persisted_ip() -> None:
     src._run_worker.assert_not_called()
 
 
+async def test_empty_reported_name_is_inconclusive_not_a_mismatch() -> None:
+    """A payload with no identity backs off; it never clears the revival lead."""
+    device = make_stuck_offline_device()
+    _monitor, callbacks, src = _reviver([device], worker_result={**_WORKER_MATCH, "name": ""})
+
+    await src._sweep()
+
+    assert callbacks.calls_for("on_persisted_ip_invalidated") == []
+    assert callbacks.calls_for("on_state_change") == []
+    assert device.ip == "192.168.1.50"
+    assert 0 < _cooldown_delta(src, device) <= _DIAL_FAILURE_COOLDOWN
+
+
 async def test_mac_conflict_neither_claims_nor_invalidates(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -407,6 +420,22 @@ async def test_online_transition_resets_the_backoff() -> None:
 
     assert src._cooldown == {}
     assert src._dial_failures == {}
+
+
+async def test_prune_keeps_a_shadowed_duplicate_names_bookkeeping() -> None:
+    """Two YAMLs sharing a name with different persisted IPs each keep their cooldowns."""
+    first = make_stuck_offline_device(ip="192.168.1.50")
+    second = make_stuck_offline_device(ip="192.168.1.60")
+    second.configuration = "kitchen (1).yaml"
+    _monitor, _callbacks, src = _reviver([first, second], rtt=None)
+
+    await src._sweep()
+    cooled_before = dict(src._cooldown)
+    await src._sweep()
+
+    assert ("kitchen", "192.168.1.50") in cooled_before
+    assert ("kitchen", "192.168.1.60") in cooled_before
+    assert src._cooldown == cooled_before
 
 
 async def test_removed_device_drops_all_bookkeeping() -> None:

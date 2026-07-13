@@ -197,18 +197,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
     async def stop(self) -> None:
         """Tear down the browser and drain the ping + API + resolve tasks (bounded)."""
         drain: list[asyncio.Task[Any]] = []
-        if self._ping_task is not None:
-            self._ping_task.cancel()
-            drain.append(self._ping_task)
-            self._ping_task = None
-        if self._api_info_task is not None:
-            self._api_info_task.cancel()
-            drain.append(self._api_info_task)
-            self._api_info_task = None
-        if self._api_reviver_task is not None:
-            self._api_reviver_task.cancel()
-            drain.append(self._api_reviver_task)
-            self._api_reviver_task = None
+        for attr in ("_ping_task", "_api_info_task", "_api_reviver_task"):
+            task: asyncio.Task | None = getattr(self, attr)
+            if task is not None:
+                task.cancel()
+                drain.append(task)
+                setattr(self, attr, None)
         # Cancel the browser FIRST so it stops dispatching new mDNS
         # callbacks; otherwise the drain below would race against
         # newly-spawned resolve tasks the browser is still firing.
@@ -410,17 +404,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
     def request_version_reprobe(self, name: str) -> None:
         """Force one Native-API version probe of *name*, ignoring the mac+version guard."""
         self._api_info.request_reprobe(name)
-
-    def invalidate_persisted_ip(self, name: str) -> None:
-        """
-        Report that *name*'s persisted last-known IP belongs to another device.
-
-        Forwarded to the owner so the on-disk value is cleared —
-        ``on_ip_change`` can't do it, its contract deliberately keeps
-        the last-known primary on disk across offline windows.
-        """
-        if self._on_persisted_ip_invalidated is not None:
-            self._on_persisted_ip_invalidated(name)
 
     def apply_version(self, name: str, version: str) -> bool:
         """Record a firmware version observation; True iff forwarded."""
