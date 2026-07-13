@@ -84,6 +84,27 @@ def test_no_visibility_falls_back_to_heuristic() -> None:
     assert name_entry["hidden"] is False
 
 
+def test_schema_visibility_ui_wins_over_heuristic_true() -> None:
+    """``visibility: "ui"`` pins a heuristic-True field to the main form.
+
+    Upstream's least-hidden rung (esphome/esphome#17503):
+    ``setup_priority`` is heuristic-advanced; the explicit author
+    hint overrides it.
+    """
+    entry = _convert_field("setup_priority", _leaf(visibility="ui"), _SCHEMA_DIR)
+    assert entry is not None
+    assert entry["advanced"] is False
+    assert entry["hidden"] is False
+
+
+def test_schema_visibility_ui_wins_over_platform_default_rule() -> None:
+    """``visibility: "ui"`` beats the platform-defaulted device_class/icon rule."""
+    entry = _convert_field("device_class", _leaf(visibility="ui", default="restart"), _SCHEMA_DIR)
+    assert entry is not None
+    assert entry["advanced"] is False
+    assert entry["default_value"] == "restart"
+
+
 def test_unrecognised_visibility_string_falls_back_to_heuristic() -> None:
     """An unknown ``visibility`` value falls back to the heuristic.
 

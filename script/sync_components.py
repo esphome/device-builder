@@ -794,12 +794,15 @@ class Visibility(StrEnum):
     member's string value is what the dumper emits, so
     ``raw["visibility"] == Visibility.ADVANCED`` works directly.
 
-    Two-tier strictness ordering: ``YAML_ONLY`` is strictly
-    stronger than ``ADVANCED``, which is strictly stronger than
-    no setting at all. The cascade pass below relies on that
-    ordering.
+    Strictness ordering: ``YAML_ONLY`` is strictly stronger than
+    ``ADVANCED``, which is strictly stronger than ``UI``
+    (esphome/esphome#17503, 2026.7.0b2), the least-hidden rung —
+    it pins the field to the main form over the consumer-side
+    heuristics, but not over the structural cascade (a field
+    inside an advanced parent block stays at-least advanced).
     """
 
+    UI = "ui"
     ADVANCED = "advanced"
     YAML_ONLY = "yaml_only"
 
@@ -3078,10 +3081,9 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     # wired to what.
     is_structural = entry_type == "pin" or bool(references)
     # Schema-author UI hint from upstream esphome
-    # (esphome/esphome#16267): the dumper emits ``"visibility":
-    # "advanced" | "yaml_only"`` for fields whose ``cv.Optional`` /
-    # ``cv.Required`` set ``visibility=Visibility.ADVANCED`` or
-    # ``=Visibility.YAML_ONLY``. Absent → fall back to the name-based
+    # (esphome/esphome#16267, #17503): the dumper emits ``"visibility":
+    # "ui" | "advanced" | "yaml_only"`` for fields whose ``cv.Optional`` /
+    # ``cv.Required`` set a ``Visibility``. Absent → fall back to the name-based
     # heuristic (the long tail of fields the schema doesn't yet
     # annotate; as upstream adoption grows the heuristic rules out
     # of ``_classify_advanced`` can shrink toward zero).
@@ -3093,9 +3095,12 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     # pass walks the resulting tree and pushes parent strictness
     # down where descendants would otherwise be more visible.
     schema_visibility = raw.get("visibility")
-    advanced = schema_visibility == Visibility.ADVANCED or _classify_advanced(
-        key, required=required, is_structural=is_structural
-    )
+    if schema_visibility == Visibility.UI:
+        advanced = False
+    else:
+        advanced = schema_visibility == Visibility.ADVANCED or _classify_advanced(
+            key, required=required, is_structural=is_structural
+        )
     yaml_only = schema_visibility == Visibility.YAML_ONLY
     # Sub-sensor readings on multi-sensor platforms (DHT temperature /
     # humidity, debug.sensor's free / block / loop_time / ..., ADS1115's
@@ -3109,7 +3114,12 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
-    if key in _PLATFORM_DEFAULTED_ADVANCED_KEYS and default_value is not None and not required:
+    if (
+        key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
+        and default_value is not None
+        and not required
+        and schema_visibility != Visibility.UI
+    ):
         advanced = True
     entry: dict[str, Any] = {
         "key": key,
