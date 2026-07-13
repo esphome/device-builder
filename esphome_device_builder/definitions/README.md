@@ -51,6 +51,17 @@ compares every manifest against its generated body and fails CI on any drift.
 confirm it resolves (network, opt-in); the consistency test exempts `images`, so
 a broken image URL passes the sync but is caught here.
 
+### CI regenerates the catalog for you
+
+On PRs that edit a board manifest, CI reruns the regeneration against the
+pinned ESPHome (`.github/workflows/regen-board-catalog.yml`): same-repo
+branches get the regenerated JSON pushed back as a bot commit, and fork PRs
+get a sticky comment with the exact commands plus a ready-to-apply
+`board-catalog-regen.patch` artifact. So if you forget the local step — or
+regenerated against the wrong ESPHome — CI fixes or tells you exactly how to.
+Running `update_board.py` locally is still the fastest path (no CI round-trip)
+and the only one that also validates before you push.
+
 ### Run the sync with the project venv
 
 `sync_boards.py` imports ESPHome: it generates the boards no manifest covers

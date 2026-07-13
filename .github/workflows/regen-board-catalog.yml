@@ -1,0 +1,333 @@
+name: Regenerate board catalog
+
+# Auto-regenerates the three generated board-catalog artefacts
+# (boards.index.json, board_bodies/<id>.json,
+# featured_components.index.json) on PRs that edit board manifests, so
+# contributors only ever hand-edit YAML. Same-repo PRs get the regen
+# pushed as a bot commit; fork PRs (no token can push to a fork — the
+# maintainer-edit grant applies to user credentials only) get a sticky
+# comment with the exact local commands plus a ready-to-apply patch
+# artifact. test.yml's drift gate stays as the enforcing backstop; this
+# workflow must never become a required check.
+#
+# Security model (pull_request_target => secrets reachable):
+# every executed script comes from the BASE checkout; the PR head is
+# checked out as *data only* and only its definitions/boards +
+# definitions/components trees are overlaid (parsed via CSafeLoader /
+# orjson — no code paths). The run skips entirely when the PR touches
+# anything that could influence execution (script/**, any *.py,
+# esphome-constraints.txt, pyproject.toml, workflows, pre-commit
+# config). The App token is minted only after all untrusted-data
+# processing, scoped to this repo with contents:write only, and the
+# commit is staged through a pathspec allowlist of the three generated
+# locations. PR-controlled strings (branch name, board ids) never reach
+# a shell uninterpolated: ids are validated against a strict slug
+# regex, the branch name travels via env.
+#
+# Rollout gate: mutating actions (push / comment) only run when the
+# repo variable BOARD_CATALOG_AUTOPUSH is 'true'; otherwise the run
+# computes, uploads the patch artifact, and logs what it would do.
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - "esphome_device_builder/definitions/boards/**/manifest.yaml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: regen-board-catalog-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  regen:
+    name: Regenerate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Bot PRs (catalog syncs, dependabot) already carry their regen or
+    # never touch manifests; a null head repo is a fork deleted mid-flight.
+    if: >-
+      github.event.pull_request.head.repo != null
+      && github.event.pull_request.user.type != 'Bot'
+    steps:
+      - name: Inspect PR files
+        id: inspect
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner, repo, pull_number: context.payload.pull_request.number,
+              per_page: 100,
+            });
+            const paths = files.map(f => f.filename);
+            // Skip when the PR could influence what this workflow
+            // executes or installs — the drift gate covers those PRs.
+            const codePatterns = [
+              /^script\//,
+              /\.py$/,
+              /^esphome-constraints\.txt$/,
+              /^pyproject\.toml$/,
+              /^\.github\//,
+              /^\.pre-commit-config\.yaml$/,
+            ];
+            const touchy = paths.filter(p => codePatterns.some(re => re.test(p)));
+            if (touchy.length) {
+              core.notice(`Skipping auto-regen: PR also touches ${touchy.slice(0, 5).join(', ')}`);
+              core.setOutput('skip', 'true');
+              return;
+            }
+            const idRe = /^esphome_device_builder\/definitions\/boards\/([^/]+)\/manifest\.yaml$/;
+            const ids = [...new Set(paths.map(p => idRe.exec(p)?.[1]).filter(Boolean))];
+            // Ids become commit-message / comment text and a suggested
+            // command line; anything outside the slug alphabet is not a
+            // board this catalog could contain — refuse rather than quote.
+            const slugRe = /^[A-Za-z0-9._-]+$/;
+            if (!ids.length || ids.some(id => !slugRe.test(id))) {
+              core.notice('Skipping auto-regen: no plainly-named board manifest in the diff.');
+              core.setOutput('skip', 'true');
+              return;
+            }
+            const head = context.payload.pull_request.head;
+            core.setOutput('skip', 'false');
+            core.setOutput('board_ids', ids.join(' '));
+            core.setOutput('is_fork', String(head.repo.full_name !== `${owner}/${repo}`));
+
+      - name: Check out base (trusted, executed)
+        if: steps.inspect.outputs.skip != 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          path: base
+          persist-credentials: false
+
+      - name: Check out PR head (data only, never executed)
+        if: steps.inspect.outputs.skip != 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          path: pr
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Skip our own regen commit
+        id: loop
+        if: steps.inspect.outputs.skip != 'true'
+        # The paths filter sees the whole PR diff, so the bot's own push
+        # retriggers this workflow; the marker check stops the loop one
+        # run early (deterministic no-diff convergence is the backstop).
+        run: |
+          case "$(git -C pr log -1 --format=%s)" in
+            *"[board-catalog-regen]"*)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::Head commit is our own regen; nothing to do."
+              ;;
+            *)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Overlay PR manifests onto the base tree
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        # rm-then-copy so deletions and renames propagate. components/
+        # comes along so featured-pin stamping sees the same catalog the
+        # PR tree does even when the PR base is stale. Symlinks anywhere
+        # under the PR's definitions tree are refused: a symlinked
+        # manifest would make the trusted sync read — and a symlinked
+        # output dir make the copy-back write — arbitrary runner paths.
+        run: |
+          if find pr/esphome_device_builder/definitions -type l | grep -q .; then
+            find pr/esphome_device_builder/definitions -type l
+            echo "::error::Symlinks under esphome_device_builder/definitions are not allowed."
+            exit 1
+          fi
+          rm -rf base/esphome_device_builder/definitions/boards \
+            base/esphome_device_builder/definitions/components
+          cp -a pr/esphome_device_builder/definitions/boards \
+            base/esphome_device_builder/definitions/boards
+          cp -a pr/esphome_device_builder/definitions/components \
+            base/esphome_device_builder/definitions/components
+
+      - name: Set up Python
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
+        with:
+          enable-cache: true
+
+      - name: Install package (base constraints)
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        working-directory: base
+        run: uv pip install --system -c esphome-constraints.txt -e '.[esphome,test]'
+
+      - name: Validate manifests
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        working-directory: base
+        run: python script/validate_definitions.py
+
+      - name: Regenerate catalog against the pinned esphome
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        working-directory: base
+        # Full sync: handles adds / deletes / multi-board edits and
+        # restores a whole-catalog clobber; --restamp is unnecessary
+        # (and undesired) because the pinned install matches the stamp.
+        run: python script/sync_boards.py
+
+      - name: Stage regenerated artefacts into the PR tree
+        id: stage
+        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+        # The git-add pathspec is the write allowlist: whatever the sync
+        # produced, only the three generated locations can reach a commit.
+        run: |
+          defs=esphome_device_builder/definitions
+          rsync -a --delete "base/$defs/board_bodies/" "pr/$defs/board_bodies/"
+          cp "base/$defs/boards.index.json" "base/$defs/featured_components.index.json" "pr/$defs/"
+          git -C pr add -A -- \
+            "$defs/boards.index.json" \
+            "$defs/board_bodies" \
+            "$defs/featured_components.index.json"
+          if git -C pr diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Committed catalog already matches the regenerated one."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git -C pr diff --cached --stat | tail -5
+          fi
+          pin=$(grep -oE 'esphome==[A-Za-z0-9.]+' base/esphome-constraints.txt | head -n1 || true)
+          echo "pin=$pin" >> "$GITHUB_OUTPUT"
+
+      - name: Write regen patch
+        if: >-
+          steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+          && steps.stage.outputs.changed == 'true'
+        run: git -C pr diff --cached > board-catalog-regen.patch
+
+      - name: Upload regen patch
+        if: >-
+          steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+          && steps.stage.outputs.changed == 'true'
+        # The patch is a convenience; a flaky artifact store must not
+        # block the push.
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: board-catalog-regen-${{ github.event.pull_request.number }}
+          path: board-catalog-regen.patch
+          retention-days: 14
+
+      - name: Mint App token
+        id: token
+        if: >-
+          steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+          && steps.stage.outputs.changed == 'true'
+          && steps.inspect.outputs.is_fork == 'false'
+          && vars.BOARD_CATALOG_AUTOPUSH == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ vars.ESPHOME_GITHUB_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ESPHOME_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+
+      - name: Push regen commit to the PR branch
+        if: steps.token.outcome == 'success'
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+          SLUG: ${{ steps.token.outputs.app-slug }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BOARD_IDS: ${{ steps.inspect.outputs.board_ids }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The branch may have moved since this event fired; a push on a
+          # stale base would either fail (fine) or interleave — bail and
+          # let the new synchronize event's run handle it.
+          current=$(git ls-remote "https://github.com/${REPO}.git" "refs/heads/${HEAD_REF}" | cut -f1)
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "::notice::Branch moved (${current}); the newer run takes over."
+            exit 0
+          fi
+          bot_id=$(gh api "/users/${SLUG}%5Bbot%5D" --jq .id)
+          git -C pr \
+            -c user.name="${SLUG}[bot]" \
+            -c user.email="${bot_id}+${SLUG}[bot]@users.noreply.github.com" \
+            commit -m "Regenerate board catalog for ${BOARD_IDS} [board-catalog-regen]"
+          # Credential via header, not URL — a URL-embedded token would
+          # echo into the log on push errors (masked, but keep it out
+          # entirely).
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+          git -C pr -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push "https://github.com/${REPO}.git" "HEAD:refs/heads/${HEAD_REF}"
+
+      - name: Comment on fork PR (sticky)
+        if: >-
+          steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+          && steps.inspect.outputs.is_fork == 'true'
+          && vars.BOARD_CATALOG_AUTOPUSH == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          CHANGED: ${{ steps.stage.outputs.changed }}
+          PIN: ${{ steps.stage.outputs.pin }}
+        with:
+          script: |
+            const marker = '<!-- board-catalog-regen -->';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            // Full sync, not per-id update_board.py: it handles deleted
+            // and renamed boards too, and mirrors what this run executed.
+            // Constraints-file fallback stays version-correct even when
+            // no pin token was derivable.
+            const install = process.env.PIN
+              ? `uv pip install '${process.env.PIN}'`
+              : 'uv pip install -c esphome-constraints.txt esphome';
+            const body = process.env.CHANGED === 'true'
+              ? [
+                  marker,
+                  '### Board catalog needs regenerating',
+                  '',
+                  'CI regenerated the catalog JSON from your manifests and it differs from',
+                  "what's committed. Forks can't receive an automated push, so run locally:",
+                  '',
+                  '```bash',
+                  install,
+                  'python script/sync_boards.py',
+                  'git add -A esphome_device_builder/definitions && git commit -m "Regenerate board catalog" && git push',
+                  '```',
+                  '',
+                  `Or download \`board-catalog-regen.patch\` from [this run](${runUrl}) and \`git apply\` it.`,
+                  'Details: `esphome_device_builder/definitions/README.md`.',
+                ].join('\n')
+              : `${marker}\n✅ Board catalog is in sync with the manifests.`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            const existing = comments.find(c => c.body?.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else if (process.env.CHANGED === 'true') {
+              // Never open a comment just to say everything is fine.
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      - name: Dry-run summary
+        if: >-
+          steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
+          && steps.stage.outputs.changed == 'true'
+          && vars.BOARD_CATALOG_AUTOPUSH != 'true'
+        env:
+          IS_FORK: ${{ steps.inspect.outputs.is_fork }}
+        run: |
+          action="push a regen commit to the PR branch"
+          [ "$IS_FORK" = "true" ] && action="post the fork instructions comment"
+          echo "::notice::Dry run (BOARD_CATALOG_AUTOPUSH unset): would $action. Patch uploaded as artifact."
