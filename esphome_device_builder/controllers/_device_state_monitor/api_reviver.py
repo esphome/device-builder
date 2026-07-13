@@ -41,6 +41,7 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
+from ...helpers.cooldown import CooldownLedger
 from ...models import Device, DeviceState
 from . import shared
 from ._api_probe import (
@@ -48,7 +49,6 @@ from ._api_probe import (
     ProbeRequestError,
     api_worker_available,
     apply_worker_info,
-    build_probe_request,
 )
 from .helpers import _normalize_mac
 
@@ -88,12 +88,9 @@ class ApiReviverSource(ApiSweepSource):
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         super().__init__(monitor)
         self._concurrency = asyncio.Semaphore(shared.ICMP_BATCH_SIZE)
-        # (name, persisted ip) -> monotonic deadline; keying on the pair
-        # means a persisted-IP change bypasses the old entry naturally.
-        self._cooldown: dict[tuple[str, str], float] = {}
-        # (name, persisted ip) -> consecutive dial failures, for the
-        # escalating backoff.
-        self._dial_failures: dict[tuple[str, str], int] = {}
+        # Keyed on (name, persisted ip) so a persisted-IP change
+        # bypasses the old entry naturally.
+        self._cooldown: CooldownLedger[tuple[str, str]] = CooldownLedger()
         # name -> (ip, verified-at monotonic) for responders that passed
         # identity verification; a fresh pair revives without a dial.
         self._verified: dict[str, tuple[str, float]] = {}
@@ -157,7 +154,7 @@ class ApiReviverSource(ApiSweepSource):
             and device.ip
             and device.runtime_state.state is not DeviceState.ONLINE
             and not device.runtime_state.ip_addresses
-            and self._cooldown.get((device.name, device.ip), 0.0) <= now
+            and self._cooldown.ready((device.name, device.ip), now)
             and shared.address_resolution_exhausted(self._monitor, device.address)
         ]
 
@@ -178,16 +175,12 @@ class ApiReviverSource(ApiSweepSource):
         """One worker dial; revive on identity match, invalidate on mismatch."""
         monitor = self._monitor
         try:
-            request = await build_probe_request(monitor, device, [device.ip])
-        except ProbeRequestError:
-            # Transient resolve failure — same short retry as an ICMP
-            # miss, not the nothing-changes-until-the-YAML-does hold.
-            self._cool_down(device, _ICMP_SILENT_COOLDOWN)
+            info = await self._probe(device, [device.ip])
+        except ProbeRequestError as exc:
+            # A transient resolve blip retries as cheaply as an ICMP
+            # miss; a missing Noise key holds until the YAML changes.
+            self._cool_down(device, _ICMP_SILENT_COOLDOWN if exc.transient else _NO_KEY_COOLDOWN)
             return
-        if request is None:
-            self._cool_down(device, _NO_KEY_COOLDOWN)
-            return
-        info = await self._run_worker(device, request)
         if info is None:
             self._record_dial_failure(device)
             return
@@ -207,6 +200,12 @@ class ApiReviverSource(ApiSweepSource):
                 device.name,
                 reported,
             )
+            # Backoff first — the callback clears ``device.ip``, and the
+            # cooldown must land on the pair that was dialed. It keeps
+            # the stranger un-redialed even when no invalidation
+            # callback is wired; the cleared IP then drops the device
+            # from the cohort entirely.
+            self._record_dial_failure(device)
             if monitor._on_persisted_ip_invalidated is not None:
                 monitor._on_persisted_ip_invalidated(device.name)
             return
@@ -249,15 +248,12 @@ class ApiReviverSource(ApiSweepSource):
 
     def _cool_down(self, device: Device, seconds: float) -> None:
         """Skip this ``(name, ip)`` pair until *seconds* from now."""
-        self._cooldown[(device.name, device.ip)] = time.monotonic() + seconds
+        self._cooldown.set((device.name, device.ip), seconds)
 
     def _record_dial_failure(self, device: Device) -> None:
         """Escalating backoff for a responder that answers ICMP but fails the dial."""
-        key = (device.name, device.ip)
-        count = self._dial_failures.get(key, 0) + 1
-        self._dial_failures[key] = count
-        self._cool_down(
-            device, min(_DIAL_FAILURE_COOLDOWN * 2 ** (count - 1), _DIAL_FAILURE_COOLDOWN_MAX)
+        self._cooldown.escalate(
+            (device.name, device.ip), _DIAL_FAILURE_COOLDOWN, _DIAL_FAILURE_COOLDOWN_MAX
         )
 
     def _prune(self, devices: list[Device]) -> None:
@@ -267,7 +263,7 @@ class ApiReviverSource(ApiSweepSource):
         resets the escalating backoff so legitimate recovery isn't
         delayed by a stale failure streak.
         """
-        if not (self._cooldown or self._dial_failures or self._verified):
+        if not (self._cooldown or self._verified):
             return
         # Buckets, not a flat map: duplicate ``esphome.name`` YAMLs (a
         # config plus a ``foo (1).yaml`` copy) are distinct Devices whose
@@ -277,15 +273,14 @@ class ApiReviverSource(ApiSweepSource):
         for device in devices:
             current.setdefault(device.name, []).append(device)
 
-        def stale(key: tuple[str, str]) -> bool:
+        def fresh(key: tuple[str, str]) -> bool:
             bucket = current.get(key[0])
             if bucket is None:
-                return True
-            return all(
-                device.ip != key[1] or device.runtime_state.state is DeviceState.ONLINE
+                return False
+            return any(
+                device.ip == key[1] and device.runtime_state.state is not DeviceState.ONLINE
                 for device in bucket
             )
 
-        self._cooldown = {k: v for k, v in self._cooldown.items() if not stale(k)}
-        self._dial_failures = {k: v for k, v in self._dial_failures.items() if not stale(k)}
+        self._cooldown.prune(fresh)
         self._verified = {n: v for n, v in self._verified.items() if n in current}

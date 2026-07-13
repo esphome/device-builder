@@ -19,6 +19,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from ...helpers.cooldown import CooldownLedger
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
 from ._api_probe import (
@@ -26,7 +27,6 @@ from ._api_probe import (
     ProbeRequestError,
     api_worker_available,
     apply_worker_info,
-    build_probe_request,
 )
 
 if TYPE_CHECKING:
@@ -58,8 +58,8 @@ class ApiInfoSource(ApiSweepSource):
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         super().__init__(monitor)
-        # name -> monotonic deadline before which we won't retry a fetch.
-        self._cooldown: dict[str, float] = {}
+        # Names we won't refetch until their cooldown expires.
+        self._cooldown: CooldownLedger[str] = CooldownLedger()
         # Device names to probe once even though they already have mac+version
         # (post-flash version verification); cleared after one probe attempt.
         self._force_reprobe: set[str] = set()
@@ -92,7 +92,7 @@ class ApiInfoSource(ApiSweepSource):
         # not a fleet sweep — serialising keeps it unobtrusive.
         devices = self._monitor._get_devices()
         live = {device.name for device in devices}
-        self._cooldown = {name: t for name, t in self._cooldown.items() if name in live}
+        self._cooldown.prune(live.__contains__)
         self._force_reprobe &= live
         # Free repair first: a device the browser handler missed (timed-out
         # resolve, cold-start probe no-op) sits blank while the zeroconf cache
@@ -194,7 +194,7 @@ class ApiInfoSource(ApiSweepSource):
             device
             for device in self._monitor._get_devices()
             if self._is_due(device)
-            and (device.name in self._force_reprobe or self._cooldown.get(device.name, 0.0) <= now)
+            and (device.name in self._force_reprobe or self._cooldown.ready(device.name, now))
         ]
 
     @staticmethod
@@ -231,15 +231,12 @@ class ApiInfoSource(ApiSweepSource):
             self._record_failure(device)
             return
         try:
-            request = await build_probe_request(monitor, device, addresses)
+            info = await self._probe(device, addresses) or {}
         except ProbeRequestError:
             # Transient vs definitive doesn't change this source's
             # handling — both are one cooldown.
-            request = None
-        if request is None:
             self._record_failure(device)
             return
-        info = await self._run_worker(device, request) or {}
         # Any newly-filled field means the connection worked and made
         # progress: don't cool down, so a device that answered with mac
         # XOR version chases the rest on the next normal sweep. Nothing
@@ -258,7 +255,7 @@ class ApiInfoSource(ApiSweepSource):
 
     def _record_failure(self, device: Device) -> None:
         """Back *device* off so the next sweep skips it until the cooldown expires."""
-        self._cooldown[device.name] = time.monotonic() + _FAILURE_COOLDOWN
+        self._cooldown.set(device.name, _FAILURE_COOLDOWN)
 
     def _evaluate_systemic_health(self) -> None:
         """
@@ -274,7 +271,7 @@ class ApiInfoSource(ApiSweepSource):
         failing = sum(
             1
             for device in self._monitor._get_devices()
-            if self._is_due(device) and self._cooldown.get(device.name, 0.0) > now
+            if self._is_due(device) and not self._cooldown.ready(device.name, now)
         )
         if failing < _SYSTEMIC_FAILURE_WARN_THRESHOLD:
             self._warned_systemic = False

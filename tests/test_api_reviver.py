@@ -59,7 +59,7 @@ def _reviver(
 
 
 def _cooldown_delta(src: ApiReviverSource, device: Device) -> float:
-    return src._cooldown[(device.name, device.ip)] - time.monotonic()
+    return src._cooldown.remaining((device.name, device.ip))
 
 
 # ----------------------------------------------------------------------
@@ -306,6 +306,9 @@ async def test_name_mismatch_invalidates_the_persisted_ip() -> None:
     assert callbacks.calls_for("on_state_change") == []
     assert device.ip == ""
     assert src._verified == {}
+    # Backoff recorded independently of the callback, so an unwired
+    # monitor still never re-dials the stranger every sweep.
+    assert not src._cooldown.ready(("kitchen", "192.168.1.50"))
 
     # The cleared IP fails the cohort gate: no re-dial next sweep.
     src._run_worker.reset_mock()
@@ -359,13 +362,13 @@ async def test_dial_failure_backs_off_with_escalation() -> None:
     first = _cooldown_delta(src, device)
     assert 0 < first <= _DIAL_FAILURE_COOLDOWN
 
-    src._cooldown[(device.name, device.ip)] = 0.0
+    src._cooldown.set((device.name, device.ip), 0)
     await src._sweep()
     second = _cooldown_delta(src, device)
     assert first < second <= 2 * _DIAL_FAILURE_COOLDOWN
 
-    src._dial_failures[(device.name, device.ip)] = 10
-    src._record_dial_failure(device)
+    for _ in range(10):
+        src._record_dial_failure(device)
     assert _cooldown_delta(src, device) <= _DIAL_FAILURE_COOLDOWN_MAX
 
 
@@ -389,7 +392,7 @@ async def test_transient_resolve_failure_retries_soon() -> None:
 
     src._run_worker.assert_not_called()
     assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
-    assert src._dial_failures == {}
+    assert src._cooldown.strikes((device.name, device.ip)) == 0
 
 
 async def test_dials_are_capped_per_sweep_and_overflow_rolls() -> None:
@@ -400,8 +403,7 @@ async def test_dials_are_capped_per_sweep_and_overflow_rolls() -> None:
 
     assert src._run_worker.await_count == _MAX_DIALS_PER_SWEEP
     # The un-dialed overflow is not cooled down — it rolls to the next sweep.
-    cooled = {name for (name, _ip) in src._cooldown}
-    assert len(cooled) == _MAX_DIALS_PER_SWEEP
+    assert len(src._cooldown) == _MAX_DIALS_PER_SWEEP
 
 
 # ----------------------------------------------------------------------
@@ -413,13 +415,15 @@ async def test_online_transition_resets_the_backoff() -> None:
     device = make_stuck_offline_device()
     _monitor, _callbacks, src = _reviver([device], worker_result=None)
     await src._sweep()
-    assert src._cooldown and src._dial_failures
+    key = (device.name, device.ip)
+    assert key in src._cooldown
+    assert src._cooldown.strikes(key) == 1
 
     device.runtime_state.state = DeviceState.ONLINE
     await src._sweep()
 
-    assert src._cooldown == {}
-    assert src._dial_failures == {}
+    assert not src._cooldown
+    assert src._cooldown.strikes(key) == 0
 
 
 async def test_prune_keeps_a_shadowed_duplicate_names_bookkeeping() -> None:
@@ -430,12 +434,12 @@ async def test_prune_keeps_a_shadowed_duplicate_names_bookkeeping() -> None:
     _monitor, _callbacks, src = _reviver([first, second], rtt=None)
 
     await src._sweep()
-    cooled_before = dict(src._cooldown)
+    cooled_before = dict(src._cooldown._deadline)
     await src._sweep()
 
     assert ("kitchen", "192.168.1.50") in cooled_before
     assert ("kitchen", "192.168.1.60") in cooled_before
-    assert src._cooldown == cooled_before
+    assert src._cooldown._deadline == cooled_before
 
 
 async def test_removed_device_drops_all_bookkeeping() -> None:
@@ -448,6 +452,5 @@ async def test_removed_device_drops_all_bookkeeping() -> None:
     devices.clear()
     await src._sweep()
 
-    assert src._cooldown == {}
-    assert src._dial_failures == {}
+    assert not src._cooldown
     assert src._verified == {}

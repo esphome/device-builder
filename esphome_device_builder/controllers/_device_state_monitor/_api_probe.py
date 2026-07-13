@@ -84,6 +84,14 @@ class ApiSweepSource:
     async def _sweep(self) -> None:
         raise NotImplementedError
 
+    async def _probe(self, device: Device, addresses: list[str]) -> dict[str, Any] | None:
+        """Build the request and dial once; payload, or ``None`` on a worker miss.
+
+        Raises :class:`ProbeRequestError` when the request can't be built.
+        """
+        request = await build_probe_request(self._monitor, device, addresses)
+        return await self._run_worker(device, request)
+
     async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
         """Instance seam over the shared worker runner (tests stub it here)."""
         return await run_worker(device.name, request)
@@ -94,20 +102,27 @@ class ApiSweepSource:
 
 
 class ProbeRequestError(Exception):
-    """Key/port resolve failed; transient, the dial may work on a retry."""
+    """
+    The worker request can't be built; no dial happens.
+
+    ``transient`` distinguishes a key/port resolve failure (worth a
+    quick retry) from a config declaring Noise encryption with no
+    resolvable key, where nothing changes until the YAML does.
+    """
+
+    def __init__(self, message: str, *, transient: bool) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 async def build_probe_request(
     monitor: DeviceStateMonitor, device: Device, addresses: list[str]
-) -> bytes | None:
-    """
-    Resolve key/port and encode the worker request; ``None`` when undialable.
+) -> bytes:
+    """Resolve key/port and encode the worker request; raise when undialable.
 
-    ``None`` is definitive until the YAML changes: the config declares
-    Noise encryption and no key resolved (e.g. a templated key), so a
-    plaintext connect could only fail the handshake. A key/port resolve
-    *failure* raises :class:`ProbeRequestError` instead so callers can
-    retry it sooner. Either way no doomed worker is spawned.
+    An undialable device raises :class:`ProbeRequestError` — a
+    plaintext connect without the declared key could only fail the
+    handshake, so no doomed worker is spawned.
     """
     noise_psk, port = "", DEFAULT_API_PORT
     if monitor._resolve_api_connection is not None:
@@ -115,10 +130,10 @@ async def build_probe_request(
             noise_psk, port = await monitor._resolve_api_connection(device.configuration)
         except Exception as exc:
             _LOGGER.debug("API key/port resolve failed for %s; skipping: %s", device.name, exc)
-            raise ProbeRequestError(str(exc)) from exc
+            raise ProbeRequestError(str(exc), transient=True) from exc
     if device.api_encrypted and not noise_psk:
         _LOGGER.debug("No Native API key resolved for encrypted %s; skipping", device.name)
-        return None
+        raise ProbeRequestError("no Noise key resolved", transient=False)
     return dumps(
         {
             "address": addresses[0],

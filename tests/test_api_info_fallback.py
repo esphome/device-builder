@@ -15,7 +15,6 @@ import asyncio
 import io
 import json
 import logging
-import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -367,7 +366,8 @@ async def test_sweep_prunes_cooldown_for_removed_devices() -> None:
     device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
-    src._cooldown = {"ghost": 1e18, "kitchen": 1e18}
+    src._cooldown.set("ghost", 1e18)
+    src._cooldown.set("kitchen", 1e18)
     src._fetch = AsyncMock()  # type: ignore[method-assign]
 
     await src._sweep()
@@ -928,7 +928,7 @@ def test_request_reprobe_bypasses_cooldown() -> None:
     device = make_online_api_device()
     monitor, _ = make_state_monitor_with_callbacks([device])
     src = monitor._api_info
-    src._cooldown["kitchen"] = time.monotonic() + 600
+    src._cooldown.set("kitchen", 600)
     assert src._select_targets() == []  # parked on cooldown
     src.request_reprobe("kitchen")
     assert [d.name for d in src._select_targets()] == ["kitchen"]
