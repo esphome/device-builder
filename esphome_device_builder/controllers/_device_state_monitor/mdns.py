@@ -378,13 +378,13 @@ class MdnsSource:
         await self._resolve_then(zeroconf, info, device_name, apply or self._apply_service_info)
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
-        """Resolve before honouring a ``Removed``; only a failed resolve applies OFFLINE."""
-        if name in self._inflight_resolves:
-            # A concurrent resolve decides; a dead device demotes via the
-            # sweep (no live PTR keeps it sweep-eligible).
-            return
+        """Resolve before honouring a ``Removed``; only a confirmed miss applies OFFLINE."""
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, name)
-        if await self._resolve_then(zeroconf, info, device_name, self._apply_service_info):
+        verdict = await self._resolve_then(zeroconf, info, device_name, self._apply_service_info)
+        if verdict is not False:
+            # Resolved (stays ONLINE) or no verdict (swallowed error, or a
+            # concurrent resolve owns the flight) — never demote on
+            # uncertainty; the sweep re-checks either way.
             return
         monitor = self._monitor
         monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
@@ -401,7 +401,7 @@ class MdnsSource:
         apply: Callable[[str, AsyncServiceInfo], None],
         *,
         timeout_ms: float = _MDNS_RESOLVE_TIMEOUT_MS,
-    ) -> bool:
+    ) -> bool | None:
         """
         Resolve a cache-miss service and hand the result to *apply*.
 
@@ -410,17 +410,19 @@ class MdnsSource:
         ``async_request`` the record, swallow exceptions to a
         debug log, dispatch to the per-type applier on success.
         At most one resolve per service name is in flight. Returns
-        True iff the service resolved and *apply* ran.
+        True when the service resolved and *apply* ran, False on a
+        confirmed miss, None when there is no verdict (a swallowed
+        error, or a resolve already in flight).
         """
         if info.name in self._inflight_resolves:
-            return False
+            return None
         self._inflight_resolves.add(info.name)
         try:
             if not await info.async_request(zeroconf, timeout=timeout_ms):
                 return False
         except Exception:
             _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
-            return False
+            return None
         finally:
             self._inflight_resolves.discard(info.name)
         apply(device_name, info)
