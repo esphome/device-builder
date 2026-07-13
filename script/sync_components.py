@@ -4852,7 +4852,6 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
         live_bodies=_OUTPUT_BODIES_DIR,
         index_payload=index_payload,
         live_index=_OUTPUT_INDEX_FILE,
-        index_entries_keys=("components",),
     )
     _LOGGER.info("Wrote %d body files to %s", len(catalog), _OUTPUT_BODIES_DIR)
     _LOGGER.info("Wrote %s", _OUTPUT_INDEX_FILE)
@@ -4931,7 +4930,6 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
         live_bodies=_AUTOMATIONS_BODIES_DIR,
         index_payload=index_payload,
         live_index=_AUTOMATIONS_INDEX_FILE,
-        index_entries_keys=tuple(k for k, *_ in _AUTOMATIONS_SUBCATALOGS),
     )
     _LOGGER.info(
         "Wrote %d automation body files to %s",

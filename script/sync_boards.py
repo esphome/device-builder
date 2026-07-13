@@ -1318,7 +1318,6 @@ def _emit_split_catalog(
         live_bodies=_BODIES_DIR,
         index_payload=_index_payload(full_payloads),
         live_index=_INDEX_FILE,
-        index_entries_keys=("boards",),
         index_cls=BoardCatalogIndex,
     )
 
@@ -1358,7 +1357,7 @@ def _write_index(full_payloads: list[dict[str, Any]]) -> None:
     for entry in index_payload["boards"]:
         BoardCatalogIndex.from_dict(entry)
     next_index = _INDEX_FILE.with_suffix(".json.next")
-    next_index.write_bytes(dumps_envelope_entries_per_line(index_payload, ("boards",)))
+    next_index.write_bytes(dumps_envelope_entries_per_line(index_payload))
     next_index.replace(_INDEX_FILE)
 
 
