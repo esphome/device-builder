@@ -107,7 +107,14 @@ jobs:
           if [ -n "$(git status --porcelain -- $paths)" ]; then
             git status --porcelain -- $paths
             git diff -- $paths
-            pin=$(grep -o 'esphome==.*' esphome-constraints.txt)
+            # || true everywhere: this branch runs under bash -e, and a
+            # no-match grep must not eat the ::error guidance below.
+            pin=$(grep -oE 'esphome==[A-Za-z0-9.]+' esphome-constraints.txt | head -n1 || true)
+            if [ -n "$pin" ]; then
+              install="uv pip install '$pin'"
+            else
+              install="uv pip install -c esphome-constraints.txt esphome"
+            fi
             ids=$(git status --porcelain -- esphome_device_builder/definitions/board_bodies/ \
               | grep 'board_bodies/' | sed -E 's|.*board_bodies/(.+)\.json.*|\1|' | sort -u || true)
             if [ "$(echo "$ids" | grep -c .)" = "1" ]; then
@@ -115,7 +122,7 @@ jobs:
             else
               fix="python script/sync_boards.py"
             fi
-            echo "::error::Board catalog is out of sync with manifests. Fix locally: uv pip install '$pin' && $fix — then commit the regenerated files (see definitions/README.md)."
+            echo "::error::Board catalog is out of sync with manifests. Fix locally: $install && $fix — then commit the regenerated files (see definitions/README.md)."
             exit 1
           fi
 
