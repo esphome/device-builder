@@ -164,21 +164,25 @@ def _validate_against_schema(data: dict, schema: dict | None, item_id: str) -> l
     return errors
 
 
-def validate_board(manifest: Path, components_index: dict | None = None) -> list[str]:
+def validate_board(
+    manifest: Path, components_index: dict | None = None, data: dict | None = None
+) -> list[str]:
     """
     Validate a board manifest. Returns list of error messages.
 
     *components_index* is the dict returned by :func:`_build_components_index`;
     when provided, featured-component cross-references are validated against
-    the live component catalog.
+    the live component catalog. *data* is the already-parsed manifest, to
+    save a caller that parsed it for other checks the second read.
     """
     errors: list[str] = []
     board_id = manifest.parent.name
 
-    try:
-        data = load_manifest_dict(manifest)
-    except ManifestError as exc:
-        return [f"{board_id}: {exc}"]
+    if data is None:
+        try:
+            data = load_manifest_dict(manifest)
+        except ManifestError as exc:
+            return [f"{board_id}: {exc}"]
 
     # JSON Schema validation
     errors.extend(_validate_against_schema(data, _BOARD_SCHEMA, board_id))
@@ -863,11 +867,12 @@ def main() -> int:
     # Validate boards
     boards_dir = DEFINITIONS_DIR / "boards"
     for manifest in sorted(boards_dir.glob("*/manifest.yaml")):
-        all_errors.extend(validate_board(manifest, components_index))
         try:
             data = load_manifest_dict(manifest)
-        except ManifestError:
-            continue  # already reported as an error above
+        except ManifestError as exc:
+            all_errors.append(f"{manifest.parent.name}: {exc}")
+            continue
+        all_errors.extend(validate_board(manifest, components_index, data))
         all_warnings.extend(collect_hardware_warnings(manifest.parent.name, data))
 
     # Validate components
