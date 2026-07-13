@@ -212,6 +212,11 @@ class ApiReviverSource(ApiSweepSource):
         if not reported:
             # Connected but no identity — inconclusive, not proof of a
             # different device; never burn the only revival lead on it.
+            _LOGGER.debug(
+                "Dial of %s for %s connected but reported no identity; backing off",
+                ip,
+                device.name,
+            )
             self._record_dial_failure(key)
             return
         if reported != device.name:
