@@ -65,6 +65,7 @@ featured_components:
     update_interval: 5s
   requires:
   - modbus_bus
+  - uart_bus
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -107,6 +108,7 @@ featured_components:
     name: bl0910_1_current_1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_2
   component_id: sensor.modbus_controller
@@ -125,6 +127,7 @@ featured_components:
     name: bl0910_1_current_2
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_3
   component_id: sensor.modbus_controller
@@ -143,6 +146,7 @@ featured_components:
     name: bl0910_1_current_3
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_4
   component_id: sensor.modbus_controller
@@ -161,6 +165,7 @@ featured_components:
     name: bl0910_1_current_4
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_5
   component_id: sensor.modbus_controller
@@ -179,6 +184,7 @@ featured_components:
     name: bl0910_1_current_5
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_6
   component_id: sensor.modbus_controller
@@ -197,6 +203,7 @@ featured_components:
     name: bl0910_1_current_6
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_7
   component_id: sensor.modbus_controller
@@ -215,6 +222,7 @@ featured_components:
     name: bl0910_1_current_7
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_8
   component_id: sensor.modbus_controller
@@ -233,6 +241,7 @@ featured_components:
     name: bl0910_1_current_8
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_9
   component_id: sensor.modbus_controller
@@ -251,6 +260,7 @@ featured_components:
     name: bl0910_1_current_9
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_current_10
   component_id: sensor.modbus_controller
@@ -269,6 +279,7 @@ featured_components:
     name: bl0910_1_current_10
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_1
   component_id: sensor.modbus_controller
@@ -287,6 +298,7 @@ featured_components:
     name: bl0910_1_power_1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_2
   component_id: sensor.modbus_controller
@@ -305,6 +317,7 @@ featured_components:
     name: bl0910_1_power_2
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_3
   component_id: sensor.modbus_controller
@@ -323,6 +336,7 @@ featured_components:
     name: bl0910_1_power_3
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_4
   component_id: sensor.modbus_controller
@@ -341,6 +355,7 @@ featured_components:
     name: bl0910_1_power_4
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_5
   component_id: sensor.modbus_controller
@@ -359,6 +374,7 @@ featured_components:
     name: bl0910_1_power_5
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_6
   component_id: sensor.modbus_controller
@@ -377,6 +393,7 @@ featured_components:
     name: bl0910_1_power_6
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_7
   component_id: sensor.modbus_controller
@@ -395,6 +412,7 @@ featured_components:
     name: bl0910_1_power_7
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_8
   component_id: sensor.modbus_controller
@@ -413,6 +431,7 @@ featured_components:
     name: bl0910_1_power_8
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_9
   component_id: sensor.modbus_controller
@@ -431,6 +450,7 @@ featured_components:
     name: bl0910_1_power_9
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_watt_10
   component_id: sensor.modbus_controller
@@ -449,6 +469,7 @@ featured_components:
     name: bl0910_1_power_10
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_1
   component_id: sensor.modbus_controller
@@ -464,6 +485,7 @@ featured_components:
     name: bl0910_1_energy_1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_2
   component_id: sensor.modbus_controller
@@ -479,6 +501,7 @@ featured_components:
     name: bl0910_1_energy_2
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_3
   component_id: sensor.modbus_controller
@@ -494,6 +517,7 @@ featured_components:
     name: bl0910_1_energy_3
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_4
   component_id: sensor.modbus_controller
@@ -509,6 +533,7 @@ featured_components:
     name: bl0910_1_energy_4
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_5
   component_id: sensor.modbus_controller
@@ -524,6 +549,7 @@ featured_components:
     name: bl0910_1_energy_5
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_6
   component_id: sensor.modbus_controller
@@ -539,6 +565,7 @@ featured_components:
     name: bl0910_1_energy_6
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_7
   component_id: sensor.modbus_controller
@@ -554,6 +581,7 @@ featured_components:
     name: bl0910_1_energy_7
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_8
   component_id: sensor.modbus_controller
@@ -569,6 +597,7 @@ featured_components:
     name: bl0910_1_energy_8
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_9
   component_id: sensor.modbus_controller
@@ -584,6 +613,7 @@ featured_components:
     name: bl0910_1_energy_9
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_10
   component_id: sensor.modbus_controller
@@ -599,6 +629,7 @@ featured_components:
     name: bl0910_1_energy_10
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_energy_sum
   component_id: sensor.modbus_controller
@@ -614,6 +645,7 @@ featured_components:
     name: bl0910_1_energy_sum
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_voltage
   component_id: sensor.modbus_controller
@@ -632,6 +664,7 @@ featured_components:
     name: bl0910_1_voltage
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_period
   component_id: sensor.modbus_controller
@@ -650,6 +683,7 @@ featured_components:
     name: bl0910_1_frequency
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_1_tps_1
   component_id: sensor.modbus_controller
@@ -664,6 +698,7 @@ featured_components:
     name: bl0910_1_tps1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_1
   component_id: sensor.modbus_controller
@@ -682,6 +717,7 @@ featured_components:
     name: bl0910_2_current_1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_2
   component_id: sensor.modbus_controller
@@ -700,6 +736,7 @@ featured_components:
     name: bl0910_2_current_2
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_3
   component_id: sensor.modbus_controller
@@ -718,6 +755,7 @@ featured_components:
     name: bl0910_2_current_3
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_4
   component_id: sensor.modbus_controller
@@ -736,6 +774,7 @@ featured_components:
     name: bl0910_2_current_4
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_5
   component_id: sensor.modbus_controller
@@ -754,6 +793,7 @@ featured_components:
     name: bl0910_2_current_5
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_6
   component_id: sensor.modbus_controller
@@ -772,6 +812,7 @@ featured_components:
     name: bl0910_2_current_6
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_7
   component_id: sensor.modbus_controller
@@ -790,6 +831,7 @@ featured_components:
     name: bl0910_2_current_7
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_8
   component_id: sensor.modbus_controller
@@ -808,6 +850,7 @@ featured_components:
     name: bl0910_2_current_8
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_9
   component_id: sensor.modbus_controller
@@ -826,6 +869,7 @@ featured_components:
     name: bl0910_2_current_9
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_current_10
   component_id: sensor.modbus_controller
@@ -844,6 +888,7 @@ featured_components:
     name: bl0910_2_current_10
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_1
   component_id: sensor.modbus_controller
@@ -862,6 +907,7 @@ featured_components:
     name: bl0910_2_power_1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_2
   component_id: sensor.modbus_controller
@@ -880,6 +926,7 @@ featured_components:
     name: bl0910_2_power_2
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_3
   component_id: sensor.modbus_controller
@@ -898,6 +945,7 @@ featured_components:
     name: bl0910_2_power_3
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_4
   component_id: sensor.modbus_controller
@@ -916,6 +964,7 @@ featured_components:
     name: bl0910_2_power_4
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_5
   component_id: sensor.modbus_controller
@@ -934,6 +983,7 @@ featured_components:
     name: bl0910_2_power_5
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_6
   component_id: sensor.modbus_controller
@@ -952,6 +1002,7 @@ featured_components:
     name: bl0910_2_power_6
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_7
   component_id: sensor.modbus_controller
@@ -970,6 +1021,7 @@ featured_components:
     name: bl0910_2_power_7
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_8
   component_id: sensor.modbus_controller
@@ -988,6 +1040,7 @@ featured_components:
     name: bl0910_2_power_8
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_9
   component_id: sensor.modbus_controller
@@ -1006,6 +1059,7 @@ featured_components:
     name: bl0910_2_power_9
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_watt_10
   component_id: sensor.modbus_controller
@@ -1024,6 +1078,7 @@ featured_components:
     name: bl0910_2_power_10
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_1
   component_id: sensor.modbus_controller
@@ -1039,6 +1094,7 @@ featured_components:
     name: bl0910_2_energy_1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_2
   component_id: sensor.modbus_controller
@@ -1054,6 +1110,7 @@ featured_components:
     name: bl0910_2_energy_2
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_3
   component_id: sensor.modbus_controller
@@ -1069,6 +1126,7 @@ featured_components:
     name: bl0910_2_energy_3
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_4
   component_id: sensor.modbus_controller
@@ -1084,6 +1142,7 @@ featured_components:
     name: bl0910_2_energy_4
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_5
   component_id: sensor.modbus_controller
@@ -1099,6 +1158,7 @@ featured_components:
     name: bl0910_2_energy_5
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_6
   component_id: sensor.modbus_controller
@@ -1114,6 +1174,7 @@ featured_components:
     name: bl0910_2_energy_6
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_7
   component_id: sensor.modbus_controller
@@ -1129,6 +1190,7 @@ featured_components:
     name: bl0910_2_energy_7
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_8
   component_id: sensor.modbus_controller
@@ -1144,6 +1206,7 @@ featured_components:
     name: bl0910_2_energy_8
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_9
   component_id: sensor.modbus_controller
@@ -1159,6 +1222,7 @@ featured_components:
     name: bl0910_2_energy_9
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_10
   component_id: sensor.modbus_controller
@@ -1174,6 +1238,7 @@ featured_components:
     name: bl0910_2_energy_10
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_energy_sum
   component_id: sensor.modbus_controller
@@ -1189,6 +1254,7 @@ featured_components:
     name: bl0910_2_energy_sum
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_voltage
   component_id: sensor.modbus_controller
@@ -1207,6 +1273,7 @@ featured_components:
     name: bl0910_2_voltage
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_period
   component_id: sensor.modbus_controller
@@ -1225,6 +1292,7 @@ featured_components:
     name: bl0910_2_frequency
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 - id: n20_2_tps_1
   component_id: sensor.modbus_controller
@@ -1239,6 +1307,7 @@ featured_components:
     name: bl0910_2_tps1
   requires:
   - modbus_bus
+  - uart_bus
   - modbus_controller_hub
 source:
   type: esphome-devices

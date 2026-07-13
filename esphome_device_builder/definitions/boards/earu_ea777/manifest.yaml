@@ -68,6 +68,7 @@ featured_components:
       locked: true
   requires:
   - modbus_server
+  - uart_modbus_server
 - id: phase_a_voltage
   component_id: sensor.modbus_controller
   fields:
@@ -84,6 +85,7 @@ featured_components:
     name: Phase A voltage
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_b_voltage
   component_id: sensor.modbus_controller
@@ -101,6 +103,7 @@ featured_components:
     name: Phase B voltage
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_c_voltage
   component_id: sensor.modbus_controller
@@ -118,6 +121,7 @@ featured_components:
     name: Phase C voltage
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_a_current
   component_id: sensor.modbus_controller
@@ -135,6 +139,7 @@ featured_components:
     name: Phase A current
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_b_current
   component_id: sensor.modbus_controller
@@ -152,6 +157,7 @@ featured_components:
     name: Phase B current
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_c_current
   component_id: sensor.modbus_controller
@@ -169,6 +175,7 @@ featured_components:
     name: Phase C current
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: active_power
   component_id: sensor.modbus_controller
@@ -182,6 +189,7 @@ featured_components:
     name: Active power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_a_active_power
   component_id: sensor.modbus_controller
@@ -195,6 +203,7 @@ featured_components:
     name: Phase A active power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_b_active_power
   component_id: sensor.modbus_controller
@@ -208,6 +217,7 @@ featured_components:
     name: Phase B active power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_c_active_power
   component_id: sensor.modbus_controller
@@ -221,6 +231,7 @@ featured_components:
     name: Phase C active power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: reactive_power
   component_id: sensor.modbus_controller
@@ -234,6 +245,7 @@ featured_components:
     name: Reactive power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_a_reactive_power
   component_id: sensor.modbus_controller
@@ -247,6 +259,7 @@ featured_components:
     name: Phase A reactive power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_b_reactive_power
   component_id: sensor.modbus_controller
@@ -260,6 +273,7 @@ featured_components:
     name: Phase B reactive power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_c_reactive_power
   component_id: sensor.modbus_controller
@@ -273,6 +287,7 @@ featured_components:
     name: Phase C reactive power
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_a_power_factor
   component_id: sensor.modbus_controller
@@ -290,6 +305,7 @@ featured_components:
     name: Phase A power factor
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_b_power_factor
   component_id: sensor.modbus_controller
@@ -307,6 +323,7 @@ featured_components:
     name: Phase B power factor
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: phase_c_power_factor
   component_id: sensor.modbus_controller
@@ -324,6 +341,7 @@ featured_components:
     name: Phase C power factor
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_voltage_frequency
   component_id: sensor.modbus_controller
@@ -341,6 +359,7 @@ featured_components:
     name: Current voltage frequency
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: instrument_communication_address
   component_id: sensor.modbus_controller
@@ -352,6 +371,7 @@ featured_components:
     name: Instrument communication address
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: communication_baud_rate
   component_id: sensor.modbus_controller
@@ -363,6 +383,7 @@ featured_components:
     name: Communication baud rate
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: communication_data_format
   component_id: sensor.modbus_controller
@@ -374,6 +395,7 @@ featured_components:
     name: Communication data format
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_total_active_energy
   component_id: sensor.modbus_controller
@@ -392,6 +414,7 @@ featured_components:
     name: Current total active energy
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_positive_total_active_energy
   component_id: sensor.modbus_controller
@@ -410,6 +433,7 @@ featured_components:
     name: Current positive total active energy
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_reverse_total_active_energy
   component_id: sensor.modbus_controller
@@ -428,6 +452,7 @@ featured_components:
     name: Current reverse total active energy
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_total_reactive_energy
   component_id: sensor.modbus_controller
@@ -446,6 +471,7 @@ featured_components:
     name: Current total reactive energy
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_positive_total_reactive_energy
   component_id: sensor.modbus_controller
@@ -464,6 +490,7 @@ featured_components:
     name: Current positive total reactive energy
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 - id: current_reverse_total_reactive_energy
   component_id: sensor.modbus_controller
@@ -482,6 +509,7 @@ featured_components:
     name: Current reverse total reactive energy
   requires:
   - modbus_server
+  - uart_modbus_server
   - earu_ea777
 source:
   type: esphome-devices

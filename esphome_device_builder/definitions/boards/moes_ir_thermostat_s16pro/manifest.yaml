@@ -1,0 +1,138 @@
+id: moes_ir_thermostat_s16pro
+name: Moes IR Thermostat S16Pro
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: bk72xx
+  board: generic-bk7231n-qfn32-tuya
+hardware:
+  connectivity:
+  - wifi
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Moes-IR-Thermostat-S16Pro/moes-ir-thermostat.jpg
+pins:
+- gpio: 7
+  available: false
+  occupied_by: ir_t
+docs_url: https://devices.esphome.io/devices/Moes-IR-Thermostat-S16Pro/
+featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
+- id: ir_t
+  component_id: remote_transmitter
+  fields:
+    pin:
+      value: 7
+      locked: true
+    carrier_duty_percent: 50%
+    id:
+      value: ir_t
+      locked: true
+- id: climate_primary
+  component_id: climate.tuya
+  fields:
+    visual:
+      value:
+        min_temperature: 17
+        max_temperature: 30
+        temperature_step: 1
+      locked: true
+    switch_datapoint: 1
+    target_temperature_datapoint: 3
+    target_temperature_multiplier: 1
+    current_temperature_datapoint: 2
+    current_temperature_multiplier: 0.1
+    supports_heat: true
+    supports_cool: true
+    active_state:
+      value:
+        datapoint: 4
+        cooling_value: 0
+        heating_value: 1
+        fanonly_value: 3
+        drying_value: 4
+      locked: true
+    fan_mode:
+      value:
+        datapoint: 5
+        auto_value: 0
+        low_value: 1
+        medium_value: 2
+        high_value: 3
+      locked: true
+    id: climate_primary
+    name: AC
+  requires:
+  - uart_bus
+  - tuya_hub
+- id: climate_secondary
+  component_id: climate.climate_ir_lg
+  fields:
+    header_high: 3265us
+    header_low: 9856us
+    internal: true
+    visual:
+      value:
+        min_temperature: 17
+        max_temperature: 30
+        temperature_step: 1
+      locked: true
+    id: climate_secondary
+    name: IR
+  requires:
+  - ir_t
+- id: sensor_wifi_signal_1
+  component_id: sensor.wifi_signal
+  fields:
+    update_interval: 120s
+    id: sensor_wifi_signal_1
+    name: WiFi Signal
+- id: sensor_tuya_1
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 12
+    unit_of_measurement: '%'
+    id: sensor_tuya_1
+    name: Umidade
+  requires:
+  - uart_bus
+  - tuya_hub
+- id: sensor_tuya_2
+  component_id: sensor.tuya
+  fields:
+    sensor_datapoint: 2
+    unit_of_measurement: °C
+    accuracy_decimals: 1
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
+    id: sensor_tuya_2
+    name: Temperatura
+  requires:
+  - uart_bus
+  - tuya_hub
+- id: text_sensor_version_1
+  component_id: text_sensor.version
+  fields:
+    hide_timestamp: true
+    id: text_sensor_version_1
+    name: ESPHome Version
+source:
+  type: esphome-devices
+  remote_id: Moes-IR-Thermostat-S16Pro
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Moes-IR-Thermostat-S16Pro/index.md
+  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  content_hash: 0257327d3f6be90c5f3f374b43e3446f2ad01d0931afac5d9e5bdbc177a8ebba
