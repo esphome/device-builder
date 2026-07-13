@@ -1396,10 +1396,14 @@ def _require_matching_esphome() -> None:
 
 
 def _require_matching_esphome_full() -> None:
-    """Abort a full sync on an ESPHome mismatch unless the stamp is missing (first sync)."""
+    """Abort a full sync on an ESPHome mismatch unless no stamp is readable (nothing to guard)."""
     expected = _committed_esphome_stamp()
     if expected is None:
-        _LOGGER.info("no esphome_version stamp in %s — first full sync, proceeding", _INDEX_FILE)
+        _LOGGER.info(
+            "no readable esphome_version stamp in %s (missing or corrupt index) — "
+            "nothing to guard against, regenerating from the installed ESPHome",
+            _INDEX_FILE,
+        )
         return
     assert_installed_esphome(
         expected,
