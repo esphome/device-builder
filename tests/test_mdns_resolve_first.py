@@ -320,7 +320,7 @@ async def test_confirmed_wire_miss_outranks_a_stale_cache_added_claim(
 
 
 async def test_verify_removed_keeps_online_on_a_swallowed_resolve_error(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """An internal resolve error is not a confirmed miss — never demote on uncertainty."""
     device = make_online_api_device()
@@ -329,10 +329,12 @@ async def test_verify_removed_keeps_online_on_a_swallowed_resolve_error(
     info = stub_async_service_info(monkeypatch)
     info.async_request.side_effect = OSError("socket gone")
 
-    await monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+    with caplog.at_level(logging.WARNING):
+        await monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
 
     assert device.runtime_state.state == DeviceState.ONLINE
     assert callbacks.calls_for("on_state_change") == []
+    assert "Removed-verify resolve for kitchen errored" in caplog.text
 
 
 async def test_verify_removed_bails_when_a_resolve_is_inflight(

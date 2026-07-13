@@ -379,12 +379,19 @@ class MdnsSource:
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
         """Resolve before honouring a ``Removed``; only a confirmed miss applies OFFLINE."""
+        if name in self._inflight_resolves:
+            # A concurrent resolve decides; the sweep re-checks either way.
+            return
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, name)
         verdict = await self._resolve_then(zeroconf, info, device_name, self._apply_service_info)
-        if verdict is not False:
-            # Resolved (stays ONLINE) or no verdict (swallowed error, or a
-            # concurrent resolve owns the flight) — never demote on
-            # uncertainty; the sweep re-checks either way.
+        if verdict is None:
+            # Errored, not missed — never demote on uncertainty, and say
+            # so above DEBUG since this gates the browser's OFFLINE path.
+            _LOGGER.warning(
+                "Removed-verify resolve for %s errored; leaving state to the sweep", device_name
+            )
+            return
+        if verdict:
             return
         monitor = self._monitor
         monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
