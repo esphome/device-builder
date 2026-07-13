@@ -41,14 +41,16 @@ def apply_validation_gate(records: list[dict[str, Any]]) -> dict[str, str]:
     Mutates *records* in place; returns ``{board_id: skip_reason}`` for
     boards that can't be repaired.
     """
-    if "fork" not in mp.get_all_start_methods():
-        _LOGGER.warning("Skipping full-setup validation: no fork start method")
-        return {}
     # Import once in the parent: every forked worker then inherits the
     # clean pre-validation module state instead of re-importing esphome.
     import esphome.config  # noqa: F401
 
-    ctx = mp.get_context("fork")
+    if "fork" in mp.get_all_start_methods():
+        ctx = mp.get_context("fork")
+    else:
+        # Windows: spawn re-imports esphome per worker (slower) but the
+        # fresh-process isolation is the same — never skip validation.
+        ctx = mp.get_context("spawn")
     skipped: dict[str, str] = {}
     pending = list(records)
     for _ in range(_MAX_PASSES):
