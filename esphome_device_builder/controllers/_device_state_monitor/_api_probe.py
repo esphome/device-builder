@@ -13,8 +13,8 @@ import logging
 import sys
 from typing import TYPE_CHECKING, Any
 
-from ...helpers import json
 from ...helpers.device_yaml import DEFAULT_API_PORT
+from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
@@ -89,29 +89,33 @@ class ApiSweepSource:
             await asyncio.wait_for(self._wake.wait(), timeout=_INTERVAL)
 
 
+class ProbeRequestError(Exception):
+    """Key/port resolve failed; transient, the dial may work on a retry."""
+
+
 async def build_probe_request(
     monitor: DeviceStateMonitor, device: Device, addresses: list[str]
 ) -> bytes | None:
     """
     Resolve key/port and encode the worker request; ``None`` when undialable.
 
-    ``None`` means the dial is doomed before it starts — the key/port
-    resolve failed, or the config declares Noise encryption and no key
-    resolved (e.g. a templated key), so a plaintext connect could only
-    fail the handshake. Callers record the miss instead of spawning a
-    doomed worker.
+    ``None`` is definitive until the YAML changes: the config declares
+    Noise encryption and no key resolved (e.g. a templated key), so a
+    plaintext connect could only fail the handshake. A key/port resolve
+    *failure* raises :class:`ProbeRequestError` instead so callers can
+    retry it sooner. Either way no doomed worker is spawned.
     """
     noise_psk, port = "", DEFAULT_API_PORT
     if monitor._resolve_api_connection is not None:
         try:
             noise_psk, port = await monitor._resolve_api_connection(device.configuration)
-        except Exception as exc:  # noqa: BLE001 — can't resolve how to reach the device
+        except Exception as exc:
             _LOGGER.debug("API key/port resolve failed for %s; skipping: %s", device.name, exc)
-            return None
+            raise ProbeRequestError(str(exc)) from exc
     if device.api_encrypted and not noise_psk:
         _LOGGER.debug("No Native API key resolved for encrypted %s; skipping", device.name)
         return None
-    return json.dumps(
+    return dumps(
         {
             "address": addresses[0],
             "port": port,
@@ -139,8 +143,8 @@ async def run_worker(name: str, request: bytes) -> dict[str, Any] | None:
         _LOGGER.debug("API info fetch for %s timed out", name)
         return None
     try:
-        parsed = json.loads(result.stdout) if result.stdout else None
-    except (json.JSONDecodeError, ValueError):
+        parsed = loads(result.stdout) if result.stdout else None
+    except (JSONDecodeError, ValueError):
         _LOGGER.debug("API info worker for %s emitted unparsable output: %r", name, result.stdout)
         return None
     # The worker exits 0 with ``{name, mac_address, esphome_version}`` on

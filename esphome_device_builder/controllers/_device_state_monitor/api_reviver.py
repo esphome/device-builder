@@ -43,7 +43,13 @@ from typing import TYPE_CHECKING, Any
 
 from ...models import Device, DeviceState
 from . import shared
-from ._api_probe import ApiSweepSource, api_worker_available, build_probe_request, run_worker
+from ._api_probe import (
+    ApiSweepSource,
+    ProbeRequestError,
+    api_worker_available,
+    build_probe_request,
+    run_worker,
+)
 from .helpers import _normalize_mac
 
 if TYPE_CHECKING:
@@ -166,7 +172,13 @@ class ApiReviverSource(ApiSweepSource):
     async def _verify_and_revive(self, device: Device, rtt: float) -> None:
         """One worker dial; revive on identity match, invalidate on mismatch."""
         monitor = self._monitor
-        request = await build_probe_request(monitor, device, [device.ip])
+        try:
+            request = await build_probe_request(monitor, device, [device.ip])
+        except ProbeRequestError:
+            # Transient resolve failure — same short retry as an ICMP
+            # miss, not the nothing-changes-until-the-YAML-does hold.
+            self._cool_down(device, _ICMP_SILENT_COOLDOWN)
+            return
         if request is None:
             self._cool_down(device, _NO_KEY_COOLDOWN)
             return

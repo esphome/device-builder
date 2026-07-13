@@ -15,7 +15,7 @@ import asyncio
 import sys
 from typing import Any
 
-from . import json
+from .json import JSONDecodeError, dumps_str, loads
 
 # Connect + device_info round-trip budget; the parent enforces its own
 # (larger) subprocess timeout as a backstop.
@@ -53,20 +53,20 @@ async def _fetch(request: dict[str, Any]) -> dict[str, str]:
 
 def main() -> int:
     try:
-        request = json.loads(sys.stdin.read())
-    except (json.JSONDecodeError, ValueError) as exc:
+        request = loads(sys.stdin.read())
+    except (JSONDecodeError, ValueError) as exc:
         # Mirror the connect-failure channel: report why the request was
         # rejected on stdout so the parent's reason-logging path sees it.
-        sys.stdout.write(json.dumps({"error": f"bad request: {exc!r}"}).decode())
+        sys.stdout.write(dumps_str({"error": f"bad request: {exc!r}"}))
         return 2
     try:
         result = asyncio.run(asyncio.wait_for(_fetch(request), _CONNECT_TIMEOUT))
     except Exception as exc:  # noqa: BLE001 — surface the reason, then exit non-zero
         # stderr is discarded by the parent (merge_stderr=False); carry the
         # failure reason on stdout so the parent can log why the probe failed.
-        sys.stdout.write(json.dumps({"error": repr(exc)}).decode())
+        sys.stdout.write(dumps_str({"error": repr(exc)}))
         return 1
-    sys.stdout.write(json.dumps(result).decode())
+    sys.stdout.write(dumps_str(result))
     return 0
 
 

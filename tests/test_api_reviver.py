@@ -366,6 +366,19 @@ async def test_encrypted_device_without_key_is_not_dialed() -> None:
     assert 0 < _cooldown_delta(src, device) <= _NO_KEY_COOLDOWN
 
 
+async def test_transient_resolve_failure_retries_soon() -> None:
+    """A key/port resolve blip gets the short ICMP-miss cooldown, not the no-key hold."""
+    device = make_stuck_offline_device()
+    monitor, _callbacks, src = _reviver([device])
+    monitor._resolve_api_connection = AsyncMock(side_effect=RuntimeError("resolve boom"))
+
+    await src._sweep()
+
+    src._run_worker.assert_not_called()
+    assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
+    assert src._dial_failures == {}
+
+
 async def test_dials_are_capped_per_sweep_and_overflow_rolls() -> None:
     devices = [make_stuck_offline_device(f"dev{i}", ip=f"192.168.1.{50 + i}") for i in range(5)]
     _monitor, _callbacks, src = _reviver(devices, worker_result=None)

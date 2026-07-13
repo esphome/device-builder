@@ -21,7 +21,13 @@ from typing import TYPE_CHECKING, Any
 
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
-from ._api_probe import ApiSweepSource, api_worker_available, build_probe_request, run_worker
+from ._api_probe import (
+    ApiSweepSource,
+    ProbeRequestError,
+    api_worker_available,
+    build_probe_request,
+    run_worker,
+)
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -224,7 +230,11 @@ class ApiInfoSource(ApiSweepSource):
             # list after selection. Back off rather than indexing an empty list.
             self._record_failure(device)
             return
-        request = await build_probe_request(monitor, device, addresses)
+        try:
+            request = await build_probe_request(monitor, device, addresses)
+        except ProbeRequestError:
+            self._record_failure(device)
+            return
         if request is None:
             self._record_failure(device)
             return
