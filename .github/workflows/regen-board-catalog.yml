@@ -201,7 +201,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
             git -C pr diff --cached --stat | tail -5
           fi
-          pin=$(grep -oE 'esphome==[A-Za-z0-9.b-]+' base/esphome-constraints.txt | head -n1)
+          pin=$(grep -oE 'esphome==[A-Za-z0-9.]+' base/esphome-constraints.txt | head -n1 || true)
           echo "pin=$pin" >> "$GITHUB_OUTPUT"
 
       - name: Write regen patch
@@ -286,7 +286,11 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             // Full sync, not per-id update_board.py: it handles deleted
             // and renamed boards too, and mirrors what this run executed.
-            const pin = process.env.PIN || 'esphome';
+            // Constraints-file fallback stays version-correct even when
+            // no pin token was derivable.
+            const install = process.env.PIN
+              ? `uv pip install '${process.env.PIN}'`
+              : 'uv pip install -c esphome-constraints.txt esphome';
             const body = process.env.CHANGED === 'true'
               ? [
                   marker,
@@ -296,7 +300,7 @@ jobs:
                   "what's committed. Forks can't receive an automated push, so run locally:",
                   '',
                   '```bash',
-                  `uv pip install '${pin}'`,
+                  install,
                   'python script/sync_boards.py',
                   'git add -A esphome_device_builder/definitions && git commit -m "Regenerate board catalog" && git push',
                   '```',
@@ -308,7 +312,7 @@ jobs:
             const comments = await github.paginate(github.rest.issues.listComments, {
               owner, repo, issue_number, per_page: 100,
             });
-            const existing = comments.find(c => c.body.includes(marker));
+            const existing = comments.find(c => c.body?.includes(marker));
             if (existing) {
               await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             } else if (process.env.CHANGED === 'true') {
