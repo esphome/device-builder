@@ -131,6 +131,28 @@ def test_worker_crash_refuses_the_board_not_the_run(monkeypatch: pytest.MonkeyPa
     assert "boom" in outcome.errors[0]
 
 
+def test_apply_drops_prunes_dropped_entries_pins() -> None:
+    """Pins owned by a dropped entry leave the pins block, by id and by name."""
+    record = _record()
+    record["featured_components"][0]["fields"]["name"] = "Daily Energy"
+    record["pins"] = [
+        {"gpio": 4, "available": False, "occupied_by": "energy"},
+        {"gpio": 5, "available": False, "occupied_by": "Daily Energy"},
+        {"gpio": 6, "available": False, "occupied_by": "relay"},
+    ]
+    _apply_drops(record, {"energy"})
+    assert record["pins"] == [{"gpio": 6, "available": False, "occupied_by": "relay"}]
+
+
+def test_apply_drops_relabels_shared_pins_to_the_survivor() -> None:
+    """A GPIO a surviving entry still locks stays declared under the survivor's label."""
+    record = _record()
+    record["featured_components"][2]["fields"]["pin"] = {"value": 4, "locked": True}
+    record["pins"] = [{"gpio": 4, "available": False, "occupied_by": "energy"}]
+    _apply_drops(record, {"energy"})
+    assert record["pins"] == [{"gpio": 4, "available": False, "occupied_by": "relay"}]
+
+
 def test_apply_drops_removes_emptied_bundles() -> None:
     record = _record()
     record["featured_bundles"] = [{"id": "solo", "name": "Solo", "component_ids": ["energy"]}]
