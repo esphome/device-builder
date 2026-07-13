@@ -172,6 +172,40 @@ def test_hub_reuses_already_featured_bus() -> None:
     assert hub["fields"]["i2c_id"] == {"value": "bus_a", "locked": True}
 
 
+def test_chained_and_direct_bus_dep_lift_one_bus() -> None:
+    """A hub with both a chained bus dep and a direct one reuses the single bus."""
+    components = dict(_COMPONENTS)
+    components["modbus"] = {
+        "category": "bus",
+        "dependencies": ["uart"],
+        "config_entries": [{"key": "uart_id", "type": "id"}, {"key": "id", "type": "id"}],
+    }
+    components["modbus_controller"] = {
+        "category": "misc",
+        # The AUTO_LOAD closure surfaces uart directly alongside modbus.
+        "dependencies": ["modbus", "uart"],
+        "config_entries": [
+            {"key": "address", "type": "integer"},
+            {"key": "modbus_id", "type": "id"},
+        ],
+    }
+    components["sensor.modbus_controller"] = {
+        "dependencies": ["modbus_controller"],
+        "config_entries": [{"key": "address", "type": "integer"}],
+    }
+    featured = [
+        {"id": "meter", "component_id": "sensor.modbus_controller", "fields": {"id": "meter"}}
+    ]
+    config = {
+        "uart": {"id": "rs485", "tx_pin": 19, "rx_pin": 18},
+        "modbus": {"id": "modbus_server", "uart_id": "rs485"},
+        "modbus_controller": [{"id": "meter_hub", "address": 1, "modbus_id": "modbus_server"}],
+        "sensor": [{"platform": "modbus_controller", "address": 100}],
+    }
+    extra, _ = _extract_driver_hubs(config, featured, components)
+    assert [entry["component_id"] for entry in extra].count("uart") == 1
+
+
 def test_materialize_bus_accepts_bare_mapping_key() -> None:
     """A bare ``modbus:`` key materializes fieldless via _select_bus_block."""
     components = {"modbus": {"category": "bus", "config_entries": [{"key": "id", "type": "id"}]}}

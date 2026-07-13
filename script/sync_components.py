@@ -2353,6 +2353,38 @@ def build_entries_from_file(
     return out
 
 
+def _assemble_dependencies(
+    meta: dict[str, Any],
+    config_entries: list[dict[str, Any]],
+    domain: str,
+    stem: str,
+    top_key: str,
+) -> list[str]:
+    """
+    Assemble a component's catalog ``dependencies`` from every source.
+
+    Schema ``DEPENDENCIES`` first; then the own-hub ``cv.use_id`` ref
+    (package-style platforms ship dependency-less), referenced buses
+    (enforced at config time but not always declared), and the AUTO_LOAD
+    closure's DEPENDENCIES (climate_ir_lg auto-loads climate_ir, whose
+    DEPENDENCIES carries remote_transmitter — without it the importer can't
+    lift the hub). Transport-implicit deps drop last.
+    """
+    dependencies = list(meta.get("dependencies") or [])
+    if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
+        dependencies.append(stem)
+    for bus in sorted(_referenced_buses(config_entries)):
+        if bus not in dependencies:
+            dependencies.append(bus)
+    for dep in _auto_loaded_dependencies(domain, stem if domain else top_key):
+        if dep not in dependencies:
+            dependencies.append(dep)
+    implicit = _implicit_dependencies()
+    if implicit:
+        dependencies = [d for d in dependencies if d not in implicit]
+    return dependencies
+
+
 def build_component_entry(
     top_key: str,
     section: dict,
@@ -2394,31 +2426,7 @@ def build_component_entry(
 
     meta = _lookup_index_meta(component_id, top_key, index)
     docs = clean_docs(meta.get("docs"))
-    dependencies = list(meta.get("dependencies") or [])
-
-    # Package-style platforms (ld2410/button, pipsolar/sensor, ...) bind
-    # their hub through a ``cv.use_id`` config var instead of upstream
-    # ``DEPENDENCIES``, so the schema index ships them dependency-less
-    # and the frontend never prompts for the hub. The use_id cross-ref
-    # is already extracted as ``references_component``; union the
-    # entry's own hub back in.
-    if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
-        dependencies.append(stem)
-
-    # A device that cross-references a bus hub (``spi_id`` / ``i2c_id`` /
-    # ``uart_id``) needs that bus block to exist; ESPHome enforces it at config
-    # time but doesn't always list it in ``DEPENDENCIES`` (atm90e32, max6675,
-    # i2c touchscreens), so the schema index ships them bus-less and the
-    # frontend never prompts to add the bus. Union the referenced bus back in.
-    for bus in sorted(_referenced_buses(config_entries)):
-        if bus not in dependencies:
-            dependencies.append(bus)
-
-    # Drop deps the chosen networking transport will auto-load. See
-    # ``_implicit_dependencies``.
-    implicit = _implicit_dependencies()
-    if implicit:
-        dependencies = [d for d in dependencies if d not in implicit]
+    dependencies = _assemble_dependencies(meta, config_entries, domain, stem, top_key)
 
     # Narrow esphome introspection — adds multi_conf, platform_defaults,
     # supported_platforms, and refined types (boolean/float/...) the
@@ -4365,6 +4373,55 @@ def _resolve_auto_load(raw_auto_load: Any) -> list[str]:
         except Exception:
             raw_auto_load = []
     return list(raw_auto_load) if isinstance(raw_auto_load, list) else []
+
+
+@cache
+def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
+    """
+    ``DEPENDENCIES`` contributed by a component's ``AUTO_LOAD`` closure.
+
+    ``AUTO_LOAD`` lives on the platform manifest for ``<domain>.<stem>``
+    entries and on the component manifest for bare ones. The auto-loaded
+    components themselves are always present so they never become
+    dependencies; only what *they* require does. Empty when ``esphome``
+    isn't importable.
+    """
+    loader = _get_esphome_loader()
+    if loader is None:
+        return ()
+
+    def _manifest(name: str, *, platform_of: str = "") -> Any:
+        try:
+            if platform_of:
+                return loader.get_platform(platform_of, name)
+            return loader.get_component(name)
+        except Exception as exc:
+            _LOGGER.debug("auto-load closure: can't load %s: %s", name, exc)
+            return None
+
+    root = _manifest(stem_or_key, platform_of=domain)
+    if root is None:
+        return ()
+    collected: list[str] = []
+    seen: set[str] = set()
+    queue = [name for name in _resolve_auto_load(root.auto_load) if isinstance(name, str)]
+    while queue:
+        current = queue.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        manifest = _manifest(current)
+        if manifest is None:
+            continue
+        collected.extend(
+            dep
+            for dep in getattr(manifest, "dependencies", None) or []
+            if isinstance(dep, str) and dep and dep not in collected
+        )
+        queue.extend(
+            name for name in _resolve_auto_load(manifest.auto_load) if isinstance(name, str)
+        )
+    return tuple(collected)
 
 
 def introspect_component(component_id: str) -> dict[str, Any]:

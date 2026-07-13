@@ -1756,6 +1756,39 @@ class _LiftState:
     extra: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _lookup_bus(state: _LiftState, dep: str, instance: str | None) -> str | None:
+    """
+    Find an already-lifted bus for ``(dep, instance)``.
+
+    A ref-less dep resolves to the sole page block, which may already be
+    lifted under its explicit ``id`` (a hub whose chained bus dep also
+    appears as a direct dep) — look it up by that id before materializing.
+    """
+    local = state.bus_local.get((dep, instance))
+    if local is not None or instance is not None:
+        return local
+    block = _select_block(state.config, dep, None)
+    block_id = block.get("id") if isinstance(block, dict) else None
+    return state.bus_local.get((dep, block_id)) if isinstance(block_id, str) else None
+
+
+def _register_bus_keys(
+    state: _LiftState, domain: str, key: tuple[str, str | None], entry: dict[str, Any], local: str
+) -> None:
+    """
+    Memoize a lifted bus under its lookup key and its canonical id key.
+
+    A sole bus resolved without a ref (``(domain, None)``) still carries its
+    block's ``id``; a later consumer naming that id explicitly must find the
+    same entry or it lifts a duplicate.
+    """
+    state.bus_local[key] = local
+    raw_id = (entry.get("fields") or {}).get("id")
+    actual = raw_id.get("value") if isinstance(raw_id, dict) else None
+    if isinstance(actual, str) and (domain, actual) != key:
+        state.bus_local[(domain, actual)] = local
+
+
 def _ensure_buses(
     hub_component: dict[str, Any],
     hub_block: dict[str, Any],
@@ -1776,13 +1809,13 @@ def _ensure_buses(
         instance = hub_block.get(ref_field)
         instance = instance if isinstance(instance, str) and instance else None
         key = (dep, instance)
-        local = state.bus_local.get(key)
+        local = _lookup_bus(state, dep, instance)
         if local is None:
             bus_entry, local, bus_occ = _materialize_bus(dep, instance, state)
             if bus_entry is None:
                 continue
             state.used_ids.add(local)
-            state.bus_local[key] = local
+            _register_bus_keys(state, dep, key, bus_entry, local)
             state.occupancy.update(bus_occ)
             state.extra.append(bus_entry)
             _chain_bus_deps(bus_entry, dep, instance, state)
@@ -2318,11 +2351,13 @@ def _extract_bus_deps(
         bus_local=_seed_bus_local(featured, components_index),
     )
     for dep, instance in ordered_refs:
+        if _lookup_bus(state, dep, instance) is not None:
+            continue
         bus_entry, local, bus_occ = _materialize_bus(dep, instance, state)
         if bus_entry is None:
             continue
         state.used_ids.add(local)
-        state.bus_local[(dep, instance)] = local
+        _register_bus_keys(state, dep, (dep, instance), bus_entry, local)
         state.occupancy.update(bus_occ)
         state.extra.append(bus_entry)
         _chain_bus_deps(bus_entry, dep, instance, state)
