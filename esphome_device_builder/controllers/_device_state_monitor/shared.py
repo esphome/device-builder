@@ -87,30 +87,19 @@ async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     """
     if monitor._mdns.zeroconf is None:
         return
-    candidates = [
-        d
+    claims = [
+        _resolve_and_claim_logged(monitor, d)
         for d in monitor._get_devices()
         if d.api_enabled
         and d.runtime_state.state is DeviceState.ONLINE
         and should_ping(monitor, d)
         and monitor.get_mdns_cache_info(d.name) is not None
     ]
-    if not candidates:
-        return
-    results = await asyncio.gather(
-        *(monitor._mdns.resolve_and_claim(d.name) for d in candidates),
-        return_exceptions=True,
-    )
-    for device, result in zip(candidates, results, strict=True):
-        if isinstance(result, BaseException):
-            # ``resolve_and_claim`` swallows resolve misses itself, so
-            # anything surfacing here is a real bug — don't mask it as
-            # a benign miss.
-            _LOGGER.warning(
-                "Resolve-first mDNS claim for %s raised unexpectedly",
-                device.name,
-                exc_info=result,
-            )
+    # The common case is a single stuck device — don't pay for a gather.
+    if len(claims) == 1:
+        await claims[0]
+    elif claims:
+        await asyncio.gather(*claims)
 
 
 async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
@@ -158,3 +147,16 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
         # subscription, so a miss conflates "device gone", "device
         # slow", and "transient packet loss"; let ICMP decide
         # instead.
+
+
+async def _resolve_and_claim_logged(monitor: DeviceStateMonitor, device: Device) -> None:
+    """Run one resolve-and-claim, surfacing unexpected errors."""
+    try:
+        await monitor._mdns.resolve_and_claim(device.name)
+    except Exception:
+        # ``resolve_and_claim`` swallows resolve misses itself, so
+        # anything surfacing here is a real bug — don't mask it as a
+        # benign miss.
+        _LOGGER.warning(
+            "Resolve-first mDNS claim for %s raised unexpectedly", device.name, exc_info=True
+        )

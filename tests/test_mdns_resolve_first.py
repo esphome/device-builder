@@ -110,6 +110,20 @@ async def test_sweep_skips_ineligible_devices(
     monitor._mdns.resolve_and_claim.assert_not_called()
 
 
+async def test_sweep_resolves_multiple_candidates_concurrently() -> None:
+    devices = [make_online_api_device("kitchen"), make_online_api_device("porch")]
+    monitor, _callbacks = make_state_monitor_with_callbacks(devices)
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    monitor.state.state_source["porch"] = ReachabilitySource.PING
+    _prime_sweep(monitor)
+    resolve = AsyncMock()
+    monitor._mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
+
+    await shared.resolve_api_mdns_targets(monitor)
+
+    assert {call.args[0] for call in resolve.await_args_list} == {"kitchen", "porch"}
+
+
 async def test_sweep_surfaces_unexpected_resolve_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
