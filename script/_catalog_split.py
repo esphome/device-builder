@@ -48,10 +48,8 @@ def dumps_envelope_entries_per_line(payload: dict[str, Any], entries_key: str) -
     Dump *payload* as JSON with each ``payload[entries_key]`` item on its own line.
 
     Other top-level keys land compact, one per line, sorted; the entries list
-    keeps its order. Per-entry lines mean two catalog PRs touching different
-    entries no longer conflict textually and diffs stay per-entry reviewable.
-    Deterministic (every fragment is sorted-key orjson), valid JSON, trailing
-    newline, no trailing whitespace.
+    keeps its order (an empty one stays inline). Deterministic sorted-key
+    orjson fragments, trailing newline, no trailing whitespace.
     """
     lines = [b"{"]
     top_keys = sorted(payload)
@@ -75,19 +73,15 @@ def dumps_map_entry_per_line(payload: dict[str, Any]) -> bytes:
     """
     Dump a JSON object with each top-level key/value pair on its own line.
 
-    Keys sorted, values compact sorted-key orjson. Same per-line conflict /
-    review rationale as :func:`dumps_envelope_entries_per_line`; empty maps
-    stay ``{}``.
+    Keys sorted, values compact sorted-key orjson; an empty map stays ``{}``.
     """
     if not payload:
         return b"{}\n"
-    keys = sorted(payload)
-    lines = [b"{"]
-    for i, key in enumerate(keys):
-        tail = b"," if i < len(keys) - 1 else b""
-        lines.append(_dumps_compact_sorted(key) + b":" + _dumps_compact_sorted(payload[key]) + tail)
-    lines.append(b"}")
-    return b"\n".join(lines) + b"\n"
+    body = b",\n".join(
+        _dumps_compact_sorted(key) + b":" + _dumps_compact_sorted(payload[key])
+        for key in sorted(payload)
+    )
+    return b"{\n" + body + b"\n}\n"
 
 
 def prepare_next_bodies_dir(next_bodies: Path) -> None:

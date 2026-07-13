@@ -27,7 +27,8 @@ def test_envelope_semantics_match_plain_orjson():
 
 def test_envelope_one_entry_per_line():
     lines = dumps_envelope_entries_per_line(_ENVELOPE, "boards").splitlines()
-    # {, "boards":[, entry, entry, ],, "esphome_version":…, }
+    # 5 envelope lines: `{`, `"boards":[`, `],`, `"esphome_version":…`, `}` —
+    # plus one line per entry between the brackets.
     assert len(lines) == len(_ENVELOPE["boards"]) + 5
     for line, entry in zip(lines[2:4], _ENVELOPE["boards"], strict=True):
         assert orjson.loads(line.rstrip(b",")) == entry
