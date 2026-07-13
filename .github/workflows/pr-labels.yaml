@@ -47,10 +47,8 @@ jobs:
             // Match `- [x] ... `<label>`` lines in the PR body. The
             // PR template puts the canonical label name in backticks
             // at the end of each "Types of changes" bullet. Interior
-            // whitespace around the x is tolerated — contributors tick
-            // as `[ X]` / `[x ]` often enough (#2002, #1689) that
-            // GitHub's own renderer accepting only `[x]` is the trap,
-            // not the intent. An `[ ]` box stays unticked.
+            // whitespace around the x is tolerated — contributors
+            // tick as `[ X]` / `[x ]`.
             const body = context.payload.pull_request.body || '';
             const re = /^\s*-\s*\[\s*x\s*\][^`\n]*`([^`]+)`/gim;
             const ticked = [];
