@@ -1305,7 +1305,7 @@ def _emit_split_catalog(
         live_index=_INDEX_FILE,
         index_cls=BoardCatalogIndex,
         index_entries_key="boards",
-        sort_keys=True,
+        # per-line output always sorts, so no sort_keys here
         entries_per_line=True,
     )
 
