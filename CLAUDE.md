@@ -578,6 +578,23 @@ against legacy behaviour before assuming the simpler version suffices.
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE
   detection without flipping the indicator red on every quiet device.
+- **Persisted-IP revival is identity-gated** (`api_reviver.py`). A
+  stuck-offline `api:` device whose `.local` won't resolve and whose RAM
+  `ip_addresses` are gone (typically after a restart) gets one
+  last-resort repair from the on-disk `Device.ip`: ICMP first as a
+  *negative* filter (silence = no dial), then a single short-lived
+  Native API `device_info` dial, claiming ONLINE under the `ping` source
+  only when the reported name matches (MAC corroborates when both sides
+  know it). Never claim ONLINE off a bare ICMP reply at a persisted IP —
+  a stale DHCP lease answering is the #1776 latch class. A name mismatch
+  proves the IP stale and clears it through
+  `on_persisted_ip_invalidated` (the explicit counterpart to
+  `on_ip_change`'s keep-on-disk contract). At most one dial per stuck
+  device per process (`_verified` pair cache); dials are capped per
+  sweep with escalating backoff because API connects occupy the ESP's
+  scarce connection slots. ICMP-unavailable deployments are deliberately
+  not repaired: the pre-filter can't run and a verify-only ONLINE would
+  be un-demotable.
 - **The `Device` is the source of truth, not the monitor.**
   `DeviceStateMonitor.apply_*` (state, ip, version, config_hash,
   api_encryption) dedupe by comparing the broadcast against every

@@ -3,9 +3,10 @@ Out-of-process Native API device-info fetch.
 
 Run as ``python -m esphome_device_builder.helpers.api_device_info``: reads
 one JSON request from stdin, connects to the device over the ESPHome Native
-API, and writes its MAC address + ESPHome version as JSON to stdout. Running
-``aioesphomeapi`` in a short-lived child keeps the heavy client out of the
-long-running dashboard process. Any failure exits non-zero with no stdout.
+API, and writes its name + MAC address + ESPHome version as JSON to stdout.
+Running ``aioesphomeapi`` in a short-lived child keeps the heavy client out
+of the long-running dashboard process. Any failure exits non-zero with no
+stdout.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ async def _fetch(request: dict[str, Any]) -> dict[str, str]:
         # when ``connect`` itself raised.
         await client.disconnect(force=True)
     return {
+        "name": info.name or "",
         "mac_address": info.mac_address or "",
         "esphome_version": info.esphome_version or "",
     }

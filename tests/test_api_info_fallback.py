@@ -23,6 +23,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor import (
+    _api_probe as api_probe_module,
+)
 from esphome_device_builder.controllers._device_state_monitor import api_info as api_info_module
 from esphome_device_builder.controllers._device_state_monitor.api_info import ApiInfoSource
 from esphome_device_builder.helpers import api_device_info
@@ -738,7 +741,7 @@ def _patch_capture(
                 returncode=returncode, stdout=stdout, timed_out=timed_out
             )
         )
-    monkeypatch.setattr(api_info_module, "run_subprocess_capture", mock)
+    monkeypatch.setattr(api_probe_module, "run_subprocess_capture", mock)
     return mock
 
 
@@ -810,8 +813,10 @@ def _fake_api_client(
     return client
 
 
-async def test_worker_fetch_returns_mac_and_version(monkeypatch: Any) -> None:
-    info = SimpleNamespace(mac_address="AA:BB:CC:DD:EE:FF", esphome_version="2026.6.1")
+async def test_worker_fetch_returns_name_mac_and_version(monkeypatch: Any) -> None:
+    info = SimpleNamespace(
+        name="kitchen", mac_address="AA:BB:CC:DD:EE:FF", esphome_version="2026.6.1"
+    )
     client = _fake_api_client(info=info)
     monkeypatch.setattr("aioesphomeapi.APIClient", MagicMock(return_value=client))
 
@@ -819,7 +824,11 @@ async def test_worker_fetch_returns_mac_and_version(monkeypatch: Any) -> None:
         {"address": "1.2.3.4", "port": 6053, "noise_psk": "", "addresses": ["1.2.3.4"]}
     )
 
-    assert result == {"mac_address": "AA:BB:CC:DD:EE:FF", "esphome_version": "2026.6.1"}
+    assert result == {
+        "name": "kitchen",
+        "mac_address": "AA:BB:CC:DD:EE:FF",
+        "esphome_version": "2026.6.1",
+    }
     client.connect.assert_awaited_once()
     client.disconnect.assert_awaited_once()
 
@@ -856,13 +865,16 @@ def test_worker_main_writes_json_on_success(monkeypatch: Any, capsys: Any) -> No
             )
         ),
     )
-    info = SimpleNamespace(mac_address="AA:BB:CC:DD:EE:FF", esphome_version="2026.6.1")
+    info = SimpleNamespace(
+        name="kitchen", mac_address="AA:BB:CC:DD:EE:FF", esphome_version="2026.6.1"
+    )
     monkeypatch.setattr(
         "aioesphomeapi.APIClient", MagicMock(return_value=_fake_api_client(info=info))
     )
 
     assert api_device_info.main() == 0
     assert json.loads(capsys.readouterr().out) == {
+        "name": "kitchen",
         "mac_address": "AA:BB:CC:DD:EE:FF",
         "esphome_version": "2026.6.1",
     }
@@ -876,7 +888,7 @@ def test_worker_main_writes_json_on_success(monkeypatch: Any, capsys: Any) -> No
 def test_log_task_exit_ignores_cancelled() -> None:
     task = MagicMock()
     task.cancelled.return_value = True
-    DeviceStateMonitor._log_api_info_task_exit(task)
+    DeviceStateMonitor._log_task_exit("API info fallback", task)
     task.exception.assert_not_called()
 
 
@@ -884,7 +896,7 @@ def test_log_task_exit_noop_without_exception() -> None:
     task = MagicMock()
     task.cancelled.return_value = False
     task.exception.return_value = None
-    DeviceStateMonitor._log_api_info_task_exit(task)  # must not raise
+    DeviceStateMonitor._log_task_exit("API info fallback", task)  # must not raise
 
 
 def test_log_task_exit_logs_crash(caplog: Any) -> None:
@@ -892,7 +904,7 @@ def test_log_task_exit_logs_crash(caplog: Any) -> None:
     task.cancelled.return_value = False
     task.exception.return_value = RuntimeError("loop died")
     with caplog.at_level(logging.ERROR):
-        DeviceStateMonitor._log_api_info_task_exit(task)
+        DeviceStateMonitor._log_task_exit("API info fallback", task)
     assert "API info fallback loop crashed" in caplog.text
 
 

@@ -76,6 +76,10 @@ class PingSource:
         # Set in ``run`` once the privilege probe lands; the pre-
         # ``run`` default is only seen by tests that mock ``icmp_ping``.
         self._privileged: bool = True
+        # Privilege-probe outcome for siblings (the API reviver gates on
+        # it): ``None`` until the probe lands, then True iff some ICMP
+        # socket mode works and the sweep is running.
+        self.icmp_available: bool | None = None
         # 0→1 multiplexed into the same wake event so a subscriber
         # arriving mid-idle gets fresh ICMP without waiting out the
         # rest of the interval.
@@ -85,6 +89,7 @@ class PingSource:
     async def run(self) -> None:
         await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
         privileged = await _can_use_icmp_lib_with_privilege()
+        self.icmp_available = privileged is not None
         if privileged is None:
             _LOGGER.warning(
                 "ICMP ping sweep disabled: opening an ICMP socket was denied in both "
@@ -235,14 +240,37 @@ class PingSource:
             monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
+    async def ping_once(self, target: str, *, retry: bool = True) -> float | None:
+        """
+        ICMP *target* once; RTT in ms when alive, ``None`` when unreachable.
+
+        Any failure mode reads as unreachable — ``NameLookupError``,
+        ``NoRouteToHost``, ``PermissionError``, socket-open failures
+        all mean "we tried and couldn't reach this". *retry* re-probes
+        a miss with multiple packets so a single dropped ICMP doesn't
+        read as dead on lossy paths (VPN, congested Wi-Fi).
+        """
+        privileged = self._privileged
+        try:
+            result = await icmp_ping(target, count=1, timeout=3, privileged=privileged)
+            if not result.is_alive and retry:
+                result = await icmp_ping(
+                    target, count=3, interval=0.5, timeout=2, privileged=privileged
+                )
+            # ``Host.min_rtt`` is 0.0 on a failed ping which would
+            # surface as "0 ms" in the drawer — gate the capture
+            # on ``is_alive`` so failures stay null instead.
+            if result.is_alive:
+                return float(result.min_rtt)
+        except (ICMPLibError, OSError) as exc:
+            # ``.local`` hosts on systems without Avahi / mdnsd
+            # hit this every sweep; one-line debug avoids
+            # flooding the logs with stack traces.
+            _LOGGER.debug("Ping of %s failed: %s", target, exc)
+        return None
+
     async def _ping_device(self, device: Device, target: str) -> None:
-        # Any failure mode flips OFFLINE rather than staying
-        # UNKNOWN — ``NameLookupError``, ``NoRouteToHost``,
-        # ``PermissionError``, socket-open failures all mean
-        # "we tried and couldn't reach this". A subsequent
-        # successful ping flips it back to ONLINE.
         monitor = self._monitor
-        rtt_ms: float | None = None
         # Skip the retry only for already-OFFLINE devices: the miss
         # just confirms the state, nothing to flap. ONLINE devices
         # get the retry to absorb a transient drop; UNKNOWN devices
@@ -251,30 +279,9 @@ class PingSource:
         # immediately label a reachable device OFFLINE on a single
         # dropped packet.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
-        privileged = self._privileged
-        try:
-            result = await icmp_ping(target, count=1, timeout=3, privileged=privileged)
-            is_alive = result.is_alive
-            if not is_alive and needs_retry:
-                # Retry with multiple packets before flapping the
-                # indicator. A single dropped ICMP would otherwise
-                # flap on lossy paths (VPN, congested Wi-Fi).
-                result = await icmp_ping(
-                    target, count=3, interval=0.5, timeout=2, privileged=privileged
-                )
-                is_alive = result.is_alive
-            # ``Host.min_rtt`` is 0.0 on a failed ping which would
-            # surface as "0 ms" in the drawer — gate the capture
-            # on ``is_alive`` so failures stay null instead.
-            if is_alive:
-                rtt_ms = float(result.min_rtt)
-        except (ICMPLibError, OSError) as exc:
-            # ``.local`` hosts on systems without Avahi / mdnsd
-            # hit this every sweep; one-line debug avoids
-            # flooding the logs with stack traces.
-            _LOGGER.debug("Ping of %s (%s) failed: %s", device.name, target, exc)
-            is_alive = False
+        rtt_ms = await self.ping_once(target, retry=needs_retry)
+        is_alive = rtt_ms is not None
         new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
-        if is_alive and rtt_ms is not None and monitor.state.reachability is not None:
+        if rtt_ms is not None and monitor.state.reachability is not None:
             monitor.state.reachability.record_ping_rtt(device.name, rtt_ms)
         monitor.apply(device.name, new_state, "ping")

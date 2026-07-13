@@ -851,6 +851,29 @@ def test_on_ip_change_skips_when_ip_unchanged(
     assert spawned == []
 
 
+async def test_on_persisted_ip_invalidated_clears_disk_and_device(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """The reviver's mismatch verdict clears ``device.ip``, the store entry, and fires an update."""
+    controller = make_controller(tmp_path)
+    device = _device("kitchen", ip="192.168.1.42")
+    controller._scanner._devices_by_name = {"kitchen": [device]}  # type: ignore[attr-defined]
+    controller._metadata_store.update("kitchen.yaml", ip="192.168.1.42")
+    captured = capture_devices_events(controller, EventType.DEVICE_UPDATED)
+
+    controller._on_persisted_ip_invalidated("kitchen")
+
+    assert device.ip == ""
+    assert "ip" not in controller._metadata_store.get("kitchen.yaml")
+    assert len(captured) == 1
+
+    # A device with no persisted IP is a no-op — no event churn.
+    controller._on_persisted_ip_invalidated("kitchen")
+    assert len(captured) == 1
+
+
 # ---------------------------------------------------------------------------
 # _on_firmware_job_completed early-return branches
 # ---------------------------------------------------------------------------

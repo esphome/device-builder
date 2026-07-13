@@ -34,6 +34,7 @@ from esphome_device_builder.controllers._device_state_monitor import mdns as mdn
 from esphome_device_builder.controllers._device_state_monitor import ping as ping_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.controllers._device_state_monitor.api_info import ApiInfoSource
+from esphome_device_builder.controllers._device_state_monitor.api_reviver import ApiReviverSource
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
@@ -80,7 +81,9 @@ def _make_monitor(
     monitor._presence = None  # ping loop runs unconditionally in tests
     monitor._ping = PingSource(monitor)
     monitor._api_info = ApiInfoSource(monitor)
+    monitor._api_reviver = ApiReviverSource(monitor)
     monitor._resolve_api_connection = None
+    monitor._on_persisted_ip_invalidated = None
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
@@ -90,6 +93,7 @@ def _make_monitor(
     monitor._mdns._mdns_browser = None
     monitor._ping_task = None
     monitor._api_info_task = None
+    monitor._api_reviver_task = None
     monitor._tasks = set()
     monitor._importable._import_discovery = None
 
@@ -364,18 +368,21 @@ async def test_close_zeroconf_is_bounded_when_async_close_hangs(
 
 
 async def test_stop_drains_ping_and_api_info_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
-    """stop() awaits the cancelled ping / API-info tasks, not leaving them for aiohttp's sweep."""
+    """stop() awaits the cancelled ping / API tasks, not leaving them for aiohttp's sweep."""
     monitor, _callbacks = _make_monitor()
     await _start_with_captured_dispatch(monitor, monkeypatch)
     ping = monitor._ping_task
     api = monitor._api_info_task
+    reviver = monitor._api_reviver_task
     assert ping is not None
     assert api is not None
+    assert reviver is not None
 
     await monitor.stop()
 
     assert ping.done()
     assert api.done()
+    assert reviver.done()
 
 
 # ---------------------------------------------------------------------------

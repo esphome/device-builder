@@ -112,6 +112,26 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
         controller._fire_device_updated(device)
 
 
+def on_persisted_ip_invalidated(controller: DevicesController, name: str) -> None:
+    """Clear a persisted last-known IP the reviver proved belongs to another device.
+
+    The explicit counterpart to :func:`on_ip_change`'s keep-on-disk
+    contract — only identity-verified evidence gets to drop the value.
+    """
+    for device in controller._devices_by_name(name):
+        if not device.ip:
+            continue
+        _LOGGER.info(
+            "Device %s (%s): clearing stale persisted IP %s",
+            name,
+            device.configuration,
+            device.ip,
+        )
+        device.ip = ""
+        controller._metadata_store.update(device.configuration, ip="")
+        controller._fire_device_updated(device)
+
+
 def on_version_change(controller: DevicesController, name: str, version: str) -> None:
     """Apply a fresh ESPHome version observed via mDNS."""
 

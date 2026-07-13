@@ -13,7 +13,10 @@ Source precedence (highest first): ``mdns`` > ``mqtt`` > ``ping``. A
 lower-priority source can never override the state set by a higher one.
 A separate Native API fallback fills ``mac_address`` / ``deployed_version``
 for online API devices mDNS hasn't reached; it never drives ONLINE/OFFLINE
-and so stays out of the precedence ledger.
+and so stays out of the precedence ledger. The API reviver is the one
+Native API path that does drive state: it revives a stuck-offline device
+from its persisted IP after identity verification, claiming under the
+``ping`` source.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
@@ -39,6 +43,7 @@ from .._reachability_tracker import MdnsCacheInfo, ReachabilityTracker
 from .._task_controller_base import TaskControllerBase
 from ._state import MonitorState
 from .api_info import ApiInfoSource
+from .api_reviver import ApiReviverSource
 from .helpers import (
     _normalize_mac,
     _pick_ipv4,
@@ -105,6 +110,11 @@ ImportableRemovedCallback = Callable[[str], None]
 # device; an empty key means "connect plaintext".
 ApiConnectionResolver = Callable[[str], Awaitable[tuple[str, int]]]
 
+# Persisted-IP invalidation: the API reviver proved the on-disk
+# last-known IP now belongs to a different device, so the owner must
+# clear it (``on_ip_change`` deliberately keeps last-known on disk).
+PersistedIpInvalidatedCallback = Callable[[str], None]
+
 
 class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
@@ -132,6 +142,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         presence: SubscriberPresence | None = None,
         resolve_api_connection: ApiConnectionResolver | None = None,
         on_source_change: SourceChangeCallback | None = None,
+        on_persisted_ip_invalidated: PersistedIpInvalidatedCallback | None = None,
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
@@ -155,9 +166,11 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._on_importable_removed = on_importable_removed
         self._is_ignored = is_ignored or (lambda _name: False)
         self._resolve_api_connection = resolve_api_connection
+        self._on_persisted_ip_invalidated = on_persisted_ip_invalidated
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
         self._api_info_task: asyncio.Task | None = None
+        self._api_reviver_task: asyncio.Task | None = None
         # ``self._tasks`` (fire-and-forget mDNS resolve refs) is
         # inherited from :class:`TaskControllerBase`.
         # When wired, the ping loop pauses while no dashboard client
@@ -170,16 +183,19 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._mdns = MdnsSource(self)
         self._ping = PingSource(self)
         self._api_info = ApiInfoSource(self)
+        self._api_reviver = ApiReviverSource(self)
 
     async def start(self) -> None:
-        """Start the mDNS browser, the periodic ping sweep, and the API info fallback."""
+        """Start the mDNS browser, the ping sweep, the API info fallback, and the reviver."""
         await self._mdns.start()
         self._ping_task = asyncio.create_task(self._ping.run())
         self._api_info_task = asyncio.create_task(self._api_info.run())
-        self._api_info_task.add_done_callback(self._log_api_info_task_exit)
+        self._api_info_task.add_done_callback(partial(self._log_task_exit, "API info fallback"))
+        self._api_reviver_task = asyncio.create_task(self._api_reviver.run())
+        self._api_reviver_task.add_done_callback(partial(self._log_task_exit, "API reviver"))
 
     async def stop(self) -> None:
-        """Tear down the browser and drain the ping + API-info + resolve tasks (bounded)."""
+        """Tear down the browser and drain the ping + API + resolve tasks (bounded)."""
         drain: list[asyncio.Task[Any]] = []
         if self._ping_task is not None:
             self._ping_task.cancel()
@@ -189,6 +205,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             self._api_info_task.cancel()
             drain.append(self._api_info_task)
             self._api_info_task = None
+        if self._api_reviver_task is not None:
+            self._api_reviver_task.cancel()
+            drain.append(self._api_reviver_task)
+            self._api_reviver_task = None
         # Cancel the browser FIRST so it stops dispatching new mDNS
         # callbacks; otherwise the drain below would race against
         # newly-spawned resolve tasks the browser is still firing.
@@ -209,12 +229,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         await close
 
     @staticmethod
-    def _log_api_info_task_exit(task: asyncio.Task) -> None:
-        """Surface an unexpected API-info loop crash instead of letting it die silently."""
+    def _log_task_exit(label: str, task: asyncio.Task) -> None:
+        """Surface an unexpected loop crash instead of letting it die silently."""
         if task.cancelled():
             return
         if (exc := task.exception()) is not None:
-            _LOGGER.error("API info fallback loop crashed: %s", exc, exc_info=exc)
+            _LOGGER.error("%s loop crashed: %s", label, exc, exc_info=exc)
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
@@ -390,6 +410,17 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
     def request_version_reprobe(self, name: str) -> None:
         """Force one Native-API version probe of *name*, ignoring the mac+version guard."""
         self._api_info.request_reprobe(name)
+
+    def invalidate_persisted_ip(self, name: str) -> None:
+        """
+        Report that *name*'s persisted last-known IP belongs to another device.
+
+        Forwarded to the owner so the on-disk value is cleared —
+        ``on_ip_change`` can't do it, its contract deliberately keeps
+        the last-known primary on disk across offline windows.
+        """
+        if self._on_persisted_ip_invalidated is not None:
+            self._on_persisted_ip_invalidated(name)
 
     def apply_version(self, name: str, version: str) -> bool:
         """Record a firmware version observation; True iff forwarded."""

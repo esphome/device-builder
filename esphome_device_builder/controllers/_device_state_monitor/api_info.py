@@ -9,7 +9,8 @@ free (the browser handler can miss an announce whose records still landed in
 the cache), then connects to still-blank devices over the Native API in a
 short-lived subprocess. It only ever supplies the TXT-derived fields; it
 never drives ONLINE/OFFLINE, so it stays out of the source-precedence
-ledger.
+ledger. The one Native API path that does drive state is the last-resort
+revival in ``api_reviver.py``.
 """
 
 from __future__ import annotations
@@ -18,22 +19,18 @@ import asyncio
 import contextlib
 import importlib.util
 import logging
-import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-from ...helpers import json
-from ...helpers.device_yaml import DEFAULT_API_PORT
 from ...helpers.hostname import is_local_hostname
-from ...helpers.subprocess import run_subprocess_capture
 from ...models import Device, DeviceState, ReachabilitySource
+from ._api_probe import build_probe_request, run_worker
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
 
 _LOGGER = logging.getLogger(__name__)
 
-_WORKER_MODULE = "esphome_device_builder.helpers.api_device_info"
 _INTERVAL = 60  # seconds between fallback sweeps
 # Give mDNS a head start so devices that announce normally fill
 # mac/version for free and never trigger a connection.
@@ -41,7 +38,6 @@ _BOOTSTRAP_DELAY = 15
 # Per-device backoff after a failed fetch so an unreachable / wrong-key
 # / non-API device isn't reconnected every sweep.
 _FAILURE_COOLDOWN = 600  # seconds
-_SUBPROCESS_TIMEOUT = 15.0
 # Max devices probed per sweep. Each probe is serial and can run the full
 # subprocess timeout, so an mDNS-dark all-failing fleet would otherwise spawn
 # interpreters back-to-back for minutes; the overflow rolls to the next sweep.
@@ -252,30 +248,10 @@ class ApiInfoSource:
             # list after selection. Back off rather than indexing an empty list.
             self._record_failure(device)
             return
-        noise_psk, port = "", DEFAULT_API_PORT
-        if monitor._resolve_api_connection is not None:
-            try:
-                noise_psk, port = await monitor._resolve_api_connection(device.configuration)
-            except Exception as exc:  # noqa: BLE001 — can't resolve how to reach the device
-                # A plaintext/default guess would only fail the handshake;
-                # record the miss instead of spawning a doomed worker.
-                _LOGGER.debug("API key/port resolve failed for %s; skipping: %s", device.name, exc)
-                self._record_failure(device)
-                return
-        if device.api_encrypted and not noise_psk:
-            # The config declares Noise encryption but no key resolved (e.g. a
-            # templated key) — a plaintext connect can only fail the handshake.
-            _LOGGER.debug("No Native API key resolved for encrypted %s; skipping", device.name)
+        request = await build_probe_request(monitor, device, addresses)
+        if request is None:
             self._record_failure(device)
             return
-        request = json.dumps(
-            {
-                "address": addresses[0],
-                "port": port,
-                "noise_psk": noise_psk,
-                "addresses": addresses,
-            }
-        )
         info = await self._run_worker(device, request) or {}
         # ``apply_*`` returns True iff it newly wrote the field. Judge on that,
         # not a post-apply Device re-read (apply dedupes / fans out across
@@ -296,6 +272,10 @@ class ApiInfoSource:
         if forced and info:
             return
         self._record_failure(device)
+
+    async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
+        """Instance seam over the shared worker runner (tests stub it here)."""
+        return await run_worker(device.name, request)
 
     def _record_failure(self, device: Device) -> None:
         """Back *device* off so the next sweep skips it until the cooldown expires."""
@@ -328,41 +308,3 @@ class ApiInfoSource:
                 "and the api.port setting",
                 failing,
             )
-
-    async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
-        try:
-            result = await run_subprocess_capture(
-                sys.executable,
-                "-m",
-                _WORKER_MODULE,
-                timeout=_SUBPROCESS_TIMEOUT,
-                stdin_data=request,
-                merge_stderr=False,
-            )
-        except OSError as exc:
-            _LOGGER.debug("Failed to spawn API info worker for %s: %s", device.name, exc)
-            return None
-        if result.timed_out:
-            _LOGGER.debug("API info fetch for %s timed out", device.name)
-            return None
-        try:
-            parsed = json.loads(result.stdout) if result.stdout else None
-        except (json.JSONDecodeError, ValueError):
-            _LOGGER.debug(
-                "API info worker for %s emitted unparsable output: %r", device.name, result.stdout
-            )
-            return None
-        # The worker exits 0 with ``{mac_address, version}`` on success and
-        # non-zero with ``{"error": <reason>}`` on a connect/handshake
-        # failure — surface that reason so the dominant failure mode is
-        # diagnosable instead of silently missing.
-        if result.returncode != 0 or not isinstance(parsed, dict):
-            reason = parsed.get("error") if isinstance(parsed, dict) else None
-            _LOGGER.debug(
-                "API info worker for %s failed (rc=%s): %s",
-                device.name,
-                result.returncode,
-                reason or "no usable output",
-            )
-            return None
-        return parsed

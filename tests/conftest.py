@@ -941,6 +941,10 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_mac_address_change", name, mac))
         self._flip(name, "mac_address", mac)
 
+    def on_persisted_ip_invalidated(self, name: str) -> None:
+        self.calls.append(("on_persisted_ip_invalidated", name))
+        self._flip(name, "ip", "")
+
     def on_importable_added(self, device: AdoptableDevice) -> None:
         self.calls.append(("on_importable_added", device))
 
@@ -970,6 +974,7 @@ def make_state_monitor_with_callbacks(
         on_config_hash_change=callbacks.on_config_hash_change,
         on_api_encryption_change=callbacks.on_api_encryption_change,
         on_mac_address_change=callbacks.on_mac_address_change,
+        on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
     )
     return monitor, callbacks
 
@@ -1001,6 +1006,19 @@ def make_online_api_device(name: str = "kitchen", **overrides: Any) -> Device:
         "loaded_integrations": ["api", "wifi"],
         "ip": "192.168.1.50",
         "ip_addresses": ["192.168.1.50"],
+    }
+    base.update(overrides)
+    return make_device(name, **base)
+
+
+def make_stuck_offline_device(name: str = "kitchen", **overrides: Any) -> Device:
+    """OFFLINE API device whose only lead is the persisted ``ip`` (the reviver cohort)."""
+    base: dict[str, Any] = {
+        "state": DeviceState.OFFLINE,
+        "api_enabled": True,
+        "loaded_integrations": ["api", "wifi"],
+        "ip": "192.168.1.50",
+        "ip_addresses": [],
     }
     base.update(overrides)
     return make_device(name, **base)
