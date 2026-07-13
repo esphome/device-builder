@@ -106,7 +106,21 @@ class PingSource:
             if monitor._presence is not None:
                 await monitor._presence.wait_for_subscriber()
             self._wake.clear()
-            await shared.resolve_non_api_mdns_targets(monitor)
+            # Disjoint candidate sets — resolve both concurrently so a
+            # wire-miss in one doesn't delay the sweep behind the other.
+            # An unguarded raise here must not kill the loop for the
+            # process lifetime; log it and keep sweeping.
+            results = await asyncio.gather(
+                shared.resolve_non_api_mdns_targets(monitor),
+                shared.resolve_api_mdns_targets(monitor),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, BaseException) and not isinstance(result, Exception):
+                    # Never mask a cancellation as a benign step failure.
+                    raise result
+                if isinstance(result, Exception):
+                    _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=result)
             await self._ping_sweep()
             await self._idle()
 

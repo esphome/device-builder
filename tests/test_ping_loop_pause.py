@@ -63,11 +63,12 @@ def _instrument_loop(
     async def _sweep() -> None:
         counts["sweeps"] += 1
 
-    # ``resolve_non_api_mdns_targets`` is a free function in ``shared``;
-    # patch the module attribute so ``PingSource.run``'s call sees the
-    # stub. ``_ping_sweep`` is a method on ``PingSource``; replace it
-    # on the per-test instance.
+    # The resolve steps are free functions in ``shared``; patch the
+    # module attributes so ``PingSource.run``'s calls see the stubs.
+    # ``_ping_sweep`` is a method on ``PingSource``; replace it on the
+    # per-test instance.
     monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
+    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _resolve)
     monitor._ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
     # Skip the bootstrap delay; collapse the post-sweep idle wait
@@ -111,6 +112,49 @@ async def test_ping_loop_runs_unconditionally_without_presence(
 
     assert counts["sweeps"] >= 2
     assert counts["resolves"] >= 2
+
+
+async def test_ping_loop_survives_a_raising_resolve_step(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising resolve step is logged and the loop keeps sweeping."""
+    monitor = _build_monitor(presence=None)
+    counts = _instrument_loop(monitor, monkeypatch)
+
+    async def _boom(_monitor: DeviceStateMonitor) -> None:
+        raise AttributeError("boom")
+
+    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _boom)
+
+    task = asyncio.create_task(monitor._ping.run())
+    try:
+        await _drive_until(lambda: counts["sweeps"] >= 2)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    assert counts["sweeps"] >= 2
+
+
+async def test_ping_loop_does_not_mask_child_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled resolve step propagates instead of being logged as a step failure."""
+    monitor = _build_monitor(presence=None)
+    counts = _instrument_loop(monitor, monkeypatch)
+
+    async def _cancelled(_monitor: DeviceStateMonitor) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _cancelled)
+
+    task = asyncio.create_task(monitor._ping.run())
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=0.5)
+
+    assert task.done()
+    assert counts["sweeps"] == 0
 
 
 async def test_ping_loop_parks_until_first_subscriber(

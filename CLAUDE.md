@@ -548,6 +548,32 @@ against legacy behaviour before assuming the simpler version suffices.
     skipped (a device broadcasting the API gets its identity from the
     esphomelib path). The level-triggered repair (`reconcile_from_cache`)
     reads both services' cached TXT.
+  - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
+    API devices the ping sweep is about to ICMP). Exists because the
+    zeroconf browser never re-asks: after its startup queries it only
+    refreshes PTRs it already holds (rescue window at 75–100% of the
+    TTL), and a `Removed` cancels that schedule — from then on
+    re-discovery rides solely on the device's few boot-time announces.
+    The ways in (dashboard host suspended past the rescue window so the
+    wake expires every PTR at once; an OTA / crash goodbye; an expiry
+    whose reconnect announces were lost) all end the same: the ledger
+    sticks on `ping` while the device answers every direct query
+    (#1993). The sweep is the solicited re-ask the browser doesn't do:
+    a targeted `AsyncServiceInfo` resolve (cache first, wire fallback),
+    cheaper than the ICMP it replaces; on success `_apply_service_info`
+    claims mdns and the device leaves the ping rotation. Claims here
+    are **ownership repair, not liveness**: candidates must already be
+    ONLINE (never revive off the cache, #1776) and must have some cached
+    mDNS trace (an mDNS-dark deployment gains no multicast traffic). A
+    miss claims nothing; ICMP decides, same as the active-resolve path.
+    The browser `Removed` branch runs the same verify-resolve before
+    honouring the event, demoting only on a **confirmed miss** — so a
+    wake-from-suspend `Removed` storm or an OTA reboot doesn't flip
+    live devices OFFLINE. Latch guard: an mdns claim on an API device
+    **without a live PTR** (these resolves fetch SRV/TXT/A, not PTR)
+    has no `Removed` counterpart, so `should_ping` keeps it
+    sweep-eligible — the sweep is its offline-detection substitute
+    until the PTR returns and normal browser ownership resumes.
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE

@@ -143,7 +143,7 @@ Connections that arrive on the trusted ingress site (HA add-on supervisor proxy)
 `Device.has_pending_changes`: `true` = config changed since last compile, `false` = up to date, `null` = never compiled.
 `Device.pending_changes_via_hash`: `true` when `has_pending_changes` came from the mDNS-sourced config-hash compare (vs the local mtime fallback). The frontend gates only this case on a live mDNS, so a local YAML edit still cues "install" when mDNS is dark.
 `Device.update_available`: `true` = device was compiled with a different ESPHome version than the server.
-`Device.runtime_state.active_source`: `ReachabilitySource` — channel currently driving online state (`mdns` > `mqtt` > `ping`); `unknown` until a source claims it (also the transient default after a restart). The frontend gates the mDNS-sourced out-of-sync / update indicators on `active_source == "mdns"`, since `deployed_version` / `deployed_config_hash` come only from the mDNS broadcast.
+`Device.runtime_state.active_source`: `ReachabilitySource` — channel currently driving online state (`mdns` > `mqtt` > `ping`); `unknown` until a source claims it (also the transient default after a restart). The frontend gates the mDNS-sourced out-of-sync / update indicators on `active_source == "mdns"`, since `deployed_version` / `deployed_config_hash` come only from the mDNS broadcast. Ownership self-repairs: before each ICMP sweep the monitor retries a targeted mDNS resolve for ONLINE API devices ping owns, so a ledger stuck on `ping` while the device still answers mDNS returns to `mdns` within a sweep (~60s).
 
 ### Firmware
 
