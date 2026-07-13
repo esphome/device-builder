@@ -120,13 +120,15 @@ jobs:
         # retriggers this workflow; the marker check stops the loop one
         # run early (deterministic no-diff convergence is the backstop).
         run: |
-          subject=$(git -C pr log -1 --format=%s)
-          if [ "${subject#*"[board-catalog-regen]"}" != "$subject" ]; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Head commit is our own regen; nothing to do."
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
+          case "$(git -C pr log -1 --format=%s)" in
+            *"[board-catalog-regen]"*)
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "::notice::Head commit is our own regen; nothing to do."
+              ;;
+            *)
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
       - name: Overlay PR manifests onto the base tree
         if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
