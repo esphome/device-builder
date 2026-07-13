@@ -15,26 +15,19 @@ revival in ``api_reviver.py``.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import importlib.util
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
-from ._api_probe import build_probe_request, run_worker
+from ._api_probe import ApiSweepSource, api_worker_available, build_probe_request, run_worker
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTERVAL = 60  # seconds between fallback sweeps
-# Give mDNS a head start so devices that announce normally fill
-# mac/version for free and never trigger a connection.
-_BOOTSTRAP_DELAY = 15
 # Per-device backoff after a failed fetch so an unreachable / wrong-key
 # / non-API device isn't reconnected every sweep.
 _FAILURE_COOLDOWN = 600  # seconds
@@ -49,12 +42,16 @@ _MAX_PROBES_PER_SWEEP = 8
 _SYSTEMIC_FAILURE_WARN_THRESHOLD = 10
 
 
-class ApiInfoSource:
+class ApiInfoSource(ApiSweepSource):
     """Fill mac/version via the Native API when mDNS hasn't supplied them."""
 
+    _sweep_label = "API info"
+    # Give mDNS a head start so devices that announce normally fill
+    # mac/version for free and never trigger a connection.
+    _bootstrap_delay = 15
+
     def __init__(self, monitor: DeviceStateMonitor) -> None:
-        self._monitor = monitor
-        self._wake = asyncio.Event()
+        super().__init__(monitor)
         # name -> monotonic deadline before which we won't retry a fetch.
         self._cooldown: dict[str, float] = {}
         # Device names to probe once even though they already have mac+version
@@ -63,46 +60,25 @@ class ApiInfoSource:
         # One-shot latch for the systemic WARNING; re-arms once the count of
         # distinct devices stuck failing drops back below the threshold.
         self._warned_systemic = False
-        # Re-checked by ``run``; without aioesphomeapi the sweep still runs
-        # its mDNS-cache reconcile but skips the API-connect stage.
+        # Re-checked by ``_prepare``; without aioesphomeapi the sweep still
+        # runs its mDNS-cache reconcile but skips the API-connect stage.
         self._api_available = True
-        if monitor._presence is not None:
-            monitor._presence.add_subscriber_callback(self._wake.set)
 
     def request_reprobe(self, name: str) -> None:
         """Force one probe of *name* on the next sweep, ignoring the mac+version guard."""
         self._force_reprobe.add(name)
         self._wake.set()
 
-    async def run(self) -> None:
-        # ``find_spec`` resolves without importing, so ``aioesphomeapi``
-        # never loads into the dashboard process — only the per-fetch
-        # worker child imports it. The sweep loop still runs without it:
-        # the mDNS-cache reconcile pass needs no API worker.
-        self._api_available = importlib.util.find_spec("aioesphomeapi") is not None
+    def _prepare(self) -> bool:
+        # The sweep loop still runs without the worker library: the
+        # mDNS-cache reconcile pass needs no API worker.
+        self._api_available = api_worker_available()
         if not self._api_available:
             _LOGGER.debug(
                 "aioesphomeapi not installed; Native API connect stage disabled "
                 "(mDNS-cache reconcile still active)"
             )
-        await asyncio.sleep(_BOOTSTRAP_DELAY)
-        monitor = self._monitor
-        while True:
-            if monitor._presence is not None:
-                await monitor._presence.wait_for_subscriber()
-            self._wake.clear()
-            try:
-                await self._sweep()
-            except Exception:
-                # A failure outside the per-device guard (``_select_targets``,
-                # the cooldown prune, the health check) must not kill the loop
-                # for the process lifetime; log it and try again next interval.
-                _LOGGER.exception("API info sweep failed; continuing")
-            await self._idle()
-
-    async def _idle(self) -> None:
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._wake.wait(), timeout=_INTERVAL)
+        return True
 
     async def _sweep(self) -> None:
         # Strictly one probe at a time: an API connect is far heavier

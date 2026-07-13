@@ -32,10 +32,6 @@ _PING_INTERVAL = 60  # seconds between ping sweeps
 # browser would have flipped ONLINE for free. 10s mirrors the
 # upstream dashboard's ``MDNS_BOOTSTRAP_TIME``.
 _PING_BOOTSTRAP_DELAY = 10
-# icmplib gets unreliable past a few dozen concurrent probes;
-# 24 matches the upstream ``GROUP_SIZE`` and keeps each batch
-# inside a single ICMP timeout window.
-_PING_BATCH_SIZE = 24
 
 
 async def _can_use_icmp_lib_with_privilege() -> bool | None:
@@ -66,7 +62,7 @@ class PingSource:
         # Cleared at the top of each sweep so a wake fired mid-sweep
         # still triggers the next idle.
         self._wake = asyncio.Event()
-        self._concurrency = asyncio.Semaphore(_PING_BATCH_SIZE)
+        self._concurrency = asyncio.Semaphore(shared.ICMP_BATCH_SIZE)
         # Sorted ``(name, address)`` of every device in the union of
         # the last DEBUG sweep's pingable + dns_failed buckets. Spanning
         # both keeps the signature stable across the DNS-failure cache
@@ -164,7 +160,7 @@ class PingSource:
                         "Pinging %d devices: %s", len(pingable), _format_devices(pingable)
                     )
         # ``self._concurrency`` semaphore caps in-flight ICMP at
-        # ``_PING_BATCH_SIZE``; no need to pre-chunk the gather.
+        # ``ICMP_BATCH_SIZE``; no need to pre-chunk the gather.
         await asyncio.gather(
             *(self._resolve_and_ping(device) for device in pingable),
             return_exceptions=True,
@@ -280,8 +276,7 @@ class PingSource:
         # dropped packet.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt_ms = await self.ping_once(target, retry=needs_retry)
-        is_alive = rtt_ms is not None
-        new_state = DeviceState.ONLINE if is_alive else DeviceState.OFFLINE
+        new_state = DeviceState.ONLINE if rtt_ms is not None else DeviceState.OFFLINE
         if rtt_ms is not None and monitor.state.reachability is not None:
             monitor.state.reachability.record_ping_rtt(device.name, rtt_ms)
         monitor.apply(device.name, new_state, "ping")

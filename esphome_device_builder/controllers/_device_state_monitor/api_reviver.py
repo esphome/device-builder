@@ -12,9 +12,9 @@ connects are heavy on the device (scarce connection slots), so revival is
 strictly last-resort and identity-verified:
 
 1. Candidates are devices with **no other reachability signal**: not
-   ONLINE, ``api_enabled``, persisted ``Device.ip``, no RAM addresses, no
-   zeroconf-cached addresses, and the address has a cached DNS failure
-   (proving the ping sweep already tried and had no target).
+   ONLINE, ``api_enabled``, persisted ``Device.ip``, no RAM addresses,
+   and :func:`shared.address_resolution_exhausted` proving the ping
+   sweep already tried and had no target.
 2. ICMP the persisted IP as a cheap **negative** filter — silence means
    no dial, the device is off or moved.
 3. Something answered: pay for one short-lived ``device_info`` worker
@@ -35,27 +35,20 @@ filter can't run, and a verify-only ONLINE would be un-demotable.
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import importlib.util
 import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
-from ._api_probe import build_probe_request, run_worker
+from . import shared
+from ._api_probe import ApiSweepSource, api_worker_available, build_probe_request, run_worker
 from .helpers import _normalize_mac
-from .ping import _PING_BATCH_SIZE
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
 
 _LOGGER = logging.getLogger(__name__)
 
-_INTERVAL = 60  # seconds between revival sweeps
-# After ping's 10s bootstrap plus a sweep, so the DNS-failure cache the
-# cohort gate reads is populated and the mDNS browser had its head start.
-_BOOTSTRAP_DELAY = 75
 # Dials are serial and each occupies one of the device's scarce API slots;
 # stricter than api_info's 8 because the post-restart stuck fleet is the
 # storm case here.
@@ -71,13 +64,18 @@ _DIAL_FAILURE_COOLDOWN_MAX = 21600.0  # seconds
 _NO_KEY_COOLDOWN = 3600.0  # seconds
 
 
-class ApiReviverSource:
+class ApiReviverSource(ApiSweepSource):
     """Identity-verified last-resort ONLINE revival from the persisted IP."""
 
+    _sweep_label = "API reviver"
+    # After ping's 10s bootstrap plus its privilege probe and first
+    # sweep, so ``icmp_available`` is decided and the DNS-failure cache
+    # the cohort gate reads is populated.
+    _bootstrap_delay = 75
+
     def __init__(self, monitor: DeviceStateMonitor) -> None:
-        self._monitor = monitor
-        self._wake = asyncio.Event()
-        self._concurrency = asyncio.Semaphore(_PING_BATCH_SIZE)
+        super().__init__(monitor)
+        self._concurrency = asyncio.Semaphore(shared.ICMP_BATCH_SIZE)
         # (name, persisted ip) -> monotonic deadline; keying on the pair
         # means a persisted-IP change bypasses the old entry naturally.
         self._cooldown: dict[tuple[str, str], float] = {}
@@ -87,65 +85,38 @@ class ApiReviverSource:
         # name -> IP whose responder passed identity verification this
         # process; revivals at the same pair skip the dial entirely.
         self._verified: dict[str, str] = {}
-        if monitor._presence is not None:
-            monitor._presence.add_subscriber_callback(self._wake.set)
 
-    async def run(self) -> None:
-        # ``find_spec`` resolves without importing, so ``aioesphomeapi``
-        # never loads into the dashboard process. Unlike api_info there
-        # is no lib-less work to do — identity verification IS the dial.
-        if importlib.util.find_spec("aioesphomeapi") is None:
+    def _prepare(self) -> bool:
+        # Unlike api_info there is no lib-less work to do — identity
+        # verification IS the dial.
+        if not api_worker_available():
             _LOGGER.debug("aioesphomeapi not installed; API revival disabled")
-            return
-        await asyncio.sleep(_BOOTSTRAP_DELAY)
-        monitor = self._monitor
-        while True:
-            if monitor._presence is not None:
-                await monitor._presence.wait_for_subscriber()
-            self._wake.clear()
-            if monitor._ping.icmp_available is False:
-                # ICMP availability can't change within a process; exit
-                # for good rather than idle-spin.
-                _LOGGER.warning(
-                    "API revival disabled: ICMP is unavailable, so the persisted-IP "
-                    "pre-filter can't run and a verified ONLINE could never demote"
-                )
-                return
-            try:
-                await self._sweep()
-            except Exception:
-                # A failure outside the per-device paths must not kill the
-                # loop for the process lifetime; log it and keep sweeping.
-                _LOGGER.exception("API reviver sweep failed; continuing")
-            await self._idle()
-
-    def wake(self) -> None:
-        """Bail the idle wait so the next sweep runs without waiting on ``_INTERVAL``."""
-        self._wake.set()
-
-    async def _idle(self) -> None:
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._wake.wait(), timeout=_INTERVAL)
+            return False
+        # The bootstrap sleep outlasts ping's privilege probe, so a
+        # still-undecided outcome means the probe never ran; either way
+        # the negative pre-filter can't be trusted, and availability
+        # can't change within a process.
+        if self._monitor._ping.icmp_available is not True:
+            _LOGGER.warning(
+                "API revival disabled: ICMP is unavailable, so the persisted-IP "
+                "pre-filter can't run and a verified ONLINE could never demote"
+            )
+            return False
+        return True
 
     async def _sweep(self) -> None:
         devices = self._monitor._get_devices()
         self._prune(devices)
-        # ``icmp_available`` still None: the privilege probe hasn't
-        # landed (it runs ~10s in, well before our bootstrap, so this is
-        # a startup race at most one sweep wide).
-        if self._monitor._ping.icmp_available is not True:
-            return
         candidates = self._select_candidates(devices)
         if not candidates:
             return
         # Negative pre-filter: batched, cheap, and inadmissible as ONLINE
         # evidence on its own — silence means no dial this sweep.
         rtts = await asyncio.gather(*(self._prefilter(device) for device in candidates))
-        answering = [
-            (device, rtt) for device, rtt in zip(candidates, rtts, strict=True) if rtt is not None
-        ]
         dials = 0
-        for device, rtt in answering:
+        for device, rtt in zip(candidates, rtts, strict=True):
+            if rtt is None:
+                continue
             if self._verified.get(device.name) == device.ip:
                 # Already identity-verified at this pair this process —
                 # the echo alone revives, same trust RAM addresses get.
@@ -168,32 +139,15 @@ class ApiReviverSource:
             and device.runtime_state.state is not DeviceState.ONLINE
             and not device.runtime_state.ip_addresses
             and self._cooldown.get((device.name, device.ip), 0.0) <= now
-            and self._address_unresolvable(device)
+            and shared.address_resolution_exhausted(self._monitor, device.address)
         ]
-
-    def _address_unresolvable(self, device: Device) -> bool:
-        """
-        Report whether the ping sweep provably has no target for *device*.
-
-        Requiring the *cached* DNS failure (populated by the sweep's
-        pre-resolve) both proves ping already tried and naturally
-        sequences the reviver after at least one sweep. A ``.local``
-        with zeroconf-cached addresses is ping's to handle.
-        """
-        address = device.address
-        if not address:
-            return True
-        monitor = self._monitor
-        if is_local_hostname(address) and monitor.get_cached_addresses(address):
-            return False
-        return monitor.state.dns_cache.has_cached_failure(address)
 
     async def _prefilter(self, device: Device) -> float | None:
         """ICMP the persisted IP; cool the pair down on silence."""
         async with self._concurrency:
             rtt = await self._monitor._ping.ping_once(device.ip)
         if rtt is None:
-            self._cooldown[(device.name, device.ip)] = time.monotonic() + _ICMP_SILENT_COOLDOWN
+            self._cool_down(device, _ICMP_SILENT_COOLDOWN)
         return rtt
 
     async def _verify_and_revive(self, device: Device, rtt: float) -> None:
@@ -201,7 +155,7 @@ class ApiReviverSource:
         monitor = self._monitor
         request = await build_probe_request(monitor, device, [device.ip])
         if request is None:
-            self._cooldown[(device.name, device.ip)] = time.monotonic() + _NO_KEY_COOLDOWN
+            self._cool_down(device, _NO_KEY_COOLDOWN)
             return
         info = await self._run_worker(device, request)
         if info is None:
@@ -244,7 +198,7 @@ class ApiReviverSource:
         """Seed the verified IP, then claim ONLINE under the ping source.
 
         IP before state so the first post-revival snapshot carries the
-        address and the sweep has its target; the ping wake hands
+        address and the sweep has its target; the ping nudge hands
         ownership of liveness to the ordinary sweep immediately.
         """
         monitor = self._monitor
@@ -256,19 +210,24 @@ class ApiReviverSource:
         if monitor.state.reachability is not None:
             monitor.state.reachability.record_ping_rtt(name, rtt)
         monitor.apply(name, DeviceState.ONLINE, "ping")
-        monitor._ping.wake()
+        monitor.probe_device_ping(name)
 
     async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
         """Instance seam over the shared worker runner (tests stub it here)."""
         return await run_worker(device.name, request)
+
+    def _cool_down(self, device: Device, seconds: float) -> None:
+        """Skip this ``(name, ip)`` pair until *seconds* from now."""
+        self._cooldown[(device.name, device.ip)] = time.monotonic() + seconds
 
     def _record_dial_failure(self, device: Device) -> None:
         """Escalating backoff for a responder that answers ICMP but fails the dial."""
         key = (device.name, device.ip)
         count = self._dial_failures.get(key, 0) + 1
         self._dial_failures[key] = count
-        delay = min(_DIAL_FAILURE_COOLDOWN * 2 ** (count - 1), _DIAL_FAILURE_COOLDOWN_MAX)
-        self._cooldown[key] = time.monotonic() + delay
+        self._cool_down(
+            device, min(_DIAL_FAILURE_COOLDOWN * 2 ** (count - 1), _DIAL_FAILURE_COOLDOWN_MAX)
+        )
 
     def _prune(self, devices: list[Device]) -> None:
         """Drop bookkeeping for gone / recovered / re-IP'd devices.
@@ -277,6 +236,8 @@ class ApiReviverSource:
         resets the escalating backoff so legitimate recovery isn't
         delayed by a stale failure streak.
         """
+        if not (self._cooldown or self._dial_failures or self._verified):
+            return
         current = {device.name: device for device in devices}
 
         def stale(key: tuple[str, str]) -> bool:

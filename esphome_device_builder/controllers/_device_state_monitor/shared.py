@@ -35,6 +35,12 @@ _SOURCE_PRIORITY: dict[str, int] = {
 # the cache.
 _MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 
+# icmplib gets unreliable past a few dozen concurrent probes;
+# 24 matches the upstream ``GROUP_SIZE`` and keeps each batch
+# inside a single ICMP timeout window. One bound for every ICMP
+# consumer (ping sweep, reviver pre-filter).
+ICMP_BATCH_SIZE = 24
+
 
 def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     """
@@ -57,6 +63,22 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
         and device.api_enabled
         and not monitor._mdns.has_live_ptr(device.name)
     )
+
+
+def address_resolution_exhausted(monitor: DeviceStateMonitor, address: str) -> bool:
+    """
+    Report whether the ping sweep provably has no way to target *address*.
+
+    Mirrors ``_select_ping_targets``'s resolution order: a ``.local``
+    with zeroconf-cached addresses is ping's to handle, and only a
+    *cached* DNS failure (written by ping's pre-resolve) proves the
+    sweep already tried. Keep this and ping's selection in lockstep.
+    """
+    if not address:
+        return True
+    if is_local_hostname(address) and monitor.get_cached_addresses(address):
+        return False
+    return monitor.state.dns_cache.has_cached_failure(address)
 
 
 def apply_resolved_addresses(

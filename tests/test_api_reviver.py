@@ -17,9 +17,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers._device_state_monitor import (
-    api_reviver as api_reviver_module,
-)
 from esphome_device_builder.controllers._device_state_monitor.api_reviver import (
     _DIAL_FAILURE_COOLDOWN,
     _DIAL_FAILURE_COOLDOWN_MAX,
@@ -141,23 +138,23 @@ async def test_icmp_silence_skips_the_dial_and_cools_down() -> None:
     assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
 
 
-async def test_sweep_waits_for_the_privilege_probe() -> None:
-    device = make_stuck_offline_device()
-    monitor, _callbacks, src = _reviver([device])
-    monitor._ping.icmp_available = None
-
-    await src._sweep()
-
-    monitor._ping.ping_once.assert_not_called()
-
-
+@pytest.mark.parametrize(
+    "icmp_available",
+    [
+        pytest.param(False, id="probe_said_unavailable"),
+        pytest.param(None, id="probe_never_landed"),
+    ],
+)
 async def test_run_exits_when_icmp_is_unavailable(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    icmp_available: bool | None,
 ) -> None:
+    """Without a trustworthy negative pre-filter the reviver refuses to run at all."""
     device = make_stuck_offline_device()
     monitor, _callbacks, src = _reviver([device])
-    monitor._ping.icmp_available = False
-    monkeypatch.setattr(api_reviver_module, "_BOOTSTRAP_DELAY", 0)
+    monitor._ping.icmp_available = icmp_available
+    monkeypatch.setattr(ApiReviverSource, "_bootstrap_delay", 0)
 
     with caplog.at_level(logging.WARNING):
         await asyncio.wait_for(src.run(), timeout=1)

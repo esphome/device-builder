@@ -386,10 +386,10 @@ async def test_run_without_aioesphomeapi_still_sweeps(monkeypatch: Any) -> None:
     monitor, _ = make_state_monitor_with_callbacks([make_online_api_device()])
     src = monitor._api_info
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.api_info.importlib.util.find_spec",
+        "esphome_device_builder.controllers._device_state_monitor._api_probe.importlib.util.find_spec",
         lambda _name: None,
     )
-    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
+    monkeypatch.setattr(ApiInfoSource, "_bootstrap_delay", 0)
     sweep = AsyncMock()
 
     async def _idle() -> None:
@@ -442,7 +442,7 @@ async def test_run_sweeps_then_idles(monkeypatch: Any) -> None:
     """With aioesphomeapi present the loop bootstraps, sweeps, then idles each cycle."""
     monitor, _ = make_state_monitor_with_callbacks([])
     src = monitor._api_info
-    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
+    monkeypatch.setattr(ApiInfoSource, "_bootstrap_delay", 0)
     swept: list[int] = []
 
     async def _sweep() -> None:
@@ -463,7 +463,7 @@ async def test_run_survives_a_sweep_error(monkeypatch: Any) -> None:
     """An unexpected error from a sweep is logged and the loop keeps going."""
     monitor, _ = make_state_monitor_with_callbacks([])
     src = monitor._api_info
-    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
+    monkeypatch.setattr(ApiInfoSource, "_bootstrap_delay", 0)
     reached_idle: list[int] = []
 
     async def _boom_sweep() -> None:
@@ -505,7 +505,7 @@ async def test_run_waits_for_subscriber_when_presence_wired(monkeypatch: Any) ->
     )
     assert presence.callbacks  # ApiInfoSource registered its wake on construction
     src = monitor._api_info
-    monkeypatch.setattr(api_info_module, "_BOOTSTRAP_DELAY", 0)
+    monkeypatch.setattr(ApiInfoSource, "_bootstrap_delay", 0)
     swept: list[int] = []
 
     async def _sweep() -> None:
@@ -531,7 +531,7 @@ async def test_idle_returns_immediately_when_woken() -> None:
 
 async def test_idle_times_out_when_not_woken(monkeypatch: Any) -> None:
     """With no wake, the idle wait expires after the interval and returns."""
-    monkeypatch.setattr(api_info_module, "_INTERVAL", 0.01)
+    monkeypatch.setattr(api_probe_module, "_INTERVAL", 0.01)
     monitor, _ = make_state_monitor_with_callbacks([])
     await monitor._api_info._idle()
 
