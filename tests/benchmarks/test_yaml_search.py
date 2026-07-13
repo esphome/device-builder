@@ -16,14 +16,16 @@ cache-lock + sleep(0)-yield overhead.
 
 Five shapes:
 
-- *No match, case-insensitive* — the worst case, no early
-  break, ``str.lower`` per line.
+- *No match, case-insensitive* — the worst case, every line
+  lowered and substring-checked, ``str.lower`` per line.
 - *No match, case-sensitive* — same shape, no lower. Delta
   against the insensitive run measures the cost of the
   per-line lower; useful signal if we ever cache a pre-lowered
   copy.
-- *Match capped early* — common token, the per-file cap fires
-  within the first few sensors. Pins the early-break.
+- *Common token, capped take* — chatty needle, the match list
+  caps at 5 but the scan keeps counting matches to EOF for the
+  ``total_matches`` wire field. Pins the count-past-cap path
+  (append work bounded, counting not).
 - *Fleet of 20x 5k-line* — scaled walk, surfaces any
   per-device fixed cost beyond the line scan itself.
 
@@ -122,8 +124,9 @@ def test_scan_5k_no_match_case_insensitive(benchmark: BenchmarkFixture) -> None:
 
     @benchmark
     def run() -> None:
-        result = scan_lines(_LINES_5K, _NO_MATCH, case_sensitive=False, max_take=5)
-        assert result == []
+        matches, total = scan_lines(_LINES_5K, _NO_MATCH, case_sensitive=False, max_take=5)
+        assert matches == []
+        assert total == 0
 
 
 def test_scan_5k_no_match_case_sensitive(benchmark: BenchmarkFixture) -> None:
@@ -136,23 +139,28 @@ def test_scan_5k_no_match_case_sensitive(benchmark: BenchmarkFixture) -> None:
 
     @benchmark
     def run() -> None:
-        result = scan_lines(_LINES_5K, _NO_MATCH, case_sensitive=True, max_take=5)
-        assert result == []
+        matches, total = scan_lines(_LINES_5K, _NO_MATCH, case_sensitive=True, max_take=5)
+        assert matches == []
+        assert total == 0
 
 
-def test_scan_5k_match_capped_early(benchmark: BenchmarkFixture) -> None:
-    """5k-line file, common token, per-file cap fires early.
+def test_scan_5k_match_capped_take_full_count(benchmark: BenchmarkFixture) -> None:
+    """5k-line file, common token, match list capped, count runs to EOF.
 
-    ``platform`` appears on every binary_sensor block, so the cap
-    of 5 lands within the first ~150 lines. Should NOT pay for
-    scanning the rest of the 5k lines once we have 5 matches.
-    Pin the early-break path.
+    ``platform`` appears on every binary_sensor block, so the
+    match list caps at 5 within the first ~150 lines — but the
+    scan keeps counting matches through the rest of the file for
+    the ``total_matches`` wire field. Pins the chatty-needle
+    shape: per-hit dict allocation stays bounded at ``max_take``
+    while the substring walk pays the same full-file cost as the
+    no-match case.
     """
 
     @benchmark
     def run() -> None:
-        result = scan_lines(_LINES_5K, _COMMON, case_sensitive=False, max_take=5)
-        assert len(result) == 5
+        matches, total = scan_lines(_LINES_5K, _COMMON, case_sensitive=False, max_take=5)
+        assert len(matches) == 5
+        assert total > 5
 
 
 # ---------------------------------------------------------------------------
@@ -175,5 +183,6 @@ def test_scan_fleet_20x5k_no_match(benchmark: BenchmarkFixture) -> None:
     def run() -> None:
         total = 0
         for lines in _FLEET_20:
-            total += len(scan_lines(lines, _NO_MATCH, case_sensitive=False, max_take=5))
+            matches, _ = scan_lines(lines, _NO_MATCH, case_sensitive=False, max_take=5)
+            total += len(matches)
         assert total == 0

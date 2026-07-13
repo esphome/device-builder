@@ -131,6 +131,7 @@ async def test_search_yaml_substring_match_returns_per_device_hits(
             "after": ["  ssid: home"],
         }
     ]
+    assert hit["total_matches"] == 1
 
 
 async def test_search_yaml_friendly_name_falls_back_to_device_name(
@@ -227,6 +228,9 @@ async def test_search_yaml_caps_matches_per_file(
     results = await controller.search_yaml(query="wifi")
 
     assert len(results[0]["matches"]) == 5
+    # ``total_matches`` reports the uncapped count so the UI can
+    # surface "5 of 10 matches" instead of a bare "5".
+    assert results[0]["total_matches"] == 10
 
 
 async def test_search_yaml_caps_total_results(

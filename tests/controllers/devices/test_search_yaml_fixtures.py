@@ -263,6 +263,8 @@ async def test_per_file_cap_holds_against_chatty_fixture(
     plug_hits = [hit for hit in results if hit["configuration"] == "smart_plug.yaml"]
     assert len(plug_hits) == 1
     assert len(plug_hits[0]["matches"]) == 5
+    # The capped hit still reports the file's full match count.
+    assert plug_hits[0]["total_matches"] > 5
 
 
 async def test_yaml_directive_marker_does_not_break_match(

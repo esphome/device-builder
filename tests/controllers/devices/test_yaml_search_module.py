@@ -29,6 +29,7 @@ from pathlib import Path
 
 from esphome_device_builder.controllers.devices._yaml_search import (
     MAX_LINES_PER_FILE,
+    scan_lines,
     search_yaml_devices,
 )
 from esphome_device_builder.controllers.devices._yaml_search_cache import (
@@ -105,6 +106,7 @@ async def test_returns_results_and_live_configurations(tmp_path: Path) -> None:
             "after": ["  ssid: home"],
         }
     ]
+    assert hit["total_matches"] == 1
     # Both devices walked → both in live_configurations, not just
     # the one with a match. Cache prune key.
     assert live == {"kitchen.yaml", "bedroom.yaml"}
@@ -256,7 +258,7 @@ async def test_max_lines_per_file_caps_pathological_files(tmp_path: Path) -> Non
 
 
 async def test_per_file_cap_truncates_matches(tmp_path: Path) -> None:
-    """One device's match list caps at ``per_file_cap``."""
+    """Match list caps at ``per_file_cap``; ``total_matches`` reports the full count."""
     cache = YamlSearchCache()
     devices = [_seed(tmp_path, "kitchen", "\n".join(f"# wifi {i}" for i in range(10)))]
 
@@ -271,6 +273,25 @@ async def test_per_file_cap_truncates_matches(tmp_path: Path) -> None:
     )
 
     assert len(results[0]["matches"]) == 3
+    # The scan keeps counting past the cap so the UI can render
+    # "3 of 10 matches" instead of a silently-truncated "3".
+    assert results[0]["total_matches"] == 10
+
+
+def test_scan_lines_counts_past_max_take() -> None:
+    """``total`` keeps counting after the match list caps at ``max_take``."""
+    lines = [f"# wifi {i}" for i in range(10)]
+    matches, total = scan_lines(lines, "wifi", case_sensitive=False, max_take=3)
+    assert [m["line_number"] for m in matches] == [1, 2, 3]
+    assert total == 10
+
+
+def test_scan_lines_total_equals_len_when_under_cap() -> None:
+    """An uncapped scan reports ``total == len(matches)``."""
+    lines = ["wifi:", "# noise", "  ssid: wifi-home"]
+    matches, total = scan_lines(lines, "wifi", case_sensitive=False, max_take=5)
+    assert len(matches) == 2
+    assert total == 2
 
 
 async def test_total_results_cap_short_circuits_walk(tmp_path: Path) -> None:

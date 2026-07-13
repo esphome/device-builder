@@ -71,7 +71,7 @@ def scan_lines(
     case_sensitive: bool,
     max_take: int,
     context_lines: int = DEFAULT_CONTEXT_LINES,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Scan a single file's pre-split line list for *needle*.
 
     Synchronous hot path of the search loop — pure Python work
@@ -81,12 +81,16 @@ def scan_lines(
     asyncio + cache machinery whose overhead would otherwise
     dominate the signal).
 
-    Returns up to *max_take* matches. The caller folds two
-    upstream caps (``per_file_cap``, the remaining
-    ``max_results`` budget across the fleet) into a single
-    ``max_take`` value before calling. The
-    ``MAX_LINES_PER_FILE`` pathological-file cap is also applied
-    by the caller via a pre-slice on *lines*.
+    Returns ``(matches, total)``: up to *max_take* matches, plus
+    the total number of matching lines in *lines*. The scan keeps
+    counting past the cap so ``total > len(matches)`` tells the
+    caller the match list was truncated; counting walks every
+    line, the same work a no-match needle already does, so the
+    worst case is unchanged. The caller folds two upstream caps
+    (``per_file_cap``, the remaining ``max_results`` budget
+    across the fleet) into a single ``max_take`` value before
+    calling. The ``MAX_LINES_PER_FILE`` pathological-file cap is
+    also applied by the caller via a pre-slice on *lines*.
 
     *needle* must be pre-lowered when ``case_sensitive`` is
     ``False`` — the caller lowers it once outside the per-file
@@ -106,10 +110,14 @@ def scan_lines(
     just the matched line — the slice math degenerates cleanly.
     """
     matches: list[dict] = []
+    total = 0
     n = len(lines)
     for i, line in enumerate(lines, start=1):
         haystack = line if case_sensitive else line.lower()
         if needle in haystack:
+            total += 1
+            if len(matches) >= max_take:
+                continue
             # ``i`` is 1-indexed (line numbers are user-facing).
             # ``lines`` is 0-indexed; convert at the slice edges.
             zero_based = i - 1
@@ -123,9 +131,7 @@ def scan_lines(
                     "after": lines[zero_based + 1 : after_end],
                 }
             )
-            if len(matches) >= max_take:
-                break
-    return matches
+    return matches, total
 
 
 class _DeviceLike(Protocol):
@@ -233,7 +239,7 @@ async def search_yaml_devices(
         # max_results); both collapse cleanly into
         # ``min(per_file_cap, remaining)``.
         max_take = min(per_file_cap, max_results - total_matches)
-        matches = scan_lines(
+        matches, file_total = scan_lines(
             scannable,
             needle,
             case_sensitive=case_sensitive,
@@ -248,6 +254,7 @@ async def search_yaml_devices(
                     "device_name": device.name,
                     "friendly_name": device.friendly_name or device.name,
                     "matches": matches,
+                    "total_matches": file_total,
                 }
             )
             total_matches += len(matches)
