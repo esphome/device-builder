@@ -59,6 +59,8 @@ sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _catalog_split import (  # noqa: E402
+    dumps_envelope_entries_per_line,
+    dumps_map_entry_per_line,
     emit_body_with_roundtrip,
     prepare_next_bodies_dir,
     swap_split_catalog_in,
@@ -1304,6 +1306,7 @@ def _emit_split_catalog(
         index_cls=BoardCatalogIndex,
         index_entries_key="boards",
         sort_keys=True,
+        entries_per_line=True,
     )
 
 
@@ -1342,9 +1345,7 @@ def _write_index(full_payloads: list[dict[str, Any]]) -> None:
     for entry in index_payload["boards"]:
         BoardCatalogIndex.from_dict(entry)
     next_index = _INDEX_FILE.with_suffix(".json.next")
-    next_index.write_bytes(
-        orjson.dumps(index_payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
-    )
+    next_index.write_bytes(dumps_envelope_entries_per_line(index_payload, "boards"))
     next_index.replace(_INDEX_FILE)
 
 
@@ -1382,9 +1383,7 @@ def _emit_featured_components_index(boards: list[BoardCatalogEntry]) -> None:
             continue
         payload[board.id] = [fc.to_dict() for fc in board.featured_components]
     next_path = _FEATURED_INDEX_FILE.with_suffix(".json.next")
-    next_path.write_bytes(
-        orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
-    )
+    next_path.write_bytes(dumps_map_entry_per_line(payload))
     next_path.replace(_FEATURED_INDEX_FILE)
 
 
