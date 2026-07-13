@@ -56,6 +56,7 @@ from esphome_device_builder.constants import (  # noqa: E402
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
+from script._full_setup_gate import apply_validation_gate  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 from script._repo_cache import ensure_shallow_git_repo  # noqa: E402
 
@@ -2139,6 +2140,11 @@ def _hub_block_for(config: dict[str, Any], hub_cid: str) -> dict[str, Any] | Non
     return _sole_hub_block(raw)
 
 
+def _dep_already_featured(dep: str, existing_cids: set[str]) -> bool:
+    """Whether *dep* is met by a featured entry, exactly or as ``<dep>.<platform>``."""
+    return dep in existing_cids or any(cid.startswith(f"{dep}.") for cid in existing_cids)
+
+
 def _collect_driver_hub_refs(
     config: dict[str, Any],
     featured: list[dict[str, Any]],
@@ -2161,7 +2167,7 @@ def _collect_driver_hub_refs(
             continue
         refs: list[tuple[str, str | None]] = []
         for dep in component.get("dependencies") or []:
-            if not isinstance(dep, str) or dep in existing_cids:
+            if not isinstance(dep, str) or _dep_already_featured(dep, existing_cids):
                 continue
             hub = components_index.get(dep)
             if hub is None or not _is_driver_hub(hub):
@@ -2291,7 +2297,7 @@ def _collect_bus_dep_refs(
         block = source_block or _find_consumer_block(config, entry)
         refs: list[tuple[str, str | None]] = []
         for dep in component.get("dependencies") or []:
-            if not isinstance(dep, str) or dep in existing_cids:
+            if not isinstance(dep, str) or _dep_already_featured(dep, existing_cids):
                 continue
             if not _is_bus_dep(dep, components_index):
                 continue
@@ -2688,6 +2694,44 @@ def main() -> int:
     report = _SyncReport()
     active_remote_ids: set[str] = set()
 
+    pending = _collect_records(repo, args, components_index, revision, report)
+
+    # Static extraction can't see everything ESPHome enforces (pin modes,
+    # cross-platform constraints, stale upstream pages) — validate every
+    # record's full setup for real and repair or refuse before emitting.
+    gate_skips = apply_validation_gate([record for _, record in pending])
+
+    for src, record in pending:
+        gate_reason = gate_skips.get(record["id"])
+        if gate_reason is not None:
+            report.skipped.append(_SkippedDevice(src.folder_name, gate_reason))
+            continue
+        if not args.dry_run and _emit_manifest(record, src) is None:
+            report.skipped.append(
+                _SkippedDevice(src.folder_name, "slug collides with hand-curated board")
+            )
+            continue
+        active_remote_ids.add(src.folder_name)
+        report.imported.append(record["id"])
+
+    # Pruning is dangerous when --limit / --device is in effect, since
+    # we haven't actually visited the rest of the upstream tree.
+    if not args.dry_run and args.limit is None and args.device is None:
+        report.removed = _prune_removed(active_remote_ids)
+
+    _print_report(report, args.verbose)
+    return 0
+
+
+def _collect_records(
+    repo: Path,
+    args: argparse.Namespace,
+    components_index: dict[str, dict[str, Any]],
+    revision: str,
+    report: _SyncReport,
+) -> list[tuple[_DeviceSource, dict[str, Any]]]:
+    """Build the record for every accepted upstream page, honoring the CLI filters."""
+    pending: list[tuple[_DeviceSource, dict[str, Any]]] = []
     for src in _iter_devices(repo):
         if args.device and src.folder_name != args.device:
             continue
@@ -2697,23 +2741,10 @@ def main() -> int:
             if args.verbose:
                 _LOGGER.debug("skip %s: %s", src.folder_name, skip_reason)
             continue
-        if not args.dry_run and _emit_manifest(record, src) is None:
-            report.skipped.append(
-                _SkippedDevice(src.folder_name, "slug collides with hand-curated board")
-            )
-            continue
-        active_remote_ids.add(src.folder_name)
-        report.imported.append(record["id"])
-        if args.limit is not None and len(report.imported) >= args.limit:
+        pending.append((src, record))
+        if args.limit is not None and len(pending) >= args.limit:
             break
-
-    # Pruning is dangerous when --limit / --device is in effect, since
-    # we haven't actually visited the rest of the upstream tree.
-    if not args.dry_run and args.limit is None and args.device is None:
-        report.removed = _prune_removed(active_remote_ids)
-
-    _print_report(report, args.verbose)
-    return 0
+    return pending
 
 
 def _print_report(report: _SyncReport, verbose: bool) -> None:
