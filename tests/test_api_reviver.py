@@ -18,6 +18,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_state_monitor import (
+    api_reviver as api_reviver_module,
+)
 from esphome_device_builder.controllers._device_state_monitor._api_probe import ProbeError
 from esphome_device_builder.controllers._device_state_monitor.api_reviver import (
     _DIAL_FAILURE_COOLDOWN,
@@ -165,6 +168,22 @@ async def test_run_exits_when_icmp_is_unavailable(
 
     assert "API revival disabled" in caplog.text
     monitor._ping.ping_once.assert_not_called()
+
+
+def test_prepare_requires_the_worker_library(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No aioesphomeapi means no identity dial — the source disables itself."""
+    device = make_stuck_offline_device()
+    _monitor, _callbacks, src = _reviver([device])
+    monkeypatch.setattr(api_reviver_module, "api_worker_available", lambda: False)
+
+    assert src._prepare() is False
+
+
+def test_prepare_passes_with_worker_and_icmp() -> None:
+    device = make_stuck_offline_device()
+    _monitor, _callbacks, src = _reviver([device])
+
+    assert src._prepare() is True
 
 
 # ----------------------------------------------------------------------

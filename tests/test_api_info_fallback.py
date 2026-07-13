@@ -811,6 +811,16 @@ async def test_run_worker_logs_worker_reported_error(monkeypatch: Any, caplog: A
     assert "connection refused" in caplog.text
 
 
+async def test_sweep_source_base_defaults() -> None:
+    """The base runs unconditionally by default and demands a ``_sweep``."""
+    monitor, _ = make_state_monitor_with_callbacks([])
+    base = api_probe_module.ApiSweepSource(monitor)
+
+    assert base._prepare() is True
+    with pytest.raises(NotImplementedError):
+        await base._sweep()
+
+
 # ----------------------------------------------------------------------
 # Subprocess worker module (esphome_device_builder.helpers.api_device_info)
 # ----------------------------------------------------------------------
