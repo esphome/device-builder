@@ -107,10 +107,6 @@ jobs:
           if [ -n "$(git status --porcelain -- $paths)" ]; then
             git status --porcelain -- $paths
             git diff -- $paths
-            # Name the exact fix: the pinned esphome (a mismatched local
-            # install is the usual cause of a whole-catalog rewrite) and,
-            # when exactly one board's body drifted, its single-board
-            # update_board.py invocation.
             pin=$(grep -o 'esphome==.*' esphome-constraints.txt)
             ids=$(git status --porcelain -- esphome_device_builder/definitions/board_bodies/ \
               | grep 'board_bodies/' | sed -E 's|.*board_bodies/(.+)\.json.*|\1|' | sort -u || true)
