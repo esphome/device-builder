@@ -62,7 +62,10 @@ class PingSource:
         # Cleared at the top of each sweep so a wake fired mid-sweep
         # still triggers the next idle.
         self._wake = asyncio.Event()
-        self._concurrency = asyncio.Semaphore(shared.ICMP_BATCH_SIZE)
+        # One in-flight budget for every ICMP consumer — the sweep and
+        # the reviver's pre-filter share it so overlapping loops can't
+        # exceed the icmplib reliability bound together.
+        self.icmp_concurrency = asyncio.Semaphore(shared.ICMP_BATCH_SIZE)
         # Sorted ``(name, address)`` of every device in the union of
         # the last DEBUG sweep's pingable + dns_failed buckets. Spanning
         # both keeps the signature stable across the DNS-failure cache
@@ -159,7 +162,7 @@ class PingSource:
                     _LOGGER.debug(
                         "Pinging %d devices: %s", len(pingable), _format_devices(pingable)
                     )
-        # ``self._concurrency`` semaphore caps in-flight ICMP at
+        # ``self.icmp_concurrency`` semaphore caps in-flight ICMP at
         # ``ICMP_BATCH_SIZE``; no need to pre-chunk the gather.
         await asyncio.gather(
             *(self._resolve_and_ping(device) for device in pingable),
@@ -206,7 +209,7 @@ class PingSource:
     async def _resolve_and_ping(self, device: Device) -> None:
         """Resolve *device.address* through the DNS cache and ICMP it."""
         monitor = self._monitor
-        async with self._concurrency:
+        async with self.icmp_concurrency:
             addresses = await monitor.state.dns_cache.async_resolve(device.address)
             if not addresses and is_local_hostname(device.address):
                 # System resolver couldn't resolve the ``.local`` (no nss-mdns
@@ -268,7 +271,6 @@ class PingSource:
         return None
 
     async def _ping_device(self, device: Device, target: str) -> None:
-        monitor = self._monitor
         # Skip the retry only for already-OFFLINE devices: the miss
         # just confirms the state, nothing to flap. ONLINE devices
         # get the retry to absorb a transient drop; UNKNOWN devices
@@ -278,7 +280,4 @@ class PingSource:
         # dropped packet.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt_ms = await self.ping_once(target, retry=needs_retry)
-        new_state = DeviceState.ONLINE if rtt_ms is not None else DeviceState.OFFLINE
-        if rtt_ms is not None and monitor.state.reachability is not None:
-            monitor.state.reachability.record_ping_rtt(device.name, rtt_ms)
-        monitor.apply(device.name, new_state, "ping")
+        shared.apply_ping_result(self._monitor, device.name, rtt_ms)

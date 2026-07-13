@@ -65,6 +65,13 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     )
 
 
+def apply_ping_result(monitor: DeviceStateMonitor, name: str, rtt_ms: float | None) -> None:
+    """Record *rtt_ms* when alive, then apply the ping-sourced state for *name*."""
+    if rtt_ms is not None and monitor.state.reachability is not None:
+        monitor.state.reachability.record_ping_rtt(name, rtt_ms)
+    monitor.apply(name, DeviceState.ONLINE if rtt_ms is not None else DeviceState.OFFLINE, "ping")
+
+
 def address_resolution_exhausted(monitor: DeviceStateMonitor, address: str) -> bool:
     """
     Report whether the ping sweep provably has no way to target *address*.

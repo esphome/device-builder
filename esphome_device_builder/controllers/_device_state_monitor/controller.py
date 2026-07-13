@@ -30,7 +30,7 @@ from typing import Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
-from ...helpers.async_ import create_eager_task
+from ...helpers.async_ import create_eager_task, drain_tasks
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import (
     RUNTIME_STATE_FIELD_NAMES,
@@ -207,8 +207,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # callbacks; otherwise the drain below would race against
         # newly-spawned resolve tasks the browser is still firing.
         await self._mdns.cancel_browser()
-        for task in self._tasks:
-            task.cancel()
         drain.extend(self._tasks)
         self._tasks.clear()
         # Close zeroconf eagerly so 5353 frees now, overlapping the task drain.
@@ -217,9 +215,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             # Drain bounded here so the cancelled tasks don't leak to aiohttp's
             # unbounded terminal sweep.
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(
-                    asyncio.gather(*drain, return_exceptions=True), _STOP_DRAIN_TIMEOUT
-                )
+                await asyncio.wait_for(drain_tasks(drain), _STOP_DRAIN_TIMEOUT)
         await close
 
     @staticmethod

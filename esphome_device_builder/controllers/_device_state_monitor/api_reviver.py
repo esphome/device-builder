@@ -87,7 +87,6 @@ class ApiReviverSource(ApiSweepSource):
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
         super().__init__(monitor)
-        self._concurrency = asyncio.Semaphore(shared.ICMP_BATCH_SIZE)
         # Keyed on (name, persisted ip) so a persisted-IP change
         # bypasses the old entry naturally.
         self._cooldown: CooldownLedger[tuple[str, str]] = CooldownLedger()
@@ -165,7 +164,10 @@ class ApiReviverSource(ApiSweepSource):
         dropped echo would otherwise park a revivable device for a
         whole ``_ICMP_SILENT_COOLDOWN``.
         """
-        async with self._concurrency:
+        # Ping's own semaphore, not a second one: the in-flight ICMP
+        # budget is global, so an overlapping sweep and pre-filter
+        # can't exceed the icmplib reliability bound together.
+        async with self._monitor._ping.icmp_concurrency:
             rtt = await self._monitor._ping.ping_once(device.ip, retry=True)
         if rtt is None:
             self._cool_down(device, _ICMP_SILENT_COOLDOWN)
@@ -241,9 +243,7 @@ class ApiReviverSource(ApiSweepSource):
         monitor.apply_ip_addresses(name, [device.ip])
         if info is not None:
             apply_worker_info(monitor, name, info)
-        if monitor.state.reachability is not None:
-            monitor.state.reachability.record_ping_rtt(name, rtt)
-        monitor.apply(name, DeviceState.ONLINE, "ping")
+        shared.apply_ping_result(monitor, name, rtt)
         monitor.probe_device_ping(name)
 
     def _cool_down(self, device: Device, seconds: float) -> None:
