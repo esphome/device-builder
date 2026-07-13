@@ -1765,8 +1765,10 @@ def _lookup_bus(state: _LiftState, dep: str, instance: str | None) -> str | None
     appears as a direct dep) — look it up by that id before materializing.
     """
     local = state.bus_local.get((dep, instance))
-    if local is not None or instance is not None:
+    if local is not None:
         return local
+    if instance is not None:
+        return None
     block = _select_block(state.config, dep, None)
     block_id = block.get("id") if isinstance(block, dict) else None
     return state.bus_local.get((dep, block_id)) if isinstance(block_id, str) else None

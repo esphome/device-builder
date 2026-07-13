@@ -2361,14 +2361,10 @@ def _assemble_dependencies(
     top_key: str,
 ) -> list[str]:
     """
-    Assemble a component's catalog ``dependencies`` from every source.
+    Merge a component's catalog ``dependencies`` in priority order.
 
-    Schema ``DEPENDENCIES`` first; then the own-hub ``cv.use_id`` ref
-    (package-style platforms ship dependency-less), referenced buses
-    (enforced at config time but not always declared), and the AUTO_LOAD
-    closure's DEPENDENCIES (climate_ir_lg auto-loads climate_ir, whose
-    DEPENDENCIES carries remote_transmitter — without it the importer can't
-    lift the hub). Transport-implicit deps drop last.
+    Schema DEPENDENCIES, own-hub use_id ref, referenced buses, AUTO_LOAD
+    closure deps; transport-implicit deps drop last.
     """
     dependencies = list(meta.get("dependencies") or [])
     if domain and stem not in dependencies and _references_own_hub(config_entries, stem):
@@ -4414,14 +4410,13 @@ def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
         if manifest is None:
             continue
         collected.extend(
-            dep
-            for dep in getattr(manifest, "dependencies", None) or []
-            if isinstance(dep, str) and dep and dep not in collected
+            dep for dep in getattr(manifest, "dependencies", None) or [] if isinstance(dep, str)
         )
         queue.extend(
             name for name in _resolve_auto_load(manifest.auto_load) if isinstance(name, str)
         )
-    return tuple(collected)
+    # A dep that is itself auto-loaded is always present — never a dependency.
+    return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in seen))
 
 
 def introspect_component(component_id: str) -> dict[str, Any]:

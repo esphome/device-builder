@@ -72,6 +72,19 @@ def test_auto_loaded_names_are_not_dependencies(monkeypatch: pytest.MonkeyPatch)
     assert _auto_loaded_dependencies("sensor", "leaf") == ()
 
 
+def test_dep_on_a_sibling_auto_load_is_subtracted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A closure member's dep that another member auto-loads is already present."""
+    loader = _FakeLoader(
+        components={
+            "graph": _manifest(dependencies=["display", "sensor"]),
+            "sensor": _manifest(),
+        },
+        platforms={("display", "leaf"): _manifest(auto_load=["graph", "sensor"])},
+    )
+    _install(monkeypatch, loader)
+    assert _auto_loaded_dependencies("display", "leaf") == ("display",)
+
+
 def test_bare_component_resolves_without_domain(monkeypatch: pytest.MonkeyPatch) -> None:
     loader = _FakeLoader(
         components={
