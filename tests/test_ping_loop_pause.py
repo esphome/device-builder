@@ -137,6 +137,26 @@ async def test_ping_loop_survives_a_raising_resolve_step(
     assert counts["sweeps"] >= 2
 
 
+async def test_ping_loop_does_not_mask_child_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled resolve step propagates instead of being logged as a step failure."""
+    monitor = _build_monitor(presence=None)
+    counts = _instrument_loop(monitor, monkeypatch)
+
+    async def _cancelled(_monitor: DeviceStateMonitor) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _cancelled)
+
+    task = asyncio.create_task(monitor._ping.run())
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=0.5)
+
+    assert task.done()
+    assert counts["sweeps"] == 0
+
+
 async def test_ping_loop_parks_until_first_subscriber(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -116,7 +116,10 @@ class PingSource:
                 return_exceptions=True,
             )
             for result in results:
-                if isinstance(result, BaseException):
+                if isinstance(result, BaseException) and not isinstance(result, Exception):
+                    # Never mask a cancellation as a benign step failure.
+                    raise result
+                if isinstance(result, Exception):
                     _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=result)
             await self._ping_sweep()
             await self._idle()
