@@ -15,48 +15,35 @@ from script.sync_esphome_devices import (  # type: ignore[import-not-found]
 pytest.importorskip("esphome")
 
 
-def test_whole_scalar_substitution_preserves_type() -> None:
+@pytest.mark.parametrize(
+    ("substitutions", "raw", "expected"),
+    [
+        pytest.param({"baud": 9600}, "${baud}", 9600, id="whole_scalar_keeps_type"),
+        pytest.param(
+            {"friendly_name": "Blind Switch"},
+            "${friendly_name} S1 input",
+            "Blind Switch S1 input",
+            id="interpolation",
+        ),
+        pytest.param({"open_switch": "P23"}, "$open_switch", "P23", id="bare_var"),
+        pytest.param(
+            {"base": "kitchen", "device_name": "${base}-light"},
+            "${device_name}",
+            "kitchen-light",
+            id="chained",
+        ),
+        pytest.param(
+            {"defined": "yes"}, "${not_defined} Uptime", "${not_defined} Uptime", id="undefined"
+        ),
+    ],
+)
+def test_reference_forms_resolve(substitutions: dict[str, Any], raw: str, expected: Any) -> None:
     parsed: dict[str, Any] = {
-        "substitutions": {"baud": 9600},
-        "uart": {"baud_rate": "${baud}"},
+        "substitutions": substitutions,
+        "sensor": [{"platform": "uptime", "update_interval": raw}],
     }
     resolved = _resolve_page_substitutions(parsed, "board")
-    assert resolved["uart"]["baud_rate"] == 9600
-
-
-def test_interpolation_and_bare_var_forms() -> None:
-    parsed: dict[str, Any] = {
-        "substitutions": {"friendly_name": "Blind Switch", "open_switch": "P23"},
-        "binary_sensor": [
-            {
-                "platform": "gpio",
-                "name": "${friendly_name} S1 switch input",
-                "pin": "$open_switch",
-            }
-        ],
-    }
-    resolved = _resolve_page_substitutions(parsed, "board")
-    item = resolved["binary_sensor"][0]
-    assert item["name"] == "Blind Switch S1 switch input"
-    assert item["pin"] == "P23"
-
-
-def test_substitution_referencing_another_substitution() -> None:
-    parsed: dict[str, Any] = {
-        "substitutions": {"base": "kitchen", "device_name": "${base}-light"},
-        "esphome": {"name": "${device_name}"},
-    }
-    resolved = _resolve_page_substitutions(parsed, "board")
-    assert resolved["esphome"]["name"] == "kitchen-light"
-
-
-def test_undefined_reference_stays_literal() -> None:
-    parsed: dict[str, Any] = {
-        "substitutions": {"defined": "yes"},
-        "sensor": [{"platform": "uptime", "name": "${not_defined} Uptime"}],
-    }
-    resolved = _resolve_page_substitutions(parsed, "board")
-    assert resolved["sensor"][0]["name"] == "${not_defined} Uptime"
+    assert resolved["sensor"][0]["update_interval"] == expected
 
 
 def test_substitutions_key_absent_from_result() -> None:

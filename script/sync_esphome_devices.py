@@ -225,10 +225,10 @@ _PLACEHOLDER_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\byour[\s_-]+(key|address|token|id)\b", re.IGNORECASE),
 ]
 
-# Template substitutions like ``${friendly_name}`` that upstream pages
-# resolve at runtime via ``substitutions:``. We don't carry the
-# substitutions block forward, so anything still containing one is
-# unsafe to surface as a preset value or as an ``occupied_by`` label.
+# Template substitutions like ``${friendly_name}``. The page's own
+# ``substitutions:`` block is resolved in ``_resolve_page_substitutions``,
+# so anything still containing one is an undefined reference (or the pass
+# was skipped) — unsafe to surface as a preset value or ``occupied_by`` label.
 _TEMPLATE_VAR_RE = re.compile(r"\$\{[^}]*\}")
 
 # Deprecated flat ``clk_mode: GPIO<n>_(IN|OUT)`` encodes the RMII clock
@@ -513,6 +513,8 @@ def _first_config_yaml(body: str, device_dir: Path) -> tuple[dict[str, Any], str
     """
     First parseable ``yaml`` config fence as ``(parsed, raw_text)``, following ``file=``.
 
+    *parsed* has the page's ``substitutions:`` block resolved over the tree.
+
     A device page often splits optional snippets across separate fences. The
     onboard ``ethernet:`` block (real hardware we lift) is sometimes a standalone
     fence after the base config, so fold just that one into the primary fence when
@@ -545,7 +547,7 @@ def _first_config_yaml(body: str, device_dir: Path) -> tuple[dict[str, Any], str
         # edits to it. An inline fence is already in *body* — leave it be.
         if ethernet_text is not None and ethernet_text not in body:
             text = f"{text}\n{ethernet_text}"
-    return parsed, text
+    return _resolve_page_substitutions(parsed, device_dir.name), text
 
 
 def _extract_local_images(body: str, device_dir: Path) -> list[str]:
@@ -585,11 +587,10 @@ def _resolve_page_substitutions(parsed: dict[str, Any], folder: str) -> dict[str
     """
     Resolve the page's own ``substitutions:`` block over the config tree.
 
-    Runs ESPHome's real substitution pass so ``pin: ${open_switch}``-style
-    values extract like literals. Unresolved references stay literal, and
-    any failure returns *parsed* unchanged.
+    Unresolved references stay literal; any failure returns *parsed* unchanged.
     """
-    if not isinstance(parsed.get("substitutions"), dict) or not parsed["substitutions"]:
+    subs = parsed.get("substitutions")
+    if not isinstance(subs, dict) or not subs:
         return parsed
     try:
         from esphome.components.substitutions import do_substitution_pass
@@ -642,11 +643,7 @@ def _iter_devices(repo: Path) -> Iterator[_DeviceSource]:
             frontmatter=frontmatter,
             body=body,
             content_hash=_hash_content(hash_src),
-            config_yaml=(
-                _resolve_page_substitutions(config[0], device_dir.name)
-                if config is not None
-                else None
-            ),
+            config_yaml=config[0] if config is not None else None,
             images=_extract_local_images(body, device_dir),
         )
 
