@@ -91,6 +91,19 @@ _INDEX: dict[str, dict[str, Any]] = {
 }
 
 
+def test_placeholder_substitution_value_is_dropped_from_names() -> None:
+    """A ``friendly_name: "***"`` fill-in resolves but never lands in a name or label."""
+    parsed: dict[str, Any] = {
+        "substitutions": {"friendly_name": "***"},
+        "binary_sensor": [{"platform": "gpio", "name": "${friendly_name} Button", "pin": 5}],
+    }
+    resolved = _resolve_page_substitutions(parsed, "board")
+    assert resolved["binary_sensor"][0]["name"] == "*** Button"
+    featured, _, occupancy = _extract_featured_components(resolved, _INDEX)
+    assert featured[0]["fields"]["name"] == "Button"
+    assert occupancy == {5: "Button"}
+
+
 def test_loratap_shaped_page_extracts_after_resolution() -> None:
     """The #1988 shape: substitution-valued pins and durations extract like literals."""
     parsed: dict[str, Any] = {
