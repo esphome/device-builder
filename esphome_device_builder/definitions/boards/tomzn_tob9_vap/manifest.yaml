@@ -21,9 +21,6 @@ pins:
 - gpio: 17
   available: false
   occupied_by: power_button
-- gpio: 26
-  available: false
-  occupied_by: Switch
 docs_url: https://devices.esphome.io/devices/Tomzn-TOB9-VAP/
 featured_components:
 - id: uart_bus

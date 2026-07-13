@@ -19,9 +19,6 @@ pins:
 - gpio: 14
   available: false
   occupied_by: relay
-- gpio: 15
-  available: false
-  occupied_by: dummy_relay
 docs_url: https://devices.esphome.io/devices/Gosund-SW6/
 featured_components:
 - id: button

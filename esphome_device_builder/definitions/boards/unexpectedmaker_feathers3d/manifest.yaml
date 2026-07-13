@@ -19,7 +19,7 @@ pins:
   occupied_by: ambient_light
 - gpio: 13
   available: false
-  occupied_by: led_blue
+  occupied_by: output_gpio_1
 - gpio: 39
   available: false
   occupied_by: LDO2

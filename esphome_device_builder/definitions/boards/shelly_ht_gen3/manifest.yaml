@@ -16,9 +16,6 @@ images:
 tags:
 - shelly
 pins:
-- gpio: 0
-  available: false
-  occupied_by: Button
 - gpio: 1
   available: false
   occupied_by: i2c

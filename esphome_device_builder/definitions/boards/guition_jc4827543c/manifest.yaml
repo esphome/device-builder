@@ -17,18 +17,12 @@ pins:
 - gpio: 1
   available: false
   occupied_by: gpio_backlight_pwm
-- gpio: 3
-  available: false
-  occupied_by: my_touchscreen
 - gpio: 4
   available: false
   occupied_by: bus_a
 - gpio: 8
   available: false
   occupied_by: bus_a
-- gpio: 38
-  available: false
-  occupied_by: my_touchscreen
 docs_url: https://devices.esphome.io/devices/Guition-JC4827543C/
 featured_components:
 - id: bus_a

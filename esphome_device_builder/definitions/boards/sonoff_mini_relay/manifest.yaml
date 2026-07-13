@@ -22,9 +22,6 @@ pins:
 - gpio: 12
   available: false
   occupied_by: switch
-- gpio: 13
-  available: false
-  occupied_by: blue_led
 docs_url: https://devices.esphome.io/devices/Sonoff-Mini-Relay/
 featured_components:
 - id: reset

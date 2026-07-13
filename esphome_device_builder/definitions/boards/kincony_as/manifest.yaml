@@ -16,9 +16,6 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AS/KinCony-AS-5.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-AS/KinCony-AS-7.jpg
 pins:
-- gpio: 4
-  available: false
-  occupied_by: va_mic
 - gpio: 16
   available: false
   occupied_by: on board light

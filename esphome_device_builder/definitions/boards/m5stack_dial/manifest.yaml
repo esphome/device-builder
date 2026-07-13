@@ -16,21 +16,12 @@ pins:
 - gpio: 3
   available: false
   occupied_by: buzzer
-- gpio: 4
-  available: false
-  occupied_by: round_display
 - gpio: 5
   available: false
   occupied_by: spi_bus
 - gpio: 6
   available: false
   occupied_by: spi_bus
-- gpio: 7
-  available: false
-  occupied_by: round_display
-- gpio: 8
-  available: false
-  occupied_by: round_display
 - gpio: 9
   available: false
   occupied_by: backlight_output

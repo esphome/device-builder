@@ -228,7 +228,10 @@ def _entry_for_path(
 
 
 def _apply_drops(record: dict[str, Any], drop_ids: set[str]) -> None:
-    """Remove *drop_ids* from the record's featured entries, bundles, and requires."""
+    """Remove *drop_ids* from the record's featured entries, bundles, requires, and pins."""
+    dropped = [
+        entry for entry in record.get("featured_components") or [] if entry["id"] in drop_ids
+    ]
     record["featured_components"] = [
         entry for entry in record.get("featured_components") or [] if entry["id"] not in drop_ids
     ]
@@ -251,3 +254,66 @@ def _apply_drops(record: dict[str, Any], drop_ids: set[str]) -> None:
         record["featured_bundles"] = bundles
     elif "featured_bundles" in record:
         del record["featured_bundles"]
+    _prune_dropped_pins(record, dropped)
+
+
+def _prune_dropped_pins(record: dict[str, Any], dropped: list[dict[str, Any]]) -> None:
+    """
+    Drop pins owned by removed entries; relabel GPIOs a survivor still locks.
+
+    ``occupied_by`` carries either the local id or the entry's display name,
+    so match both — but a shared GPIO must stay declared or a surviving
+    entry's locked pin loses its board declaration.
+    """
+    labels = {entry["id"] for entry in dropped} | {
+        name
+        for entry in dropped
+        for name in (entry.get("name"), (entry.get("fields") or {}).get("name"))
+        if isinstance(name, str)
+    }
+    claimed = _surviving_gpio_labels(record["featured_components"])
+    pins = []
+    for pin in record.get("pins") or []:
+        if pin.get("occupied_by") not in labels:
+            pins.append(pin)
+        elif pin.get("gpio") in claimed:
+            pins.append({**pin, "occupied_by": claimed[pin["gpio"]]})
+    if pins:
+        record["pins"] = pins
+    elif "pins" in record:
+        del record["pins"]
+
+
+def _surviving_gpio_labels(entries: list[dict[str, Any]]) -> dict[int, str]:
+    """Map each GPIO a surviving entry locks to that entry's display label."""
+    from script.sync_esphome_devices import _PIN_TREE_FIELD_RE, _gpio_number
+
+    claimed: dict[int, str] = {}
+    for entry in entries:
+        fields = entry.get("fields") or {}
+        name = fields.get("name")
+        label = name if isinstance(name, str) else entry["id"]
+        for key, preset in fields.items():
+            if not _PIN_TREE_FIELD_RE.search(key):
+                continue
+            value = preset.get("value") if isinstance(preset, dict) else preset
+            _walk_gpio_leaves(value, label, _gpio_number, claimed)
+    return claimed
+
+
+def _walk_gpio_leaves(value: Any, label: str, gpio_number: Any, claimed: dict[int, str]) -> None:
+    """Record every GPIO leaf of a pin value (scalar, dict, or pin-group tree)."""
+    if isinstance(value, dict):
+        if "number" in value:
+            value = value["number"]
+        else:
+            for item in value.values():
+                _walk_gpio_leaves(item, label, gpio_number, claimed)
+            return
+    if isinstance(value, list):
+        for item in value:
+            _walk_gpio_leaves(item, label, gpio_number, claimed)
+        return
+    gpio = gpio_number(value)
+    if gpio is not None:
+        claimed.setdefault(gpio, label)

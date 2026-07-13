@@ -147,6 +147,31 @@ def test_committed_catalog_declares_every_reference() -> None:
     )
 
 
+def test_committed_catalog_emits_unique_ids_per_board() -> None:
+    """
+    No two featured components of a board may emit the same ``fields.id``.
+
+    A collision means the importer lifted a duplicate (two buses both
+    emitting ``bus_a``) — and it lets the reference check above resolve to
+    whichever duplicate happens to come last, masking a missing edge.
+    """
+    index = _load_featured_index()
+    collisions: list[str] = []
+    for board_id, comps in index.items():
+        seen: dict[str, str] = {}
+        for c in comps:
+            emitted = _preset_value(c.get("fields", {}).get("id"))
+            if not isinstance(emitted, str):
+                continue
+            if emitted in seen:
+                collisions.append(
+                    f"{board_id}: {seen[emitted]!r} and {c['id']!r} both emit {emitted!r}"
+                )
+            else:
+                seen[emitted] = c["id"]
+    assert not collisions, "duplicate emitted ids: " + "; ".join(collisions)
+
+
 def test_apollo_esk_1_rtttl_and_battery_requires() -> None:
     body = orjson.loads((sb._BODIES_DIR / "apollo-esk-1.json").read_bytes())
     by_id = {fc["id"]: fc for fc in body["featured_components"]}

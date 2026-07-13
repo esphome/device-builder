@@ -31,9 +31,6 @@ pins:
 - gpio: 15
   available: false
   occupied_by: Switch2
-- gpio: 16
-  available: false
-  occupied_by: button1
 docs_url: https://devices.esphome.io/devices/UMAX-U-Smart-Wifi-Plug-Duo/
 featured_components:
 - id: button2

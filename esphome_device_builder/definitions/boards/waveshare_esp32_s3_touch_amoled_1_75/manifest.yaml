@@ -25,12 +25,6 @@ pins:
 - gpio: 7
   available: false
   occupied_by: display_qspi
-- gpio: 8
-  available: false
-  occupied_by: speaker_a
-- gpio: 10
-  available: false
-  occupied_by: mic_a
 - gpio: 12
   available: false
   occupied_by: disp1

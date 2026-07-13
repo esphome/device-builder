@@ -31,18 +31,12 @@ pins:
 - gpio: 6
   available: false
   occupied_by: button_b
-- gpio: 7
-  available: false
-  occupied_by: my_display
 - gpio: 9
   available: false
   occupied_by: button_d
 - gpio: 10
   available: false
   occupied_by: button_c
-- gpio: 15
-  available: false
-  occupied_by: my_display
 - gpio: 17
   available: false
   occupied_by: spi
