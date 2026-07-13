@@ -47,10 +47,10 @@ jobs:
             // Match `- [x] ... `<label>`` lines in the PR body. The
             // PR template puts the canonical label name in backticks
             // at the end of each "Types of changes" bullet. Interior
-            // whitespace around the x is tolerated — contributors
+            // spaces/tabs around the x are tolerated — contributors
             // tick as `[ X]` / `[x ]`.
             const body = context.payload.pull_request.body || '';
-            const re = /^\s*-\s*\[\s*x\s*\][^`\n]*`([^`]+)`/gim;
+            const re = /^\s*-\s*\[[ \t]*x[ \t]*\][^`\n]*`([^`]+)`/gim;
             const ticked = [];
             for (const m of body.matchAll(re)) {
               const name = m[1];
