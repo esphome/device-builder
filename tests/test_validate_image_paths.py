@@ -28,15 +28,13 @@ def test_escaping_featured_image_url_rejected() -> None:
         "featured_bundles": [{"id": "b", "image_url": "/abs.png"}],
     }
     errors = _validate_image_paths("demo", data)
-    assert len(errors) == 2
-    assert any("featured_components image_url '../other/x.png'" in e for e in errors)
-    assert any("featured_bundles image_url '/abs.png'" in e for e in errors)
+    assert errors == [
+        "demo: featured_components image_url '../other/x.png' must be a relative "
+        "path inside the board dir",
+        "demo: featured_bundles image_url '/abs.png' must be a relative path inside the board dir",
+    ]
 
 
 def test_non_string_and_absent_values_ignored() -> None:
-    data = {
-        "images": [],
-        "featured_components": [{"id": "a"}, {"id": "b", "image_url": None}],
-        "featured_bundles": [],
-    }
+    data = {"featured_components": [{"id": "a"}, {"id": "b", "image_url": None}]}
     assert _validate_image_paths("demo", data) == []

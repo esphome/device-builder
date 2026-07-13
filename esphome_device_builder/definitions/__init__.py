@@ -29,7 +29,11 @@ import orjson
 import yaml
 
 from ..constants import DEVICE_IMPORT_SOURCE_TYPE
-from ..helpers.lazy_catalog import is_unsafe_catalog_id, is_unsafe_manifest_path
+from ..helpers.lazy_catalog import (
+    is_external_image_url,
+    is_unsafe_catalog_id,
+    is_unsafe_manifest_path,
+)
 from ..helpers.yaml import FastestSafeLoader
 from ..models import (
     BoardCatalogEntry,
@@ -96,13 +100,13 @@ def _resolve_images(board_dir: Path, manifest_images: list[str] | None) -> list[
     Local images are converted to relative URLs served by the
     /boards/images static route (e.g. /boards/images/esp32-devkit-v1/images/photo.png).
     External URLs are kept as-is. An absolute path or a parent-dir
-    escape is dropped (logged), same as featured images.
+    escape is dropped (logged).
     """
     images: list[str] = []
 
     # First: explicit entries from manifest (URLs or relative paths)
     for entry in manifest_images or []:
-        if entry.startswith(("http://", "https://")):
+        if is_external_image_url(entry):
             images.append(entry)
         elif is_unsafe_manifest_path(entry):
             _LOGGER.warning(
@@ -211,7 +215,7 @@ def _resolve_featured_image(raw: object, board_dir: Path) -> str:
     """
     if not isinstance(raw, str) or not raw:
         return ""
-    if raw.startswith(("http://", "https://")):
+    if is_external_image_url(raw):
         return raw
     if is_unsafe_manifest_path(raw):
         _LOGGER.warning(

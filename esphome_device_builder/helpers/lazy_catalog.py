@@ -21,7 +21,7 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Callable
 from functools import lru_cache
-from pathlib import PurePath
+from pathlib import PurePosixPath, PureWindowsPath
 
 # LRU cap for ``is_unsafe_catalog_id`` (~5x a typical catalog size).
 # Bounded rather than ``@cache`` because the predicate sees external
@@ -42,15 +42,23 @@ def is_unsafe_catalog_id(catalog_id: str) -> bool:
     )
 
 
+def is_external_image_url(raw: str) -> bool:
+    """Return True when a manifest image entry is an external http(s) URL."""
+    return raw.startswith(("http://", "https://"))
+
+
 def is_unsafe_manifest_path(raw: str) -> bool:
     r"""
     Return True for a manifest-relative path that can escape its base dir.
 
+    Checked under both path flavours so the verdict is host-independent:
     ``anchor`` catches POSIX-absolute plus the Windows drive / rooted
-    forms (``C:x``, ``\x``) that ``is_absolute`` alone misses.
+    forms (``C:x``, ``\x``) on any OS.
     """
-    path = PurePath(raw)
-    return bool(path.anchor) or ".." in path.parts
+    return any(
+        bool(path.anchor) or ".." in path.parts
+        for path in (PurePosixPath(raw), PureWindowsPath(raw))
+    )
 
 
 class LazyBodyStore[BodyT]:

@@ -36,7 +36,10 @@ from esphome_device_builder.constants import (  # noqa: E402
     BUS_CATEGORIES,
     FEATURED_EXCLUDED_CATEGORIES,
 )
-from esphome_device_builder.helpers.lazy_catalog import is_unsafe_manifest_path  # noqa: E402
+from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
+    is_external_image_url,
+    is_unsafe_manifest_path,
+)
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 
@@ -487,10 +490,7 @@ def _validate_image_paths(board_id: str, data: dict) -> list[str]:
     return [
         f"{board_id}: {label} '{raw}' must be a relative path inside the board dir"
         for label, raw in candidates
-        if isinstance(raw, str)
-        and raw
-        and not raw.startswith(("http://", "https://"))
-        and is_unsafe_manifest_path(raw)
+        if isinstance(raw, str) and not is_external_image_url(raw) and is_unsafe_manifest_path(raw)
     ]
 
 
