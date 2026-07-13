@@ -29,7 +29,7 @@ import orjson
 import yaml
 
 from ..constants import DEVICE_IMPORT_SOURCE_TYPE
-from ..helpers.lazy_catalog import is_unsafe_catalog_id
+from ..helpers.lazy_catalog import is_unsafe_catalog_id, is_unsafe_manifest_path
 from ..helpers.yaml import FastestSafeLoader
 from ..models import (
     BoardCatalogEntry,
@@ -95,7 +95,8 @@ def _resolve_images(board_dir: Path, manifest_images: list[str] | None) -> list[
 
     Local images are converted to relative URLs served by the
     /boards/images static route (e.g. /boards/images/esp32-devkit-v1/images/photo.png).
-    External URLs are kept as-is.
+    External URLs are kept as-is. An absolute path or a parent-dir
+    escape is dropped (logged), same as featured images.
     """
     images: list[str] = []
 
@@ -103,6 +104,12 @@ def _resolve_images(board_dir: Path, manifest_images: list[str] | None) -> list[
     for entry in manifest_images or []:
         if entry.startswith(("http://", "https://")):
             images.append(entry)
+        elif is_unsafe_manifest_path(entry):
+            _LOGGER.warning(
+                "Board %s: image %r must be a path inside the board dir; skipping",
+                board_dir.name,
+                entry,
+            )
         else:
             # Resolve relative path against board directory
             local = board_dir / entry
@@ -206,7 +213,7 @@ def _resolve_featured_image(raw: object, board_dir: Path) -> str:
         return ""
     if raw.startswith(("http://", "https://")):
         return raw
-    if Path(raw).is_absolute() or ".." in Path(raw).parts:
+    if is_unsafe_manifest_path(raw):
         _LOGGER.warning(
             "Board %s: featured image %r must be a path inside the board dir; skipping",
             board_dir.name,

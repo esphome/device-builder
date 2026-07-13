@@ -36,6 +36,7 @@ from esphome_device_builder.constants import (  # noqa: E402
     BUS_CATEGORIES,
     FEATURED_EXCLUDED_CATEGORIES,
 )
+from esphome_device_builder.helpers.lazy_catalog import is_unsafe_manifest_path  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 
@@ -219,6 +220,8 @@ def validate_board(
     errors.extend(_validate_featured(board_id, data, pins_by_gpio, components_index, is_imported))
 
     errors.extend(_validate_wifi_radio_claim(board_id, data))
+
+    errors.extend(_validate_image_paths(board_id, data))
 
     return errors
 
@@ -467,6 +470,27 @@ def _validate_wifi_radio_claim(board_id: str, data: dict) -> list[str]:
         f"'{variant}' without a default component providing a Wi-Fi radio "
         f"({', '.join(sorted(_WIFI_RADIO_COMPONENT_IDS))}) — the generator "
         "would emit a wifi block the chip cannot validate"
+    ]
+
+
+def _validate_image_paths(board_id: str, data: dict) -> list[str]:
+    """Reject local image paths that are absolute or escape the board dir."""
+    candidates: list[tuple[str, object]] = [
+        ("images entry", entry) for entry in data.get("images") or []
+    ]
+    for section in ("featured_components", "featured_bundles"):
+        candidates.extend(
+            (f"{section} image_url", item.get("image_url"))
+            for item in data.get(section) or []
+            if isinstance(item, dict)
+        )
+    return [
+        f"{board_id}: {label} '{raw}' must be a relative path inside the board dir"
+        for label, raw in candidates
+        if isinstance(raw, str)
+        and raw
+        and not raw.startswith(("http://", "https://"))
+        and is_unsafe_manifest_path(raw)
     ]
 
 

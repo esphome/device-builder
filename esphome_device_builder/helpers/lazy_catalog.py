@@ -21,6 +21,7 @@ import asyncio
 from collections import OrderedDict
 from collections.abc import Callable
 from functools import lru_cache
+from pathlib import PurePath
 
 # LRU cap for ``is_unsafe_catalog_id`` (~5x a typical catalog size).
 # Bounded rather than ``@cache`` because the predicate sees external
@@ -39,6 +40,17 @@ def is_unsafe_catalog_id(catalog_id: str) -> bool:
         or "\\" in catalog_id
         or "\x00" in catalog_id
     )
+
+
+def is_unsafe_manifest_path(raw: str) -> bool:
+    r"""
+    Return True for a manifest-relative path that can escape its base dir.
+
+    ``anchor`` catches POSIX-absolute plus the Windows drive / rooted
+    forms (``C:x``, ``\x``) that ``is_absolute`` alone misses.
+    """
+    path = PurePath(raw)
+    return bool(path.anchor) or ".." in path.parts
 
 
 class LazyBodyStore[BodyT]:

@@ -18,6 +18,7 @@ import pytest
 from esphome_device_builder.helpers.lazy_catalog import (
     LazyBodyStore,
     is_unsafe_catalog_id,
+    is_unsafe_manifest_path,
 )
 
 
@@ -45,6 +46,24 @@ def test_is_unsafe_catalog_id_rejects_traversal_shapes(bad: str) -> None:
 @pytest.mark.parametrize("good", ["wifi", "sensor.dht", "sensor.bme280_i2c"])
 def test_is_unsafe_catalog_id_passes_flat_catalog_ids(good: str) -> None:
     assert is_unsafe_catalog_id(good) is False
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "/etc/passwd",
+        "../other-board/x.jpg",
+        "images/../../escape.png",
+        "..",
+    ],
+)
+def test_is_unsafe_manifest_path_rejects_escaping_shapes(bad: str) -> None:
+    assert is_unsafe_manifest_path(bad) is True
+
+
+@pytest.mark.parametrize("good", ["images/top.png", "photo.jpg", "images/sub/x.webp"])
+def test_is_unsafe_manifest_path_passes_board_relative_paths(good: str) -> None:
+    assert is_unsafe_manifest_path(good) is False
 
 
 async def test_get_caches_first_hit() -> None:
