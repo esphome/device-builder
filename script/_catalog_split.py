@@ -146,7 +146,10 @@ def swap_split_catalog_in(
     with each entry list one entry per line. Pass ``index_cls`` to
     roundtrip-validate every slim entry in the payload's lists before
     the swap — catches a sync-time omit_default bug that would ship a
-    wire shape the runtime loader rejects.
+    wire shape the runtime loader rejects. Every list is validated
+    against that one class, so it only fits single-list or
+    homogeneous envelopes (automations validates per-type upstream
+    instead).
     """
     if index_cls is not None:
         for value in index_payload.values():
