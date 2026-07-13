@@ -61,14 +61,6 @@ featured_components:
       locked: true
     update_interval: 10s
     id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    device_class: energy
-    state_class: total_increasing
-    unit_of_measurement: kWh
-    id: sensor_total_daily_energy_1
-    name: Energy
 - id: signal_strength
   component_id: sensor.wifi_signal
   fields:

@@ -29,6 +29,12 @@ featured_components:
 - id: bl0942_uart
   component_id: uart
   fields:
+    tx_pin:
+      value: TX1
+      locked: true
+    rx_pin:
+      value: RX1
+      locked: true
     baud_rate: 4800
     id:
       value: bl0942_uart
@@ -71,6 +77,9 @@ featured_components:
   fields:
     line_frequency: 50Hz
     id: sensor_bl0942_1
+    uart_id:
+      value: bl0942_uart
+      locked: true
   requires:
   - bl0942_uart
 featured_bundles:

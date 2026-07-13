@@ -44,6 +44,10 @@ featured_components:
         inverted: true
       locked: true
     icon: mdi:radiobox-blank
+    filters:
+      value:
+      - delayed_on: 50ms
+      locked: true
     id: button_1
     name: button_1
 - id: relay_1

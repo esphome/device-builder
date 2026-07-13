@@ -33,6 +33,10 @@ featured_components:
           input: true
           pullup: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
+      locked: true
     id: binary_sensor_gpio_1
     name: button
 - id: battery_voltage
@@ -44,6 +48,10 @@ featured_components:
     icon: mdi:battery
     device_class: voltage
     attenuation: auto
+    filters:
+      value:
+      - multiply: 3
+      locked: true
     update_interval: 60s
     id: battery_voltage
     name: Battery voltage

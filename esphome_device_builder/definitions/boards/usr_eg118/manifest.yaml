@@ -67,6 +67,13 @@ featured_components:
     id:
       value: sn74hc595_hub
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: quad
+    speed: 80MHz
+    ignore_not_found: false
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet

@@ -18,6 +18,21 @@ pins:
   occupied_by: led
 docs_url: https://devices.esphome.io/devices/Tuya-Generic-S09-Temperature-Humidity-Clock-IR/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: TX1
+      locked: true
+    rx_pin:
+      value: RX1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: btn
   component_id: binary_sensor.gpio
   fields:
@@ -51,6 +66,9 @@ featured_components:
     device_class: temperature
     id: sensor_tuya_1
     name: Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -59,6 +77,9 @@ featured_components:
     device_class: humidity
     id: sensor_tuya_2
     name: Humidity
+  requires:
+  - uart_bus
+  - tuya_hub
 featured_bundles:
 - id: light_monochromatic_1_setup
   name: LED (full setup)

@@ -11,8 +11,30 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-STD01/External_Thumbwheel.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-STD01/Opening_Switch.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Martin-Jerry-STD01/Wires_Soldered.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Martin-Jerry-STD01/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 3
+      locked: true
+    tx_pin:
+      value: 1
+      locked: true
+    baud_rate: 115200
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: light_tuya_1
   component_id: light.tuya
   fields:
@@ -22,6 +44,9 @@ featured_components:
     max_value: 255
     id: light_tuya_1
     name: Tuya 1
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

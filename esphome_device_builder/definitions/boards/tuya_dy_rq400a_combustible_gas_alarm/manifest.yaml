@@ -19,18 +19,43 @@ images:
 docs_url: https://devices.esphome.io/devices/Tuya-DY-RQ400A-Combustible-Gas-Alarm/
 product_url: https://github.com/dshcherb/DY-RQ400A-gas-alarm-esphome
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: binary_sensor_tuya_1
   component_id: binary_sensor.tuya
   fields:
     sensor_datapoint: 2
+    filters:
+      value:
+      - invert: null
+      locked: true
     id: binary_sensor_tuya_1
     name: Gas Alarm
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: binary_sensor_tuya_2
   component_id: binary_sensor.tuya
   fields:
     sensor_datapoint: 10
     id: binary_sensor_tuya_2
     name: Sensor Preheat
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -40,13 +65,9 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Alarm Period
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 8
-    optimistic: true
-    id: select_tuya_1
-    name: Alarm Melody
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -55,6 +76,9 @@ featured_components:
     state_class: measurement
     id: sensor_tuya_1
     name: Gas Threshold Level
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
@@ -62,6 +86,9 @@ featured_components:
     restore_mode: DISABLED
     id: switch_tuya_1
     name: Alarm Self-test
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -69,6 +96,9 @@ featured_components:
     restore_mode: DISABLED
     id: switch_tuya_2
     name: Alarm Sound
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_3
   component_id: switch.tuya
   fields:
@@ -76,12 +106,26 @@ featured_components:
     restore_mode: DISABLED
     id: switch_tuya_3
     name: Silence the Alarm
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: text_sensor_tuya_1
   component_id: text_sensor.tuya
   fields:
     sensor_datapoint: 1
+    filters:
+      value:
+      - map:
+        - 0 -> Checking
+        - 1 -> Success
+        - 2 -> Failure
+        - 3 -> Other
+      locked: true
     id: text_sensor_tuya_1
     name: Self-test Result
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Tuya-DY-RQ400A-Combustible-Gas-Alarm

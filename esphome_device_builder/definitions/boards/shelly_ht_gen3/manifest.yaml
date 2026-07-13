@@ -58,20 +58,6 @@ featured_components:
     internal: true
     id: batt_presence
     name: batt_presence
-- id: binary_sensor_gpio_2
-  component_id: binary_sensor.gpio
-  fields:
-    pin:
-      value:
-        number: 0
-        mode:
-          input: true
-          pullup: true
-        inverted: true
-        allow_other_uses: true
-      locked: true
-    id: binary_sensor_gpio_2
-    name: Button
 - id: batt_power_en
   component_id: output.gpio
   fields:

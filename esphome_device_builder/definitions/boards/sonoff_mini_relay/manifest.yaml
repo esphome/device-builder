@@ -34,6 +34,11 @@ featured_components:
       value: 0
       locked: true
     internal: true
+    filters:
+      value:
+      - invert: null
+      - delayed_off: 10ms
+      locked: true
     id: reset
     name: reset
 - id: switch_1
@@ -44,25 +49,6 @@ featured_components:
       locked: true
     id: switch_1
     name: status
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    internal: true
-    output: blue_led
-    id: light_monochromatic_1
-    name: blueled
-- id: blue_led
-  component_id: output.esp8266_pwm
-  fields:
-    pin:
-      value:
-        number: 13
-        allow_other_uses: true
-      locked: true
-    inverted:
-      value: true
-      locked: true
-    id: blue_led
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -79,12 +65,6 @@ featured_components:
     restore_mode: restore_default_off
     id: relay_1
     name: switch
-featured_bundles:
-- id: light_monochromatic_1_setup
-  name: blueled (full setup)
-  component_ids:
-  - blue_led
-  - light_monochromatic_1
 source:
   type: esphome-devices
   remote_id: Sonoff-Mini-Relay

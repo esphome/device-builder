@@ -16,15 +16,32 @@ featured_components:
   fields:
     disabled_by_default: true
     restore_mode: RESTORE_DEFAULT_OFF
+    output: output_blue_led
     id: blue_led
     name: Blue LED
+- id: output_blue_led
+  component_id: output.libretiny_pwm
+  fields:
+    pin:
+      value: PWM4
+      locked: true
+    id: output_blue_led
 - id: relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: PWM5
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     device_class: switch
     id: relay
     name: None
+featured_bundles:
+- id: blue_led_setup
+  name: Blue LED (full setup)
+  component_ids:
+  - output_blue_led
+  - blue_led
 source:
   type: esphome-devices
   remote_id: UltraPro-WFD4001-Light-Switch

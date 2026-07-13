@@ -292,6 +292,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai1
     id: sensor_ct_clamp_1
     name: Measured Current-1
@@ -299,6 +305,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai2
     id: sensor_ct_clamp_2
     name: Measured Current-2
@@ -306,6 +318,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai3
     id: sensor_ct_clamp_3
     name: Measured Current-3
@@ -313,6 +331,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai4
     id: sensor_ct_clamp_4
     name: Measured Current-4
@@ -320,6 +344,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai5
     id: sensor_ct_clamp_5
     name: Measured Current-5
@@ -327,6 +357,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai6
     id: sensor_ct_clamp_6
     name: Measured Current-6
@@ -334,6 +370,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai7
     id: sensor_ct_clamp_7
     name: Measured Current-7
@@ -341,6 +383,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai8
     id: sensor_ct_clamp_8
     name: Measured Current-8
@@ -348,6 +396,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai9
     id: sensor_ct_clamp_9
     name: Measured Current-9
@@ -355,6 +409,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai10
     id: sensor_ct_clamp_10
     name: Measured Current-10
@@ -362,6 +422,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai11
     id: sensor_ct_clamp_11
     name: Measured Current-11
@@ -369,6 +435,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai12
     id: sensor_ct_clamp_12
     name: Measured Current-12
@@ -376,6 +448,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai13
     id: sensor_ct_clamp_13
     name: Measured Current-13
@@ -383,6 +461,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai14
     id: sensor_ct_clamp_14
     name: Measured Current-14
@@ -390,6 +474,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai15
     id: sensor_ct_clamp_15
     name: Measured Current-15
@@ -397,6 +487,12 @@ featured_components:
   component_id: sensor.ct_clamp
   fields:
     update_interval: 5s
+    filters:
+      value:
+      - calibrate_linear:
+        - 0 -> 0
+        - 0.31749 -> 8.95608
+      locked: true
     sensor: ai16
     id: sensor_ct_clamp_16
     name: Measured Current-16

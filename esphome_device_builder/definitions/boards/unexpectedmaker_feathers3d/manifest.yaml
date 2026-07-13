@@ -28,6 +28,12 @@ pins:
   occupied_by: NeoPixel Light
 docs_url: https://devices.esphome.io/devices/UnexpectedMaker-FeatherS3D/
 featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: quad
+    speed: 80MHz
 - id: led_rgb
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -39,12 +45,8 @@ featured_components:
     num_leds: 1
     id: led_rgb
     name: NeoPixel Light
-- id: led_blue
-  component_id: light.binary
-  fields:
-    output: led_blue
-    id: led_blue
-    name: led_blue
+  requires:
+  - onboard_psram
 - id: output_gpio_1
   component_id: output.gpio
   fields:

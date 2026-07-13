@@ -11,6 +11,21 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Beca-Thermostat/bht-002.jpg
 docs_url: https://devices.esphome.io/devices/Beca-Thermostat/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: climate_tuya_1
   component_id: climate.tuya
   fields:
@@ -18,15 +33,17 @@ featured_components:
     target_temperature_datapoint: 2
     current_temperature_datapoint: 3
     temperature_multiplier: 0.5
+    visual:
+      value:
+        min_temperature: 20 °C
+        max_temperature: 35 °C
+        temperature_step: 0.5 °C
+      locked: true
     id: climate_tuya_1
     name: Thermostat
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    icon: mdi:calendar
-    enum_datapoint: 4
-    id: select_tuya_1
-    name: Scheduled programming
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -34,9 +51,16 @@ featured_components:
     unit_of_measurement: °C
     device_class: temperature
     accuracy_decimals: 1
+    filters:
+      value:
+      - multiply: 0.5
+      locked: true
     disabled_by_default: true
     id: sensor_tuya_1
     name: Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -44,9 +68,16 @@ featured_components:
     unit_of_measurement: °C
     device_class: temperature
     accuracy_decimals: 1
+    filters:
+      value:
+      - multiply: 0.5
+      locked: true
     disabled_by_default: true
     id: sensor_tuya_2
     name: Temperature (external)
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
@@ -54,6 +85,9 @@ featured_components:
     switch_datapoint: 6
     id: switch_tuya_1
     name: Lock
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Beca-Thermostat

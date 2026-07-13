@@ -38,6 +38,10 @@ featured_components:
         mode:
           input: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: button1
     name: Button 1
 - id: button2
@@ -48,6 +52,10 @@ featured_components:
         number: 14
         mode:
           input: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: button2
     name: Button 2
@@ -60,6 +68,10 @@ featured_components:
         mode:
           input: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: button3
     name: Button 3
 - id: button4
@@ -70,6 +82,10 @@ featured_components:
         number: 26
         mode:
           input: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: button4
     name: Button 4

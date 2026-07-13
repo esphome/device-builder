@@ -15,8 +15,30 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr-pcb-top.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/miboxer-tri-c1wr-pcb-bottom.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Miboxer-TRI-C1WR-Dimmer/test_board.jpg
+pins:
+- gpio: 20
+  available: false
+  occupied_by: uart
+- gpio: 21
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Miboxer-TRI-C1WR-Dimmer/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 20
+      locked: true
+    tx_pin:
+      value: 21
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: restart_device
   component_id: button.restart
   fields:
@@ -38,6 +60,9 @@ featured_components:
     max_value: 1000
     id: main_device_id
     name: Tuya 1
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -47,6 +72,9 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Minimum Brightness
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -66,6 +94,9 @@ featured_components:
     switch_datapoint: 102
     id: main_device_id_mode
     name: Switch Only Mode
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Miboxer-TRI-C1WR-Dimmer

@@ -82,15 +82,6 @@ featured_components:
     change_mode_every: 1
     update_interval: 10s
     id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    icon: mdi:clock-alert
-    unit_of_measurement: kWh
-    accuracy_decimals: 3
-    restore: true
-    id: sensor_total_daily_energy_1
-    name: Total Energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

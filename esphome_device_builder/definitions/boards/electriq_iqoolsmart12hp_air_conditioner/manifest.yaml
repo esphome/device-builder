@@ -9,8 +9,30 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Electriq-IQoolsmart12hp-air-conditioner/electriq_IQOOL-SMART12HP.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: uart
+- gpio: 15
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Electriq-IQoolsmart12hp-air-conditioner/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 13
+      locked: true
+    tx_pin:
+      value: 15
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: climate_tuya_1
   component_id: climate.tuya
   fields:
@@ -21,45 +43,36 @@ featured_components:
     current_temperature_datapoint: 3
     id: climate_tuya_1
     name: Climate
-- id: mode
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 4
-    optimistic: true
-    id: mode
-    name: Mode
-- id: fanspeed
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 5
-    optimistic: true
-    id: fanspeed
-    name: Fan Speed
-- id: temperatureunit
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 19
-    optimistic: true
-    id: temperatureunit
-    name: Temperature Unit
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
     sensor_datapoint: 3
     id: sensor_tuya_1
     name: Current Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
     switch_datapoint: 101
     id: switch_tuya_1
     name: Sleep Mode
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
     switch_datapoint: 104
     id: switch_tuya_2
     name: Oscillating air paddle
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Electriq-IQoolsmart12hp-air-conditioner

@@ -105,6 +105,12 @@ featured_components:
     id:
       value: touchscreen_i2c
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: proximity_sensor
   component_id: binary_sensor.gpio
   fields:
@@ -124,6 +130,13 @@ featured_components:
     reset_pin:
       value: 4
       locked: true
+    dimensions:
+      value:
+        height: 320
+        width: 170
+        offset_height: 0
+        offset_width: 35
+      locked: true
     invert_colors: true
     show_test_card: true
     data_rate: 4MHz
@@ -132,7 +145,11 @@ featured_components:
     auto_clear_enabled: false
     update_interval: 250ms
     id: my_display
+    spi_id:
+      value: display_spi
+      locked: true
   requires:
+  - onboard_psram
   - display_spi
 - id: display_backlight
   component_id: light.monochromatic
@@ -161,6 +178,12 @@ featured_components:
     state_class: measurement
     internal_filter_mode: PULSE
     accuracy_decimals: 1
+    filters:
+      value:
+      - filter_out: nan
+      - throttle: 15s
+      - multiply: 0.0813287514318442
+      locked: true
     id: power_pulse_meter
     name: Power
 - id: relay
@@ -175,8 +198,18 @@ featured_components:
 - id: my_touchscreen
   component_id: touchscreen.ft63x6
   fields:
+    calibration:
+      value:
+        x_min: 0
+        y_min: 0
+        x_max: 169
+        y_max: 319
+      locked: true
     display: my_display
     id: my_touchscreen
+    i2c_id:
+      value: touchscreen_i2c
+      locked: true
   requires:
   - touchscreen_i2c
 featured_bundles:
@@ -188,6 +221,7 @@ featured_bundles:
 - id: my_touchscreen_setup
   name: my_touchscreen (full setup)
   component_ids:
+  - onboard_psram
   - display_spi
   - touchscreen_i2c
   - my_display

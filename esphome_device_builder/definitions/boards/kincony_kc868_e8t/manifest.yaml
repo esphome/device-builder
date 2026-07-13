@@ -251,6 +251,9 @@ featured_components:
   fields:
     update_interval: 10s
     id: sensor_bl0939_1
+    uart_id:
+      value: uart_1
+      locked: true
   requires:
   - uart_1
 - id: sensor_bl0939_2
@@ -258,6 +261,9 @@ featured_components:
   fields:
     update_interval: 10s
     id: sensor_bl0939_2
+    uart_id:
+      value: uart_2
+      locked: true
   requires:
   - uart_2
 - id: switch_gpio_1

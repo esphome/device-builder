@@ -32,12 +32,21 @@ featured_components:
         number: 8
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+      locked: true
     id: button1
     name: button1
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     unit_of_measurement: minutes
+    filters:
+      value:
+      - lambda: return x / 60.0;
+      locked: true
     id: sensor_uptime_1
     name: Uptime
 - id: sensor_wifi_signal_1

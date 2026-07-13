@@ -85,26 +85,6 @@ featured_components:
     internal: true
     id: s4_close
     name: S4_close
-- id: left_cover
-  component_id: cover.time_based
-  fields:
-    device_class: shutter
-    has_built_in_endstop: false
-    open_duration: 40s
-    close_duration: 36s
-    assumed_state: true
-    id: left_cover
-    name: left-cover
-- id: right_cover
-  component_id: cover.time_based
-  fields:
-    device_class: shutter
-    has_built_in_endstop: false
-    open_duration: 40s
-    close_duration: 36s
-    assumed_state: true
-    id: right_cover
-    name: right-cover
 - id: l1_open
   component_id: switch.gpio
   fields:

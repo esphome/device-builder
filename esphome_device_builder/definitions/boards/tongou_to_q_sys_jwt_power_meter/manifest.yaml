@@ -19,6 +19,25 @@ images:
 docs_url: https://devices.esphome.io/devices/Tongou-TO-Q-SYS-JWT-power-meter/
 product_url: https://github.com/dshcherb/TO-Q-SYS-JWT-meter-esphome
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 115200
+    rx_buffer_size: 512
+- id: tuya_component
+  component_id: tuya
+  fields:
+    id:
+      value: tuya_component
+      locked: true
+  requires:
+  - uart_bus
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -30,6 +49,9 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Under-voltage Threshold
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -41,6 +63,9 @@ featured_components:
     step: 1
     id: number_tuya_2
     name: Over-voltage Threshold
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -52,6 +77,9 @@ featured_components:
     step: 0.1
     id: number_tuya_3
     name: Over-current Threshold
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_4
   component_id: number.tuya
   fields:
@@ -64,6 +92,9 @@ featured_components:
     step: 0.1
     id: number_tuya_4
     name: Temperature Threshold
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_5
   component_id: number.tuya
   fields:
@@ -75,6 +106,9 @@ featured_components:
     step: 1
     id: number_tuya_5
     name: Over-Power Threshold
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_6
   component_id: number.tuya
   fields:
@@ -84,6 +118,9 @@ featured_components:
     step: 1
     id: number_tuya_6
     name: Screen Brightness
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_7
   component_id: number.tuya
   fields:
@@ -94,6 +131,9 @@ featured_components:
     step: 1
     id: number_tuya_7
     name: Reporting Interval
+  requires:
+  - uart_bus
+  - tuya_component
 - id: number_tuya_8
   component_id: number.tuya
   fields:
@@ -105,6 +145,9 @@ featured_components:
     step: 1
     id: number_tuya_8
     name: Balance Shortage Threshold
+  requires:
+  - uart_bus
+  - tuya_component
 - id: charge_electricity
   component_id: number.tuya
   fields:
@@ -113,59 +156,19 @@ featured_components:
     unit_of_measurement: kW·h
     min_value: 0
     max_value: 9999
+    datapoint_hidden:
+      value:
+        datapoint_type: int
+        initial_value: 0
+        restore_value: false
+      locked: true
     step: 0.1
     multiply: 100
     id: charge_electricity
     name: Charge Electricity
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 103
-    optimistic: true
-    id: select_tuya_1
-    name: Under-voltage Action
-- id: select_tuya_2
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 102
-    optimistic: true
-    id: select_tuya_2
-    name: Over-voltage Action
-- id: select_tuya_3
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 104
-    optimistic: true
-    id: select_tuya_3
-    name: Over-current Action
-- id: select_tuya_4
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 105
-    optimistic: true
-    id: select_tuya_4
-    name: Over-power Action
-- id: select_tuya_5
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 107
-    optimistic: true
-    id: select_tuya_5
-    name: Over-temperature Action
-- id: select_tuya_6
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 101
-    optimistic: true
-    id: select_tuya_6
-    name: Balance Shortage Action
-- id: select_tuya_7
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 142
-    optimistic: true
-    id: select_tuya_7
-    name: Relay Power-on State
+  requires:
+  - uart_bus
+  - tuya_component
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -173,9 +176,16 @@ featured_components:
     device_class: energy
     unit_of_measurement: kW·h
     state_class: measurement
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     accuracy_decimals: 2
     id: sensor_tuya_1
     name: Total Electricity Consumption
+  requires:
+  - uart_bus
+  - tuya_component
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -185,8 +195,15 @@ featured_components:
     state_class: measurement
     icon: mdi:meter-electric-outline
     accuracy_decimals: 2
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: sensor_tuya_2
     name: Forward Electricity
+  requires:
+  - uart_bus
+  - tuya_component
 - id: sensor_tuya_3
   component_id: sensor.tuya
   fields:
@@ -195,9 +212,16 @@ featured_components:
     unit_of_measurement: °C
     device_class: temperature
     accuracy_decimals: 1
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
     icon: mdi:temperature-celcius
     id: sensor_tuya_3
     name: Real-time Temperature
+  requires:
+  - uart_bus
+  - tuya_component
 - id: sensor_tuya_4
   component_id: sensor.tuya
   fields:
@@ -206,9 +230,16 @@ featured_components:
     unit_of_measurement: kW·h
     device_class: energy
     accuracy_decimals: 2
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     icon: mdi:home-battery-outline
     id: sensor_tuya_4
     name: Electricity Balance
+  requires:
+  - uart_bus
+  - tuya_component
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
@@ -217,6 +248,9 @@ featured_components:
     device_class: outlet
     id: switch_tuya_1
     name: Circuit Breaker Switch
+  requires:
+  - uart_bus
+  - tuya_component
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -224,12 +258,18 @@ featured_components:
     restore_mode: DISABLED
     id: switch_tuya_2
     name: Automatic Closing
+  requires:
+  - uart_bus
+  - tuya_component
 - id: switch_tuya_3
   component_id: switch.tuya
   fields:
     switch_datapoint: 113
     id: switch_tuya_3
     name: Reset MCU to Defaults
+  requires:
+  - uart_bus
+  - tuya_component
 - id: switch_tuya_4
   component_id: switch.tuya
   fields:
@@ -237,12 +277,18 @@ featured_components:
     restore_mode: DISABLED
     id: switch_tuya_4
     name: Report State Changes
+  requires:
+  - uart_bus
+  - tuya_component
 - id: switch_tuya_5
   component_id: switch.tuya
   fields:
     switch_datapoint: 11
     id: switch_tuya_5
     name: Prepayment Switch Mode
+  requires:
+  - uart_bus
+  - tuya_component
 - id: clear_electricity_switch
   component_id: switch.tuya
   fields:
@@ -250,6 +296,9 @@ featured_components:
     internal: true
     id: clear_electricity_switch
     name: Clear Remaining Electricity
+  requires:
+  - uart_bus
+  - tuya_component
 - id: switch_tuya_7
   component_id: switch.tuya
   fields:
@@ -259,18 +308,58 @@ featured_components:
       locked: true
     id: switch_tuya_7
     name: Screen On
+  requires:
+  - uart_bus
+  - tuya_component
 - id: text_sensor_tuya_1
   component_id: text_sensor.tuya
   fields:
     sensor_datapoint: 109
+    filters:
+      value:
+      - map:
+        - 1 -> Offline
+        - 0 -> Online
+      locked: true
     id: text_sensor_tuya_1
     name: Online Status
+  requires:
+  - uart_bus
+  - tuya_component
 - id: text_sensor_tuya_2
   component_id: text_sensor.tuya
   fields:
     sensor_datapoint: 110
+    filters:
+      value:
+      - map:
+        - 0 -> Normal
+        - 1 -> Over Current Trip
+        - 2 -> Over Power Trip
+        - 3 -> High Temp Trip
+        - 4 -> Over Voltage Trip
+        - 5 -> Under Voltage Trip
+        - 6 -> Over Current Alarm
+        - 7 -> Over Power Alarm
+        - 8 -> High Temp Alarm
+        - 9 -> Over Voltage Alarm
+        - 10 -> Under Voltage Alarm
+        - 11 -> Remote ON
+        - 12 -> Remote OFF
+        - 13 -> Manual ON
+        - 14 -> Manual OFF
+        - 15 -> Leakage Trip
+        - 16 -> Leakage Alarm
+        - 17 -> Restore Default
+        - 18 -> Automatic Closing
+        - 19 -> Electricity Shortage
+        - 20 -> Electricity Shortage Alarm
+      locked: true
     id: text_sensor_tuya_2
     name: Last MCU Event
+  requires:
+  - uart_bus
+  - tuya_component
 source:
   type: esphome-devices
   remote_id: Tongou-TO-Q-SYS-JWT-power-meter

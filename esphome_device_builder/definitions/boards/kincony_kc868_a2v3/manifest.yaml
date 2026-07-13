@@ -33,9 +33,15 @@ pins:
 - gpio: 6
   available: false
   occupied_by: IO6
+- gpio: 7
+  available: false
+  occupied_by: uart_1
 - gpio: 8
   available: false
   occupied_by: IO8
+- gpio: 15
+  available: false
+  occupied_by: uart_1
 - gpio: 16
   available: false
   occupied_by: A2v3-input1
@@ -68,6 +74,26 @@ pins:
   occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A2v3/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 7
+      locked: true
+    rx_pin:
+      value: 15
+      locked: true
+    id:
+      value: uart_1
+      locked: true
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -201,6 +227,24 @@ featured_components:
       locked: true
     id: switch_gpio_2
     name: A2v3-Relay2
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 source:
   type: esphome-devices
   remote_id: KinCony-KC868-A2v3

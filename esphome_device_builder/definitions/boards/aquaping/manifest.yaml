@@ -16,12 +16,18 @@ featured_components:
 - id: noise
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value: D3
+      locked: true
     icon: mdi:volume-vibrate
     id: noise
     name: AquaPing Noise Alert
 - id: leak
   component_id: binary_sensor.gpio
   fields:
+    pin:
+      value: D4
+      locked: true
     icon: mdi:water-pump
     id: leak
     name: AquaPing Leak Alert

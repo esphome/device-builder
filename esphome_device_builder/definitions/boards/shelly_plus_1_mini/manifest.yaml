@@ -36,6 +36,10 @@ featured_components:
     pin:
       value: 10
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: binary_sensor_gpio_1
     name: Switch
 - id: binary_sensor_gpio_2
@@ -49,6 +53,10 @@ featured_components:
           input: true
           pullup: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 5ms
+      locked: true
     id: binary_sensor_gpio_2
     name: Button
 - id: relay_output
@@ -58,15 +66,6 @@ featured_components:
       value: 7
       locked: true
     id: relay_output
-- id: sensor_ntc_1
-  component_id: sensor.ntc
-  fields:
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    sensor: temp_resistance_reading
-    id: sensor_ntc_1
-    name: Temperature
 - id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
@@ -91,11 +90,6 @@ featured_components:
     id: relay
     name: Relay
 featured_bundles:
-- id: sensor_ntc_1_setup
-  name: Temperature (full setup)
-  component_ids:
-  - temp_resistance_reading
-  - sensor_ntc_1
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
   component_ids:

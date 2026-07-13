@@ -13,6 +13,26 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002/DCF4002_daughterboard.jpg
 docs_url: https://devices.esphome.io/devices/Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX
+      locked: true
+    tx_pin:
+      value: TX
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields:
+    ignore_mcu_update_on_datapoints:
+      value:
+      - 102
+      - 103
+      locked: true
+  requires:
+  - uart_bus
 - id: ceiling_fan
   component_id: fan.tuya
   fields:
@@ -22,6 +42,9 @@ featured_components:
     speed_count: 6
     id: ceiling_fan
     name: Ceiling Fan
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: ceiling_fan_light
   component_id: light.tuya
   fields:
@@ -36,6 +59,9 @@ featured_components:
     warm_white_color_temperature: 4065 K
     id: ceiling_fan_light
     name: Light
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002

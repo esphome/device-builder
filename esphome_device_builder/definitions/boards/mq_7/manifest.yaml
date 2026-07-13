@@ -29,39 +29,6 @@ featured_components:
     entity_id: sensor.humidity
     id: humidity_sensor_id
     name: Homeassistant 2
-- id: mq7_id_raw
-  component_id: sensor.adc
-  fields:
-    entity_category: diagnostic
-    disabled_by_default: true
-    attenuation: auto
-    update_interval: never
-    id: mq7_id_raw
-    name: Voltage
-- id: mq7_id_resistance
-  component_id: sensor.resistance
-  fields:
-    icon: mdi:omega
-    entity_category: diagnostic
-    disabled_by_default: true
-    configuration: UPSTREAM
-    sensor: mq7_id_raw
-    id: mq7_id_resistance
-    name: Resistance
-- id: mq7_id_heater
-  component_id: switch.output
-  fields:
-    icon: mdi:fire
-    entity_category: diagnostic
-    disabled_by_default: true
-    id: mq7_id_heater
-    name: Heater
-featured_bundles:
-- id: mq7_id_resistance_setup
-  name: Resistance (full setup)
-  component_ids:
-  - mq7_id_raw
-  - mq7_id_resistance
 source:
   type: esphome-devices
   remote_id: MQ-7

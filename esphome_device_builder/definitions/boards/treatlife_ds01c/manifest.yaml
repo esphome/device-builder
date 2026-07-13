@@ -11,6 +11,21 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Treatlife-DS01C/treatlife_DS01C.jpg
 docs_url: https://devices.esphome.io/devices/Treatlife-DS01C/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: light_tuya_1
   component_id: light.tuya
   fields:
@@ -20,12 +35,9 @@ featured_components:
     max_value: 1000
     id: light_tuya_1
     name: Lights
-- id: dimmer_mode
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 4
-    id: dimmer_mode
-    name: Dimming Mode
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Treatlife-DS01C

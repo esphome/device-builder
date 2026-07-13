@@ -4,6 +4,7 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: esp32
   board: esp32dev
+  variant: esp32
 hardware:
   connectivity:
   - wifi

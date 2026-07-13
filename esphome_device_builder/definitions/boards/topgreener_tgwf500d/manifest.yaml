@@ -9,8 +9,30 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Topgreener-TGWF500D/Topgreener-TGWF500D.png
+pins:
+- gpio: 13
+  available: false
+  occupied_by: uart
+- gpio: 15
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Topgreener-TGWF500D/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 13
+      locked: true
+    tx_pin:
+      value: 15
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: light_tuya_1
   component_id: light.tuya
   fields:
@@ -20,6 +42,9 @@ featured_components:
     max_value: 255
     id: light_tuya_1
     name: Tuya 1
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

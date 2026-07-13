@@ -35,6 +35,10 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: button_onoff
     name: button_onoff
 - id: signal_onoff
@@ -45,6 +49,10 @@ featured_components:
         number: 14
         inverted: true
         mode: INPUT_PULLUP
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: signal_onoff
     name: signal_onoff

@@ -10,11 +10,32 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hiking-DDS238-2-WIFI/hiking_DDS238-2.jpg
 pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 - gpio: 16
   available: false
   occupied_by: button
 docs_url: https://devices.esphome.io/devices/Hiking-DDS238-2-WIFI/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 3
+      locked: true
+    tx_pin:
+      value: 1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: button
   component_id: binary_sensor.gpio
   fields:
@@ -30,8 +51,15 @@ featured_components:
     accuracy_decimals: 2
     unit_of_measurement: A
     icon: mdi:flash
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: sensor_tuya_1
     name: Current
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -39,8 +67,15 @@ featured_components:
     accuracy_decimals: 1
     unit_of_measurement: W
     icon: mdi:flash
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
     id: sensor_tuya_2
     name: Power
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_3
   component_id: sensor.tuya
   fields:
@@ -48,8 +83,15 @@ featured_components:
     unit_of_measurement: V
     accuracy_decimals: 1
     icon: mdi:flash
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
     id: sensor_tuya_3
     name: Voltage
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_4
   component_id: sensor.tuya
   fields:
@@ -57,8 +99,15 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 3
     icon: mdi:flash
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: sensor_tuya_4
     name: kWh +
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_5
   component_id: sensor.tuya
   fields:
@@ -66,14 +115,24 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 3
     icon: mdi:flash
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: sensor_tuya_5
     name: kWh
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: power
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
     id: power
     name: Switch
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Hiking-DDS238-2-WIFI

@@ -20,6 +20,12 @@ pins:
   occupied_by: backlight_pwm
 docs_url: https://devices.esphome.io/devices/Sunton-ESP32-8048S043C/
 featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: back_light
   component_id: light.monochromatic
   fields:

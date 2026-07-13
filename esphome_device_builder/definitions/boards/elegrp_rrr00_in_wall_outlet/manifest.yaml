@@ -47,6 +47,10 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
+      locked: true
     id: button_1
     name: Button 1
 - id: button_2
@@ -59,6 +63,10 @@ featured_components:
           input: true
           pullup: true
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
       locked: true
     id: button_2
     name: Button 2
@@ -116,15 +124,6 @@ featured_components:
     update_interval: 60s
     id: sensor_uptime_1
     name: Uptime
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    state_class: total_increasing
-    device_class: energy
-    accuracy_decimals: 3
-    id: sensor_total_daily_energy_1
-    name: Total Daily Energy
 - id: relay_1
   component_id: switch.gpio
   fields:

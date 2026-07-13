@@ -52,6 +52,9 @@ featured_components:
 - id: upper_relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: PWM2
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     device_class: outlet
     id: upper_relay
@@ -59,6 +62,9 @@ featured_components:
 - id: lower_relay
   component_id: switch.gpio
   fields:
+    pin:
+      value: PWM5
+      locked: true
     restore_mode: RESTORE_DEFAULT_OFF
     device_class: outlet
     id: lower_relay

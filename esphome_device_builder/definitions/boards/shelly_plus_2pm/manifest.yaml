@@ -76,6 +76,10 @@ featured_components:
         number: 5
         ignore_strapping_warning: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     internal: true
     id: binary_sensor_gpio_2
     name: Gpio 2
@@ -84,6 +88,10 @@ featured_components:
   fields:
     pin:
       value: 18
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     internal: true
     id: binary_sensor_gpio_3
@@ -114,16 +122,6 @@ featured_components:
     id: sensor_ade7953_i2c_1
   requires:
   - i2c_bus
-- id: sensor_ntc_1
-  component_id: sensor.ntc
-  fields:
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    entity_category: diagnostic
-    sensor: temp_resistance_reading
-    id: sensor_ntc_1
-    name: Temperature
 - id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
@@ -155,11 +153,6 @@ featured_components:
     id: relay_2
     name: relay_2
 featured_bundles:
-- id: sensor_ntc_1_setup
-  name: Temperature (full setup)
-  component_ids:
-  - temp_resistance_reading
-  - sensor_ntc_1
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
   component_ids:

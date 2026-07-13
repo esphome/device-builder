@@ -43,6 +43,12 @@ pins:
 - gpio: 21
   available: false
   occupied_by: b24-W1-io21
+- gpio: 38
+  available: false
+  occupied_by: uart_1
+- gpio: 39
+  available: false
+  occupied_by: uart_1
 - gpio: 40
   available: false
   occupied_by: b24-W1-io40
@@ -66,6 +72,46 @@ pins:
   occupied_by: b24-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-B24/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 39
+      locked: true
+    rx_pin:
+      value: 38
+      locked: true
+    id:
+      value: uart_1
+      locked: true
+- id: bus_a_2
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: ads1115_hub
+  component_id: ads1115
+  fields:
+    address: 72
+  requires:
+  - bus_a_2
 - id: bus_a
   component_id: i2c
   fields:
@@ -593,6 +639,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_1
     name: ADS1115 Channel A0-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_ads1115_2
   component_id: sensor.ads1115
   fields:
@@ -601,6 +650,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_2
     name: ADS1115 Channel A1-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_ads1115_3
   component_id: sensor.ads1115
   fields:
@@ -609,6 +661,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_3
     name: ADS1115 Channel A2-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_ads1115_4
   component_id: sensor.ads1115
   fields:
@@ -617,6 +672,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: b24_output01
   component_id: switch.gpio
   fields:
@@ -977,6 +1035,24 @@ featured_components:
   requires:
   - bus_a
   - pcf8574_hub_out_1
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 source:
   type: esphome-devices
   remote_id: KinCony-B24

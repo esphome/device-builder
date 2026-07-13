@@ -14,12 +14,54 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Guition-ESP32-S3-4848S040/guition-esp32-s3-4848s040-connector.jpg
 pins:
+- gpio: 0
+  available: false
+  occupied_by: tft_display
 - gpio: 1
   available: false
   occupied_by: Relay 3
 - gpio: 2
   available: false
   occupied_by: Relay 2
+- gpio: 3
+  available: false
+  occupied_by: tft_display
+- gpio: 4
+  available: false
+  occupied_by: tft_display
+- gpio: 5
+  available: false
+  occupied_by: tft_display
+- gpio: 6
+  available: false
+  occupied_by: tft_display
+- gpio: 7
+  available: false
+  occupied_by: tft_display
+- gpio: 8
+  available: false
+  occupied_by: tft_display
+- gpio: 9
+  available: false
+  occupied_by: tft_display
+- gpio: 10
+  available: false
+  occupied_by: tft_display
+- gpio: 11
+  available: false
+  occupied_by: tft_display
+- gpio: 12
+  available: false
+  occupied_by: tft_display
+- gpio: 13
+  available: false
+  occupied_by: tft_display
+- gpio: 14
+  available: false
+  occupied_by: tft_display
+- gpio: 15
+  available: false
+  occupied_by: tft_display
 - gpio: 16
   available: false
   occupied_by: tft_display
@@ -32,6 +74,9 @@ pins:
 - gpio: 19
   available: false
   occupied_by: touchscreen_bus
+- gpio: 20
+  available: false
+  occupied_by: tft_display
 - gpio: 21
   available: false
   occupied_by: tft_display
@@ -47,6 +92,9 @@ pins:
 - gpio: 45
   available: false
   occupied_by: touchscreen_bus
+- gpio: 46
+  available: false
+  occupied_by: tft_display
 - gpio: 47
   available: false
   occupied_by: lcd_spi
@@ -81,9 +129,20 @@ featured_components:
     id:
       value: touchscreen_bus
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: tft_display
   component_id: display.st7701s
   fields:
+    dimensions:
+      value:
+        width: 480
+        height: 480
+      locked: true
     spi_mode: MODE3
     data_rate: 2MHz
     color_order: RGB
@@ -113,8 +172,43 @@ featured_components:
     vsync_back_porch: 10
     update_interval: never
     auto_clear_enabled: false
+    init_sequence:
+      value:
+      - 1
+      - - 255
+        - 119
+        - 1
+        - 0
+        - 0
+        - 16
+      - - 205
+        - 0
+      locked: true
+    data_pins:
+      value:
+        red:
+        - 11
+        - 12
+        - 13
+        - 14
+        - 0
+        green:
+        - 8
+        - 20
+        - 3
+        - 46
+        - 9
+        - 10
+        blue:
+        - 4
+        - 5
+        - 6
+        - 7
+        - 15
+      locked: true
     id: tft_display
   requires:
+  - onboard_psram
   - lcd_spi
 - id: display_backlight
   component_id: light.monochromatic
@@ -180,6 +274,7 @@ featured_bundles:
 - id: tft_touch_setup
   name: tft_touch (full setup)
   component_ids:
+  - onboard_psram
   - lcd_spi
   - touchscreen_bus
   - tft_display

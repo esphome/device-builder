@@ -16,6 +16,15 @@ featured_components:
   component_id: sensor.adc
   fields:
     update_interval: 1s
+    pin:
+      value: VCC
+      locked: true
+    filters:
+      value:
+      - calibrate_linear:
+        - 2.8 -> 0.0
+        - 3.6 -> 100
+      locked: true
     unit_of_measurement: '%'
     accuracy_decimals: 0
     id: sensor_adc_1

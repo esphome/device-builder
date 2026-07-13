@@ -22,6 +22,9 @@ pins:
 - gpio: 2
   available: false
   occupied_by: Ethernet INT
+- gpio: 8
+  available: false
+  occupied_by: uart_485
 - gpio: 15
   available: false
   occupied_by: IO15
@@ -31,6 +34,9 @@ pins:
 - gpio: 17
   available: false
   occupied_by: uart_232
+- gpio: 18
+  available: false
+  occupied_by: uart_485
 - gpio: 38
   available: false
   occupied_by: IO38
@@ -54,10 +60,39 @@ pins:
   occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-AG8/
 featured_components:
+- id: uart_485
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 18
+      locked: true
+    rx_pin:
+      value: 8
+      locked: true
+    id:
+      value: uart_485
+      locked: true
 - id: uart_232
   component_id: uart
   fields:
     baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+        sequence:
+        - lambda: UARTDebug::log_string(direction, bytes);
+      locked: true
     tx_pin:
       value: 17
       locked: true
@@ -144,12 +179,33 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_4
     name: IO40
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_485
+      locked: true
+  requires:
+  - uart_485
 - id: switch_uart_2
   component_id: switch.uart
   fields:
     data: RS232-test
     id: switch_uart_2
     name: RS232 Button
+    uart_id:
+      value: uart_232
+      locked: true
   requires:
   - uart_232
 source:

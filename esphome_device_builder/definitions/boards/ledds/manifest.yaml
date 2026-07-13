@@ -16,15 +16,6 @@ images:
 docs_url: https://devices.esphome.io/devices/LEDDs/
 product_url: https://github.com/VasilKalchev/LEDDs
 featured_components:
-- id: rotary_encoder_btn_id
-  component_id: binary_sensor.gpio
-  fields:
-    internal: true
-    entity_category: diagnostic
-    use_interrupt: true
-    interrupt_type: ANY
-    id: rotary_encoder_btn_id
-    name: Knob button
 - id: restart_button
   component_id: button.restart
   fields:
@@ -32,104 +23,12 @@ featured_components:
     device_class: restart
     id: restart_button
     name: Restart
-- id: light_id
-  component_id: light.monochromatic
-  fields:
-    icon: mdi:lightbulb-variant
-    output: ac_dimmer_id
-    id: light_id
-    name: Bulb
-- id: red_led
-  component_id: light.monochromatic
-  fields:
-    icon: mdi:led-outline
-    entity_category: config
-    default_transition_length: 1000 ms
-    restore_mode: RESTORE_DEFAULT_ON
-    output: led1
-    id: red_led
-    name: 'LED: red'
-- id: blue_led
-  component_id: light.monochromatic
-  fields:
-    icon: mdi:led-outline
-    entity_category: config
-    default_transition_length: 1000 ms
-    restore_mode: RESTORE_DEFAULT_ON
-    output: led2
-    id: blue_led
-    name: 'LED: blue'
-- id: white_led
-  component_id: light.monochromatic
-  fields:
-    icon: mdi:led-outline
-    entity_category: config
-    default_transition_length: 1000 ms
-    restore_mode: RESTORE_DEFAULT_ON
-    output: led3
-    id: white_led
-    name: 'LED: white'
-- id: ac_dimmer_id
-  component_id: output.ac_dimmer
-  fields:
-    method: trailing
-    init_with_half_cycle: true
-    zero_means_zero: true
-    max_power: 100 %
-    id: ac_dimmer_id
-- id: led1
-  component_id: output.ledc
-  fields:
-    frequency: 200 Hz
-    id: led1
-- id: led2
-  component_id: output.ledc
-  fields:
-    frequency: 200 Hz
-    id: led2
-- id: led3
-  component_id: output.ledc
-  fields:
-    frequency: 200 Hz
-    id: led3
-- id: rotary_encoder_id
-  component_id: sensor.rotary_encoder
-  fields:
-    icon: mdi:knob
-    internal: true
-    min_value: -1
-    max_value: 1
-    publish_initial_value: true
-    restore_mode: ALWAYS_ZERO
-    id: rotary_encoder_id
-    name: Knob
 - id: text_sensor_version_1
   component_id: text_sensor.version
   fields:
     hide_timestamp: true
     id: text_sensor_version_1
     name: ESPHome version
-featured_bundles:
-- id: light_id_setup
-  name: Bulb (full setup)
-  component_ids:
-  - ac_dimmer_id
-  - light_id
-- id: red_led_setup
-  name: 'LED: red (full setup)'
-  component_ids:
-  - led1
-  - red_led
-- id: blue_led_setup
-  name: 'LED: blue (full setup)'
-  component_ids:
-  - led2
-  - blue_led
-- id: white_led_setup
-  name: 'LED: white (full setup)'
-  component_ids:
-  - led3
-  - white_led
 source:
   type: esphome-devices
   remote_id: LEDDs

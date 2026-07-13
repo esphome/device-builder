@@ -9,8 +9,36 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Kogan-Smart-Air-Purifier-2S/KoganSmartAirPurifier2S.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: uart_0
+- gpio: 15
+  available: false
+  occupied_by: uart_0
 docs_url: https://devices.esphome.io/devices/Kogan-Smart-Air-Purifier-2S/
 featured_components:
+- id: uart_0
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 13
+      locked: true
+    tx_pin:
+      value: 15
+      locked: true
+    baud_rate: 9600
+    id:
+      value: uart_0
+      locked: true
+- id: tuya_hub
+  component_id: tuya
+  fields:
+    uart_id:
+      value: uart_0
+      locked: true
+  requires:
+  - uart_0
 - id: fan_tuya_1
   component_id: fan.tuya
   fields:
@@ -19,6 +47,9 @@ featured_components:
     speed_count: 3
     id: fan_tuya_1
     name: Tuya 1
+  requires:
+  - uart_0
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -28,6 +59,9 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Timer Mode
+  requires:
+  - uart_0
+  - tuya_hub
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -37,6 +71,9 @@ featured_components:
     step: 1
     id: number_tuya_2
     name: Timer Countdown Mins
+  requires:
+  - uart_0
+  - tuya_hub
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -46,6 +83,9 @@ featured_components:
     step: 1
     id: number_tuya_3
     name: LED Brightness
+  requires:
+  - uart_0
+  - tuya_hub
 - id: number_tuya_4
   component_id: number.tuya
   fields:
@@ -55,6 +95,9 @@ featured_components:
     step: 1
     id: number_tuya_4
     name: Air Quality Level
+  requires:
+  - uart_0
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Kogan-Smart-Air-Purifier-2S

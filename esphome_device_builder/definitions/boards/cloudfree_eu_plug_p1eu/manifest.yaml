@@ -64,6 +64,10 @@ featured_components:
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
+    filters:
+      value:
+      - lambda: return x / 60.0;
+      locked: true
     unit_of_measurement: minutes
     id: sensor_uptime_1
     name: Uptime
@@ -90,13 +94,6 @@ featured_components:
     change_mode_every: 8
     update_interval: 10s
     id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    icon: mdi:circle-slice-3
-    unit_of_measurement: kWh
-    id: sensor_total_daily_energy_1
-    name: Total Daily Energy
 - id: relay
   component_id: switch.gpio
   fields:

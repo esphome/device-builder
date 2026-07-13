@@ -13,8 +13,30 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-ZY-M100-Human-Presence-Sensor/tuya-zy-m100.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-ZY-M100-Human-Presence-Sensor/test_board.jpg
+pins:
+- gpio: 20
+  available: false
+  occupied_by: uart
+- gpio: 21
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Tuya-ZY-M100-Human-Presence-Sensor/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 20
+      locked: true
+    tx_pin:
+      value: 21
+      locked: true
+    baud_rate: 115200
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: binary_sensor_tuya_1
   component_id: binary_sensor.tuya
   fields:
@@ -22,6 +44,9 @@ featured_components:
     device_class: occupancy
     id: binary_sensor_tuya_1
     name: Presence State
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: restart_device
   component_id: button.restart
   fields:
@@ -44,6 +69,9 @@ featured_components:
     icon: mdi:ray-vertex
     id: number_tuya_1
     name: Sensitivity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -56,6 +84,9 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_2
     name: Near Detection
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -68,6 +99,9 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_3
     name: Far Detection
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_4
   component_id: number.tuya
   fields:
@@ -80,6 +114,9 @@ featured_components:
     icon: mdi:clock
     id: number_tuya_4
     name: Detection Delay
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_5
   component_id: number.tuya
   fields:
@@ -92,13 +129,9 @@ featured_components:
     icon: mdi:clock
     id: number_tuya_5
     name: Fading Time
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    icon: mdi:eye
-    enum_datapoint: 6
-    id: select_tuya_1
-    name: Self Check Result
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
@@ -122,6 +155,9 @@ featured_components:
     state_class: measurement
     id: light_intensity
     name: Light Intensity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: target_distance
   component_id: sensor.tuya
   fields:
@@ -132,6 +168,9 @@ featured_components:
     state_class: measurement
     id: target_distance
     name: Target Distance
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Tuya-ZY-M100-Human-Presence-Sensor

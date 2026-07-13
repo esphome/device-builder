@@ -48,6 +48,11 @@ featured_components:
         inverted: true
       locked: true
     internal: true
+    filters:
+      value:
+      - invert: null
+      - delayed_off: 50ms
+      locked: true
     id: button
     name: button
 - id: switch_1
@@ -62,6 +67,10 @@ featured_components:
       locked: true
     icon: mdi:light-switch
     entity_category: diagnostic
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: switch_1
     name: Switch 1 (external)
 - id: switch_2
@@ -75,6 +84,10 @@ featured_components:
       locked: true
     icon: mdi:light-switch
     entity_category: diagnostic
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: switch_2
     name: Switch 2 (external)
 - id: default_status_led

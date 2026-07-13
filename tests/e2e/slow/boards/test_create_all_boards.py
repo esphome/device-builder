@@ -18,20 +18,16 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
-import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from esphome.config import load_config
-from esphome.core import CORE, EsphomeError
 
 from esphome_device_builder.controllers.components import _load_body_from_disk
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
 )
-from esphome_device_builder.helpers.device_yaml import generate_device_yaml
+from script._full_setup_gate import run_esphome_validation
 from tests.conftest import catalog_releases_ahead
 
 if TYPE_CHECKING:
@@ -71,29 +67,59 @@ def _defaults_from_disk(
     return out
 
 
+def _full_setup_from_disk(
+    board: BoardCatalogEntry,
+) -> list[tuple[ComponentCatalogEntry, dict[str, Any]]] | None:
+    """
+    Resolve the covering full-setup bundle the recommended-add flow installs.
+
+    ``None`` when no bundle covers every featured component (pin-conflict
+    boards keep partial bundles; the combined config wouldn't validate).
+    """
+    featured = {fc.id: fc for fc in board.featured_components}
+    bundle = next(
+        (b for b in board.featured_bundles if set(featured) <= set(b.component_ids)),
+        None,
+    )
+    if bundle is None:
+        return None
+    out: list[tuple[ComponentCatalogEntry, dict[str, Any]]] = []
+    for member in bundle.component_ids:
+        fc = featured.get(member)
+        assert fc is not None, f"{board.id}: bundle member {member!r} not featured"
+        body = _load_body_from_disk(fc.component_id)
+        assert body is not None, f"{board.id}: bundle member {member!r} has no catalog body"
+        out.append((body, {k: p.value for k, p in fc.fields.items() if p.value is not None}))
+    return out
+
+
+def _generated_yaml_errors(
+    board_id: str,
+    board: BoardCatalogEntry,
+    defaults: list[tuple[ComponentCatalogEntry, dict[str, Any]]],
+) -> list[str]:
+    """Run one generated YAML through the real ESPHome validation."""
+    _, errors = run_esphome_validation(board_id, board, defaults)
+    return [str(err) for err in errors]
+
+
 def _validate_board(board_id: str) -> tuple[str, list[str]]:
     """Validate one board's generated YAML in a fresh process; return its errors."""
     board = load_board_body_from_disk(board_id)
     assert board is not None, board_id
-    with tempfile.TemporaryDirectory() as tmp:
-        # Inline creds keep the YAML ``!secret``-free so it validates standalone.
-        yaml_path = Path(tmp) / f"{board_id}.yaml"
-        yaml_path.write_text(
-            generate_device_yaml(
-                "repro",
-                "Repro",
-                board,
-                ssid="ssid",
-                psk="password",
-                defaults=_defaults_from_disk(board),
-            ),
-            encoding="utf-8",
-        )
-        CORE.config_path = yaml_path
-        try:
-            return board_id, [str(err) for err in load_config({}, skip_external_update=True).errors]
-        except EsphomeError as err:
-            return board_id, [str(err)]
+    return board_id, _generated_yaml_errors(board_id, board, _defaults_from_disk(board))
+
+
+def _validate_full_setup(board_id: str) -> tuple[str, list[str]]:
+    """Validate a full_config board's covering-bundle YAML; empty when not applicable."""
+    board = load_board_body_from_disk(board_id)
+    assert board is not None, board_id
+    if not board.full_config:
+        return board_id, []
+    defaults = _full_setup_from_disk(board)
+    if defaults is None:
+        return board_id, []
+    return board_id, _generated_yaml_errors(board_id, board, defaults)
 
 
 def test_every_board_creates_a_valid_config() -> None:
@@ -114,5 +140,23 @@ def test_every_board_creates_a_valid_config() -> None:
             if not all("This board is unknown" in err for err in errors)
         }
     assert not failures, "boards fail ESPHome validation:\n" + "\n".join(
+        f"{board_id}: {'; '.join(errs)}" for board_id, errs in sorted(failures.items())
+    )
+
+
+def test_full_config_boards_validate_full_setup() -> None:
+    board_ids = [entry.id for entry in load_board_index()]
+    ctx = mp.get_context("fork")
+    with ctx.Pool(processes=min(8, os.cpu_count() or 4), maxtasksperchild=1) as pool:
+        results = pool.map(_validate_full_setup, board_ids, chunksize=1)
+
+    failures = {board_id: errors for board_id, errors in results if errors}
+    if catalog_releases_ahead("boards.index.json") > 0:
+        failures = {
+            board_id: errors
+            for board_id, errors in failures.items()
+            if not all("This board is unknown" in err for err in errors)
+        }
+    assert not failures, "full-setup bundles fail ESPHome validation:\n" + "\n".join(
         f"{board_id}: {'; '.join(errs)}" for board_id, errs in sorted(failures.items())
     )

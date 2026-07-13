@@ -30,6 +30,13 @@ featured_components:
     pin:
       value: 13
       locked: true
+    filters:
+      value:
+      - invert: null
+      - delayed_on: 100ms
+      - delayed_off: 100ms
+      - delayed_on_off: 100ms
+      locked: true
     id: binary_sensor_gpio_1
     name: Button
 - id: relay

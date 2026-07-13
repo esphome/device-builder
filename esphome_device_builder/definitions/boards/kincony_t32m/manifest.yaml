@@ -759,6 +759,10 @@ featured_components:
     update_interval: 5s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_3
     name: t32m A3 Current
 - id: sensor_adc_4
@@ -770,6 +774,10 @@ featured_components:
     update_interval: 5s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_4
     name: t32m A4 Current
 - id: t32m_output01

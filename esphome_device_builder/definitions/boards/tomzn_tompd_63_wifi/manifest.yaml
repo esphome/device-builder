@@ -12,6 +12,27 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tomzn-TOMPD-63-WiFi/20250425_175840.jpg
 docs_url: https://devices.esphome.io/devices/Tomzn-TOMPD-63-WiFi/
 featured_components:
+- id: uart_tuya
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    id:
+      value: uart_tuya
+      locked: true
+- id: tuya_hub
+  component_id: tuya
+  fields:
+    uart_id:
+      value: uart_tuya
+      locked: true
+  requires:
+  - uart_tuya
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -19,8 +40,15 @@ featured_components:
     unit_of_measurement: kWh
     accuracy_decimals: 2
     icon: mdi:lightning-bolt
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: sensor_tuya_1
     name: Total Energy
+  requires:
+  - uart_tuya
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -30,12 +58,18 @@ featured_components:
     icon: mdi:flash-alert
     id: sensor_tuya_2
     name: Leakage Current
+  requires:
+  - uart_tuya
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
     switch_datapoint: 16
     id: switch_tuya_1
     name: 'On'
+  requires:
+  - uart_tuya
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Tomzn-TOMPD-63-WiFi

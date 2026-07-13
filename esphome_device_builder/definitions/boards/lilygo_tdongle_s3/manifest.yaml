@@ -98,6 +98,9 @@ featured_components:
     use_bgr: true
     auto_clear_enabled: false
     id: display_st7735_1
+    spi_id:
+      value: spi_lcd
+      locked: true
   requires:
   - spi_lcd
 - id: lcd_backlight
@@ -114,6 +117,9 @@ featured_components:
     data_rate: 1MHz
     id: light_spi_led_strip_1
     name: FastLED SPI Light
+    spi_id:
+      value: spi_led
+      locked: true
   requires:
   - spi_led
 - id: backlight_output

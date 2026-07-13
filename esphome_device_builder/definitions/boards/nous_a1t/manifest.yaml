@@ -68,16 +68,12 @@ featured_components:
     icon: mdi:clock-outline
     id: sensor_uptime_1
     name: Uptime
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    icon: mdi:calendar-clock
-    id: sensor_total_daily_energy_1
-    name: Electric Consumption [kWh]
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
+    pin:
+      value: VCC
+      locked: true
     icon: mdi:flash-outline
     id: sensor_adc_1
     name: VCC Volt

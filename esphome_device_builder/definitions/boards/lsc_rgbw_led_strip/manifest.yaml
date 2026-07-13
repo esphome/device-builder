@@ -40,6 +40,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 49215
+      locked: true
     id: aan
     name: Remote On
   requires:
@@ -48,6 +53,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 16575
+      locked: true
     id: uit
     name: Remote Off
   requires:
@@ -56,6 +66,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 57375
+      locked: true
     id: white
     name: Remote white
   requires:
@@ -64,6 +79,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 24735
+      locked: true
     id: blue
     name: Remote blue
   requires:
@@ -72,6 +92,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 8415
+      locked: true
     id: red
     name: Remote red
   requires:
@@ -80,6 +105,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 41055
+      locked: true
     id: green
     name: Remote green
   requires:
@@ -88,6 +118,11 @@ featured_components:
   component_id: binary_sensor.remote_receiver
   fields:
     internal: true
+    nec:
+      value:
+        address: 247
+        command: 61455
+      locked: true
     id: strobe
     name: Remote Strobe
   requires:

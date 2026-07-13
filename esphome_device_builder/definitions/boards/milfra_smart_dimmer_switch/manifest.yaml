@@ -10,8 +10,30 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Milfra-Smart-Dimmer-Switch/Milfra-Dimmer-Front.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Milfra-Smart-Dimmer-Switch/Milfra-Dimmer-Back.jpg
+pins:
+- gpio: 10
+  available: false
+  occupied_by: uart
+- gpio: 11
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Milfra-Smart-Dimmer-Switch/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 10
+      locked: true
+    tx_pin:
+      value: 11
+      locked: true
+    baud_rate: 115200
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: light_tuya_1
   component_id: light.tuya
   fields:
@@ -22,20 +44,9 @@ featured_components:
     max_value: 1000
     id: light_tuya_1
     name: dimmer
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 13
-    optimistic: true
-    id: select_tuya_1
-    name: Work Mode
-- id: select_tuya_2
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 14
-    optimistic: true
-    id: select_tuya_2
-    name: Relay Status
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Milfra-Smart-Dimmer-Switch

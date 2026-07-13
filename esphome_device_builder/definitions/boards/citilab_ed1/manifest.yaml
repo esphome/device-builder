@@ -4,6 +4,7 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: esp32
   board: esp32dev
+  variant: esp32
   framework: arduino
 hardware:
   connectivity:
@@ -131,6 +132,10 @@ featured_components:
     attenuation: 12db
     update_interval: 5s
     unit_of_measurement: '%'
+    filters:
+      value:
+      - multiply: 30.3
+      locked: true
     id: light_sensor
     name: Light Level
 source:

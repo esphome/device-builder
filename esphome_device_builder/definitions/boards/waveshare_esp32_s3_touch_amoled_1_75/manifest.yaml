@@ -62,6 +62,12 @@ featured_components:
     id:
       value: display_qspi
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: disp1
   component_id: display.mipi_spi
   fields:
@@ -73,40 +79,15 @@ featured_components:
     cs_pin:
       value: 12
       locked: true
+    dimensions:
+      value:
+        height: 466
+        width: 466
+      locked: true
     id: disp1
   requires:
+  - onboard_psram
   - display_qspi
-- id: display_backlight
-  component_id: light.monochromatic
-  fields:
-    restore_mode: ALWAYS_ON
-    id: display_backlight
-    name: Backlight
-- id: mic_a
-  component_id: microphone.i2s_audio
-  fields:
-    adc_type: external
-    i2s_din_pin:
-      value: 10
-      locked: true
-    sample_rate: $i2s_sample_rate_mic
-    bits_per_sample: $i2s_bps_mic
-    pdm: false
-    id: mic_a
-- id: speaker_a
-  component_id: speaker.i2s_audio
-  fields:
-    i2s_dout_pin:
-      value: 8
-      locked: true
-    dac_type: external
-    timeout: never
-    buffer_duration: 100ms
-    sample_rate: $i2s_sample_rate_spk
-    bits_per_sample: $i2s_bps_spk
-    use_apll: $i2s_use_apll
-    channel: stereo
-    id: speaker_a
 - id: switch_gpio_1
   component_id: switch.gpio
   fields:

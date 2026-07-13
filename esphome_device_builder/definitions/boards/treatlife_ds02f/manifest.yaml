@@ -11,6 +11,24 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/TreatLife-DS02F/treatlife_DS02F.jpg
 docs_url: https://devices.esphome.io/devices/TreatLife-DS02F/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 115200
+- id: tuyamcu
+  component_id: tuya
+  fields:
+    id:
+      value: tuyamcu
+      locked: true
+  requires:
+  - uart_bus
 - id: fan_tuya_1
   component_id: fan.tuya
   fields:
@@ -19,6 +37,9 @@ featured_components:
     speed_count: 4
     id: fan_tuya_1
     name: Treatlife DS02F Speed
+  requires:
+  - uart_bus
+  - tuyamcu
 source:
   type: esphome-devices
   remote_id: TreatLife-DS02F

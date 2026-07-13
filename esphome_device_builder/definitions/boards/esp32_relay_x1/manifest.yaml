@@ -34,6 +34,11 @@ featured_components:
         number: 0
         mode: INPUT_PULLUP
       locked: true
+    filters:
+      value:
+      - invert
+      - delayed_on_off: 50ms
+      locked: true
     id: binary_sensor_gpio_1
     name: Button
 - id: light_status_led_1

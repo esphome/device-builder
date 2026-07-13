@@ -10,15 +10,31 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/BlitzWolf-BH-AP2501/product.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/BlitzWolf-BH-AP2501/ESP12F.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/BlitzWolf-BH-AP2501/
 product_url: https://github.com/wildekek/BlitzHome-BH-AP2501
 featured_components:
-- id: speed_fan
-  component_id: fan.speed
+- id: uart_bus
+  component_id: uart
   fields:
-    speed_count: 3
-    id: speed_fan
-    name: Fan
+    rx_pin:
+      value: 3
+      locked: true
+    tx_pin:
+      value: 1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: tuya_fan
   component_id: fan.tuya
   fields:
@@ -28,6 +44,9 @@ featured_components:
     speed_count: 4
     id: tuya_fan
     name: Fan
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -40,6 +59,9 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Countdown
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -49,6 +71,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_1
     name: PM2.5
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -58,6 +83,9 @@ featured_components:
     entity_category: diagnostic
     id: sensor_tuya_2
     name: Filter remaining
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_3
   component_id: sensor.tuya
   fields:
@@ -66,6 +94,9 @@ featured_components:
     unit_of_measurement: minutes
     id: sensor_tuya_3
     name: Countdown Remaining
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_4
   component_id: sensor.tuya
   fields:
@@ -73,6 +104,9 @@ featured_components:
     icon: mdi:air-filter
     id: sensor_tuya_4
     name: Air Quality
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
@@ -80,6 +114,9 @@ featured_components:
     icon: mdi:chart-bubble
     id: switch_tuya_1
     name: Ionizer
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -87,6 +124,9 @@ featured_components:
     icon: mdi:sun-wireless
     id: switch_tuya_2
     name: UV sterilization
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: filter_reset
   component_id: switch.tuya
   fields:
@@ -94,6 +134,9 @@ featured_components:
     internal: true
     id: filter_reset
     name: filter_reset
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: BlitzWolf-BH-AP2501

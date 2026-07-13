@@ -84,6 +84,9 @@ featured_components:
   fields:
     update_interval: 3s
     id: sensor_bl0942_1
+    uart_id:
+      value: uart_bus
+      locked: true
   requires:
   - uart_bus
 - id: switch_gpio_1

@@ -221,6 +221,10 @@ featured_components:
           input: true
           pullup: true
       locked: true
+    filters:
+      value:
+      - delayed_off: 10ms
+      locked: true
     id: binary_sensor_gpio_9
     name: KEY1
 - id: binary_sensor_gpio_10
@@ -233,6 +237,10 @@ featured_components:
         mode:
           input: true
           pullup: true
+      locked: true
+    filters:
+      value:
+      - delayed_off: 10ms
       locked: true
     id: binary_sensor_gpio_10
     name: KEY2
@@ -247,6 +255,10 @@ featured_components:
           input: true
           pullup: true
       locked: true
+    filters:
+      value:
+      - delayed_off: 10ms
+      locked: true
     id: binary_sensor_gpio_11
     name: KEY3
 - id: binary_sensor_gpio_12
@@ -259,6 +271,10 @@ featured_components:
         mode:
           input: true
           pullup: true
+      locked: true
+    filters:
+      value:
+      - delayed_off: 10ms
       locked: true
     id: binary_sensor_gpio_12
     name: KEY4

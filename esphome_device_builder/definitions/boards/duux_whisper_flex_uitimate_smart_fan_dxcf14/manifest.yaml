@@ -9,8 +9,30 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14/duux_DXCF14.png
+pins:
+- gpio: 13
+  available: false
+  occupied_by: uart
+- gpio: 15
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Duux-Whisper-Flex-UItimate-Smart-Fan-DXCF14/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 15
+      locked: true
+    rx_pin:
+      value: 13
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: fan_tuya_1
   component_id: fan.tuya
   fields:
@@ -19,35 +41,9 @@ featured_components:
     speed_count: 30
     id: fan_tuya_1
     name: None
-- id: horizontally
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 4
-    optimistic: true
-    id: horizontally
-    name: Oscillate horizontally
-- id: vertically
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 5
-    optimistic: true
-    id: vertically
-    name: Oscillate vertically
-- id: select_tuya_3
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 2
-    optimistic: true
-    id: select_tuya_3
-    name: Mode
-- id: select_tuya_4
-  component_id: select.tuya
-  fields:
-    icon: mdi:fan-clock
-    enum_datapoint: 6
-    optimistic: true
-    id: select_tuya_4
-    name: Timer
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

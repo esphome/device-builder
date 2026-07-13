@@ -63,8 +63,6 @@ featured_components:
   component_id: sensor.hlw8012
   fields:
     model: BL0937
-    current_resistor: $current_resistor
-    voltage_divider: $voltage_divider
     change_mode_every: 2
     update_interval: 2s
     sel_pin:
@@ -85,7 +83,6 @@ featured_components:
     pin:
       value: 14
       locked: true
-    restore_mode: $restore_mode
     icon: mdi:power-socket-de
     id: relay
     name: $hostname power

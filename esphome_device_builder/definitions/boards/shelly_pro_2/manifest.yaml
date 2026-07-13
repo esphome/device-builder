@@ -118,15 +118,6 @@ featured_components:
     sensor: temp_voltage1
     id: temp_resistance1
     name: temp_resistance1
-- id: sensor_ntc_1
-  component_id: sensor.ntc
-  fields:
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    sensor: temp_resistance1
-    id: sensor_ntc_1
-    name: Temperature 1
 - id: temp_voltage2
   component_id: sensor.adc
   fields:
@@ -144,15 +135,6 @@ featured_components:
     sensor: temp_voltage2
     id: temp_resistance2
     name: temp_resistance2
-- id: sensor_ntc_2
-  component_id: sensor.ntc
-  fields:
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    sensor: temp_resistance2
-    id: sensor_ntc_2
-    name: Temperature 2
 - id: relay1
   component_id: switch.gpio
   fields:
@@ -229,21 +211,11 @@ featured_bundles:
   component_ids:
   - temp_voltage1
   - temp_resistance1
-- id: sensor_ntc_1_setup
-  name: Temperature 1 (full setup)
-  component_ids:
-  - temp_resistance1
-  - sensor_ntc_1
 - id: temp_resistance2_setup
   name: temp_resistance2 (full setup)
   component_ids:
   - temp_voltage2
   - temp_resistance2
-- id: sensor_ntc_2_setup
-  name: Temperature 2 (full setup)
-  component_ids:
-  - temp_resistance2
-  - sensor_ntc_2
 source:
   type: esphome-devices
   remote_id: Shelly-Pro-2

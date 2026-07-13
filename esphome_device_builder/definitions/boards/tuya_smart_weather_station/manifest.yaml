@@ -9,78 +9,33 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-Smart-Weather-Station/device.jpg
+pins:
+- gpio: 13
+  available: false
+  occupied_by: uart
+- gpio: 14
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Tuya-Smart-Weather-Station/
 featured_components:
-- id: select_tuya_1
-  component_id: select.tuya
+- id: uart_bus
+  component_id: uart
   fields:
-    entity_category: CONFIG
-    enum_datapoint: 106
-    id: select_tuya_1
-    name: Display Brightness
-- id: select_tuya_2
-  component_id: select.tuya
+    rx_pin:
+      value: 13
+      locked: true
+    tx_pin:
+      value: 14
+      locked: true
+    baud_rate: 9600
+- id: tuya_mcu
+  component_id: tuya
   fields:
-    entity_category: CONFIG
-    enum_datapoint: 105
-    id: select_tuya_2
-    name: Unit Temperature
-- id: select_tuya_3
-  component_id: select.tuya
-  fields:
-    entity_category: CONFIG
-    enum_datapoint: 109
-    id: select_tuya_3
-    name: Unit Wind Speed
-- id: select_tuya_4
-  component_id: select.tuya
-  fields:
-    entity_category: CONFIG
-    enum_datapoint: 110
-    id: select_tuya_4
-    name: Unit Pressure
-- id: current_temperature
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: current_temperature
-    name: current_temperature
-- id: current_humidity
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: current_humidity
-    name: current_humidity
-- id: current_pressure
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: current_pressure
-    name: current_pressure
-- id: current_realfeel
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: current_realfeel
-    name: current_realfeel
-- id: current_uvi
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: current_uvi
-    name: current_uvi
-- id: current_windspeed
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: current_windspeed
-    name: current_windspeed
-- id: raw_weathercode
-  component_id: sensor.homeassistant
-  fields:
-    internal: true
-    id: raw_weathercode
-    name: raw_weathercode
+    id:
+      value: tuya_mcu
+      locked: true
+  requires:
+  - uart_bus
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -90,6 +45,9 @@ featured_components:
     accuracy_decimals: 1
     id: sensor_tuya_1
     name: Local Temperature
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -99,6 +57,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_2
     name: Local Humidity
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_3
   component_id: sensor.tuya
   fields:
@@ -108,6 +69,9 @@ featured_components:
     accuracy_decimals: 1
     id: sensor_tuya_3
     name: Sub1 Temperature
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_4
   component_id: sensor.tuya
   fields:
@@ -117,6 +81,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_4
     name: Sub1 Humidity
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_5
   component_id: sensor.tuya
   fields:
@@ -126,6 +93,9 @@ featured_components:
     accuracy_decimals: 1
     id: sensor_tuya_5
     name: Sub2 Temperature
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_6
   component_id: sensor.tuya
   fields:
@@ -135,6 +105,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_6
     name: Sub2 Humidity
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_7
   component_id: sensor.tuya
   fields:
@@ -144,6 +117,9 @@ featured_components:
     accuracy_decimals: 1
     id: sensor_tuya_7
     name: Sub3 Temperature
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: sensor_tuya_8
   component_id: sensor.tuya
   fields:
@@ -153,6 +129,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_8
     name: Sub3 Humidity
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
@@ -160,6 +139,9 @@ featured_components:
     switch_datapoint: 129
     id: switch_tuya_1
     name: Night Mode Enable
+  requires:
+  - uart_bus
+  - tuya_mcu
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -167,6 +149,9 @@ featured_components:
     switch_datapoint: 102
     id: switch_tuya_2
     name: Display 24h Format
+  requires:
+  - uart_bus
+  - tuya_mcu
 source:
   type: esphome-devices
   remote_id: Tuya-Smart-Weather-Station

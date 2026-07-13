@@ -35,6 +35,10 @@ featured_components:
       value:
         number: 10
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: binary_sensor_gpio_1
     name: Switch Input
 - id: binary_sensor_gpio_2

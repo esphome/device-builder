@@ -95,22 +95,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_2
     name: Hold Button
-- id: round_display
-  component_id: display.ili9xxx
-  fields:
-    model: GC9A01A
-    cs_pin:
-      value: 7
-      locked: true
-    reset_pin:
-      value: 8
-      locked: true
-    dc_pin:
-      value: 4
-      locked: true
-    id: round_display
-  requires:
-  - spi_bus
 - id: display_backlight
   component_id: light.monochromatic
   fields:
@@ -143,13 +127,6 @@ featured_components:
       locked: true
     id: encoder
     name: encoder
-- id: touch
-  component_id: touchscreen.ft5x06
-  fields:
-    address: 56
-    id: touch
-  requires:
-  - internal_i2c
 featured_bundles:
 - id: display_backlight_setup
   name: Backlight (full setup)

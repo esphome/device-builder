@@ -24,6 +24,12 @@ pins:
   occupied_by: on board light
 docs_url: https://devices.esphome.io/devices/KinCony-AS/
 featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: led_ww
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -33,19 +39,20 @@ featured_components:
       locked: true
     num_leds: 1
     chipset: ws2812
+    effects:
+      value:
+      - pulse: null
+      - pulse:
+          name: Fast Pulse
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 0%
+          max_brightness: 100%
+      locked: true
     id: led_ww
     name: on board light
-- id: va_mic
-  component_id: microphone.i2s_audio
-  fields:
-    adc_type: external
-    i2s_din_pin:
-      value: 4
-      locked: true
-    channel: left
-    pdm: false
-    bits_per_sample: 32 bit
-    id: va_mic
+  requires:
+  - onboard_psram
 source:
   type: esphome-devices
   remote_id: KinCony-AS

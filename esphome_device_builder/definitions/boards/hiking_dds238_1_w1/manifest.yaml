@@ -12,6 +12,12 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-inside.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Hiking-DDS238-1-W1/Hiking-DDS238-1-W1-MCU.jpg
 pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 - gpio: 14
   available: false
   occupied_by: tuya_led_wifi
@@ -20,6 +26,21 @@ pins:
   occupied_by: SET long press
 docs_url: https://devices.esphome.io/devices/Hiking-DDS238-1-W1/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 3
+      locked: true
+    tx_pin:
+      value: 1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -48,8 +69,15 @@ featured_components:
     unit_of_measurement: Hz
     state_class: measurement
     accuracy_decimals: 2
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: sensor_tuya_1
     name: Frequency
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: power_active
   component_id: sensor.tuya
   fields:
@@ -58,8 +86,15 @@ featured_components:
     unit_of_measurement: kW
     state_class: measurement
     accuracy_decimals: 3
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: power_active
     name: Power Active
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: power_reactive
   component_id: sensor.tuya
   fields:
@@ -68,8 +103,15 @@ featured_components:
     unit_of_measurement: kVAr
     state_class: measurement
     accuracy_decimals: 3
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: power_reactive
     name: Power Reactive
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_4
   component_id: sensor.tuya
   fields:
@@ -77,8 +119,15 @@ featured_components:
     device_class: power_factor
     state_class: measurement
     accuracy_decimals: 3
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: sensor_tuya_4
     name: Power Factor
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_5
   component_id: sensor.tuya
   fields:
@@ -87,8 +136,15 @@ featured_components:
     unit_of_measurement: kWh
     state_class: total_increasing
     accuracy_decimals: 3
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: sensor_tuya_5
     name: Energy
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_6
   component_id: sensor.tuya
   fields:
@@ -97,8 +153,15 @@ featured_components:
     unit_of_measurement: kWh
     state_class: total_increasing
     accuracy_decimals: 3
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: sensor_tuya_6
     name: Energy from Grid
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_7
   component_id: sensor.tuya
   fields:
@@ -107,14 +170,24 @@ featured_components:
     unit_of_measurement: kWh
     state_class: total_increasing
     accuracy_decimals: 3
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: sensor_tuya_7
     name: Energy to Grid
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sw_relay
   component_id: switch.tuya
   fields:
     switch_datapoint: 16
     id: sw_relay
     name: Switch
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -124,6 +197,9 @@ featured_components:
       locked: true
     id: switch_tuya_2
     name: Restore on startup
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Hiking-DDS238-1-W1

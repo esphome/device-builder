@@ -34,6 +34,11 @@ featured_components:
         number: 9
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+      locked: true
     id: button_1
     name: button_1
 - id: switch_1

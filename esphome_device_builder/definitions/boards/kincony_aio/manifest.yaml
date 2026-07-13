@@ -42,6 +42,9 @@ pins:
 - gpio: 8
   available: false
   occupied_by: bus_a
+- gpio: 15
+  available: false
+  occupied_by: uart_zsu
 - gpio: 18
   available: false
   occupied_by: bus_a
@@ -63,8 +66,55 @@ pins:
 - gpio: 44
   available: false
   occupied_by: Ethernet MISO
+- gpio: 48
+  available: false
+  occupied_by: uart_zsu
 docs_url: https://devices.esphome.io/devices/KinCony-AIO/
 featured_components:
+- id: uart_zsu
+  component_id: uart
+  fields:
+    baud_rate: 115200
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+        sequence:
+        - lambda: UARTDebug::log_string(direction, bytes);
+      locked: true
+    tx_pin:
+      value: 15
+      locked: true
+    rx_pin:
+      value: 48
+      locked: true
+    id:
+      value: uart_zsu
+      locked: true
+- id: bus_a_2
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: dac_output
+  component_id: mcp4728
+  fields:
+    id:
+      value: dac_output
+      locked: true
+  requires:
+  - bus_a_2
 - id: bus_a
   component_id: i2c
   fields:
@@ -375,6 +425,9 @@ featured_components:
     vref: vdd
     power_down: normal
     id: dimmer1
+  requires:
+  - bus_a_2
+  - dac_output
 - id: dimmer2
   component_id: output.mcp4728
   fields:
@@ -382,6 +435,9 @@ featured_components:
     vref: vdd
     power_down: normal
     id: dimmer2
+  requires:
+  - bus_a_2
+  - dac_output
 - id: dimmer3
   component_id: output.mcp4728
   fields:
@@ -389,6 +445,9 @@ featured_components:
     vref: vdd
     power_down: normal
     id: dimmer3
+  requires:
+  - bus_a_2
+  - dac_output
 - id: dimmer4
   component_id: output.mcp4728
   fields:
@@ -396,6 +455,9 @@ featured_components:
     vref: vdd
     power_down: normal
     id: dimmer4
+  requires:
+  - bus_a_2
+  - dac_output
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -425,6 +487,10 @@ featured_components:
     update_interval: 55s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_3
     name: AIO_hybrid A3 Current
 - id: sensor_adc_4
@@ -436,8 +502,36 @@ featured_components:
     update_interval: 55s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_4
     name: AIO_hybrid A4 Current
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 85
+      - 170
+      - 0
+      - 0
+      - 4
+      - 0
+      - 0
+      - 0
+      - 1
+      - 0
+      - 4
+      locked: true
+    id: switch_uart_1
+    name: UART zigbee
+    uart_id:
+      value: uart_zsu
+      locked: true
+  requires:
+  - uart_zsu
 - id: aio_hybrid_output01
   component_id: switch.gpio
   fields:
@@ -517,21 +611,29 @@ featured_bundles:
 - id: light_monochromatic_1_setup
   name: dimmer-1 (full setup)
   component_ids:
+  - bus_a_2
+  - dac_output
   - dimmer1
   - light_monochromatic_1
 - id: light_monochromatic_2_setup
   name: dimmer-2 (full setup)
   component_ids:
+  - bus_a_2
+  - dac_output
   - dimmer2
   - light_monochromatic_2
 - id: light_monochromatic_3_setup
   name: dimmer-3 (full setup)
   component_ids:
+  - bus_a_2
+  - dac_output
   - dimmer3
   - light_monochromatic_3
 - id: light_monochromatic_4_setup
   name: dimmer-4 (full setup)
   component_ids:
+  - bus_a_2
+  - dac_output
   - dimmer4
   - light_monochromatic_4
 source:

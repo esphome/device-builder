@@ -108,6 +108,12 @@ featured_components:
     num_leds: 1
     chipset: SK6812
     restore_mode: RESTORE_AND_OFF
+    color_correct:
+      value:
+      - 20%
+      - 20%
+      - 20%
+      locked: true
     id: id_led
     name: LED
 - id: enable
@@ -128,7 +134,6 @@ featured_components:
   component_id: sensor.scd4x
   fields:
     address: 98
-    update_interval: $sensor_interval
     id: sensor_scd4x_1
   requires:
   - bus_a
@@ -145,7 +150,6 @@ featured_components:
     acceleration_mode: low
     store_baseline: true
     address: 105
-    update_interval: $sensor_interval
     id: sen55
   requires:
   - bus_a

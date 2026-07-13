@@ -72,6 +72,12 @@ featured_components:
       - 47
       - 48
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    speed: 80MHz
+    mode: octal
 - id: binary_sensor_gpio_1
   component_id: binary_sensor.gpio
   fields:
@@ -100,6 +106,7 @@ featured_components:
     show_test_card: true
     id: display_mipi_spi_1
   requires:
+  - onboard_psram
   - spi_bus
 - id: led
   component_id: light.monochromatic

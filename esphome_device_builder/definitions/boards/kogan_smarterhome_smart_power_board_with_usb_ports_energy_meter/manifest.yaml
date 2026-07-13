@@ -80,12 +80,6 @@ featured_components:
     change_mode_every: 8
     update_interval: 15s
     id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    id: sensor_total_daily_energy_1
-    name: daily_energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:

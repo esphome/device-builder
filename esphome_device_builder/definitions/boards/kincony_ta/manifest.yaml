@@ -54,6 +54,12 @@ pins:
 - gpio: 21
   available: false
   occupied_by: ta-io21
+- gpio: 38
+  available: false
+  occupied_by: uart_1
+- gpio: 39
+  available: false
+  occupied_by: uart_1
 - gpio: 40
   available: false
   occupied_by: ta-io40
@@ -65,6 +71,26 @@ pins:
   occupied_by: ta-io48
 docs_url: https://devices.esphome.io/devices/KinCony-TA/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 39
+      locked: true
+    rx_pin:
+      value: 38
+      locked: true
+    id:
+      value: uart_1
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -412,6 +438,24 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_26
     name: ta-433M-R
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 - id: ta_output01
   component_id: switch.gpio
   fields:

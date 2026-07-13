@@ -70,6 +70,29 @@ pins:
   occupied_by: LED
 docs_url: https://devices.esphome.io/devices/KinCony-A32Pro/
 featured_components:
+- id: bus_a_2
+  component_id: i2c
+  fields:
+    sda:
+      value: 11
+      locked: true
+    scl:
+      value: 10
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: my_gp8403
+  component_id: gp8403
+  fields:
+    voltage: 10V
+    id:
+      value: my_gp8403
+      locked: true
+  requires:
+  - bus_a_2
 - id: bus_a
   component_id: i2c
   fields:
@@ -813,11 +836,17 @@ featured_components:
   fields:
     channel: 0
     id: gp8403_output_1
+  requires:
+  - bus_a_2
+  - my_gp8403
 - id: gp8403_output_2
   component_id: output.gp8403
   fields:
     channel: 1
     id: gp8403_output_2
+  requires:
+  - bus_a_2
+  - my_gp8403
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -847,6 +876,10 @@ featured_components:
     update_interval: 5s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_3
     name: A32 Pro A3 Current
 - id: sensor_adc_4
@@ -858,6 +891,10 @@ featured_components:
     update_interval: 5s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_4
     name: A32 Pro A4 Current
 - id: switch_gpio_1
@@ -1352,11 +1389,15 @@ featured_bundles:
 - id: a32_pro_dac_0_setup
   name: A32 Pro-DAC-0 (full setup)
   component_ids:
+  - bus_a_2
+  - my_gp8403
   - gp8403_output_1
   - a32_pro_dac_0
 - id: a32_pro_dac_1_setup
   name: A32 Pro-DAC-1 (full setup)
   component_ids:
+  - bus_a_2
+  - my_gp8403
   - gp8403_output_2
   - a32_pro_dac_1
 source:

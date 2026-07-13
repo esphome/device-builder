@@ -71,6 +71,10 @@ featured_components:
           input: true
           pullup: true
       locked: true
+    filters:
+      value:
+      - settle: 10ms
+      locked: true
     id: shelly_button_id
     name: Button
 - id: binary_sensor_header_gpio_id
@@ -101,16 +105,6 @@ featured_components:
       locked: true
     id: status_led_id
     name: Status LED
-- id: ntc_temperature
-  component_id: sensor.ntc
-  fields:
-    entity_category: diagnostic
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    sensor: temp_resistance_reading
-    id: ntc_temperature
-    name: NTC Temperature
 - id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
@@ -147,11 +141,6 @@ featured_components:
     id: relay_id
     name: Relay
 featured_bundles:
-- id: ntc_temperature_setup
-  name: NTC Temperature (full setup)
-  component_ids:
-  - temp_resistance_reading
-  - ntc_temperature
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
   component_ids:

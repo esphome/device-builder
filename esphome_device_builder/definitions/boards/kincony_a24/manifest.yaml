@@ -63,6 +63,29 @@ featured_components:
     id:
       value: spi_bus0
       locked: true
+- id: bus_a_2
+  component_id: i2c
+  fields:
+    sda:
+      value: 16
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: my_gp8403
+  component_id: gp8403
+  fields:
+    voltage: 10V
+    id:
+      value: my_gp8403
+      locked: true
+  requires:
+  - bus_a_2
 - id: bus_a
   component_id: i2c
   fields:
@@ -527,11 +550,17 @@ featured_components:
   fields:
     channel: 0
     id: gp8403_output_1
+  requires:
+  - bus_a_2
+  - my_gp8403
 - id: gp8403_output_2
   component_id: output.gp8403
   fields:
     channel: 1
     id: gp8403_output_2
+  requires:
+  - bus_a_2
+  - my_gp8403
 - id: sensor_adc_1
   component_id: sensor.adc
   fields:
@@ -561,6 +590,10 @@ featured_components:
     update_interval: 10s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_3
     name: A24 A3 Current
 - id: sensor_adc_4
@@ -572,6 +605,10 @@ featured_components:
     update_interval: 10s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_4
     name: A24 A4 Current
 - id: sensor_max31855_1
@@ -989,11 +1026,15 @@ featured_bundles:
 - id: light_monochromatic_1_setup
   name: A24-DAC-1 (full setup)
   component_ids:
+  - bus_a_2
+  - my_gp8403
   - gp8403_output_1
   - light_monochromatic_1
 - id: light_monochromatic_2_setup
   name: A24-DAC-2 (full setup)
   component_ids:
+  - bus_a_2
+  - my_gp8403
   - gp8403_output_2
   - light_monochromatic_2
 source:

@@ -58,12 +58,18 @@ featured_components:
     miso_pin:
       value: 25
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    speed: 80MHz
 - id: display_mipi_spi_1
   component_id: display.mipi_spi
   fields:
     model: LANBON-L8
     id: display_mipi_spi_1
   requires:
+  - onboard_psram
   - spi_bus
 - id: backlight
   component_id: light.monochromatic

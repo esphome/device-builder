@@ -42,6 +42,12 @@ pins:
 - gpio: 12
   available: false
   occupied_by: bus_a
+- gpio: 13
+  available: false
+  occupied_by: uart_1
+- gpio: 14
+  available: false
+  occupied_by: uart_1
 - gpio: 15
   available: false
   occupied_by: t16m-W1-io15
@@ -68,6 +74,26 @@ pins:
   occupied_by: Ethernet MISO
 docs_url: https://devices.esphome.io/devices/KinCony-T16M/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 13
+      locked: true
+    rx_pin:
+      value: 14
+      locked: true
+    id:
+      value: uart_1
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -453,6 +479,24 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_24
     name: t16m-io0
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 - id: t16m_output01
   component_id: switch.gpio
   fields:

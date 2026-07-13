@@ -10,16 +10,59 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/device.webp
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Goldair-GPOC2415-Smart-Heater/chip.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Goldair-GPOC2415-Smart-Heater/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    tx_pin:
+      value: 1
+      locked: true
+    rx_pin:
+      value: 3
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: climate_tuya_1
   component_id: climate.tuya
   fields:
     switch_datapoint: 1
     target_temperature_datapoint: 2
     current_temperature_datapoint: 3
+    active_state:
+      value:
+        datapoint: 11
+      locked: true
+    fan_mode:
+      value:
+        datapoint: 5
+        auto_value: 0
+        low_value: 1
+        medium_value: 2
+        high_value: 3
+      locked: true
+    visual:
+      value:
+        min_temperature: 5
+        max_temperature: 30
+        temperature_step: 1
+      locked: true
     id: climate_tuya_1
     name: Smart Heater
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -30,6 +73,9 @@ featured_components:
     step: 1
     id: number_tuya_1
     name: Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -40,6 +86,9 @@ featured_components:
     step: 1
     id: number_tuya_2
     name: AUTO-ON
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -50,13 +99,9 @@ featured_components:
     step: 1
     id: number_tuya_3
     name: AUTO-OFF
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 5
-    optimistic: true
-    id: select_tuya_1
-    name: Power/Mode
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -64,6 +109,9 @@ featured_components:
     unit_of_measurement: °C
     id: sensor_tuya_1
     name: Current Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -71,24 +119,36 @@ featured_components:
     unit_of_measurement: min
     id: sensor_tuya_2
     name: AUTO-OFF Time Remaining
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
     id: switch_tuya_1
     name: Power
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
     switch_datapoint: 7
     id: switch_tuya_2
     name: Child Lock
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_3
   component_id: switch.tuya
   fields:
     switch_datapoint: 101
     id: switch_tuya_3
     name: Disable Beeping
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Goldair-GPOC2415-Smart-Heater

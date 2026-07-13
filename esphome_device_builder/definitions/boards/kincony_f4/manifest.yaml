@@ -46,6 +46,12 @@ pins:
 - gpio: 15
   available: false
   occupied_by: f4-W1-io15
+- gpio: 16
+  available: false
+  occupied_by: uart_1
+- gpio: 17
+  available: false
+  occupied_by: uart_1
 - gpio: 18
   available: false
   occupied_by: bus_a
@@ -75,6 +81,26 @@ pins:
   occupied_by: f4-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-F4/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 16
+      locked: true
+    rx_pin:
+      value: 17
+      locked: true
+    id:
+      value: uart_1
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -285,6 +311,10 @@ featured_components:
     update_interval: 5s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_3
     name: f4 A3 Current
 - id: sensor_adc_4
@@ -296,8 +326,30 @@ featured_components:
     update_interval: 5s
     unit_of_measurement: mA
     attenuation: 11db
+    filters:
+      value:
+      - multiply: 6.66666666
+      locked: true
     id: sensor_adc_4
     name: f4 A4 Current
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 - id: f4_output01
   component_id: switch.gpio
   fields:

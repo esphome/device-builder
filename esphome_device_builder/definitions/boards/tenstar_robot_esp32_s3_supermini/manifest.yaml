@@ -19,6 +19,12 @@ pins:
   occupied_by: WS2812B Light
 docs_url: https://devices.esphome.io/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/
 featured_components:
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: quad
+    speed: 80MHz
 - id: status_light
   component_id: light.esp32_rmt_led_strip
   fields:
@@ -31,6 +37,8 @@ featured_components:
     restore_mode: ALWAYS_ON
     id: status_light
     name: WS2812B Light
+  requires:
+  - onboard_psram
 source:
   type: esphome-devices
   remote_id: TENSTAR-ROBOT-ESP32-S3-SuperMini

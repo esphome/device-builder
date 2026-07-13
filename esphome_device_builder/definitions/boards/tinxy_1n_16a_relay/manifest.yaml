@@ -34,6 +34,10 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_off: 500ms
+      locked: true
     id: physical_switch
     name: Physical Switch Input
 - id: watchdog_heartbeat

@@ -69,15 +69,6 @@ featured_components:
       value: 5
       locked: true
     id: relay_output
-- id: sensor_ntc_1
-  component_id: sensor.ntc
-  fields:
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    sensor: temp_resistance_reading
-    id: sensor_ntc_1
-    name: Temperature
 - id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
@@ -100,6 +91,9 @@ featured_components:
   fields:
     update_interval: 5s
     id: sensor_bl0942_1
+    uart_id:
+      value: uart_bus
+      locked: true
   requires:
   - uart_bus
 featured_bundles:
@@ -108,11 +102,6 @@ featured_bundles:
   component_ids:
   - relay_output
   - lightid
-- id: sensor_ntc_1_setup
-  name: Temperature (full setup)
-  component_ids:
-  - temp_resistance_reading
-  - sensor_ntc_1
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
   component_ids:

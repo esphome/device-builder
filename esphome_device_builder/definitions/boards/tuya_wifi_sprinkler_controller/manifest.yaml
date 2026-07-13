@@ -84,6 +84,10 @@ featured_components:
         number: 14
         inverted: false
       locked: true
+    filters:
+      value:
+      - delayed_on: 1000ms
+      locked: true
     id: rain_sensor
     name: Rain sensor
 - id: touch_sensor_1

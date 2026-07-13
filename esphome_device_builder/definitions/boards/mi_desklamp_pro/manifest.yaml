@@ -40,6 +40,10 @@ featured_components:
         inverted: true
         mode: INPUT_PULLDOWN
       locked: true
+    filters:
+      value:
+      - delayed_off: 5ms
+      locked: true
     id: button
     name: button
 - id: light1

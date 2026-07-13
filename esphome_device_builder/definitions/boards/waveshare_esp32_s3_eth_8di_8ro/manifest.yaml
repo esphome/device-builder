@@ -4,6 +4,7 @@ description: Imported from devices.esphome.io — see linked docs for community 
 esphome:
   platform: esp32
   board: esp32s3box
+  variant: esp32s3
   framework: arduino
 hardware:
   connectivity:
@@ -95,6 +96,12 @@ featured_components:
       locked: true
   requires:
   - i2cbus
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: onboard_ethernet
   component_id: ethernet
   name: Onboard Ethernet
@@ -140,6 +147,10 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: di1
     name: DI1
 - id: di2
@@ -150,6 +161,10 @@ featured_components:
         number: 5
         mode: INPUT_PULLUP
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
       locked: true
     id: di2
     name: DI2
@@ -162,6 +177,10 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: di3
     name: DI3
 - id: di4
@@ -172,6 +191,10 @@ featured_components:
         number: 7
         mode: INPUT_PULLUP
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
       locked: true
     id: di4
     name: DI4
@@ -184,6 +207,10 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: di5
     name: DI5
 - id: di6
@@ -194,6 +221,10 @@ featured_components:
         number: 9
         mode: INPUT_PULLUP
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
       locked: true
     id: di6
     name: DI6
@@ -206,6 +237,10 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: di7
     name: DI7
 - id: di8
@@ -216,6 +251,10 @@ featured_components:
         number: 11
         mode: INPUT_PULLUP
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
       locked: true
     id: di8
     name: DI8
@@ -249,6 +288,8 @@ featured_components:
     num_leds: 1
     id: rgb_led
     name: RGB LED
+  requires:
+  - onboard_psram
 - id: buzzer
   component_id: output.ledc
   fields:

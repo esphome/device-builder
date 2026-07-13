@@ -35,6 +35,11 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+      locked: true
     id: button_open_1
     name: button_open_1
 - id: button_close_1
@@ -46,15 +51,13 @@ featured_components:
         mode: INPUT_PULLUP
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
+      - delayed_off: 50ms
+      locked: true
     id: button_close_1
     name: button_close_1
-- id: my_cover_1
-  component_id: cover.time_based
-  fields:
-    open_duration: 23s
-    close_duration: 22s
-    id: my_cover_1
-    name: Blinds
 - id: output_cover_open
   component_id: switch.gpio
   fields:

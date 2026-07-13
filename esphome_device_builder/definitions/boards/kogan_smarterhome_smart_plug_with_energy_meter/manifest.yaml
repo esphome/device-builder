@@ -63,12 +63,6 @@ featured_components:
     change_mode_every: 8
     update_interval: 5s
     id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    id: sensor_total_daily_energy_1
-    name: Kogan Plug 1 Daily Energy
 - id: green_led
   component_id: switch.gpio
   fields:

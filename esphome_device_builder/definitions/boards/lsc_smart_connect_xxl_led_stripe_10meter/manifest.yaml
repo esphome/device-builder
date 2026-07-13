@@ -55,6 +55,20 @@ featured_components:
     chipset: WS2812
     num_leds: 40
     rgb_order: RBG
+    effects:
+      value:
+      - random: null
+      - pulse: null
+      - strobe: null
+      - flicker: null
+      - addressable_rainbow: null
+      - addressable_color_wipe: null
+      - addressable_scan: null
+      - addressable_twinkle: null
+      - addressable_random_twinkle: null
+      - addressable_fireworks: null
+      - addressable_flicker: null
+      locked: true
     id: color_light
     name: Color Light
 - id: output_cw

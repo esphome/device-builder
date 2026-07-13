@@ -10,8 +10,30 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aspen-ASP-200-Smart-Window-Fan/asp-200.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Aspen-ASP-200-Smart-Window-Fan/asp-200-pcb.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: uart
+- gpio: 3
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Aspen-ASP-200-Smart-Window-Fan/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 3
+      locked: true
+    tx_pin:
+      value: 1
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: fan_tuya_1
   component_id: fan.tuya
   fields:
@@ -20,20 +42,9 @@ featured_components:
     speed_count: 3
     id: fan_tuya_1
     name: Tuya 1
-- id: device_name_u_speed
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 3
-    optimistic: true
-    id: device_name_u_speed
-    name: Speed
-- id: device_name_u_mode
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 2
-    optimistic: true
-    id: device_name_u_mode
-    name: Mode
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: device_name_u_temp
   component_id: sensor.tuya
   fields:
@@ -41,12 +52,18 @@ featured_components:
     unit_of_measurement: °F
     id: device_name_u_temp
     name: Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: device_name_u_power_switch
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
     id: device_name_u_power_switch
     name: Power
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Aspen-ASP-200-Smart-Window-Fan

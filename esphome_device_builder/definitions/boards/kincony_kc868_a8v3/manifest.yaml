@@ -48,6 +48,12 @@ pins:
 - gpio: 18
   available: false
   occupied_by: bus_a
+- gpio: 38
+  available: false
+  occupied_by: uart_1
+- gpio: 39
+  available: false
+  occupied_by: uart_1
 - gpio: 40
   available: false
   occupied_by: a8v3-W1-io40
@@ -68,6 +74,26 @@ pins:
   occupied_by: a8v3-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-A8v3/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 39
+      locked: true
+    rx_pin:
+      value: 38
+      locked: true
+    id:
+      value: uart_1
+      locked: true
 - id: bus_a
   component_id: i2c
   fields:
@@ -320,6 +346,24 @@ featured_components:
     attenuation: 11db
     id: sensor_adc_2
     name: A8v3 A2 Voltage
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 - id: a8v3_output01
   component_id: switch.gpio
   fields:

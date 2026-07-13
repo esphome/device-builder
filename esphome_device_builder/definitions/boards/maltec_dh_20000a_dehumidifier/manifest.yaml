@@ -15,8 +15,30 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/board.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/boardcnwifi.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/jstxh.jpg
+pins:
+- gpio: 19
+  available: false
+  occupied_by: uart
+- gpio: 20
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Maltec-DH-20000A-Dehumidifier/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 20
+      locked: true
+    tx_pin:
+      value: 19
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: button_restart_1
   component_id: button.restart
   fields:
@@ -36,6 +58,9 @@ featured_components:
     icon: mdi:water
     id: number_tuya_1
     name: Target humidity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -46,20 +71,9 @@ featured_components:
     icon: mdi:timer-cog
     id: number_tuya_2
     name: Timer
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    icon: mdi:cog
-    enum_datapoint: 5
-    id: select_tuya_1
-    name: Mode
-- id: select_tuya_2
-  component_id: select.tuya
-  fields:
-    icon: mdi:fan
-    enum_datapoint: 4
-    id: select_tuya_2
-    name: Fan speed
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -69,6 +83,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_1
     name: Current Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -79,6 +96,9 @@ featured_components:
     icon: mdi:water-percent
     id: sensor_tuya_2
     name: Humidity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
@@ -86,6 +106,9 @@ featured_components:
     icon: mdi:power
     id: switch_tuya_1
     name: Power
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -93,6 +116,9 @@ featured_components:
     switch_datapoint: 16
     id: switch_tuya_2
     name: Child lock
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_3
   component_id: switch.tuya
   fields:
@@ -100,6 +126,9 @@ featured_components:
     switch_datapoint: 14
     id: switch_tuya_3
     name: Sleep
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Maltec-DH-20000A-Dehumidifier

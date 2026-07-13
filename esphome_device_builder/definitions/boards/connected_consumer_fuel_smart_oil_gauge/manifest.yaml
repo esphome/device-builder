@@ -63,6 +63,9 @@ featured_components:
 - id: adc_input
   component_id: sensor.adc
   fields:
+    pin:
+      value: A0
+      locked: true
     accuracy_decimals: 5
     update_interval: 5s
     entity_category: diagnostic
@@ -83,16 +86,6 @@ featured_components:
     update_interval: never
     id: oil_distance
     name: Distance to Oil
-- id: done
-  component_id: switch.gpio
-  fields:
-    pin:
-      value: 13
-      locked: true
-    entity_category: config
-    disabled_by_default: true
-    id: done
-    name: Done
 - id: tempsens_en
   component_id: switch.gpio
   fields:
@@ -113,16 +106,6 @@ featured_components:
     disabled_by_default: false
     id: ultrasonic_pwr
     name: Ultrasonic Pwr
-- id: sleep_1hr
-  component_id: switch.gpio
-  fields:
-    pin:
-      value: 13
-      locked: true
-    entity_category: config
-    disabled_by_default: true
-    id: sleep_1hr
-    name: Sleep 1hr
 source:
   type: esphome-devices
   remote_id: Connected-Consumer-Fuel-Smart-Oil-Gauge

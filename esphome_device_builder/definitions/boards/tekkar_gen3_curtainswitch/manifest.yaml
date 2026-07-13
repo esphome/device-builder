@@ -40,6 +40,10 @@ featured_components:
     pin:
       value: 10
       locked: true
+    filters:
+      value:
+      - invert: null
+      locked: true
     id: open_button
     name: Open
 - id: stop_button
@@ -48,6 +52,10 @@ featured_components:
     pin:
       value: 7
       locked: true
+    filters:
+      value:
+      - invert: null
+      locked: true
     id: stop_button
     name: Stop
 - id: close_button
@@ -55,6 +63,10 @@ featured_components:
   fields:
     pin:
       value: 8
+      locked: true
+    filters:
+      value:
+      - invert: null
       locked: true
     id: close_button
     name: Close

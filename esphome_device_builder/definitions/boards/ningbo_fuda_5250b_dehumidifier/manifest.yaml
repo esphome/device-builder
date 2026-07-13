@@ -9,8 +9,30 @@ hardware:
   - wifi
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Ningbo-Fuda-5250B-Dehumidifier/5250B.webp
+pins:
+- gpio: 13
+  available: false
+  occupied_by: uart
+- gpio: 15
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Ningbo-Fuda-5250B-Dehumidifier/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: 13
+      locked: true
+    tx_pin:
+      value: 15
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: binary_sensor_tuya_1
   component_id: binary_sensor.tuya
   fields:
@@ -18,6 +40,9 @@ featured_components:
     internal: true
     id: binary_sensor_tuya_1
     name: Unknown 101
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: binary_sensor_tuya_2
   component_id: binary_sensor.tuya
   fields:
@@ -25,6 +50,9 @@ featured_components:
     internal: true
     id: binary_sensor_tuya_2
     name: Unknown 105
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -36,20 +64,9 @@ featured_components:
     step: 5
     id: number_tuya_1
     name: Target humidity
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    icon: mdi:cog
-    enum_datapoint: 2
-    id: select_tuya_1
-    name: Mode
-- id: select_tuya_2
-  component_id: select.tuya
-  fields:
-    icon: mdi:fan
-    enum_datapoint: 6
-    id: select_tuya_2
-    name: Fan speed
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_1
   component_id: sensor.tuya
   fields:
@@ -59,6 +76,9 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_1
     name: Temperature
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: sensor_tuya_2
   component_id: sensor.tuya
   fields:
@@ -68,12 +88,18 @@ featured_components:
     accuracy_decimals: 0
     id: sensor_tuya_2
     name: Humidity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_1
   component_id: switch.tuya
   fields:
     switch_datapoint: 1
     id: switch_tuya_1
     name: Power
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_2
   component_id: switch.tuya
   fields:
@@ -81,6 +107,9 @@ featured_components:
     switch_datapoint: 5
     id: switch_tuya_2
     name: Air clean
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_3
   component_id: switch.tuya
   fields:
@@ -88,6 +117,9 @@ featured_components:
     switch_datapoint: 7
     id: switch_tuya_3
     name: Child lock
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: switch_tuya_4
   component_id: switch.tuya
   fields:
@@ -95,6 +127,9 @@ featured_components:
     switch_datapoint: 102
     id: switch_tuya_4
     name: Sleep
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Ningbo-Fuda-5250B-Dehumidifier

@@ -33,6 +33,10 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: button_back
     name: button_back
 - id: binary_sensor_gpio_2
@@ -40,6 +44,10 @@ featured_components:
   fields:
     pin:
       value: 26
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_2
     name: Switch S1-S2

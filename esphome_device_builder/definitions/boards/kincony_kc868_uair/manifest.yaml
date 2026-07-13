@@ -58,6 +58,16 @@ featured_components:
       locked: true
     num_leds: 4
     rgb_order: GRB
+    effects:
+      value:
+      - addressable_rainbow: null
+      - addressable_color_wipe: null
+      - addressable_scan: null
+      - addressable_twinkle: null
+      - addressable_random_twinkle: null
+      - addressable_fireworks: null
+      - addressable_flicker: null
+      locked: true
     id: light_esp32_rmt_led_strip_1
     name: Uair-Bottom-LED
 - id: light_esp32_rmt_led_strip_2
@@ -69,6 +79,16 @@ featured_components:
       locked: true
     num_leds: 1
     rgb_order: RGB
+    effects:
+      value:
+      - addressable_rainbow: null
+      - addressable_color_wipe: null
+      - addressable_scan: null
+      - addressable_twinkle: null
+      - addressable_random_twinkle: null
+      - addressable_fireworks: null
+      - addressable_flicker: null
+      locked: true
     id: light_esp32_rmt_led_strip_2
     name: Uair-VVertical-LED
 - id: sensor_dallas_temp_1

@@ -48,6 +48,10 @@ featured_components:
       locked: true
     disabled_by_default: true
     icon: mdi:radiobox-blank
+    filters:
+      value:
+      - delayed_on: 50ms
+      locked: true
     id: sensor_button
     name: Button
 - id: binary_sensor_gpio_2
@@ -61,6 +65,10 @@ featured_components:
           pullup: true
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: binary_sensor_gpio_2
     name: '1'
 - id: binary_sensor_gpio_3
@@ -73,6 +81,10 @@ featured_components:
           input: true
           pullup: true
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: binary_sensor_gpio_3
     name: '2'

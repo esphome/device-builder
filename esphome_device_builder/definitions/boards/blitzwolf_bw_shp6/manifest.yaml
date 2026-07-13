@@ -16,12 +16,6 @@ pins:
 - gpio: 0
   available: false
   occupied_by: led
-- gpio: 5
-  available: false
-  occupied_by: sensor.hlw8012
-- gpio: 12
-  available: false
-  occupied_by: sensor.hlw8012
 - gpio: 13
   available: false
   occupied_by: button
@@ -50,27 +44,6 @@ featured_components:
       value: true
       locked: true
     id: led
-- id: sensor_hlw8012_1
-  component_id: sensor.hlw8012
-  fields:
-    sel_pin:
-      value:
-        number: 12
-        inverted: true
-      locked: true
-    cf_pin:
-      value: 5
-      locked: true
-    change_mode_every: 4
-    update_interval: 10s
-    id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    accuracy_decimals: 5
-    id: sensor_total_daily_energy_1
-    name: daily energy
 - id: relay
   component_id: switch.gpio
   fields:

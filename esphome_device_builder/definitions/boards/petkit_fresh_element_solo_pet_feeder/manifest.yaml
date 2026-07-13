@@ -86,6 +86,16 @@ featured_components:
 - id: led
   component_id: light.binary
   fields:
+    effects:
+      value:
+      - strobe:
+          name: fast_blink
+          colors:
+          - state: true
+            duration: 125ms
+          - state: false
+            duration: 125ms
+      locked: true
     internal: true
     output: led_output
     id: led

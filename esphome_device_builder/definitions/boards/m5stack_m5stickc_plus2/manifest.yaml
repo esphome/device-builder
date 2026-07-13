@@ -154,6 +154,10 @@ featured_components:
       locked: true
     attenuation: 12db
     update_interval: 60s
+    filters:
+      value:
+      - multiply: 2.0
+      locked: true
     id: sensor_adc_1
     name: Battery Voltage
 - id: sensor_mpu6886_1
@@ -162,6 +166,9 @@ featured_components:
     address: 104
     update_interval: 10s
     id: sensor_mpu6886_1
+    i2c_id:
+      value: bus_a
+      locked: true
   requires:
   - bus_a
 featured_bundles:

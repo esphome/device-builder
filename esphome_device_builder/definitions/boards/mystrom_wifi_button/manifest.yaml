@@ -28,6 +28,15 @@ featured_components:
 - id: white_light
   component_id: light.monochromatic
   fields:
+    effects:
+      value:
+      - pulse:
+          name: Connecting
+          transition_length: 0.5s
+          update_interval: 0.5s
+          min_brightness: 10%
+          max_brightness: 60%
+      locked: true
     output: pwm_white
     id: white_light
     name: White LED
@@ -40,6 +49,15 @@ featured_components:
 - id: red_light
   component_id: light.monochromatic
   fields:
+    effects:
+      value:
+      - pulse:
+          name: Error
+          transition_length: 0.2s
+          update_interval: 0.2s
+          min_brightness: 0%
+          max_brightness: 100%
+      locked: true
     output: pwm_red
     id: red_light
     name: Red LED

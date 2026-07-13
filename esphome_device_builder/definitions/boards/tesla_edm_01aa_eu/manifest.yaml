@@ -12,6 +12,21 @@ images:
 docs_url: https://devices.esphome.io/devices/TESLA-EDM-01AA-EU/
 product_url: https://www.teslasmart.com/tesla-smart-switch-dimmer-touch
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX1
+      locked: true
+    tx_pin:
+      value: TX1
+      locked: true
+    baud_rate: 115200
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: dimmer
   component_id: light.tuya
   fields:
@@ -21,6 +36,9 @@ featured_components:
     max_value: 1000
     id: dimmer
     name: Wall Dimmer
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: min_brightness
   component_id: number.tuya
   fields:
@@ -31,20 +49,9 @@ featured_components:
     entity_category: config
     id: min_brightness
     name: Min Brightness
-- id: load_type
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 4
-    entity_category: config
-    id: load_type
-    name: Load Type
-- id: indicator_led
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 21
-    entity_category: config
-    id: indicator_led
-    name: Indicator LED
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: TESLA-EDM-01AA-EU

@@ -12,8 +12,62 @@ hardware:
   - bluetooth
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Earu-EA777/esp32.png
+pins:
+- gpio: 4
+  available: false
+  occupied_by: modbus_server
+- gpio: 18
+  available: false
+  occupied_by: uart_modbus_server
+- gpio: 19
+  available: false
+  occupied_by: uart_modbus_server
 docs_url: https://devices.esphome.io/devices/Earu-EA777/
 featured_components:
+- id: modbus_server
+  component_id: modbus
+  fields:
+    flow_control_pin:
+      value: 4
+      locked: true
+    send_wait_time: 1000ms
+    id:
+      value: modbus_server
+      locked: true
+    uart_id:
+      value: uart_modbus_server
+      locked: true
+  requires:
+  - uart_modbus_server
+- id: uart_modbus_server
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    tx_pin:
+      value: 19
+      locked: true
+    rx_pin:
+      value: 18
+      locked: true
+    stop_bits: 1
+    parity: EVEN
+    id:
+      value: uart_modbus_server
+      locked: true
+- id: earu_ea777
+  component_id: modbus_controller
+  fields:
+    address: 1
+    setup_priority: -10
+    update_interval: 10s
+    id:
+      value: earu_ea777
+      locked: true
+    modbus_id:
+      value: modbus_server
+      locked: true
+  requires:
+  - modbus_server
 - id: phase_a_voltage
   component_id: sensor.modbus_controller
   fields:
@@ -22,8 +76,15 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_WORD
     unit_of_measurement: V
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
     id: phase_a_voltage
     name: Phase A voltage
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_b_voltage
   component_id: sensor.modbus_controller
   fields:
@@ -32,8 +93,15 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_WORD
     unit_of_measurement: V
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
     id: phase_b_voltage
     name: Phase B voltage
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_c_voltage
   component_id: sensor.modbus_controller
   fields:
@@ -42,8 +110,15 @@ featured_components:
     accuracy_decimals: 1
     value_type: U_WORD
     unit_of_measurement: V
+    filters:
+      value:
+      - multiply: 0.1
+      locked: true
     id: phase_c_voltage
     name: Phase C voltage
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_a_current
   component_id: sensor.modbus_controller
   fields:
@@ -52,8 +127,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_WORD
     unit_of_measurement: A
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: phase_a_current
     name: Phase A current
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_b_current
   component_id: sensor.modbus_controller
   fields:
@@ -62,8 +144,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_WORD
     unit_of_measurement: A
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: phase_b_current
     name: Phase B current
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_c_current
   component_id: sensor.modbus_controller
   fields:
@@ -72,8 +161,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_WORD
     unit_of_measurement: A
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: phase_c_current
     name: Phase C current
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: active_power
   component_id: sensor.modbus_controller
   fields:
@@ -84,6 +180,9 @@ featured_components:
     unit_of_measurement: W
     id: active_power
     name: Active power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_a_active_power
   component_id: sensor.modbus_controller
   fields:
@@ -94,6 +193,9 @@ featured_components:
     unit_of_measurement: W
     id: phase_a_active_power
     name: Phase A active power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_b_active_power
   component_id: sensor.modbus_controller
   fields:
@@ -104,6 +206,9 @@ featured_components:
     unit_of_measurement: W
     id: phase_b_active_power
     name: Phase B active power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_c_active_power
   component_id: sensor.modbus_controller
   fields:
@@ -114,6 +219,9 @@ featured_components:
     unit_of_measurement: W
     id: phase_c_active_power
     name: Phase C active power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: reactive_power
   component_id: sensor.modbus_controller
   fields:
@@ -124,6 +232,9 @@ featured_components:
     unit_of_measurement: W
     id: reactive_power
     name: Reactive power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_a_reactive_power
   component_id: sensor.modbus_controller
   fields:
@@ -134,6 +245,9 @@ featured_components:
     unit_of_measurement: W
     id: phase_a_reactive_power
     name: Phase A reactive power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_b_reactive_power
   component_id: sensor.modbus_controller
   fields:
@@ -144,6 +258,9 @@ featured_components:
     unit_of_measurement: W
     id: phase_b_reactive_power
     name: Phase B reactive power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_c_reactive_power
   component_id: sensor.modbus_controller
   fields:
@@ -154,6 +271,9 @@ featured_components:
     unit_of_measurement: W
     id: phase_c_reactive_power
     name: Phase C reactive power
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_a_power_factor
   component_id: sensor.modbus_controller
   fields:
@@ -162,8 +282,15 @@ featured_components:
     accuracy_decimals: 3
     value_type: U_WORD
     unit_of_measurement: cos φ
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: phase_a_power_factor
     name: Phase A power factor
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_b_power_factor
   component_id: sensor.modbus_controller
   fields:
@@ -172,8 +299,15 @@ featured_components:
     accuracy_decimals: 3
     value_type: U_WORD
     unit_of_measurement: cos φ
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: phase_b_power_factor
     name: Phase B power factor
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: phase_c_power_factor
   component_id: sensor.modbus_controller
   fields:
@@ -182,8 +316,15 @@ featured_components:
     accuracy_decimals: 3
     value_type: U_WORD
     unit_of_measurement: cos φ
+    filters:
+      value:
+      - multiply: 0.001
+      locked: true
     id: phase_c_power_factor
     name: Phase C power factor
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_voltage_frequency
   component_id: sensor.modbus_controller
   fields:
@@ -192,8 +333,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_WORD
     unit_of_measurement: Hz
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_voltage_frequency
     name: Current voltage frequency
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: instrument_communication_address
   component_id: sensor.modbus_controller
   fields:
@@ -202,6 +350,9 @@ featured_components:
     value_type: U_WORD
     id: instrument_communication_address
     name: Instrument communication address
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: communication_baud_rate
   component_id: sensor.modbus_controller
   fields:
@@ -210,6 +361,9 @@ featured_components:
     value_type: U_WORD
     id: communication_baud_rate
     name: Communication baud rate
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: communication_data_format
   component_id: sensor.modbus_controller
   fields:
@@ -218,6 +372,9 @@ featured_components:
     value_type: U_WORD
     id: communication_data_format
     name: Communication data format
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_total_active_energy
   component_id: sensor.modbus_controller
   fields:
@@ -227,8 +384,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_DWORD
     unit_of_measurement: kWh
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_total_active_energy
     name: Current total active energy
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_positive_total_active_energy
   component_id: sensor.modbus_controller
   fields:
@@ -238,8 +402,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_DWORD
     unit_of_measurement: kWh
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_positive_total_active_energy
     name: Current positive total active energy
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_reverse_total_active_energy
   component_id: sensor.modbus_controller
   fields:
@@ -249,8 +420,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_DWORD
     unit_of_measurement: kWh
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_reverse_total_active_energy
     name: Current reverse total active energy
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_total_reactive_energy
   component_id: sensor.modbus_controller
   fields:
@@ -260,8 +438,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_DWORD
     unit_of_measurement: kVArh
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_total_reactive_energy
     name: Current total reactive energy
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_positive_total_reactive_energy
   component_id: sensor.modbus_controller
   fields:
@@ -271,8 +456,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_DWORD
     unit_of_measurement: kVArh
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_positive_total_reactive_energy
     name: Current positive total reactive energy
+  requires:
+  - modbus_server
+  - earu_ea777
 - id: current_reverse_total_reactive_energy
   component_id: sensor.modbus_controller
   fields:
@@ -282,8 +474,15 @@ featured_components:
     accuracy_decimals: 2
     value_type: U_DWORD
     unit_of_measurement: kVArh
+    filters:
+      value:
+      - multiply: 0.01
+      locked: true
     id: current_reverse_total_reactive_energy
     name: Current reverse total reactive energy
+  requires:
+  - modbus_server
+  - earu_ea777
 source:
   type: esphome-devices
   remote_id: Earu-EA777

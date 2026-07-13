@@ -42,6 +42,10 @@ featured_components:
     pin:
       value: 10
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: switch1
     name: Switch 1
 - id: switch2
@@ -49,6 +53,10 @@ featured_components:
   fields:
     pin:
       value: 7
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: switch2
     name: Switch 2
@@ -58,6 +66,10 @@ featured_components:
     pin:
       value: 6
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: switch3
     name: Switch 3
 - id: switch4
@@ -65,6 +77,10 @@ featured_components:
   fields:
     pin:
       value: 5
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
       locked: true
     id: switch4
     name: Switch 4
@@ -81,17 +97,6 @@ featured_components:
       locked: true
     id: reset_button
     name: Reset Button
-- id: sensor_ntc_1
-  component_id: sensor.ntc
-  fields:
-    unit_of_measurement: °C
-    accuracy_decimals: 1
-    icon: mdi:thermometer
-    device_class: temperature
-    entity_category: diagnostic
-    sensor: temp_resistance_reading
-    id: sensor_ntc_1
-    name: Temperature
 - id: temp_resistance_reading
   component_id: sensor.resistance
   fields:
@@ -110,11 +115,6 @@ featured_components:
     id: temp_analog_reading
     name: temp_analog_reading
 featured_bundles:
-- id: sensor_ntc_1_setup
-  name: Temperature (full setup)
-  component_ids:
-  - temp_resistance_reading
-  - sensor_ntc_1
 - id: temp_resistance_reading_setup
   name: temp_resistance_reading (full setup)
   component_ids:

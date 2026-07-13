@@ -53,6 +53,12 @@ featured_components:
     id:
       value: bus_a
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: quad
+    speed: 80MHz
 - id: binary_sensor_touchscreen_1
   component_id: binary_sensor.touchscreen
   fields:
@@ -90,6 +96,7 @@ featured_components:
     show_test_card: true
     id: display_mipi_spi_1
   requires:
+  - onboard_psram
   - spi_bus
 - id: sensor_mpu6886_1
   component_id: sensor.mpu6886

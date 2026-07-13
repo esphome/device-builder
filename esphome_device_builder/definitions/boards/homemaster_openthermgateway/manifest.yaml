@@ -95,6 +95,9 @@ featured_components:
     unit_of_measurement: °C
     id: ow_bus_1_temperature
     name: 1-Wire Bus 1 Temperature
+    one_wire_id:
+      value: ow_bus_1
+      locked: true
   requires:
   - ow_bus_1
 - id: ow_bus_2_temperature
@@ -103,6 +106,9 @@ featured_components:
     unit_of_measurement: °C
     id: ow_bus_2_temperature
     name: 1-Wire Bus 2 Temperature
+    one_wire_id:
+      value: ow_bus_2
+      locked: true
   requires:
   - ow_bus_2
 - id: relay_1

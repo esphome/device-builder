@@ -18,39 +18,12 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Energy-Collector-1/grec1.j2.connection.pins.jpg
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Energy-Collector-1/
 featured_components:
-- id: sensor_energy_pulse_meter
-  component_id: sensor.pulse_meter
-  fields:
-    unit_of_measurement: W
-    state_class: measurement
-    device_class: power
-    icon: mdi:flash-outline
-    accuracy_decimals: 0
-    id: sensor_energy_pulse_meter
-    name: Power Consumption
-- id: sensor_total_daily_energy
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    icon: mdi:circle-slice-3
-    state_class: total_increasing
-    device_class: energy
-    accuracy_decimals: 3
-    power_id: sensor_energy_pulse_meter
-    id: sensor_total_daily_energy
-    name: Daily Energy
 - id: sensor_wifi_signal_1
   component_id: sensor.wifi_signal
   fields:
     update_interval: 120s
     id: sensor_wifi_signal_1
     name: WiFi Signal
-featured_bundles:
-- id: sensor_total_daily_energy_setup
-  name: Daily Energy (full setup)
-  component_ids:
-  - sensor_energy_pulse_meter
-  - sensor_total_daily_energy
 source:
   type: esphome-devices
   remote_id: Gelidus-Research-Energy-Collector-1

@@ -41,6 +41,11 @@ featured_components:
         number: 6
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+      locked: true
     id: button1
     name: button1
 - id: led
@@ -73,7 +78,6 @@ featured_components:
         inverted: true
         number: 8
       locked: true
-    update_interval: $update_interval_seconds
     initial_mode: VOLTAGE
     change_mode_every: '4294967295'
     voltage_divider: '4456'
@@ -83,6 +87,10 @@ featured_components:
   component_id: sensor.uptime
   fields:
     unit_of_measurement: minutes
+    filters:
+      value:
+      - lambda: return x / 60.0;
+      locked: true
     id: sensor_uptime_1
     name: Uptime
 - id: sensor_wifi_signal_1

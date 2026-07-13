@@ -53,6 +53,20 @@ featured_components:
       locked: true
     num_leds: 50
     rgb_order: BRG
+    effects:
+      value:
+      - random: null
+      - pulse: null
+      - strobe: null
+      - flicker: null
+      - addressable_rainbow: null
+      - addressable_color_wipe: null
+      - addressable_scan: null
+      - addressable_twinkle: null
+      - addressable_random_twinkle: null
+      - addressable_fireworks: null
+      - addressable_flicker: null
+      locked: true
     id: light_esp32_rmt_led_strip_1
     name: light1
 - id: light_esp32_rmt_led_strip_2
@@ -64,6 +78,20 @@ featured_components:
       locked: true
     num_leds: 50
     rgb_order: BRG
+    effects:
+      value:
+      - random: null
+      - pulse: null
+      - strobe: null
+      - flicker: null
+      - addressable_rainbow: null
+      - addressable_color_wipe: null
+      - addressable_scan: null
+      - addressable_twinkle: null
+      - addressable_random_twinkle: null
+      - addressable_fireworks: null
+      - addressable_flicker: null
+      locked: true
     id: light_esp32_rmt_led_strip_2
     name: light2
 source:

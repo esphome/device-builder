@@ -42,6 +42,12 @@ featured_components:
 - id: uart_bus
   component_id: uart
   fields:
+    tx_pin:
+      value: TX1
+      locked: true
+    rx_pin:
+      value: RX1
+      locked: true
     baud_rate: 4800
     stop_bits: 1
     id:
@@ -75,6 +81,9 @@ featured_components:
   fields:
     update_interval: 10s
     id: sensor_bl0942_1
+    uart_id:
+      value: uart_bus
+      locked: true
   requires:
   - uart_bus
 - id: relay_1

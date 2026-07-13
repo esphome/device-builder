@@ -54,17 +54,6 @@ featured_components:
     internal: true
     id: relay
     name: relay
-- id: dummy_relay
-  component_id: switch.gpio
-  fields:
-    pin:
-      value:
-        number: 15
-        mode: INPUT_PULLDOWN_16
-      locked: true
-    internal: true
-    id: dummy_relay
-    name: dummy_relay
 source:
   type: esphome-devices
   remote_id: Gosund-SW6

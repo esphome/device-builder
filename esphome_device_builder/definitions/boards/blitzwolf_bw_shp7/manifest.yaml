@@ -115,13 +115,6 @@ featured_components:
     change_mode_every: 4
     update_interval: 10s
     id: sensor_hlw8012_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    accuracy_decimals: 5
-    id: sensor_total_daily_energy_1
-    name: daily energy
 - id: relay1
   component_id: switch.gpio
   fields:

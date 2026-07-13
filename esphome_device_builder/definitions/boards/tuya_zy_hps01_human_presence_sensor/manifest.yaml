@@ -10,15 +10,44 @@ hardware:
 images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/ZY_HPS01.png
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/cb3s.png
+pins:
+- gpio: 10
+  available: false
+  occupied_by: uart
+- gpio: 11
+  available: false
+  occupied_by: uart
 docs_url: https://devices.esphome.io/devices/Tuya-ZY-HPS01-Human-Presence-Sensor/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    tx_pin:
+      value: 11
+      locked: true
+    rx_pin:
+      value: 10
+      locked: true
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: binary_sensor_tuya_1
   component_id: binary_sensor.tuya
   fields:
     sensor_datapoint: 101
     device_class: occupancy
+    filters:
+      value:
+      - invert: null
+      locked: true
     id: binary_sensor_tuya_1
     name: Presence State
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -31,6 +60,9 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_1
     name: Far Detection
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_2
   component_id: number.tuya
   fields:
@@ -43,6 +75,9 @@ featured_components:
     icon: mdi:timer
     id: number_tuya_2
     name: Presence Delay
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_3
   component_id: number.tuya
   fields:
@@ -54,6 +89,9 @@ featured_components:
     icon: mdi:ray-vertex
     id: number_tuya_3
     name: Sensitivity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_4
   component_id: number.tuya
   fields:
@@ -65,6 +103,9 @@ featured_components:
     icon: mdi:ray-vertex
     id: number_tuya_4
     name: Micro Sensitivity
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_5
   component_id: number.tuya
   fields:
@@ -77,6 +118,9 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_5
     name: Min Range
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_6
   component_id: number.tuya
   fields:
@@ -89,6 +133,9 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_6
     name: Micro Max Range
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: number_tuya_7
   component_id: number.tuya
   fields:
@@ -101,6 +148,9 @@ featured_components:
     icon: mdi:signal-distance-variant
     id: number_tuya_7
     name: Micro Min Range
+  requires:
+  - uart_bus
+  - tuya_hub
 - id: light_intensity
   component_id: sensor.tuya
   fields:
@@ -110,6 +160,9 @@ featured_components:
     state_class: measurement
     id: light_intensity
     name: Light Intensity
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: Tuya-ZY-HPS01-Human-Presence-Sensor

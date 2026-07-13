@@ -18,6 +18,13 @@ featured_components:
 - id: light_monochromatic_1
   component_id: light.monochromatic
   fields:
+    effects:
+      value:
+      - flicker:
+          name: Flicker
+      - pulse:
+          name: Pulse
+      locked: true
     output: output_brightness
     id: light_monochromatic_1
     name: None

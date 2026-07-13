@@ -111,6 +111,10 @@ featured_components:
       locked: true
     accuracy_decimals: 1
     update_interval: 9s
+    filters:
+      value:
+      - lambda: if (id(adc_range).state) return x*30.64; else return x*14.64;
+      locked: true
     id: sensor_voltage
     name: Voltage
 - id: switch_output_1

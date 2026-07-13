@@ -63,6 +63,11 @@ featured_components:
           input: true
           pullup: true
       locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
+      - delayed_off: 10s
+      locked: true
     device_class: motion
     id: pir
     name: Pir Sensor
@@ -75,6 +80,10 @@ featured_components:
         mode:
           input: true
           pullup: true
+      locked: true
+    filters:
+      value:
+      - delayed_on: 50ms
       locked: true
     device_class: motion
     id: mmwave

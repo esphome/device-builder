@@ -46,6 +46,9 @@ featured_components:
 - id: button_adc
   component_id: sensor.adc
   fields:
+    pin:
+      value: A0
+      locked: true
     internal: true
     update_interval: 10s
     id: button_adc

@@ -42,6 +42,28 @@ featured_components:
     pin:
       value: 14
       locked: true
+- id: bus_a_2
+  component_id: i2c
+  fields:
+    sda:
+      value: 4
+      locked: true
+    scl:
+      value: 5
+      locked: true
+    scan: true
+    id:
+      value: bus_a
+      locked: true
+- id: ads1115_hub
+  component_id: ads1115
+  fields:
+    address: 72
+    i2c_id:
+      value: bus_a
+      locked: true
+  requires:
+  - bus_a_2
 - id: bus_a
   component_id: i2c
   fields:
@@ -229,6 +251,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_1
     name: SCT013-30A-1V
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: ads1115_02
   component_id: sensor.ads1115
   fields:
@@ -237,6 +262,9 @@ featured_components:
     update_interval: 2s
     id: ads1115_02
     name: 0-5V
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: ads1115_03_raw
   component_id: sensor.ads1115
   fields:
@@ -246,6 +274,9 @@ featured_components:
     internal: true
     id: ads1115_03_raw
     name: ads1115_03_raw
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_dallas_temp_1
   component_id: sensor.dallas_temp
   fields:

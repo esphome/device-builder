@@ -12,6 +12,21 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/MiBoxer-WL5-LED-Controller/MiBoxer-WL5-board.jpg
 docs_url: https://devices.esphome.io/devices/MiBoxer-WL5-LED-Controller/
 featured_components:
+- id: uart_bus
+  component_id: uart
+  fields:
+    rx_pin:
+      value: RX0
+      locked: true
+    tx_pin:
+      value: TX0
+      locked: true
+    baud_rate: 9600
+- id: tuya_hub
+  component_id: tuya
+  fields: {}
+  requires:
+  - uart_bus
 - id: number_tuya_1
   component_id: number.tuya
   fields:
@@ -25,15 +40,9 @@ featured_components:
     icon: mdi:timer
     id: number_tuya_1
     name: Auto-off timer
-- id: select_tuya_1
-  component_id: select.tuya
-  fields:
-    enum_datapoint: 104
-    optimistic: true
-    icon: mdi:menu-open
-    entity_category: config
-    id: select_tuya_1
-    name: Mode
+  requires:
+  - uart_bus
+  - tuya_hub
 source:
   type: esphome-devices
   remote_id: MiBoxer-WL5-LED-Controller

@@ -31,12 +31,6 @@ pins:
   occupied_by: relay
 docs_url: https://devices.esphome.io/devices/Maxcio-RMC020/
 featured_components:
-- id: binary_sensor_gpio_1
-  component_id: binary_sensor.gpio
-  fields:
-    device_class: power
-    id: binary_sensor_gpio_1
-    name: Button
 - id: devicename_red_led
   component_id: light.monochromatic
   fields:
@@ -55,6 +49,10 @@ featured_components:
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
+    filters:
+      value:
+      - lambda: return x / 60.0;
+      locked: true
     unit_of_measurement: minutes
     id: sensor_uptime_1
     name: Uptime

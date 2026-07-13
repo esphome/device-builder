@@ -17,25 +17,6 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Gelidus-Research-Garage-Door-Opener-1/features.secplus.jpg
 docs_url: https://devices.esphome.io/devices/Gelidus-Research-Garage-Door-Opener-1/
 featured_components:
-- id: id_prefix_dry_contact_open
-  component_id: binary_sensor.gpio
-  fields:
-    entity_category: diagnostic
-    id: id_prefix_dry_contact_open
-    name: Dry contact open
-- id: id_prefix_dry_contact_close
-  component_id: binary_sensor.gpio
-  fields:
-    entity_category: diagnostic
-    id: id_prefix_dry_contact_close
-    name: Dry contact close
-- id: id_prefix_dry_contact_light
-  component_id: binary_sensor.gpio
-  fields:
-    entity_category: diagnostic
-    disabled_by_default: false
-    id: id_prefix_dry_contact_light
-    name: Dry contact light
 - id: restart_button
   component_id: button.restart
   fields:

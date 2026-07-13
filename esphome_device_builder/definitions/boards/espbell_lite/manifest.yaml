@@ -31,12 +31,6 @@ featured_components:
     icon: mdi:bell
     id: binary_sensor_gpio_1
     name: DoorBell
-- id: uptime_seconds
-  component_id: sensor.uptime
-  fields:
-    update_interval: 60
-    id: uptime_seconds
-    name: uptime_seconds
 - id: lock
   component_id: switch.gpio
   fields:

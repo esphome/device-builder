@@ -76,9 +76,16 @@ featured_components:
 - id: analog_buttons
   component_id: sensor.adc
   fields:
+    pin:
+      value: A0
+      locked: true
     raw: true
     update_interval: 100ms
     unit_of_measurement: ''
+    filters:
+      value:
+      - delta: 50
+      locked: true
     id: analog_buttons
     name: analog_buttons
 - id: relay_top_outlet

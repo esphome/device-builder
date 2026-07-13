@@ -38,6 +38,12 @@ pins:
 - gpio: 21
   available: false
   occupied_by: dm32-W1-io21
+- gpio: 38
+  available: false
+  occupied_by: uart_1
+- gpio: 39
+  available: false
+  occupied_by: uart_1
 - gpio: 40
   available: false
   occupied_by: dm32-W1-io40
@@ -61,6 +67,46 @@ pins:
   occupied_by: dm32-W1-io48
 docs_url: https://devices.esphome.io/devices/KinCony-DM32/
 featured_components:
+- id: uart_1
+  component_id: uart
+  fields:
+    baud_rate: 9600
+    debug:
+      value:
+        direction: BOTH
+        dummy_receiver: true
+        after:
+          timeout: 10ms
+      locked: true
+    tx_pin:
+      value: 39
+      locked: true
+    rx_pin:
+      value: 38
+      locked: true
+    id:
+      value: uart_1
+      locked: true
+- id: bus_a_2
+  component_id: i2c
+  fields:
+    sda:
+      value: 8
+      locked: true
+    scl:
+      value: 18
+      locked: true
+    scan: true
+    frequency: 400kHz
+    id:
+      value: bus_a
+      locked: true
+- id: ads1115_hub
+  component_id: ads1115
+  fields:
+    address: 72
+  requires:
+  - bus_a_2
 - id: bus_a
   component_id: i2c
   fields:
@@ -676,198 +722,6 @@ featured_components:
       locked: true
     id: binary_sensor_gpio_39
     name: dm32-W1-io21
-- id: light_monochromatic_1
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_1
-    name: DAC CH1
-- id: light_monochromatic_2
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_2
-    name: DAC CH2
-- id: light_monochromatic_3
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_3
-    name: DAC CH3
-- id: light_monochromatic_4
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_4
-    name: DAC CH4
-- id: light_monochromatic_5
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_5
-    name: DAC CH5
-- id: light_monochromatic_6
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_6
-    name: DAC CH6
-- id: light_monochromatic_7
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_7
-    name: DAC CH7
-- id: light_monochromatic_8
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_8
-    name: DAC CH8
-- id: light_monochromatic_9
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_9
-    name: DAC CH9
-- id: light_monochromatic_10
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_10
-    name: DAC CH10
-- id: light_monochromatic_11
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_11
-    name: DAC CH11
-- id: light_monochromatic_12
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_12
-    name: DAC CH12
-- id: light_monochromatic_13
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_13
-    name: DAC CH13
-- id: light_monochromatic_14
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_14
-    name: DAC CH14
-- id: light_monochromatic_15
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_15
-    name: DAC CH15
-- id: light_monochromatic_16
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_16
-    name: DAC CH16
-- id: light_monochromatic_17
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_17
-    name: DAC CH17
-- id: light_monochromatic_18
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_18
-    name: DAC CH18
-- id: light_monochromatic_19
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_19
-    name: DAC CH19
-- id: light_monochromatic_20
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_20
-    name: DAC CH20
-- id: light_monochromatic_21
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_21
-    name: DAC CH21
-- id: light_monochromatic_22
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_22
-    name: DAC CH22
-- id: light_monochromatic_23
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_23
-    name: DAC CH23
-- id: light_monochromatic_24
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_24
-    name: DAC CH24
-- id: light_monochromatic_25
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_25
-    name: DAC CH25
-- id: light_monochromatic_26
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_26
-    name: DAC CH26
-- id: light_monochromatic_27
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_27
-    name: DAC CH27
-- id: light_monochromatic_28
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_28
-    name: DAC CH28
-- id: light_monochromatic_29
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_29
-    name: DAC CH29
-- id: light_monochromatic_30
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_30
-    name: DAC CH30
-- id: light_monochromatic_31
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_31
-    name: DAC CH31
-- id: light_monochromatic_32
-  component_id: light.monochromatic
-  fields:
-    default_transition_length: 0s
-    id: light_monochromatic_32
-    name: DAC CH32
 - id: sensor_ads1115_1
   component_id: sensor.ads1115
   fields:
@@ -877,6 +731,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_1
     name: ADS1115 Channel A0-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_ads1115_2
   component_id: sensor.ads1115
   fields:
@@ -885,6 +742,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_2
     name: ADS1115 Channel A1-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_ads1115_3
   component_id: sensor.ads1115
   fields:
@@ -893,6 +753,9 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_3
     name: ADS1115 Channel A2-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
 - id: sensor_ads1115_4
   component_id: sensor.ads1115
   fields:
@@ -901,6 +764,27 @@ featured_components:
     update_interval: 5s
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
+  requires:
+  - bus_a_2
+  - ads1115_hub
+- id: switch_uart_1
+  component_id: switch.uart
+  fields:
+    data:
+      value:
+      - 17
+      - 34
+      - 51
+      - 68
+      - 85
+      locked: true
+    id: switch_uart_1
+    name: RS485 Button
+    uart_id:
+      value: uart_1
+      locked: true
+  requires:
+  - uart_1
 source:
   type: esphome-devices
   remote_id: KinCony-DM32

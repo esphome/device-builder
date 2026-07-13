@@ -19,12 +19,6 @@ pins:
   occupied_by: gen_pwm_test
 docs_url: https://devices.esphome.io/devices/Tinxy-4N-Fan-Regulator/
 featured_components:
-- id: fan_1
-  component_id: fan.speed
-  fields:
-    speed_count: 3
-    id: fan_1
-    name: Fan
 - id: gen_pwm_test
   component_id: output.esp8266_pwm
   fields:

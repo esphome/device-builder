@@ -43,6 +43,11 @@ featured_components:
       value: 0
       locked: true
     internal: true
+    filters:
+      value:
+      - invert: null
+      - delayed_off: 10ms
+      locked: true
     id: button
     name: button
 - id: onboard_led

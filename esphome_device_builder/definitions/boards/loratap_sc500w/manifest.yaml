@@ -45,6 +45,10 @@ featured_components:
       value: 4
       locked: true
     disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
     id: button1
     name: S1 switch input
 - id: button2
@@ -54,6 +58,10 @@ featured_components:
       value: 5
       locked: true
     disabled_by_default: true
+    filters:
+      value:
+      - invert: null
+      locked: true
     id: button2
     name: S2 switch input
 - id: light1

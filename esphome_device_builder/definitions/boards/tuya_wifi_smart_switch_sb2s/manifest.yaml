@@ -34,6 +34,10 @@ featured_components:
         inverted: true
         mode: INPUT_PULLUP
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 50ms
+      locked: true
     id: button
     name: button
 - id: led

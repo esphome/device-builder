@@ -62,6 +62,10 @@ featured_components:
         number: 36
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: binary_sensor_gpio_1
     name: Input 1
 - id: binary_sensor_gpio_2
@@ -71,6 +75,10 @@ featured_components:
       value:
         number: 37
         inverted: true
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
       locked: true
     id: binary_sensor_gpio_2
     name: Input 2
@@ -82,6 +90,10 @@ featured_components:
         number: 38
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: binary_sensor_gpio_3
     name: Input 3
 - id: binary_sensor_gpio_4
@@ -92,6 +104,10 @@ featured_components:
         number: 39
         inverted: true
       locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
+      locked: true
     id: binary_sensor_gpio_4
     name: Input 4
 - id: binary_sensor_gpio_5
@@ -100,6 +116,10 @@ featured_components:
     pin:
       value:
         number: 22
+      locked: true
+    filters:
+      value:
+      - delayed_on_off: 10ms
       locked: true
     id: binary_sensor_gpio_5
     name: Onboard Button
@@ -161,12 +181,6 @@ featured_components:
     sensor: temp_analog_reading
     id: temp_resistance_reading
     name: temp_resistance_reading
-- id: sensor_ntc_1
-  component_id: sensor.ntc
-  fields:
-    sensor: temp_resistance_reading
-    id: sensor_ntc_1
-    name: Temperature
 - id: sensor_adc_2
   component_id: sensor.adc
   fields:
@@ -175,6 +189,10 @@ featured_components:
       locked: true
     attenuation: 12db
     accuracy_decimals: 1
+    filters:
+      value:
+      - multiply: 10.85
+      locked: true
     id: sensor_adc_2
     name: Voltage
 - id: sensor_adc_3
@@ -185,6 +203,11 @@ featured_components:
       locked: true
     attenuation: 12db
     accuracy_decimals: 2
+    filters:
+      value:
+      - offset: -0.794
+      - multiply: 16.13
+      locked: true
     unit_of_measurement: A
     id: sensor_adc_3
     name: Current
@@ -202,11 +225,6 @@ featured_bundles:
   component_ids:
   - temp_analog_reading
   - temp_resistance_reading
-- id: sensor_ntc_1_setup
-  name: Temperature (full setup)
-  component_ids:
-  - temp_resistance_reading
-  - sensor_ntc_1
 source:
   type: esphome-devices
   remote_id: Shelly-Plus-RGBW-PM

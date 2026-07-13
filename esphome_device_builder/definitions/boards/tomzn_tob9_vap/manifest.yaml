@@ -29,6 +29,12 @@ featured_components:
 - id: uart_bus
   component_id: uart
   fields:
+    tx_pin:
+      value: TX1
+      locked: true
+    rx_pin:
+      value: RX1
+      locked: true
     baud_rate: 4800
     stop_bits: 1
 - id: power_button
@@ -75,16 +81,6 @@ featured_components:
     id: sensor_bl0942_1
   requires:
   - uart_bus
-- id: main_switch
-  component_id: switch.hbridge
-  fields:
-    off_pin:
-      value: 26
-      locked: true
-    pulse_length: 60ms
-    wait_time: 30ms
-    id: main_switch
-    name: Switch
 featured_bundles:
 - id: red_led_setup
   name: red_led (full setup)

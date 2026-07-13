@@ -39,6 +39,11 @@ featured_components:
     pin:
       value: 9
       locked: true
+    filters:
+      value:
+      - invert: null
+      - delayed_off: 50ms
+      locked: true
     id: button
     name: button
 - id: s1
@@ -46,6 +51,11 @@ featured_components:
   fields:
     pin:
       value: 5
+      locked: true
+    filters:
+      value:
+      - invert: null
+      - delayed_off: 50ms
       locked: true
     id: s1
     name: s1

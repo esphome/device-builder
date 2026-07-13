@@ -52,19 +52,13 @@ featured_components:
       value: 0
       locked: true
     internal: true
+    filters:
+      value:
+      - invert: null
+      - delayed_off: 10ms
+      locked: true
     id: reset
     name: reset
-- id: climate_control
-  component_id: climate.thermostat
-  fields:
-    min_heating_off_time: 5s
-    min_heating_run_time: 5s
-    min_idle_time: 5s
-    heat_deadband: 2
-    default_preset: Home
-    sensor: temp
-    id: climate_control
-    name: $friendly_name Climate Control
 - id: switch_led
   component_id: light.status_led
   fields:
@@ -136,13 +130,6 @@ featured_components:
     restore_mode: ALWAYS_ON
     id: sensor_power
     name: sensor_power
-featured_bundles:
-- id: climate_control_setup
-  name: $friendly_name Climate Control (full setup)
-  component_ids:
-  - one_wire_bus
-  - temp
-  - climate_control
 source:
   type: esphome-devices
   remote_id: Sonoff-THR316

@@ -36,17 +36,14 @@ featured_components:
       locked: true
     id: button_1
     name: button_1
-- id: sensor_total_daily_energy_1
-  component_id: sensor.total_daily_energy
-  fields:
-    unit_of_measurement: kWh
-    icon: mdi:clock-alert
-    id: sensor_total_daily_energy_1
-    name: Total Daily Energy
 - id: sensor_uptime_1
   component_id: sensor.uptime
   fields:
     icon: mdi:clock-outline
+    filters:
+      value:
+      - lambda: return x / 60.0;
+      locked: true
     unit_of_measurement: minutes
     id: sensor_uptime_1
     name: Uptime

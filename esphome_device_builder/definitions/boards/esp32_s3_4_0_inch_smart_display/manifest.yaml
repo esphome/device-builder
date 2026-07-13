@@ -14,12 +14,54 @@ images:
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display.jpg
 - https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/ESP32-S3-4.0-Inch-Smart-Display/ESP32-S3-4.0-Inch-Smart-Display_animation.jpg
 pins:
+- gpio: 0
+  available: false
+  occupied_by: display.st7701s
 - gpio: 1
   available: false
   occupied_by: $device_name Relay 3
 - gpio: 2
   available: false
   occupied_by: $device_name Relay 2
+- gpio: 3
+  available: false
+  occupied_by: display.st7701s
+- gpio: 4
+  available: false
+  occupied_by: display.st7701s
+- gpio: 5
+  available: false
+  occupied_by: display.st7701s
+- gpio: 6
+  available: false
+  occupied_by: display.st7701s
+- gpio: 7
+  available: false
+  occupied_by: display.st7701s
+- gpio: 8
+  available: false
+  occupied_by: display.st7701s
+- gpio: 9
+  available: false
+  occupied_by: display.st7701s
+- gpio: 10
+  available: false
+  occupied_by: display.st7701s
+- gpio: 11
+  available: false
+  occupied_by: display.st7701s
+- gpio: 12
+  available: false
+  occupied_by: display.st7701s
+- gpio: 13
+  available: false
+  occupied_by: display.st7701s
+- gpio: 14
+  available: false
+  occupied_by: display.st7701s
+- gpio: 15
+  available: false
+  occupied_by: display.st7701s
 - gpio: 16
   available: false
   occupied_by: display.st7701s
@@ -27,6 +69,9 @@ pins:
   available: false
   occupied_by: display.st7701s
 - gpio: 18
+  available: false
+  occupied_by: display.st7701s
+- gpio: 20
   available: false
   occupied_by: display.st7701s
 - gpio: 21
@@ -41,6 +86,9 @@ pins:
 - gpio: 40
   available: false
   occupied_by: $device_name Relay 1
+- gpio: 46
+  available: false
+  occupied_by: display.st7701s
 - gpio: 47
   available: false
   occupied_by: spi
@@ -58,10 +106,21 @@ featured_components:
     clk_pin:
       value: 48
       locked: true
+- id: onboard_psram
+  component_id: psram
+  name: PSRAM
+  fields:
+    mode: octal
+    speed: 80MHz
 - id: display_st7701s_1
   component_id: display.st7701s
   fields:
     color_order: RGB
+    dimensions:
+      value:
+        width: 480
+        height: 480
+      locked: true
     cs_pin:
       value: 39
       locked: true
@@ -78,8 +137,224 @@ featured_components:
       value: 21
       locked: true
     data_rate: 40MHz
+    data_pins:
+      value:
+      - 46
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+      - 0
+      - 4
+      - 5
+      - 6
+      - 7
+      - 15
+      - 8
+      - 20
+      - 3
+      locked: true
+    init_sequence:
+      value:
+      - - 1
+      - - 255
+        - 119
+        - 1
+        - 0
+        - 0
+        - 16
+      - - 192
+        - 59
+        - 0
+      - - 193
+        - 13
+        - 2
+      - - 194
+        - 49
+        - 5
+      - - 205
+        - 0
+      - - 176
+        - 0
+        - 17
+        - 24
+        - 14
+        - 17
+        - 6
+        - 7
+        - 8
+        - 7
+        - 34
+        - 4
+        - 18
+        - 15
+        - 170
+        - 49
+        - 24
+      - - 177
+        - 0
+        - 17
+        - 25
+        - 14
+        - 18
+        - 7
+        - 8
+        - 8
+        - 8
+        - 34
+        - 4
+        - 17
+        - 17
+        - 169
+        - 50
+        - 24
+      - - 255
+        - 119
+        - 1
+        - 0
+        - 0
+        - 17
+      - - 176
+        - 96
+      - - 177
+        - 50
+      - - 178
+        - 7
+      - - 179
+        - 128
+      - - 181
+        - 73
+      - - 183
+        - 133
+      - - 184
+        - 33
+      - - 193
+        - 120
+      - - 194
+        - 120
+      - - 224
+        - 0
+        - 27
+        - 2
+      - - 225
+        - 8
+        - 160
+        - 0
+        - 0
+        - 7
+        - 160
+        - 0
+        - 0
+        - 0
+        - 68
+        - 68
+      - - 226
+        - 17
+        - 17
+        - 68
+        - 68
+        - 237
+        - 160
+        - 0
+        - 0
+        - 236
+        - 160
+        - 0
+        - 0
+      - - 227
+        - 0
+        - 0
+        - 17
+        - 17
+      - - 228
+        - 68
+        - 68
+      - - 229
+        - 10
+        - 233
+        - 216
+        - 160
+        - 12
+        - 235
+        - 216
+        - 160
+        - 14
+        - 237
+        - 216
+        - 160
+        - 16
+        - 239
+        - 216
+        - 160
+      - - 230
+        - 0
+        - 0
+        - 17
+        - 17
+      - - 231
+        - 68
+        - 68
+      - - 232
+        - 9
+        - 232
+        - 216
+        - 160
+        - 11
+        - 234
+        - 216
+        - 160
+        - 13
+        - 236
+        - 216
+        - 160
+        - 15
+        - 238
+        - 216
+        - 160
+      - - 235
+        - 2
+        - 0
+        - 228
+        - 228
+        - 136
+        - 0
+        - 64
+      - - 236
+        - 60
+        - 0
+      - - 237
+        - 171
+        - 137
+        - 118
+        - 84
+        - 2
+        - 255
+        - 255
+        - 255
+        - 255
+        - 255
+        - 255
+        - 32
+        - 69
+        - 103
+        - 152
+        - 186
+      - - 255
+        - 119
+        - 1
+        - 0
+        - 0
+        - 19
+      - - 229
+        - 228
+      - - 58
+        - 96
+      locked: true
     id: display_st7701s_1
   requires:
+  - onboard_psram
   - spi_bus
 - id: backlight
   component_id: output.ledc
