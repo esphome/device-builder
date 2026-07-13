@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.zeroconf import AsyncEsphomeZeroconf
 from zeroconf import (
     AddressResolver,
+    DNSRecord,
     IPVersion,
     ServiceStateChange,
     current_time_millis,
@@ -229,7 +230,7 @@ class MdnsSource:
         cache = self._zeroconf.zeroconf.cache
         service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
         txt_dns_records = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
-        records: list[Any] = [
+        records: list[DNSRecord] = [
             *self._get_address_records(name),
             *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
             *txt_dns_records,
@@ -367,10 +368,14 @@ class MdnsSource:
         monitor._track_task(self._resolve_and_apply(zeroconf, info, device_name))
 
     async def _resolve_and_apply(
-        self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
+        self,
+        zeroconf: Any,
+        info: AsyncServiceInfo,
+        device_name: str,
+        apply: Callable[[str, AsyncServiceInfo], None] | None = None,
     ) -> None:
-        """Resolve a cache-miss esphomelib mDNS service and propagate its details."""
-        await self._resolve_then(zeroconf, info, device_name, self._apply_service_info)
+        """Resolve a cache-miss mDNS service and propagate its details (fire-and-forget shape)."""
+        await self._resolve_then(zeroconf, info, device_name, apply or self._apply_service_info)
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
         """Resolve before honouring a ``Removed``; only a failed resolve applies OFFLINE."""
@@ -509,7 +514,9 @@ class MdnsSource:
         if info.load_from_cache(zeroconf):
             self._apply_http_txt(device_name, info)
             return
-        monitor._track_task(self._resolve_then(zeroconf, info, device_name, self._apply_http_txt))
+        monitor._track_task(
+            self._resolve_and_apply(zeroconf, info, device_name, self._apply_http_txt)
+        )
 
     def _apply_http_txt(self, device_name: str, info: AsyncServiceInfo) -> None:
         """
@@ -521,7 +528,7 @@ class MdnsSource:
         """
         self._apply_identity_txt(device_name, info.decoded_properties)
 
-    def _cached_ptr(self, service_name: str) -> Any | None:
+    def _cached_ptr(self, service_name: str) -> DNSRecord | None:
         """
         Look up the cached esphomelib PTR for *service_name*, expired or not.
 
@@ -532,9 +539,10 @@ class MdnsSource:
         """
         if self._zeroconf is None:
             return None
-        return self._zeroconf.zeroconf.cache.current_entry_with_name_and_alias(
+        ptr: DNSRecord | None = self._zeroconf.zeroconf.cache.current_entry_with_name_and_alias(
             _ESPHOME_SERVICE_TYPE, service_name
         )
+        return ptr
 
     def _cached_txt_properties(self, zc: Any, service_name: str) -> dict[str, str]:
         """Decode the unexpired cached TXT records for *service_name*."""
@@ -546,7 +554,7 @@ class MdnsSource:
         ]
         return _decode_mdns_txt_records(records)
 
-    def _get_address_records(self, name: str) -> list[Any]:
+    def _get_address_records(self, name: str) -> list[DNSRecord]:
         """Return cached A and AAAA records for *name*, or ``[]``."""
         if self._zeroconf is None:
             return []
