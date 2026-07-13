@@ -103,7 +103,7 @@ def test_ambiguous_domain_fallback_poisons_the_board() -> None:
 def test_apply_drops_prunes_entries_bundles_and_requires() -> None:
     record = _record()
     record["featured_components"][2]["requires"] = ["modbus_bus", "energy"]
-    _apply_drops(record, {"energy"})
+    _apply_drops(record, {"energy"}, {})
     ids = [entry["id"] for entry in record["featured_components"]]
     assert ids == ["power", "relay", "modbus_bus"]
     assert record["featured_components"][1]["requires"] == ["modbus_bus"]
@@ -140,7 +140,7 @@ def test_apply_drops_prunes_dropped_entries_pins() -> None:
         {"gpio": 5, "available": False, "occupied_by": "Daily Energy"},
         {"gpio": 6, "available": False, "occupied_by": "relay"},
     ]
-    _apply_drops(record, {"energy"})
+    _apply_drops(record, {"energy"}, {})
     assert record["pins"] == [{"gpio": 6, "available": False, "occupied_by": "relay"}]
 
 
@@ -149,12 +149,38 @@ def test_apply_drops_relabels_shared_pins_to_the_survivor() -> None:
     record = _record()
     record["featured_components"][2]["fields"]["pin"] = {"value": 4, "locked": True}
     record["pins"] = [{"gpio": 4, "available": False, "occupied_by": "energy"}]
-    _apply_drops(record, {"energy"})
+    _apply_drops(record, {"energy"}, {})
     assert record["pins"] == [{"gpio": 4, "available": False, "occupied_by": "relay"}]
+
+
+def test_apply_drops_prunes_component_id_labeled_pins() -> None:
+    """A nameless dropped entry's pins carry its component id as the label."""
+    record = _record()
+    record["pins"] = [{"gpio": 4, "available": False, "occupied_by": "sensor.total_daily_energy"}]
+    _apply_drops(record, {"energy"}, {})
+    assert "pins" not in record
+
+
+def test_apply_drops_keeps_bus_pins_via_catalog_typing() -> None:
+    """A surviving bus claiming a shared GPIO through ``sda`` keeps the declaration."""
+    record = _record()
+    record["featured_components"].append(
+        {
+            "id": "bus",
+            "component_id": "i2c",
+            "fields": {"sda": {"value": 4, "locked": True}, "id": {"value": "bus"}},
+        }
+    )
+    record["pins"] = [{"gpio": 4, "available": False, "occupied_by": "energy"}]
+    components_index = {
+        "i2c": {"category": "bus", "config_entries": [{"key": "sda", "type": "pin"}]}
+    }
+    _apply_drops(record, {"energy"}, components_index)
+    assert record["pins"] == [{"gpio": 4, "available": False, "occupied_by": "bus"}]
 
 
 def test_apply_drops_removes_emptied_bundles() -> None:
     record = _record()
     record["featured_bundles"] = [{"id": "solo", "name": "Solo", "component_ids": ["energy"]}]
-    _apply_drops(record, {"energy"})
+    _apply_drops(record, {"energy"}, {})
     assert "featured_bundles" not in record

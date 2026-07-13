@@ -32,7 +32,9 @@ _LOGGER = logging.getLogger("sync_esphome_devices")
 _MAX_PASSES = 12
 
 
-def apply_validation_gate(records: list[dict[str, Any]]) -> dict[str, str]:
+def apply_validation_gate(
+    records: list[dict[str, Any]], components_index: dict[str, dict[str, Any]]
+) -> dict[str, str]:
     """
     Drop featured entries whose generated full setup fails ESPHome validation.
 
@@ -65,7 +67,7 @@ def apply_validation_gate(records: list[dict[str, Any]]) -> dict[str, str]:
                 continue
             for local_id, error in outcome.drops:
                 _LOGGER.info("%s: dropping %s — %s", record["id"], local_id, error)
-            _apply_drops(record, {local_id for local_id, _ in outcome.drops})
+            _apply_drops(record, {local_id for local_id, _ in outcome.drops}, components_index)
             if record.get("featured_components"):
                 retry.append(record)
             else:
@@ -227,7 +229,9 @@ def _entry_for_path(
     return matches[0] if len(matches) == 1 else None
 
 
-def _apply_drops(record: dict[str, Any], drop_ids: set[str]) -> None:
+def _apply_drops(
+    record: dict[str, Any], drop_ids: set[str], components_index: dict[str, dict[str, Any]]
+) -> None:
     """Remove *drop_ids* from the record's featured entries, bundles, requires, and pins."""
     dropped = [
         entry for entry in record.get("featured_components") or [] if entry["id"] in drop_ids
@@ -254,24 +258,36 @@ def _apply_drops(record: dict[str, Any], drop_ids: set[str]) -> None:
         record["featured_bundles"] = bundles
     elif "featured_bundles" in record:
         del record["featured_bundles"]
-    _prune_dropped_pins(record, dropped)
+    _prune_dropped_pins(record, dropped, components_index)
 
 
-def _prune_dropped_pins(record: dict[str, Any], dropped: list[dict[str, Any]]) -> None:
+def _prune_dropped_pins(
+    record: dict[str, Any],
+    dropped: list[dict[str, Any]],
+    components_index: dict[str, dict[str, Any]],
+) -> None:
     """
     Drop pins owned by removed entries; relabel GPIOs a survivor still locks.
 
-    ``occupied_by`` carries either the local id or the entry's display name,
-    so match both — but a shared GPIO must stay declared or a surviving
+    ``occupied_by`` comes from ``_occupancy_label`` (cleaned upstream
+    name/id, else the component id), so match every label a dropped entry
+    can have produced — but a shared GPIO must stay declared or a surviving
     entry's locked pin loses its board declaration.
     """
-    labels = {entry["id"] for entry in dropped} | {
-        name
-        for entry in dropped
-        for name in (entry.get("name"), (entry.get("fields") or {}).get("name"))
-        if isinstance(name, str)
-    }
-    claimed = _surviving_gpio_labels(record["featured_components"])
+    labels: set[str] = set()
+    for entry in dropped:
+        labels.add(entry["id"])
+        labels.add(entry["component_id"])
+        fields = entry.get("fields") or {}
+        raw_id = fields.get("id")
+        for label in (
+            entry.get("name"),
+            fields.get("name"),
+            raw_id.get("value") if isinstance(raw_id, dict) else raw_id,
+        ):
+            if isinstance(label, str):
+                labels.add(label)
+    claimed = _surviving_gpio_labels(record["featured_components"], components_index)
     pins = []
     for pin in record.get("pins") or []:
         if pin.get("occupied_by") not in labels:
@@ -284,36 +300,54 @@ def _prune_dropped_pins(record: dict[str, Any], dropped: list[dict[str, Any]]) -
         del record["pins"]
 
 
-def _surviving_gpio_labels(entries: list[dict[str, Any]]) -> dict[int, str]:
-    """Map each GPIO a surviving entry locks to that entry's display label."""
-    from script.sync_esphome_devices import _PIN_TREE_FIELD_RE, _gpio_number
+def _surviving_gpio_labels(
+    entries: list[dict[str, Any]], components_index: dict[str, dict[str, Any]]
+) -> dict[int, str]:
+    """
+    Map each GPIO a surviving entry locks to that entry's display label.
+
+    Pin fields are detected by the catalog's ``type: "pin"`` (``sda``, ``clk``)
+    plus the pin-group name pattern (``data_pins``), matching how extraction
+    recorded occupancy in the first place.
+    """
+    from script.sync_esphome_devices import _PIN_TREE_FIELD_RE
 
     claimed: dict[int, str] = {}
     for entry in entries:
+        component = components_index.get(entry["component_id"]) or {}
+        pin_keys = {
+            ce["key"]
+            for ce in component.get("config_entries") or []
+            if ce.get("type") == "pin" and isinstance(ce.get("key"), str)
+        }
         fields = entry.get("fields") or {}
         name = fields.get("name")
         label = name if isinstance(name, str) else entry["id"]
         for key, preset in fields.items():
-            if not _PIN_TREE_FIELD_RE.search(key):
+            if key not in pin_keys and not _PIN_TREE_FIELD_RE.search(key):
                 continue
             value = preset.get("value") if isinstance(preset, dict) else preset
-            _walk_gpio_leaves(value, label, _gpio_number, claimed)
+            _walk_gpio_leaves(value, label, claimed)
     return claimed
 
 
-def _walk_gpio_leaves(value: Any, label: str, gpio_number: Any, claimed: dict[int, str]) -> None:
-    """Record every GPIO leaf of a pin value (scalar, dict, or pin-group tree)."""
+def _walk_gpio_leaves(value: Any, label: str, claimed: dict[int, str]) -> None:
+    """Record every board-GPIO leaf of a pin value (scalar, dict, or pin-group tree)."""
+    from script.sync_esphome_devices import _expander_keys, _gpio_number
+
     if isinstance(value, dict):
-        if "number" in value:
-            value = value["number"]
-        else:
-            for item in value.values():
-                _walk_gpio_leaves(item, label, gpio_number, claimed)
+        if _expander_keys(value):
+            # An expander channel's ``number`` is not a board GPIO.
             return
+        if "number" not in value:
+            for item in value.values():
+                _walk_gpio_leaves(item, label, claimed)
+            return
+        value = value["number"]
     if isinstance(value, list):
         for item in value:
-            _walk_gpio_leaves(item, label, gpio_number, claimed)
+            _walk_gpio_leaves(item, label, claimed)
         return
-    gpio = gpio_number(value)
+    gpio = _gpio_number(value)
     if gpio is not None:
         claimed.setdefault(gpio, label)
