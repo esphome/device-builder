@@ -132,6 +132,46 @@ def test_extract_drops_entry_missing_required_ref() -> None:
     assert featured == []
 
 
+def test_hub_reuses_already_featured_bus() -> None:
+    """A hub whose bus is already featured requires it instead of lifting a duplicate."""
+    components = dict(_COMPONENTS)
+    components["ads1115"] = {
+        "category": "misc",
+        "dependencies": ["i2c"],
+        "config_entries": [{"key": "address", "type": "integer"}, {"key": "i2c_id", "type": "id"}],
+    }
+    components["sensor.ads1115"] = {
+        "dependencies": ["ads1115"],
+        "config_entries": [{"key": "multiplexer", "type": "string"}],
+    }
+    components["i2c"] = {
+        "category": "bus",
+        "config_entries": [
+            {"key": "sda", "type": "pin"},
+            {"key": "scl", "type": "pin"},
+            {"key": "id", "type": "id"},
+        ],
+    }
+    featured = [
+        {
+            "id": "bus_a",
+            "component_id": "i2c",
+            "fields": {"id": {"value": "bus_a", "locked": True}},
+        },
+        {"id": "reader", "component_id": "sensor.ads1115", "fields": {"id": "reader"}},
+    ]
+    config = {
+        "i2c": [{"id": "bus_a", "sda": 4, "scl": 5}, {"id": "bus_b", "sda": 21, "scl": 22}],
+        "ads1115": {"address": 0x48, "i2c_id": "bus_a"},
+        "sensor": [{"platform": "ads1115", "multiplexer": "A0_GND"}],
+    }
+    extra, _ = _extract_driver_hubs(config, featured, components)
+    assert [entry["component_id"] for entry in extra] == ["ads1115"]
+    hub = extra[0]
+    assert hub["requires"] == ["bus_a"]
+    assert hub["fields"]["i2c_id"] == {"value": "bus_a", "locked": True}
+
+
 def test_materialize_bus_accepts_bare_mapping_key() -> None:
     """A bare ``modbus:`` key materializes fieldless via _select_bus_block."""
     components = {"modbus": {"category": "bus", "config_entries": [{"key": "id", "type": "id"}]}}

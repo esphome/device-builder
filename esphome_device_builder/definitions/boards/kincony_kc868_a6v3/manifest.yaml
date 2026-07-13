@@ -98,19 +98,6 @@ featured_components:
     id:
       value: uart_2
       locked: true
-- id: bus_a_2
-  component_id: i2c
-  fields:
-    sda:
-      value: 12
-      locked: true
-    scl:
-      value: 11
-      locked: true
-    scan: true
-    id:
-      value: bus_a
-      locked: true
 - id: my_gp8403
   component_id: gp8403
   fields:
@@ -119,7 +106,7 @@ featured_components:
       value: my_gp8403
       locked: true
   requires:
-  - bus_a_2
+  - bus_a
 - id: bus_a
   component_id: i2c
   fields:
@@ -289,7 +276,7 @@ featured_components:
     channel: 0
     id: gp8403_output_1
   requires:
-  - bus_a_2
+  - bus_a
   - my_gp8403
 - id: gp8403_output_2
   component_id: output.gp8403
@@ -297,7 +284,7 @@ featured_components:
     channel: 1
     id: gp8403_output_2
   requires:
-  - bus_a_2
+  - bus_a
   - my_gp8403
 - id: sensor_adc_1
   component_id: sensor.adc
@@ -479,14 +466,14 @@ featured_bundles:
 - id: light_monochromatic_1_setup
   name: A6v3-DAC-1 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - my_gp8403
   - gp8403_output_1
   - light_monochromatic_1
 - id: light_monochromatic_2_setup
   name: A6v3-DAC-2 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - my_gp8403
   - gp8403_output_2
   - light_monochromatic_2

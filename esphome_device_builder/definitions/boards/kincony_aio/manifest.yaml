@@ -93,20 +93,6 @@ featured_components:
     id:
       value: uart_zsu
       locked: true
-- id: bus_a_2
-  component_id: i2c
-  fields:
-    sda:
-      value: 8
-      locked: true
-    scl:
-      value: 18
-      locked: true
-    scan: true
-    frequency: 400kHz
-    id:
-      value: bus_a
-      locked: true
 - id: dac_output
   component_id: mcp4728
   fields:
@@ -114,7 +100,7 @@ featured_components:
       value: dac_output
       locked: true
   requires:
-  - bus_a_2
+  - bus_a
 - id: bus_a
   component_id: i2c
   fields:
@@ -426,7 +412,7 @@ featured_components:
     power_down: normal
     id: dimmer1
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: dimmer2
   component_id: output.mcp4728
@@ -436,7 +422,7 @@ featured_components:
     power_down: normal
     id: dimmer2
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: dimmer3
   component_id: output.mcp4728
@@ -446,7 +432,7 @@ featured_components:
     power_down: normal
     id: dimmer3
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: dimmer4
   component_id: output.mcp4728
@@ -456,7 +442,7 @@ featured_components:
     power_down: normal
     id: dimmer4
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: sensor_adc_1
   component_id: sensor.adc
@@ -611,28 +597,28 @@ featured_bundles:
 - id: light_monochromatic_1_setup
   name: dimmer-1 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - dimmer1
   - light_monochromatic_1
 - id: light_monochromatic_2_setup
   name: dimmer-2 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - dimmer2
   - light_monochromatic_2
 - id: light_monochromatic_3_setup
   name: dimmer-3 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - dimmer3
   - light_monochromatic_3
 - id: light_monochromatic_4_setup
   name: dimmer-4 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - dimmer4
   - light_monochromatic_4

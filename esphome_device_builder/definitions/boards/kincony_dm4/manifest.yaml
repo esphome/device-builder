@@ -90,20 +90,6 @@ featured_components:
     id:
       value: uart_1
       locked: true
-- id: bus_a_2
-  component_id: i2c
-  fields:
-    sda:
-      value: 8
-      locked: true
-    scl:
-      value: 18
-      locked: true
-    scan: true
-    frequency: 400kHz
-    id:
-      value: bus_a
-      locked: true
 - id: dac_output
   component_id: mcp4728
   fields:
@@ -111,13 +97,13 @@ featured_components:
       value: dac_output
       locked: true
   requires:
-  - bus_a_2
+  - bus_a
 - id: ads1115_hub
   component_id: ads1115
   fields:
     address: 72
   requires:
-  - bus_a_2
+  - bus_a
 - id: bus_a
   component_id: i2c
   fields:
@@ -345,7 +331,7 @@ featured_components:
     vref: internal
     id: ac_dimmer_1
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: ac_dimmer_2
   component_id: output.mcp4728
@@ -354,7 +340,7 @@ featured_components:
     vref: internal
     id: ac_dimmer_2
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: ac_dimmer_3
   component_id: output.mcp4728
@@ -363,7 +349,7 @@ featured_components:
     vref: internal
     id: ac_dimmer_3
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: ac_dimmer_4
   component_id: output.mcp4728
@@ -372,7 +358,7 @@ featured_components:
     vref: internal
     id: ac_dimmer_4
   requires:
-  - bus_a_2
+  - bus_a
   - dac_output
 - id: sensor_ads1115_1
   component_id: sensor.ads1115
@@ -384,7 +370,7 @@ featured_components:
     id: sensor_ads1115_1
     name: ADS1115 Channel A0-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: sensor_ads1115_2
   component_id: sensor.ads1115
@@ -395,7 +381,7 @@ featured_components:
     id: sensor_ads1115_2
     name: ADS1115 Channel A1-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: sensor_ads1115_3
   component_id: sensor.ads1115
@@ -406,7 +392,7 @@ featured_components:
     id: sensor_ads1115_3
     name: ADS1115 Channel A2-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: sensor_ads1115_4
   component_id: sensor.ads1115
@@ -417,7 +403,7 @@ featured_components:
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: switch_uart_1
   component_id: switch.uart
@@ -441,28 +427,28 @@ featured_bundles:
 - id: dm4_dac_1_setup
   name: DM4 DAC-1 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - ac_dimmer_1
   - dm4_dac_1
 - id: dm4_dac_2_setup
   name: DM4 DAC-2 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - ac_dimmer_2
   - dm4_dac_2
 - id: dm4_dac_3_setup
   name: DM4 DAC-3 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - ac_dimmer_3
   - dm4_dac_3
 - id: dm4_dac_4_setup
   name: DM4 DAC-4 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - dac_output
   - ac_dimmer_4
   - dm4_dac_4

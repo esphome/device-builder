@@ -43,19 +43,6 @@ pins:
   occupied_by: ap-input18
 docs_url: https://devices.esphome.io/devices/KinCony-KC868-AP/
 featured_components:
-- id: bus_a_2
-  component_id: i2c
-  fields:
-    sda:
-      value: 4
-      locked: true
-    scl:
-      value: 16
-      locked: true
-    scan: true
-    id:
-      value: bus_a
-      locked: true
 - id: pca9685_hub
   component_id: pca9685
   fields:
@@ -64,7 +51,7 @@ featured_components:
       value: pca9685_hub
       locked: true
   requires:
-  - bus_a_2
+  - bus_a
 - id: bus_a
   component_id: i2c
   fields:
@@ -488,7 +475,7 @@ featured_components:
     channel: 0
     id: pwm0
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm1
   component_id: output.pca9685
@@ -496,7 +483,7 @@ featured_components:
     channel: 1
     id: pwm1
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm2
   component_id: output.pca9685
@@ -504,7 +491,7 @@ featured_components:
     channel: 2
     id: pwm2
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm3
   component_id: output.pca9685
@@ -512,7 +499,7 @@ featured_components:
     channel: 3
     id: pwm3
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm4
   component_id: output.pca9685
@@ -520,7 +507,7 @@ featured_components:
     channel: 4
     id: pwm4
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm5
   component_id: output.pca9685
@@ -528,7 +515,7 @@ featured_components:
     channel: 5
     id: pwm5
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm6
   component_id: output.pca9685
@@ -536,7 +523,7 @@ featured_components:
     channel: 6
     id: pwm6
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm7
   component_id: output.pca9685
@@ -544,7 +531,7 @@ featured_components:
     channel: 7
     id: pwm7
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm8
   component_id: output.pca9685
@@ -552,7 +539,7 @@ featured_components:
     channel: 8
     id: pwm8
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm9
   component_id: output.pca9685
@@ -560,7 +547,7 @@ featured_components:
     channel: 9
     id: pwm9
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm10
   component_id: output.pca9685
@@ -568,7 +555,7 @@ featured_components:
     channel: 10
     id: pwm10
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm11
   component_id: output.pca9685
@@ -576,7 +563,7 @@ featured_components:
     channel: 11
     id: pwm11
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm12
   component_id: output.pca9685
@@ -584,7 +571,7 @@ featured_components:
     channel: 12
     id: pwm12
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm13
   component_id: output.pca9685
@@ -592,7 +579,7 @@ featured_components:
     channel: 13
     id: pwm13
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm14
   component_id: output.pca9685
@@ -600,7 +587,7 @@ featured_components:
     channel: 14
     id: pwm14
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: pwm15
   component_id: output.pca9685
@@ -608,7 +595,7 @@ featured_components:
     channel: 15
     id: pwm15
   requires:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
 - id: switch_gpio_1
   component_id: switch.gpio
@@ -636,119 +623,119 @@ featured_bundles:
 - id: light_monochromatic_1_setup
   name: Color-LED-1 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm0
   - light_monochromatic_1
 - id: light_monochromatic_2_setup
   name: Color-LED-2 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm1
   - light_monochromatic_2
 - id: light_monochromatic_3_setup
   name: Color-LED-3 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm2
   - light_monochromatic_3
 - id: light_monochromatic_4_setup
   name: Color-LED-4 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm3
   - light_monochromatic_4
 - id: light_monochromatic_5_setup
   name: Color-LED-5 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm4
   - light_monochromatic_5
 - id: light_monochromatic_6_setup
   name: Color-LED-6 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm5
   - light_monochromatic_6
 - id: light_monochromatic_7_setup
   name: Color-LED-7 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm6
   - light_monochromatic_7
 - id: light_monochromatic_8_setup
   name: Color-LED-8 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm7
   - light_monochromatic_8
 - id: light_monochromatic_9_setup
   name: Color-LED-9 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm8
   - light_monochromatic_9
 - id: light_monochromatic_10_setup
   name: Color-LED-10 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm9
   - light_monochromatic_10
 - id: light_monochromatic_11_setup
   name: Color-LED-11 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm10
   - light_monochromatic_11
 - id: light_monochromatic_12_setup
   name: Color-LED-12 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm11
   - light_monochromatic_12
 - id: light_monochromatic_13_setup
   name: Color-LED-13 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm12
   - light_monochromatic_13
 - id: light_monochromatic_14_setup
   name: Color-LED-14 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm13
   - light_monochromatic_14
 - id: light_monochromatic_15_setup
   name: Color-LED-15 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm14
   - light_monochromatic_15
 - id: light_monochromatic_16_setup
   name: Color-LED-16 (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm15
   - light_monochromatic_16
 - id: light_rgbw_1_setup
   name: ap-rgbw (full setup)
   component_ids:
-  - bus_a_2
+  - bus_a
   - pca9685_hub
   - pwm1
   - pwm2

@@ -1815,6 +1815,33 @@ def _chain_bus_deps(
         bus_entry["requires"] = sub_ids
 
 
+def _seed_bus_local(
+    featured: list[dict[str, Any]], components_index: dict[str, dict[str, Any]]
+) -> dict[tuple[str, str | None], str]:
+    """
+    Map already-featured buses so later lifts reuse them instead of duplicating.
+
+    Keyed like ``_ensure_buses`` resolves deps: ``(domain, upstream id)`` for a
+    bus with a locked id, plus ``(domain, None)`` when it is the domain's sole
+    featured bus.
+    """
+    seeded: dict[tuple[str, str | None], str] = {}
+    by_domain: dict[str, list[str]] = {}
+    for entry in featured:
+        domain = entry["component_id"].partition(".")[0]
+        if not _is_bus_dep(domain, components_index):
+            continue
+        raw_id = (entry.get("fields") or {}).get("id")
+        instance = raw_id.get("value") if isinstance(raw_id, dict) else None
+        if isinstance(instance, str):
+            seeded[(domain, instance)] = entry["id"]
+        by_domain.setdefault(domain, []).append(entry["id"])
+    for domain, local_ids in by_domain.items():
+        if len(local_ids) == 1:
+            seeded.setdefault((domain, None), local_ids[0])
+    return seeded
+
+
 def _wire_consumer_requires(
     consumers: list[tuple[dict[str, Any], list[tuple[str, str | None]]]],
     hub_prereqs: dict[tuple[str, str | None], list[str]],
@@ -2003,7 +2030,12 @@ def _materialize_hubs(
     lift and drops a consumer whose hub didn't materialize.
     """
     used_ids = {entry["id"] for entry in featured}
-    state = _LiftState(config=config, components_index=components_index, used_ids=used_ids)
+    state = _LiftState(
+        config=config,
+        components_index=components_index,
+        used_ids=used_ids,
+        bus_local=_seed_bus_local(featured, components_index),
+    )
     # Each materialized hub keyed by its ref, carrying the local id + the bus
     # ids it needs — the ordered prerequisite chain a consumer references.
     hub_prereqs: dict[tuple[str, str | None], list[str]] = {}
@@ -2283,6 +2315,7 @@ def _extract_bus_deps(
         config=config,
         components_index=components_index,
         used_ids={entry["id"] for entry in featured},
+        bus_local=_seed_bus_local(featured, components_index),
     )
     for dep, instance in ordered_refs:
         bus_entry, local, bus_occ = _materialize_bus(dep, instance, state)

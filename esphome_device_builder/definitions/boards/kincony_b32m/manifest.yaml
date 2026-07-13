@@ -92,26 +92,12 @@ featured_components:
     id:
       value: uart_1
       locked: true
-- id: bus_a_2
-  component_id: i2c
-  fields:
-    sda:
-      value: 8
-      locked: true
-    scl:
-      value: 18
-      locked: true
-    scan: true
-    frequency: 400kHz
-    id:
-      value: bus_a
-      locked: true
 - id: ads1115_hub
   component_id: ads1115
   fields:
     address: 72
   requires:
-  - bus_a_2
+  - bus_a
 - id: bus_a
   component_id: i2c
   fields:
@@ -773,7 +759,7 @@ featured_components:
     id: sensor_ads1115_1
     name: ADS1115 Channel A0-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: sensor_ads1115_2
   component_id: sensor.ads1115
@@ -784,7 +770,7 @@ featured_components:
     id: sensor_ads1115_2
     name: ADS1115 Channel A1-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: sensor_ads1115_3
   component_id: sensor.ads1115
@@ -795,7 +781,7 @@ featured_components:
     id: sensor_ads1115_3
     name: ADS1115 Channel A2-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: sensor_ads1115_4
   component_id: sensor.ads1115
@@ -806,7 +792,7 @@ featured_components:
     id: sensor_ads1115_4
     name: ADS1115 Channel A3-GND
   requires:
-  - bus_a_2
+  - bus_a
   - ads1115_hub
 - id: b32_output01
   component_id: switch.gpio
