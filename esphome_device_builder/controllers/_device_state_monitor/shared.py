@@ -8,6 +8,7 @@ monitor reaches sibling sources through ``state`` and through
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.hostname import is_local_hostname
@@ -15,6 +16,8 @@ from ...models import Device, DeviceState, ReachabilitySource
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Source-precedence ledger. An observation can only override the
@@ -94,10 +97,20 @@ async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     ]
     if not candidates:
         return
-    await asyncio.gather(
+    results = await asyncio.gather(
         *(monitor._mdns.resolve_and_claim(d.name) for d in candidates),
         return_exceptions=True,
     )
+    for device, result in zip(candidates, results, strict=True):
+        if isinstance(result, BaseException):
+            # ``resolve_and_claim`` swallows resolve misses itself, so
+            # anything surfacing here is a real bug — don't mask it as
+            # a benign miss.
+            _LOGGER.warning(
+                "Resolve-first mDNS claim for %s raised unexpectedly",
+                device.name,
+                exc_info=result,
+            )
 
 
 async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:

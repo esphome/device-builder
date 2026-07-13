@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -107,6 +108,24 @@ async def test_sweep_skips_ineligible_devices(
     await shared.resolve_api_mdns_targets(monitor)
 
     monitor._mdns.resolve_and_claim.assert_not_called()
+
+
+async def test_sweep_surfaces_unexpected_resolve_errors(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising ``resolve_and_claim`` is logged as a bug, not masked as a benign miss."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    _prime_sweep(monitor)
+    monitor._mdns.resolve_and_claim = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AttributeError("boom")
+    )
+
+    with caplog.at_level(logging.WARNING):
+        await shared.resolve_api_mdns_targets(monitor)
+
+    assert "Resolve-first mDNS claim for kitchen raised unexpectedly" in caplog.text
 
 
 async def test_sweep_without_zeroconf_is_a_noop() -> None:
