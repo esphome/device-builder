@@ -37,6 +37,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -580,6 +581,39 @@ def _hash_content(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _resolve_page_substitutions(parsed: dict[str, Any], folder: str) -> dict[str, Any]:
+    """
+    Resolve the page's own ``substitutions:`` block over the config tree.
+
+    Runs ESPHome's real substitution pass so ``pin: ${open_switch}``-style
+    values extract like literals. Unresolved references stay literal, and
+    any failure returns *parsed* unchanged.
+    """
+    if not isinstance(parsed.get("substitutions"), dict) or not parsed["substitutions"]:
+        return parsed
+    try:
+        from esphome.components.substitutions import do_substitution_pass
+    except ImportError:
+        _LOGGER.debug("esphome unavailable; skipping substitution pass (%s)", folder)
+        return parsed
+    try:
+        resolved = do_substitution_pass(OrderedDict(parsed))
+    except Exception as err:
+        _LOGGER.warning("substitution pass failed for %s: %s", folder, err)
+        return parsed
+    resolved.pop("substitutions", None)
+    return _plain_tree(resolved)
+
+
+def _plain_tree(value: Any) -> Any:
+    """Rebuild dict/list subclasses (``substitute`` emits OrderedDict) as plain builtins."""
+    if isinstance(value, dict):
+        return {k: _plain_tree(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_plain_tree(v) for v in value]
+    return value
+
+
 def _iter_devices(repo: Path) -> Iterator[_DeviceSource]:
     """Walk *repo* and yield one record per usable device page."""
     devices_root = repo / _DEVICES_SUBDIR
@@ -608,7 +642,11 @@ def _iter_devices(repo: Path) -> Iterator[_DeviceSource]:
             frontmatter=frontmatter,
             body=body,
             content_hash=_hash_content(hash_src),
-            config_yaml=config[0] if config is not None else None,
+            config_yaml=(
+                _resolve_page_substitutions(config[0], device_dir.name)
+                if config is not None
+                else None
+            ),
             images=_extract_local_images(body, device_dir),
         )
 
