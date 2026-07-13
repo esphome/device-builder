@@ -127,7 +127,10 @@ jobs:
         # version, so re-stamp boards against the same esphome the align step
         # pinned; otherwise the Test job's ``sync-boards`` pre-commit hook
         # re-stamps it and the opened PR lands red on every esphome patch.
-        run: python script/sync_boards.py
+        # ``--restamp`` because the installed esphome is the freshly-resolved
+        # one while the committed stamp is still the previous version — the
+        # one caller for which that mismatch is the point.
+        run: python script/sync_boards.py --restamp
 
       - name: Validate definitions
         # Re-validate every board (curated + imported) against the JSON Schema

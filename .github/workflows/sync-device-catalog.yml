@@ -86,7 +86,9 @@ jobs:
       - name: Regenerate board catalog
         # The opened PR needs to ship the regenerated catalog
         # alongside the imported manifests — without this, a merge
-        # would land new YAMLs the dashboard never sees.
+        # would land new YAMLs the dashboard never sees. No --restamp:
+        # the pinned install above matches the committed stamp, so the
+        # full-sync guard doubles as a pin/stamp consistency check.
         run: python script/sync_boards.py
 
       - name: Detect device-catalog changes + summarise diff
