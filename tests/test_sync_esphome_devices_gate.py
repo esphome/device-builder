@@ -4,9 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+import script._full_setup_gate as gate  # type: ignore[import-not-found]
 from script._full_setup_gate import (  # type: ignore[import-not-found]
     _apply_drops,
     _map_errors,
+    _validate_record,
 )
 
 
@@ -104,6 +108,27 @@ def test_apply_drops_prunes_entries_bundles_and_requires() -> None:
     assert ids == ["power", "relay", "modbus_bus"]
     assert record["featured_components"][1]["requires"] == ["modbus_bus"]
     assert record["featured_bundles"][0]["component_ids"] == ["power", "relay"]
+
+
+def test_map_errors_tolerates_esphome_tags() -> None:
+    """Generated YAML with ``!lambda`` values still parses for path mapping."""
+    yaml_text = _YAML.replace(
+        "    id: energy\n",
+        "    id: energy\n    filters:\n      - lambda: !lambda 'return x;'\n",
+    )
+    outcome = _map_errors([_Err("bad filter", ["sensor", 0])], yaml_text, _record())
+    assert [local_id for local_id, _ in outcome.drops] == ["energy"]
+
+
+def test_worker_crash_refuses_the_board_not_the_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unexpected worker exception becomes a board-level refusal."""
+    monkeypatch.setattr(
+        gate, "_validate_record_inner", lambda record: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    outcome = _validate_record({"id": "board"})
+    assert outcome is not None
+    assert outcome.drops == []
+    assert "boom" in outcome.errors[0]
 
 
 def test_apply_drops_removes_emptied_bundles() -> None:
