@@ -109,10 +109,11 @@ def test_placeholder_substitution_value_is_dropped_from_names() -> None:
     [
         pytest.param("Спот", "Спот", id="unicode_kept"),
         pytest.param("gosund_sp111 - Status", "gosund_sp111 - Status", id="interior_dash_kept"),
-        pytest.param("Energy Meter kWh +", "Energy Meter kWh", id="trailing_symbol_stripped"),
+        pytest.param("Energy Meter kWh +", "Energy Meter kWh +", id="trailing_symbol_kept"),
+        pytest.param("- - *** Button", "Button", id="leading_run_stripped"),
     ],
 )
-def test_edge_symbol_tokens_only_are_stripped(upstream: str, expected: str) -> None:
+def test_leading_symbol_tokens_only_are_stripped(upstream: str, expected: str) -> None:
     parsed: dict[str, Any] = {
         "substitutions": {"x": "y"},
         "binary_sensor": [{"platform": "gpio", "name": upstream, "pin": 5}],
