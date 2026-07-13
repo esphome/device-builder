@@ -112,6 +112,12 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+          # checkout v7 refuses fork heads under pull_request_target by
+          # default (pwn-request guard). This checkout is the reviewed
+          # exception the opt-in exists for: nothing under pr/ is ever
+          # executed or imported — only the definitions data trees are
+          # consumed, behind the symlink gate below.
+          allow-unsafe-pr-checkout: true
 
       - name: Skip our own regen commit
         id: loop
