@@ -177,29 +177,20 @@ class PingSource:
         for device in monitor._get_devices():
             if not device.address or not shared.should_ping(monitor, device):
                 continue
-            if is_local_hostname(device.address) and monitor.get_cached_addresses(device.address):
-                # zeroconf has this ``.local`` host in its mDNS cache. Ping it
-                # (``_resolve_and_ping`` resolves, then falls back to the cached
-                # address) rather than claiming ONLINE off cache presence: a
-                # stale or reflected cache entry for a dead device would
-                # otherwise latch it ONLINE forever, since ``mdns`` priority
-                # locks out the sweep and there is no browser ``Removed`` for a
-                # cache-only claim (#1776). Routed here ahead of the DNS-failure
-                # branch so a cached lookup failure can't strand a device we
-                # still hold an mDNS address for.
-                pingable.append(device)
-                continue
             if shared.address_resolution_exhausted(monitor, device.address) and (
                 not device.runtime_state.ip_addresses
             ):
-                # The ``.local`` won't resolve and we have no known IP.
+                # The address won't resolve and we have no known IP.
                 # Don't hand the bare hostname to icmplib (it would hammer
                 # the system resolver every sweep). Apply OFFLINE under the
                 # ``ping`` source so a future successful resolve can flip
-                # the device back. A device with a known IP (e.g. from MQTT)
-                # falls through to ``pingable`` and is pinged at that IP.
-                # Sharing the predicate with the reviver's cohort gate keeps
-                # "ping has no target" one definition, not two in lockstep.
+                # the device back. Everything else falls through to
+                # ``pingable``: a zeroconf-cached ``.local`` gets *pinged*
+                # rather than claimed ONLINE off cache presence (a stale or
+                # reflected entry for a dead device would latch it ONLINE
+                # forever, #1776), and a device with a known IP (e.g. from
+                # MQTT) is pinged at that IP. One predicate, shared with
+                # the reviver's cohort gate.
                 monitor.apply(device.name, DeviceState.OFFLINE, "ping")
                 dns_failed.append(device)
                 continue
@@ -241,7 +232,7 @@ class PingSource:
             monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
-    async def ping_once(self, target: str, *, retry: bool = True) -> float | None:
+    async def ping_once(self, target: str, *, retry: bool) -> float | None:
         """
         ICMP *target* once; RTT in ms when alive, ``None`` when unreachable.
 
@@ -249,7 +240,9 @@ class PingSource:
         ``NoRouteToHost``, ``PermissionError``, socket-open failures
         all mean "we tried and couldn't reach this". *retry* re-probes
         a miss with multiple packets so a single dropped ICMP doesn't
-        read as dead on lossy paths (VPN, congested Wi-Fi).
+        read as dead on lossy paths (VPN, congested Wi-Fi). Callers
+        hold ``icmp_concurrency`` — the probe itself doesn't acquire
+        it (the sweep holds one slot across resolve + ping).
         """
         privileged = self._privileged
         try:

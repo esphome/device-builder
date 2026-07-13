@@ -39,6 +39,7 @@ from esphome_device_builder.controllers._device_state_monitor.importable import 
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.controllers._reachability_tracker import ReachabilityTracker
+from esphome_device_builder.helpers.async_ import log_task_exit
 from esphome_device_builder.models import RUNTIME_STATE_FIELD_NAMES, Device, DeviceState
 
 from .conftest import RecordingMonitorCallbacks, stub_async_service_info
@@ -79,6 +80,7 @@ def _make_monitor(
     monitor._mdns = MdnsSource(monitor)
 
     monitor._presence = None  # ping loop runs unconditionally in tests
+    monitor._api_dial_budget = asyncio.Semaphore(1)
     monitor._ping = PingSource(monitor)
     monitor._api_info = ApiInfoSource(monitor)
     monitor._api_reviver = ApiReviverSource(monitor)
@@ -265,7 +267,7 @@ async def test_interface_monitor_done_callback_logs_unexpected_crash(
         await task
 
     with caplog.at_level(logging.ERROR):
-        MdnsSource._log_interface_monitor_exit(task)
+        log_task_exit("Interface monitor", task)
 
     assert "Interface monitor loop crashed" in caplog.text
 
@@ -285,7 +287,7 @@ async def test_interface_monitor_done_callback_silent_on_cancel(
         await task
 
     with caplog.at_level(logging.ERROR):
-        MdnsSource._log_interface_monitor_exit(task)
+        log_task_exit("Interface monitor", task)
 
     assert caplog.text == ""
 

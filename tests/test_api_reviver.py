@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_state_monitor._api_probe import ProbeError
 from esphome_device_builder.controllers._device_state_monitor.api_reviver import (
     _DIAL_FAILURE_COOLDOWN,
     _DIAL_FAILURE_COOLDOWN_MAX,
@@ -368,7 +369,7 @@ async def test_dial_failure_backs_off_with_escalation() -> None:
     assert first < second <= 2 * _DIAL_FAILURE_COOLDOWN
 
     for _ in range(10):
-        src._record_dial_failure(device)
+        src._record_dial_failure((device.name, device.ip))
     assert _cooldown_delta(src, device) <= _DIAL_FAILURE_COOLDOWN_MAX
 
 
@@ -382,6 +383,18 @@ async def test_encrypted_device_without_key_is_not_dialed() -> None:
     assert 0 < _cooldown_delta(src, device) <= _NO_KEY_COOLDOWN
 
 
+async def test_host_side_worker_miss_retries_soon() -> None:
+    """A spawn/timeout blip says nothing about the device; no escalation."""
+    device = make_stuck_offline_device()
+    _monitor, _callbacks, src = _reviver([device])
+    src._run_worker = AsyncMock(side_effect=ProbeError("worker timed out", transient=True))
+
+    await src._sweep()
+
+    assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
+    assert src._cooldown.strikes((device.name, device.ip)) == 0
+
+
 async def test_transient_resolve_failure_retries_soon() -> None:
     """A key/port resolve blip gets the short ICMP-miss cooldown, not the no-key hold."""
     device = make_stuck_offline_device()
@@ -393,6 +406,31 @@ async def test_transient_resolve_failure_retries_soon() -> None:
     src._run_worker.assert_not_called()
     assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
     assert src._cooldown.strikes((device.name, device.ip)) == 0
+
+
+async def test_worker_dials_share_one_monitor_wide_slot() -> None:
+    """Reviver and api_info dials serialize on the global budget, never two subprocesses."""
+    device = make_stuck_offline_device()
+    monitor, _callbacks, src = _reviver([device])
+    in_flight = 0
+    peak = 0
+
+    async def slow_worker(_device: Device, _request: bytes) -> None:
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0)
+        in_flight -= 1
+
+    src._run_worker = slow_worker  # type: ignore[method-assign]
+    monitor._api_info._run_worker = slow_worker  # type: ignore[method-assign]
+
+    await asyncio.gather(
+        src._probe(device, [device.ip]),
+        monitor._api_info._probe(device, [device.ip]),
+    )
+
+    assert peak == 1
 
 
 async def test_dials_are_capped_per_sweep_and_overflow_rolls() -> None:

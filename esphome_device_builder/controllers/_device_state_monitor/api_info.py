@@ -24,7 +24,7 @@ from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
 from ._api_probe import (
     ApiSweepSource,
-    ProbeRequestError,
+    ProbeError,
     api_worker_available,
     apply_worker_info,
 )
@@ -232,7 +232,7 @@ class ApiInfoSource(ApiSweepSource):
             return
         try:
             info = await self._probe(device, addresses) or {}
-        except ProbeRequestError:
+        except ProbeError:
             # Transient vs definitive doesn't change this source's
             # handling — both are one cooldown.
             self._record_failure(device)

@@ -26,8 +26,10 @@ from esphome_device_builder.controllers._device_state_monitor import (
     _api_probe as api_probe_module,
 )
 from esphome_device_builder.controllers._device_state_monitor import api_info as api_info_module
+from esphome_device_builder.controllers._device_state_monitor._api_probe import ProbeError
 from esphome_device_builder.controllers._device_state_monitor.api_info import ApiInfoSource
 from esphome_device_builder.helpers import api_device_info
+from esphome_device_builder.helpers.async_ import log_task_exit
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from esphome_device_builder.models import Device, DeviceState, ReachabilitySource
 
@@ -762,21 +764,32 @@ async def test_run_worker_feeds_request_over_stdin_with_stderr_discarded(monkeyp
     assert kwargs["merge_stderr"] is False
 
 
+async def test_run_worker_returns_none_on_device_side_miss(monkeypatch: Any) -> None:
+    """A worker that ran its protocol but got refused maps to ``None``."""
+    monitor, _ = make_state_monitor_with_callbacks([])
+    _patch_capture(monkeypatch, returncode=1, stdout=b"{}")
+    assert await monitor._api_info._run_worker(make_device(), b"{}") is None
+
+
 @pytest.mark.parametrize(
     "capture_kwargs",
     [
-        pytest.param({"returncode": 1, "stdout": b"{}"}, id="nonzero_exit"),
         pytest.param({"stdout": b""}, id="empty_stdout"),
+        pytest.param({"returncode": 0, "stdout": b"[]"}, id="non_dict_payload"),
         pytest.param({"returncode": None, "timed_out": True}, id="timeout"),
         pytest.param({"stdout": b"not json"}, id="unparsable_stdout"),
         pytest.param({"error": OSError("cannot exec")}, id="spawn_oserror"),
     ],
 )
-async def test_run_worker_returns_none(monkeypatch: Any, capture_kwargs: dict[str, Any]) -> None:
-    """Every non-success worker outcome maps to a missed probe (``None``)."""
+async def test_run_worker_raises_transient_on_host_side_miss(
+    monkeypatch: Any, capture_kwargs: dict[str, Any]
+) -> None:
+    """Host-side misses say nothing about the device; they raise transient."""
     monitor, _ = make_state_monitor_with_callbacks([])
     _patch_capture(monkeypatch, **capture_kwargs)
-    assert await monitor._api_info._run_worker(make_device(), b"{}") is None
+    with pytest.raises(ProbeError) as excinfo:
+        await monitor._api_info._run_worker(make_device(), b"{}")
+    assert excinfo.value.transient
 
 
 async def test_run_worker_propagates_cancellation(monkeypatch: Any) -> None:
@@ -888,7 +901,7 @@ def test_worker_main_writes_json_on_success(monkeypatch: Any, capsys: Any) -> No
 def test_log_task_exit_ignores_cancelled() -> None:
     task = MagicMock()
     task.cancelled.return_value = True
-    DeviceStateMonitor._log_task_exit("API info fallback", task)
+    log_task_exit("API info fallback", task)
     task.exception.assert_not_called()
 
 
@@ -896,7 +909,7 @@ def test_log_task_exit_noop_without_exception() -> None:
     task = MagicMock()
     task.cancelled.return_value = False
     task.exception.return_value = None
-    DeviceStateMonitor._log_task_exit("API info fallback", task)  # must not raise
+    log_task_exit("API info fallback", task)  # must not raise
 
 
 def test_log_task_exit_logs_crash(caplog: Any) -> None:
@@ -904,7 +917,7 @@ def test_log_task_exit_logs_crash(caplog: Any) -> None:
     task.cancelled.return_value = False
     task.exception.return_value = RuntimeError("loop died")
     with caplog.at_level(logging.ERROR):
-        DeviceStateMonitor._log_task_exit("API info fallback", task)
+        log_task_exit("API info fallback", task)
     assert "API info fallback loop crashed" in caplog.text
 
 

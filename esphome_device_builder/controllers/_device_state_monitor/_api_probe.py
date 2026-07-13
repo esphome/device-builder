@@ -87,10 +87,14 @@ class ApiSweepSource:
     async def _probe(self, device: Device, addresses: list[str]) -> dict[str, Any] | None:
         """Build the request and dial once; payload, or ``None`` on a worker miss.
 
-        Raises :class:`ProbeRequestError` when the request can't be built.
+        ``None`` is a device-side rejection (connect/handshake failed);
+        host-side misses raise :class:`ProbeError` instead. The dial
+        holds the monitor-wide budget, so the sources' serial loops
+        can't overlap into concurrent worker spawns.
         """
         request = await build_probe_request(self._monitor, device, addresses)
-        return await self._run_worker(device, request)
+        async with self._monitor._api_dial_budget:
+            return await self._run_worker(device, request)
 
     async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
         """Instance seam over the shared worker runner (tests stub it here)."""
@@ -101,12 +105,13 @@ class ApiSweepSource:
             await asyncio.wait_for(self._wake.wait(), timeout=_INTERVAL)
 
 
-class ProbeRequestError(Exception):
+class ProbeError(Exception):
     """
-    The worker request can't be built; no dial happens.
+    The probe couldn't produce a device-side answer.
 
-    ``transient`` distinguishes a key/port resolve failure (worth a
-    quick retry) from a config declaring Noise encryption with no
+    ``transient`` marks host-side misses worth a quick retry (key/port
+    resolve failure, worker spawn/timeout, garbage worker output);
+    ``False`` marks a config declaring Noise encryption with no
     resolvable key, where nothing changes until the YAML does.
     """
 
@@ -120,9 +125,9 @@ async def build_probe_request(
 ) -> bytes:
     """Resolve key/port and encode the worker request; raise when undialable.
 
-    An undialable device raises :class:`ProbeRequestError` — a
-    plaintext connect without the declared key could only fail the
-    handshake, so no doomed worker is spawned.
+    An undialable device raises :class:`ProbeError` — a plaintext
+    connect without the declared key could only fail the handshake,
+    so no doomed worker is spawned.
     """
     noise_psk, port = "", DEFAULT_API_PORT
     if monitor._resolve_api_connection is not None:
@@ -130,10 +135,10 @@ async def build_probe_request(
             noise_psk, port = await monitor._resolve_api_connection(device.configuration)
         except Exception as exc:
             _LOGGER.debug("API key/port resolve failed for %s; skipping: %s", device.name, exc)
-            raise ProbeRequestError(str(exc), transient=True) from exc
+            raise ProbeError(str(exc), transient=True) from exc
     if device.api_encrypted and not noise_psk:
         _LOGGER.debug("No Native API key resolved for encrypted %s; skipping", device.name)
-        raise ProbeRequestError("no Noise key resolved", transient=False)
+        raise ProbeError("no Noise key resolved", transient=False)
     return dumps(
         {
             "address": addresses[0],
@@ -157,7 +162,14 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
 
 
 async def run_worker(name: str, request: bytes) -> dict[str, Any] | None:
-    """Spawn the device-info worker for device *name*; parsed payload, or ``None``."""
+    """Spawn the device-info worker for *name*; payload, ``None``, or raise.
+
+    ``None`` is a device-side rejection: the worker ran cleanly and the
+    device refused/failed the connect. Host-side misses (spawn failure,
+    subprocess timeout, garbage output) raise a transient
+    :class:`ProbeError` — they say nothing about the device and must
+    not feed its backoff.
+    """
     try:
         result = await run_subprocess_capture(
             sys.executable,
@@ -169,26 +181,30 @@ async def run_worker(name: str, request: bytes) -> dict[str, Any] | None:
         )
     except OSError as exc:
         _LOGGER.debug("Failed to spawn API info worker for %s: %s", name, exc)
-        return None
+        raise ProbeError(f"worker spawn failed: {exc}", transient=True) from exc
     if result.timed_out:
         _LOGGER.debug("API info fetch for %s timed out", name)
-        return None
+        raise ProbeError("worker timed out", transient=True)
     try:
         parsed = loads(result.stdout) if result.stdout else None
-    except (JSONDecodeError, ValueError):
+    except (JSONDecodeError, ValueError) as exc:
         _LOGGER.debug("API info worker for %s emitted unparsable output: %r", name, result.stdout)
-        return None
+        raise ProbeError("unparsable worker output", transient=True) from exc
     # The worker exits 0 with ``{name, mac_address, esphome_version}`` on
     # success and non-zero with ``{"error": <reason>}`` on a connect/
     # handshake failure — surface that reason so the dominant failure mode
     # is diagnosable instead of silently missing.
-    if result.returncode != 0 or not isinstance(parsed, dict):
-        reason = parsed.get("error") if isinstance(parsed, dict) else None
+    if isinstance(parsed, dict):
+        if result.returncode == 0:
+            return parsed
         _LOGGER.debug(
             "API info worker for %s failed (rc=%s): %s",
             name,
             result.returncode,
-            reason or "no usable output",
+            parsed.get("error") or "no usable output",
         )
         return None
-    return parsed
+    # No parseable payload at all: the worker broke its contract, which
+    # says nothing about the device.
+    _LOGGER.debug("API info worker for %s wrote no payload (rc=%s)", name, result.returncode)
+    raise ProbeError("worker wrote no payload", transient=True)

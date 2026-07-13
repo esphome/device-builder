@@ -10,6 +10,14 @@ from typing import Any
 _LOGGER = logging.getLogger(__name__)
 
 
+def log_task_exit(label: str, task: Task[Any]) -> None:
+    """Done-callback surfacing an unexpected loop crash instead of a silent death."""
+    if task.cancelled():
+        return
+    if (exc := task.exception()) is not None:
+        _LOGGER.error("%s loop crashed: %s", label, exc, exc_info=exc)
+
+
 async def drain_tasks(tasks: Iterable[Task[Any]], *, log_exceptions: bool = False) -> None:
     """
     Cancel and await every task in *tasks*, swallowing exceptions.

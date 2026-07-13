@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Mapping
+from functools import partial
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,7 @@ from zeroconf import (
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
+from ...helpers.async_ import log_task_exit
 from ...helpers.hostname import normalize_hostname
 from ...models import DeviceState
 from .._reachability_tracker import MdnsCacheInfo
@@ -126,15 +128,9 @@ class MdnsSource:
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
             self._interface_monitor_task = asyncio.create_task(monitor_interfaces(self._zeroconf))
-            self._interface_monitor_task.add_done_callback(self._log_interface_monitor_exit)
-
-    @staticmethod
-    def _log_interface_monitor_exit(task: asyncio.Task[None]) -> None:
-        """Surface an unexpected interface-monitor crash instead of a silent death."""
-        if task.cancelled():
-            return
-        if (exc := task.exception()) is not None:
-            _LOGGER.error("Interface monitor loop crashed: %s", exc, exc_info=exc)
+            self._interface_monitor_task.add_done_callback(
+                partial(log_task_exit, "Interface monitor")
+            )
 
     async def cancel_browser(self) -> None:
         """

@@ -46,7 +46,7 @@ from ...models import Device, DeviceState
 from . import shared
 from ._api_probe import (
     ApiSweepSource,
-    ProbeRequestError,
+    ProbeError,
     api_worker_available,
     apply_worker_info,
 )
@@ -114,7 +114,7 @@ class ApiReviverSource(ApiSweepSource):
 
     async def _sweep(self) -> None:
         devices = self._monitor._get_devices()
-        self._prune(devices)
+        self._prune()
         candidates = self._select_candidates(devices)
         if not candidates:
             return
@@ -170,27 +170,33 @@ class ApiReviverSource(ApiSweepSource):
         async with self._monitor._ping.icmp_concurrency:
             rtt = await self._monitor._ping.ping_once(device.ip, retry=True)
         if rtt is None:
-            self._cool_down(device, _ICMP_SILENT_COOLDOWN)
+            self._cool_down((device.name, device.ip), _ICMP_SILENT_COOLDOWN)
         return rtt
 
     async def _verify_and_revive(self, device: Device, rtt: float) -> None:
         """One worker dial; revive on identity match, invalidate on mismatch."""
         monitor = self._monitor
+        # Bound up front: the invalidation callback below clears
+        # ``device.ip``, and every cooldown must land on the dialed pair.
+        key = (device.name, device.ip)
         try:
             info = await self._probe(device, [device.ip])
-        except ProbeRequestError as exc:
-            # A transient resolve blip retries as cheaply as an ICMP
+        except ProbeError as exc:
+            # Host-side misses (resolve blip, worker spawn/timeout) say
+            # nothing about the device — retry as cheaply as an ICMP
             # miss; a missing Noise key holds until the YAML changes.
-            self._cool_down(device, _ICMP_SILENT_COOLDOWN if exc.transient else _NO_KEY_COOLDOWN)
+            self._cool_down(key, _ICMP_SILENT_COOLDOWN if exc.transient else _NO_KEY_COOLDOWN)
             return
         if info is None:
-            self._record_dial_failure(device)
+            # The device itself refused/failed the connect — that's what
+            # the escalating backoff is for.
+            self._record_dial_failure(key)
             return
         reported = info.get("name", "")
         if not reported:
             # Connected but no identity — inconclusive, not proof of a
             # different device; never burn the only revival lead on it.
-            self._record_dial_failure(device)
+            self._record_dial_failure(key)
             return
         if reported != device.name:
             # Whatever holds the lease now is a different device; the
@@ -202,12 +208,10 @@ class ApiReviverSource(ApiSweepSource):
                 device.name,
                 reported,
             )
-            # Backoff first — the callback clears ``device.ip``, and the
-            # cooldown must land on the pair that was dialed. It keeps
-            # the stranger un-redialed even when no invalidation
-            # callback is wired; the cleared IP then drops the device
-            # from the cohort entirely.
-            self._record_dial_failure(device)
+            # The backoff keeps the stranger un-redialed even when no
+            # invalidation callback is wired; the cleared IP then drops
+            # the device from the cohort entirely.
+            self._record_dial_failure(key)
             if monitor._on_persisted_ip_invalidated is not None:
                 monitor._on_persisted_ip_invalidated(device.name)
             return
@@ -221,7 +225,7 @@ class ApiReviverSource(ApiSweepSource):
                 mac,
                 persisted_mac,
             )
-            self._record_dial_failure(device)
+            self._record_dial_failure(key)
             return
         self._verified[device.name] = (device.ip, time.monotonic())
         _LOGGER.info(
@@ -246,41 +250,32 @@ class ApiReviverSource(ApiSweepSource):
         shared.apply_ping_result(monitor, name, rtt)
         monitor.probe_device_ping(name)
 
-    def _cool_down(self, device: Device, seconds: float) -> None:
+    def _cool_down(self, key: tuple[str, str], seconds: float) -> None:
         """Skip this ``(name, ip)`` pair until *seconds* from now."""
-        self._cooldown.set((device.name, device.ip), seconds)
+        self._cooldown.set(key, seconds)
 
-    def _record_dial_failure(self, device: Device) -> None:
+    def _record_dial_failure(self, key: tuple[str, str]) -> None:
         """Escalating backoff for a responder that answers ICMP but fails the dial."""
-        self._cooldown.escalate(
-            (device.name, device.ip), _DIAL_FAILURE_COOLDOWN, _DIAL_FAILURE_COOLDOWN_MAX
-        )
+        self._cooldown.escalate(key, _DIAL_FAILURE_COOLDOWN, _DIAL_FAILURE_COOLDOWN_MAX)
 
-    def _prune(self, devices: list[Device]) -> None:
+    def _prune(self) -> None:
         """Drop bookkeeping for gone / recovered / re-IP'd devices.
 
         An ONLINE transition (any source) or a persisted-IP change
         resets the escalating backoff so legitimate recovery isn't
-        delayed by a stale failure streak.
+        delayed by a stale failure streak. Buckets from the name index,
+        not a flat map: duplicate ``esphome.name`` YAMLs are distinct
+        Devices whose persisted IPs can differ.
         """
         if not (self._cooldown or self._verified):
             return
-        # Buckets, not a flat map: duplicate ``esphome.name`` YAMLs (a
-        # config plus a ``foo (1).yaml`` copy) are distinct Devices whose
-        # persisted IPs can differ; a flat map would prune the shadowed
-        # sibling's bookkeeping every sweep.
-        current: dict[str, list[Device]] = {}
-        for device in devices:
-            current.setdefault(device.name, []).append(device)
+        get_bucket = self._monitor._get_devices_by_name
 
         def fresh(key: tuple[str, str]) -> bool:
-            bucket = current.get(key[0])
-            if bucket is None:
-                return False
             return any(
                 device.ip == key[1] and device.runtime_state.state is not DeviceState.ONLINE
-                for device in bucket
+                for device in get_bucket(key[0])
             )
 
         self._cooldown.prune(fresh)
-        self._verified = {n: v for n, v in self._verified.items() if n in current}
+        self._verified = {n: v for n, v in self._verified.items() if get_bucket(n)}

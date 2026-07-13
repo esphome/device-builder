@@ -30,7 +30,7 @@ from typing import Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
-from ...helpers.async_ import create_eager_task, drain_tasks
+from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import (
     RUNTIME_STATE_FIELD_NAMES,
@@ -180,6 +180,10 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         # without a presence gate keep working.
         self._presence = presence
         self._importable = ImportableDiscovery(self)
+        # One Native API worker dial at a time across every API source
+        # (api_info + reviver): each dial spawns an interpreter and
+        # occupies one of a device's scarce API connection slots.
+        self._api_dial_budget = asyncio.Semaphore(1)
         self._mdns = MdnsSource(self)
         self._ping = PingSource(self)
         self._api_info = ApiInfoSource(self)
@@ -190,17 +194,17 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         await self._mdns.start()
         self._ping_task = asyncio.create_task(self._ping.run())
         self._api_info_task = asyncio.create_task(self._api_info.run())
-        self._api_info_task.add_done_callback(partial(self._log_task_exit, "API info fallback"))
+        self._api_info_task.add_done_callback(partial(log_task_exit, "API info fallback"))
         self._api_reviver_task = asyncio.create_task(self._api_reviver.run())
-        self._api_reviver_task.add_done_callback(partial(self._log_task_exit, "API reviver"))
+        self._api_reviver_task.add_done_callback(partial(log_task_exit, "API reviver"))
 
     async def stop(self) -> None:
         """Tear down the browser and drain the ping + API + resolve tasks (bounded)."""
         drain: list[asyncio.Task[Any]] = []
+        # ``drain_tasks`` below owns the cancels.
         for attr in ("_ping_task", "_api_info_task", "_api_reviver_task"):
             task: asyncio.Task | None = getattr(self, attr)
             if task is not None:
-                task.cancel()
                 drain.append(task)
                 setattr(self, attr, None)
         # Cancel the browser FIRST so it stops dispatching new mDNS
@@ -217,14 +221,6 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(drain_tasks(drain), _STOP_DRAIN_TIMEOUT)
         await close
-
-    @staticmethod
-    def _log_task_exit(label: str, task: asyncio.Task) -> None:
-        """Surface an unexpected loop crash instead of letting it die silently."""
-        if task.cancelled():
-            return
-        if (exc := task.exception()) is not None:
-            _LOGGER.error("%s loop crashed: %s", label, exc, exc_info=exc)
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
