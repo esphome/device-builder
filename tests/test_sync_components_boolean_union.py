@@ -1,4 +1,4 @@
-"""Boolean|enum union folding in ``_apply_refined_types`` (#2057)."""
+"""Boolean|enum union folding in ``_apply_refined_types``."""
 
 from __future__ import annotations
 
@@ -62,3 +62,14 @@ def test_merge_skips_boolean_literals_already_present() -> None:
     _apply_refined_types([entry], {("x",): RefinedType("boolean")})
     assert [option["value"] for option in entry["options"]] == ["false", "True", "maybe"]
     assert entry["default_value"] is None
+
+
+def test_bool_default_adopts_the_surviving_option_casing() -> None:
+    entry = {
+        "key": "x",
+        "type": "string",
+        "options": [{"label": "True", "value": "True"}, {"label": "maybe", "value": "maybe"}],
+        "default_value": True,
+    }
+    _apply_refined_types([entry], {("x",): RefinedType("boolean")})
+    assert entry["default_value"] == "True"

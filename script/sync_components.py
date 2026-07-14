@@ -6028,7 +6028,12 @@ def _merge_boolean_union_options(entry: dict) -> None:
         if literal not in present
     ] + options
     if isinstance(entry.get("default_value"), bool):
-        entry["default_value"] = "true" if entry["default_value"] else "false"
+        literal = "true" if entry["default_value"] else "false"
+        entry["default_value"] = next(
+            option["value"]
+            for option in entry["options"]
+            if str(option.get("value")).lower() == literal
+        )
 
 
 def _apply_typed_defaults(

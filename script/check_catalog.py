@@ -336,7 +336,7 @@ def _check_boolean_options_exclusive(catalog: ComponentCatalog) -> list[str]:
 
     The frontend renders any entry with options as a dropdown, so a boolean
     type alongside options means a ``cv.Any(cv.boolean, cv.one_of(...))``
-    union lost its true/false half (``zigbee.wipe_on_boot``, #2057) —
+    union lost its true/false half (``zigbee.wipe_on_boot``) —
     ``_merge_boolean_union_options`` on the sync side should have folded the
     boolean literals into the options instead.
     """
