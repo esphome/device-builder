@@ -1811,6 +1811,25 @@ def test_clear_resolved_addresses_keeps_last_known_ip_and_dedupes() -> None:
     ]
 
 
+def test_apply_ip_for_unknown_name_reports_nothing_applied() -> None:
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, callbacks = _make_monitor([device])
+
+    assert monitor.apply_ip("pantry", "10.0.0.9") is False
+
+    assert callbacks.calls_for("on_ip_change") == []
+
+
+def test_clear_resolved_addresses_without_callback_is_a_noop() -> None:
+    """A monitor built without the callback has nowhere to route the clear."""
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, _callbacks = _make_monitor([device])
+    monitor._on_resolved_addresses_cleared = None
+
+    assert monitor.clear_resolved_addresses("kitchen") is False
+    assert device.runtime_state.ip_addresses == ["10.0.0.1"]
+
+
 @pytest.mark.parametrize(
     "call",
     [
