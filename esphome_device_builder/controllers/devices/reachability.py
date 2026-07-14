@@ -148,10 +148,9 @@ def on_observation(controller: DevicesController, name: str) -> None:
     pushes the snapshot. Not forwarded by the broadcast
     ``subscribe_events`` channel since a per-device freshness
     ping to every connected client would bloat the bus for no
-    UI gain. Skipped entirely with no drawer subscribed — every
-    positive observation (each announce, each ping hit) lands
-    here, and the snapshot walks the zeroconf cache; a subscriber
-    arriving later gets a fresh snapshot from ``send_initial``.
+    UI gain. Skipped entirely with no drawer subscribed; a
+    subscriber arriving later gets a fresh snapshot from
+    ``send_initial``.
     """
     bus = controller._db.bus
     if not bus.has_listeners(EventType.DEVICE_REACHABILITY):

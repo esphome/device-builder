@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_SRV, _TYPE_TXT
 
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import shared
@@ -233,27 +234,36 @@ def test_live_ptr_service_names_snapshots_unexpired_aliases() -> None:
     fake_zeroconf.zeroconf.cache.get_all_by_details.return_value = [live, expired]
 
     assert monitor.mdns.live_ptr_service_names() == {_SERVICE_NAME}
-    fake_zeroconf.zeroconf.cache.get_all_by_details.assert_called_once()
+    fake_zeroconf.zeroconf.cache.get_all_by_details.assert_called_once_with(
+        "_esphomelib._tcp.local.", _TYPE_PTR, _CLASS_IN
+    )
 
     monitor.mdns._zeroconf = None
     assert monitor.mdns.live_ptr_service_names() == set()
 
 
 def test_has_cached_trace_checks_each_record_bucket() -> None:
-    """Any cached record — address, SRV/TXT, or live PTR — counts as a trace."""
+    """Address, SRV, TXT, and live-PTR buckets each independently count as a trace."""
     monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     fake_zeroconf = MagicMock()
     monitor.mdns._zeroconf = fake_zeroconf
     cache = fake_zeroconf.zeroconf.cache
-    cache.get_all_by_details.return_value = []
+    buckets: dict[tuple[str, int], list[Any]] = {}
+    cache.get_all_by_details.side_effect = lambda name, type_, _cls: buckets.get((name, type_), [])
     cache.current_entry_with_name_and_alias.return_value = None
     assert monitor.mdns.has_cached_trace("kitchen") is False
 
-    cache.current_entry_with_name_and_alias.return_value = MagicMock()
-    assert monitor.mdns.has_cached_trace("kitchen") is True
+    for bucket_key in [
+        ("kitchen.local.", _TYPE_A),
+        ("kitchen.local.", _TYPE_AAAA),
+        (_SERVICE_NAME, _TYPE_SRV),
+        (_SERVICE_NAME, _TYPE_TXT),
+    ]:
+        buckets[bucket_key] = [MagicMock()]
+        assert monitor.mdns.has_cached_trace("kitchen") is True, bucket_key
+        buckets.clear()
 
-    cache.current_entry_with_name_and_alias.return_value = None
-    cache.get_all_by_details.return_value = [MagicMock()]
+    cache.current_entry_with_name_and_alias.return_value = MagicMock()
     assert monitor.mdns.has_cached_trace("kitchen") is True
 
     monitor.mdns._zeroconf = None

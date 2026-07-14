@@ -314,11 +314,7 @@ class MdnsSource:
         """
         Snapshot the unexpired esphomelib PTR aliases in the cache.
 
-        One O(cache) pass for sweep-scale callers — zeroconf's
-        per-alias lookup scans every PTR under the type-domain, so
-        N per-device :meth:`has_live_ptr` calls are O(N·cache).
-        Membership key is ``f"{name}.{_ESPHOME_SERVICE_TYPE}"``,
-        the same comparison the per-alias lookup makes.
+        Membership key is ``f"{name}.{_ESPHOME_SERVICE_TYPE}"``.
         """
         if self._zeroconf is None:
             return set()
@@ -335,9 +331,8 @@ class MdnsSource:
         """
         Whether the cache holds any record for *name*, expired included.
 
-        The existence check :meth:`get_mdns_cache_info` callers pay
-        full snapshot construction for — same record gathering, no
-        decode or allocation. Keep the two in lockstep.
+        Same record buckets as :meth:`get_mdns_cache_info`; keep the
+        two in lockstep.
         """
         if self._zeroconf is None:
             return False

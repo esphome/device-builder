@@ -60,8 +60,7 @@ def should_ping(
     have a path to come online via DNS + ping.
 
     Sweep-scale callers pass one
-    :meth:`MdnsSource.live_ptr_service_names` snapshot as
-    *live_ptrs* so N devices don't pay N O(cache) PTR scans.
+    :meth:`MdnsSource.live_ptr_service_names` snapshot as *live_ptrs*.
     """
     if device.runtime_state.state != DeviceState.ONLINE:
         return True
@@ -162,6 +161,7 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     zeroconf = monitor.mdns.zeroconf
     if zeroconf is None:
         return
+    live_ptrs = monitor.mdns.live_ptr_service_names()
     candidates = [
         d
         for d in monitor._get_devices()
@@ -169,7 +169,7 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
         and is_local_hostname(d.address)
         and d.loaded_integrations
         and "api" not in d.loaded_integrations
-        and should_ping(monitor, d)
+        and should_ping(monitor, d, live_ptrs)
     ]
     if not candidates:
         return
