@@ -435,12 +435,7 @@ class MdnsSource:
             return
         if verdict:
             return
-        monitor = self._monitor
-        monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
-        monitor.clear_resolved_addresses(device_name)
-        monitor.forget(device_name)
-        if monitor.state.reachability is not None:
-            monitor.state.reachability.clear(device_name)
+        self._monitor.confirmed_offline(device_name, "mdns")
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """

@@ -266,6 +266,19 @@ class DeviceStateMonitor(TaskControllerBase):
         if old is not None:
             self._emit_source_change(name, old, ReachabilitySource.UNKNOWN)
 
+    def confirmed_offline(self, name: str, source: str) -> None:
+        """
+        Tear down every per-name ledger after *source* confirms *name* is gone.
+
+        OFFLINE applied under *source*, resolved addresses dropped,
+        precedence ledger forgotten, per-signal freshness cleared.
+        """
+        self.apply(name, DeviceState.OFFLINE, source)
+        self.clear_resolved_addresses(name)
+        self.forget(name)
+        if self.state.reachability is not None:
+            self.state.reachability.clear(name)
+
     def _emit_source_change(self, name: str, old: str, new: str) -> None:
         """Notify the owner when *name*'s authoritative source actually flips."""
         if self._on_source_change is not None and old != new:

@@ -1830,6 +1830,40 @@ def test_clear_resolved_addresses_without_callback_is_a_noop() -> None:
     assert device.runtime_state.ip_addresses == ["10.0.0.1"]
 
 
+def test_confirmed_offline_tears_down_every_per_name_ledger() -> None:
+    """OFFLINE under the source, addresses cleared, ledger forgotten, freshness cleared."""
+    device = _device(state=DeviceState.ONLINE, ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, callbacks = _make_monitor([device])
+    tracker = ReachabilityTracker()
+    monitor.state.reachability = tracker
+    tracker.observe("kitchen", "ping")
+    monitor.state.state_source["kitchen"] = "mdns"
+
+    monitor.confirmed_offline("kitchen", "mdns")
+
+    assert callbacks.calls_for("on_state_change") == [
+        ("on_state_change", "kitchen", DeviceState.OFFLINE, "mdns"),
+    ]
+    assert callbacks.calls_for("on_resolved_addresses_cleared") == [
+        ("on_resolved_addresses_cleared", "kitchen"),
+    ]
+    assert monitor.state.state_source == {}
+    snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
+    assert snap["ping_last_seen_seconds_ago"] is None
+
+
+def test_confirmed_offline_without_tracker_is_guarded() -> None:
+    """No reachability tracker wired → the teardown still runs without raising."""
+    device = _device(state=DeviceState.ONLINE, ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, _callbacks = _make_monitor([device])
+    monitor.state.state_source["kitchen"] = "mdns"
+
+    monitor.confirmed_offline("kitchen", "mdns")
+
+    assert device.runtime_state.state is DeviceState.OFFLINE
+    assert monitor.state.state_source == {}
+
+
 @pytest.mark.parametrize(
     "call",
     [
