@@ -417,6 +417,21 @@ def test_observation_fires_bus_event_for_known_device(
     assert fired[0].data["ping_last_seen_seconds_ago"] is not None
 
 
+def test_observation_with_no_subscriber_skips_snapshot_build(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """With no drawer listening, the observation short-circuits before the cache walk."""
+    controller = make_controller(tmp_path)
+    bus = EventBus()
+    _seed_device(controller)
+    tracker = _wire_reachability(controller, ReachabilityTracker(), bus, wire_callback=True)
+    controller._build_reachability_snapshot = MagicMock()  # type: ignore[method-assign]
+
+    tracker.observe("kitchen", "ping")
+
+    controller._build_reachability_snapshot.assert_not_called()
+
+
 def test_observation_for_deleted_device_is_dropped(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

@@ -15,11 +15,12 @@ import logging
 from collections.abc import Callable, Mapping
 from functools import partial
 from operator import attrgetter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
 from zeroconf import (
     AddressResolver,
+    DNSPointer,
     DNSRecord,
     IPVersion,
     ServiceStateChange,
@@ -27,7 +28,7 @@ from zeroconf import (
     millis_to_seconds,
 )
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
-from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_SRV, _TYPE_TXT
 
 from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
@@ -308,6 +309,47 @@ class MdnsSource:
     def has_live_ptr(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired esphomelib PTR for *device_name*."""
         return self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}") is not None
+
+    def live_ptr_service_names(self) -> set[str]:
+        """
+        Snapshot the unexpired esphomelib PTR aliases in the cache.
+
+        One O(cache) pass for sweep-scale callers — zeroconf's
+        per-alias lookup scans every PTR under the type-domain, so
+        N per-device :meth:`has_live_ptr` calls are O(N·cache).
+        Membership key is ``f"{name}.{_ESPHOME_SERVICE_TYPE}"``,
+        the same comparison the per-alias lookup makes.
+        """
+        if self._zeroconf is None:
+            return set()
+        now_ms = current_time_millis()
+        return {
+            cast(DNSPointer, record).alias
+            for record in self._zeroconf.zeroconf.cache.get_all_by_details(
+                _ESPHOME_SERVICE_TYPE, _TYPE_PTR, _CLASS_IN
+            )
+            if not record.is_expired(now_ms)
+        }
+
+    def has_cached_trace(self, name: str) -> bool:
+        """
+        Whether the cache holds any record for *name*, expired included.
+
+        The existence check :meth:`get_mdns_cache_info` callers pay
+        full snapshot construction for — same record gathering, no
+        decode or allocation. Keep the two in lockstep.
+        """
+        if self._zeroconf is None:
+            return False
+        if self._get_address_records(name):
+            return True
+        cache = self._zeroconf.zeroconf.cache
+        service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
+        return bool(
+            cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN)
+            or cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN)
+            or self._cached_ptr(service_name) is not None
+        )
 
     def probe_device(self, device_name: str, service_name: str | None = None) -> None:
         """

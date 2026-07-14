@@ -56,3 +56,15 @@ def test_fire_logs_and_continues_when_listener_raises(
         and rec.exc_info is not None
         for rec in caplog.records
     ), [rec.message for rec in caplog.records]
+
+
+def test_has_listeners_tracks_subscribe_and_unsubscribe() -> None:
+    """The accessor flips with the listener set so hot paths can gate event construction."""
+    bus = EventBus()
+    assert bus.has_listeners(EventType.DEVICE_REACHABILITY) is False
+
+    unsubscribe = bus.add_listener(EventType.DEVICE_REACHABILITY, lambda _event: None)
+    assert bus.has_listeners(EventType.DEVICE_REACHABILITY) is True
+
+    unsubscribe()
+    assert bus.has_listeners(EventType.DEVICE_REACHABILITY) is False

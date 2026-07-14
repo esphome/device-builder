@@ -69,6 +69,10 @@ class EventBus:
         self._listeners.setdefault(event_type, set()).add(listener)
         return partial(self._remove_listener, event_type, listener)
 
+    def has_listeners(self, event_type: EventType) -> bool:
+        """Whether any listener is currently subscribed to *event_type*."""
+        return bool(self._listeners.get(event_type))
+
     def _remove_listener(self, event_type: EventType, listener: _ListenerCallback) -> None:
         self._listeners.get(event_type, set()).discard(listener)
 

@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING
 
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
+from .helpers import _ESPHOME_SERVICE_TYPE
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -42,7 +44,11 @@ _MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 ICMP_BATCH_SIZE = 24
 
 
-def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
+def should_ping(
+    monitor: DeviceStateMonitor,
+    device: Device,
+    live_ptrs: AbstractSet[str] | None = None,
+) -> bool:
     """
     Decide whether *device* needs an ICMP probe this sweep.
 
@@ -52,17 +58,21 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     fire for it), which stays sweep-eligible. OFFLINE / UNKNOWN
     devices always get pinged so off-network hosts mDNS can't reach
     have a path to come online via DNS + ping.
+
+    Sweep-scale callers pass one
+    :meth:`MdnsSource.live_ptr_service_names` snapshot as
+    *live_ptrs* so N devices don't pay N O(cache) PTR scans.
     """
     if device.runtime_state.state != DeviceState.ONLINE:
         return True
     source = monitor.state.state_source.get(device.name, ReachabilitySource.UNKNOWN)
     if _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]:
         return True
-    return (
-        source == ReachabilitySource.MDNS
-        and device.api_enabled
-        and not monitor.mdns.has_live_ptr(device.name)
-    )
+    if source != ReachabilitySource.MDNS or not device.api_enabled:
+        return False
+    if live_ptrs is not None:
+        return f"{device.name}.{_ESPHOME_SERVICE_TYPE}" not in live_ptrs
+    return not monitor.mdns.has_live_ptr(device.name)
 
 
 def apply_ping_result(monitor: DeviceStateMonitor, name: str, rtt_ms: float | None) -> None:
@@ -121,13 +131,14 @@ async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     """
     if monitor.mdns.zeroconf is None:
         return
+    live_ptrs = monitor.mdns.live_ptr_service_names()
     claims = [
         _resolve_and_claim_logged(monitor, d)
         for d in monitor._get_devices()
         if d.api_enabled
         and d.runtime_state.state is DeviceState.ONLINE
-        and should_ping(monitor, d)
-        and monitor.mdns.get_mdns_cache_info(d.name) is not None
+        and should_ping(monitor, d, live_ptrs)
+        and monitor.mdns.has_cached_trace(d.name)
     ]
     # The common case is a single stuck device — don't pay for a gather.
     if len(claims) == 1:

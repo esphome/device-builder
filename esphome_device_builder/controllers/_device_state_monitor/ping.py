@@ -174,8 +174,9 @@ class PingSource(SweepSource):
         pingable: list[Device] = []
         dns_failed: list[Device] = []
         monitor = self._monitor
+        live_ptrs = monitor.mdns.live_ptr_service_names()
         for device in monitor._get_devices():
-            if not device.address or not shared.should_ping(monitor, device):
+            if not device.address or not shared.should_ping(monitor, device, live_ptrs):
                 continue
             if shared.sweep_has_no_target(monitor, device):
                 # The address won't resolve and we have no known IP.
