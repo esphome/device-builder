@@ -3118,8 +3118,6 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
-    if default_value is None:
-        default_value = _enum_default(raw)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
         and default_value is not None
@@ -3626,23 +3624,18 @@ def _build_id_entry(key: str, raw: dict, *, required: bool = False) -> dict:
     }
 
 
-_DEFAULT_MARKER_TAIL_RE = re.compile(r"\s*\*\(default\)\*\s*$")
-_DEFAULT_MARKER_HEAD_RE = re.compile(r"^\(default\)[\s:.]*", re.IGNORECASE)
-_DEFAULT_MARKER_BARE_RE = re.compile(r"\(?default\)?\.?", re.IGNORECASE)
+# The three upstream default-marker idioms: a trailing ``*(default)*``,
+# a leading ``(Default)``, or docs that are nothing but ``Default``.
+_DEFAULT_MARKER_RE = re.compile(
+    r"\s*\*\(default\)\*\s*$|^\(default\)[\s:.]*|^\(?default\)?\.?$", re.IGNORECASE
+)
 
 
 def _split_default_marker(docs: str) -> tuple[str, bool]:
-    """
-    Strip the docs' default-marker idioms, reporting whether one was present.
-
-    Upstream spells the marker three ways: a trailing ``*(default)*``,
-    a leading ``(Default)``, or docs that are nothing but ``Default``.
-    """
-    if _DEFAULT_MARKER_BARE_RE.fullmatch(docs.strip()):
-        return "", True
-    stripped = _DEFAULT_MARKER_TAIL_RE.sub("", docs)
-    stripped = _DEFAULT_MARKER_HEAD_RE.sub("", stripped)
-    return stripped.strip(), stripped != docs
+    """Strip any default-marker idiom, reporting whether one was present."""
+    docs = docs.strip()
+    stripped = _DEFAULT_MARKER_RE.sub("", docs).strip()
+    return stripped, stripped != docs
 
 
 # Docs longer than a dropdown row can't work as a label even without
@@ -3657,12 +3650,7 @@ def _is_sentence_docs(docs: str) -> bool:
 
 
 def _enum_default(raw: dict) -> str | None:
-    """
-    Resolve the schema-marked default among an enum's values.
-
-    Reads the per-value ``default: true`` flag, falling back to a
-    trailing ``*(default)*`` marker in the value's docs.
-    """
+    """Resolve the schema-marked default among an enum's values."""
     values = raw.get("values")
     if not isinstance(values, dict):
         return None
@@ -3678,9 +3666,8 @@ def _build_options(raw: dict) -> list[dict] | None:
     """
     Build a list of ``{label, value[, description]}`` dicts from a schema's enum values.
 
-    A value's docs become its label when they read as a label;
-    sentence prose lands in ``description`` so the dropdown still
-    names the value the YAML will get.
+    Label-like docs replace the label; sentence prose lands in
+    ``description``.
     """
     values = raw.get("values")
     if not isinstance(values, dict):
@@ -3693,7 +3680,7 @@ def _build_options(raw: dict) -> list[dict] | None:
             if info.get("docs"):
                 docs, _ = _split_default_marker(info["docs"])
                 if _is_sentence_docs(docs):
-                    option["description"] = docs
+                    option["description"] = _clean_description_text(docs)
                 elif docs:
                     option["label"] = docs
             # variant_enum: each value carries the variants that accept it;
@@ -3721,8 +3708,9 @@ def _coerce_default(value: Any) -> Any:
 def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
     """Resolve ``(default_value, depends_on_component)`` for a field.
 
-    Reads ``default_with`` (``cv.OnlyWith``, esphome/esphome#16276)
-    in preference to plain ``default``. ``default_without``
+    Precedence: ``default_with`` (``cv.OnlyWith``,
+    esphome/esphome#16276), then plain ``default``, then an enum
+    value marked default (:func:`_enum_default`). ``default_without``
     (``cv.OnlyWithout``) has inverse-gate semantics that
     ``depends_on_component`` can't model — no default surfaces for
     those fields. Multi-component ``default_with`` picks the first
@@ -3740,7 +3728,10 @@ def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
                 components[0],
             )
         return _coerce_default(gated.get("value")), components[0] if components else None
-    return _coerce_default(raw.get("default")), None
+    default = _coerce_default(raw.get("default"))
+    if default is None:
+        default = _enum_default(raw)
+    return default, None
 
 
 def _reference_namespace(qualified: str) -> str | None:

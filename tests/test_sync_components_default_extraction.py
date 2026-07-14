@@ -30,6 +30,22 @@ def test_no_default_returns_pair_of_nones() -> None:
     assert _extract_default({"key": "Optional"}) == (None, None)
 
 
+def test_field_default_wins_over_enum_marker() -> None:
+    raw = {"default": "b", "values": {"a": {"default": True}, "b": None}}
+    assert _extract_default(raw) == ("b", None)
+
+
+def test_enum_marker_is_the_last_fallback() -> None:
+    assert _extract_default({"values": {"a": {"default": True}, "b": None}}) == ("a", None)
+    assert _extract_default({"values": {"a": {"docs": "First. *(default)*"}}}) == ("a", None)
+
+
+def test_gated_default_never_pairs_with_an_enum_marker() -> None:
+    """A ``default_with`` gate resolves alone; the enum marker can't ride its gate."""
+    raw = {"default_with": {"components": ["wifi"]}, "values": {"a": {"default": True}}}
+    assert _extract_default(raw) == (None, "wifi")
+
+
 def test_default_with_single_component_returns_value_and_gate() -> None:
     """``default_with`` with one component → gated default."""
     raw = {"default_with": {"value": "True", "components": ["wifi"]}}

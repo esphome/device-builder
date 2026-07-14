@@ -17,6 +17,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _build_options,
     _enum_default,
     _psram_static_fields,
+    _split_default_marker,
     _variant_enum_map,
 )
 
@@ -72,13 +73,24 @@ def test_build_options_sentence_docs_become_description() -> None:
     ]
 
 
-def test_build_options_strips_default_marker_from_docs() -> None:
-    """A trailing ``*(default)*`` never reaches the label or description."""
+def test_split_default_marker_strips_each_idiom() -> None:
+    assert _split_default_marker("Normal operation. *(default)*") == ("Normal operation.", True)
+    assert _split_default_marker("(Default) Attempt to restore.") == ("Attempt to restore.", True)
+    assert _split_default_marker("Default") == ("", True)
+    assert _split_default_marker("default") == ("", True)
+    assert _split_default_marker("(Default)") == ("", True)
+    assert _split_default_marker("Left channel data.") == ("Left channel data.", False)
+    assert _split_default_marker("") == ("", False)
+
+
+def test_build_options_never_ships_marker_text() -> None:
+    """Marker-bearing docs lose the marker; marker-only docs leave the value as label."""
     options = _build_options(
         {
             "values": {
                 "NORMAL": {"docs": "Normal operation, sends ACK signals. *(default)*"},
                 "SHORT": {"docs": "Short label *(default)*"},
+                "BARE": {"docs": "Default"},
             }
         }
     )
@@ -89,6 +101,7 @@ def test_build_options_strips_default_marker_from_docs() -> None:
             "description": "Normal operation, sends ACK signals.",
         },
         {"label": "Short label", "value": "SHORT"},
+        {"label": "BARE", "value": "BARE"},
     ]
 
 
@@ -99,41 +112,23 @@ def test_build_options_overlong_docs_become_description() -> None:
     assert options == [{"label": "outlet", "value": "outlet", "description": truncated}]
 
 
-def test_build_options_marker_only_docs_keep_value_label() -> None:
-    """Docs that are nothing but a default marker leave the value as the label."""
+def test_build_options_flattens_markdown_in_descriptions() -> None:
     options = _build_options(
-        {
-            "values": {
-                "a": {"docs": "*(default)*"},
-                "b": {"docs": "Default"},
-                "c": {"docs": "(Default)"},
-                "d": None,
-            }
-        }
-    )
-    assert options == [{"label": v, "value": v} for v in "abcd"]
-
-
-def test_build_options_strips_leading_default_marker() -> None:
-    """A ``(Default)`` prefix never reaches the description."""
-    options = _build_options(
-        {"values": {"RESTORE_DEFAULT_ZERO": {"docs": "(Default) Attempt to restore state."}}}
+        {"values": {"HEAT": {"docs": "The heating power supplied to the `heat_output`."}}}
     )
     assert options == [
         {
-            "label": "RESTORE_DEFAULT_ZERO",
-            "value": "RESTORE_DEFAULT_ZERO",
-            "description": "Attempt to restore state.",
+            "label": "HEAT",
+            "value": "HEAT",
+            "description": "The heating power supplied to the heat_output.",
         }
     ]
 
 
 def test_enum_default_reads_flag_and_docs_markers() -> None:
-    """Per-value ``default: true`` wins; each docs-marker idiom is a fallback; else None."""
+    """Per-value ``default: true`` and the docs marker both mark; else None."""
     assert _enum_default({"values": {"basic": {"default": True}, "digest": None}}) == "basic"
-    assert _enum_default({"values": {"a": {"docs": "First. *(default)*"}, "b": None}}) == "a"
     assert _enum_default({"values": {"a": None, "b": {"docs": "Default"}}}) == "b"
-    assert _enum_default({"values": {"a": {"docs": "(Default) Restore."}, "b": None}}) == "a"
     assert _enum_default({"values": {"a": None, "b": None}}) is None
     assert _enum_default({"values": "not-a-dict"}) is None
 
