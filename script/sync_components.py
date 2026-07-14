@@ -6004,9 +6004,31 @@ def _apply_refined_types(
             if not entry.get("config_entries"):
                 entry["type"] = "unknown"
         elif entry.get("type") == "string":
-            entry["type"] = new_type.type
+            if new_type.type == "boolean" and entry.get("options"):
+                _merge_boolean_union_options(entry)
+            else:
+                entry["type"] = new_type.type
 
     _walk_catalog_entries(entries, visit)
+
+
+def _merge_boolean_union_options(entry: dict) -> None:
+    """Fold a boolean refinement into an options entry instead of retyping it.
+
+    A ``cv.Any(cv.boolean, cv.one_of(...))`` union reaches the schema bundle
+    as an enum of only the non-boolean values (``zigbee.wipe_on_boot``'s
+    ``once``); surface ``true``/``false`` as options beside them so the
+    dropdown can express every accepted value.
+    """
+    options = entry.get("options") or []
+    present = {str(option.get("value")).lower() for option in options}
+    entry["options"] = [
+        {"label": literal, "value": literal}
+        for literal in ("true", "false")
+        if literal not in present
+    ] + options
+    if isinstance(entry.get("default_value"), bool):
+        entry["default_value"] = "true" if entry["default_value"] else "false"
 
 
 def _apply_typed_defaults(

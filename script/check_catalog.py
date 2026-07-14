@@ -198,6 +198,7 @@ def main() -> int:  # noqa: C901
     failures.extend(_check_option_lists(catalog))
     failures.extend(_check_component_gating(catalog))
     failures.extend(_check_no_field_bullet_descriptions(catalog))
+    failures.extend(_check_boolean_options_exclusive(catalog))
 
     if failures:
         print(f"FAIL: {len(failures)} catalog regression(s):")
@@ -209,7 +210,8 @@ def main() -> int:  # noqa: C901
     print(
         f"OK: {len(_EXPECTATIONS)} components, {field_count} fields, "
         f"{len(_OPTION_EXPECTATIONS)} option lists, "
-        f"{len(_GATING_EXPECTATIONS)} gating rules verified."
+        f"{len(_GATING_EXPECTATIONS)} gating rules, "
+        "boolean/options exclusivity verified."
     )
     return 0
 
@@ -326,6 +328,32 @@ def _check_component_gating(catalog: ComponentCatalog) -> list[str]:
                 f"{cid}.{path}: depends_on_component expected {gate!r}, "
                 f"got {entry.depends_on_component!r}"
             )
+    return failures
+
+
+def _check_boolean_options_exclusive(catalog: ComponentCatalog) -> list[str]:
+    """Fail on any entry typed ``boolean`` that also carries an option list.
+
+    The frontend renders any entry with options as a dropdown, so a boolean
+    type alongside options means a ``cv.Any(cv.boolean, cv.one_of(...))``
+    union lost its true/false half (``zigbee.wipe_on_boot``, #2057) —
+    ``_merge_boolean_union_options`` on the sync side should have folded the
+    boolean literals into the options instead.
+    """
+    failures: list[str] = []
+
+    def walk(cid: str, entries: list[Any], prefix: str) -> None:
+        for entry in entries:
+            path = f"{prefix}{entry.key}"
+            if str(entry.type) == "boolean" and entry.options:
+                failures.append(f"{cid}.{path}: boolean entry carries an options list")
+            if entry.config_entries:
+                walk(cid, entry.config_entries, f"{path}.")
+
+    for cid in catalog._by_id:
+        component = _load_body_from_disk(cid)
+        if component is not None and component.config_entries:
+            walk(cid, component.config_entries, "")
     return failures
 
 
