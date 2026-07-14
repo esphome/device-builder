@@ -717,10 +717,13 @@ _FIELD_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
 # running the sync. ``esphome.compile_process_limit`` is
 # ``cv.int_range(min=1, max=get_usable_cpu_count())`` upstream, so the
 # walked bound is the sync runner's core count, not the user's compile
-# host, and churns between regens on different hardware. Ship these
+# host, and churns between regens on different hardware. The wire
+# ``range`` is a closed pair with no min-only form, so these ship fully
 # unbounded; upstream validates against the real count at compile time.
-_MACHINE_DERIVED_RANGE_FIELDS: dict[str, frozenset[tuple[str, ...]]] = {
-    "esphome": frozenset({("compile_process_limit",)}),
+# Keyed on the bare introspection id (``stem if domain else top_key``),
+# so an entry for a platform stem applies across every domain sharing it.
+_MACHINE_DERIVED_RANGE_FIELDS: set[tuple[str, tuple[str, ...]]] = {
+    ("esphome", ("compile_process_limit",)),
 }
 
 # UART ``bus_constraints`` the schema can't express, filled into the captured
@@ -7230,10 +7233,19 @@ def _drop_machine_derived_ranges(
     field_ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
 ) -> dict[tuple[str, ...], tuple[int | float, int | float]]:
     """Strip bounds the sync runner's hardware chose (``_MACHINE_DERIVED_RANGE_FIELDS``)."""
-    machine_derived = _MACHINE_DERIVED_RANGE_FIELDS.get(component_id)
-    if not machine_derived:
+    denylisted = {path for owner, path in _MACHINE_DERIVED_RANGE_FIELDS if owner == component_id}
+    if not denylisted:
         return field_ranges
-    return {path: bounds for path, bounds in field_ranges.items() if path not in machine_derived}
+    for path in denylisted - field_ranges.keys():
+        # Same staleness posture as the disjoint-range warning: surface
+        # a curated entry upstream no longer justifies.
+        _LOGGER.warning(
+            "machine-derived range entry %s.%s no longer walks a bound; "
+            "drop it from _MACHINE_DERIVED_RANGE_FIELDS",
+            component_id,
+            ".".join(path),
+        )
+    return {path: bounds for path, bounds in field_ranges.items() if path not in denylisted}
 
 
 def _platform_field_keys(platform_manifests: list[Any]) -> set[tuple[str, ...]]:

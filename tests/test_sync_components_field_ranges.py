@@ -43,7 +43,12 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _collect_field_ranges,
     _numeric_range_bounds,
     _platform_field_keys,
+    _walk_entries,
     introspect_component,
+)
+
+_BODIES_DIR = (
+    Path(__file__).resolve().parent.parent / "esphome_device_builder" / "definitions" / "components"
 )
 
 
@@ -370,14 +375,7 @@ def test_compile_process_limit_range_is_dropped_as_machine_derived() -> None:
 
 def test_committed_catalog_ships_machine_derived_fields_unbounded() -> None:
     """No committed body carries a bound the sync runner's hardware chose."""
-    components_dir = Path(__file__).parent.parent / (
-        "esphome_device_builder/definitions/components"
-    )
-    for component_id, paths in _MACHINE_DERIVED_RANGE_FIELDS.items():
-        body = json.loads((components_dir / f"{component_id}.json").read_text())
-        for path in paths:
-            entries = body["config_entries"]
-            for key in path[:-1]:
-                entries = next(e for e in entries if e["key"] == key)["config_entries"]
-            entry = next(e for e in entries if e["key"] == path[-1])
-            assert entry.get("range") is None, (component_id, path)
+    for component_id, path in _MACHINE_DERIVED_RANGE_FIELDS:
+        body = json.loads((_BODIES_DIR / f"{component_id}.json").read_text(encoding="utf-8"))
+        entries_by_path = dict(_walk_entries(body["config_entries"]))
+        assert entries_by_path[path].get("range") is None, (component_id, path)
