@@ -473,11 +473,12 @@ async def _drain_tracked_tasks(monitor: DeviceStateMonitor) -> None:
         await asyncio.gather(*list(monitor._tasks), return_exceptions=True)
 
 
-async def test_dispatch_removed_event_flips_offline_clears_ip(
+async def test_dispatch_removed_event_flips_offline_keeps_last_known_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``Removed`` whose verify-resolve misses flips OFFLINE, clears IP, drops source slot."""
+    """A confirmed ``Removed`` flips OFFLINE and clears the resolved set; ``ip`` survives."""
     device = _device(state=DeviceState.ONLINE, ip="10.0.0.1")
+    device.runtime_state.ip_addresses = ["10.0.0.1"]
     monitor, _callbacks = _make_monitor([device])
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
@@ -491,7 +492,8 @@ async def test_dispatch_removed_event_flips_offline_clears_ip(
         )
         await _drain_tracked_tasks(monitor)
         assert device.runtime_state.state == DeviceState.OFFLINE
-        assert device.ip == ""
+        assert device.ip == "10.0.0.1"
+        assert device.runtime_state.ip_addresses == []
         assert "kitchen" not in monitor.state.state_source
     finally:
         await _stop_and_drain(monitor)
@@ -1791,6 +1793,24 @@ def test_apply_ip_short_circuits_when_value_unchanged() -> None:
     monitor.apply_ip("kitchen", "10.0.0.1")
 
     assert callbacks.calls_for("on_ip_change") == []
+
+
+def test_apply_ip_empty_clears_only_the_resolved_set() -> None:
+    """The clear op drops ``ip_addresses`` and keeps the last-known ``ip``.
+
+    A repeat clear dedupes on the resolved set alone — comparing the
+    retained ``ip`` against the empty primary would re-fire
+    DEVICE_UPDATED on every confirmed ``Removed`` forever.
+    """
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, callbacks = _make_monitor([device])
+
+    assert monitor.apply_ip("kitchen", "") is True
+    assert device.ip == "10.0.0.1"
+    assert device.runtime_state.ip_addresses == []
+
+    assert monitor.apply_ip("kitchen", "") is False
+    assert callbacks.calls_for("on_ip_change") == [("on_ip_change", "kitchen", "", [])]
 
 
 def test_apply_ip_addresses_fires_when_list_changes_but_primary_does_not() -> None:

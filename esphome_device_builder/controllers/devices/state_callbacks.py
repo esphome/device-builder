@@ -91,9 +91,19 @@ def on_source_change(controller: DevicesController, name: str, source: Reachabil
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:
     """Forward IP updates onto the event bus and persist the primary value.
 
-    ``ip=""`` (empty *addresses*) keeps the last-known primary
-    on disk so the OTA address cache survives offline windows.
+    ``ip=""`` (empty *addresses*) clears only the resolved set;
+    ``device.ip`` keeps the last-known primary in RAM and on disk, so
+    the OTA address cache survives offline windows and the api_reviver
+    can repair a device whose mDNS died mid-process (issue #2029).
     """
+    if not ip:
+        for device in controller._devices_by_name(name):
+            if not device.runtime_state.ip_addresses:
+                continue
+            device.runtime_state.ip_addresses = []
+            _LOGGER.debug("Device %s (%s) IPs: (cleared)", name, device.configuration)
+            controller._fire_device_updated(device)
+        return
     new_addresses = list(addresses)
     for device in controller._devices_by_name(name):
         if device.ip == ip and device.runtime_state.ip_addresses == new_addresses:
@@ -105,9 +115,9 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
             "Device %s (%s) IPs: %s",
             name,
             device.configuration,
-            ", ".join(new_addresses) or "(cleared)",
+            ", ".join(new_addresses),
         )
-        if ip and ip_changed:
+        if ip_changed:
             controller._metadata_store.update(device.configuration, ip=ip)
         controller._fire_device_updated(device)
 

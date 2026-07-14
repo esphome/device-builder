@@ -1,20 +1,21 @@
 """
 Last-resort revival of stuck-offline API devices from the persisted IP.
 
-A device whose mDNS goes dark self-heals while the process stays up (the
-ping sweep keeps its RAM ``ip_addresses`` alive), but after a restart RAM
-is empty, the ``.local`` won't resolve, and the sweep claims OFFLINE with
-no target forever — even though the last-known IPv4 is persisted on disk
-(``Device.ip``, kept for the OTA cache). A bare ICMP reply at that
+When a device's mDNS goes dark and the ``.local`` won't resolve, the
+ping sweep claims OFFLINE with no target forever once its RAM
+``ip_addresses`` are gone (cleared by a confirmed ``Removed``, or empty
+after a restart) — even though the last-known IPv4 survives in
+``Device.ip`` (RAM and sidecar, kept for the OTA cache). A bare ICMP
+reply at that
 wall-clock-old DHCP address is inadmissible as ONLINE evidence (whatever
 now holds the lease answers, the #1776 latch class), and Native API
 connects are heavy on the device (scarce connection slots), so revival is
 strictly last-resort and identity-verified:
 
 1. Candidates are devices with **no other reachability signal**: not
-   ONLINE, ``api_enabled``, persisted ``Device.ip``, no RAM addresses,
-   and :func:`shared.address_resolution_exhausted` proving the ping
-   sweep already tried and had no target.
+   ONLINE, ``api_enabled``, last-known ``Device.ip``, no resolved
+   addresses, and :func:`shared.address_resolution_exhausted` proving
+   the ping sweep already tried and had no target.
 2. ICMP the persisted IP as a cheap **negative** filter — silence means
    no dial, the device is off or moved.
 3. Something answered: pay for one short-lived ``device_info`` worker
@@ -27,14 +28,13 @@ A verified ``name → ip`` cache lets flaps within ``_VERIFIED_TTL`` revive
 on the ICMP filter alone, the same trust RAM-learned addresses already
 get; past the TTL one fresh dial re-verifies, so a lease reassigned
 during a long silent gap can't ride a stale verification back to ONLINE.
+That trust extends to a mid-process mDNS death within the TTL — recency
+is fresher there than in the restart cohort the TTL was sized for.
 Coverage is deliberately ``api:`` devices only — MQTT devices revive via
 the broker, and web_server-only / OTA-only devices have no strong
 identity channel.
 Deployments where ICMP is unavailable are not repaired: the negative
-filter can't run, and a verify-only ONLINE would be un-demotable. A
-confirmed mDNS ``Removed`` mid-process also clears the RAM ``Device.ip``
-the cohort gate reads, so that device is only revivable after a restart
-rebuilds it from the sidecar.
+filter can't run, and a verify-only ONLINE would be un-demotable.
 """
 
 from __future__ import annotations
@@ -121,8 +121,8 @@ class ApiReviverSource(ApiSweepSource):
         candidates = self._select_candidates(devices)
         if not candidates:
             return
-        # ``device.ip`` is mutable across every await below (an mDNS
-        # Removed clears it, an invalidation callback clears a same-name
+        # ``device.ip`` is mutable across every await below (a fresh mDNS
+        # announce moves it, an invalidation callback clears a same-name
         # sibling's); bind each candidate's pair once and act only on it.
         # Deduped by pair: duplicate-name YAMLs normally share one
         # persisted IP, and dialing it once answers for the whole bucket

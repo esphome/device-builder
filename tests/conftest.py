@@ -922,7 +922,8 @@ class RecordingMonitorCallbacks:
 
     def on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
         self.calls.append(("on_ip_change", name, ip, list(addresses)))
-        self._flip(name, "ip", ip)
+        if ip:
+            self._flip(name, "ip", ip)
         self._flip(name, "ip_addresses", list(addresses))
 
     def on_version_change(self, name: str, version: str) -> None:

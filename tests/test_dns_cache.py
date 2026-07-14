@@ -726,8 +726,8 @@ async def test_on_ip_change_persists_non_empty_value() -> None:
     assert controller._metadata_store.get("kitchen.yaml") == {"ip": "10.0.0.1"}
 
 
-def test_on_ip_change_skips_persist_for_empty_value() -> None:
-    """Empty IP (device went offline) doesn't schedule a write — keeps the cache warm."""
+def test_on_ip_change_empty_clears_only_the_resolved_set() -> None:
+    """Empty IP (device left mDNS) keeps the last-known ``ip`` and schedules no write."""
     device = Device(
         name="kitchen",
         friendly_name="Kitchen",
@@ -742,7 +742,7 @@ def test_on_ip_change_skips_persist_for_empty_value() -> None:
 
     controller._on_ip_change("kitchen", "", [])
 
-    assert device.ip == ""
+    assert device.ip == "10.0.0.1"
     assert device.runtime_state.ip_addresses == []
     assert scheduled == []
 

@@ -210,6 +210,29 @@ async def test_cohort_skips(overrides: dict[str, Any]) -> None:
     src._run_worker.assert_not_called()
 
 
+async def test_mid_process_mdns_death_enters_the_cohort_and_revives() -> None:
+    """A confirmed ``Removed`` keeps the last-known ``ip``, so no restart is needed (#2029)."""
+    device = make_stuck_offline_device(
+        state=DeviceState.ONLINE, ip_addresses=["192.168.1.50", "fe80::1"]
+    )
+    monitor, callbacks, src = _reviver([device])
+    monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
+
+    # The confirmed-Removed branch in ``mdns._verify_removed``.
+    monitor.apply("kitchen", DeviceState.OFFLINE, "mdns")
+    monitor.apply_ip("kitchen", "")
+    monitor.forget("kitchen")
+    assert device.ip == "192.168.1.50"
+    assert device.runtime_state.ip_addresses == []
+
+    await src._sweep()
+
+    src._run_worker.assert_awaited_once()
+    assert device.runtime_state.state is DeviceState.ONLINE
+    assert ("on_state_change", "kitchen", DeviceState.ONLINE, "ping") in callbacks.calls
+    assert device.runtime_state.ip_addresses == ["192.168.1.50"]
+
+
 async def test_cohort_skips_without_a_cached_dns_failure() -> None:
     """No cached failure yet means ping hasn't proven it has no target."""
     device = make_stuck_offline_device()
@@ -442,7 +465,7 @@ async def test_duplicate_name_siblings_sharing_an_ip_dial_once() -> None:
 
 
 async def test_pair_mutated_between_prefilter_and_dial_is_skipped() -> None:
-    """An IP cleared or re-learned mid-sweep voids what the echo proved."""
+    """An IP invalidated or re-learned mid-sweep voids what the echo proved."""
     device = make_stuck_offline_device()
     monitor, callbacks, src = _reviver([device])
 

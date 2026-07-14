@@ -581,16 +581,17 @@ against legacy behaviour before assuming the simpler version suffices.
   detection without flipping the indicator red on every quiet device.
 - **Persisted-IP revival is identity-gated** (`api_reviver.py`). A
   stuck-offline `api:` device whose `.local` won't resolve and whose RAM
-  `ip_addresses` are gone (typically after a restart) gets one
-  last-resort repair from the on-disk `Device.ip`: ICMP first as a
-  *negative* filter (silence = no dial), then a single short-lived
+  `ip_addresses` are gone (a confirmed mDNS `Removed`, or a restart) gets
+  one last-resort repair from the last-known `Device.ip` (RAM mirrors the
+  sidecar; a `Removed` clears only `ip_addresses`, #2029): ICMP first as
+  a *negative* filter (silence = no dial), then a single short-lived
   Native API `device_info` dial, claiming ONLINE under the `ping` source
   only when the reported name matches (MAC corroborates when both sides
   know it). Never claim ONLINE off a bare ICMP reply at a persisted IP —
   a stale DHCP lease answering is the #1776 latch class. A name mismatch
   proves the IP stale and clears it through
-  `on_persisted_ip_invalidated` (the explicit counterpart to
-  `on_ip_change`'s keep-on-disk contract). A verified pair revives
+  `on_persisted_ip_invalidated` (the one path that drops a last-known
+  `Device.ip`, RAM and disk). A verified pair revives
   dial-free only within `_VERIFIED_TTL`; a longer silent gap re-dials,
   so a re-leased IP can't ride a weeks-old verification back to ONLINE.
   Dials are capped per sweep with escalating backoff because API

@@ -851,6 +851,29 @@ def test_on_ip_change_skips_when_ip_unchanged(
     assert spawned == []
 
 
+def test_on_ip_change_empty_keeps_last_known_ip_and_skips_cleared_sibling(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """The clear drops only the resolved set; an already-clear sibling doesn't re-fire."""
+    controller = make_controller(tmp_path)
+    device = _device("kitchen", ip="192.168.1.42", ip_addresses=["192.168.1.42"])
+    sibling = _device("kitchen", ip="192.168.1.42")
+    sibling.configuration = "kitchen (1).yaml"
+    controller._scanner._devices_by_name = {"kitchen": [device, sibling]}  # type: ignore[attr-defined]
+    captured = capture_devices_events(controller, EventType.DEVICE_UPDATED)
+
+    controller._on_ip_change("kitchen", "", [])
+
+    assert device.ip == "192.168.1.42"
+    assert device.runtime_state.ip_addresses == []
+    assert len(captured) == 1
+
+    controller._on_ip_change("kitchen", "", [])
+    assert len(captured) == 1
+
+
 async def test_on_persisted_ip_invalidated_clears_disk_and_device(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

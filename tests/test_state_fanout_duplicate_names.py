@@ -73,6 +73,24 @@ async def test_ip_change_fans_out_to_every_matching_device() -> None:
     ]
 
 
+async def test_ip_clear_fans_out_only_to_siblings_still_holding_addresses() -> None:
+    a = _device("kitchen.yaml", ip="10.0.0.5")
+    a.runtime_state.ip_addresses = ["10.0.0.5"]
+    b = _device("kitchen (1).yaml", ip="10.0.0.5")
+    controller, captured = make_devices_controller_with_bus(
+        [a, b],
+        create_background_task=close_scheduled_coro,
+    )
+
+    controller._on_ip_change("kitchen", "", [])
+
+    assert a.ip == "10.0.0.5"
+    assert a.runtime_state.ip_addresses == []
+    assert b.ip == "10.0.0.5"
+    assert len(captured) == 1
+    assert captured[0].data["device"].configuration == "kitchen.yaml"
+
+
 async def test_version_change_fans_out_to_every_matching_device() -> None:
     a = _device("kitchen.yaml", current_version="2026.5.0", deployed_version="")
     b = _device("kitchen (1).yaml", current_version="2026.5.0", deployed_version="")

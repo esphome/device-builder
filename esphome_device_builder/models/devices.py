@@ -105,6 +105,8 @@ class Device(DashboardModel):
     # first scoped IPv6. Populated by mDNS resolution and DNS
     # pre-resolve in the ping sweep, persisted through the device-builder
     # metadata sidecar so the OTA address cache survives a restart.
+    # Survives a confirmed mDNS Removed (only ``ip_addresses`` clears);
+    # dropped only by the reviver's identity-verified invalidation.
     ip: str = ""
     web_port: int | None = None
     current_version: str = ""
