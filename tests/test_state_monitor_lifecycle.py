@@ -1785,6 +1785,30 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
         await _stop_and_drain(monitor)
 
 
+async def test_ping_pass_failure_for_one_device_does_not_skip_the_rest(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising per-device probe is logged; the workers keep draining the queue."""
+    bad = _device(name="bad", address="bad.example.com")
+    good = _device(name="good", address="good.example.com")
+    monitor, _callbacks = _make_monitor([bad, good])
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
+    probed: list[str] = []
+
+    async def _probe(device: Device) -> None:
+        probed.append(device.name)
+        if device.name == "bad":
+            raise RuntimeError("boom")
+
+    monitor.ping._resolve_and_ping = _probe  # type: ignore[method-assign]
+
+    with caplog.at_level(logging.WARNING):
+        await monitor.ping._ping_sweep()
+
+    assert sorted(probed) == ["bad", "good"]
+    assert "Ping pass failed for bad; continuing" in caplog.text
+
+
 def test_apply_ip_short_circuits_when_value_unchanged() -> None:
     """``apply_ip`` is a no-op when both primary + list already match.
 

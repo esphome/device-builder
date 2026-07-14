@@ -214,6 +214,19 @@ def test_lower_priority_offline_does_not_drop_higher_priority_online() -> None:
     assert monitor.state.state_source["kitchen"] == "mdns"
 
 
+def test_select_ping_targets_dedupes_duplicate_name_pairs() -> None:
+    """Duplicate-name YAMLs share one probe; the apply path fans the result out."""
+    first = _make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])
+    twin = _make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])
+    monitor = _make_monitor([first, twin])
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
+
+    pingable, dns_failed = monitor.ping._select_ping_targets()
+
+    assert pingable == [first]
+    assert dns_failed == []
+
+
 def test_select_ping_targets_keeps_device_with_known_ip_when_dns_failed() -> None:
     """A cached DNS failure with a known IP pings the IP, not OFFLINE+dns_failed."""
     devices = [_make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])]

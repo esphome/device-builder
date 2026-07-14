@@ -161,23 +161,45 @@ class PingSource(SweepSource):
                     _LOGGER.debug(
                         "Pinging %d devices: %s", len(pingable), _format_devices(pingable)
                     )
-        # ``self.icmp_concurrency`` semaphore caps in-flight ICMP at
-        # ``ICMP_BATCH_SIZE``; no need to pre-chunk the gather.
-        results = await asyncio.gather(
-            *(self._resolve_and_ping(device) for device in pingable),
-            return_exceptions=True,
-        )
-        log_gather_failures(results, "Ping pass failed for a device; continuing")
+        # The worker count caps this sweep's own fan-out (no parked
+        # Task per device); ``self.icmp_concurrency`` stays acquired
+        # per probe because it is the *cross-consumer* budget — the
+        # reviver's pre-filter holds the same semaphore, so a
+        # concurrent sweep + reviver still total ICMP_BATCH_SIZE.
+        # Workers share one iterator; a per-device failure is logged
+        # and the worker moves on.
+        iterator = iter(pingable)
+
+        async def _drain() -> None:
+            for device in iterator:
+                try:
+                    await self._resolve_and_ping(device)
+                except Exception:
+                    _LOGGER.warning(
+                        "Ping pass failed for %s; continuing", device.name, exc_info=True
+                    )
+
+        workers = min(shared.ICMP_BATCH_SIZE, len(pingable))
+        await asyncio.gather(*(_drain() for _ in range(workers)))
 
     def _select_ping_targets(self) -> tuple[list[Device], list[Device]]:
         """Return ``(pingable, dns_failed)`` and apply per-device side-effects."""
         pingable: list[Device] = []
         dns_failed: list[Device] = []
+        seen: set[tuple[str, str]] = set()
         monitor = self._monitor
         live_ptrs = monitor.mdns.live_ptr_service_names()
         for device in monitor._get_devices():
             if not device.address or not shared.should_ping(monitor, device, live_ptrs):
                 continue
+            key = (device.name, device.address)
+            if key in seen:
+                # Duplicate-name YAMLs share one broadcast; the apply
+                # path fans a probe's result out to the whole name
+                # bucket, so a second probe of the same pair is pure
+                # duplicate packets.
+                continue
+            seen.add(key)
             if shared.sweep_has_no_target(monitor, device):
                 # The address won't resolve and we have no known IP.
                 # Don't hand the bare hostname to icmplib (it would hammer
