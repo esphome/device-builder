@@ -10,7 +10,6 @@ from zeroconf.asyncio import AsyncServiceInfo
 
 from ...models import AdoptableDevice
 from .helpers import (
-    _ESPHOME_SERVICE_TYPE,
     _HTTP_SERVICE_TYPE,
     _http_url_from_service_info,
     device_name_from_service,
@@ -37,33 +36,6 @@ class ImportableDiscovery:
         """Forward esphomelib browser events to the upstream DashboardImportDiscovery."""
         if self._import_discovery is not None:
             self._import_discovery.browser_callback(zeroconf, service_type, name, state_change)
-
-    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
-        """
-        Eagerly resolve a device's ``_esphomelib._tcp.local.`` service.
-
-        Short-circuits the post-adoption wait for the next mDNS
-        announce — flips the card from "Unknown" to fully-populated
-        immediately by reading the zeroconf cache (sync hit) or
-        kicking off a fire-and-forget ``async_request``.
-
-        ``service_name`` defaults to ``device_name``; pass it
-        explicitly when the device's mDNS-advertised name (its
-        original factory-firmware hostname) differs from the
-        user-chosen YAML name so the lookup hits the cache while
-        the apply still keys to the configured name.
-        """
-        monitor = self._monitor
-        if (zc := monitor.mdns.zeroconf) is None:
-            return
-        zeroconf = zc.zeroconf
-        broadcast = service_name or device_name
-        full_service = f"{broadcast}.{_ESPHOME_SERVICE_TYPE}"
-        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, full_service)
-        if info.load_from_cache(zeroconf):
-            monitor.mdns._apply_service_info(device_name, info)
-            return
-        monitor._track_task(monitor.mdns._resolve_and_apply(zeroconf, info, device_name))
 
     def revisit_importable(self, device_name: str) -> None:
         """
@@ -150,7 +122,7 @@ class ImportableDiscovery:
         self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
     ) -> None:
         """Resolve a cache-miss HTTP service and store its URL."""
-        await self._monitor.mdns._resolve_then(
+        await self._monitor.mdns.resolve_then(
             zeroconf, info, device_name, self._apply_http_service_info
         )
 

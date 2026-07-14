@@ -101,7 +101,7 @@ async def test_http_cache_miss_spawns_resolve_task(monkeypatch: pytest.MonkeyPat
     async def fake_resolve(*_args, **_kw) -> None:
         return None
 
-    monkeypatch.setattr(monitor.mdns, "_resolve_then", fake_resolve)
+    monkeypatch.setattr(monitor.mdns, "resolve_then", fake_resolve)
 
     monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Added

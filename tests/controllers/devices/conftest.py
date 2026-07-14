@@ -61,15 +61,19 @@ class _RecordingAddressCache:
         return self._cached.get(normalize_hostname(host_name))
 
 
+class _RecordingMdnsSource(_RecordingAddressCache):
+    """Typed fake for the monitor's public ``mdns`` source attribute."""
+
+    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
+        self._calls.append(("probe_device", device_name, service_name))
+
+
 class _RecordingImportableSource:
     """Typed fake for the monitor's public ``importable`` source attribute."""
 
     def __init__(self, calls: list[tuple[Any, ...]], importable: list[AdoptableDevice]) -> None:
         self._calls = calls
         self._importable = importable
-
-    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
-        self._calls.append(("probe_device", device_name, service_name))
 
     def revisit_importable(self, device_name: str) -> None:
         self._calls.append(("revisit_importable", device_name))
@@ -144,7 +148,7 @@ class RecordingStateMonitor:
     ) -> None:
         self.calls: list[tuple[Any, ...]] = []
         self._priority = priority_map or {}
-        self.mdns = _RecordingAddressCache(
+        self.mdns = _RecordingMdnsSource(
             self.calls,
             {normalize_hostname(k): v for k, v in (cached_addresses or {}).items()},
             record_as="get_cached_addresses",
@@ -189,7 +193,7 @@ class RecordingStateMonitor:
     def probe_reachability(self, device_name: str) -> None:
         # Delegates like production so callers' per-probe call tuples
         # keep matching regardless of which entry point they used.
-        self.importable.probe_device(device_name)
+        self.mdns.probe_device(device_name)
         self.probe_device_ping(device_name)
 
     def priority_for(self, name: str) -> str:

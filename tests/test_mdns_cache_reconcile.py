@@ -242,7 +242,7 @@ async def test_resolve_then_dedupes_inflight_service_names() -> None:
     info.async_request = AsyncMock()
     apply = MagicMock()
 
-    await source._resolve_then(MagicMock(), info, "kitchen", apply)
+    await source.resolve_then(MagicMock(), info, "kitchen", apply)
 
     info.async_request.assert_not_called()
     apply.assert_not_called()
@@ -259,7 +259,7 @@ async def test_resolve_then_clears_inflight_after_completion() -> None:
     info.async_request = AsyncMock(return_value=True)
     apply = MagicMock()
 
-    await source._resolve_then(MagicMock(), info, "kitchen", apply)
+    await source.resolve_then(MagicMock(), info, "kitchen", apply)
 
     apply.assert_called_once_with("kitchen", info)
     assert _SERVICE_NAME not in source._inflight_resolves

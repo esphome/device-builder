@@ -316,7 +316,7 @@ class MdnsSource:
         if info.load_from_cache(zc.zeroconf):
             self._apply_service_info(device_name, info)
             return
-        await self._resolve_then(
+        await self.resolve_then(
             zc.zeroconf,
             info,
             device_name,
@@ -328,6 +328,66 @@ class MdnsSource:
         """Whether the cache holds an unexpired esphomelib PTR for *device_name*."""
         ptr = self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
         return ptr is not None and not ptr.is_expired(current_time_millis())
+
+    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
+        """
+        Eagerly resolve a device's ``_esphomelib._tcp.local.`` service.
+
+        Short-circuits the post-adoption wait for the next mDNS
+        announce — flips the card from "Unknown" to fully-populated
+        immediately by reading the zeroconf cache (sync hit) or
+        kicking off a fire-and-forget ``async_request``.
+
+        ``service_name`` defaults to ``device_name``; pass it
+        explicitly when the device's mDNS-advertised name (its
+        original factory-firmware hostname) differs from the
+        user-chosen YAML name so the lookup hits the cache while
+        the apply still keys to the configured name.
+        """
+        if (zc := self._zeroconf) is None:
+            return
+        zeroconf = zc.zeroconf
+        broadcast = service_name or device_name
+        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{broadcast}.{_ESPHOME_SERVICE_TYPE}")
+        if info.load_from_cache(zeroconf):
+            self._apply_service_info(device_name, info)
+            return
+        self._monitor._track_task(self._resolve_and_apply(zeroconf, info, device_name))
+
+    async def resolve_then(
+        self,
+        zeroconf: Any,
+        info: AsyncServiceInfo,
+        device_name: str,
+        apply: Callable[[str, AsyncServiceInfo], None],
+        *,
+        timeout_ms: float = _MDNS_RESOLVE_TIMEOUT_MS,
+    ) -> bool | None:
+        """
+        Resolve a cache-miss service and hand the result to *apply*.
+
+        Shared fire-and-forget shape between the esphomelib and
+        HTTP browser paths: spawn a task on cache miss,
+        ``async_request`` the record, swallow exceptions to a
+        debug log, dispatch to the per-type applier on success.
+        At most one resolve per service name is in flight. Returns
+        True when the service resolved and *apply* ran, False on a
+        confirmed miss, None when there is no verdict (a swallowed
+        error, or a resolve already in flight).
+        """
+        if info.name in self._inflight_resolves:
+            return None
+        self._inflight_resolves.add(info.name)
+        try:
+            if not await info.async_request(zeroconf, timeout=timeout_ms):
+                return False
+        except Exception:
+            _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
+            return None
+        finally:
+            self._inflight_resolves.discard(info.name)
+        apply(device_name, info)
+        return True
 
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -370,7 +430,7 @@ class MdnsSource:
         apply: Callable[[str, AsyncServiceInfo], None] | None = None,
     ) -> None:
         """Resolve a cache-miss mDNS service and propagate its details (fire-and-forget shape)."""
-        await self._resolve_then(zeroconf, info, device_name, apply or self._apply_service_info)
+        await self.resolve_then(zeroconf, info, device_name, apply or self._apply_service_info)
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
         """Resolve before honouring a ``Removed``; only a confirmed miss applies OFFLINE."""
@@ -378,7 +438,7 @@ class MdnsSource:
             # A concurrent resolve decides; the sweep re-checks either way.
             return
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, name)
-        verdict = await self._resolve_then(zeroconf, info, device_name, self._apply_service_info)
+        verdict = await self.resolve_then(zeroconf, info, device_name, self._apply_service_info)
         if verdict is None:
             # Errored, not missed — never demote on uncertainty, and say
             # so above DEBUG since this gates the browser's OFFLINE path.
@@ -394,41 +454,6 @@ class MdnsSource:
         monitor.forget(device_name)
         if monitor.state.reachability is not None:
             monitor.state.reachability.clear(device_name)
-
-    async def _resolve_then(
-        self,
-        zeroconf: Any,
-        info: AsyncServiceInfo,
-        device_name: str,
-        apply: Callable[[str, AsyncServiceInfo], None],
-        *,
-        timeout_ms: float = _MDNS_RESOLVE_TIMEOUT_MS,
-    ) -> bool | None:
-        """
-        Resolve a cache-miss service and hand the result to *apply*.
-
-        Shared fire-and-forget shape between the esphomelib and
-        HTTP browser paths: spawn a task on cache miss,
-        ``async_request`` the record, swallow exceptions to a
-        debug log, dispatch to the per-type applier on success.
-        At most one resolve per service name is in flight. Returns
-        True when the service resolved and *apply* ran, False on a
-        confirmed miss, None when there is no verdict (a swallowed
-        error, or a resolve already in flight).
-        """
-        if info.name in self._inflight_resolves:
-            return None
-        self._inflight_resolves.add(info.name)
-        try:
-            if not await info.async_request(zeroconf, timeout=timeout_ms):
-                return False
-        except Exception:
-            _LOGGER.debug("mDNS resolve failed for %s", device_name, exc_info=True)
-            return None
-        finally:
-            self._inflight_resolves.discard(info.name)
-        apply(device_name, info)
-        return True
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """

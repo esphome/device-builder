@@ -1,5 +1,5 @@
 """
-Tests for ``DeviceStateMonitor.probe_device``.
+Tests for ``MdnsSource.probe_device``.
 
 Adoption / wizard / on-disk YAML drops all need an eager mDNS
 probe so the new device card lands fully populated (IP, version,
@@ -78,11 +78,11 @@ async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = True
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.importable.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.mdns.AsyncServiceInfo",
         lambda *_args, **_kw: fake_info,
     )
 
-    monitor.importable.probe_device("kitchen")
+    monitor.mdns.probe_device("kitchen")
 
     assert apply_calls == [("kitchen", fake_info)]
     assert not monitor._tasks
@@ -109,11 +109,11 @@ async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None
         return fake_info
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.importable.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.mdns.AsyncServiceInfo",
         _info_ctor,
     )
 
-    monitor.importable.probe_device("my-living-room", service_name="apollo-r-pro-1-eth-5938e0")
+    monitor.mdns.probe_device("my-living-room", service_name="apollo-r-pro-1-eth-5938e0")
 
     # Looked up under the OLD broadcast name…
     assert constructor_args == [
@@ -131,7 +131,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     fake_info = MagicMock()
     fake_info.load_from_cache.return_value = False
     monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.importable.AsyncServiceInfo",
+        "esphome_device_builder.controllers._device_state_monitor.mdns.AsyncServiceInfo",
         lambda *_args, **_kw: fake_info,
     )
 
@@ -140,7 +140,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
 
     monkeypatch.setattr(monitor.mdns, "_resolve_and_apply", fake_resolve)
 
-    monitor.importable.probe_device("kitchen")
+    monitor.mdns.probe_device("kitchen")
 
     assert apply_calls == []
     # One task was registered for tracking. Wait it out so the
@@ -165,7 +165,7 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
     monitor.mdns._zeroconf = None
     monitor._tasks = set()
 
-    monitor.importable.probe_device("kitchen")  # no exception, no tasks
+    monitor.mdns.probe_device("kitchen")  # no exception, no tasks
     assert not monitor._tasks
 
 

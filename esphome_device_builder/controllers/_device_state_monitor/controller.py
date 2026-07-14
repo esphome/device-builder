@@ -519,7 +519,7 @@ class DeviceStateMonitor(TaskControllerBase):
 
     def probe_reachability(self, device_name: str) -> None:
         """Full reachability nudge: eager mDNS resolve + ICMP sweep wake for *device_name*."""
-        self.importable.probe_device(device_name)
+        self.mdns.probe_device(device_name)
         self.probe_device_ping(device_name)
 
     # ------------------------------------------------------------------

@@ -141,7 +141,7 @@ async def import_device(
     # chosen ``name``. The scan-change handler probes too but
     # only knows the YAML name, which has no broadcast yet for
     # the rename-during-adopt case.
-    controller._state_monitor.importable.probe_device(name, service_name=mdns_name)
+    controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
     return {"configuration": configuration}
 
 

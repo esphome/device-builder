@@ -136,7 +136,7 @@ def test_probe_reachability_fires_both_probes(monkeypatch: pytest.MonkeyPatch) -
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     probed: list[str] = []
     monkeypatch.setattr(
-        monitor.importable,
+        monitor.mdns,
         "probe_device",
         lambda name, service_name=None: probed.append(name),
     )
