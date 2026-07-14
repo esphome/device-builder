@@ -256,8 +256,8 @@ async def test_ping_sweep_pre_resolves_via_dns_cache(fake_resolver) -> None:
 
     assert pinged == ["10.0.0.1"]
     assert ip_changes == [("kitchen", "10.0.0.1", ["10.0.0.1"])]
-    # DNS cache is now warm — ``get_cached_dns_addresses`` should hit
-    # without triggering another resolver call.
+    # DNS cache is now warm — ``state.dns_cache.get_cached_addresses``
+    # should hit without triggering another resolver call.
     assert monitor.state.dns_cache.get_cached_addresses("esp.example.com") == ["10.0.0.1"]
 
 

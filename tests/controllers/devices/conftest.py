@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
@@ -39,37 +40,25 @@ from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
 
 
-class _RecordingMdnsSource:
-    """Typed fake for the monitor's public ``mdns`` source attribute."""
+class _RecordingAddressCache:
+    """
+    Typed fake for a hostname→addresses read surface.
 
-    def __init__(self, calls: list[tuple[Any, ...]], cached: dict[str, list[str]]) -> None:
+    Backs both ``monitor.mdns`` and ``monitor.state.dns_cache``;
+    *record_as* keeps the two caches' call tuples distinct so
+    assertions can tell which cache answered.
+    """
+
+    def __init__(
+        self, calls: list[tuple[Any, ...]], cached: dict[str, list[str]], record_as: str
+    ) -> None:
         self._calls = calls
         self._cached = cached
+        self._record_as = record_as
 
     def get_cached_addresses(self, host_name: str) -> list[str] | None:
-        self._calls.append(("get_cached_addresses", host_name))
+        self._calls.append((self._record_as, host_name))
         return self._cached.get(normalize_hostname(host_name))
-
-
-class _RecordingDnsCache:
-    """Typed fake for ``monitor.state.dns_cache``'s sync read surface."""
-
-    def __init__(self, calls: list[tuple[Any, ...]], cached: dict[str, list[str]]) -> None:
-        self._calls = calls
-        self._cached = cached
-
-    def get_cached_addresses(self, host_name: str) -> list[str] | None:
-        # Tuple name kept distinct from the mDNS read so assertions
-        # can tell which cache answered.
-        self._calls.append(("get_cached_dns_addresses", host_name))
-        return self._cached.get(normalize_hostname(host_name))
-
-
-class _RecordingMonitorState:
-    """Typed fake for the monitor's public ``state`` attribute."""
-
-    def __init__(self, dns_cache: _RecordingDnsCache) -> None:
-        self.dns_cache = dns_cache
 
 
 class _RecordingImportableSource:
@@ -155,14 +144,16 @@ class RecordingStateMonitor:
     ) -> None:
         self.calls: list[tuple[Any, ...]] = []
         self._priority = priority_map or {}
-        self.mdns = _RecordingMdnsSource(
+        self.mdns = _RecordingAddressCache(
             self.calls,
             {normalize_hostname(k): v for k, v in (cached_addresses or {}).items()},
+            record_as="get_cached_addresses",
         )
-        self.state = _RecordingMonitorState(
-            _RecordingDnsCache(
+        self.state = SimpleNamespace(
+            dns_cache=_RecordingAddressCache(
                 self.calls,
                 {normalize_hostname(k): v for k, v in (cached_dns_addresses or {}).items()},
+                record_as="get_cached_dns_addresses",
             )
         )
         self.importable = _RecordingImportableSource(self.calls, list(importable_devices or []))
