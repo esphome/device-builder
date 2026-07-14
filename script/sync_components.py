@@ -45,6 +45,7 @@ import re
 import shutil
 import sys
 import textwrap
+import time
 import unicodedata
 import urllib.request
 import zipfile
@@ -95,6 +96,10 @@ _DOCS_INDEX_URL = (
 _DOCS_REPO_URL = "https://github.com/esphome/esphome.io.git"
 _DOCS_REPO_BRANCH = "current"
 _DOCS_CLONE_DIR = "esphome.io"
+_DOCS_INDEX_CACHE_NAME = "esphome.io-index.mdx"
+# The docs index is a moving target (new components land weekly), unlike
+# the version-keyed schema bundles which cache immutably.
+_DOCS_INDEX_MAX_AGE = 24 * 3600.0
 _IMAGE_BASE_URL = "https://esphome.io/images/"
 
 # CDN at schema.esphome.io rejects requests without a recognisable
@@ -946,7 +951,7 @@ def main() -> int:
     parser.add_argument(
         "--clean",
         action="store_true",
-        help="Wipe cached schemas before fetching.",
+        help="Wipe cached schemas and docs-derived caches before fetching.",
     )
     parser.add_argument(
         "--limit-component",
@@ -958,9 +963,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.clean and _CACHE_ROOT.exists():
-        for d in _CACHE_ROOT.glob("esphome-schema-*"):
-            shutil.rmtree(d)
+    if args.clean:
+        _clean_caches()
 
     version = args.version or resolve_latest_release(
         include_prereleases=args.include_prereleases,
@@ -1082,6 +1086,18 @@ def ensure_schema(version: str) -> Path:
         msg = f"Schema bundle layout unexpected — missing {schema_dir}"
         raise RuntimeError(msg)
     return schema_dir
+
+
+def _clean_caches() -> None:
+    """Wipe the cached schema bundles and the docs-derived caches."""
+    if not _CACHE_ROOT.exists():
+        return
+    for d in _CACHE_ROOT.glob("esphome-schema-*"):
+        shutil.rmtree(d)
+    (_CACHE_ROOT / _DOCS_INDEX_CACHE_NAME).unlink(missing_ok=True)
+    docs_clone = _CACHE_ROOT / _DOCS_CLONE_DIR
+    if docs_clone.exists():
+        shutil.rmtree(docs_clone)
 
 
 def _http_get(url: str, *, timeout: int = 30) -> bytes:
@@ -2281,19 +2297,29 @@ def load_image_map() -> dict[str, str]:
     where ``component_id`` matches our catalog ids (qualified with
     ``<domain>.<id>`` for platform-providing components).
 
-    No ImagesMap if the docs file can't be fetched — image_url stays
+    Cached under ``.cache/`` for ``_DOCS_INDEX_MAX_AGE`` — the index gains
+    rows between releases, so a bare exists() cache silently dropped
+    ``image_url`` for newer components (#2053). No ImagesMap if the docs
+    file can't be fetched and no cached copy exists — image_url stays
     empty for every component.
     """
-    cache_file = _CACHE_ROOT / "esphome.io-index.mdx"
+    cache_file = _CACHE_ROOT / _DOCS_INDEX_CACHE_NAME
     cache_file.parent.mkdir(parents=True, exist_ok=True)
-    if not cache_file.exists():
+    stale = (
+        not cache_file.exists() or time.time() - cache_file.stat().st_mtime > _DOCS_INDEX_MAX_AGE
+    )
+    if stale:
         try:
             cache_file.write_bytes(_http_get(_DOCS_INDEX_URL))
         except Exception:
+            if not cache_file.exists():
+                _LOGGER.warning(
+                    "Could not fetch docs index page — image URLs will be empty",
+                )
+                return {}
             _LOGGER.warning(
-                "Could not fetch docs index page — image URLs will be empty",
+                "Could not refresh docs index page — using the stale cached copy",
             )
-            return {}
 
     text = cache_file.read_text(errors="ignore")
     pattern = re.compile(
