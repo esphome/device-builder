@@ -202,19 +202,15 @@ def test_should_ping_non_api_mdns_ownership_unchanged() -> None:
 
 
 def test_has_live_ptr_reads_the_browser_cache() -> None:
+    """Presence of a cached PTR decides; zeroconf's alias lookup only returns live entries."""
     monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     fake_zeroconf = MagicMock()
     monitor.mdns._zeroconf = fake_zeroconf
     lookup = fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias
 
-    ptr = MagicMock()
-    ptr.is_expired.return_value = False
-    lookup.return_value = ptr
+    lookup.return_value = MagicMock()
     assert monitor.mdns.has_live_ptr("kitchen") is True
     lookup.assert_called_with("_esphomelib._tcp.local.", _SERVICE_NAME)
-
-    ptr.is_expired.return_value = True
-    assert monitor.mdns.has_live_ptr("kitchen") is False
 
     lookup.return_value = None
     assert monitor.mdns.has_live_ptr("kitchen") is False

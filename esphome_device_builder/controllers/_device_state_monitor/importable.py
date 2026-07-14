@@ -113,11 +113,8 @@ class ImportableDiscovery:
             return
 
         info = AsyncServiceInfo(service_type, name)
-        if info.load_from_cache(zeroconf):
-            self._apply_http_service_info(device_name, info)
-            return
-        monitor._track_task(
-            monitor.mdns.resolve_then(zeroconf, info, device_name, self._apply_http_service_info)
+        monitor.mdns.cache_apply_or_resolve(
+            zeroconf, info, device_name, self._apply_http_service_info
         )
 
     def _apply_http_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:

@@ -54,11 +54,6 @@ from .shared import _SOURCE_PRIORITY, should_ping
 _LOGGER = logging.getLogger(__name__)
 # Cap on draining the ping / API-info / resolve tasks at shutdown.
 _STOP_DRAIN_TIMEOUT = 2.0
-# Padding added to the cached A record's TTL when the drawer's
-# refresh loop schedules its next probe. Sleeping ``ttl + this``
-# guarantees ``async_resolve_host`` falls through its cache short-
-# circuit and actually goes on the wire.
-_MDNS_REFRESH_PADDING_SECONDS = 1.0
 
 
 # Callback signature used by DeviceStateMonitor to push state changes
@@ -206,7 +201,8 @@ class DeviceStateMonitor(TaskControllerBase):
         self.api_reviver = ApiReviverSource(self)
 
     async def start(self) -> None:
-        """Start the mDNS browser, the ping sweep, the API info fallback, and the reviver."""
+        """Start the importable flow, mDNS browser, ping sweep, API info fallback, and reviver."""
+        self.importable.setup()
         await self.mdns.start()
         self._ping_task = asyncio.create_task(self.ping.run())
         self._ping_task.add_done_callback(partial(log_task_exit, "Ping sweep"))

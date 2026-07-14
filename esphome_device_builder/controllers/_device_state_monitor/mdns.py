@@ -29,7 +29,7 @@ from zeroconf import (
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
-from ...helpers.async_ import log_task_exit
+from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
 from ...models import DeviceState
 from .._reachability_tracker import MdnsCacheInfo
@@ -60,6 +60,12 @@ _SWEEP_RESOLVE_TIMEOUT_MS = 3_000
 # Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
 # hang on a wedged socket; shutdown must not block on it.
 _MDNS_CLOSE_TIMEOUT = 1.0
+
+# Padding added to the cached A record's TTL when the drawer's
+# refresh loop schedules its next probe. Sleeping ``ttl + this``
+# guarantees ``async_resolve_host`` falls through its cache short-
+# circuit and actually goes on the wire (see ``refresh_mdns``).
+_MDNS_REFRESH_PADDING_SECONDS = 1.0
 
 
 class MdnsSource:
@@ -92,29 +98,11 @@ class MdnsSource:
             self._zeroconf = None
             return
 
-        monitor = self._monitor
-        importable = monitor.importable
-        importable.setup()
-
-        def _dispatch(
-            zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
-        ) -> None:
-            # The shared browser dispatches by service_type so each
-            # inner handler only sees the events it cares about,
-            # letting the upstream ``DashboardImportDiscovery``
-            # piggy-back on the same dispatch path.
-            if service_type == _ESPHOME_SERVICE_TYPE:
-                self._on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
-                importable.browser_callback(zeroconf, service_type, name, state_change)
-            elif service_type == _HTTP_SERVICE_TYPE:
-                self._on_http_service_state_change(zeroconf, service_type, name, state_change)
-                importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
-
         try:
             self._mdns_browser = AsyncServiceBrowser(
                 self._zeroconf.zeroconf,
                 [_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE],
-                handlers=[_dispatch],
+                handlers=[self._on_browser_event],
             )
             _LOGGER.info(
                 "mDNS browser started for %s, %s",
@@ -151,14 +139,8 @@ class MdnsSource:
         """Close the zeroconf responder, bounded so a wedged socket can't stall shutdown."""
         # Stop the interface monitor first so it can't reconcile a closing instance.
         if self._interface_monitor_task is not None:
-            self._interface_monitor_task.cancel()
-            # gather(return_exceptions=True) captures the child's CancelledError —
-            # and any crash — without swallowing a cancellation aimed at *this*
-            # coroutine, mirroring the drain in ``DeviceStateMonitor.stop``.
-            result = await asyncio.gather(self._interface_monitor_task, return_exceptions=True)
-            if isinstance(result[0], Exception):
-                # A crashed monitor task must not abort shutdown before zeroconf closes.
-                _LOGGER.debug("interface monitor task errored during shutdown", exc_info=result[0])
+            # A crashed monitor task must not abort shutdown before zeroconf closes.
+            await drain_tasks([self._interface_monitor_task], log_exceptions=True)
             self._interface_monitor_task = None
         if self._zeroconf is not None:
             try:
@@ -236,9 +218,10 @@ class MdnsSource:
             records.append(ptr)
         if not records:
             return None
-        # Don't filter expired records — the drawer wants the
-        # truthful "last seen" age even when the cached record
-        # has aged past its TTL.
+        # Don't filter expired A/AAAA/SRV/TXT records — the drawer
+        # wants the truthful "last seen" age even when the cached
+        # record has aged past its TTL. (The PTR lookup alone is
+        # live-only; zeroconf's alias API filters expired entries.)
         now_ms = current_time_millis()
         latest = max(records, key=attrgetter("created"))
         # ``DNSRecord.created`` is millis; ``get_remaining_ttl``
@@ -293,19 +276,17 @@ class MdnsSource:
         No ONLINE claim — a cache hit can be stale, and a claim here
         has no browser ``Removed`` counterpart (#1776).
         """
-        if (zc := self._zeroconf) is None:
-            return
         # Read the TXT record directly rather than via
         # ``AsyncServiceInfo.load_from_cache``, whose success requires an
         # unexpired *address* record — the A (120s TTL) routinely expires
         # while the TXT (4500s) is still cached, exactly the state this
         # pass repairs.
-        if props := self._cached_txt_properties(zc, f"{device_name}.{_ESPHOME_SERVICE_TYPE}"):
+        if props := self._cached_txt_properties(f"{device_name}.{_ESPHOME_SERVICE_TYPE}"):
             self._apply_txt_properties(device_name, props)
         # The ``_http._tcp`` identity TXT exists only when the API is
         # absent, so no bucket gate is needed; api_encryption stays
         # untouched (see ``_apply_http_txt``).
-        if props := self._cached_txt_properties(zc, f"{device_name}.{_HTTP_SERVICE_TYPE}"):
+        if props := self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}"):
             self._apply_identity_txt(device_name, props)
 
     async def resolve_and_claim(self, device_name: str) -> None:
@@ -326,8 +307,7 @@ class MdnsSource:
 
     def has_live_ptr(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired esphomelib PTR for *device_name*."""
-        ptr = self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
-        return ptr is not None and not ptr.is_expired(current_time_millis())
+        return self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}") is not None
 
     def probe_device(self, device_name: str, service_name: str | None = None) -> None:
         """
@@ -348,7 +328,7 @@ class MdnsSource:
             return
         broadcast = service_name or device_name
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{broadcast}.{_ESPHOME_SERVICE_TYPE}")
-        self._cache_apply_or_resolve(zc.zeroconf, info, device_name)
+        self.cache_apply_or_resolve(zc.zeroconf, info, device_name)
 
     async def resolve_then(
         self,
@@ -362,7 +342,6 @@ class MdnsSource:
         """
         Resolve a cache-miss service and hand the result to *apply*.
 
-        Shared by the esphomelib and HTTP browser paths:
         ``async_request`` the record, swallow exceptions to a
         debug log, dispatch to the per-type applier on success.
         At most one resolve per service name is in flight. Returns
@@ -384,13 +363,25 @@ class MdnsSource:
         apply(device_name, info)
         return True
 
+    def cache_apply_or_resolve(
+        self,
+        zeroconf: Any,
+        info: AsyncServiceInfo,
+        device_name: str,
+        apply: Callable[[str, AsyncServiceInfo], None] | None = None,
+    ) -> None:
+        """Apply *info* synchronously off the zeroconf cache, else resolve fire-and-forget."""
+        applier = apply or self._apply_service_info
+        if info.load_from_cache(zeroconf):
+            applier(device_name, info)
+            return
+        self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
+
     def _on_esphomelib_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
     ) -> None:
         # ``AsyncServiceBrowser`` dispatches handlers on the
-        # asyncio loop, so call apply methods directly. Try the
-        # zeroconf cache first (sync) — fall back to a fire-and-
-        # forget resolve task on cache miss.
+        # asyncio loop, so call apply methods directly.
         monitor = self._monitor
         device_name = device_name_from_service(name)
         _LOGGER.debug("mDNS: %s %s (raw: %s)", state_change, device_name, name)
@@ -411,21 +402,22 @@ class MdnsSource:
         # a stale PTR for a long-gone device); claiming here latched
         # it ONLINE forever with no IP, locking out the ICMP sweep.
         info = AsyncServiceInfo(service_type, name)
-        self._cache_apply_or_resolve(zeroconf, info, device_name)
+        self.cache_apply_or_resolve(zeroconf, info, device_name)
 
-    def _cache_apply_or_resolve(
-        self,
-        zeroconf: Any,
-        info: AsyncServiceInfo,
-        device_name: str,
-        apply: Callable[[str, AsyncServiceInfo], None] | None = None,
+    def _on_browser_event(
+        self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
     ) -> None:
-        """Apply *info* synchronously off the zeroconf cache, else resolve fire-and-forget."""
-        applier = apply or self._apply_service_info
-        if info.load_from_cache(zeroconf):
-            applier(device_name, info)
-            return
-        self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
+        # The shared browser dispatches by service_type so each
+        # inner handler only sees the events it cares about,
+        # letting the upstream ``DashboardImportDiscovery``
+        # piggy-back on the same dispatch path.
+        importable = self._monitor.importable
+        if service_type == _ESPHOME_SERVICE_TYPE:
+            self._on_esphomelib_service_state_change(zeroconf, service_type, name, state_change)
+            importable.browser_callback(zeroconf, service_type, name, state_change)
+        elif service_type == _HTTP_SERVICE_TYPE:
+            self._on_http_service_state_change(zeroconf, service_type, name, state_change)
+            importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
         """Resolve before honouring a ``Removed``; only a confirmed miss applies OFFLINE."""
@@ -474,11 +466,7 @@ class MdnsSource:
         """Apply version / config_hash / mac / api_encryption from decoded TXT properties."""
         monitor = self._monitor
         self._apply_identity_txt(device_name, props)
-        # api_encryption tri-state semantics on this announce.
-        # The four cases are load-bearing — narrative dropped,
-        # but the case enumeration captures the empty-string-
-        # means-plaintext-confirmed contract documented in
-        # CLAUDE.md ("Things that have bitten us"):
+        # api_encryption tri-state semantics on this announce:
         #
         # * Key present with truthy value: encryption confirmed
         #   live → apply with that string.
@@ -535,7 +523,7 @@ class MdnsSource:
         if not bucket or all(device.api_enabled for device in bucket):
             return
         info = AsyncServiceInfo(service_type, name)
-        self._cache_apply_or_resolve(zeroconf, info, device_name, self._apply_http_txt)
+        self.cache_apply_or_resolve(zeroconf, info, device_name, self._apply_http_txt)
 
     def _apply_http_txt(self, device_name: str, info: AsyncServiceInfo) -> None:
         """
@@ -549,12 +537,12 @@ class MdnsSource:
 
     def _cached_ptr(self, service_name: str) -> DNSRecord | None:
         """
-        Look up the cached esphomelib PTR for *service_name*, expired or not.
+        Look up the live (unexpired) cached esphomelib PTR for *service_name*.
 
         PTR is owned by the type-domain (``_esphomelib._tcp.local.``) and
         carries the service-instance as its ``alias``;
         ``current_entry_with_name_and_alias`` is the zeroconf-API-canonical
-        way to look it up.
+        way to look it up, and it filters expired entries itself.
         """
         if self._zeroconf is None:
             return None
@@ -563,12 +551,16 @@ class MdnsSource:
         )
         return ptr
 
-    def _cached_txt_properties(self, zc: Any, service_name: str) -> dict[str, str]:
+    def _cached_txt_properties(self, service_name: str) -> dict[str, str]:
         """Decode the unexpired cached TXT records for *service_name*."""
+        if self._zeroconf is None:
+            return {}
         now_ms = current_time_millis()
         records = [
             record
-            for record in zc.zeroconf.cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN)
+            for record in self._zeroconf.zeroconf.cache.get_all_by_details(
+                service_name, _TYPE_TXT, _CLASS_IN
+            )
             if not record.is_expired(now_ms)
         ]
         return _decode_mdns_txt_records(records)

@@ -19,7 +19,7 @@ from __future__ import annotations
 # ``from ..controllers._device_state_monitor import X`` callers
 # (including tests that reach for private constants and module
 # helpers) keep working unchanged across the split arc.
-from .controller import _MDNS_REFRESH_PADDING_SECONDS as _MDNS_REFRESH_PADDING_SECONDS
 from .controller import DeviceStateMonitor as DeviceStateMonitor
 from .helpers import _decode_txt_bytes_to_sorted_pairs as _decode_txt_bytes_to_sorted_pairs
 from .helpers import device_name_from_service as device_name_from_service
+from .mdns import _MDNS_REFRESH_PADDING_SECONDS as _MDNS_REFRESH_PADDING_SECONDS
