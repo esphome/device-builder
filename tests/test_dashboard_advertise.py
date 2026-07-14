@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder import device_builder as db_module
-from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
+from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers import dashboard_advertise
 from esphome_device_builder.helpers.dashboard_advertise import (
@@ -1002,7 +1002,7 @@ async def test_device_builder_advertises_in_ha_addon_mode(
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
-    monkeypatch.setattr(DeviceStateMonitor, "zeroconf", property(lambda self: fake_zc))
+    monkeypatch.setattr(MdnsSource, "zeroconf", property(lambda self: fake_zc))
 
     settings = make_settings(with_core_path=True)
     settings.on_ha_addon = True
@@ -1051,7 +1051,7 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
-    monkeypatch.setattr(DeviceStateMonitor, "zeroconf", property(lambda self: fake_zc))
+    monkeypatch.setattr(MdnsSource, "zeroconf", property(lambda self: fake_zc))
 
     settings = make_settings(with_core_path=True)
     settings.on_ha_addon = False

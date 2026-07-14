@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
@@ -39,22 +40,73 @@ from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wire_secrets_writer
 
 
+class _RecordingAddressCache:
+    """
+    Typed fake for a hostname→addresses read surface.
+
+    Backs both ``monitor.mdns`` and ``monitor.state.dns_cache``;
+    *record_as* keeps the two caches' call tuples distinct so
+    assertions can tell which cache answered.
+    """
+
+    def __init__(
+        self, calls: list[tuple[Any, ...]], cached: dict[str, list[str]], record_as: str
+    ) -> None:
+        self._calls = calls
+        self._cached = cached
+        self._record_as = record_as
+
+    def get_cached_addresses(self, host_name: str) -> list[str] | None:
+        self._calls.append((self._record_as, host_name))
+        return self._cached.get(normalize_hostname(host_name))
+
+
+class _RecordingImportableSource:
+    """Typed fake for the monitor's public ``importable`` source attribute."""
+
+    def __init__(self, calls: list[tuple[Any, ...]], importable: list[AdoptableDevice]) -> None:
+        self._calls = calls
+        self._importable = importable
+
+    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
+        self._calls.append(("probe_device", device_name, service_name))
+
+    def revisit_importable(self, device_name: str) -> None:
+        self._calls.append(("revisit_importable", device_name))
+
+    def revisit_all_importables(self) -> None:
+        self._calls.append(("revisit_all_importables",))
+
+    def get_importable_devices(self) -> list[AdoptableDevice]:
+        self._calls.append(("get_importable_devices",))
+        return list(self._importable)
+
+
+class _RecordingApiInfoSource:
+    """Typed fake for the monitor's public ``api_info`` source attribute."""
+
+    def __init__(self, calls: list[tuple[Any, ...]]) -> None:
+        self._calls = calls
+
+    def request_reprobe(self, name: str) -> None:
+        self._calls.append(("request_reprobe", name))
+
+
 class RecordingStateMonitor:
     """Test fake for ``DeviceStateMonitor`` that captures every call.
 
-    Mirrors every public method on the production
-    ``DeviceStateMonitor`` (``apply`` / ``apply_ip`` /
-    ``apply_version`` / ``apply_api_encryption`` /
-    ``apply_config_hash`` / ``get_cached_addresses`` /
-    ``get_cached_dns_addresses`` / ``probe_device`` /
-    ``probe_device_ping`` / ``priority_for`` /
-    ``revisit_importable`` /
-    ``revisit_all_importables`` / ``get_importable_devices``)
-    without any of the real monitor's I/O. Calls land in
-    ``self.calls`` as flat tuples ``(method_name, *args)`` —
-    assertion-time comparisons read like
-    ``calls == [("apply", "kitchen", ONLINE, "mdns", True), ...]``
-    instead of three scattered ``MagicMock.assert_called_*`` lines.
+    Mirrors the production monitor's public surface — the core
+    methods (``apply`` / ``apply_ip`` / ``apply_version`` /
+    ``apply_api_encryption`` / ``apply_config_hash`` /
+    ``probe_device_ping`` / ``probe_reachability`` /
+    ``priority_for`` / ``forget``) plus the public source
+    attributes (``mdns`` / ``importable`` / ``api_info``) and
+    ``state.dns_cache`` — without any of the real monitor's I/O.
+    Calls land in the single shared ``self.calls`` list as flat
+    tuples ``(method_name, *args)`` — assertion-time comparisons
+    read like ``calls == [("apply", "kitchen", ONLINE, "mdns",
+    True), ...]`` instead of three scattered
+    ``MagicMock.assert_called_*`` lines.
 
     Why a typed fake rather than ``MagicMock``: a typo (e.g.
     ``probe_devicee.assert_called_once``) silently passes against a
@@ -62,11 +114,12 @@ class RecordingStateMonitor:
     refactor renaming a real method (``apply_ip`` → ``set_ip``)
     similarly breaks the contract without breaking the assertion.
     Pinning the surface here means both classes of drift surface as
-    ``AttributeError`` immediately. Mirroring the *full* public
-    surface (rather than just what the first batch of tests
-    needed) means a controller path like ``_on_scan_change(…,
-    REMOVED)`` that calls ``revisit_importable`` won't blow up
-    against the fake just because no earlier test exercised it.
+    ``AttributeError`` immediately. Mirroring the *full* surface the
+    devices controller touches (rather than just what the first
+    batch of tests needed) means a controller path like
+    ``_on_scan_change(…, REMOVED)`` that calls
+    ``importable.revisit_importable`` won't blow up against the
+    fake just because no earlier test exercised it.
 
     ``cached_addresses`` and ``cached_dns_addresses`` accept
     ``hostname → [ips]`` maps. Lookup keys are normalised through
@@ -74,7 +127,7 @@ class RecordingStateMonitor:
     inputs like ``Kitchen.local.`` and still hit the seeded entry.
 
     ``importable_devices`` lets tests pre-seed a list returned by
-    ``get_importable_devices``; defaults to ``[]``.
+    ``importable.get_importable_devices``; defaults to ``[]``.
 
     ``priority_map`` lets tests override the per-source priority
     returned by ``priority_for``; lookup falls back to ``"unknown"``
@@ -90,12 +143,21 @@ class RecordingStateMonitor:
         priority_map: dict[str, str] | None = None,
     ) -> None:
         self.calls: list[tuple[Any, ...]] = []
-        self._cached = {normalize_hostname(k): v for k, v in (cached_addresses or {}).items()}
-        self._cached_dns = {
-            normalize_hostname(k): v for k, v in (cached_dns_addresses or {}).items()
-        }
-        self._importable = list(importable_devices or [])
         self._priority = priority_map or {}
+        self.mdns = _RecordingAddressCache(
+            self.calls,
+            {normalize_hostname(k): v for k, v in (cached_addresses or {}).items()},
+            record_as="get_cached_addresses",
+        )
+        self.state = SimpleNamespace(
+            dns_cache=_RecordingAddressCache(
+                self.calls,
+                {normalize_hostname(k): v for k, v in (cached_dns_addresses or {}).items()},
+                record_as="get_cached_dns_addresses",
+            )
+        )
+        self.importable = _RecordingImportableSource(self.calls, list(importable_devices or []))
+        self.api_info = _RecordingApiInfoSource(self.calls)
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         self.calls.append(("apply", name, state, source, claim))
@@ -121,42 +183,21 @@ class RecordingStateMonitor:
         self.calls.append(("apply_config_hash", name, config_hash))
         return True
 
-    def get_cached_addresses(self, host_name: str) -> list[str] | None:
-        self.calls.append(("get_cached_addresses", host_name))
-        return self._cached.get(normalize_hostname(host_name))
-
-    def get_cached_dns_addresses(self, host_name: str) -> list[str] | None:
-        self.calls.append(("get_cached_dns_addresses", host_name))
-        return self._cached_dns.get(normalize_hostname(host_name))
-
-    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
-        self.calls.append(("probe_device", device_name, service_name))
-
     def probe_device_ping(self, device_name: str) -> None:
         self.calls.append(("probe_device_ping", device_name))
 
     def probe_reachability(self, device_name: str) -> None:
         # Delegates like production so callers' per-probe call tuples
         # keep matching regardless of which entry point they used.
-        self.probe_device(device_name)
+        self.importable.probe_device(device_name)
         self.probe_device_ping(device_name)
 
     def priority_for(self, name: str) -> str:
         self.calls.append(("priority_for", name))
         return self._priority.get(name, "unknown")
 
-    def revisit_importable(self, device_name: str) -> None:
-        self.calls.append(("revisit_importable", device_name))
-
-    def revisit_all_importables(self) -> None:
-        self.calls.append(("revisit_all_importables",))
-
     def forget(self, name: str) -> None:
         self.calls.append(("forget", name))
-
-    def get_importable_devices(self) -> list[AdoptableDevice]:
-        self.calls.append(("get_importable_devices",))
-        return list(self._importable)
 
 
 def _make_board_stub(board_id: str) -> MagicMock:

@@ -28,12 +28,12 @@ _HTTP = "_http._tcp.local."
 def _make_monitor(*devices: Device) -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
     monitor.state = MonitorState()
-    monitor._importable = ImportableDiscovery(monitor)
-    monitor._mdns = MdnsSource(monitor)
+    monitor.importable = ImportableDiscovery(monitor)
+    monitor.mdns = MdnsSource(monitor)
     monitor._presence = None
-    monitor._ping = PingSource(monitor)
-    monitor._mdns._zeroconf = MagicMock()
-    monitor._mdns._zeroconf.zeroconf = MagicMock()
+    monitor.ping = PingSource(monitor)
+    monitor.mdns._zeroconf = MagicMock()
+    monitor.mdns._zeroconf.zeroconf = MagicMock()
     monitor._tasks = set()
     monitor.state.reachability = None
     monitor._get_devices = lambda: list(devices)
@@ -56,7 +56,7 @@ def _mqtt_device(**overrides: Any) -> Device:
 def _capture_apply(monitor: DeviceStateMonitor, monkeypatch: pytest.MonkeyPatch) -> list[tuple]:
     calls: list[tuple] = []
     monkeypatch.setattr(
-        monitor._mdns, "_apply_http_txt", lambda name, info: calls.append((name, info))
+        monitor.mdns, "_apply_http_txt", lambda name, info: calls.append((name, info))
     )
     return calls
 
@@ -84,7 +84,7 @@ def test_http_cache_hit_applies_identity_for_non_api_device(
     calls = _capture_apply(monitor, monkeypatch)
     info = _cached_info(monkeypatch, cached=True)
 
-    monitor._mdns._on_http_service_state_change(
+    monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Added
     )
 
@@ -101,9 +101,9 @@ async def test_http_cache_miss_spawns_resolve_task(monkeypatch: pytest.MonkeyPat
     async def fake_resolve(*_args, **_kw) -> None:
         return None
 
-    monkeypatch.setattr(monitor._mdns, "_resolve_then", fake_resolve)
+    monkeypatch.setattr(monitor.mdns, "_resolve_then", fake_resolve)
 
-    monitor._mdns._on_http_service_state_change(
+    monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Added
     )
 
@@ -118,7 +118,7 @@ def test_http_skips_all_api_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _capture_apply(monitor, monkeypatch)
     _cached_info(monkeypatch, cached=True)
 
-    monitor._mdns._on_http_service_state_change(
+    monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Added
     )
 
@@ -134,7 +134,7 @@ def test_http_applies_when_bucket_has_a_non_api_sibling(monkeypatch: pytest.Monk
     calls = _capture_apply(monitor, monkeypatch)
     info = _cached_info(monkeypatch, cached=True)
 
-    monitor._mdns._on_http_service_state_change(
+    monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Added
     )
 
@@ -147,7 +147,7 @@ def test_http_skips_unconfigured_device(monkeypatch: pytest.MonkeyPatch) -> None
     calls = _capture_apply(monitor, monkeypatch)
     _cached_info(monkeypatch, cached=True)
 
-    monitor._mdns._on_http_service_state_change(
+    monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"printer.{_HTTP}", ServiceStateChange.Added
     )
 
@@ -159,7 +159,7 @@ def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     monitor = _make_monitor(_mqtt_device())
     calls = _capture_apply(monitor, monkeypatch)
 
-    monitor._mdns._on_http_service_state_change(
+    monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Removed
     )
 
@@ -200,7 +200,7 @@ def test_apply_http_txt_reads_identity_trio(monkeypatch: pytest.MonkeyPatch) -> 
 
     # The stray api_encryption key is ignored, not applied (the capture
     # helper fails the test if it ever reaches the monitor).
-    monitor._mdns._apply_http_txt(
+    monitor.mdns._apply_http_txt(
         "klo",
         _http_info(
             {
@@ -224,7 +224,7 @@ def test_apply_http_txt_old_firmware_version_only(monkeypatch: pytest.MonkeyPatc
     monitor = _make_monitor(_mqtt_device())
     applied = _capture_monitor_applies(monitor, monkeypatch)
 
-    monitor._mdns._apply_http_txt("klo", _http_info({"version": "2026.6.4"}))
+    monitor.mdns._apply_http_txt("klo", _http_info({"version": "2026.6.4"}))
 
     assert applied == [("apply_version", "klo", "2026.6.4")]
 
@@ -234,6 +234,6 @@ def test_apply_http_txt_empty_props_is_a_noop(monkeypatch: pytest.MonkeyPatch) -
     monitor = _make_monitor(_mqtt_device())
     applied = _capture_monitor_applies(monitor, monkeypatch)
 
-    monitor._mdns._apply_http_txt("klo", _http_info({}))
+    monitor.mdns._apply_http_txt("klo", _http_info({}))
 
     assert applied == []

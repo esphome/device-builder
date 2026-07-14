@@ -93,7 +93,7 @@ class MdnsSource:
             return
 
         monitor = self._monitor
-        importable = monitor._importable
+        importable = monitor.importable
         importable.setup()
 
         def _dispatch(
@@ -268,8 +268,7 @@ class MdnsSource:
         Both IPv4 and IPv6 (scoped) entries are included — the
         OTA address-cache args need every IP we know so the
         runtime can try them in turn. mDNS-only; non-``.local``
-        hostnames go through
-        :meth:`DeviceStateMonitor.get_cached_dns_addresses`.
+        hostnames go through ``state.dns_cache.get_cached_addresses``.
         """
         if self._zeroconf is None:
             return None

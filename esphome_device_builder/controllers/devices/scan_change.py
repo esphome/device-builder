@@ -100,7 +100,7 @@ def on_scan_change(
         # the discovered hostname; ``_on_import_update`` already
         # filters configured + ignored entries so re-emitting
         # the full set is cheap.
-        controller._state_monitor.revisit_all_importables()
+        controller._state_monitor.importable.revisit_all_importables()
         # Drop the monitor's per-name state. Both the reachability
         # history and the source-precedence ledger would otherwise
         # accumulate one entry per device that's ever lived in the

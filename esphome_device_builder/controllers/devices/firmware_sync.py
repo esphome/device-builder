@@ -226,7 +226,7 @@ def _fire_version_reprobe(controller: DevicesController, configuration: str) -> 
     controller._reprobe_timers.pop(configuration, None)
     device = controller._scanner.get_by_configuration(configuration)
     if device is not None:
-        controller._state_monitor.request_version_reprobe(device.name)
+        controller._state_monitor.api_info.request_reprobe(device.name)
 
 
 def _read_compiled_esphome_version(configuration: str) -> str:

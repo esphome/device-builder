@@ -222,7 +222,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # state monitor.
         self._reachability = ReachabilityTracker(
             on_observation=self._on_reachability_observation,
-            mdns_cache_reader=self._state_monitor.get_mdns_cache_info,
+            mdns_cache_reader=self._state_monitor.mdns.get_mdns_cache_info,
         )
         self._state_monitor.set_reachability(self._reachability)
         # MQTT routes its observations through the same state monitor so
@@ -244,7 +244,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         up a second responder. ``None`` when zeroconf failed to start —
         callers skip their advertise.
         """
-        return self._state_monitor.zeroconf
+        return self._state_monitor.mdns.zeroconf
 
     # ------------------------------------------------------------------
     # Lifecycle

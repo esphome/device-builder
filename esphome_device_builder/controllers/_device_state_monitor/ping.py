@@ -184,7 +184,7 @@ class PingSource(SweepSource):
                 # cache, kept fresh by the ``AsyncServiceBrowser``, rather than
                 # giving up — but ping still decides liveness, so a stale or
                 # reflected entry demotes instead of latching ONLINE (#1776).
-                addresses = monitor.get_cached_addresses(device.address)
+                addresses = monitor.mdns.get_cached_addresses(device.address)
             if not addresses:
                 # mDNS-less devices: the ``.local`` won't resolve but a
                 # prior MQTT/DNS observation left a usable IP. Ping that so

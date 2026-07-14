@@ -102,7 +102,8 @@ async def refresh_loop(controller: DevicesController, device_name: str) -> None:
         # Use the A/AAAA-specific TTL; the union-of-types
         # ``get_mdns_cache_info`` includes PTR's 4500s TTL and
         # would never wake up to refresh A.
-        a_ttl_remaining = controller._state_monitor.get_mdns_a_record_ttl_remaining(device_name)
+        mdns = controller._state_monitor.mdns
+        a_ttl_remaining = mdns.get_mdns_a_record_ttl_remaining(device_name)
         if a_ttl_remaining is not None and a_ttl_remaining > 0:
             # A still alive; sleep until just past expiry, then
             # re-check (an unrelated announce during the sleep
@@ -157,4 +158,4 @@ def on_observation(controller: DevicesController, name: str) -> None:
 
 async def refresh_device_mdns(controller: DevicesController, name: str) -> None:
     """Force-refresh a device's mDNS A record. No-op if zeroconf is down."""
-    await controller._state_monitor.refresh_mdns(name)
+    await controller._state_monitor.mdns.refresh_mdns(name)

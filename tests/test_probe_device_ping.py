@@ -74,8 +74,8 @@ def _patch_loop_for_wake_tests(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @asynccontextmanager
 async def _running_loop(monitor: DeviceStateMonitor) -> AsyncIterator[None]:
-    """Spawn ``monitor._ping.run()`` and cancel + drain on exit."""
-    task = asyncio.create_task(monitor._ping.run())
+    """Spawn ``monitor.ping.run()`` and cancel + drain on exit."""
+    task = asyncio.create_task(monitor.ping.run())
     try:
         yield
     finally:
@@ -94,11 +94,11 @@ async def _yield_until(predicate: Callable[[], bool], iterations: int = 50) -> N
 def test_probe_device_ping_sets_wake_event() -> None:
     """One probe call flips the loop's wake event without scheduling a task."""
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
-    assert monitor._ping._wake.is_set() is False
+    assert monitor.ping._wake.is_set() is False
 
     monitor.probe_device_ping("garage")
 
-    assert monitor._ping._wake.is_set() is True
+    assert monitor.ping._wake.is_set() is True
     assert monitor._tasks == set()
 
 
@@ -109,7 +109,7 @@ def test_probe_device_ping_skips_online_mdns_claimed_device() -> None:
 
     monitor.probe_device_ping("garage")
 
-    assert monitor._ping._wake.is_set() is False
+    assert monitor.ping._wake.is_set() is False
 
 
 def test_probe_device_ping_wakes_offline_mdns_sourced_device() -> None:
@@ -119,7 +119,7 @@ def test_probe_device_ping_wakes_offline_mdns_sourced_device() -> None:
 
     monitor.probe_device_ping("garage")
 
-    assert monitor._ping._wake.is_set() is True
+    assert monitor.ping._wake.is_set() is True
 
 
 def test_probe_device_ping_unknown_name_fails_open() -> None:
@@ -128,7 +128,7 @@ def test_probe_device_ping_unknown_name_fails_open() -> None:
 
     monitor.probe_device_ping("ghost")
 
-    assert monitor._ping._wake.is_set() is True
+    assert monitor.ping._wake.is_set() is True
 
 
 def test_probe_reachability_fires_both_probes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -136,7 +136,7 @@ def test_probe_reachability_fires_both_probes(monkeypatch: pytest.MonkeyPatch) -
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     probed: list[str] = []
     monkeypatch.setattr(
-        monitor._importable,
+        monitor.importable,
         "probe_device",
         lambda name, service_name=None: probed.append(name),
     )
@@ -144,7 +144,7 @@ def test_probe_reachability_fires_both_probes(monkeypatch: pytest.MonkeyPatch) -
     monitor.probe_reachability("garage")
 
     assert probed == ["garage"]
-    assert monitor._ping._wake.is_set() is True
+    assert monitor.ping._wake.is_set() is True
 
 
 def test_probe_device_ping_herd_collapses_to_single_set() -> None:
@@ -155,7 +155,7 @@ def test_probe_device_ping_herd_collapses_to_single_set() -> None:
     for device in devices:
         monitor.probe_device_ping(device.name)
 
-    assert monitor._ping._wake.is_set() is True
+    assert monitor.ping._wake.is_set() is True
     assert monitor._tasks == set()
 
 

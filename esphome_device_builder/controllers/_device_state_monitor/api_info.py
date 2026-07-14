@@ -152,7 +152,7 @@ class ApiInfoSource(ApiSweepSource):
             )
         }
         for name in sorted(names):
-            monitor.reconcile_from_mdns_cache(name)
+            monitor.mdns.reconcile_from_cache(name)
 
     def _is_due(self, device: Device) -> bool:
         """

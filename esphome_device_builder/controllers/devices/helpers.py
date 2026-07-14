@@ -438,9 +438,9 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
     addresses: list[str] = []
     if monitor is not None:
         cached = (
-            monitor.get_cached_addresses(address)
+            monitor.mdns.get_cached_addresses(address)
             if is_local
-            else monitor.get_cached_dns_addresses(address)
+            else monitor.state.dns_cache.get_cached_addresses(address)
         )
         if cached:
             addresses = list(cached)

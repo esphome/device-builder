@@ -107,7 +107,7 @@ class ApiReviverSource(ApiSweepSource):
         # still-undecided outcome means the probe never ran; either way
         # the negative pre-filter can't be trusted, and availability
         # can't change within a process.
-        if self._monitor._ping.icmp_available is not True:
+        if self._monitor.ping.icmp_available is not True:
             _LOGGER.warning(
                 "API revival disabled: ICMP is unavailable, so the persisted-IP "
                 "pre-filter can't run and a verified ONLINE could never demote"
@@ -186,8 +186,8 @@ class ApiReviverSource(ApiSweepSource):
         # Ping's own semaphore, not a second one: the in-flight ICMP
         # budget is global, so an overlapping sweep and pre-filter
         # can't exceed the icmplib reliability bound together.
-        async with self._monitor._ping.icmp_concurrency:
-            rtt = await self._monitor._ping.ping_once(ip, retry=True)
+        async with self._monitor.ping.icmp_concurrency:
+            rtt = await self._monitor.ping.ping_once(ip, retry=True)
         if rtt is None:
             self._cool_down((device.name, ip), _ICMP_SILENT_COOLDOWN)
         return rtt
@@ -235,8 +235,7 @@ class ApiReviverSource(ApiSweepSource):
             # invalidation callback is wired; the cleared IP then drops
             # the device from the cohort entirely.
             self._record_dial_failure(key)
-            if monitor._on_persisted_ip_invalidated is not None:
-                monitor._on_persisted_ip_invalidated(device.name, ip)
+            monitor.invalidate_persisted_ip(device.name, ip)
             return
         mac = _normalize_mac(info.get("mac_address", ""))
         persisted_mac = _normalize_mac(device.mac_address)

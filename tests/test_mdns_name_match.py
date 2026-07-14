@@ -107,7 +107,7 @@ async def _capture_handler(monitor: DeviceStateMonitor, monkeypatch: pytest.Monk
     # real zeroconf.
     monkeypatch.setattr(esphome_zc, "AsyncServiceInfo", _FakeServiceInfo)
 
-    await monitor._mdns.start()
+    await monitor.mdns.start()
     return captured["handler"]
 
 

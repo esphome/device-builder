@@ -115,13 +115,13 @@ def _wire_reachability(
     # path is what we want covered for most tests).
     state_monitor = MagicMock()
     state_monitor.priority_for = MagicMock(return_value=ReachabilitySource.PING)
-    state_monitor.refresh_mdns = AsyncMock()
+    state_monitor.mdns.refresh_mdns = AsyncMock()
     # The refresh loop reads ``get_mdns_a_record_ttl_remaining``
     # to decide how long to sleep before the next probe.
     # Returning ``None`` makes it sleep just the padding (~1s);
     # a default MagicMock would raise ``TypeError`` on the ``+``
     # arithmetic.
-    state_monitor.get_mdns_a_record_ttl_remaining = MagicMock(return_value=None)
+    state_monitor.mdns.get_mdns_a_record_ttl_remaining = MagicMock(return_value=None)
     controller._state_monitor = state_monitor
     return tracker
 
@@ -463,7 +463,7 @@ def test_scan_change_removed_clears_tracker(
     # Stub ``revisit_all_importables`` (called on REMOVED) so we
     # don't have to hand-build an import_discovery. The tracker
     # clear is what we're pinning down.
-    controller._state_monitor.revisit_all_importables = MagicMock()
+    controller._state_monitor.importable.revisit_all_importables = MagicMock()
     controller.state.regenerate_failed = set()
 
     controller._on_scan_change(ScanChange.REMOVED, device)
@@ -513,8 +513,8 @@ async def test_refresh_loop_only_calls_resolve_when_source_is_mdns(
     # Second iteration: sleep, then source = mdns → one refresh.
     # Third iteration: sleep raises CancelledError before the
     # priority probe runs. Total: 1 refresh across two ticks.
-    assert state_monitor.refresh_mdns.await_count == 1
-    state_monitor.refresh_mdns.assert_awaited_with("kitchen")
+    assert state_monitor.mdns.refresh_mdns.await_count == 1
+    state_monitor.mdns.refresh_mdns.assert_awaited_with("kitchen")
 
 
 async def test_refresh_loop_sleeps_until_cache_expiry(
@@ -539,7 +539,7 @@ async def test_refresh_loop_sleeps_until_cache_expiry(
     # Two A-TTL reads cover the two iterations: first fresh
     # (90s remaining), then expired (None — typical post-refresh
     # state if the device didn't respond).
-    state_monitor.get_mdns_a_record_ttl_remaining.side_effect = [90.0, None]
+    state_monitor.mdns.get_mdns_a_record_ttl_remaining.side_effect = [90.0, None]
     state_monitor.priority_for.return_value = ReachabilitySource.MDNS
 
     sleep_durations: list[float] = []
@@ -589,7 +589,7 @@ async def test_refresh_loop_skips_wire_query_when_recheck_finds_fresh_cache(
     state_monitor.priority_for.return_value = ReachabilitySource.MDNS
     # Three A-TTL reads: fresh (90s) → fresh again (60s, an
     # announce arrived) → empty (cache evicted).
-    state_monitor.get_mdns_a_record_ttl_remaining.side_effect = [90.0, 60.0, None]
+    state_monitor.mdns.get_mdns_a_record_ttl_remaining.side_effect = [90.0, 60.0, None]
 
     sleep_count = 0
 
@@ -609,4 +609,4 @@ async def test_refresh_loop_skips_wire_query_when_recheck_finds_fresh_cache(
         m.setattr("asyncio.sleep", fast_sleep)
         await controller._reachability_refresh_loop("kitchen")
 
-    state_monitor.refresh_mdns.assert_not_awaited()
+    state_monitor.mdns.refresh_mdns.assert_not_awaited()

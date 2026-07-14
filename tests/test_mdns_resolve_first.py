@@ -24,11 +24,11 @@ _SERVICE_NAME = "kitchen._esphomelib._tcp.local."
 
 def _prime_sweep(monitor: Any, *, cache_trace: bool = True, live_ptr: bool = False) -> None:
     """Wire the fake zeroconf plus the two cache reads the sweep filter makes."""
-    monitor._mdns._zeroconf = MagicMock()
-    monitor.get_mdns_cache_info = MagicMock(  # type: ignore[method-assign]
+    monitor.mdns._zeroconf = MagicMock()
+    monitor.mdns.get_mdns_cache_info = MagicMock(  # type: ignore[method-assign]
         return_value=MagicMock() if cache_trace else None
     )
-    monitor._mdns.has_live_ptr = MagicMock(return_value=live_ptr)  # type: ignore[method-assign]
+    monitor.mdns.has_live_ptr = MagicMock(return_value=live_ptr)  # type: ignore[method-assign]
 
 
 async def test_sweep_claims_mdns_for_ping_owned_online_device(
@@ -104,11 +104,11 @@ async def test_sweep_skips_ineligible_devices(
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = source
     _prime_sweep(monitor, **prime)
-    monitor._mdns.resolve_and_claim = AsyncMock()  # type: ignore[method-assign]
+    monitor.mdns.resolve_and_claim = AsyncMock()  # type: ignore[method-assign]
 
     await shared.resolve_api_mdns_targets(monitor)
 
-    monitor._mdns.resolve_and_claim.assert_not_called()
+    monitor.mdns.resolve_and_claim.assert_not_called()
 
 
 async def test_sweep_resolves_multiple_candidates_concurrently() -> None:
@@ -118,7 +118,7 @@ async def test_sweep_resolves_multiple_candidates_concurrently() -> None:
     monitor.state.state_source["porch"] = ReachabilitySource.PING
     _prime_sweep(monitor)
     resolve = AsyncMock()
-    monitor._mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
+    monitor.mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
 
     await shared.resolve_api_mdns_targets(monitor)
 
@@ -133,7 +133,7 @@ async def test_sweep_surfaces_unexpected_resolve_errors(
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
     _prime_sweep(monitor)
-    monitor._mdns.resolve_and_claim = AsyncMock(  # type: ignore[method-assign]
+    monitor.mdns.resolve_and_claim = AsyncMock(  # type: ignore[method-assign]
         side_effect=AttributeError("boom")
     )
 
@@ -147,12 +147,12 @@ async def test_sweep_without_zeroconf_is_a_noop() -> None:
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    monitor._mdns._zeroconf = None
-    monitor._mdns.resolve_and_claim = AsyncMock()  # type: ignore[method-assign]
+    monitor.mdns._zeroconf = None
+    monitor.mdns.resolve_and_claim = AsyncMock()  # type: ignore[method-assign]
 
     await shared.resolve_api_mdns_targets(monitor)
 
-    monitor._mdns.resolve_and_claim.assert_not_called()
+    monitor.mdns.resolve_and_claim.assert_not_called()
 
 
 async def test_sweep_rechecks_mdns_owned_device_without_live_ptr() -> None:
@@ -162,7 +162,7 @@ async def test_sweep_rechecks_mdns_owned_device_without_live_ptr() -> None:
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_sweep(monitor, live_ptr=False)
     resolve = AsyncMock()
-    monitor._mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
+    monitor.mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
 
     await shared.resolve_api_mdns_targets(monitor)
 
@@ -171,9 +171,9 @@ async def test_sweep_rechecks_mdns_owned_device_without_live_ptr() -> None:
 
 async def test_resolve_and_claim_without_zeroconf_is_a_noop() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    monitor._mdns._zeroconf = None
+    monitor.mdns._zeroconf = None
 
-    await monitor._mdns.resolve_and_claim("kitchen")
+    await monitor.mdns.resolve_and_claim("kitchen")
 
     assert callbacks.calls == []
 
@@ -184,10 +184,10 @@ def test_should_ping_gates_mdns_ownership_on_live_ptr() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
 
-    monitor._mdns.has_live_ptr = MagicMock(return_value=False)  # type: ignore[method-assign]
+    monitor.mdns.has_live_ptr = MagicMock(return_value=False)  # type: ignore[method-assign]
     assert shared.should_ping(monitor, device) is True
 
-    monitor._mdns.has_live_ptr = MagicMock(return_value=True)  # type: ignore[method-assign]
+    monitor.mdns.has_live_ptr = MagicMock(return_value=True)  # type: ignore[method-assign]
     assert shared.should_ping(monitor, device) is False
 
 
@@ -196,7 +196,7 @@ def test_should_ping_non_api_mdns_ownership_unchanged() -> None:
     device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor._mdns.has_live_ptr = MagicMock(return_value=False)  # type: ignore[method-assign]
+    monitor.mdns.has_live_ptr = MagicMock(return_value=False)  # type: ignore[method-assign]
 
     assert shared.should_ping(monitor, device) is False
 
@@ -204,23 +204,23 @@ def test_should_ping_non_api_mdns_ownership_unchanged() -> None:
 def test_has_live_ptr_reads_the_browser_cache() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     fake_zeroconf = MagicMock()
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
     lookup = fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias
 
     ptr = MagicMock()
     ptr.is_expired.return_value = False
     lookup.return_value = ptr
-    assert monitor._mdns.has_live_ptr("kitchen") is True
+    assert monitor.mdns.has_live_ptr("kitchen") is True
     lookup.assert_called_with("_esphomelib._tcp.local.", _SERVICE_NAME)
 
     ptr.is_expired.return_value = True
-    assert monitor._mdns.has_live_ptr("kitchen") is False
+    assert monitor.mdns.has_live_ptr("kitchen") is False
 
     lookup.return_value = None
-    assert monitor._mdns.has_live_ptr("kitchen") is False
+    assert monitor.mdns.has_live_ptr("kitchen") is False
 
-    monitor._mdns._zeroconf = None
-    assert monitor._mdns.has_live_ptr("kitchen") is False
+    monitor.mdns._zeroconf = None
+    assert monitor.mdns.has_live_ptr("kitchen") is False
 
 
 def _gated_wire(info: MagicMock, *, result: bool) -> tuple[asyncio.Event, list[int]]:
@@ -248,12 +248,12 @@ async def test_added_during_removed_verify_keeps_device_online(
     gate, _calls = _gated_wire(info, result=True)
 
     verify = asyncio.create_task(
-        monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+        monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
     )
     await asyncio.sleep(0)
-    assert _SERVICE_NAME in monitor._mdns._inflight_resolves
+    assert _SERVICE_NAME in monitor.mdns._inflight_resolves
 
-    monitor._mdns._on_esphomelib_service_state_change(
+    monitor.mdns._on_esphomelib_service_state_change(
         MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
     )
     assert device.runtime_state.state == DeviceState.ONLINE
@@ -276,11 +276,11 @@ async def test_added_resolve_during_verify_defers_to_the_inflight_verify(
     gate, calls = _gated_wire(info, result=True)
 
     verify = asyncio.create_task(
-        monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+        monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
     )
     await asyncio.sleep(0)
 
-    monitor._mdns._on_esphomelib_service_state_change(
+    monitor.mdns._on_esphomelib_service_state_change(
         MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
     )
     gate.set()
@@ -304,11 +304,11 @@ async def test_confirmed_wire_miss_outranks_a_stale_cache_added_claim(
     gate, _calls = _gated_wire(info, result=False)
 
     verify = asyncio.create_task(
-        monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+        monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
     )
     await asyncio.sleep(0)
 
-    monitor._mdns._on_esphomelib_service_state_change(
+    monitor.mdns._on_esphomelib_service_state_change(
         MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
     )
     assert device.runtime_state.state == DeviceState.ONLINE
@@ -330,7 +330,7 @@ async def test_verify_removed_keeps_online_on_a_swallowed_resolve_error(
     info.async_request.side_effect = OSError("socket gone")
 
     with caplog.at_level(logging.WARNING):
-        await monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+        await monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
 
     assert device.runtime_state.state == DeviceState.ONLINE
     assert callbacks.calls_for("on_state_change") == []
@@ -344,10 +344,10 @@ async def test_verify_removed_bails_when_a_resolve_is_inflight(
     device = make_online_api_device()
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor._mdns._inflight_resolves.add(_SERVICE_NAME)
+    monitor.mdns._inflight_resolves.add(_SERVICE_NAME)
     info = stub_async_service_info(monkeypatch)
 
-    await monitor._mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+    await monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
 
     info.async_request.assert_not_called()
     assert device.runtime_state.state == DeviceState.ONLINE
