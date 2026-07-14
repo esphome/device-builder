@@ -477,8 +477,7 @@ async def test_dispatch_removed_event_flips_offline_keeps_last_known_ip(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A confirmed ``Removed`` flips OFFLINE and clears the resolved set; ``ip`` survives."""
-    device = _device(state=DeviceState.ONLINE, ip="10.0.0.1")
-    device.runtime_state.ip_addresses = ["10.0.0.1"]
+    device = _device(state=DeviceState.ONLINE, ip="10.0.0.1", ip_addresses=["10.0.0.1"])
     monitor, _callbacks = _make_monitor([device])
     monitor.state.state_source["kitchen"] = "mdns"
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
@@ -1796,12 +1795,7 @@ def test_apply_ip_short_circuits_when_value_unchanged() -> None:
 
 
 def test_apply_ip_empty_clears_only_the_resolved_set() -> None:
-    """The clear op drops ``ip_addresses`` and keeps the last-known ``ip``.
-
-    A repeat clear dedupes on the resolved set alone — comparing the
-    retained ``ip`` against the empty primary would re-fire
-    DEVICE_UPDATED on every confirmed ``Removed`` forever.
-    """
+    """The clear op drops ``ip_addresses``, keeps the last-known ``ip``, and dedupes on repeat."""
     device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
     monitor, callbacks = _make_monitor([device])
 

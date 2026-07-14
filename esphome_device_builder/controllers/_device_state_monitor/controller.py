@@ -76,10 +76,8 @@ SourceChangeCallback = Callable[[str, ReachabilitySource], None]
 # mDNS IP resolution callback. ``primary`` is the IPv4 we lock onto
 # for ICMP / OTA cache args (or the first scoped IPv6 when no V4 is
 # present); ``addresses`` is the announced set in zeroconf's
-# ``parsed_scoped_addresses`` order. Empty primary + empty list
-# signals the device left mDNS: only the resolved-address set clears,
-# ``device.ip`` keeps the last-known primary (RAM mirrors the sidecar
-# so the api_reviver can repair a mid-process mDNS death).
+# ``parsed_scoped_addresses`` order. Empty primary + empty list clears
+# only the resolved set; ``device.ip`` keeps the last-known primary.
 IPChangeCallback = Callable[[str, str, list[str]], None]
 
 # mDNS ``version`` TXT change.
@@ -379,8 +377,8 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         Picks an IPv4 primary via :func:`_pick_ipv4` (falling back
         to the first scoped IPv6) so ``device.ip`` stays the single
         target for ICMP / OTA, and forwards the complete list to
-        ``runtime_state.ip_addresses``. An empty list clears only the
-        resolved set; ``device.ip`` keeps the last-known primary.
+        ``runtime_state.ip_addresses``. Empty list clears only the
+        resolved set.
         """
         primary = _pick_ipv4(addresses) if addresses else ""
         return self._dispatch_ip(name, primary, addresses)
@@ -399,12 +397,12 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         devices = self._get_devices_by_name(name)
         if not devices:
             return False
-        if not primary:
-            # Clear op: only the resolved set is dropped, ``device.ip``
-            # keeps the last-known primary, so dedupe on the set alone.
-            if all(not d.runtime_state.ip_addresses for d in devices):
-                return False
-        elif all(d.ip == primary and d.runtime_state.ip_addresses == addresses for d in devices):
+        # The clear op (``primary == ""``) dedupes on the resolved set
+        # alone — ``device.ip`` keeps the last-known primary.
+        if all(
+            d.runtime_state.ip_addresses == addresses and (not primary or d.ip == primary)
+            for d in devices
+        ):
             return False
         self._on_ip_change(name, primary, addresses)
         return True
