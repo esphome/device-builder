@@ -3,7 +3,7 @@
 This file fills in the branches the per-feature suites
 (``test_mdns_*``, ``test_probe_device``, ``test_non_api_mdns_resolve``)
 don't reach. Tests drive through the public API
-(``start`` / ``stop`` / ``probe_device`` / ``revisit_*`` / the
+(``start`` / ``stop`` / ``revisit_*`` / the
 ``apply_*`` family) plus the dispatch closure that
 ``AsyncServiceBrowser`` would invoke in production. The closure is
 captured by patching ``AsyncServiceBrowser`` so the test owns the

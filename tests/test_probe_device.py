@@ -21,7 +21,6 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
 )
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
-from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.models import Device, DeviceRuntimeState, DeviceState
@@ -33,8 +32,6 @@ def _make_monitor() -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
-
-    monitor.importable = ImportableDiscovery(monitor)
 
     monitor.mdns = MdnsSource(monitor)
 
@@ -155,8 +152,6 @@ def test_probe_device_no_zeroconf_is_a_noop() -> None:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
 
     monitor.state = MonitorState()
-
-    monitor.importable = ImportableDiscovery(monitor)
 
     monitor.mdns = MdnsSource(monitor)
 

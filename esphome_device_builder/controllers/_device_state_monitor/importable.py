@@ -116,14 +116,8 @@ class ImportableDiscovery:
         if info.load_from_cache(zeroconf):
             self._apply_http_service_info(device_name, info)
             return
-        monitor._track_task(self._resolve_and_apply_http(zeroconf, info, device_name))
-
-    async def _resolve_and_apply_http(
-        self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
-    ) -> None:
-        """Resolve a cache-miss HTTP service and store its URL."""
-        await self._monitor.mdns.resolve_then(
-            zeroconf, info, device_name, self._apply_http_service_info
+        monitor._track_task(
+            monitor.mdns.resolve_then(zeroconf, info, device_name, self._apply_http_service_info)
         )
 
     def _apply_http_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:

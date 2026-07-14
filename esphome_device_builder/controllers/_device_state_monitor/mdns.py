@@ -366,8 +366,7 @@ class MdnsSource:
         """
         Resolve a cache-miss service and hand the result to *apply*.
 
-        Shared fire-and-forget shape between the esphomelib and
-        HTTP browser paths: spawn a task on cache miss,
+        Shared by the esphomelib and HTTP browser paths:
         ``async_request`` the record, swallow exceptions to a
         debug log, dispatch to the per-type applier on success.
         At most one resolve per service name is in flight. Returns
