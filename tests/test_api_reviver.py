@@ -145,22 +145,14 @@ async def test_icmp_silence_skips_the_dial_and_cools_down() -> None:
     assert 0 < _cooldown_delta(src, device) <= _ICMP_SILENT_COOLDOWN
 
 
-@pytest.mark.parametrize(
-    "icmp_available",
-    [
-        pytest.param(False, id="probe_said_unavailable"),
-        pytest.param(None, id="probe_never_landed"),
-    ],
-)
 async def test_run_exits_when_icmp_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
-    icmp_available: bool | None,
 ) -> None:
     """Without a trustworthy negative pre-filter the reviver refuses to run at all."""
     device = make_stuck_offline_device()
     monitor, _callbacks, src = _reviver([device])
-    monitor.ping.icmp_available = icmp_available
+    monitor.ping.icmp_available = False
     monkeypatch.setattr(ApiReviverSource, "_bootstrap_delay", 0)
 
     with caplog.at_level(logging.WARNING):

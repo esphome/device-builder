@@ -13,9 +13,9 @@ connects are heavy on the device (scarce connection slots), so revival is
 strictly last-resort and identity-verified:
 
 1. Candidates are devices with **no other reachability signal**: not
-   ONLINE, ``api_enabled``, last-known ``Device.ip``, no resolved
-   addresses, and :func:`shared.address_resolution_exhausted` proving
-   the ping sweep already tried and had no target.
+   ONLINE, ``api_enabled``, last-known ``Device.ip``, and
+   :func:`shared.sweep_has_no_target` proving the ping sweep already
+   tried and had no target.
 2. ICMP the persisted IP as a cheap **negative** filter — silence means
    no dial, the device is off or moved.
 3. Something answered: pay for one short-lived ``device_info`` worker
@@ -103,11 +103,9 @@ class ApiReviverSource(ApiSweepSource):
         if not api_worker_available():
             _LOGGER.debug("aioesphomeapi not installed; API revival disabled")
             return False
-        # The bootstrap sleep outlasts ping's privilege probe, so a
-        # still-undecided outcome means the probe never ran; either way
-        # the negative pre-filter can't be trusted, and availability
-        # can't change within a process.
-        if self._monitor.ping.icmp_available is not True:
+        # False until ping's privilege probe lands (the bootstrap sleep
+        # outlasts it); availability can't change within a process.
+        if not self._monitor.ping.icmp_available:
             _LOGGER.warning(
                 "API revival disabled: ICMP is unavailable, so the persisted-IP "
                 "pre-filter can't run and a verified ONLINE could never demote"
@@ -170,9 +168,8 @@ class ApiReviverSource(ApiSweepSource):
             if device.api_enabled
             and device.ip
             and device.runtime_state.state is not DeviceState.ONLINE
-            and not device.runtime_state.ip_addresses
             and self._cooldown.ready((device.name, device.ip), now)
-            and shared.address_resolution_exhausted(self._monitor, device.address)
+            and shared.sweep_has_no_target(self._monitor, device)
         ]
 
     async def _prefilter(self, device: Device, ip: str) -> float | None:

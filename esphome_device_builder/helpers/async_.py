@@ -18,6 +18,21 @@ def log_task_exit(label: str, task: Task[Any]) -> None:
         _LOGGER.error("%s loop crashed: %s", label, exc, exc_info=exc)
 
 
+def log_gather_failures(results: Iterable[Any], message: str) -> None:
+    """
+    Triage a ``gather(..., return_exceptions=True)`` result list.
+
+    Logs each failure at WARNING so one item's failure doesn't skip
+    its siblings; re-raises a cancellation rather than masking it as
+    a benign miss.
+    """
+    for result in results:
+        if isinstance(result, Exception):
+            _LOGGER.warning(message, exc_info=result)
+        elif isinstance(result, BaseException):
+            raise result
+
+
 async def drain_tasks(tasks: Iterable[Task[Any]], *, log_exceptions: bool = False) -> None:
     """
     Cancel and await every task in *tasks*, swallowing exceptions.

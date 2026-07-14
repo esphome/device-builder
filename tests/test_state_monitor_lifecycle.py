@@ -1620,7 +1620,12 @@ async def test_dns_failure_flicker_does_not_re_emit_log(
         return MagicMock(is_alive=True, min_rtt=1.0)
 
     monkeypatch.setattr(ping_module, "icmp_ping", _icmp)
-    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
+    # ``zom.local`` never yields an address, so its RAM ``ip_addresses``
+    # stay empty and the DNS-failure flicker below genuinely moves it
+    # between the pingable and dns_failed buckets each sweep.
+    monitor.state.dns_cache.async_resolve = AsyncMock(
+        side_effect=lambda host: [] if host == "zom.local" else ["192.0.2.5"]
+    )
     monitor.mdns.get_cached_addresses = MagicMock(return_value=None)
     cache_calls = {"n": 0}
 

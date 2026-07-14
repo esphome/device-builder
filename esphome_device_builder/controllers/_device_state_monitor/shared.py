@@ -72,20 +72,25 @@ def apply_ping_result(monitor: DeviceStateMonitor, name: str, rtt_ms: float | No
     monitor.apply(name, DeviceState.ONLINE if rtt_ms is not None else DeviceState.OFFLINE, "ping")
 
 
-def address_resolution_exhausted(monitor: DeviceStateMonitor, address: str) -> bool:
+def sweep_has_no_target(monitor: DeviceStateMonitor, device: Device) -> bool:
     """
-    Report whether the ping sweep provably has no way to target *address*.
+    Report whether the ping sweep provably has no way to target *device*.
 
-    Mirrors ``_select_ping_targets``'s resolution order: a ``.local``
-    with zeroconf-cached addresses is ping's to handle, and only a
-    *cached* DNS failure (written by ping's pre-resolve) proves the
-    sweep already tried. Keep this and ping's selection in lockstep.
+    Mirrors ``_resolve_and_ping``'s resolution chain: known RAM
+    addresses are pinged directly, a ``.local`` with zeroconf-cached
+    addresses is ping's to handle, and only a *cached* DNS failure
+    (written by ping's pre-resolve) proves the sweep already tried.
+    Keep this and that chain in lockstep. Checks run cheapest-first;
+    the zeroconf cache walk only pays off after a proven DNS failure.
     """
+    if device.runtime_state.ip_addresses:
+        return False
+    address = device.address
     if not address:
         return True
-    if is_local_hostname(address) and monitor.mdns.get_cached_addresses(address):
+    if not monitor.state.dns_cache.has_cached_failure(address):
         return False
-    return monitor.state.dns_cache.has_cached_failure(address)
+    return not (is_local_hostname(address) and monitor.mdns.get_cached_addresses(address))
 
 
 def apply_resolved_addresses(

@@ -34,6 +34,10 @@ class SweepSource:
         if monitor._presence is not None:
             monitor._presence.add_subscriber_callback(self._wake.set)
 
+    def wake(self) -> None:
+        """Bail the idle wait so the next sweep runs without waiting out the interval."""
+        self._wake.set()
+
     async def run(self) -> None:
         await asyncio.sleep(self._bootstrap_delay)
         if not await self._prepare():

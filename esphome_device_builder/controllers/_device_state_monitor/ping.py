@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from icmplib import async_ping as icmp_ping
 from icmplib.exceptions import ICMPLibError
 
+from ...helpers.async_ import log_gather_failures
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
 from . import shared
@@ -47,7 +48,7 @@ async def _can_use_icmp_lib_with_privilege() -> bool | None:
 
 
 class PingSource(SweepSource):
-    """ICMP ping loop owning the periodic sweep and the wake-on-add early trigger."""
+    """ICMP ping sweep: mDNS pre-resolve, target selection, and the ping pass."""
 
     _sweep_label = "ICMP ping"
     # The mDNS browser's head start so the common case (everything
@@ -71,142 +72,10 @@ class PingSource(SweepSource):
         # Set in ``_prepare`` once the privilege probe lands; the pre-
         # ``run`` default is only seen by tests that mock ``icmp_ping``.
         self._privileged: bool = True
-        # Privilege-probe outcome for siblings (the API reviver gates on
-        # it): ``None`` until the probe lands, then True iff some ICMP
-        # socket mode works and the sweep is running.
-        self.icmp_available: bool | None = None
-
-    def wake(self) -> None:
-        """Bail the idle wait so the next sweep runs without waiting out the interval."""
-        self._wake.set()
-
-    async def _prepare(self) -> bool:
-        privileged = await _can_use_icmp_lib_with_privilege()
-        self.icmp_available = privileged is not None
-        if privileged is None:
-            _LOGGER.warning(
-                "ICMP ping sweep disabled: opening an ICMP socket was denied in both "
-                "privileged and unprivileged modes (needs CAP_NET_RAW, or "
-                "net.ipv4.ping_group_range covering this process's group); "
-                "device state will only update via mDNS"
-            )
-            return False
-        self._privileged = privileged
-        _LOGGER.debug("Using icmplib in privileged=%s mode for the ICMP ping sweep", privileged)
-        return True
-
-    async def _sweep(self) -> None:
-        # Disjoint candidate sets — resolve both concurrently so a
-        # wire-miss in one doesn't delay the sweep behind the other.
-        # A failing resolve step is logged and must not skip the
-        # sibling resolve or the ping pass for this interval.
-        results = await asyncio.gather(
-            shared.resolve_non_api_mdns_targets(self._monitor),
-            shared.resolve_api_mdns_targets(self._monitor),
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, BaseException) and not isinstance(result, Exception):
-                # Never mask a cancellation as a benign step failure.
-                raise result
-            if isinstance(result, Exception):
-                _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=result)
-        await self._ping_sweep()
-
-    async def _ping_sweep(self) -> None:
-        pingable, dns_failed = self._select_ping_targets()
-        if not pingable and not dns_failed:
-            return
-        if _LOGGER.isEnabledFor(logging.DEBUG):
-            # Signature spans both buckets so a device whose 120s
-            # DNS-failure cache TTL flips it between ``pingable`` and
-            # ``dns_failed`` every 60s sweep doesn't re-emit the log
-            # line each cycle. New devices, mDNS claims, and removals
-            # still resurface it.
-            signature = tuple(sorted((d.name, d.address) for d in pingable + dns_failed))
-            if signature != self._last_logged_targets:
-                self._last_logged_targets = signature
-                if dns_failed:
-                    _LOGGER.debug(
-                        "Pinging %d devices: %s; skipping %d (cached DNS failure): %s",
-                        len(pingable),
-                        _format_devices(pingable) or "(none)",
-                        len(dns_failed),
-                        _format_devices(dns_failed),
-                    )
-                else:
-                    _LOGGER.debug(
-                        "Pinging %d devices: %s", len(pingable), _format_devices(pingable)
-                    )
-        # ``self.icmp_concurrency`` semaphore caps in-flight ICMP at
-        # ``ICMP_BATCH_SIZE``; no need to pre-chunk the gather.
-        await asyncio.gather(
-            *(self._resolve_and_ping(device) for device in pingable),
-            return_exceptions=True,
-        )
-
-    def _select_ping_targets(self) -> tuple[list[Device], list[Device]]:
-        """Return ``(pingable, dns_failed)`` and apply per-device side-effects."""
-        pingable: list[Device] = []
-        dns_failed: list[Device] = []
-        monitor = self._monitor
-        for device in monitor._get_devices():
-            if not device.address or not shared.should_ping(monitor, device):
-                continue
-            if shared.address_resolution_exhausted(monitor, device.address) and (
-                not device.runtime_state.ip_addresses
-            ):
-                # The address won't resolve and we have no known IP.
-                # Don't hand the bare hostname to icmplib (it would hammer
-                # the system resolver every sweep). Apply OFFLINE under the
-                # ``ping`` source so a future successful resolve can flip
-                # the device back. Everything else falls through to
-                # ``pingable``: a zeroconf-cached ``.local`` gets *pinged*
-                # rather than claimed ONLINE off cache presence (a stale or
-                # reflected entry for a dead device would latch it ONLINE
-                # forever, #1776), and a device with a known IP (e.g. from
-                # MQTT) is pinged at that IP. One predicate, shared with
-                # the reviver's cohort gate.
-                monitor.apply(device.name, DeviceState.OFFLINE, "ping")
-                dns_failed.append(device)
-                continue
-            pingable.append(device)
-        return pingable, dns_failed
-
-    async def _resolve_and_ping(self, device: Device) -> None:
-        """Resolve *device.address* through the DNS cache and ICMP it."""
-        monitor = self._monitor
-        async with self.icmp_concurrency:
-            addresses = await monitor.state.dns_cache.async_resolve(device.address)
-            if not addresses and is_local_hostname(device.address):
-                # System resolver couldn't resolve the ``.local`` (no nss-mdns
-                # in most container images). Fall back to zeroconf's own mDNS
-                # cache, kept fresh by the ``AsyncServiceBrowser``, rather than
-                # giving up — but ping still decides liveness, so a stale or
-                # reflected entry demotes instead of latching ONLINE (#1776).
-                addresses = monitor.mdns.get_cached_addresses(device.address)
-            if not addresses:
-                # mDNS-less devices: the ``.local`` won't resolve but a
-                # prior MQTT/DNS observation left a usable IP. Ping that so
-                # ping can confirm a device the network won't resolve.
-                addresses = list(device.runtime_state.ip_addresses)
-            if not addresses:
-                monitor.apply(device.name, DeviceState.OFFLINE, "ping")
-                return
-            # Ping the IPv4 primary, not ``addresses[0]`` — a resolve/cache
-            # hit can order a scoped IPv6 first even when an IPv4 is present,
-            # and ICMP across subnets is friendlier on V4. ``_pick_ipv4`` is
-            # the same chooser ``apply_ip_addresses`` uses for ``device.ip``,
-            # so the pinged IP and the drawer's primary stay in lockstep.
-            target = _pick_ipv4(addresses)
-            # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
-            # and the full ``runtime_state.ip_addresses`` list for ``.local`` hosts
-            # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome
-            # devices); without it those devices show an em-dash in the
-            # drawer's IP row even after successful pings, and forwarding the
-            # whole set keeps a cached multi-IP device's secondary addresses.
-            monitor.apply_ip_addresses(device.name, addresses)
-            await self._ping_device(device, target)
+        # Privilege-probe outcome for siblings (the API reviver gates
+        # on it): True once some ICMP socket mode works and the sweep
+        # is running.
+        self.icmp_available: bool = False
 
     async def ping_once(self, target: str, *, retry: bool) -> float | None:
         """
@@ -238,6 +107,128 @@ class PingSource(SweepSource):
             # flooding the logs with stack traces.
             _LOGGER.debug("Ping of %s failed: %s", target, exc)
         return None
+
+    async def _prepare(self) -> bool:
+        privileged = await _can_use_icmp_lib_with_privilege()
+        self.icmp_available = privileged is not None
+        if privileged is None:
+            _LOGGER.warning(
+                "ICMP ping sweep disabled: opening an ICMP socket was denied in both "
+                "privileged and unprivileged modes (needs CAP_NET_RAW, or "
+                "net.ipv4.ping_group_range covering this process's group); "
+                "device state will only update via mDNS"
+            )
+            return False
+        self._privileged = privileged
+        _LOGGER.debug("Using icmplib in privileged=%s mode for the ICMP ping sweep", privileged)
+        return True
+
+    async def _sweep(self) -> None:
+        # Disjoint candidate sets — resolve both concurrently so a
+        # wire-miss in one doesn't delay the sweep behind the other.
+        # A failing resolve step is logged and must not skip the
+        # sibling resolve or the ping pass for this interval.
+        results = await asyncio.gather(
+            shared.resolve_non_api_mdns_targets(self._monitor),
+            shared.resolve_api_mdns_targets(self._monitor),
+            return_exceptions=True,
+        )
+        log_gather_failures(results, "mDNS resolve step failed; continuing")
+        await self._ping_sweep()
+
+    async def _ping_sweep(self) -> None:
+        pingable, dns_failed = self._select_ping_targets()
+        if not pingable and not dns_failed:
+            return
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            # Signature spans both buckets so a device whose 120s
+            # DNS-failure cache TTL flips it between ``pingable`` and
+            # ``dns_failed`` every 60s sweep doesn't re-emit the log
+            # line each cycle. New devices, mDNS claims, and removals
+            # still resurface it.
+            signature = tuple(sorted((d.name, d.address) for d in pingable + dns_failed))
+            if signature != self._last_logged_targets:
+                self._last_logged_targets = signature
+                if dns_failed:
+                    _LOGGER.debug(
+                        "Pinging %d devices: %s; skipping %d (cached DNS failure): %s",
+                        len(pingable),
+                        _format_devices(pingable) or "(none)",
+                        len(dns_failed),
+                        _format_devices(dns_failed),
+                    )
+                else:
+                    _LOGGER.debug(
+                        "Pinging %d devices: %s", len(pingable), _format_devices(pingable)
+                    )
+        # ``self.icmp_concurrency`` semaphore caps in-flight ICMP at
+        # ``ICMP_BATCH_SIZE``; no need to pre-chunk the gather.
+        results = await asyncio.gather(
+            *(self._resolve_and_ping(device) for device in pingable),
+            return_exceptions=True,
+        )
+        log_gather_failures(results, "Ping pass failed for a device; continuing")
+
+    def _select_ping_targets(self) -> tuple[list[Device], list[Device]]:
+        """Return ``(pingable, dns_failed)`` and apply per-device side-effects."""
+        pingable: list[Device] = []
+        dns_failed: list[Device] = []
+        monitor = self._monitor
+        for device in monitor._get_devices():
+            if not device.address or not shared.should_ping(monitor, device):
+                continue
+            if shared.sweep_has_no_target(monitor, device):
+                # The address won't resolve and we have no known IP.
+                # Don't hand the bare hostname to icmplib (it would hammer
+                # the system resolver every sweep). Apply OFFLINE under the
+                # ``ping`` source so a future successful resolve can flip
+                # the device back. Everything else falls through to
+                # ``pingable``: a zeroconf-cached ``.local`` gets *pinged*
+                # rather than claimed ONLINE off cache presence (a stale or
+                # reflected entry for a dead device would latch it ONLINE
+                # forever, #1776), and a device with a known IP (e.g. from
+                # MQTT) is pinged at that IP. One predicate, shared with
+                # the reviver's cohort gate.
+                shared.apply_ping_result(monitor, device.name, None)
+                dns_failed.append(device)
+                continue
+            pingable.append(device)
+        return pingable, dns_failed
+
+    async def _resolve_and_ping(self, device: Device) -> None:
+        """Resolve *device.address* through the DNS cache and ICMP it."""
+        monitor = self._monitor
+        async with self.icmp_concurrency:
+            addresses = await monitor.state.dns_cache.async_resolve(device.address)
+            if not addresses and is_local_hostname(device.address):
+                # System resolver couldn't resolve the ``.local`` (no nss-mdns
+                # in most container images). Fall back to zeroconf's own mDNS
+                # cache, kept fresh by the ``AsyncServiceBrowser``, rather than
+                # giving up — but ping still decides liveness, so a stale or
+                # reflected entry demotes instead of latching ONLINE (#1776).
+                addresses = monitor.mdns.get_cached_addresses(device.address)
+            if not addresses:
+                # mDNS-less devices: the ``.local`` won't resolve but a
+                # prior MQTT/DNS observation left a usable IP. Ping that so
+                # ping can confirm a device the network won't resolve.
+                addresses = list(device.runtime_state.ip_addresses)
+            if not addresses:
+                shared.apply_ping_result(monitor, device.name, None)
+                return
+            # Ping the IPv4 primary, not ``addresses[0]`` — a resolve/cache
+            # hit can order a scoped IPv6 first even when an IPv4 is present,
+            # and ICMP across subnets is friendlier on V4. ``_pick_ipv4`` is
+            # the same chooser ``apply_ip_addresses`` uses for ``device.ip``,
+            # so the pinged IP and the drawer's primary stay in lockstep.
+            target = _pick_ipv4(addresses)
+            # ``apply_ip_addresses`` populates ``device.ip`` (V4 primary)
+            # and the full ``runtime_state.ip_addresses`` list for ``.local`` hosts
+            # that don't broadcast ``_esphomelib._tcp`` (non-API ESPHome
+            # devices); without it those devices show an em-dash in the
+            # drawer's IP row even after successful pings, and forwarding the
+            # whole set keeps a cached multi-IP device's secondary addresses.
+            monitor.apply_ip_addresses(device.name, addresses)
+            await self._ping_device(device, target)
 
     async def _ping_device(self, device: Device, target: str) -> None:
         # Skip the retry only for already-OFFLINE devices: the miss

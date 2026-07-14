@@ -73,7 +73,7 @@ class ApiInfoSource(ApiSweepSource):
     def request_reprobe(self, name: str) -> None:
         """Force one probe of *name* on the next sweep, ignoring the mac+version guard."""
         self._force_reprobe.add(name)
-        self._wake.set()
+        self.wake()
 
     async def _prepare(self) -> bool:
         # The sweep loop still runs without the worker library: the
