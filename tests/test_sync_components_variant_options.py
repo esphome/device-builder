@@ -16,6 +16,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _apply_psram_options,
     _build_options,
     _enum_default,
+    _load_unit_of_measurement_options,
     _psram_static_fields,
     _split_default_marker,
     _variant_enum_map,
@@ -225,3 +226,10 @@ def test_psram_static_fields_extracts_new_static_schema() -> None:
 def test_psram_static_fields_empty_for_old_callable_schema() -> None:
     """An old-style callable CONFIG_SCHEMA isn't statically extractable — fall back."""
     assert _psram_static_fields(lambda _config: None) == {}
+
+
+def test_unit_of_measurement_options_exclude_empty_unit() -> None:
+    """UNIT_EMPTY never ships as an option; every label/value is non-empty."""
+    options = _load_unit_of_measurement_options()
+    assert options
+    assert all(o["value"] and o["label"] for o in options)

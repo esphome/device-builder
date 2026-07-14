@@ -6654,7 +6654,9 @@ def _load_unit_of_measurement_options() -> list[dict[str, str]]:
             if name.startswith("UNIT_") and isinstance(getattr(const, name), str)
         }
     )
-    return [{"label": v, "value": v} for v in raw]
+    # UNIT_EMPTY ("") would render as a blank row; the cleared combobox
+    # already means "no unit".
+    return [{"label": v, "value": v} for v in raw if v]
 
 
 _UNIT_OF_MEASUREMENT_OPTIONS: list[dict[str, str]] = _load_unit_of_measurement_options()
