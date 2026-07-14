@@ -267,12 +267,7 @@ class DeviceStateMonitor(TaskControllerBase):
             self._emit_source_change(name, old, ReachabilitySource.UNKNOWN)
 
     def confirmed_offline(self, name: str, source: str) -> None:
-        """
-        Tear down every per-name ledger after *source* confirms *name* is gone.
-
-        OFFLINE applied under *source*, resolved addresses dropped,
-        precedence ledger forgotten, per-signal freshness cleared.
-        """
+        """Tear down every per-name ledger after *source* confirms *name* is gone."""
         self.apply(name, DeviceState.OFFLINE, source)
         self.clear_resolved_addresses(name)
         self.forget(name)
