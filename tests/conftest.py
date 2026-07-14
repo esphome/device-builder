@@ -922,9 +922,12 @@ class RecordingMonitorCallbacks:
 
     def on_ip_change(self, name: str, ip: str, addresses: list[str]) -> None:
         self.calls.append(("on_ip_change", name, ip, list(addresses)))
-        if ip:
-            self._flip(name, "ip", ip)
+        self._flip(name, "ip", ip)
         self._flip(name, "ip_addresses", list(addresses))
+
+    def on_resolved_addresses_cleared(self, name: str) -> None:
+        self.calls.append(("on_resolved_addresses_cleared", name))
+        self._flip(name, "ip_addresses", [])
 
     def on_version_change(self, name: str, version: str) -> None:
         self.calls.append(("on_version_change", name, version))
@@ -978,6 +981,7 @@ def make_state_monitor_with_callbacks(
         on_api_encryption_change=callbacks.on_api_encryption_change,
         on_mac_address_change=callbacks.on_mac_address_change,
         on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
+        on_resolved_addresses_cleared=callbacks.on_resolved_addresses_cleared,
     )
     return monitor, callbacks
 

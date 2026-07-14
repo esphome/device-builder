@@ -391,7 +391,7 @@ class MdnsSource:
             return
         monitor = self._monitor
         monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
-        monitor.apply_ip(device_name, "")
+        monitor.clear_resolved_addresses(device_name)
         monitor.forget(device_name)
         if monitor.state.reachability is not None:
             monitor.state.reachability.clear(device_name)

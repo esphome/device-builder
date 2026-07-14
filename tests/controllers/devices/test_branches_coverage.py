@@ -851,7 +851,7 @@ def test_on_ip_change_skips_when_ip_unchanged(
     assert spawned == []
 
 
-def test_on_ip_change_empty_keeps_last_known_ip_and_skips_cleared_sibling(
+def test_on_resolved_addresses_cleared_keeps_ip_and_skips_cleared_sibling(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
@@ -864,13 +864,13 @@ def test_on_ip_change_empty_keeps_last_known_ip_and_skips_cleared_sibling(
     controller._scanner._devices_by_name = {"kitchen": [device, sibling]}  # type: ignore[attr-defined]
     captured = capture_devices_events(controller, EventType.DEVICE_UPDATED)
 
-    controller._on_ip_change("kitchen", "", [])
+    controller._on_resolved_addresses_cleared("kitchen")
 
     assert device.ip == "192.168.1.42"
     assert device.runtime_state.ip_addresses == []
     assert len(captured) == 1
 
-    controller._on_ip_change("kitchen", "", [])
+    controller._on_resolved_addresses_cleared("kitchen")
     assert len(captured) == 1
 
 

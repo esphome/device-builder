@@ -89,18 +89,12 @@ def on_source_change(controller: DevicesController, name: str, source: Reachabil
 
 
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:
-    """Forward IP updates onto the event bus and persist the primary value.
-
-    ``ip=""`` (empty *addresses*) clears only the resolved set;
-    ``device.ip`` keeps the last-known primary in RAM and on disk so
-    the OTA address cache and the api_reviver's cohort gate survive
-    offline windows.
-    """
+    """Forward IP updates onto the event bus and persist the primary value."""
     new_addresses = list(addresses)
     for device in controller._devices_by_name(name):
-        if device.runtime_state.ip_addresses == new_addresses and (not ip or device.ip == ip):
+        if device.ip == ip and device.runtime_state.ip_addresses == new_addresses:
             continue
-        if ip and device.ip != ip:
+        if device.ip != ip:
             device.ip = ip
             controller._metadata_store.update(device.configuration, ip=ip)
         device.runtime_state.ip_addresses = list(new_addresses)
@@ -108,8 +102,24 @@ def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: l
             "Device %s (%s) IPs: %s",
             name,
             device.configuration,
-            ", ".join(new_addresses) or "(cleared)",
+            ", ".join(new_addresses),
         )
+        controller._fire_device_updated(device)
+
+
+def on_resolved_addresses_cleared(controller: DevicesController, name: str) -> None:
+    """
+    Clear the resolved set after a confirmed loss of mDNS resolution.
+
+    ``device.ip`` keeps the last-known primary in RAM and on disk so
+    the OTA address cache and the api_reviver's cohort gate survive
+    offline windows.
+    """
+    for device in controller._devices_by_name(name):
+        if not device.runtime_state.ip_addresses:
+            continue
+        device.runtime_state.ip_addresses = []
+        _LOGGER.debug("Device %s (%s) IPs: (cleared)", name, device.configuration)
         controller._fire_device_updated(device)
 
 

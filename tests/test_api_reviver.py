@@ -220,7 +220,7 @@ async def test_mid_process_mdns_death_enters_the_cohort_and_revives() -> None:
 
     # The confirmed-Removed branch in ``mdns._verify_removed``.
     monitor.apply("kitchen", DeviceState.OFFLINE, "mdns")
-    monitor.apply_ip("kitchen", "")
+    monitor.clear_resolved_addresses("kitchen")
     monitor.forget("kitchen")
     assert device.ip == "192.168.1.50"
     assert device.runtime_state.ip_addresses == []

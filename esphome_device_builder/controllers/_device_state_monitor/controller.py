@@ -76,9 +76,17 @@ SourceChangeCallback = Callable[[str, ReachabilitySource], None]
 # mDNS IP resolution callback. ``primary`` is the IPv4 we lock onto
 # for ICMP / OTA cache args (or the first scoped IPv6 when no V4 is
 # present); ``addresses`` is the announced set in zeroconf's
-# ``parsed_scoped_addresses`` order. Empty primary + empty list clears
-# only the resolved set; ``device.ip`` keeps the last-known primary.
+# ``parsed_scoped_addresses`` order. Both are always non-empty — a
+# confirmed loss of resolution flows through
+# ``ResolvedAddressesClearedCallback`` instead.
 IPChangeCallback = Callable[[str, str, list[str]], None]
+
+# Confirmed loss of mDNS resolution for *name*: drop the resolved
+# ``ip_addresses`` set. ``device.ip`` keeps the last-known primary
+# (RAM mirrors the metadata sidecar) so the api_reviver can repair a
+# mid-process mDNS death; only its identity-verified invalidation
+# clears that value.
+ResolvedAddressesClearedCallback = Callable[[str], None]
 
 # mDNS ``version`` TXT change.
 VersionChangeCallback = Callable[[str, str], None]
@@ -146,6 +154,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         resolve_api_connection: ApiConnectionResolver | None = None,
         on_source_change: SourceChangeCallback | None = None,
         on_persisted_ip_invalidated: PersistedIpInvalidatedCallback | None = None,
+        on_resolved_addresses_cleared: ResolvedAddressesClearedCallback | None = None,
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
@@ -170,6 +179,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         self._is_ignored = is_ignored or (lambda _name: False)
         self._resolve_api_connection = resolve_api_connection
         self._on_persisted_ip_invalidated = on_persisted_ip_invalidated
+        self._on_resolved_addresses_cleared = on_resolved_addresses_cleared
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
         self._api_info_task: asyncio.Task | None = None
@@ -349,17 +359,19 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
 
     def apply_ip(self, name: str, ip: str) -> bool:
         """
-        Record a single-IP observation. Empty string clears the resolved set.
+        Record a single-IP observation; *ip* must be truthy.
 
         Used by sources that only know one address per device
         (MQTT, DNS fallback). When *ip* is already in the device's
         ``ip_addresses`` list, only the primary slot is touched —
         a narrower MQTT / DNS observation must not shrink a multi-
         IP view mDNS already populated. Callers with the full
-        announced set should reach for :meth:`apply_ip_addresses`.
+        announced set should reach for :meth:`apply_ip_addresses`;
+        a confirmed loss of resolution goes through
+        :meth:`clear_resolved_addresses`.
         """
         if not ip:
-            return self._dispatch_ip(name, "", [])
+            raise ValueError("empty ip; use clear_resolved_addresses")
         devices = self._get_devices_by_name(name)
         if not devices:
             return False
@@ -372,16 +384,32 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
 
     def apply_ip_addresses(self, name: str, addresses: list[str]) -> bool:
         """
-        Record the full set of announced IPs for *name*.
+        Record the full set of announced IPs; *addresses* must be non-empty.
 
         Picks an IPv4 primary via :func:`_pick_ipv4` (falling back
         to the first scoped IPv6) so ``device.ip`` stays the single
         target for ICMP / OTA, and forwards the complete list to
-        ``runtime_state.ip_addresses``. Empty list clears only the
-        resolved set.
+        ``runtime_state.ip_addresses``.
         """
-        primary = _pick_ipv4(addresses) if addresses else ""
-        return self._dispatch_ip(name, primary, addresses)
+        if not addresses:
+            raise ValueError("empty addresses; use clear_resolved_addresses")
+        return self._dispatch_ip(name, _pick_ipv4(addresses), addresses)
+
+    def clear_resolved_addresses(self, name: str) -> bool:
+        """
+        Drop the resolved-address set after a confirmed loss of mDNS.
+
+        ``device.ip`` keeps the last-known primary (RAM mirrors the
+        metadata sidecar); only the api_reviver's identity-verified
+        invalidation clears that value.
+        """
+        if self._on_resolved_addresses_cleared is None:
+            return False
+        devices = self._get_devices_by_name(name)
+        if not devices or all(not d.runtime_state.ip_addresses for d in devices):
+            return False
+        self._on_resolved_addresses_cleared(name)
+        return True
 
     def _dispatch_ip(self, name: str, primary: str, addresses: list[str]) -> bool:
         """
@@ -397,12 +425,7 @@ class DeviceStateMonitor(TaskControllerBase):  # noqa: PLR0904 (grandfathered; n
         devices = self._get_devices_by_name(name)
         if not devices:
             return False
-        # The clear op (``primary == ""``) dedupes on the resolved set
-        # alone — ``device.ip`` keeps the last-known primary.
-        if all(
-            d.runtime_state.ip_addresses == addresses and (not primary or d.ip == primary)
-            for d in devices
-        ):
+        if all(d.ip == primary and d.runtime_state.ip_addresses == addresses for d in devices):
             return False
         self._on_ip_change(name, primary, addresses)
         return True

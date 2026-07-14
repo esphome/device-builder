@@ -726,8 +726,8 @@ async def test_on_ip_change_persists_non_empty_value() -> None:
     assert controller._metadata_store.get("kitchen.yaml") == {"ip": "10.0.0.1"}
 
 
-def test_on_ip_change_empty_clears_only_the_resolved_set() -> None:
-    """Empty IP (device left mDNS) keeps the last-known ``ip`` and schedules no write."""
+def test_on_resolved_addresses_cleared_keeps_last_known_ip() -> None:
+    """The clear keeps the last-known ``ip`` and schedules no write."""
     device = Device(
         name="kitchen",
         friendly_name="Kitchen",
@@ -740,7 +740,7 @@ def test_on_ip_change_empty_clears_only_the_resolved_set() -> None:
         [device], create_background_task=record_scheduled_coros(scheduled)
     )
 
-    controller._on_ip_change("kitchen", "", [])
+    controller._on_resolved_addresses_cleared("kitchen")
 
     assert device.ip == "10.0.0.1"
     assert device.runtime_state.ip_addresses == []

@@ -81,7 +81,7 @@ async def test_ip_clear_fans_out_only_to_siblings_still_holding_addresses() -> N
         create_background_task=close_scheduled_coro,
     )
 
-    controller._on_ip_change("kitchen", "", [])
+    controller._on_resolved_addresses_cleared("kitchen")
 
     assert a.ip == "10.0.0.5"
     assert a.runtime_state.ip_addresses == []

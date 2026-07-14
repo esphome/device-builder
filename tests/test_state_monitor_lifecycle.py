@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -109,6 +110,7 @@ def _make_monitor(
     monitor._on_mac_address_change = callbacks.on_mac_address_change
     monitor._on_importable_added = callbacks.on_importable_added
     monitor._on_importable_removed = callbacks.on_importable_removed
+    monitor._on_resolved_addresses_cleared = callbacks.on_resolved_addresses_cleared
     monitor.state.reachability = None
     monitor.state.dns_cache = MagicMock()
     return monitor, callbacks
@@ -1748,7 +1750,7 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     ``.local``, so the zeroconf cache supplies a scoped V6 address;
     the ping targets it and the device goes ONLINE under ``ping``
     with the V6 address in ``Device.ip``. Without the fallback the
-    device would get ``apply_ip("")`` and the dashboard wouldn't
+    device would have no ping target and the dashboard wouldn't
     have an IP to OTA against.
     """
     device = _device(address="kitchen.local", state=DeviceState.UNKNOWN)
@@ -1794,17 +1796,34 @@ def test_apply_ip_short_circuits_when_value_unchanged() -> None:
     assert callbacks.calls_for("on_ip_change") == []
 
 
-def test_apply_ip_empty_clears_only_the_resolved_set() -> None:
-    """The clear op drops ``ip_addresses``, keeps the last-known ``ip``, and dedupes on repeat."""
+def test_clear_resolved_addresses_keeps_last_known_ip_and_dedupes() -> None:
+    """The clear drops ``ip_addresses``, keeps the last-known ``ip``, and no-ops on repeat."""
     device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
     monitor, callbacks = _make_monitor([device])
 
-    assert monitor.apply_ip("kitchen", "") is True
+    assert monitor.clear_resolved_addresses("kitchen") is True
     assert device.ip == "10.0.0.1"
     assert device.runtime_state.ip_addresses == []
 
-    assert monitor.apply_ip("kitchen", "") is False
-    assert callbacks.calls_for("on_ip_change") == [("on_ip_change", "kitchen", "", [])]
+    assert monitor.clear_resolved_addresses("kitchen") is False
+    assert callbacks.calls_for("on_resolved_addresses_cleared") == [
+        ("on_resolved_addresses_cleared", "kitchen"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda m: m.apply_ip("kitchen", ""), id="apply_ip_empty"),
+        pytest.param(lambda m: m.apply_ip_addresses("kitchen", []), id="apply_ip_addresses_empty"),
+    ],
+)
+def test_empty_ip_observations_are_rejected(call: Callable[[DeviceStateMonitor], bool]) -> None:
+    """Observations must carry an address; the clear op has its own seam."""
+    monitor, _callbacks = _make_monitor([_device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])])
+
+    with pytest.raises(ValueError, match="clear_resolved_addresses"):
+        call(monitor)
 
 
 def test_apply_ip_addresses_fires_when_list_changes_but_primary_does_not() -> None:
