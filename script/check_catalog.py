@@ -157,10 +157,12 @@ _EXPECTATIONS: list[
     (
         "stepper.uln2003",
         [
-            # Suffix-stripping custom validator ("<float> steps/s") that
-            # would regress to a bare ``float`` if ``_derive_suffix_units``
-            # stopped classifying it (issue #2056).
+            # Suffix-stripping custom validators ("<float> steps/s[^2]")
+            # that would regress to bare ``float`` if ``_derive_suffix_units``
+            # stopped classifying them (issue #2056).
             ("max_speed", "float_with_unit", True, None),
+            ("acceleration", "float_with_unit", None, None),
+            ("deceleration", "float_with_unit", None, None),
         ],
     ),
 ]
