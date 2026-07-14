@@ -308,6 +308,7 @@ class DashboardAdvertiser:
         name: str | None = None,
         hostname: str | None = None,
         dashboard_id: str | None = None,
+        on_ha_addon: bool = False,
     ) -> None:
         """
         Capture the static fields used in the published ``ServiceInfo``.
@@ -340,6 +341,10 @@ class DashboardAdvertiser:
         main HTTP port (``port`` arg) so the existing browse path
         for general dashboard discovery isn't broken. ``None`` when
         the listener isn't bound (default-off shape).
+
+        ``on_ha_addon`` tags the broadcast as the HA add-on so peers
+        can label it (e.g. "Home Assistant") instead of the opaque
+        container hostname.
         """
         friendly = (name or "").strip() or _default_friendly_name()
         explicit_host = (hostname or "").strip()
@@ -354,6 +359,7 @@ class DashboardAdvertiser:
         self._esphome_version = esphome_version
         self._pin_sha256 = pin_sha256
         self._remote_build_port = remote_build_port
+        self._ha_addon = on_ha_addon
         self._info: ServiceInfo | None = None
         self._zeroconf: AsyncEsphomeZeroconf | None = None
         # Background tick that calls :meth:`refresh` on
@@ -479,6 +485,8 @@ class DashboardAdvertiser:
             properties["pin_sha256"] = self._pin_sha256
         if self._remote_build_port is not None:
             properties["remote_build_port"] = str(self._remote_build_port)
+        if self._ha_addon:
+            properties["ha_addon"] = "1"
         # ``server`` is the SRV record's target. Zeroconf appends
         # ``.local.`` if missing; pass it through as-is.
         server = self._hostname if self._hostname.endswith(".") else f"{self._hostname}."

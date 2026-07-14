@@ -106,6 +106,8 @@ def peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer
     remote_build_port = decode_txt_port(properties.get(b"remote_build_port"))
     # Human machine label; ``""`` for older receivers that don't send it.
     friendly_name = decode_txt_value(properties.get(b"friendly_name"))
+    # Present only on the HA add-on, so peers can label it "Home Assistant".
+    ha_addon = decode_txt_value(properties.get(b"ha_addon")) == "1"
     # ``info.name`` comes back as ``<instance>.<service_type>``;
     # we only want the leftmost label (the stable instance label).
     instance = (info.name or name).split(".", 1)[0]
@@ -121,4 +123,5 @@ def peer_from_service_info(name: str, info: AsyncServiceInfo) -> RemoteBuildPeer
         friendly_name=friendly_name,
         pin_sha256=pin_sha256,
         remote_build_port=remote_build_port,
+        ha_addon=ha_addon,
     )

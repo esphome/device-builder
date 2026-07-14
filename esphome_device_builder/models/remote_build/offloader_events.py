@@ -186,9 +186,9 @@ class RemoteBuildHostAddedData(TypedDict):
     semantics — frontend keys on ``name`` (mDNS service-instance
     name) and replaces an existing row with the same key.
 
-    ``friendly_name``, ``pin_sha256`` and ``remote_build_port``
-    come from the ``_esphomebuilder._tcp.local.`` TXT record;
-    empty / 0 for receivers that don't broadcast them.
+    ``friendly_name``, ``pin_sha256``, ``remote_build_port`` and
+    ``ha_addon`` come from the ``_esphomebuilder._tcp.local.`` TXT
+    record; empty / 0 / False for receivers that don't broadcast them.
     """
 
     name: str
@@ -201,6 +201,7 @@ class RemoteBuildHostAddedData(TypedDict):
     friendly_name: str
     pin_sha256: str
     remote_build_port: int
+    ha_addon: bool
 
 
 class RemoteBuildHostRemovedData(TypedDict):

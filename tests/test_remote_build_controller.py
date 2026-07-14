@@ -106,6 +106,7 @@ def _fake_service_info(
     server_version: str = "1.2.3",
     esphome_version: str = "2026.5.0",
     friendly_name: str = "",
+    ha_addon: bool = False,
 ) -> MagicMock:
     """Build a stand-in for ``AsyncServiceInfo`` carrying the fields we read."""
     info = MagicMock()
@@ -119,6 +120,8 @@ def _fake_service_info(
     }
     if friendly_name:
         info.properties[b"friendly_name"] = friendly_name.encode("utf-8")
+    if ha_addon:
+        info.properties[b"ha_addon"] = b"1"
     return info
 
 
@@ -235,6 +238,7 @@ def test_peer_from_service_info_handles_missing_txt_keys() -> None:
     assert peer.server_version == ""
     assert peer.esphome_version == ""
     assert peer.friendly_name == ""
+    assert peer.ha_addon is False
 
 
 def test_peer_from_service_info_reads_friendly_name_from_txt() -> None:
@@ -243,6 +247,14 @@ def test_peer_from_service_info_reads_friendly_name_from_txt() -> None:
     peer = peer_from_service_info(f"esphome-builder-jwywnve.{SERVICE_TYPE}", info)
     assert peer.name == "esphome-builder-jwywnve"
     assert peer.friendly_name == "MacBook-Pro"
+
+
+def test_peer_from_service_info_reads_ha_addon_from_txt() -> None:
+    """The ``ha_addon`` TXT flag surfaces so peers can label the add-on."""
+    info = _fake_service_info(friendly_name="Home Assistant", ha_addon=True)
+    peer = peer_from_service_info(f"desktop.{SERVICE_TYPE}", info)
+    assert peer.ha_addon is True
+    assert peer.friendly_name == "Home Assistant"
 
 
 # ---------------------------------------------------------------------------

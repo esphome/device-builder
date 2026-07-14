@@ -42,6 +42,7 @@ def _make_advertiser(
     hostname: str | None = None,
     port: int = 6052,
     pin_sha256: str | None = None,
+    on_ha_addon: bool = False,
 ) -> DashboardAdvertiser:
     return DashboardAdvertiser(
         port=port,
@@ -50,6 +51,7 @@ def _make_advertiser(
         pin_sha256=pin_sha256,
         name=name,
         hostname=hostname,
+        on_ha_addon=on_ha_addon,
     )
 
 
@@ -407,6 +409,23 @@ def test_build_service_info_omits_remote_build_port_when_unset() -> None:
     info = advertiser.build_service_info()
     decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
     assert "remote_build_port" not in decoded
+
+
+def test_build_service_info_carries_ha_addon_when_on_addon() -> None:
+    """The HA add-on tags its broadcast and advertises a human friendly_name."""
+    advertiser = _make_advertiser(name="Home Assistant", hostname="green.local", on_ha_addon=True)
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert decoded["ha_addon"] == "1"
+    assert decoded["friendly_name"] == "Home Assistant"
+
+
+def test_build_service_info_omits_ha_addon_off_addon() -> None:
+    """``ha_addon`` is absent for a normal (non-add-on) dashboard."""
+    advertiser = _make_advertiser(name="green", hostname="green.local")
+    info = advertiser.build_service_info()
+    decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
+    assert "ha_addon" not in decoded
 
 
 def test_set_remote_build_port_updates_subsequent_advertise() -> None:
