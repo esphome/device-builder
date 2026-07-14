@@ -405,10 +405,9 @@ class DeviceBuilder:
                 server_version=server_version,
                 esphome_version=esphome_version,
                 dashboard_id=dashboard_identity.dashboard_id,
+                # Peers read the add-on's Supervisor container hostname
+                # (``friendly_name``) plus this flag to label it "Home Assistant".
                 on_ha_addon=self.settings.on_ha_addon,
-                # The add-on's container hostname is opaque; give peers a
-                # human label to show instead.
-                name="Home Assistant" if self.settings.on_ha_addon else None,
             )
 
         await self.remote_build_receiver.start()

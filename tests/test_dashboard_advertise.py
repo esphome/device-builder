@@ -412,12 +412,12 @@ def test_build_service_info_omits_remote_build_port_when_unset() -> None:
 
 
 def test_build_service_info_carries_ha_addon_when_on_addon() -> None:
-    """The HA add-on tags its broadcast and advertises a human friendly_name."""
-    advertiser = _make_advertiser(name="Home Assistant", hostname="green.local", on_ha_addon=True)
+    """The add-on tags its broadcast; peers label it from the container hostname."""
+    advertiser = _make_advertiser(name="5c53de3b-esphome", hostname="green.local", on_ha_addon=True)
     info = advertiser.build_service_info()
     decoded = {k.decode(): v.decode() for k, v in info.properties.items()}
     assert decoded["ha_addon"] == "1"
-    assert decoded["friendly_name"] == "Home Assistant"
+    assert decoded["friendly_name"] == "5c53de3b-esphome"
 
 
 def test_build_service_info_omits_ha_addon_off_addon() -> None:

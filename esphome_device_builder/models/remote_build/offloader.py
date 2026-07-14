@@ -271,6 +271,7 @@ class RemoteBuildPeer(DashboardModel):
     # (default-off mode).
     pin_sha256: str = ""
     remote_build_port: int = 0
-    # True when the broadcast is the HA add-on (``ha_addon`` TXT key), so
-    # the UI can label it "Home Assistant" instead of the container hostname.
+    # True when the broadcast is the HA add-on (``ha_addon`` TXT key). Additive
+    # confirmation: the UI derives "Home Assistant App" from the Supervisor
+    # container hostname (``friendly_name``) and uses this flag to corroborate.
     ha_addon: bool = False

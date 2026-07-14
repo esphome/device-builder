@@ -441,12 +441,12 @@ The receiver advertises the listener's port over mDNS as a TXT property:
 |---|---|---|
 | `server_version` | `"1.2.3"` | always |
 | `esphome_version` | `"2026.5.0"` | always |
-| `friendly_name` | human machine label (e.g. `"MacBook-Pro"`; the HA add-on advertises `"Home Assistant"`) | when a friendly name is set (always in practice) |
+| `friendly_name` | human machine label (e.g. `"MacBook-Pro"`; the HA add-on's is its Supervisor container hostname, e.g. `"5c53de3b-esphome"`) | when a friendly name is set (always in practice) |
 | `pin_sha256` | lowercase-hex SHA-256 of the X25519 peer-link pubkey | when the peer-link listener is bound |
 | `remote_build_port` | stringified int (e.g. `"6055"`) — the port actually bound, which may differ from `--remote-build-port` when a taken port fell forward to the next free one | when the peer-link listener is bound (same condition as `pin_sha256`) |
-| `ha_addon` | `"1"` | only when the dashboard is the HA add-on, so peers can label it `"Home Assistant"` |
+| `ha_addon` | `"1"` | only when the dashboard is the HA add-on, so peers can label it `"Home Assistant App"` (the frontend derives the same from the container hostname when the flag is absent) |
 
-The service-instance name and SRV target are stable per-install identifiers (`esphome-builder-<dashboard_id[:8]>.local`) derived from the persisted `dashboard_id`, not the OS hostname, so they don't change across reboots; `friendly_name` carries the human machine label for display (the HA add-on's container hostname is opaque, so it advertises the literal `"Home Assistant"`).
+The service-instance name and SRV target are stable per-install identifiers (`esphome-builder-<dashboard_id[:8]>.local`) derived from the persisted `dashboard_id`, not the OS hostname, so they don't change across reboots; `friendly_name` carries the human machine label for display. The HA add-on's `friendly_name` is its Supervisor-assigned container hostname (`<repo-hash>-esphome`, with `-beta` / `-dev` channel suffixes), which the frontend maps to `"Home Assistant App"`; the `ha_addon` TXT flag is an additive confirmation.
 
 Same-subnet peers read `remote_build_port` from TXT so a `--remote-build-port` override is auto-discovered. Cross-subnet peers type the port into the pair dialog (it's an arg on `request_pair`).
 
