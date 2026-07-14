@@ -346,13 +346,9 @@ class MdnsSource:
         """
         if (zc := self._zeroconf) is None:
             return
-        zeroconf = zc.zeroconf
         broadcast = service_name or device_name
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{broadcast}.{_ESPHOME_SERVICE_TYPE}")
-        if info.load_from_cache(zeroconf):
-            self._apply_service_info(device_name, info)
-            return
-        self._monitor._track_task(self._resolve_and_apply(zeroconf, info, device_name))
+        self._cache_apply_or_resolve(zc.zeroconf, info, device_name)
 
     async def resolve_then(
         self,
@@ -415,11 +411,25 @@ class MdnsSource:
         # a stale PTR for a long-gone device); claiming here latched
         # it ONLINE forever with no IP, locking out the ICMP sweep.
         info = AsyncServiceInfo(service_type, name)
-        if info.load_from_cache(zeroconf):
-            self._apply_service_info(device_name, info)
-            return
+        self._cache_apply_or_resolve(zeroconf, info, device_name)
 
-        monitor._track_task(self._resolve_and_apply(zeroconf, info, device_name))
+    def _cache_apply_or_resolve(
+        self,
+        zeroconf: Any,
+        info: AsyncServiceInfo,
+        device_name: str,
+        apply: Callable[[str, AsyncServiceInfo], None] | None = None,
+    ) -> None:
+        """
+        Apply *info* off the zeroconf cache, else fire-and-forget a wire resolve.
+
+        The cache-hit apply is synchronous by contract — an adopted
+        card populates immediately, no task spawned.
+        """
+        if info.load_from_cache(zeroconf):
+            (apply or self._apply_service_info)(device_name, info)
+            return
+        self._monitor._track_task(self._resolve_and_apply(zeroconf, info, device_name, apply))
 
     async def _resolve_and_apply(
         self,
@@ -539,12 +549,7 @@ class MdnsSource:
         if not bucket or all(device.api_enabled for device in bucket):
             return
         info = AsyncServiceInfo(service_type, name)
-        if info.load_from_cache(zeroconf):
-            self._apply_http_txt(device_name, info)
-            return
-        monitor._track_task(
-            self._resolve_and_apply(zeroconf, info, device_name, self._apply_http_txt)
-        )
+        self._cache_apply_or_resolve(zeroconf, info, device_name, self._apply_http_txt)
 
     def _apply_http_txt(self, device_name: str, info: AsyncServiceInfo) -> None:
         """
