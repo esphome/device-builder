@@ -6030,9 +6030,12 @@ def _merge_boolean_union_options(entry: dict) -> None:
     if isinstance(entry.get("default_value"), bool):
         literal = "true" if entry["default_value"] else "false"
         entry["default_value"] = next(
-            option["value"]
-            for option in entry["options"]
-            if str(option.get("value")).lower() == literal
+            (
+                option["value"]
+                for option in entry["options"]
+                if str(option.get("value")).lower() == literal
+            ),
+            literal,
         )
 
 

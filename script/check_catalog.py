@@ -352,7 +352,9 @@ def _check_boolean_options_exclusive(catalog: ComponentCatalog) -> list[str]:
 
     for cid in catalog._by_id:
         component = _load_body_from_disk(cid)
-        if component is not None and component.config_entries:
+        if component is None:
+            failures.append(f"boolean/options check: missing body for {cid}")
+        elif component.config_entries:
             walk(cid, component.config_entries, "")
     return failures
 
