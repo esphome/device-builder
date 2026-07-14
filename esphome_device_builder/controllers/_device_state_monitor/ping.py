@@ -98,8 +98,8 @@ class PingSource(SweepSource):
     async def _sweep(self) -> None:
         # Disjoint candidate sets — resolve both concurrently so a
         # wire-miss in one doesn't delay the sweep behind the other.
-        # An unguarded raise here must not kill the loop for the
-        # process lifetime; log it and keep sweeping.
+        # A failing resolve step is logged and must not skip the
+        # sibling resolve or the ping pass for this interval.
         results = await asyncio.gather(
             shared.resolve_non_api_mdns_targets(self._monitor),
             shared.resolve_api_mdns_targets(self._monitor),

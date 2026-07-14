@@ -1,7 +1,7 @@
 """
 Worker-dial plumbing shared by the Native API sources.
 
-The one-shot ``device_info`` probe helpers both ``ApiInfoSource``
+The one-shot ``device_info`` probe helpers that ``ApiInfoSource``
 and ``ApiReviverSource`` layer over the sweep-loop base.
 """
 

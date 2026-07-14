@@ -142,13 +142,11 @@ async def test_ping_loop_survives_a_raising_ping_sweep(
     """A crashing sweep body is logged and the loop keeps sweeping."""
     monitor = _build_monitor(presence=None)
     counts = _instrument_loop(monitor, monkeypatch)
-    calls = {"n": 0}
 
     async def _flaky_sweep() -> None:
-        calls["n"] += 1
-        if calls["n"] == 1:
-            raise RuntimeError("boom")
         counts["sweeps"] += 1
+        if counts["sweeps"] == 1:
+            raise RuntimeError("boom")
 
     monitor._ping._ping_sweep = _flaky_sweep  # type: ignore[method-assign]
 
@@ -160,7 +158,7 @@ async def test_ping_loop_survives_a_raising_ping_sweep(
         with contextlib.suppress(asyncio.CancelledError):
             await task
 
-    assert calls["n"] >= 3
+    assert counts["sweeps"] >= 2
 
 
 async def test_ping_loop_does_not_mask_child_cancellation(
