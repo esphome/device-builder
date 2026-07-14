@@ -63,8 +63,8 @@ def _install_sweep_probe(
 
 def _patch_loop_for_wake_tests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Skip bootstrap and stretch the interval so only wakes can drive a second sweep."""
-    monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
-    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 3600)
+    monkeypatch.setattr(ping_module.PingSource, "_bootstrap_delay", 0)
+    monkeypatch.setattr(ping_module.PingSource, "_interval", 3600)
 
     async def _noop_resolve(_monitor: object) -> None:
         return None
@@ -160,7 +160,7 @@ def test_probe_device_ping_herd_collapses_to_single_set() -> None:
 
 
 async def test_wake_bails_idle_wait_early(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A wake fired during the idle wait re-runs the sweep without paying ``_PING_INTERVAL``."""
+    """A wake fired during the idle wait re-runs the sweep without paying the interval."""
     _patch_loop_for_wake_tests(monkeypatch)
     monitor, _ = make_state_monitor_with_callbacks([_ping_only_device()])
     sweeps = _install_sweep_probe(monkeypatch)

@@ -1416,8 +1416,8 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
 
 def _shrink_ping_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
     """Collapse the bootstrap delay + interval so ``_let_ping_loop_run_briefly`` sees sweeps."""
-    monkeypatch.setattr(ping_module, "_PING_BOOTSTRAP_DELAY", 0)
-    monkeypatch.setattr(ping_module, "_PING_INTERVAL", 0.001)
+    monkeypatch.setattr(ping_module.PingSource, "_bootstrap_delay", 0)
+    monkeypatch.setattr(ping_module.PingSource, "_interval", 0.001)
 
 
 async def test_start_drives_ping_pipeline_to_online_state(
@@ -1573,7 +1573,7 @@ async def test_repeat_sweep_with_unchanged_targets_logs_once(
 ) -> None:
     """``Pinging N devices`` only fires once when the target set is stable.
 
-    Without this dedup the line re-emits every ``_PING_INTERVAL``
+    Without this dedup the line re-emits every sweep interval
     forever on a steady fleet, spamming DEBUG-enabled logs with
     identical content. New devices, mDNS claims, or removals
     re-surface the line.

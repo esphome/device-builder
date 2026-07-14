@@ -175,7 +175,7 @@ async def test_wait_for_no_subscribers_wakes_on_drop_to_zero() -> None:
     This is the contract the ICMP ping loop's interruptible idle
     wait depends on — when the last subscriber leaves mid-sleep,
     the loop's ``asyncio.wait_for(presence.wait_for_no_subscribers
-    (), timeout=_PING_INTERVAL)`` must fire promptly so the next
+    (), timeout=<sweep interval>)`` must fire promptly so the next
     subscriber's first sweep doesn't wait out the rest of the
     interval.
     """

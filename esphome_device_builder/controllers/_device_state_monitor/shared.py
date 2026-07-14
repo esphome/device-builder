@@ -31,7 +31,7 @@ _SOURCE_PRIORITY: dict[str, int] = {
 }
 
 # Per-sweep mDNS A-record resolve timeout — 3s keeps the whole
-# pass under one ``_PING_INTERVAL`` even if every target misses
+# pass under one sweep interval even if every target misses
 # the cache.
 _MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 

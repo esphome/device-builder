@@ -185,7 +185,7 @@ def _core_skip_external_update_default(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _stub_icmp_privilege_probe(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bypass ``PingSource.run``'s ICMP socket privilege probe.
+    """Bypass ``PingSource._prepare``'s ICMP socket privilege probe.
 
     The real probe opens ``SOCK_RAW`` / ``SOCK_DGRAM`` against
     ``127.0.0.1``; on CI runners and locked-down dev machines

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -13,6 +12,7 @@ from icmplib.exceptions import ICMPLibError
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
 from . import shared
+from ._sweep_source import SweepSource
 from .helpers import _pick_ipv4
 
 if TYPE_CHECKING:
@@ -24,14 +24,6 @@ _LOGGER = logging.getLogger(__name__)
 def _format_devices(devices: list[Device]) -> str:
     """Render *devices* as ``"name (address), …"`` for log messages."""
     return ", ".join(f"{d.name} ({d.address})" for d in devices)
-
-
-_PING_INTERVAL = 60  # seconds between ping sweeps
-# Bootstrap delay gives the mDNS browser a head start so the
-# common case (everything announces) skips a redundant ping the
-# browser would have flipped ONLINE for free. 10s mirrors the
-# upstream dashboard's ``MDNS_BOOTSTRAP_TIME``.
-_PING_BOOTSTRAP_DELAY = 10
 
 
 async def _can_use_icmp_lib_with_privilege() -> bool | None:
@@ -54,14 +46,18 @@ async def _can_use_icmp_lib_with_privilege() -> bool | None:
     return True
 
 
-class PingSource:
+class PingSource(SweepSource):
     """ICMP ping loop owning the periodic sweep and the wake-on-add early trigger."""
 
+    _sweep_label = "ICMP ping"
+    # The mDNS browser's head start so the common case (everything
+    # announces) skips a redundant ping the browser would have flipped
+    # ONLINE for free. 10s mirrors the upstream dashboard's
+    # ``MDNS_BOOTSTRAP_TIME``.
+    _bootstrap_delay = 10
+
     def __init__(self, monitor: DeviceStateMonitor) -> None:
-        self._monitor = monitor
-        # Cleared at the top of each sweep so a wake fired mid-sweep
-        # still triggers the next idle.
-        self._wake = asyncio.Event()
+        super().__init__(monitor)
         # One in-flight budget for every ICMP consumer — the sweep and
         # the reviver's pre-filter share it so overlapping loops can't
         # exceed the icmplib reliability bound together.
@@ -72,21 +68,19 @@ class PingSource:
         # flicker (120s TTL vs 60s sweep) so the line only re-emits on
         # real membership change.
         self._last_logged_targets: tuple[tuple[str, str], ...] = ()
-        # Set in ``run`` once the privilege probe lands; the pre-
+        # Set in ``_prepare`` once the privilege probe lands; the pre-
         # ``run`` default is only seen by tests that mock ``icmp_ping``.
         self._privileged: bool = True
         # Privilege-probe outcome for siblings (the API reviver gates on
         # it): ``None`` until the probe lands, then True iff some ICMP
         # socket mode works and the sweep is running.
         self.icmp_available: bool | None = None
-        # 0→1 multiplexed into the same wake event so a subscriber
-        # arriving mid-idle gets fresh ICMP without waiting out the
-        # rest of the interval.
-        if monitor._presence is not None:
-            monitor._presence.add_subscriber_callback(self._wake.set)
 
-    async def run(self) -> None:
-        await asyncio.sleep(_PING_BOOTSTRAP_DELAY)
+    def wake(self) -> None:
+        """Bail the idle wait so the next sweep runs without waiting out the interval."""
+        self._wake.set()
+
+    async def _prepare(self) -> bool:
         privileged = await _can_use_icmp_lib_with_privilege()
         self.icmp_available = privileged is not None
         if privileged is None:
@@ -96,46 +90,28 @@ class PingSource:
                 "net.ipv4.ping_group_range covering this process's group); "
                 "device state will only update via mDNS"
             )
-            return
+            return False
         self._privileged = privileged
         _LOGGER.debug("Using icmplib in privileged=%s mode for the ICMP ping sweep", privileged)
-        # Strict pause when wired to a SubscriberPresence gate: only
-        # sweep while at least one dashboard client is subscribed,
-        # so a quiet network with no observers generates no ICMP
-        # traffic. The 0→1 transition wakes the loop immediately
-        # via ``wait_for_subscriber`` — mDNS keeps running
-        # unconditionally because it's passive.
-        monitor = self._monitor
-        while True:
-            if monitor._presence is not None:
-                await monitor._presence.wait_for_subscriber()
-            self._wake.clear()
-            # Disjoint candidate sets — resolve both concurrently so a
-            # wire-miss in one doesn't delay the sweep behind the other.
-            # An unguarded raise here must not kill the loop for the
-            # process lifetime; log it and keep sweeping.
-            results = await asyncio.gather(
-                shared.resolve_non_api_mdns_targets(monitor),
-                shared.resolve_api_mdns_targets(monitor),
-                return_exceptions=True,
-            )
-            for result in results:
-                if isinstance(result, BaseException) and not isinstance(result, Exception):
-                    # Never mask a cancellation as a benign step failure.
-                    raise result
-                if isinstance(result, Exception):
-                    _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=result)
-            await self._ping_sweep()
-            await self._idle()
+        return True
 
-    def wake(self) -> None:
-        """Bail the idle wait so the next sweep runs without waiting on ``_PING_INTERVAL``."""
-        self._wake.set()
-
-    async def _idle(self) -> None:
-        """Sleep up to ``_PING_INTERVAL`` or until the wake event fires."""
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
+    async def _sweep(self) -> None:
+        # Disjoint candidate sets — resolve both concurrently so a
+        # wire-miss in one doesn't delay the sweep behind the other.
+        # An unguarded raise here must not kill the loop for the
+        # process lifetime; log it and keep sweeping.
+        results = await asyncio.gather(
+            shared.resolve_non_api_mdns_targets(self._monitor),
+            shared.resolve_api_mdns_targets(self._monitor),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, Exception):
+                # Never mask a cancellation as a benign step failure.
+                raise result
+            if isinstance(result, Exception):
+                _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=result)
+        await self._ping_sweep()
 
     async def _ping_sweep(self) -> None:
         pingable, dns_failed = self._select_ping_targets()
