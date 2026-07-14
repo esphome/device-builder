@@ -271,7 +271,5 @@ class RemoteBuildPeer(DashboardModel):
     # (default-off mode).
     pin_sha256: str = ""
     remote_build_port: int = 0
-    # True when the broadcast is the HA add-on (``ha_addon`` TXT key). Additive
-    # confirmation: the UI derives "Home Assistant App" from the Supervisor
-    # container hostname (``friendly_name``) and uses this flag to corroborate.
+    # Peer advertised the ``ha_addon`` TXT key (it is the HA add-on).
     ha_addon: bool = False
