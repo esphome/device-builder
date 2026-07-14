@@ -15,6 +15,7 @@ from esphome_device_builder.models.common import ConfigValueOption
 from script.sync_components import (  # type: ignore[import-not-found]
     _apply_psram_options,
     _build_options,
+    _enum_default,
     _psram_static_fields,
     _variant_enum_map,
 )
@@ -57,6 +58,86 @@ def test_build_options_keeps_docs_label_without_variants() -> None:
     assert options == [{"label": "Nice X", "value": "x"}]
 
 
+def test_build_options_sentence_docs_become_description() -> None:
+    """Sentence prose lands in ``description``; the label stays the value."""
+    options = _build_options(
+        {"values": {"digest": {"docs": "Sends only hashes, keeping the password off the wire."}}}
+    )
+    assert options == [
+        {
+            "label": "digest",
+            "value": "digest",
+            "description": "Sends only hashes, keeping the password off the wire.",
+        }
+    ]
+
+
+def test_build_options_strips_default_marker_from_docs() -> None:
+    """A trailing ``*(default)*`` never reaches the label or description."""
+    options = _build_options(
+        {
+            "values": {
+                "NORMAL": {"docs": "Normal operation, sends ACK signals. *(default)*"},
+                "SHORT": {"docs": "Short label *(default)*"},
+            }
+        }
+    )
+    assert options == [
+        {
+            "label": "NORMAL",
+            "value": "NORMAL",
+            "description": "Normal operation, sends ACK signals.",
+        },
+        {"label": "Short label", "value": "SHORT"},
+    ]
+
+
+def test_build_options_overlong_docs_become_description() -> None:
+    """Docs too long for a dropdown row are demoted even without terminal punctuation."""
+    truncated = "The temperature of the air being discharged by the BedJet will be"
+    options = _build_options({"values": {"outlet": {"docs": truncated}}})
+    assert options == [{"label": "outlet", "value": "outlet", "description": truncated}]
+
+
+def test_build_options_marker_only_docs_keep_value_label() -> None:
+    """Docs that are nothing but a default marker leave the value as the label."""
+    options = _build_options(
+        {
+            "values": {
+                "a": {"docs": "*(default)*"},
+                "b": {"docs": "Default"},
+                "c": {"docs": "(Default)"},
+                "d": None,
+            }
+        }
+    )
+    assert options == [{"label": v, "value": v} for v in "abcd"]
+
+
+def test_build_options_strips_leading_default_marker() -> None:
+    """A ``(Default)`` prefix never reaches the description."""
+    options = _build_options(
+        {"values": {"RESTORE_DEFAULT_ZERO": {"docs": "(Default) Attempt to restore state."}}}
+    )
+    assert options == [
+        {
+            "label": "RESTORE_DEFAULT_ZERO",
+            "value": "RESTORE_DEFAULT_ZERO",
+            "description": "Attempt to restore state.",
+        }
+    ]
+
+
+def test_enum_default_reads_flag_and_docs_markers() -> None:
+    """Per-value ``default: true`` wins; each docs-marker idiom is a fallback; else None."""
+    assert _enum_default({"values": {"basic": {"default": True}, "digest": None}}) == "basic"
+    assert _enum_default({"values": {"a": {"docs": "First. *(default)*"}, "b": None}}) == "a"
+    assert _enum_default({"values": {"a": None, "b": {"docs": "Default"}}}) == "b"
+    assert _enum_default({"values": {"a": {"docs": "(Default) Restore."}, "b": None}}) == "a"
+    assert _enum_default({"values": {"a": None, "b": None}}) is None
+    assert _enum_default({"values": "not-a-dict"}) is None
+
+
 def test_apply_psram_options_prefers_bundle_schema() -> None:
     """When the bundle already produced psram entries (new format), keep them."""
     bundle = [{"key": "mode", "type": "string", "options": [{"label": "octal", "value": "octal"}]}]
@@ -82,6 +163,14 @@ def test_config_value_option_omits_empty_variants() -> None:
     tagged = ConfigValueOption(label="octal", value="octal", variants=["esp32s3"])
     assert tagged.to_dict() == {"label": "octal", "value": "octal", "variants": ["esp32s3"]}
     assert ConfigValueOption.from_dict(tagged.to_dict()) == tagged
+
+
+def test_config_value_option_omits_none_description() -> None:
+    """``description`` is stripped when unset and round-trips when set."""
+    assert "description" not in ConfigValueOption(label="a", value="a").to_dict()
+    described = ConfigValueOption(label="a", value="a", description="Prose.")
+    assert described.to_dict() == {"label": "a", "value": "a", "description": "Prose."}
+    assert ConfigValueOption.from_dict(described.to_dict()) == described
 
 
 def test_variant_enum_map_reads_schema_extract() -> None:

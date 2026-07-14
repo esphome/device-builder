@@ -307,12 +307,16 @@ class ConfigValueOption(DashboardModel):
 
     label: str
     value: str
+    # Prose explaining the choice, rendered as secondary text under the
+    # label. Set when the schema's per-value docs read as a sentence
+    # rather than a label.
+    description: str | None = None
     # ESP32 variants that accept this value (lowercased ``esp32s3``); empty =
     # every variant. Lets the editor filter a per-variant enum by the device.
     variants: list[str] = field(default_factory=list)
 
     class Config(_CatalogConfig):
-        """Omit empty ``variants``; see :class:`_CatalogConfig`."""
+        """Omit empty ``variants`` / ``description``; see :class:`_CatalogConfig`."""
 
 
 class RequiredGroupKind(StrEnum):

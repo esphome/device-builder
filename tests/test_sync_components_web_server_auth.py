@@ -37,6 +37,18 @@ def test_committed_body_pins_auth_on_main_form() -> None:
         assert not children[key].get("advanced")
 
 
+def test_committed_body_auth_type_options_name_the_values() -> None:
+    auth = _web_server_entries()["auth"]
+    children = {c["key"]: c for c in auth["config_entries"]}
+    type_entry = children["type"]
+    assert type_entry["default_value"] == "basic"
+    options = {o["label"]: o for o in type_entry["options"]}
+    assert set(options) == {"basic", "digest"}
+    for option in options.values():
+        assert option["label"] == option["value"]
+        assert option["description"]
+
+
 def test_committed_body_keeps_siblings_advanced() -> None:
     entries = _web_server_entries()
     assert entries["port"]["advanced"] is True

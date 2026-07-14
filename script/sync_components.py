@@ -3118,6 +3118,8 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         advanced = False
 
     default_value, gated_component = _extract_default(raw, key=key)
+    if default_value is None:
+        default_value = _enum_default(raw)
     if (
         key in _PLATFORM_DEFAULTED_ADVANCED_KEYS
         and default_value is not None
@@ -3624,8 +3626,62 @@ def _build_id_entry(key: str, raw: dict, *, required: bool = False) -> dict:
     }
 
 
+_DEFAULT_MARKER_TAIL_RE = re.compile(r"\s*\*\(default\)\*\s*$")
+_DEFAULT_MARKER_HEAD_RE = re.compile(r"^\(default\)[\s:.]*", re.IGNORECASE)
+_DEFAULT_MARKER_BARE_RE = re.compile(r"\(?default\)?\.?", re.IGNORECASE)
+
+
+def _split_default_marker(docs: str) -> tuple[str, bool]:
+    """
+    Strip the docs' default-marker idioms, reporting whether one was present.
+
+    Upstream spells the marker three ways: a trailing ``*(default)*``,
+    a leading ``(Default)``, or docs that are nothing but ``Default``.
+    """
+    if _DEFAULT_MARKER_BARE_RE.fullmatch(docs.strip()):
+        return "", True
+    stripped = _DEFAULT_MARKER_TAIL_RE.sub("", docs)
+    stripped = _DEFAULT_MARKER_HEAD_RE.sub("", stripped)
+    return stripped.strip(), stripped != docs
+
+
+# Docs longer than a dropdown row can't work as a label even without
+# terminal punctuation (truncated upstream docstrings hit this).
+_MAX_OPTION_LABEL_LENGTH = 60
+
+
+def _is_sentence_docs(docs: str) -> bool:
+    """Whether *docs* reads as sentence prose rather than an option label."""
+    docs = docs.rstrip()
+    return len(docs) > _MAX_OPTION_LABEL_LENGTH or docs.endswith((".", "!", "?"))
+
+
+def _enum_default(raw: dict) -> str | None:
+    """
+    Resolve the schema-marked default among an enum's values.
+
+    Reads the per-value ``default: true`` flag, falling back to a
+    trailing ``*(default)*`` marker in the value's docs.
+    """
+    values = raw.get("values")
+    if not isinstance(values, dict):
+        return None
+    for value, info in values.items():
+        if isinstance(info, dict) and (
+            info.get("default") or _split_default_marker(info.get("docs") or "")[1]
+        ):
+            return value
+    return None
+
+
 def _build_options(raw: dict) -> list[dict] | None:
-    """Build a list of ``{label, value}`` dicts from a schema's enum values."""
+    """
+    Build a list of ``{label, value[, description]}`` dicts from a schema's enum values.
+
+    A value's docs become its label when they read as a label;
+    sentence prose lands in ``description`` so the dropdown still
+    names the value the YAML will get.
+    """
     values = raw.get("values")
     if not isinstance(values, dict):
         return None
@@ -3635,7 +3691,11 @@ def _build_options(raw: dict) -> list[dict] | None:
         option = {"label": label, "value": value}
         if isinstance(info, dict):
             if info.get("docs"):
-                option["label"] = info["docs"]
+                docs, _ = _split_default_marker(info["docs"])
+                if _is_sentence_docs(docs):
+                    option["description"] = docs
+                elif docs:
+                    option["label"] = docs
             # variant_enum: each value carries the variants that accept it;
             # lowercase to match the board catalog ``esphome.variant`` form.
             if variants := info.get("variants"):
