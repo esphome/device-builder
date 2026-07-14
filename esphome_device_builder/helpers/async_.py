@@ -28,7 +28,7 @@ def log_gather_failures(results: Iterable[Any], message: str) -> None:
     """
     for result in results:
         if isinstance(result, Exception):
-            _LOGGER.warning(message, exc_info=result)
+            _LOGGER.warning("%s", message, exc_info=result)
         elif isinstance(result, BaseException):
             raise result
 
