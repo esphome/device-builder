@@ -135,7 +135,7 @@ async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     async def fake_resolve(*_args, **_kw) -> None:
         return None
 
-    monkeypatch.setattr(monitor.mdns, "_resolve_and_apply", fake_resolve)
+    monkeypatch.setattr(monitor.mdns, "resolve_then", fake_resolve)
 
     monitor.mdns.probe_device("kitchen")
 

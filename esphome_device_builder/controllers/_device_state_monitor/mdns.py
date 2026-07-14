@@ -420,26 +420,12 @@ class MdnsSource:
         device_name: str,
         apply: Callable[[str, AsyncServiceInfo], None] | None = None,
     ) -> None:
-        """
-        Apply *info* off the zeroconf cache, else fire-and-forget a wire resolve.
-
-        The cache-hit apply is synchronous by contract — an adopted
-        card populates immediately, no task spawned.
-        """
+        """Apply *info* synchronously off the zeroconf cache, else resolve fire-and-forget."""
+        applier = apply or self._apply_service_info
         if info.load_from_cache(zeroconf):
-            (apply or self._apply_service_info)(device_name, info)
+            applier(device_name, info)
             return
-        self._monitor._track_task(self._resolve_and_apply(zeroconf, info, device_name, apply))
-
-    async def _resolve_and_apply(
-        self,
-        zeroconf: Any,
-        info: AsyncServiceInfo,
-        device_name: str,
-        apply: Callable[[str, AsyncServiceInfo], None] | None = None,
-    ) -> None:
-        """Resolve a cache-miss mDNS service and propagate its details (fire-and-forget shape)."""
-        await self.resolve_then(zeroconf, info, device_name, apply or self._apply_service_info)
+        self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
 
     async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
         """Resolve before honouring a ``Removed``; only a confirmed miss applies OFFLINE."""
