@@ -100,7 +100,33 @@ def test_build_options_never_ships_marker_text() -> None:
             "value": "NORMAL",
             "description": "Normal operation, sends ACK signals.",
         },
-        {"label": "Short label", "value": "SHORT"},
+        {"label": "SHORT", "value": "SHORT", "description": "Short label"},
+        {"label": "BARE", "value": "BARE"},
+    ]
+
+
+def test_build_options_one_sentence_sibling_demotes_the_whole_enum() -> None:
+    """A menu never mixes value labels with docs labels."""
+    options = _build_options(
+        {
+            "values": {
+                "RESULT": {"docs": "The resulting value (sum of P, I, and D terms)."},
+                "ERROR": {"docs": "The calculated error (setpoint - process_variable)"},
+                "BARE": None,
+            }
+        }
+    )
+    assert options == [
+        {
+            "label": "RESULT",
+            "value": "RESULT",
+            "description": "The resulting value (sum of P, I, and D terms).",
+        },
+        {
+            "label": "ERROR",
+            "value": "ERROR",
+            "description": "The calculated error (setpoint - process_variable)",
+        },
         {"label": "BARE", "value": "BARE"},
     ]
 

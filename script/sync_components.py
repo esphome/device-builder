@@ -3672,16 +3672,24 @@ def _build_options(raw: dict) -> list[dict] | None:
     values = raw.get("values")
     if not isinstance(values, dict):
         return None
+    stripped_docs = {
+        value: _split_default_marker(info["docs"])[0]
+        for value, info in values.items()
+        if isinstance(info, dict) and info.get("docs")
+    }
+    # Classify per enum, not per value: one sentence-styled sibling means
+    # the docs are prose, and a menu mixing value labels with docs labels
+    # is wrong either way (sensor.pid's ERROR vs its sibling terms).
+    demote_all = any(_is_sentence_docs(docs) for docs in stripped_docs.values())
     options: list[dict] = []
     for value, info in values.items():
         label = value or "(none)"
         option = {"label": label, "value": value}
         if isinstance(info, dict):
-            if info.get("docs"):
-                docs, _ = _split_default_marker(info["docs"])
-                if _is_sentence_docs(docs):
+            if docs := stripped_docs.get(value, ""):
+                if demote_all:
                     option["description"] = _clean_description_text(docs)
-                elif docs:
+                else:
                     option["label"] = docs
             # variant_enum: each value carries the variants that accept it;
             # lowercase to match the board catalog ``esphome.variant`` form.
