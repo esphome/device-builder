@@ -5405,24 +5405,17 @@ _SUFFIX_UNIT_RE = re.compile(r"^[A-Za-z°µΩ%][A-Za-z0-9°µΩ%/^*()]{0,15}$")
 
 def _derive_suffix_units(validator: Any) -> list[str] | None:
     """
-    Recover the unit of a hand-rolled ``"<float> <unit>"`` suffix validator.
+    Units of a hand-rolled ``"<float> <unit>"`` suffix validator, else None.
 
-    Component-local validators (stepper's ``validate_speed``) strip a literal
-    suffix tuple before ``float()``-ing the rest — invisible to both the
-    ``float_with_unit`` closure introspection and the ``cv.<name>`` tables.
-    The tuple survives in the function's code constants; every candidate is
-    verified behaviorally: the validator must turn ``"5<suffix>"`` into a
-    number, reject an unknown suffix, and parse the suffixed and bare forms
-    to the same magnitude — a suffix that *rescales* (as5600's ``5°`` vs raw
-    ``5``) is a conversion, not a display unit. Every verified spelling
-    ships, tuple order (canonical) first, so YAML written in any accepted
-    spelling still parses in the frontend. Probes run only behind the
-    const-tuple gate — never call a validator that showed no unit-shaped
-    candidates.
+    Recovers what the closure introspection and ``cv.<name>`` tables can't
+    see (stepper's ``validate_speed``). Every accepted spelling ships,
+    tuple order (canonical) first, so any YAML spelling still parses.
     """
     code = getattr(validator, "__code__", None)
     if code is None:
         return None
+    # Suffix candidates survive in the code constants. The const-tuple gate
+    # is what keeps this pass from calling arbitrary unclassified validators.
     candidates = [
         s
         for const in code.co_consts
@@ -5440,6 +5433,10 @@ def _derive_suffix_units(validator: Any) -> list[str] | None:
         with_unit = _probe_number(validator, f"5{unit}")
         if with_unit is None:
             continue
+        # A suffix that rescales the bare form (as5600's "5°" → raw counts)
+        # is a conversion, not a display unit. When the bare form doesn't
+        # parse there is no bare YAML to misdisplay, so the magnitude gate
+        # applies only when both forms do.
         if bare is not None and bare != with_unit:
             return None
         units.append(unicodedata.normalize(_UNIT_NORMALIZATION, unit))
