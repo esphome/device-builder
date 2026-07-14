@@ -17,11 +17,14 @@ from __future__ import annotations
 import logging
 import types
 
+import orjson
 import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _OUTPUT_BODIES_DIR,
     _audit_catalog_for_unit_mismatches,
     _collect_refined_types,
+    _derive_suffix_units,
     _enumerate_platform_manifests,
     _extract_validator_units,
     _present_non_introspectable_units,
@@ -401,3 +404,94 @@ def test_audit_silent_when_no_mismatches(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="sync_components"):
         _audit_catalog_for_unit_mismatches(catalog)
     assert "Catalog audit" not in caplog.text
+
+
+def test_derive_suffix_units_from_a_suffix_stripper() -> None:
+    """A hand-rolled ``"<float><unit>"`` stripper yields its canonical unit."""
+
+    def validate_speed(value):
+        value = str(value)
+        for suffix in ("steps/s",):
+            value = value.removesuffix(suffix)
+        return float(value)
+
+    assert _derive_suffix_units(validate_speed) == ["steps/s"]
+
+
+def test_derive_suffix_units_ships_every_verified_spelling() -> None:
+    """All accepted spellings ship, tuple order first, so any YAML form parses."""
+
+    def validate_acceleration(value):
+        value = str(value)
+        for suffix in ("steps/s^2", "steps/s*s", "steps/ss"):
+            value = value.removesuffix(suffix)
+        return float(value)
+
+    assert _derive_suffix_units(validate_acceleration) == ["steps/s^2", "steps/s*s", "steps/ss"]
+
+
+def test_derive_suffix_units_rejects_a_rescaling_suffix() -> None:
+    """A suffix that changes the parsed magnitude is a conversion, not a unit."""
+
+    def position(value):
+        value = str(value)
+        if value.endswith(("°", "deg")):
+            return round(float(value.removesuffix("°").removesuffix("deg")) * 4096 / 360)
+        return int(value)
+
+    assert _derive_suffix_units(position) is None
+
+
+def test_derive_suffix_units_rejects_a_lenient_validator() -> None:
+    """A validator that numbers arbitrary text proves nothing about any suffix."""
+
+    def anything_goes(value):
+        for _suffix in ("steps/s",):
+            pass
+        return 1.0
+
+    assert _derive_suffix_units(anything_goes) is None
+
+
+def test_derive_suffix_units_ignores_non_unit_constants() -> None:
+    """Enum-membership tuples never read as unit suffixes."""
+
+    def truthy(value):
+        if str(value) in ("true", "yes", "on"):
+            return True
+        raise ValueError(value)
+
+    assert _derive_suffix_units(truthy) is None
+    assert _derive_suffix_units("not callable") is None
+
+
+def test_stepper_platform_refines_speed_fields_to_float_with_unit(loader) -> None:
+    """``stepper.<platform>`` speed fields derive their units from ``validate_speed``."""
+    refined = {}
+    for platform_manifest in _enumerate_platform_manifests(loader, "uln2003"):
+        refined.update(_collect_refined_types(platform_manifest))
+    max_speed = refined.get(("max_speed",))
+    if max_speed is None:
+        pytest.skip(
+            "esphome version doesn't expose stepper.uln2003.max_speed "
+            "via the live-introspection walker — guard, not a regression"
+        )
+    assert max_speed.type == "float_with_unit"
+    assert max_speed.unit_options == ["steps/s"]
+    # Canonical spelling first; the alternate spellings follow in tuple order.
+    assert refined[("acceleration",)].unit_options[0] == "steps/s^2"
+    assert "steps/s*s" in refined[("acceleration",)].unit_options
+    assert refined[("deceleration",)].unit_options[0] == "steps/s^2"
+
+
+def test_shipped_catalog_stepper_speed_fields_carry_units() -> None:
+    """The generated stepper bodies render the speed trio with unit suffixes."""
+    for platform in ("stepper.a4988", "stepper.uln2003"):
+        body = orjson.loads((_OUTPUT_BODIES_DIR / f"{platform}.json").read_bytes())
+        entries = {e["key"]: e for e in body["config_entries"]}
+        assert entries["max_speed"]["type"] == "float_with_unit"
+        assert entries["max_speed"]["unit_options"] == ["steps/s"]
+        for key in ("acceleration", "deceleration"):
+            assert entries[key]["type"] == "float_with_unit"
+            assert entries[key]["unit_options"][0] == "steps/s^2"
+            assert "steps/s*s" in entries[key]["unit_options"]

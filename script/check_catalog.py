@@ -154,6 +154,15 @@ _EXPECTATIONS: list[
             ("pin", "pin", True, None),
         ],
     ),
+    (
+        "stepper.uln2003",
+        [
+            # Suffix-stripping custom validator ("<float> steps/s") that
+            # would regress to a bare ``float`` if ``_derive_suffix_units``
+            # stopped classifying it (issue #2056).
+            ("max_speed", "float_with_unit", True, None),
+        ],
+    ),
 ]
 
 
