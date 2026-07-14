@@ -56,9 +56,9 @@ def _reviver(
     monitor, callbacks = make_state_monitor_with_callbacks(devices)
     monitor.state.dns_cache = MagicMock()
     monitor.state.dns_cache.has_cached_failure.return_value = True
-    monitor._ping.icmp_available = True
-    monitor._ping.ping_once = AsyncMock(return_value=rtt)  # type: ignore[method-assign]
-    src = monitor._api_reviver
+    monitor.ping.icmp_available = True
+    monitor.ping.ping_once = AsyncMock(return_value=rtt)  # type: ignore[method-assign]
+    src = monitor.api_reviver
     src._run_worker = AsyncMock(return_value=worker_result)  # type: ignore[method-assign]
     return monitor, callbacks, src
 
@@ -87,7 +87,7 @@ async def test_match_revives_online_under_ping() -> None:
     assert monitor.priority_for("kitchen") is ReachabilitySource.PING
     verified_ip, _verified_at = src._verified["kitchen"]
     assert verified_ip == "192.168.1.50"
-    assert monitor._ping._wake.is_set()
+    assert monitor.ping._wake.is_set()
 
 
 async def test_match_applies_mac_and_version_from_the_same_dial() -> None:
@@ -160,14 +160,14 @@ async def test_run_exits_when_icmp_is_unavailable(
     """Without a trustworthy negative pre-filter the reviver refuses to run at all."""
     device = make_stuck_offline_device()
     monitor, _callbacks, src = _reviver([device])
-    monitor._ping.icmp_available = icmp_available
+    monitor.ping.icmp_available = icmp_available
     monkeypatch.setattr(ApiReviverSource, "_bootstrap_delay", 0)
 
     with caplog.at_level(logging.WARNING):
         await asyncio.wait_for(src.run(), timeout=1)
 
     assert "API revival disabled" in caplog.text
-    monitor._ping.ping_once.assert_not_called()
+    monitor.ping.ping_once.assert_not_called()
 
 
 async def test_prepare_requires_the_worker_library(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -206,7 +206,7 @@ async def test_cohort_skips(overrides: dict[str, Any]) -> None:
 
     await src._sweep()
 
-    monitor._ping.ping_once.assert_not_called()
+    monitor.ping.ping_once.assert_not_called()
     src._run_worker.assert_not_called()
 
 
@@ -241,7 +241,7 @@ async def test_cohort_skips_without_a_cached_dns_failure() -> None:
 
     await src._sweep()
 
-    monitor._ping.ping_once.assert_not_called()
+    monitor.ping.ping_once.assert_not_called()
 
 
 async def test_cohort_skips_when_zeroconf_cache_has_addresses(
@@ -249,11 +249,11 @@ async def test_cohort_skips_when_zeroconf_cache_has_addresses(
 ) -> None:
     device = make_stuck_offline_device()
     monitor, _callbacks, src = _reviver([device])
-    monkeypatch.setattr(monitor, "get_cached_addresses", lambda _host: ["192.168.1.50"])
+    monkeypatch.setattr(monitor.mdns, "get_cached_addresses", lambda _host: ["192.168.1.50"])
 
     await src._sweep()
 
-    monitor._ping.ping_once.assert_not_called()
+    monitor.ping.ping_once.assert_not_called()
 
 
 async def test_cohort_includes_device_with_blank_address() -> None:
@@ -263,7 +263,7 @@ async def test_cohort_includes_device_with_blank_address() -> None:
 
     await src._sweep()
 
-    monitor._ping.ping_once.assert_awaited_once_with("192.168.1.50", retry=True)
+    monitor.ping.ping_once.assert_awaited_once_with("192.168.1.50", retry=True)
 
 
 async def test_post_revival_flap_is_pings_to_demote_and_keep() -> None:
@@ -272,13 +272,13 @@ async def test_post_revival_flap_is_pings_to_demote_and_keep() -> None:
     monitor, _callbacks, src = _reviver([device])
     await src._sweep()
     src._run_worker.reset_mock()
-    monitor._ping.ping_once.reset_mock()
+    monitor.ping.ping_once.reset_mock()
 
     monitor.apply("kitchen", DeviceState.OFFLINE, "ping")
     assert device.runtime_state.ip_addresses == ["192.168.1.50"]
     await src._sweep()
 
-    monitor._ping.ping_once.assert_not_called()
+    monitor.ping.ping_once.assert_not_called()
     src._run_worker.assert_not_called()
 
 
@@ -356,9 +356,9 @@ async def test_name_mismatch_invalidates_the_persisted_ip() -> None:
 
     # The cleared IP fails the cohort gate: no re-dial next sweep.
     src._run_worker.reset_mock()
-    monitor._ping.ping_once.reset_mock()
+    monitor.ping.ping_once.reset_mock()
     await src._sweep()
-    monitor._ping.ping_once.assert_not_called()
+    monitor.ping.ping_once.assert_not_called()
     src._run_worker.assert_not_called()
 
 
@@ -473,7 +473,7 @@ async def test_pair_mutated_between_prefilter_and_dial_is_skipped() -> None:
         device.ip = ""
         return 12.5
 
-    monitor._ping.ping_once = clear_ip  # type: ignore[method-assign]
+    monitor.ping.ping_once = clear_ip  # type: ignore[method-assign]
     await src._sweep()
 
     src._run_worker.assert_not_called()
@@ -512,11 +512,11 @@ async def test_worker_dials_share_one_monitor_wide_slot() -> None:
         in_flight -= 1
 
     src._run_worker = slow_worker  # type: ignore[method-assign]
-    monitor._api_info._run_worker = slow_worker  # type: ignore[method-assign]
+    monitor.api_info._run_worker = slow_worker  # type: ignore[method-assign]
 
     await asyncio.gather(
         src._probe(device, [device.ip]),
-        monitor._api_info._probe(device, [device.ip]),
+        monitor.api_info._probe(device, [device.ip]),
     )
 
     assert peak == 1

@@ -54,16 +54,16 @@ class ImportableDiscovery:
         the apply still keys to the configured name.
         """
         monitor = self._monitor
-        if (zc := monitor._mdns.zeroconf) is None:
+        if (zc := monitor.mdns.zeroconf) is None:
             return
         zeroconf = zc.zeroconf
         broadcast = service_name or device_name
         full_service = f"{broadcast}.{_ESPHOME_SERVICE_TYPE}"
         info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, full_service)
         if info.load_from_cache(zeroconf):
-            monitor._mdns._apply_service_info(device_name, info)
+            monitor.mdns._apply_service_info(device_name, info)
             return
-        monitor._track_task(monitor._mdns._resolve_and_apply(zeroconf, info, device_name))
+        monitor._track_task(monitor.mdns._resolve_and_apply(zeroconf, info, device_name))
 
     def revisit_importable(self, device_name: str) -> None:
         """
@@ -150,7 +150,7 @@ class ImportableDiscovery:
         self, zeroconf: Any, info: AsyncServiceInfo, device_name: str
     ) -> None:
         """Resolve a cache-miss HTTP service and store its URL."""
-        await self._monitor._mdns._resolve_then(
+        await self._monitor.mdns._resolve_then(
             zeroconf, info, device_name, self._apply_http_service_info
         )
 
@@ -200,7 +200,7 @@ class ImportableDiscovery:
         ``on_importable_added``.
         """
         monitor = self._monitor
-        if (zc := monitor._mdns.zeroconf) is None or monitor.state.http_urls.get(device_name):
+        if (zc := monitor.mdns.zeroconf) is None or monitor.state.http_urls.get(device_name):
             return
         info = AsyncServiceInfo(_HTTP_SERVICE_TYPE, f"{device_name}.{_HTTP_SERVICE_TYPE}")
         if not info.load_from_cache(zc.zeroconf):

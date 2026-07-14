@@ -582,7 +582,7 @@ async def test_schedule_version_reprobe_fires_and_requests(monkeypatch: Any) -> 
     controller._schedule_version_reprobe("kitchen.yaml")
     await asyncio.sleep(0.01)  # let the call_later(0) timer fire
 
-    controller._state_monitor.request_version_reprobe.assert_called_once_with(device.name)
+    controller._state_monitor.api_info.request_reprobe.assert_called_once_with(device.name)
     assert controller._reprobe_timers == {}  # consumed
 
 
@@ -592,7 +592,7 @@ async def test_fire_version_reprobe_unknown_configuration_is_noop() -> None:
 
     firmware_sync._fire_version_reprobe(controller, "kitchen.yaml")
 
-    controller._state_monitor.request_version_reprobe.assert_not_called()
+    controller._state_monitor.api_info.request_reprobe.assert_not_called()
 
 
 async def test_schedule_version_reprobe_reschedule_cancels_previous(monkeypatch: Any) -> None:

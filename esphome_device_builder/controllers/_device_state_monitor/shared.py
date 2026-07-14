@@ -1,8 +1,8 @@
 """Cross-cutting helpers shared by the mDNS browser path and the ping source.
 
-Each free function takes the monitor as its first argument; the
-monitor reaches sibling sources through ``state`` and through
-``_mdns`` / ``_ping`` / ``_importable`` attributes.
+Each free function takes the monitor as its first argument; sibling
+sources are reached through ``state`` and the monitor's public
+``mdns`` / ``ping`` / ``importable`` attributes.
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     return (
         source == ReachabilitySource.MDNS
         and device.api_enabled
-        and not monitor._mdns.has_live_ptr(device.name)
+        and not monitor.mdns.has_live_ptr(device.name)
     )
 
 
@@ -83,7 +83,7 @@ def address_resolution_exhausted(monitor: DeviceStateMonitor, address: str) -> b
     """
     if not address:
         return True
-    if is_local_hostname(address) and monitor.get_cached_addresses(address):
+    if is_local_hostname(address) and monitor.mdns.get_cached_addresses(address):
         return False
     return monitor.state.dns_cache.has_cached_failure(address)
 
@@ -114,7 +114,7 @@ async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     nothing and the ICMP sweep decides. Devices with no cached mDNS
     trace at all are skipped.
     """
-    if monitor._mdns.zeroconf is None:
+    if monitor.mdns.zeroconf is None:
         return
     claims = [
         _resolve_and_claim_logged(monitor, d)
@@ -122,7 +122,7 @@ async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
         if d.api_enabled
         and d.runtime_state.state is DeviceState.ONLINE
         and should_ping(monitor, d)
-        and monitor.get_mdns_cache_info(d.name) is not None
+        and monitor.mdns.get_mdns_cache_info(d.name) is not None
     ]
     # The common case is a single stuck device — don't pay for a gather.
     if len(claims) == 1:
@@ -143,7 +143,7 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
     resolve for each such device every sweep so the indicator
     catches up. No-op when zeroconf failed to start.
     """
-    zeroconf = monitor._mdns.zeroconf
+    zeroconf = monitor.mdns.zeroconf
     if zeroconf is None:
         return
     candidates = [
@@ -181,7 +181,7 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
 async def _resolve_and_claim_logged(monitor: DeviceStateMonitor, device: Device) -> None:
     """Run one resolve-and-claim, surfacing unexpected errors."""
     try:
-        await monitor._mdns.resolve_and_claim(device.name)
+        await monitor.mdns.resolve_and_claim(device.name)
     except Exception:
         # ``resolve_and_claim`` swallows resolve misses itself, so
         # anything surfacing here is a real bug — don't mask it as a

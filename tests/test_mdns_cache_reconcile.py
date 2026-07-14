@@ -45,7 +45,7 @@ def _seed_txt_cache(monitor: Any, records: list[DNSText]) -> None:
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(
         side_effect=lambda name, *_a: [r for r in records if r.name == name]
     )
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
 
 
 def test_reconcile_applies_txt_fields_without_claiming() -> None:
@@ -67,7 +67,7 @@ def test_reconcile_applies_txt_fields_without_claiming() -> None:
         ],
     )
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert ("on_version_change", "kitchen", "2026.6.4") in callbacks.calls
     assert ("on_config_hash_change", "kitchen", "abcd1234") in callbacks.calls
@@ -93,7 +93,7 @@ def test_reconcile_works_without_a_cached_address_record() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     _seed_txt_cache(monitor, [_txt_record({"version": "2026.6.4"}, age_ms=600_000)])
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert device.runtime_state.deployed_version == "2026.6.4"
 
@@ -104,7 +104,7 @@ def test_reconcile_never_flips_an_offline_device_online() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     _seed_txt_cache(monitor, [_txt_record({"version": "2026.6.4"})])
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert device.runtime_state.state == DeviceState.OFFLINE
     assert callbacks.calls_for("on_state_change") == []
@@ -115,7 +115,7 @@ def test_reconcile_skips_expired_txt_records() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     _seed_txt_cache(monitor, [_txt_record({"version": "2026.6.4"}, age_ms=5_000_000, ttl=4500)])
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert callbacks.calls == []
 
@@ -125,7 +125,7 @@ def test_reconcile_cache_miss_is_a_noop() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     _seed_txt_cache(monitor, [])
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert callbacks.calls == []
 
@@ -150,7 +150,7 @@ def test_reconcile_reads_http_identity_txt_for_non_api_device() -> None:
         ],
     )
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert ("on_version_change", "kitchen", "2026.8.0") in callbacks.calls
     assert ("on_config_hash_change", "kitchen", "abcd1234") in callbacks.calls
@@ -168,7 +168,7 @@ def test_reconcile_http_txt_old_firmware_version_only() -> None:
         monitor, [_txt_record({"version": "2026.6.4"}, service_name=_HTTP_SERVICE_NAME)]
     )
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert device.runtime_state.deployed_version == "2026.6.4"
     assert callbacks.calls_for("on_config_hash_change") == []
@@ -178,9 +178,9 @@ def test_reconcile_http_txt_old_firmware_version_only() -> None:
 def test_reconcile_without_zeroconf_is_a_noop() -> None:
     """Zeroconf failed to start → nothing to read; don't raise."""
     monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    monitor._mdns._zeroconf = None
+    monitor.mdns._zeroconf = None
 
-    monitor.reconcile_from_mdns_cache("kitchen")
+    monitor.mdns.reconcile_from_cache("kitchen")
 
     assert callbacks.calls == []
 
@@ -195,9 +195,9 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
         [_txt_record({"version": "2026.6.4", "config_hash": "abcd1234", "mac": "94c9601f8cf1"})],
     )
     fetch = MagicMock()
-    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+    monitor.api_info._fetch = fetch  # type: ignore[method-assign]
 
-    await monitor._api_info._sweep()
+    await monitor.api_info._sweep()
 
     assert device.runtime_state.deployed_version == "2026.6.4"
     assert device.runtime_state.deployed_config_hash == "abcd1234"
@@ -222,9 +222,9 @@ async def test_sweep_heals_blank_non_api_device_from_http_cache() -> None:
         ],
     )
     fetch = MagicMock()
-    monitor._api_info._fetch = fetch  # type: ignore[method-assign]
+    monitor.api_info._fetch = fetch  # type: ignore[method-assign]
 
-    await monitor._api_info._sweep()
+    await monitor.api_info._sweep()
 
     assert device.runtime_state.deployed_version == "2026.8.0"
     assert device.runtime_state.deployed_config_hash == "abcd1234"
@@ -235,7 +235,7 @@ async def test_sweep_heals_blank_non_api_device_from_http_cache() -> None:
 async def test_resolve_then_dedupes_inflight_service_names() -> None:
     """A second resolve for a service already being resolved is dropped, not stacked."""
     monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    source = monitor._mdns
+    source = monitor.mdns
     source._inflight_resolves.add(_SERVICE_NAME)
     info = MagicMock()
     info.name = _SERVICE_NAME
@@ -253,7 +253,7 @@ async def test_resolve_then_dedupes_inflight_service_names() -> None:
 async def test_resolve_then_clears_inflight_after_completion() -> None:
     """The in-flight guard releases once the resolve finishes, so retries stay possible."""
     monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    source = monitor._mdns
+    source = monitor.mdns
     info = MagicMock()
     info.name = _SERVICE_NAME
     info.async_request = AsyncMock(return_value=True)

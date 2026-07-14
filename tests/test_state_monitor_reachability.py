@@ -88,22 +88,22 @@ def _make_monitor(
 
     monitor.state = MonitorState()
 
-    monitor._importable = ImportableDiscovery(monitor)
+    monitor.importable = ImportableDiscovery(monitor)
 
-    monitor._mdns = MdnsSource(monitor)
+    monitor.mdns = MdnsSource(monitor)
 
     monitor._presence = None
-    monitor._ping = PingSource(monitor)
+    monitor.ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
     monitor._is_ignored = lambda _name: False
     monitor.state.state_source = {}
     monitor.state.http_urls = {}
-    monitor._mdns._zeroconf = None
-    monitor._mdns._mdns_browser = None
+    monitor.mdns._zeroconf = None
+    monitor.mdns._mdns_browser = None
     monitor._ping_task = None
     monitor._tasks = set()
-    monitor._importable._import_discovery = None
+    monitor.importable._import_discovery = None
     monitor.state.reachability = tracker
     monitor._on_state_change = _flip_state(devices)
     monitor._on_ip_change = lambda _n, _i, _l: None
@@ -218,10 +218,10 @@ def test_select_ping_targets_keeps_device_with_known_ip_when_dns_failed() -> Non
     """A cached DNS failure with a known IP pings the IP, not OFFLINE+dns_failed."""
     devices = [_make_device(state=DeviceState.OFFLINE, ip_addresses=["10.0.0.5"])]
     monitor = _make_monitor(devices)
-    monitor.get_cached_addresses = lambda _a: None
+    monitor.mdns.get_cached_addresses = lambda _a: None
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=True)
 
-    pingable, dns_failed = monitor._ping._select_ping_targets()
+    pingable, dns_failed = monitor.ping._select_ping_targets()
 
     assert devices[0] in pingable
     assert dns_failed == []
@@ -242,7 +242,7 @@ async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ) as mock_ping:
-        await monitor._ping._resolve_and_ping(devices[0])
+        await monitor.ping._resolve_and_ping(devices[0])
 
     assert mock_ping.await_args.args[0] == "10.0.0.5"
     assert devices[0].runtime_state.state is DeviceState.ONLINE
@@ -261,7 +261,7 @@ async def test_ping_success_records_rtt_and_observation() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.ONLINE, active_source="ping", ip="10.0.0.42"
@@ -283,7 +283,7 @@ async def test_ping_failure_does_not_record_rtt() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         AsyncMock(return_value=fake_result),
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     snap = tracker.snapshot(
         "kitchen", state=DeviceState.OFFLINE, active_source="ping", ip="10.0.0.42"
@@ -305,7 +305,7 @@ async def test_ping_retry_absorbs_transient_miss() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     assert fake_ping.await_count == 2
     # First call is the cheap single-shot.
@@ -332,7 +332,7 @@ async def test_ping_retry_still_offline_when_retry_also_misses() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     assert fake_ping.await_count == 2
     assert devices[0].runtime_state.state == DeviceState.OFFLINE
@@ -353,7 +353,7 @@ async def test_ping_no_retry_when_first_probe_succeeds() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     fake_ping.assert_awaited_once()
 
@@ -369,7 +369,7 @@ async def test_ping_no_retry_when_already_offline() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     fake_ping.assert_awaited_once()
     assert devices[0].runtime_state.state == DeviceState.OFFLINE
@@ -393,7 +393,7 @@ async def test_ping_retry_absorbs_transient_miss_when_unknown() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     assert fake_ping.await_count == 2
     assert fake_ping.await_args_list[1].kwargs.get("count", 1) > 1
@@ -454,7 +454,7 @@ async def test_ping_device_uses_privileged_flag_from_probe() -> None:
     """``_ping_device`` forwards ``self._privileged`` to every ``icmp_ping`` call."""
     devices = [_make_device(state=DeviceState.UNKNOWN)]
     monitor = _make_monitor(devices, ReachabilityTracker())
-    monitor._ping._privileged = False
+    monitor.ping._privileged = False
 
     miss = MagicMock(is_alive=False, min_rtt=0.0)
     hit = MagicMock(is_alive=True, min_rtt=2.0)
@@ -463,7 +463,7 @@ async def test_ping_device_uses_privileged_flag_from_probe() -> None:
         "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
         fake_ping,
     ):
-        await monitor._ping._ping_device(devices[0], "10.0.0.42")
+        await monitor.ping._ping_device(devices[0], "10.0.0.42")
 
     assert fake_ping.await_args_list[0].kwargs.get("privileged") is False
     assert fake_ping.await_args_list[1].kwargs.get("privileged") is False
@@ -554,7 +554,7 @@ async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
 def test_get_mdns_cache_info_no_zeroconf_returns_none() -> None:
     """No zeroconf → no cache to read → ``None``."""
     monitor = _make_monitor([_make_device()], None)
-    assert monitor.get_mdns_cache_info("kitchen") is None
+    assert monitor.mdns.get_mdns_cache_info("kitchen") is None
 
 
 def test_get_mdns_cache_info_no_record_returns_none() -> None:
@@ -563,8 +563,8 @@ def test_get_mdns_cache_info_no_record_returns_none() -> None:
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
     fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
-    monitor._mdns._zeroconf = fake_zeroconf
-    assert monitor.get_mdns_cache_info("kitchen") is None
+    monitor.mdns._zeroconf = fake_zeroconf
+    assert monitor.mdns.get_mdns_cache_info("kitchen") is None
 
 
 def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
@@ -600,9 +600,9 @@ def test_get_mdns_cache_info_against_real_zeroconf_record() -> None:
         monitor = _make_monitor([_make_device()], None)
         # The helper reads ``self._zeroconf.zeroconf`` — wrap the real
         # ``Zeroconf`` in a stub object exposing the same attribute.
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.get_mdns_cache_info("kitchen")
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
         # Age is "now - created" in seconds. Allow a small margin
         # for the milliseconds elapsed between the test's
@@ -646,9 +646,9 @@ def test_get_mdns_a_record_ttl_remaining_picks_min_across_a_aaaa() -> None:
         zc.cache.async_add_records([a_rec, aaaa_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        ttl_remaining = monitor.get_mdns_a_record_ttl_remaining("kitchen")
+        ttl_remaining = monitor.mdns.get_mdns_a_record_ttl_remaining("kitchen")
         assert ttl_remaining is not None
         # AAAA's 40s wins (smaller).
         assert ttl_remaining == pytest.approx(40.0, abs=0.5)
@@ -661,9 +661,9 @@ def test_get_mdns_a_record_ttl_remaining_no_records_returns_none() -> None:
     monitor = _make_monitor([_make_device()], None)
     fake_zeroconf = MagicMock()
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(return_value=[])
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
 
-    assert monitor.get_mdns_a_record_ttl_remaining("kitchen") is None
+    assert monitor.mdns.get_mdns_a_record_ttl_remaining("kitchen") is None
 
 
 def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
@@ -698,9 +698,9 @@ def test_get_mdns_cache_info_picks_latest_across_record_types() -> None:
         zc.cache.async_add_records([a_rec, ptr_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.get_mdns_cache_info("kitchen")
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
         # PTR (5s ago) is fresher than A (110s ago) → PTR wins.
         assert info.age_seconds == pytest.approx(5.0, abs=0.5)
@@ -759,9 +759,9 @@ def test_get_mdns_cache_info_decodes_txt_records() -> None:
         zc.cache.async_add_records([a_rec, txt_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.get_mdns_cache_info("kitchen")
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
         assert info.txt_records == {
             "version": "2025.4.0",
@@ -823,7 +823,7 @@ def test_get_mdns_cache_info_sorts_txt_records_for_wire_stability() -> None:
         )
         zc.cache.async_add_records([a_rec])
         monitor = _make_monitor([_make_device()], None)
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
         snapshots: list[dict[str, str]] = []
         for payload, age_offset in ((ascending, 4_000), (descending, 1_000)):
@@ -836,7 +836,7 @@ def test_get_mdns_cache_info_sorts_txt_records_for_wire_stability() -> None:
                 created=current_time_millis() - age_offset,
             )
             zc.cache.async_add_records([txt_rec])
-            info = monitor.get_mdns_cache_info("kitchen")
+            info = monitor.mdns.get_mdns_cache_info("kitchen")
             assert info is not None
             snapshots.append(dict(info.txt_records))
 
@@ -902,9 +902,9 @@ def test_get_mdns_cache_info_keeps_empty_value_keys_visible() -> None:
         zc.cache.async_add_records([a_rec, txt_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.get_mdns_cache_info("kitchen")
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
         assert info.txt_records == {
             "version": "2025.4.0",
@@ -1011,9 +1011,9 @@ def test_get_mdns_cache_info_no_txt_records_returns_empty_mapping() -> None:
         zc.cache.async_add_records([a_rec])
 
         monitor = _make_monitor([_make_device()], None)
-        monitor._mdns._zeroconf = MagicMock(zeroconf=zc)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
 
-        info = monitor.get_mdns_cache_info("kitchen")
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
         assert info is not None
         assert info.txt_records == {}
     finally:
@@ -1043,9 +1043,9 @@ def test_get_mdns_cache_info_picks_latest_record() -> None:
     fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
 
     monitor = _make_monitor([_make_device()], None)
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
 
-    info = monitor.get_mdns_cache_info("kitchen")
+    info = monitor.mdns.get_mdns_cache_info("kitchen")
     assert isinstance(info, MdnsCacheInfo)
     # Newer record wins; allow a small margin for the millisecond
     # difference between the test's ``current_time_millis()`` capture
@@ -1070,7 +1070,7 @@ async def test_refresh_mdns_no_zeroconf_is_a_noop() -> None:
     monitor = _make_monitor(devices, tracker)
     # ``_make_monitor`` already sets ``_zeroconf = None`` — the
     # method returns immediately without trying to resolve.
-    await monitor.refresh_mdns("kitchen")
+    await monitor.mdns.refresh_mdns("kitchen")
     snap = tracker.snapshot("kitchen", state=DeviceState.UNKNOWN, active_source="unknown", ip="")
     assert snap["mdns_last_seen_seconds_ago"] is None
 
@@ -1092,9 +1092,9 @@ async def test_refresh_mdns_calls_resolve_host() -> None:
     monitor = _make_monitor(devices, tracker)
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(return_value=["10.0.0.42"])
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
 
-    await monitor.refresh_mdns("kitchen")
+    await monitor.mdns.refresh_mdns("kitchen")
 
     fake_zeroconf.async_resolve_host.assert_awaited_once_with("kitchen.local", 3.0)
     assert devices[0].runtime_state.state is DeviceState.ONLINE
@@ -1114,9 +1114,9 @@ async def test_refresh_mdns_swallows_resolve_errors() -> None:
     monitor = _make_monitor(devices, ReachabilityTracker())
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(side_effect=OSError("network down"))
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
 
-    await monitor.refresh_mdns("kitchen")
+    await monitor.mdns.refresh_mdns("kitchen")
     assert devices[0].runtime_state.state is DeviceState.UNKNOWN
 
 
@@ -1132,7 +1132,7 @@ async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
     monitor = _make_monitor(devices, ReachabilityTracker())
     fake_zeroconf = MagicMock()
     fake_zeroconf.async_resolve_host = AsyncMock(return_value=[])
-    monitor._mdns._zeroconf = fake_zeroconf
+    monitor.mdns._zeroconf = fake_zeroconf
 
-    await monitor.refresh_mdns("kitchen")
+    await monitor.mdns.refresh_mdns("kitchen")
     assert devices[0].runtime_state.state is DeviceState.UNKNOWN

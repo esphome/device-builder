@@ -133,7 +133,7 @@ async def import_device(
     # the next ping sweep. Probe esphomelib too so version /
     # config_hash / api_encryption land alongside the IP.
     controller._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
-    cached = controller._state_monitor.get_cached_addresses(f"{mdns_name}.local")
+    cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
     if cached:
         controller._state_monitor.apply_ip_addresses(name, cached)
     # Look up the service by ``mdns_name`` (factory firmware is
@@ -141,7 +141,7 @@ async def import_device(
     # chosen ``name``. The scan-change handler probes too but
     # only knows the YAML name, which has no broadcast yet for
     # the rename-during-adopt case.
-    controller._state_monitor.probe_device(name, service_name=mdns_name)
+    controller._state_monitor.importable.probe_device(name, service_name=mdns_name)
     return {"configuration": configuration}
 
 

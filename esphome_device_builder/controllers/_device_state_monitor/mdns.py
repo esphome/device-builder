@@ -93,7 +93,7 @@ class MdnsSource:
             return
 
         monitor = self._monitor
-        importable = monitor._importable
+        importable = monitor.importable
         importable.setup()
 
         def _dispatch(

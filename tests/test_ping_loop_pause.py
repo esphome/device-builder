@@ -40,7 +40,7 @@ def _build_monitor(presence: SubscriberPresence | None) -> DeviceStateMonitor:
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
     monitor.state = MonitorState()
     monitor._presence = presence
-    monitor._ping = PingSource(monitor)
+    monitor.ping = PingSource(monitor)
     return monitor
 
 
@@ -68,7 +68,7 @@ def _instrument_loop(
     # per-test instance.
     monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
     monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _resolve)
-    monitor._ping._ping_sweep = _sweep  # type: ignore[method-assign]
+    monitor.ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
     # Skip the bootstrap delay; collapse the post-sweep idle wait
     # so the loop ticks fast enough for an asyncio.sleep(0)-driven
@@ -101,7 +101,7 @@ async def test_ping_loop_runs_unconditionally_without_presence(
     monitor = _build_monitor(presence=None)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     try:
         await _drive_until(lambda: counts["sweeps"] >= 2)
     finally:
@@ -125,7 +125,7 @@ async def test_ping_loop_survives_a_raising_resolve_step(
 
     monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _boom)
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     try:
         await _drive_until(lambda: counts["sweeps"] >= 2)
     finally:
@@ -148,9 +148,9 @@ async def test_ping_loop_survives_a_raising_ping_sweep(
         if counts["sweeps"] == 1:
             raise RuntimeError("boom")
 
-    monitor._ping._ping_sweep = _flaky_sweep  # type: ignore[method-assign]
+    monitor.ping._ping_sweep = _flaky_sweep  # type: ignore[method-assign]
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     try:
         await _drive_until(lambda: counts["sweeps"] >= 2)
     finally:
@@ -173,7 +173,7 @@ async def test_ping_loop_does_not_mask_child_cancellation(
 
     monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _cancelled)
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     with contextlib.suppress(asyncio.CancelledError):
         await asyncio.wait_for(task, timeout=0.5)
 
@@ -195,7 +195,7 @@ async def test_ping_loop_parks_until_first_subscriber(
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     try:
         # Give the loop several scheduling ticks to confirm it
         # actually parks instead of running. Without the gate fix
@@ -229,7 +229,7 @@ async def test_ping_loop_pauses_again_after_last_subscriber_leaves(
     monitor = _build_monitor(presence=presence)
     counts = _instrument_loop(monitor, monkeypatch)
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     try:
         # Cycle one subscriber in, drive at least one sweep, then out.
         with presence.subscriber():
@@ -302,7 +302,7 @@ async def test_subscriber_arrival_mid_idle_bails_within_a_tick(
     counts = _instrument_loop(monitor, monkeypatch)
     monkeypatch.setattr(PingSource, "_interval", 60)
 
-    task = asyncio.create_task(monitor._ping.run())
+    task = asyncio.create_task(monitor.ping.run())
     try:
         with presence.subscriber():
             await _drive_until(lambda: counts["sweeps"] >= 1)

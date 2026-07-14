@@ -498,7 +498,7 @@ against legacy behaviour before assuming the simpler version suffices.
   is dark in some deployments (Docker-bridge), so `refresh_after_job`
   also arms a `loop.call_later` timer (`_schedule_version_reprobe`,
   tracked in `_reprobe_timers`, cancelled in `stop()`) that ~60s later
-  forces one Native-API version probe via `request_version_reprobe` —
+  forces one Native-API version probe via `api_info.request_reprobe` —
   the only signal of a rollback / failed boot where the announce never
   arrives. The forced probe still honours `_is_due`'s `priority_for !=
   MDNS` guard, so a device already seen over mDNS is skipped.
