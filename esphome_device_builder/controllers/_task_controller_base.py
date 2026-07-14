@@ -26,12 +26,12 @@ class TaskControllerBase:
     """
 
     def __init__(self) -> None:
-        self._tasks: set[asyncio.Task[None]] = set()
+        self._tasks: set[asyncio.Task[Any]] = set()
 
-    def _track_task(
-        self, coro: Coroutine[Any, Any, None], *, name: str | None = None
-    ) -> asyncio.Task[None]:
-        """Schedule *coro* and hold a strong ref in :attr:`_tasks` until it settles."""
+    def _track_task[T](
+        self, coro: Coroutine[Any, Any, T], *, name: str | None = None
+    ) -> asyncio.Task[T]:
+        """Schedule *coro*, discarding its result, and hold a strong ref until it settles."""
         task = asyncio.create_task(coro, name=name)
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
