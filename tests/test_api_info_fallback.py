@@ -27,6 +27,7 @@ from esphome_device_builder.controllers._device_state_monitor import (
 )
 from esphome_device_builder.controllers._device_state_monitor import api_info as api_info_module
 from esphome_device_builder.controllers._device_state_monitor._api_probe import ProbeError
+from esphome_device_builder.controllers._device_state_monitor._sweep_source import SweepSource
 from esphome_device_builder.controllers._device_state_monitor.api_info import ApiInfoSource
 from esphome_device_builder.helpers import api_device_info
 from esphome_device_builder.helpers.async_ import log_task_exit
@@ -533,7 +534,7 @@ async def test_idle_returns_immediately_when_woken() -> None:
 
 async def test_idle_times_out_when_not_woken(monkeypatch: Any) -> None:
     """With no wake, the idle wait expires after the interval and returns."""
-    monkeypatch.setattr(api_probe_module, "_INTERVAL", 0.01)
+    monkeypatch.setattr(ApiInfoSource, "_interval", 0.01)
     monitor, _ = make_state_monitor_with_callbacks([])
     await monitor._api_info._idle()
 
@@ -814,9 +815,9 @@ async def test_run_worker_logs_worker_reported_error(monkeypatch: Any, caplog: A
 async def test_sweep_source_base_defaults() -> None:
     """The base runs unconditionally by default and demands a ``_sweep``."""
     monitor, _ = make_state_monitor_with_callbacks([])
-    base = api_probe_module.ApiSweepSource(monitor)
+    base = SweepSource(monitor)
 
-    assert base._prepare() is True
+    assert await base._prepare() is True
     with pytest.raises(NotImplementedError):
         await base._sweep()
 

@@ -1,14 +1,12 @@
 """
-Plumbing shared by the Native API sources.
+Worker-dial plumbing shared by the Native API sources.
 
-The one-shot ``device_info`` probe helpers plus the presence-gated
-sweep-loop base both ``ApiInfoSource`` and ``ApiReviverSource`` run on.
+The one-shot ``device_info`` probe helpers both ``ApiInfoSource``
+and ``ApiReviverSource`` layer over the sweep-loop base.
 """
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import importlib.util
 import logging
 import sys
@@ -17,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.device_yaml import DEFAULT_API_PORT
 from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.subprocess import run_subprocess_capture
+from ._sweep_source import SweepSource
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -26,7 +25,6 @@ _LOGGER = logging.getLogger(__name__)
 
 _WORKER_MODULE = "esphome_device_builder.helpers.api_device_info"
 _SUBPROCESS_TIMEOUT = 15.0
-_INTERVAL = 60  # seconds between sweeps
 
 
 def api_worker_available() -> bool:
@@ -40,50 +38,8 @@ def api_worker_available() -> bool:
     return importlib.util.find_spec("aioesphomeapi") is not None
 
 
-class ApiSweepSource:
-    """Presence-gated fixed-interval sweep loop; subclasses supply ``_sweep``."""
-
-    # Names the source in the crash-continue log line.
-    _sweep_label: str
-    # Head start for the passive sources (mDNS browser, ping sweep) so
-    # the common case never reaches this source's heavier repair.
-    _bootstrap_delay: float
-
-    def __init__(self, monitor: DeviceStateMonitor) -> None:
-        self._monitor = monitor
-        # Cleared at the top of each iteration so a wake fired
-        # mid-sweep still triggers the next idle. The presence 0→1
-        # transition is multiplexed into the same event so a
-        # subscriber arriving mid-idle doesn't wait out the interval.
-        self._wake = asyncio.Event()
-        if monitor._presence is not None:
-            monitor._presence.add_subscriber_callback(self._wake.set)
-
-    async def run(self) -> None:
-        await asyncio.sleep(self._bootstrap_delay)
-        if not self._prepare():
-            return
-        monitor = self._monitor
-        # Strict pause when wired to a SubscriberPresence gate: only
-        # sweep while at least one dashboard client is subscribed.
-        while True:
-            if monitor._presence is not None:
-                await monitor._presence.wait_for_subscriber()
-            self._wake.clear()
-            try:
-                await self._sweep()
-            except Exception:
-                # A sweep failure must not kill the loop for the
-                # process lifetime; log it and try again next interval.
-                _LOGGER.exception("%s sweep failed; continuing", self._sweep_label)
-            await self._idle()
-
-    def _prepare(self) -> bool:
-        """One-shot gate after the bootstrap sleep; False disables the source."""
-        return True
-
-    async def _sweep(self) -> None:
-        raise NotImplementedError
+class ApiSweepSource(SweepSource):
+    """Sweep-loop base plus the budgeted ``device_info`` worker dial."""
 
     async def _probe(self, device: Device, addresses: list[str]) -> dict[str, Any] | None:
         """
@@ -101,10 +57,6 @@ class ApiSweepSource:
     async def _run_worker(self, device: Device, request: bytes) -> dict[str, Any] | None:
         """Instance seam over the shared worker runner (tests stub it here)."""
         return await run_worker(device.name, request)
-
-    async def _idle(self) -> None:
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(self._wake.wait(), timeout=_INTERVAL)
 
 
 class ProbeError(Exception):

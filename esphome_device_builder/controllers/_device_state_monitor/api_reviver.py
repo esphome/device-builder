@@ -97,7 +97,7 @@ class ApiReviverSource(ApiSweepSource):
         # identity verification; a fresh pair revives without a dial.
         self._verified: dict[str, tuple[str, float]] = {}
 
-    def _prepare(self) -> bool:
+    async def _prepare(self) -> bool:
         # Unlike api_info there is no lib-less work to do — identity
         # verification IS the dial.
         if not api_worker_available():

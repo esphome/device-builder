@@ -75,7 +75,7 @@ class ApiInfoSource(ApiSweepSource):
         self._force_reprobe.add(name)
         self._wake.set()
 
-    def _prepare(self) -> bool:
+    async def _prepare(self) -> bool:
         # The sweep loop still runs without the worker library: the
         # mDNS-cache reconcile pass needs no API worker.
         self._api_available = api_worker_available()

@@ -170,20 +170,20 @@ async def test_run_exits_when_icmp_is_unavailable(
     monitor._ping.ping_once.assert_not_called()
 
 
-def test_prepare_requires_the_worker_library(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_prepare_requires_the_worker_library(monkeypatch: pytest.MonkeyPatch) -> None:
     """No aioesphomeapi means no identity dial — the source disables itself."""
     device = make_stuck_offline_device()
     _monitor, _callbacks, src = _reviver([device])
     monkeypatch.setattr(api_reviver_module, "api_worker_available", lambda: False)
 
-    assert src._prepare() is False
+    assert await src._prepare() is False
 
 
-def test_prepare_passes_with_worker_and_icmp() -> None:
+async def test_prepare_passes_with_worker_and_icmp() -> None:
     device = make_stuck_offline_device()
     _monitor, _callbacks, src = _reviver([device])
 
-    assert src._prepare() is True
+    assert await src._prepare() is True
 
 
 # ----------------------------------------------------------------------
