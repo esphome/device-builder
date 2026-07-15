@@ -117,3 +117,7 @@ class ServerInfoMessage(DashboardModel):
     # True when the desktop app (0.14.0+) exposes its update `api` via
     # ESPHOME_DESKTOP_BIN; gates the frontend's "Check for updates" menu item.
     desktop_update_capable: bool = False
+    # True when the process runs inside a container (/.dockerenv probe).
+    # With ha_addon / desktop_version it lets the frontend's crash-report
+    # flow prefill the bug form's installation dropdown (add-on/Docker/pip).
+    in_docker: bool = False

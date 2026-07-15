@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import logging
 import weakref
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import WSCloseCode, WSMsgType, web
@@ -35,6 +36,10 @@ if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
 
 _LOGGER = logging.getLogger(__name__)
+
+# Container marker, probed once at import (before the event loop runs) so
+# the per-connection handshake never stats in the loop.
+_IN_DOCKER = Path("/.dockerenv").exists()
 
 # Commands a client may send before the authenticated flag is set.
 _PRE_AUTH_COMMANDS = frozenset({"auth", "auth/login"})
@@ -338,6 +343,7 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
         requires_auth=(not pre_authenticated),
         desktop_version=settings.desktop_version,
         desktop_update_capable=settings.desktop_update_capable,
+        in_docker=_IN_DOCKER,
     )
     await client.send(info.to_dict())
 
