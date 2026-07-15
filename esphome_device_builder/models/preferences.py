@@ -91,6 +91,10 @@ class UserPreferences(DashboardModel):
     # This install is only a remote build node: onboarding skips the
     # Wi-Fi step and device-creation entry points are hidden.
     remote_compute_only: bool = False
+    # Hide the Device builder section on the dashboard entirely; only
+    # offered in the UI once ``remote_compute_only`` is on. Off
+    # restores the accordion.
+    hide_device_builder: bool = False
 
     # Auto-commit config edits to a git history. Off stops new commits
     # and skips repo creation; the toggle is an expert-only surface.

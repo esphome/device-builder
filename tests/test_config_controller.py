@@ -750,6 +750,15 @@ async def test_set_prefs_merges_partial_update(tmp_path: Path) -> None:
     assert controller.prefs.snapshot() == result
 
 
+async def test_set_prefs_roundtrips_hide_device_builder(tmp_path: Path) -> None:
+    """``hide_device_builder`` persists through the partial-update path."""
+    controller = _make_controller(tmp_path)
+    assert (await controller.get_prefs()).hide_device_builder is False
+    result = await controller.set_prefs(hide_device_builder=True)
+    assert result.hide_device_builder is True
+    assert controller.prefs.snapshot().hide_device_builder is True
+
+
 async def test_set_prefs_concurrent_updates_do_not_lose_writes(tmp_path: Path) -> None:
     """Partial updates of distinct fields all survive on the RAM-canonical store.
 
