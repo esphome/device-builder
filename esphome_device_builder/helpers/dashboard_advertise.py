@@ -369,6 +369,11 @@ class DashboardAdvertiser:
         return SERVICE_TYPE
 
     @property
+    def hostname(self) -> str:
+        """The advertised SRV target hostname (e.g. ``esphome-builder-abc.local``)."""
+        return self._hostname
+
+    @property
     def registered(self) -> bool:
         """True between a successful :meth:`register` and :meth:`unregister`."""
         return self._info is not None

@@ -42,7 +42,8 @@ from esphome_device_builder.controllers.remote_build import (
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.dashboard_advertise import DashboardAdvertiser
 from esphome_device_builder.helpers.dashboard_identity import rotate_identity
-from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.helpers.event_bus import Event, EventBus
+from esphome_device_builder.models import EventType, RemoteBuildListenerChangedData
 
 from .conftest import MakeSettingsFactory
 from .conftest import RemoteBuildTestHandles as RemoteBuildController
@@ -342,15 +343,25 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     fake_advertiser.refresh = AsyncMock()
     db._dashboard_advertiser = fake_advertiser
 
+    events: list[Event[RemoteBuildListenerChangedData]] = []
+    db.bus.add_listener(EventType.REMOTE_BUILD_LISTENER_CHANGED, events.append)
+
     try:
         await db._remote_build_lifecycle.maybe_start()
         assert db._remote_build_lifecycle._runner is not None
         # Pin and listener port both made it to the advertiser.
         assert fake_advertiser.set_pin_sha256.called
         assert fake_advertiser.set_remote_build_port.called
-        # The bound port is also exposed for the identity view.
+        # The bound port is also exposed for the identity view, and the
+        # advertised-address event carries the same values.
         advertised_port = fake_advertiser.set_remote_build_port.call_args.args[0]
         assert db.remote_build_listener_port == advertised_port
+        assert [e.data["listener_port"] for e in events] == [advertised_port]
+
+        # Teardown clears the port and broadcasts the change.
+        await db._remote_build_lifecycle._teardown_runner()
+        assert db.remote_build_listener_port is None
+        assert [e.data["listener_port"] for e in events] == [advertised_port, None]
         # ``refresh`` was awaited so the TXT change actually
         # leaves the local cache.
         assert fake_advertiser.refresh.called

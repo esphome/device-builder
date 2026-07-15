@@ -1910,6 +1910,7 @@ def _stub_identity_db(
     controller: RemoteBuildController,
     *,
     listener_bound: bool = False,
+    listener_host: str | None = None,
     listener_port: int | None = None,
 ) -> AsyncMock:
     """
@@ -1932,6 +1933,7 @@ def _stub_identity_db(
     reload_mock = AsyncMock(return_value=listener_bound)
     controller.offloader._db.reload_remote_build_identity = reload_mock
     controller.offloader._db.is_remote_build_listener_bound = listener_bound
+    controller.offloader._db.remote_build_listener_host = listener_host
     controller.offloader._db.remote_build_listener_port = listener_port
     controller.offloader._db.bus = MagicMock()
     return reload_mock
@@ -1987,15 +1989,22 @@ async def test_get_identity_reflects_listener_bound_state(tmp_path: Path) -> Non
     assert unbound_view.listener_bound is False
 
 
-async def test_get_identity_reports_listener_port(tmp_path: Path) -> None:
-    """``listener_port`` mirrors the bound port; ``None`` while unbound."""
+async def test_get_identity_reports_listener_address(tmp_path: Path) -> None:
+    """``listener_host``/``listener_port`` mirror the advertised address; ``None`` while down."""
     controller = _make_controller(config_dir=tmp_path)
-    _stub_identity_db(controller, listener_bound=True, listener_port=6055)
+    _stub_identity_db(
+        controller,
+        listener_bound=True,
+        listener_host="esphome-builder-abc.local",
+        listener_port=6055,
+    )
     bound_view = await controller.receiver.get_identity()
+    assert bound_view.listener_host == "esphome-builder-abc.local"
     assert bound_view.listener_port == 6055
 
     _stub_identity_db(controller, listener_bound=False)
     unbound_view = await controller.receiver.get_identity()
+    assert unbound_view.listener_host is None
     assert unbound_view.listener_port is None
 
 

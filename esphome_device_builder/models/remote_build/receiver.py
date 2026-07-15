@@ -223,9 +223,10 @@ class IdentityView(DashboardModel):
     cert load throws). The latter is silent in the logs
     without this flag.
 
-    ``listener_port`` is the bound peer-link port (``None``
-    while unbound) so the UI can show senders the address to
-    pair with.
+    ``listener_host`` / ``listener_port`` are the mDNS-advertised
+    pairing address (host ``None`` without an advertiser, port
+    ``None`` while unbound) so the UI can show senders the address
+    to pair with.
     """
 
     dashboard_id: str
@@ -233,4 +234,5 @@ class IdentityView(DashboardModel):
     server_version: str
     esphome_version: str
     listener_bound: bool = False
+    listener_host: str | None = None
     listener_port: int | None = None

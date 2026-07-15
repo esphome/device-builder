@@ -95,6 +95,8 @@ class EventType(StrEnum):
 
     # Receiver rotated its X25519 peer-link identity
     REMOTE_BUILD_IDENTITY_ROTATED = "remote_build_identity_rotated"
+    # Receiver peer-link listener bound / torn down (advertised address changed)
+    REMOTE_BUILD_LISTENER_CHANGED = "remote_build_listener_changed"
     # pair_request landed for an unknown peer while pairing window open
     REMOTE_BUILD_PAIR_REQUEST_RECEIVED = "remote_build_pair_request_received"
     # Receiver-side peer status change (approved/removed)

@@ -34,6 +34,7 @@ async def get_identity(controller: ReceiverController) -> IdentityView:
     return identity_view(
         identity,
         listener_bound=controller._db.is_remote_build_listener_bound,
+        listener_host=controller._db.remote_build_listener_host,
         listener_port=controller._db.remote_build_listener_port,
     )
 
@@ -92,6 +93,7 @@ async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
         return identity_view(
             identity,
             listener_bound=listener_bound,
+            listener_host=controller._db.remote_build_listener_host,
             listener_port=controller._db.remote_build_listener_port,
         )
     finally:

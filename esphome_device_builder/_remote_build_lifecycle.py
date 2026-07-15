@@ -22,6 +22,7 @@ from .helpers.network_interfaces import (
     ensure_single_host_for_ephemeral_port,
     resolve_bind_host,
 )
+from .models import EventType, RemoteBuildListenerChangedData
 
 if TYPE_CHECKING:
     from .device_builder import DeviceBuilder
@@ -177,6 +178,7 @@ class RemoteBuildLifecycle:
             pin_sha256=identity.pin_sha256,
             remote_build_port=port,
         )
+        self._fire_listener_changed()
 
         _LOGGER.info(
             "Remote-build peer-link site listening on %s:%d (peer-link pin %s)",
@@ -321,6 +323,16 @@ class RemoteBuildLifecycle:
             self._lifecycle_lock = asyncio.Lock()
         return self._lifecycle_lock
 
+    def _fire_listener_changed(self) -> None:
+        """Broadcast the advertised pairing address after a bind / teardown."""
+        self._db.bus.fire(
+            EventType.REMOTE_BUILD_LISTENER_CHANGED,
+            RemoteBuildListenerChangedData(
+                listener_host=self._db.remote_build_listener_host,
+                listener_port=self._bound_port,
+            ),
+        )
+
     async def _teardown_runner(self) -> None:
         """
         Stop the bound peer-link listener and clear its mDNS advertise.
@@ -344,6 +356,7 @@ class RemoteBuildLifecycle:
             pin_sha256=None,
             remote_build_port=None,
         )
+        self._fire_listener_changed()
 
     @staticmethod
     async def _cleanup_runner(runner: web.AppRunner) -> None:

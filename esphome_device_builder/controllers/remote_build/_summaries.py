@@ -118,12 +118,17 @@ def pairing_summary(
 
 
 def identity_view(
-    identity: DashboardIdentity, *, listener_bound: bool, listener_port: int | None
+    identity: DashboardIdentity,
+    *,
+    listener_bound: bool,
+    listener_host: str | None,
+    listener_port: int | None,
 ) -> IdentityView:
     """Project a :class:`DashboardIdentity` into the wire shape.
 
-    The listener-bound bool and port come from the dashboard's
+    The listener-bound bool and address come from the dashboard's
     :meth:`DeviceBuilder.is_remote_build_listener_bound` /
+    :meth:`DeviceBuilder.remote_build_listener_host` /
     :meth:`DeviceBuilder.remote_build_listener_port` accessors;
     surfaced on the view so the receiver-side UI can branch on
     "this dashboard advertises itself" and show the pairing
@@ -135,5 +140,6 @@ def identity_view(
         server_version=server_version,
         esphome_version=esphome_version,
         listener_bound=listener_bound,
+        listener_host=listener_host,
         listener_port=listener_port,
     )
