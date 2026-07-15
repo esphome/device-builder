@@ -49,6 +49,7 @@ from ._validators import (
     validate_pin_sha256,
     validate_port,
 )
+from .display_identity import dashboard_display_identity
 from .peer_link_client import PeerLinkClientError, PeerLinkPinMismatchError
 from .peer_link_client import preview_pair as peer_link_preview_pair
 from .peer_link_client import request_pair as peer_link_request_pair
@@ -135,6 +136,7 @@ async def request_pair(
     receiver_label: str,
     offloader_label: str,
     pairing_key: str | None = None,
+    offloader_label_auto: bool = False,
 ) -> PairingSummary:
     """
     Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
@@ -148,7 +150,10 @@ async def request_pair(
     display name (stored locally, never sent); *offloader_label*
     is the offloader's self-identification sent to the
     receiver so its Pairing requests inbox shows a friendly
-    name.
+    name. *offloader_label_auto* marks it as an untouched
+    auto-derived prefill, and the msg3 also carries this
+    dashboard's advertised ``friendly_name`` / ``ha_addon`` so
+    the receiver can show a human machine name.
 
     TOCTOU defense: the *pin_sha256* arg is compared against
     the receiver's actual pubkey mid-handshake, before msg3 (and
@@ -168,6 +173,7 @@ async def request_pair(
     )
     clean_key = validate_pairing_key(pairing_key)
     peer_link_identity, dashboard_identity = await controller._load_offloader_identities_async()
+    own_friendly_name, own_ha_addon = dashboard_display_identity(controller._db)
 
     try:
         result = await peer_link_request_pair(
@@ -179,6 +185,9 @@ async def request_pair(
             resolver=controller.state.peer_link_resolver,
             pairing_key=clean_key,
             expected_pin_sha256=clean_pin,
+            friendly_name=own_friendly_name,
+            ha_addon=own_ha_addon,
+            label_auto=offloader_label_auto,
         )
     except PeerLinkPinMismatchError as exc:
         # The mid-handshake pin check already refused before msg3 (and any
@@ -214,12 +223,15 @@ async def request_pair(
     # same receiver identity (same pin). ``enabled`` never
     # self-heals — overwriting it would silently re-enable
     # transparent-install routing the operator turned off.
-    # ``esphome_version`` keeps the last-known display value
-    # until the next session-open refreshes it.
+    # ``esphome_version`` / display identity keep the last-known
+    # values until the next session-open refreshes them.
     prior = controller.state.pairings.get(key)
     if prior is not None:
         pairing.enabled = prior.enabled
         pairing.esphome_version = prior.esphome_version
+        pairing.auto_provision_supported = prior.auto_provision_supported
+        pairing.friendly_name = prior.friendly_name
+        pairing.ha_addon = prior.ha_addon
     # Sweep any stale entry at the same endpoint under a
     # different pin (rotation, or a different receiver took
     # the hostname) so the old row's listener + alert don't

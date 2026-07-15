@@ -25,9 +25,11 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ....models import IntentResponse, PeerLinkIntent, RejectReason
+from ..display_identity import dashboard_display_identity
 from ..pair_flow import IntentOutcome
 from .session import _run_peer_link_session
 from .wire_io import (
+    _bool_or_false,
     _normalize_label,
     _parse_intent,
     _parse_json,
@@ -69,6 +71,9 @@ class _DispatchInput:
     static_x25519_pub: bytes
     peer_ip: str
     pairing_key: str | None = None
+    friendly_name: str = ""
+    ha_addon: bool = False
+    label_auto: bool = False
 
 
 async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are the handshake's natural failure cliffs
@@ -101,7 +106,15 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
         if await _read_handshake_message(session, ws, _HandshakeStep.MSG3) is None:
             return
         _LOGGER.warning("peer-link handshake from %s rejected (reason=bad_intent)", peer_ip)
-        await _send_response(session, ws, IntentResponse.REJECTED, reason=RejectReason.BAD_INTENT)
+        own_friendly_name, own_ha_addon = dashboard_display_identity(controller._db)
+        await _send_response(
+            session,
+            ws,
+            IntentResponse.REJECTED,
+            reason=RejectReason.BAD_INTENT,
+            friendly_name=own_friendly_name,
+            ha_addon=own_ha_addon,
+        )
         return
 
     # --- handshake msg2 (receiver → offloader, empty encrypted) ---
@@ -127,6 +140,12 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     dashboard_id = _str_or_empty(msg3.get("dashboard_id"))
     label = _normalize_label(msg3.get("label"))
     pairing_key = _str_or_empty(msg3.get("pairing_key")) or None
+    # Offloader display identity; absent on older offloaders.
+    # ``_normalize_label`` bounds the value — it lands on disk
+    # and on the event bus, same trust surface as ``label``.
+    peer_friendly_name = _normalize_label(msg3.get("friendly_name"))
+    peer_ha_addon = _bool_or_false(msg3.get("ha_addon"))
+    label_auto = _bool_or_false(msg3.get("label_auto"))
 
     outcome = await _dispatch_intent(
         controller,
@@ -138,6 +157,9 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             static_x25519_pub=remote_static_pub,
             peer_ip=peer_ip,
             pairing_key=pairing_key,
+            friendly_name=peer_friendly_name,
+            ha_addon=peer_ha_addon,
+            label_auto=label_auto,
         ),
     )
     # Log the decision, not the bare handshake; "ok" here used to
@@ -170,12 +192,15 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
     requires_pairing_key = (
         intent is PeerLinkIntent.PREVIEW and controller._db.settings.remote_build_only
     )
+    own_friendly_name, own_ha_addon = dashboard_display_identity(controller._db)
     await _send_response(
         session,
         ws,
         outcome.response,
         reason=outcome.reason,
         requires_pairing_key=requires_pairing_key,
+        friendly_name=own_friendly_name,
+        ha_addon=own_ha_addon,
     )
 
     # Hand off to the long-lived application session on an
@@ -188,6 +213,8 @@ async def _drive_peer_link_session(  # noqa: PLR0911 — the early-returns are t
             session=session,
             dashboard_id=dashboard_id,
             peer_ip=peer_ip,
+            peer_friendly_name=peer_friendly_name,
+            peer_ha_addon=peer_ha_addon,
         )
 
 
@@ -234,6 +261,9 @@ async def _dispatch_intent(
             label=inp.label,
             peer_ip=inp.peer_ip,
             pairing_key=inp.pairing_key,
+            friendly_name=inp.friendly_name,
+            ha_addon=inp.ha_addon,
+            label_auto=inp.label_auto,
         )
     if inp.intent is PeerLinkIntent.PEER_LINK:
         return await controller.lookup_peer_for_session(

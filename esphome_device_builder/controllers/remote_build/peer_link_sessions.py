@@ -13,6 +13,7 @@ from ...models import (
     QueueStatusFrameData,
     ReceiverPeerLinkSessionClosedData,
     ReceiverPeerLinkSessionOpenedData,
+    StoredPeer,
 )
 from .peer_link import PeerLinkSession, TerminateReason
 
@@ -99,6 +100,7 @@ async def register_peer_link_session(
     controller.state.peer_link_sessions[session.dashboard_id] = session
     if existing is not None and existing is not session:
         await existing.terminate(TerminateReason.SUPERSEDED)
+    peer = _refresh_peer_display_identity(controller, session)
     if controller._db.firmware is not None:
         try:
             idle, running, queue_depth = controller._db.firmware.compile_queue_status()
@@ -117,12 +119,45 @@ async def register_peer_link_session(
                 )
             )
     # Fire AFTER the dict insert so subscriber lookups see
-    # the just-registered session.
+    # the just-registered session. Display identity carries the
+    # stored row's post-refresh values so an old offloader that
+    # sent nothing surfaces whatever pair time captured.
     if controller._db.bus is not None:
         controller._db.bus.fire(
             EventType.RECEIVER_PEER_LINK_SESSION_OPENED,
-            ReceiverPeerLinkSessionOpenedData(dashboard_id=session.dashboard_id),
+            ReceiverPeerLinkSessionOpenedData(
+                dashboard_id=session.dashboard_id,
+                friendly_name=peer.friendly_name if peer is not None else "",
+                ha_addon=peer.ha_addon if peer is not None else False,
+            ),
         )
+
+
+def _refresh_peer_display_identity(
+    controller: ReceiverController, session: PeerLinkSession
+) -> StoredPeer | None:
+    """
+    Refresh the APPROVED row's display identity from the session's msg3.
+
+    ``friendly_name`` only overwrites with a non-empty value so an
+    older offloader can't clobber a captured name; ``ha_addon``
+    tracks the wire. A change schedules the debounced peers save.
+    Returns the row (post-refresh) or ``None`` when the registry
+    has no APPROVED entry.
+    """
+    peer = controller.state.approved_peers.get(session.dashboard_id)
+    if peer is None:
+        return None
+    changed = False
+    if session.peer_friendly_name and session.peer_friendly_name != peer.friendly_name:
+        peer.friendly_name = session.peer_friendly_name
+        changed = True
+    if session.peer_ha_addon != peer.ha_addon:
+        peer.ha_addon = session.peer_ha_addon
+        changed = True
+    if changed:
+        controller._peers_store.async_delay_save(controller._serialize_peers)
+    return peer
 
 
 def unregister_peer_link_session(controller: ReceiverController, session: PeerLinkSession) -> None:

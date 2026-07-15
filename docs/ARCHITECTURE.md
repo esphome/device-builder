@@ -528,7 +528,7 @@ Once an offloader and receiver are paired (APPROVED on both sides), the offloade
 
 **Bring-up.** After the post-handshake `intent_response: ok` lands, both sides enter their dispatch path:
 
-**Receiver-side.** `_run_peer_link_session` constructs a `PeerLinkSession`, calls `register_peer_link_session` (which inserts into `_peer_link_sessions: dict[dashboard_id, PeerLinkSession]` with concurrent-connect dedupe via `TerminateReason.SUPERSEDED`), starts a heartbeat task, and parks on `_receive_loop`. Registration fires `EventType.RECEIVER_PEER_LINK_SESSION_OPENED` with `{dashboard_id}`; the `queue_status` push subscriber uses this hook to send the initial snapshot to a freshly-connected offloader without a lookup-then-push race window.
+**Receiver-side.** `_run_peer_link_session` constructs a `PeerLinkSession`, calls `register_peer_link_session` (which inserts into `_peer_link_sessions: dict[dashboard_id, PeerLinkSession]` with concurrent-connect dedupe via `TerminateReason.SUPERSEDED`), starts a heartbeat task, and parks on `_receive_loop`. Registration refreshes the APPROVED `StoredPeer`'s display identity (`friendly_name` / `ha_addon`) from the session's msg3 (non-empty-only for the name, so an older offloader can't clobber a captured value) and fires `EventType.RECEIVER_PEER_LINK_SESSION_OPENED` with `{dashboard_id, friendly_name, ha_addon}`; the `queue_status` push subscriber uses this hook to send the initial snapshot to a freshly-connected offloader without a lookup-then-push race window.
 
 *Inbound dispatch:*
 
@@ -541,7 +541,7 @@ Once an offloader and receiver are paired (APPROVED on both sides), the offloade
 * `queue_status` broadcast on every firmware-queue transition.
 * `job_state_changed` / `job_output` per-job fan-out: `JobFanout` subscribes to firmware `JOB_*` bus events, filters to jobs whose `remote_peer` matches an active peer-link session, and routes through the submitting session's `send_app_frame`.
 
-**Offloader-side.** `PeerLinkClient` builds a `PeerLinkChannel` over `(noise, ws)`, fires `EventType.OFFLOADER_PEER_LINK_OPENED` with `{receiver_hostname, receiver_port, pin_sha256, esphome_version}`, and parks on its own receive loop with a parallel heartbeat task. The frontend Settings UI's "connected" indicator subscribes to this event; `pin_sha256` lets subscribers correlate to a specific paired row without an additional lookup, and `esphome_version` carries the receiver's `esphome.const.__version__` from the post-handshake `intent_response` so paired-row UI can render it without a follow-up RPC.
+**Offloader-side.** `PeerLinkClient` builds a `PeerLinkChannel` over `(noise, ws)`, fires `EventType.OFFLOADER_PEER_LINK_OPENED` with `{receiver_hostname, receiver_port, pin_sha256, esphome_version, auto_provision_supported, friendly_name, ha_addon}`, and parks on its own receive loop with a parallel heartbeat task. The frontend Settings UI's "connected" indicator subscribes to this event; `pin_sha256` lets subscribers correlate to a specific paired row without an additional lookup, and the other fields carry the receiver's `esphome.const.__version__`, provisioning capability, and display identity (its mDNS `friendly_name` plus the HA add-on flag) from the post-handshake `intent_response` so paired-row UI can render them without a follow-up RPC. The controller's OPENED listener refreshes all four onto the `StoredPairing` (the name non-empty-only), so a receiver upgrade or rename surfaces on the next session-open.
 
 *Inbound dispatch:*
 

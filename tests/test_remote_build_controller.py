@@ -46,7 +46,10 @@ from esphome_device_builder.controllers.remote_build._storage_codecs import (
     decode_pairings,
     encode_pairings,
 )
-from esphome_device_builder.controllers.remote_build._summaries import pairing_summary
+from esphome_device_builder.controllers.remote_build._summaries import (
+    pairing_summary,
+    peer_summary,
+)
 from esphome_device_builder.controllers.remote_build._validators import (
     PairLabelField,
     enforce_pin_match,
@@ -59,6 +62,9 @@ from esphome_device_builder.controllers.remote_build._validators import (
 )
 from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
+)
+from esphome_device_builder.controllers.remote_build.display_identity import (
+    dashboard_display_identity,
 )
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PreviewResult,
@@ -309,6 +315,7 @@ def test_is_self_endpoint_returns_false_when_advertiser_absent(tmp_path: Path) -
     controller = _make_controller(config_dir=tmp_path)
 
     controller.offloader._db._dashboard_advertiser = None
+    controller.offloader._db.dashboard_advertiser = None
     assert controller.offloader._is_self_endpoint("any.host.", 6052) is False
 
     advertiser = MagicMock()
@@ -1736,6 +1743,7 @@ async def test_start_skips_self_capture_when_no_advertiser(
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.devices.zeroconf = MagicMock()
     controller.offloader._db._dashboard_advertiser = None
+    controller.offloader._db.dashboard_advertiser = None
 
     await controller.start()
     assert controller.offloader.state.own_instance_name is None
@@ -2614,6 +2622,9 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
         label="renamed",
         paired_at=2.0,
         peer_ip="10.0.0.7",
+        friendly_name="Nicks-Mac-Studio",
+        ha_addon=True,
+        label_auto=True,
     )
 
     # All documented fields refreshed.
@@ -2622,6 +2633,9 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
     assert peer.label == "renamed"
     assert peer.paired_at == 2.0
     assert peer.peer_ip == "10.0.0.7"
+    assert peer.friendly_name == "Nicks-Mac-Studio"
+    assert peer.ha_addon is True
+    assert peer.label_auto is True
     # ``dashboard_id`` is the primary key — intentionally left
     # alone; mutating it would orphan the dict entry under the
     # caller.
@@ -3207,6 +3221,9 @@ async def test_record_pair_request_fires_event(tmp_path: Path) -> None:
         "label": "alpha",
         "peer_ip": "192.168.1.10",
         "paired_at": stored.paired_at,
+        "friendly_name": "",
+        "ha_addon": False,
+        "label_auto": False,
     }
     # ``peer_ip`` is persisted on the StoredPeer (rather than
     # carried only on the live event) so a snapshot-loaded
@@ -4903,6 +4920,80 @@ def test_pairing_summary_surfaces_auto_provision_supported() -> None:
     assert summary.auto_provision_supported is True
     pairing.auto_provision_supported = False
     assert pairing_summary(pairing, connected=False).auto_provision_supported is False
+
+
+def test_pairing_summary_surfaces_display_identity() -> None:
+    """``PairingSummary.friendly_name`` / ``ha_addon`` mirror the storage-shape fields."""
+    pairing = _valid_stored_pairing()
+    pairing.friendly_name = "Nicks-Mac-Studio"
+    pairing.ha_addon = True
+    summary = pairing_summary(pairing, connected=False)
+    assert summary.friendly_name == "Nicks-Mac-Studio"
+    assert summary.ha_addon is True
+
+
+def test_peer_summary_surfaces_display_identity() -> None:
+    """``PeerSummary`` mirrors ``friendly_name`` / ``ha_addon`` / ``label_auto``."""
+    peer = _stored_peer()
+    peer.friendly_name = "Office-PC"
+    peer.ha_addon = True
+    peer.label_auto = True
+    summary = peer_summary(peer, status=PeerStatus.APPROVED, connected=False)
+    assert summary.friendly_name == "Office-PC"
+    assert summary.ha_addon is True
+    assert summary.label_auto is True
+
+
+def test_stored_pairing_old_sidecar_defaults_display_identity() -> None:
+    """A sidecar row predating the identity fields loads with defaults."""
+    row = _valid_stored_pairing().to_dict()
+    del row["friendly_name"]
+    del row["ha_addon"]
+    pairing = StoredPairing.from_dict(row)
+    assert pairing.friendly_name == ""
+    assert pairing.ha_addon is False
+
+
+def test_stored_pairing_rejects_oversize_friendly_name() -> None:
+    """The disk validator bounds ``friendly_name`` at the shared cap."""
+    row = _valid_stored_pairing().to_dict()
+    row["friendly_name"] = "x" * 129
+    with pytest.raises(ValueError, match="friendly_name"):
+        StoredPairing.from_dict(row)
+
+
+def test_stored_peer_old_sidecar_defaults_display_identity() -> None:
+    """A receiver peers row predating the identity fields loads with defaults."""
+    row = _stored_peer().to_dict()
+    del row["friendly_name"]
+    del row["ha_addon"]
+    del row["label_auto"]
+    peer = StoredPeer.from_dict(row)
+    assert peer.friendly_name == ""
+    assert peer.ha_addon is False
+    assert peer.label_auto is False
+
+
+def test_dashboard_display_identity_reads_advertiser() -> None:
+    """Running advertiser wins; ``ha_addon`` reads the settings flag."""
+    db = MagicMock()
+    db.dashboard_advertiser.friendly_name = "Nicks-Mac-Studio"
+    db.settings.on_ha_addon = True
+    assert dashboard_display_identity(db) == ("Nicks-Mac-Studio", True)
+
+
+def test_dashboard_display_identity_falls_back_without_advertiser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No advertiser (zeroconf down) → the hostname-derived default label."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.display_identity.default_friendly_name",
+        lambda: "fallback-host",
+    )
+    db = MagicMock()
+    db.dashboard_advertiser = None
+    db.settings.on_ha_addon = False
+    assert dashboard_display_identity(db) == ("fallback-host", False)
 
 
 def test_pairing_summary_surfaces_enabled_field(tmp_path: Path) -> None:

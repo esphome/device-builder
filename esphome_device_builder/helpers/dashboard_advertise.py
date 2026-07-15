@@ -89,7 +89,7 @@ _REFRESH_INTERVAL_SECONDS = 300
 _UNREGISTER_TIMEOUT = 1.0
 
 
-def _default_friendly_name() -> str:
+def default_friendly_name() -> str:
     """
     Best-effort friendly label for the dashboard host.
 
@@ -346,7 +346,7 @@ class DashboardAdvertiser:
         can label it (e.g. "Home Assistant") instead of the opaque
         container hostname.
         """
-        friendly = (name or "").strip() or _default_friendly_name()
+        friendly = (name or "").strip() or default_friendly_name()
         explicit_host = (hostname or "").strip()
         host = explicit_host or build_mdns_hostname(dashboard_id=dashboard_id or "")
         self._port = int(port)
@@ -378,6 +378,16 @@ class DashboardAdvertiser:
     def hostname(self) -> str:
         """The advertised SRV target hostname (e.g. ``esphome-builder-abc.local``)."""
         return self._hostname
+
+    @property
+    def friendly_name(self) -> str:
+        """The human machine label published as the ``friendly_name`` TXT entry."""
+        return self._friendly_name
+
+    @property
+    def on_ha_addon(self) -> bool:
+        """True when the broadcast is tagged as the HA add-on."""
+        return self._ha_addon
 
     @property
     def addresses(self) -> list[str]:

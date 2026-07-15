@@ -31,6 +31,7 @@ from ....helpers.peer_link_noise import (
 from ....helpers.peer_link_resolver import make_peer_link_http_session
 from ....helpers.version_compat import coerce_pep440_version
 from ....models import (
+    PAIRING_FRIENDLY_NAME_MAX_LEN,
     PAIRING_VERSION_MAX_LEN,
     IntentResponse,
     PeerLinkIntent,
@@ -107,6 +108,26 @@ def _extract_auto_provision_supported(response: dict[str, Any]) -> bool:
     the field is treated as unable to provision.
     """
     value = response.get("auto_provision_supported", False)
+    return value if isinstance(value, bool) else False
+
+
+def _extract_receiver_friendly_name(response: dict[str, Any]) -> str:
+    """
+    Lift the receiver's ``friendly_name`` off the post-handshake response.
+
+    Missing / non-str ⇒ ``""``; stripped and bounded at
+    :data:`PAIRING_FRIENDLY_NAME_MAX_LEN` (the disk-side cap
+    mirrored here) so a malicious value never reaches storage.
+    """
+    value = response.get("friendly_name", "")
+    if not isinstance(value, str):
+        return ""
+    return value.strip()[:PAIRING_FRIENDLY_NAME_MAX_LEN]
+
+
+def _extract_ha_addon(response: dict[str, Any]) -> bool:
+    """Lift the receiver's ``ha_addon`` flag off the response; non-bool ⇒ ``False``."""
+    value = response.get("ha_addon", False)
     return value if isinstance(value, bool) else False
 
 
@@ -298,6 +319,9 @@ async def request_pair(
     resolver: AbstractResolver | None = None,
     pairing_key: str | None = None,
     expected_pin_sha256: str | None = None,
+    friendly_name: str = "",
+    ha_addon: bool = False,
+    label_auto: bool = False,
 ) -> RequestPairResult:
     """
     Run an ``intent="pair_request"`` round-trip; return the receiver's response.
@@ -318,7 +342,13 @@ async def request_pair(
     if pairing_key is not None and expected_pin_sha256 is None:
         msg = "request_pair: pairing_key requires expected_pin_sha256 (secret in msg3)"
         raise ValueError(msg)
-    payload: dict[str, str] = {"label": label, "dashboard_id": dashboard_id}
+    payload: dict[str, str | bool] = {
+        "label": label,
+        "dashboard_id": dashboard_id,
+        "friendly_name": friendly_name,
+        "ha_addon": ha_addon,
+        "label_auto": label_auto,
+    }
     if pairing_key is not None:
         payload["pairing_key"] = pairing_key
     rt = await drive_initiator_round_trip(

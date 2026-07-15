@@ -10,6 +10,7 @@ from .enums import (
     RemoteBuildPeerSource,
 )
 from .offloader import (
+    PAIRING_FRIENDLY_NAME_MAX_LEN,
     PAIRING_VERSION_MAX_LEN,
     OffloaderRemoteBuildSettings,
     OffloaderRemoteBuildSettingsView,
@@ -81,6 +82,7 @@ __all__ = (
     "DEFAULT_CLEANUP_TTL_SECONDS",
     "MAX_CLEANUP_TTL_SECONDS",
     "MIN_CLEANUP_TTL_SECONDS",
+    "PAIRING_FRIENDLY_NAME_MAX_LEN",
     "PAIRING_VERSION_MAX_LEN",
     "ArtifactsChunkFrameData",
     "ArtifactsEndFrameData",

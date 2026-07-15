@@ -91,6 +91,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
 )
 from esphome_device_builder.models import (
     ErrorCode,
+    EventType,
     IntentResponse,
     PeerLinkIntent,
     QueueStatus,
@@ -501,7 +502,30 @@ async def test_send_response_advertises_esphome_version() -> None:
         "intent_response": IntentResponse.OK.value,
         "esphome_version": esphome_version,
         "auto_provision_supported": True,
+        "friendly_name": "",
+        "ha_addon": False,
     }
+
+
+async def test_send_response_carries_display_identity() -> None:
+    """The ``intent_response`` body carries the receiver's friendly_name + ha_addon."""
+    ws = _make_ws_stub()
+    session = MagicMock(spec=PeerLinkNoiseSession)
+    session.encrypt.return_value = b"ciphertext-stub"
+
+    await _send_response(
+        session,
+        ws,
+        IntentResponse.OK,
+        reason=None,
+        friendly_name="Nicks-Mac-Studio",
+        ha_addon=True,
+    )
+
+    body = session.encrypt.call_args.args[0]
+    parsed = json.loads(body)
+    assert parsed["friendly_name"] == "Nicks-Mac-Studio"
+    assert parsed["ha_addon"] is True
 
 
 async def test_send_response_carries_reason_when_set() -> None:
@@ -1692,6 +1716,85 @@ async def test_register_peer_link_session_kicks_existing(tmp_path: Path) -> None
     assert controller.receiver.state.peer_link_sessions["alpha"] is new
     old.terminate.assert_awaited_once_with(TerminateReason.SUPERSEDED)
     new.terminate.assert_not_called()
+
+
+async def test_register_peer_link_session_refreshes_peer_display_identity(
+    tmp_path: Path,
+) -> None:
+    """Session-open refreshes the APPROVED row's identity; empty name never clobbers."""
+    controller = _make_controller(config_dir=tmp_path)
+    bus = MagicMock()
+    controller.offloader._db.bus = bus
+    peer = StoredPeer(
+        dashboard_id="alpha",
+        pin_sha256="a" * 64,
+        static_x25519_pub=b"\x11" * 32,
+        label="alpha",
+        paired_at=1.0,
+        peer_ip="192.168.1.10",
+    )
+    controller.receiver.state.approved_peers["alpha"] = peer
+
+    def _session(friendly: str, ha_addon: bool) -> MagicMock:
+        session = MagicMock(spec=PeerLinkSession)
+        session.dashboard_id = "alpha"
+        session.peer_friendly_name = friendly
+        session.peer_ha_addon = ha_addon
+        session.send_app_frame = AsyncMock(return_value=True)
+        return session
+
+    await controller.receiver.register_peer_link_session(_session("Office-PC", True))
+    assert peer.friendly_name == "Office-PC"
+    assert peer.ha_addon is True
+    opened = [
+        c
+        for c in bus.fire.call_args_list
+        if c.args[0] is EventType.RECEIVER_PEER_LINK_SESSION_OPENED
+    ]
+    assert opened[-1].args[1] == {
+        "dashboard_id": "alpha",
+        "friendly_name": "Office-PC",
+        "ha_addon": True,
+    }
+
+    # An old offloader sending nothing must not clobber the name;
+    # the OPENED event still carries the stored value.
+    await controller.receiver.register_peer_link_session(_session("", False))
+    assert peer.friendly_name == "Office-PC"
+    assert peer.ha_addon is False
+    opened = [
+        c
+        for c in bus.fire.call_args_list
+        if c.args[0] is EventType.RECEIVER_PEER_LINK_SESSION_OPENED
+    ]
+    assert opened[-1].args[1]["friendly_name"] == "Office-PC"
+
+
+async def test_register_peer_link_session_without_approved_row_fires_empty_identity(
+    tmp_path: Path,
+) -> None:
+    """No APPROVED row: registration still fires OPENED with empty identity."""
+    controller = _make_controller(config_dir=tmp_path)
+    bus = MagicMock()
+    controller.offloader._db.bus = bus
+    session = MagicMock(spec=PeerLinkSession)
+    session.dashboard_id = "alpha"
+    session.peer_friendly_name = "Office-PC"
+    session.peer_ha_addon = True
+    session.send_app_frame = AsyncMock(return_value=True)
+
+    await controller.receiver.register_peer_link_session(session)
+
+    opened = [
+        c
+        for c in bus.fire.call_args_list
+        if c.args[0] is EventType.RECEIVER_PEER_LINK_SESSION_OPENED
+    ]
+    assert opened[-1].args[1] == {
+        "dashboard_id": "alpha",
+        "friendly_name": "",
+        "ha_addon": False,
+    }
 
 
 async def test_register_peer_link_session_pushes_initial_queue_status(tmp_path: Path) -> None:

@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from ...helpers.event_bus import Event
 from ...models import (
+    PAIRING_FRIENDLY_NAME_MAX_LEN,
     PAIRING_VERSION_MAX_LEN,
     OffloaderJobStateChangedData,
     OffloaderPairPeerRevokedData,
@@ -104,17 +105,17 @@ def on_offloader_peer_link_opened(
     controller: OffloaderController, event: Event[OffloaderPeerLinkOpenedData]
 ) -> None:
     """
-    Add ``pin_sha256`` to ``_open_peer_links``; refresh version + capability.
+    Add ``pin_sha256`` to ``_open_peer_links``; refresh version + capability + identity.
 
-    Both ride on every ``intent_response`` so a receiver upgrade
-    picks up on next session-open without operator action.
-    ``pick_build_path``'s deferred version-compat gate reads them.
+    All ride on every ``intent_response`` so a receiver upgrade or
+    rename picks up on next session-open without operator action.
+    ``pick_build_path``'s deferred version-compat gate reads the
+    first two; the UI's display-name resolution reads the rest.
 
-    Empty / oversize versions are dropped silently rather
-    than clobbering — empty would lose the captured value
-    after a reconnect from a pre-feature receiver; oversize
-    is defense-in-depth against the
-    :data:`PAIRING_VERSION_MAX_LEN` cap that the storage
+    Empty / oversize versions and friendly names are dropped
+    silently rather than clobbering — empty would lose the
+    captured value after a reconnect from a pre-feature receiver;
+    oversize is defense-in-depth against the caps the storage
     validator enforces on disk-load.
     """
     data = event.data
@@ -131,6 +132,18 @@ def on_offloader_peer_link_opened(
     supported = data["auto_provision_supported"]
     if pairing.auto_provision_supported != supported:
         pairing.auto_provision_supported = supported
+        changed = True
+    friendly = data["friendly_name"]
+    if (
+        friendly
+        and len(friendly) <= PAIRING_FRIENDLY_NAME_MAX_LEN
+        and pairing.friendly_name != friendly
+    ):
+        pairing.friendly_name = friendly
+        changed = True
+    ha_addon = data["ha_addon"]
+    if pairing.ha_addon != ha_addon:
+        pairing.ha_addon = ha_addon
         changed = True
     if changed:
         controller._schedule_pairings_save()

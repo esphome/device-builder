@@ -67,7 +67,9 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     _build_ws_url,
     _DownloadArtifactsState,
     _extract_auto_provision_supported,
+    _extract_ha_addon,
     _extract_receiver_esphome_version,
+    _extract_receiver_friendly_name,
     drive_initiator_round_trip,
     one_shot,
     preview_pair,
@@ -661,6 +663,36 @@ async def test_request_pair_open_window_returns_pending(
     assert len(peers) == 1
     assert peers[0].dashboard_id == "abcdef0123456789"
     assert peers[0].status is PeerStatus.PENDING
+    # No identity fields supplied → wire defaults.
+    assert peers[0].friendly_name == ""
+    assert peers[0].ha_addon is False
+    assert peers[0].label_auto is False
+
+
+async def test_request_pair_carries_display_identity_over_the_wire(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+) -> None:
+    """msg3 ``friendly_name`` / ``ha_addon`` / ``label_auto`` land on the receiver's row."""
+    server, controller, _, _ = receiver_server
+    await controller.set_pairing_window(open=True, client="test-tab")
+
+    result = await request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        identity_priv=secrets.token_bytes(32),
+        label="green",
+        dashboard_id="abcdef0123456789",
+        friendly_name="Nicks-Mac-Studio",
+        ha_addon=True,
+        label_auto=True,
+    )
+
+    assert result.status is IntentResponse.PENDING
+    peers = controller.peers_snapshot()
+    assert len(peers) == 1
+    assert peers[0].friendly_name == "Nicks-Mac-Studio"
+    assert peers[0].ha_addon is True
+    assert peers[0].label_auto is True
 
 
 async def test_request_pair_closed_window_returns_no_pairing_window(
@@ -818,8 +850,10 @@ def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db.devices = MagicMock()
     db.devices.zeroconf = None
     db._dashboard_advertiser = None
+    db.dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    db.settings.on_ha_addon = False
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     controller = OffloaderController(db)
     _CREATED_OFFLOADERS.append(controller)
@@ -1271,6 +1305,8 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         "pin_sha256": pin,
         "esphome_version": "",
         "auto_provision_supported": False,
+        "friendly_name": "",
+        "ha_addon": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=opened))
     assert pin in offloader.state.open_peer_links
@@ -1352,6 +1388,40 @@ def test_extract_auto_provision_supported_branches(
     assert _extract_auto_provision_supported(response) is expected
 
 
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"friendly_name": "Nicks-Mac-Studio"}, "Nicks-Mac-Studio"),
+        ({"friendly_name": "  padded  "}, "padded"),
+        # Older receiver predating the field.
+        ({}, ""),
+        # Non-str from a buggy peer falls back to empty.
+        ({"friendly_name": 42}, ""),
+        ({"friendly_name": None}, ""),
+        # Peer-controlled wire data is bounded at the disk-side cap.
+        ({"friendly_name": "x" * 500}, "x" * 128),
+    ],
+)
+def test_extract_receiver_friendly_name_branches(response: dict[str, Any], expected: str) -> None:
+    """Helper reads the display name; missing / non-str ⇒ ``""``, oversize is capped."""
+    assert _extract_receiver_friendly_name(response) == expected
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"ha_addon": True}, True),
+        ({"ha_addon": False}, False),
+        ({}, False),
+        ({"ha_addon": "1"}, False),
+        ({"ha_addon": 1}, False),
+    ],
+)
+def test_extract_ha_addon_branches(response: dict[str, Any], expected: bool) -> None:
+    """Helper reads the HA add-on flag; missing / non-bool ⇒ ``False``."""
+    assert _extract_ha_addon(response) is expected
+
+
 async def test_peer_link_opened_refreshes_stored_pairing_version(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1396,6 +1466,8 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
             "pin_sha256": pin,
             "esphome_version": version,
             "auto_provision_supported": False,
+            "friendly_name": "",
+            "ha_addon": False,
         }
         return MagicMock(data=payload)
 
@@ -1458,6 +1530,8 @@ async def test_peer_link_opened_refreshes_auto_provision_capability(
             "pin_sha256": pin,
             "esphome_version": "2026.5.0",
             "auto_provision_supported": supported,
+            "friendly_name": "",
+            "ha_addon": False,
         }
         return MagicMock(data=payload)
 
@@ -1479,6 +1553,61 @@ async def test_peer_link_opened_refreshes_auto_provision_capability(
     offloader._on_offloader_peer_link_opened(_opened(False))
     assert pairing.auto_provision_supported is False
     assert len(save_calls) == saves_after_enable + 1
+
+
+async def test_peer_link_opened_refreshes_display_identity(
+    offloader_controller_dir: Path,
+) -> None:
+    """``friendly_name`` refreshes non-empty-only; ``ha_addon`` tracks the wire."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        status=PeerStatus.APPROVED,
+    )
+    offloader.state.pairings[pin] = pairing
+    save_calls: list[None] = []
+    offloader._schedule_pairings_save = lambda: save_calls.append(None)  # type: ignore[method-assign]
+
+    def _opened(friendly_name: str, ha_addon: bool) -> Any:
+        payload: OffloaderPeerLinkOpenedData = {
+            "receiver_hostname": "rcv.local",
+            "receiver_port": 6055,
+            "pin_sha256": pin,
+            "esphome_version": "",
+            "auto_provision_supported": False,
+            "friendly_name": friendly_name,
+            "ha_addon": ha_addon,
+        }
+        return MagicMock(data=payload)
+
+    offloader._on_offloader_peer_link_opened(_opened("Nicks-Mac-Studio", True))
+    assert pairing.friendly_name == "Nicks-Mac-Studio"
+    assert pairing.ha_addon is True
+    saves_after_capture = len(save_calls)
+    assert saves_after_capture >= 1
+
+    # Same values on reconnect: no redundant save.
+    offloader._on_offloader_peer_link_opened(_opened("Nicks-Mac-Studio", True))
+    assert len(save_calls) == saves_after_capture
+
+    # A downgraded receiver sending an empty name must not clobber
+    # the captured one; ha_addon still tracks the wire.
+    offloader._on_offloader_peer_link_opened(_opened("", False))
+    assert pairing.friendly_name == "Nicks-Mac-Studio"
+    assert pairing.ha_addon is False
+    assert len(save_calls) == saves_after_capture + 1
+
+    # An oversize peer-controlled name is dropped, not stored.
+    offloader._on_offloader_peer_link_opened(_opened("x" * 500, False))
+    assert pairing.friendly_name == "Nicks-Mac-Studio"
+
+    # A rename refreshes.
+    offloader._on_offloader_peer_link_opened(_opened("Renamed-Host", False))
+    assert pairing.friendly_name == "Renamed-Host"
 
 
 async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
@@ -1505,6 +1634,8 @@ async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
         "pin_sha256": "a" * 64,
         "esphome_version": "2026.5.0",
         "auto_provision_supported": False,
+        "friendly_name": "",
+        "ha_addon": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=payload))
     assert len(save_calls) == 0

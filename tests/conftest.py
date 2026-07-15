@@ -346,8 +346,12 @@ def make_remote_build_controller(
     db.devices = MagicMock()
     db.devices.zeroconf = None
     db._dashboard_advertiser = None
+    # ``dashboard_display_identity`` reads the public property; a bare
+    # MagicMock would be truthy and leak MagicMocks into JSON payloads.
+    db.dashboard_advertiser = None
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
+    db.settings.on_ha_addon = False
     # Empty allowlist = trust-on-first-use (the default); a bare
     # MagicMock here would be truthy and break the ``pair_flow``
     # source guard's "no allowlist configured" branch.

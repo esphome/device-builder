@@ -107,15 +107,17 @@ async def _send_response(
     *,
     reason: RejectReason | None,
     requires_pairing_key: bool = False,
+    friendly_name: str = "",
+    ha_addon: bool = False,
 ) -> None:
     """Send the post-handshake intent_response as a single ChaCha20-Poly1305 frame.
 
     Payload carries the response discriminator plus the receiver's
-    ``esphome_version`` and ``auto_provision_supported`` capability on
-    every intent. The long-lived ``peer_link`` session captures both
-    onto the :class:`StoredPairing` so a receiver upgrade surfaces in
-    pick_build_path's version-compat gate on the next session-open
-    without operator action.
+    ``esphome_version``, ``auto_provision_supported`` capability, and
+    display identity (*friendly_name* / *ha_addon*) on every intent.
+    The long-lived ``peer_link`` session captures them onto the
+    :class:`StoredPairing` so a receiver upgrade or rename surfaces
+    on the next session-open without operator action.
 
     *reason* rides along on non-OK responses (additive field;
     older offloaders ignore it) so the offloader can tell a
@@ -130,6 +132,8 @@ async def _send_response(
         "intent_response": response.value,
         "esphome_version": esphome_version,
         "auto_provision_supported": receiver_supports_auto_provision(),
+        "friendly_name": friendly_name,
+        "ha_addon": ha_addon,
     }
     if reason is not None:
         payload["reason"] = reason.value
@@ -180,6 +184,11 @@ def _parse_json(payload: bytes) -> Any | None:
 def _str_or_empty(value: object) -> str:
     """Return the string value or empty when not a string."""
     return value if isinstance(value, str) else ""
+
+
+def _bool_or_false(value: object) -> bool:
+    """Return the bool value or ``False`` when not a bool."""
+    return value if isinstance(value, bool) else False
 
 
 def _normalize_label(value: object) -> str:

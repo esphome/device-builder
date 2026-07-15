@@ -18,6 +18,11 @@ from .enums import PeerStatus, RemoteBuildPeerSource
 # ``esphome.const.__version__`` (``"2026.5.0-dev"`` is 13).
 PAIRING_VERSION_MAX_LEN = 64
 
+# Cap on :attr:`StoredPairing.friendly_name` — matches the
+# receiver-side label cap; the wire-extract path applies the same
+# bound before writing.
+PAIRING_FRIENDLY_NAME_MAX_LEN = 128
+
 # Defense-in-depth at the storage seam: the same trust surface
 # as anything else under ``<config_dir>``, and ``from_dict``
 # round-trips malformed rows regardless of size otherwise.
@@ -74,6 +79,8 @@ _PAIRING_VALIDATOR = vol.Schema(
         # Receiver-advertised capability; older sidecars deserialise
         # as ``False`` (couldn't provision). Strict ``bool`` as above.
         vol.Required("auto_provision_supported"): bool,
+        vol.Required("friendly_name"): vol.All(str, vol.Length(max=PAIRING_FRIENDLY_NAME_MAX_LEN)),
+        vol.Required("ha_addon"): bool,
     }
 )
 
@@ -139,6 +146,13 @@ class StoredPairing(DashboardModel):
     # peer-link session-open; ``False`` on a fresh row, an older
     # sidecar, or a receiver without the provisioner.
     auto_provision_supported: bool = False
+    # Receiver-advertised human machine label (its mDNS
+    # ``friendly_name``). Refreshed on session-open only when the
+    # receiver sends a non-empty value, so an older receiver can't
+    # clobber a captured name. Empty on a fresh row / older sidecar.
+    friendly_name: str = ""
+    # Receiver-advertised HA add-on flag; refreshed on session-open.
+    ha_addon: bool = False
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""
@@ -191,6 +205,12 @@ class PairingSummary(DashboardModel):
     # target version is built in a venv provisioned with the
     # offloader's own esphome.
     auto_provision_supported: bool = False
+    # Receiver's human machine label from the session handshake;
+    # empty until a new-enough receiver connects. The UI prefers it
+    # over an auto-derived hostname label.
+    friendly_name: str = ""
+    # Receiver's HA add-on flag from the session handshake.
+    ha_addon: bool = False
 
 
 @dataclass

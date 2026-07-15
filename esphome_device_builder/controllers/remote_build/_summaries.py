@@ -65,6 +65,9 @@ def peer_summary(peer: StoredPeer, *, status: PeerStatus, connected: bool) -> Pe
         status=status,
         peer_ip=peer.peer_ip,
         connected=connected,
+        friendly_name=peer.friendly_name,
+        ha_addon=peer.ha_addon,
+        label_auto=peer.label_auto,
     )
 
 
@@ -115,6 +118,8 @@ def pairing_summary(
         esphome_version=pairing.esphome_version,
         enabled=pairing.enabled,
         auto_provision_supported=pairing.auto_provision_supported,
+        friendly_name=pairing.friendly_name,
+        ha_addon=pairing.ha_addon,
     )
 
 

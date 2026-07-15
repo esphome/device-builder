@@ -257,6 +257,8 @@ def fire_offloader_pairing_added(
         "esphome_version": summary.esphome_version,
         "enabled": summary.enabled,
         "auto_provision_supported": summary.auto_provision_supported,
+        "friendly_name": summary.friendly_name,
+        "ha_addon": summary.ha_addon,
     }
     controller._db.bus.fire(EventType.OFFLOADER_PAIRING_ADDED, payload)
 

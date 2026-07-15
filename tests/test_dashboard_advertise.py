@@ -30,9 +30,9 @@ from esphome_device_builder.helpers import dashboard_advertise
 from esphome_device_builder.helpers.dashboard_advertise import (
     SERVICE_TYPE,
     DashboardAdvertiser,
-    _default_friendly_name,
     _local_addresses,
     build_mdns_hostname,
+    default_friendly_name,
 )
 
 
@@ -63,13 +63,30 @@ def _make_advertiser(
 def test_default_friendly_name_strips_dotted_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mac-style ``desktop.local`` from gethostname yields ``desktop``."""
     monkeypatch.setattr(socket, "gethostname", lambda: "desktop.local")
-    assert _default_friendly_name() == "desktop"
+    assert default_friendly_name() == "desktop"
 
 
 def test_default_friendly_name_falls_back_when_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     """Empty/whitespace hostname falls back to a stable string."""
     monkeypatch.setattr(socket, "gethostname", lambda: "")
-    assert _default_friendly_name() == "esphome-dashboard"
+    assert default_friendly_name() == "esphome-dashboard"
+
+
+def test_advertiser_exposes_display_identity_properties() -> None:
+    """``friendly_name`` / ``on_ha_addon`` read back the constructor values."""
+    advertiser = _make_advertiser(name="Nicks-Mac-Studio", on_ha_addon=True)
+    assert advertiser.friendly_name == "Nicks-Mac-Studio"
+    assert advertiser.on_ha_addon is True
+
+
+def test_advertiser_friendly_name_defaults_from_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No ``name`` arg → the hostname-derived default label."""
+    monkeypatch.setattr(socket, "gethostname", lambda: "desktop.local")
+    advertiser = _make_advertiser()
+    assert advertiser.friendly_name == "desktop"
+    assert advertiser.on_ha_addon is False
 
 
 def test_build_mdns_hostname_uses_fixed_prefix_and_dashboard_id() -> None:
@@ -623,7 +640,7 @@ def test_build_service_info_valid_target_without_dashboard_id(
     The fixed-prefix fallback ``esphome-builder.local`` keeps the
     advertise from emitting a bare ``.`` that python-zeroconf would
     reject. ``friendly_name`` independently rescues to
-    ``esphome-dashboard`` from ``_default_friendly_name``.
+    ``esphome-dashboard`` from ``default_friendly_name``.
     """
     monkeypatch.setattr(socket, "gethostname", lambda: "")
     advertiser = DashboardAdvertiser(port=6052, server_version="1.0", esphome_version="2026.5.0")

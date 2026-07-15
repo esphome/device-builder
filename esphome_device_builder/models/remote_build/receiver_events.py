@@ -55,6 +55,9 @@ class RemoteBuildPairRequestReceivedData(TypedDict):
     label: str
     peer_ip: str
     paired_at: float
+    friendly_name: str
+    ha_addon: bool
+    label_auto: bool
 
 
 class RemoteBuildPairStatusChangedData(TypedDict):
@@ -95,10 +98,15 @@ class ReceiverPeerLinkSessionOpenedData(TypedDict):
     :meth:`ReceiverController.register_peer_link_session` once
     the post-handshake dispatch loop is parked. ``dashboard_id``
     is the offloader's stable identity captured from the Noise
-    XX handshake transcript.
+    XX handshake transcript. ``friendly_name`` / ``ha_addon``
+    are the offloader's display identity after the session-open
+    refresh (the stored row's values, so an old offloader that
+    sent nothing surfaces whatever pair time captured).
     """
 
     dashboard_id: str
+    friendly_name: str
+    ha_addon: bool
 
 
 class ReceiverPeerLinkSessionClosedData(TypedDict):

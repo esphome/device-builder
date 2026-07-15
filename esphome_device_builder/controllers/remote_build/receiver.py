@@ -318,6 +318,9 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         label: str,
         peer_ip: str,
         pairing_key: str | None = None,
+        friendly_name: str = "",
+        ha_addon: bool = False,
+        label_auto: bool = False,
     ) -> pair_flow.IntentOutcome:
         """Process an ``intent="pair_request"`` Noise session."""
         return await pair_flow.record_pair_request(
@@ -328,6 +331,9 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             label=label,
             peer_ip=peer_ip,
             pairing_key=pairing_key,
+            friendly_name=friendly_name,
+            ha_addon=ha_addon,
+            label_auto=label_auto,
         )
 
     async def lookup_peer_for_session(

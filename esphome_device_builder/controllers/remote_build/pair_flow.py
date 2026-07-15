@@ -50,6 +50,9 @@ async def record_pair_request(
     label: str,
     peer_ip: str,
     pairing_key: str | None = None,
+    friendly_name: str = "",
+    ha_addon: bool = False,
+    label_auto: bool = False,
 ) -> IntentOutcome:
     """
     Process an ``intent="pair_request"`` Noise session.
@@ -117,6 +120,9 @@ async def record_pair_request(
             label=label,
             peer_ip=peer_ip,
             pairing_key=pairing_key,
+            friendly_name=friendly_name,
+            ha_addon=ha_addon,
+            label_auto=label_auto,
         )
 
     # Refuse to overwrite a PENDING entry's pubkey — defense
@@ -145,6 +151,9 @@ async def record_pair_request(
         label=label,
         paired_at=paired_at,
         peer_ip=peer_ip,
+        friendly_name=friendly_name,
+        ha_addon=ha_addon,
+        label_auto=label_auto,
     )
     payload: RemoteBuildPairRequestReceivedData = {
         "dashboard_id": dashboard_id,
@@ -152,6 +161,9 @@ async def record_pair_request(
         "label": label,
         "peer_ip": peer_ip,
         "paired_at": paired_at,
+        "friendly_name": friendly_name,
+        "ha_addon": ha_addon,
+        "label_auto": label_auto,
     }
     controller._db.bus.fire(EventType.REMOTE_BUILD_PAIR_REQUEST_RECEIVED, payload)
     return IntentOutcome(IntentResponse.PENDING)
@@ -257,6 +269,9 @@ async def _auto_approve_or_refuse(
     label: str,
     peer_ip: str,
     pairing_key: str | None,
+    friendly_name: str = "",
+    ha_addon: bool = False,
+    label_auto: bool = False,
 ) -> IntentOutcome:
     """
     First-pair window is armed: auto-approve the request, or refuse it.
@@ -293,6 +308,9 @@ async def _auto_approve_or_refuse(
             static_x25519_pub=static_x25519_pub,
             label=label,
             peer_ip=peer_ip,
+            friendly_name=friendly_name,
+            ha_addon=ha_addon,
+            label_auto=label_auto,
         )
     _LOGGER.warning(
         "Refused auto-pair from %s (dashboard_id=%s): source not in "
@@ -331,6 +349,9 @@ async def _auto_approve_pair_request(
     static_x25519_pub: bytes,
     label: str,
     peer_ip: str,
+    friendly_name: str = "",
+    ha_addon: bool = False,
+    label_auto: bool = False,
 ) -> IntentOutcome:
     """
     First-pair bootstrap: approve the request without the inbox dance.
@@ -354,6 +375,9 @@ async def _auto_approve_pair_request(
         label=label,
         paired_at=time.time(),
         peer_ip=peer_ip,
+        friendly_name=friendly_name,
+        ha_addon=ha_addon,
+        label_auto=label_auto,
     )
     controller.state.approved_peers[dashboard_id] = peer
     controller._peers_store.async_delay_save(controller._serialize_peers)

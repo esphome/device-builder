@@ -63,7 +63,9 @@ from .one_shot import (
     _DEFAULT_TIMEOUT_SECONDS,
     _drive_initiator_handshake_and_read_response,
     _extract_auto_provision_supported,
+    _extract_ha_addon,
     _extract_receiver_esphome_version,
+    _extract_receiver_friendly_name,
 )
 
 if TYPE_CHECKING:
@@ -185,8 +187,14 @@ class PeerLinkClient:
         bus: EventBus,
         resolver: AbstractResolver | None = None,
         get_zeroconf: Callable[[], Zeroconf | None] | None = None,
+        get_display_identity: Callable[[], tuple[str, bool]] | None = None,
     ) -> None:
         self._hostname = receiver_hostname
+        # Lazy reader for this offloader's own ``(friendly_name,
+        # ha_addon)`` — sent in the session msg3 so the receiver
+        # can show a human name; lazy because the advertiser may
+        # come up after the client spawns.
+        self._get_display_identity = get_display_identity
         # mDNS fast-reconnect inputs: the shared zeroconf (``None``
         # getter or return skips the optimisation) and the A/AAAA
         # record name that signals the receiver came back (``None``
@@ -452,7 +460,18 @@ class PeerLinkClient:
                     peer,
                 )
                 session = PeerLinkNoiseSession.initiator(self._identity_priv)
-                msg3_payload = _json.dumps({"dashboard_id": self._dashboard_id})
+                own_friendly, own_ha_addon = (
+                    self._get_display_identity()
+                    if self._get_display_identity is not None
+                    else ("", False)
+                )
+                msg3_payload = _json.dumps(
+                    {
+                        "dashboard_id": self._dashboard_id,
+                        "friendly_name": own_friendly,
+                        "ha_addon": own_ha_addon,
+                    }
+                )
                 response_ct = await _drive_initiator_handshake_and_read_response(
                     ws=ws,
                     sess=session,
@@ -503,6 +522,8 @@ class PeerLinkClient:
                     return self._on_handshake_rejected(response)
                 receiver_version = _extract_receiver_esphome_version(response)
                 auto_provision = _extract_auto_provision_supported(response)
+                receiver_friendly_name = _extract_receiver_friendly_name(response)
+                receiver_ha_addon = _extract_ha_addon(response)
                 channel = PeerLinkChannel(
                     noise=session, ws=ws, log_label=f"{self._hostname}:{self._port}"
                 )
@@ -511,6 +532,8 @@ class PeerLinkClient:
                 self._fire_opened(
                     esphome_version=receiver_version,
                     auto_provision_supported=auto_provision,
+                    friendly_name=receiver_friendly_name,
+                    ha_addon=receiver_ha_addon,
                 )
                 try:
                     return await self._run_session_loops(channel)
@@ -704,12 +727,19 @@ class PeerLinkClient:
         _dispatch.dispatch_artifacts_end(self, parsed)
 
     def _fire_opened(
-        self, *, esphome_version: str = "", auto_provision_supported: bool = False
+        self,
+        *,
+        esphome_version: str = "",
+        auto_provision_supported: bool = False,
+        friendly_name: str = "",
+        ha_addon: bool = False,
     ) -> None:
         _dispatch.fire_opened(
             self,
             esphome_version=esphome_version,
             auto_provision_supported=auto_provision_supported,
+            friendly_name=friendly_name,
+            ha_addon=ha_addon,
         )
 
     def _fire_closed(self, reason: str, *, error_detail: str = "") -> None:
