@@ -28,9 +28,9 @@ class RemoteBuildListenerChangedData(TypedDict):
     Fires when the peer-link listener binds or tears down, carrying
     the mDNS-advertised pairing address so subscribers can render it
     without re-reading ``get_identity``. ``listener_port`` is ``None``
-    while the listener is down; ``listener_host`` is ``None`` and
-    ``listener_addresses`` ``[]`` when no mDNS advertiser is attached
-    (zeroconf unavailable).
+    while the listener is down; ``listener_host`` is ``None`` without
+    an attached advertiser (zeroconf unavailable) and
+    ``listener_addresses`` ``[]`` until it registers.
     """
 
     listener_host: str | None

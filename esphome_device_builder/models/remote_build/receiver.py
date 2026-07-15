@@ -224,9 +224,9 @@ class IdentityView(DashboardModel):
     without this flag.
 
     ``listener_host`` / ``listener_addresses`` / ``listener_port``
-    are the mDNS-advertised pairing address: host ``None`` and
-    addresses ``[]`` without a registered advertiser, port ``None``
-    while the listener is unbound.
+    are the mDNS-advertised pairing address: host ``None`` without
+    an attached advertiser, addresses ``[]`` until it registers,
+    port ``None`` while the listener is unbound.
     """
 
     dashboard_id: str
