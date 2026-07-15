@@ -76,7 +76,8 @@ class EnvProvisioner:
     async def provision(
         self, version: str, *, on_build: Callable[[str], None] | None = None
     ) -> list[str]:
-        """Return the esphome command for *version*, building its venv on first use.
+        """
+        Return the esphome command for *version*, building its venv on first use.
 
         ``on_build`` fires once with a status line when a cache miss means
         a venv build (a multi-minute ``pip install``) is about to run; a
@@ -96,11 +97,16 @@ class EnvProvisioner:
             if not await self._warm(venv, version):
                 if not await self._is_healthy(venv, version):
                     if on_build is not None:
-                        on_build(
-                            f"Provisioning esphome {version} into an isolated "
-                            "environment; the first build for a version installs "
-                            "it from PyPI and can take a few minutes...\n"
-                        )
+                        # Best-effort observer: a raising hook must not
+                        # fail a provision the build could survive.
+                        try:
+                            on_build(
+                                f"Provisioning esphome {version} into an isolated "
+                                "environment; the first build for a version installs "
+                                "it from PyPI and can take a few minutes...\n"
+                            )
+                        except Exception:
+                            _LOGGER.exception("provision on_build hook failed")
                     await self._build(version, venv)
                     if not await self._is_healthy(venv, version):
                         await run_in_executor(_rmtree, venv)

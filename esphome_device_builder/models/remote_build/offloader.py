@@ -188,8 +188,8 @@ class PairingSummary(DashboardModel):
     # switch from; ``False`` skips the row in pick_build_path.
     enabled: bool = True
     # Receiver capability from the session handshake: a mismatched
-    # version is built in a provisioned venv, so the UI can say
-    # "builds run with your version" instead of warning on skew.
+    # target version is built in a venv provisioned with the
+    # offloader's own esphome.
     auto_provision_supported: bool = False
 
 
