@@ -50,6 +50,7 @@ def _make_db() -> DeviceBuilder:
     _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
     db.devices = None  # skip the device-snapshot branch
     db.remote_build_offloader = None
     db.remote_build_receiver = None
@@ -154,6 +155,7 @@ async def test_subscribe_events_includes_pairings_snapshot_in_initial_state() ->
     _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
     db.devices = None  # skip the device-snapshot branch
     # Stub a remote_build with one APPROVED pairing in the
     # snapshot. ``pairings_snapshot()`` is sync; mock it directly.
@@ -202,6 +204,7 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
     db.devices = None
     pending = MagicMock()
     pending.to_dict = lambda: {
@@ -222,6 +225,9 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     remote_build = MagicMock()
     remote_build.pairings_snapshot = MagicMock(return_value=[])
     remote_build.peers_snapshot = MagicMock(return_value=[pending, approved])
+    remote_build.settings_snapshot = MagicMock(
+        return_value={"enabled": True, "cleanup_ttl_seconds": 3600}
+    )
     db.remote_build_offloader = remote_build
     db.remote_build_receiver = remote_build
 
@@ -257,6 +263,49 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
     await asyncio.gather(handler_task, return_exceptions=True)
 
 
+async def test_subscribe_events_includes_receiver_settings_and_jobs_in_initial_state() -> None:
+    """``_send_initial`` seeds the receiver settings scalars and the jobs snapshot.
+
+    Both gate the Build server panel's first paint: settings decide
+    disabled-CTA vs live view without a get_settings round-trip, and
+    the jobs list paints in one shot instead of building up from
+    per-job follow_jobs frames.
+    """
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    _stub_config(db)
+    db.bus = EventBus()
+    db.subscriber_presence = SubscriberPresence()
+    db.devices = None
+    db.remote_build_offloader = None
+    receiver = MagicMock()
+    receiver.peers_snapshot = MagicMock(return_value=[])
+    receiver.settings_snapshot = MagicMock(
+        return_value={"enabled": True, "cleanup_ttl_seconds": 3600}
+    )
+    db.remote_build_receiver = receiver
+    job = MagicMock()
+    job.to_dict = lambda: {"job_id": "j1", "status": "completed"}
+    firmware = MagicMock()
+    firmware.state.jobs = {"j1": job}
+    db.firmware = firmware
+
+    client = FakeWebSocketClient()
+    handler_task = asyncio.create_task(db._cmd_subscribe_events(client=client, message_id="m1"))
+    for _ in range(50):
+        await asyncio.sleep(0)
+        if client.events:
+            break
+
+    initial_events = [e for e in client.events if e[1] == "initial_state"]
+    assert len(initial_events) == 1
+    _, _, payload = initial_events[0]
+    assert payload["remote_build_settings"] == {"enabled": True, "cleanup_ttl_seconds": 3600}
+    assert payload["firmware_jobs"] == [{"job_id": "j1", "status": "completed"}]
+
+    handler_task.cancel()
+    await asyncio.gather(handler_task, return_exceptions=True)
+
+
 async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     """``_send_initial`` carries the UI-gating preferences in the snapshot.
 
@@ -269,6 +318,7 @@ async def test_subscribe_events_includes_preferences_in_initial_state() -> None:
     )
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
     db.devices = None
     db.remote_build_offloader = None
     db.remote_build_receiver = None
@@ -304,6 +354,7 @@ async def test_subscribe_events_includes_offloader_settings_in_initial_state() -
     _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
     db.devices = None
     remote_build = MagicMock()
     remote_build.pairings_snapshot = MagicMock(return_value=[])
@@ -349,6 +400,7 @@ async def test_subscribe_events_includes_hosts_snapshot_in_initial_state() -> No
     _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
     db.devices = None
     host = MagicMock()
     host.to_dict = lambda: {
@@ -454,6 +506,7 @@ async def test_subscribe_events_subscribed_arrives_before_live_events() -> None:
     _stub_config(db)
     db.bus = EventBus()
     db.subscriber_presence = SubscriberPresence()
+    db.firmware = None
 
     devices_mock = MagicMock()
     devices_mock.get_devices.return_value = []

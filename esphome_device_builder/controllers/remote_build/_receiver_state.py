@@ -6,7 +6,7 @@ import asyncio
 from collections.abc import Hashable
 from dataclasses import dataclass, field
 
-from ...models import StoredPeer
+from ...models import RemoteBuildSettings, StoredPeer
 from .artifacts_download import ArtifactsDownloadSender
 from .env_provisioner import EnvProvisioner
 from .job_fanout import JobFanout
@@ -17,6 +17,12 @@ from .submit_job import SubmitJobReceiver
 @dataclass
 class ReceiverState:
     """Mutable state for :class:`ReceiverController`."""
+
+    # RAM-canonical receiver settings: seeded from disk at
+    # ``start()``, updated by every ``modify_settings`` write.
+    # Sync readers (the ``subscribe_events`` initial-state snapshot)
+    # read here; disk is just persistence.
+    settings: RemoteBuildSettings = field(default_factory=RemoteBuildSettings)
 
     # True while ``rotate_identity`` is in flight. Second caller
     # gets ``ALREADY_EXISTS`` rather than queuing — interleaved

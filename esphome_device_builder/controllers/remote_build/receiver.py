@@ -105,6 +105,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
                 self._run_cleanup_loop(),
                 name=f"{type(self).__name__}._run_cleanup_loop",
             )
+        self.state.settings = await self._load_settings_async()
         if (peers_state := await self._peers_store.async_load()) is not None:
             for peer in peers_state.peers:
                 self.state.approved_peers[peer.dashboard_id] = peer
@@ -235,6 +236,13 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     def peers_snapshot(self) -> list[PeerSummary]:
         """Return the in-memory peers (PENDING + APPROVED) for ``subscribe_events`` seeding."""
         return self._peer_summaries()
+
+    def settings_snapshot(self) -> dict[str, Any]:
+        """Return the RAM-canonical settings scalars for ``subscribe_events`` seeding."""
+        return {
+            "enabled": self.state.settings.enabled,
+            "cleanup_ttl_seconds": self.state.settings.cleanup_ttl_seconds,
+        }
 
     async def _modify_settings(
         self, mutator: Callable[[RemoteBuildSettings], None]

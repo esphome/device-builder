@@ -21,8 +21,8 @@ if TYPE_CHECKING:
 
 
 async def get_settings(controller: ReceiverController) -> RemoteBuildSettingsView:
-    """Return the receiver-side remote-build settings (wire view)."""
-    return to_view(controller, await controller._load_settings_async())
+    """Return the receiver-side remote-build settings (wire view, RAM-canonical)."""
+    return to_view(controller, controller.state.settings)
 
 
 def to_view(
@@ -73,6 +73,7 @@ async def modify_settings(
             return settings
 
     settings = await run_in_executor(_txn)
+    controller.state.settings = settings
     return to_view(controller, settings)
 
 
@@ -127,5 +128,5 @@ async def set_settings(
 async def current_settings_view(
     controller: ReceiverController,
 ) -> RemoteBuildSettingsView:
-    """Load settings from disk and project to the wire view (post-mutation response)."""
-    return to_view(controller, await controller._load_settings_async())
+    """Project the RAM-canonical settings to the wire view (post-mutation response)."""
+    return to_view(controller, controller.state.settings)
