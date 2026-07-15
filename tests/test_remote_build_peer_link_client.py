@@ -33,6 +33,7 @@ import pytest
 from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestServer, get_unused_port_socket
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from esphome.const import __version__ as _installed_esphome_version
 from noise.exceptions import NoiseInvalidMessage
 from zeroconf import Zeroconf
 from zeroconf.asyncio import AsyncZeroconf
@@ -6615,14 +6616,16 @@ def _stub_reset_client(offloader: OffloaderController, ack: Any) -> MagicMock:
 
 
 async def test_reset_peer_build_env_accepted(offloader_controller_dir: Path) -> None:
-    """An accepted ack returns ``{"accepted": True}``."""
+    """An accepted ack returns ``{"accepted": True}`` and forwards our esphome version."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     pin = "a" * 64
     _seed_reset_capable_pairing(offloader, pin)
-    _stub_reset_client(
+    client = _stub_reset_client(
         offloader, {"type": "reset_build_env_ack", "request_id": "r", "accepted": True}
     )
     assert await offloader.reset_peer_build_env(pin_sha256=pin) == {"accepted": True}
+    # The receiver needs our version to find the venv to clear.
+    client.reset_build_env.assert_awaited_once_with(esphome_version=_installed_esphome_version)
 
 
 async def test_reset_peer_build_env_busy_maps_to_precondition(
