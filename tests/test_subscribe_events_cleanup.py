@@ -264,13 +264,7 @@ async def test_subscribe_events_includes_peers_snapshot_in_initial_state() -> No
 
 
 async def test_subscribe_events_includes_receiver_settings_and_jobs_in_initial_state() -> None:
-    """``_send_initial`` seeds the receiver settings scalars and the jobs snapshot.
-
-    Both gate the Build server panel's first paint: settings decide
-    disabled-CTA vs live view without a get_settings round-trip, and
-    the jobs list paints in one shot instead of building up from
-    per-job follow_jobs frames.
-    """
+    """``_send_initial`` carries the receiver settings scalars and the jobs snapshot."""
     db = DeviceBuilder.__new__(DeviceBuilder)
     _stub_config(db)
     db.bus = EventBus()
@@ -283,10 +277,8 @@ async def test_subscribe_events_includes_receiver_settings_and_jobs_in_initial_s
         return_value={"enabled": True, "cleanup_ttl_seconds": 3600}
     )
     db.remote_build_receiver = receiver
-    job = MagicMock()
-    job.to_dict = lambda: {"job_id": "j1", "status": "completed"}
     firmware = MagicMock()
-    firmware.state.jobs = {"j1": job}
+    firmware.jobs_snapshot = MagicMock(return_value=[{"job_id": "j1", "status": "completed"}])
     db.firmware = firmware
 
     client = FakeWebSocketClient()

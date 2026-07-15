@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import registered_stream
@@ -87,14 +86,7 @@ async def follow_jobs(
     # Snapshots omit ``output``: the panel reads only metadata, and
     # log text is fetched per-job via ``follow_job``. Dropping it also
     # keeps a running job's live buffer off the snapshot wire.
-    snapshot_payloads = (
-        [
-            job_dict_without_output(job)
-            for job in sorted(controller.state.jobs.values(), key=attrgetter("created_at"))
-        ]
-        if snapshot
-        else []
-    )
+    snapshot_payloads = controller.jobs_snapshot() if snapshot else []
 
     async def _send_initial(_controls: StreamControls) -> None:
         for payload in snapshot_payloads:

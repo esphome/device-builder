@@ -713,18 +713,11 @@ class DeviceBuilder:
                 initial["peers"] = [
                     summary.to_dict() for summary in self.remote_build_receiver.peers_snapshot()
                 ]
-                # Receiver settings scalars gate the Build server
-                # panel's first paint (disabled-CTA vs live view);
-                # shipping them here kills the get_settings
-                # round-trip flash.
                 initial["remote_build_settings"] = self.remote_build_receiver.settings_snapshot()
             if self.firmware is not None:
-                # Full jobs snapshot (active + retained history) so the
-                # queue paints in one shot instead of building up from
-                # per-job follow_jobs frames.
-                initial["firmware_jobs"] = [
-                    job.to_dict() for job in self.firmware.state.jobs.values()
-                ]
+                # Same rows follow_jobs would replay: created_at order,
+                # ``output`` dropped (fetched per-job via follow_job).
+                initial["firmware_jobs"] = self.firmware.jobs_snapshot()
             await client.send_event(message_id, "initial_state", initial)
             # Confirm subscription so the frontend can mark the WS
             # as live before the first event arrives.
