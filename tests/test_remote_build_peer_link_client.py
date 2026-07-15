@@ -34,6 +34,7 @@ from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestServer, get_unused_port_socket
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
+from zeroconf.const import _TYPE_A
 
 from esphome_device_builder.api.ws import init_ws_app
 from esphome_device_builder.controllers.remote_build import (
@@ -73,6 +74,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 from esphome_device_builder.controllers.remote_build.peer_link_client.client import (
     _LOCAL_CLOSE_AUTH_REJECTED,
     _LOCAL_CLOSE_RECEIVER_REJECTED,
+    _mdns_record_name,
 )
 from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
@@ -6212,3 +6214,55 @@ async def test_run_one_session_logs_connected_peer_after_tcp_connect(
     # reconnect landed on a different host than expected.
     assert "peer=" in msg
     assert "127.0.0.1" in msg.split("peer=", 1)[1]
+
+
+# ---------------------------------------------------------------------------
+# mDNS fast reconnect
+# ---------------------------------------------------------------------------
+
+
+def test_mdns_record_name_shapes() -> None:
+    """Hostnames normalise to a lowercase trailing-dot name; IPs match nothing."""
+    assert _mdns_record_name("Esphome-Builder-ABC.local") == "esphome-builder-abc.local."
+    assert _mdns_record_name("esphome-builder-abc.local.") == "esphome-builder-abc.local."
+    assert _mdns_record_name("192.168.1.5") is None
+    assert _mdns_record_name("fd00::a1") is None
+
+
+async def test_wait_reconnect_wakes_on_receiver_address_record() -> None:
+    """An A record for the receiver's host breaks the backoff wait immediately."""
+    client = _make_offloader_client(EventBus(), receiver_hostname="esphome-builder-abc.local")
+    listeners: list[Any] = []
+    zc = MagicMock()
+    zc.async_add_listener = MagicMock(side_effect=lambda lst, _q: listeners.append(lst))
+    client._get_zeroconf = lambda: zc
+
+    waiter = asyncio.create_task(client._wait_reconnect(30.0))
+    await asyncio.sleep(0)
+    assert len(listeners) == 1
+
+    matching = MagicMock()
+    matching.new.type = _TYPE_A
+    matching.new.name = "Esphome-Builder-ABC.local."
+    # A non-matching record first: must not wake.
+    other = MagicMock()
+    other.new.type = _TYPE_A
+    other.new.name = "someone-else.local."
+    listeners[0].async_update_records(zc, 0.0, [other])
+    await asyncio.sleep(0)
+    assert not waiter.done()
+
+    listeners[0].async_update_records(zc, 0.0, [matching])
+    await asyncio.wait_for(waiter, timeout=1.0)
+    zc.async_remove_listener.assert_called_once()
+
+
+async def test_wait_reconnect_plain_sleep_for_ip_endpoint() -> None:
+    """An IP-endpoint pairing has nothing to match; the wait is a plain sleep."""
+    client = _make_offloader_client(EventBus(), receiver_hostname="192.168.1.5")
+    zc = MagicMock()
+    client._get_zeroconf = lambda: zc
+
+    await client._wait_reconnect(0)
+
+    zc.async_add_listener.assert_not_called()

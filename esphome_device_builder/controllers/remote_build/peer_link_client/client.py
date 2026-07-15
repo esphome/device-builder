@@ -19,12 +19,15 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ipaddress
 import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiohttp
 from yarl import URL
+from zeroconf import RecordUpdateListener, Zeroconf
+from zeroconf.const import _TYPE_A, _TYPE_AAAA
 
 from ....helpers import json as _json
 from ....helpers.async_ import drain_tasks
@@ -124,6 +127,36 @@ _LOCAL_CLOSE_RECEIVER_REJECTED = "receiver_rejected"
 _LOCAL_CLOSE_PIN_MISMATCH = "pin_mismatch"
 
 
+def _mdns_record_name(hostname: str) -> str | None:
+    """Return the lowercase trailing-dot record name, or ``None`` for an IP."""
+    with contextlib.suppress(ValueError):
+        ipaddress.ip_address(hostname)
+        return None
+    return f"{hostname.rstrip('.').lower()}."
+
+
+class _ReceiverWakeListener(RecordUpdateListener):
+    """One-shot wake on an A/AAAA record for the receiver's hostname.
+
+    The receiver's startup advertise re-announces its address records,
+    so waking the reconnect wait on one turns a worst-case 30s backoff
+    into an immediate retry (aioesphomeapi's ReconnectLogic pattern).
+    """
+
+    def __init__(self, record_name: str, wake: asyncio.Event) -> None:
+        self._record_name = record_name
+        self._wake = wake
+
+    def async_update_records(self, zc: Zeroconf, now: float, records: list[Any]) -> None:
+        if self._wake.is_set():
+            return
+        for update in records:
+            new = update.new
+            if new.type in (_TYPE_A, _TYPE_AAAA) and new.name.lower() == self._record_name:
+                self._wake.set()
+                return
+
+
 class PeerLinkClient:
     """
     Long-lived offloader-side peer-link Noise WS session.
@@ -155,8 +188,15 @@ class PeerLinkClient:
         receiver_label: str,
         bus: EventBus,
         resolver: AbstractResolver | None = None,
+        get_zeroconf: Callable[[], Zeroconf | None] | None = None,
     ) -> None:
         self._hostname = receiver_hostname
+        # mDNS fast-reconnect inputs: the shared zeroconf (``None``
+        # getter or return skips the optimisation) and the A/AAAA
+        # record name that signals the receiver came back (``None``
+        # for an IP endpoint — nothing to match).
+        self._get_zeroconf = get_zeroconf
+        self._wake_record_name = _mdns_record_name(receiver_hostname)
         self._port = receiver_port
         self._identity_priv = identity_priv
         self._identity_pub = public_bytes_for_priv(identity_priv)
@@ -349,7 +389,7 @@ class PeerLinkClient:
                     backoff = _RECONNECT_INITIAL_BACKOFF_SECONDS
                 else:
                     backoff = min(backoff * 2, _RECONNECT_MAX_BACKOFF_SECONDS)
-                await asyncio.sleep(backoff)
+                await self._wait_reconnect(backoff)
         except asyncio.CancelledError:
             # ``_run_one_session`` already sent the structured
             # ``terminate`` frame in its own CancelledError handler
@@ -359,6 +399,31 @@ class PeerLinkClient:
             # OPENED first.
             self._fire_closed(_LOCAL_CLOSE_CLIENT_STOPPED)
             raise
+
+    async def _wait_reconnect(self, backoff: float) -> None:
+        """Sleep *backoff*, waking early on an mDNS record for the receiver.
+
+        Fail-soft: without a zeroconf instance, or for an IP endpoint,
+        this is a plain sleep.
+        """
+        zc = self._get_zeroconf() if self._get_zeroconf is not None else None
+        if zc is None or self._wake_record_name is None:
+            await asyncio.sleep(backoff)
+            return
+        wake = asyncio.Event()
+        listener = _ReceiverWakeListener(self._wake_record_name, wake)
+        zc.async_add_listener(listener, None)
+        try:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(wake.wait(), backoff)
+                _LOGGER.debug(
+                    "peer-link client to %s:%d: mDNS record for %s seen; reconnecting now",
+                    self._hostname,
+                    self._port,
+                    self._wake_record_name,
+                )
+        finally:
+            zc.async_remove_listener(listener)
 
     async def _run_one_session(self) -> str:
         """

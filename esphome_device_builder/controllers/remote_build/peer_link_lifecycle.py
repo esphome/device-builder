@@ -66,6 +66,12 @@ def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairi
         receiver_label=pairing.label,
         bus=controller._db.bus,
         resolver=controller.state.peer_link_resolver,
+        # Same shared zeroconf the resolver rides; read lazily so a
+        # zeroconf that comes up (or goes away) after spawn is honoured
+        # on the next reconnect wait.
+        get_zeroconf=lambda: (
+            controller._db.devices.zeroconf if controller._db.devices is not None else None
+        ),
     )
     task = asyncio.create_task(
         client.run(),
