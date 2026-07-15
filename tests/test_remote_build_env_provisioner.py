@@ -182,6 +182,23 @@ async def test_cached_cmd_returns_none_when_not_provisioned(tmp_path: Path) -> N
     assert await provisioner.cached_cmd("2026.6.4") is None
 
 
+async def test_provision_on_build_fires_only_on_cache_miss(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``on_build`` announces the slow first build; a warm re-provision is silent."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    lines: list[str] = []
+
+    await provisioner.provision("2026.6.4", on_build=lines.append)
+    assert len(lines) == 1
+    assert "2026.6.4" in lines[0]
+
+    await provisioner.provision("2026.6.4", on_build=lines.append)
+    assert len(lines) == 1  # warm hit announces nothing
+
+
 async def test_cached_cmd_refuses_unpinnable(tmp_path: Path) -> None:
     """A dev / local version is never cached-servable."""
     provisioner = EnvProvisioner(data_dir=tmp_path)

@@ -114,6 +114,7 @@ def pairing_summary(
         last_connect_error=last_connect_error,
         esphome_version=pairing.esphome_version,
         enabled=pairing.enabled,
+        auto_provision_supported=pairing.auto_provision_supported,
     )
 
 

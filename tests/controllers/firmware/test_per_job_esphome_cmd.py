@@ -69,7 +69,10 @@ async def test_resolve_esphome_cmd_provisions_for_mismatched_target(
     cmd = await controller._resolve_esphome_cmd(_remote_job("2026.5.0"))
 
     assert cmd == ["venv/bin/python", "-m", "esphome"]
-    provisioner.provision.assert_awaited_once_with("2026.5.0")
+    provisioner.provision.assert_awaited_once()
+    assert provisioner.provision.await_args.args == ("2026.5.0",)
+    # The provision-progress hook streams into the job output.
+    assert callable(provisioner.provision.await_args.kwargs["on_build"])
 
 
 def _clean_job(target_esphome_version: str) -> FirmwareJob:

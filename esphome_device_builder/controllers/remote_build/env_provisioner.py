@@ -18,6 +18,7 @@ import asyncio
 import logging
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from esphome.core import CORE
@@ -72,8 +73,14 @@ class EnvProvisioner:
         base = self._data_dir if self._data_dir is not None else Path(CORE.data_dir)
         return remote_build_layout.venvs_dir(base)
 
-    async def provision(self, version: str) -> list[str]:
+    async def provision(
+        self, version: str, *, on_build: Callable[[str], None] | None = None
+    ) -> list[str]:
         """Return the esphome command for *version*, building its venv on first use.
+
+        ``on_build`` fires once with a status line when a cache miss means
+        a venv build (a multi-minute ``pip install``) is about to run; a
+        warm or healthy cached venv fires nothing.
 
         Raises :class:`EnvProvisionError` for an unpinnable version, or a venv
         that won't build or fails its health check; a bad venv is removed so a
@@ -88,6 +95,12 @@ class EnvProvisioner:
         async with self._lock_for(version):
             if not await self._warm(venv, version):
                 if not await self._is_healthy(venv, version):
+                    if on_build is not None:
+                        on_build(
+                            f"Provisioning esphome {version} into an isolated "
+                            "environment; the first build for a version installs "
+                            "it from PyPI and can take a few minutes...\n"
+                        )
                     await self._build(version, venv)
                     if not await self._is_healthy(venv, version):
                         await run_in_executor(_rmtree, venv)

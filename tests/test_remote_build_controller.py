@@ -4895,6 +4895,16 @@ async def test_get_offloader_settings_returns_master_plus_pairings(tmp_path: Pat
     assert view.pairings[0].enabled is True  # Default for the seeded row.
 
 
+def test_pairing_summary_surfaces_auto_provision_supported() -> None:
+    """``PairingSummary.auto_provision_supported`` mirrors the storage-shape field."""
+    pairing = _valid_stored_pairing()
+    pairing.auto_provision_supported = True
+    summary = pairing_summary(pairing, connected=False)
+    assert summary.auto_provision_supported is True
+    pairing.auto_provision_supported = False
+    assert pairing_summary(pairing, connected=False).auto_provision_supported is False
+
+
 def test_pairing_summary_surfaces_enabled_field(tmp_path: Path) -> None:
     """``PairingSummary.enabled`` mirrors the storage-shape field.
 

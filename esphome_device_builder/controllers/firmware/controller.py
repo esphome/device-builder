@@ -651,7 +651,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                     f"no provisioner available to build esphome {version} "
                     "(receiver stopping?); refusing to compile with the installed version"
                 )
-            return await provisioner.provision(version)
+            return await provisioner.provision(
+                version,
+                on_build=lambda line: _ingest_output_line(job, self._db.bus, line),
+            )
         if job.job_type is JobType.CLEAN:
             if provisioner is not None and (cached := await provisioner.cached_cmd(version)):
                 return cached
