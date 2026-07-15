@@ -12,7 +12,7 @@ The primary API. A single multiplexed WebSocket handles all 46 commands.
 
 On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/models/api.py):
 ```json
-{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false, "desktop_version": "", "desktop_update_capable": false}
+{"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "ha_ingress": false, "requires_auth": false, "desktop_version": "", "desktop_update_capable": false, "in_docker": false}
 ```
 
 `ha_ingress` is `true` only when the connection is proxied through the HA Supervisor ingress (the `X-Ingress-Path` header is present); the frontend slims its header in that case so HA's own panel bar isn't doubled up. An add-on reached directly on its exposed port reports `ha_addon: true` but `ha_ingress: false`.
@@ -20,6 +20,8 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 `desktop_version` carries the ESPHome Desktop wrapper version (from the `ESPHOME_DESKTOP_VERSION` env var) when the dashboard runs inside the desktop app, and is `""` otherwise; the value is sanitized server-side (blank, non-printable, or over-length is treated as unset). The frontend renders it as a footer line only when non-empty.
 
 `desktop_update_capable` is `true` only when the dashboard runs inside an ESPHome Desktop app that exposes its update `api` (0.14.0+, which sets `ESPHOME_DESKTOP_BIN`). Older desktop apps set `desktop_version` but not this, so the frontend gates the "Check for updates" menu item on `desktop_update_capable`, not on `desktop_version`.
+
+`in_docker` is `true` when the process runs inside a container (`/.dockerenv` present, probed once at import so the handshake never stats in the event loop). Together with `ha_addon` and `desktop_version` it lets the frontend's crash-report flow name the ESPHome bug-report form's installation kind (Home Assistant Add-on / Docker / pip).
 
 ### Desktop update commands
 
