@@ -297,14 +297,22 @@ async def test_is_listener_bound_tracks_runner_and_teardown_is_noop_when_unbound
 
     assert lifecycle.is_listener_bound is False
     assert db.is_remote_build_listener_bound is False
+    # No advertiser attached → no advertised address to report.
+    assert db.remote_build_listener_host is None
+    assert db.remote_build_listener_addresses == []
 
     # Teardown with no runner bound is a no-op and never touches mDNS.
     advertiser = MagicMock()
     advertiser.refresh = AsyncMock()
+    advertiser.hostname = "esphome-builder-test.local"
+    advertiser.addresses = ["192.168.1.9"]
     db._dashboard_advertiser = advertiser
     await lifecycle._teardown_runner()
     advertiser.set_pin_sha256.assert_not_called()
     advertiser.set_remote_build_port.assert_not_called()
+    # With an advertiser attached the accessors pass its values through.
+    assert db.remote_build_listener_host == "esphome-builder-test.local"
+    assert db.remote_build_listener_addresses == ["192.168.1.9"]
 
     lifecycle._runner = MagicMock()
     assert lifecycle.is_listener_bound is True
