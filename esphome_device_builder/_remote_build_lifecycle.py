@@ -329,6 +329,7 @@ class RemoteBuildLifecycle:
             EventType.REMOTE_BUILD_LISTENER_CHANGED,
             RemoteBuildListenerChangedData(
                 listener_host=self._db.remote_build_listener_host,
+                listener_addresses=self._db.remote_build_listener_addresses,
                 listener_port=self._bound_port,
             ),
         )

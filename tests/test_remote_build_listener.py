@@ -349,6 +349,8 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
     fake_advertiser.set_pin_sha256 = MagicMock()
     fake_advertiser.set_remote_build_port = MagicMock()
     fake_advertiser.refresh = AsyncMock()
+    fake_advertiser.hostname = "esphome-builder-test.local"
+    fake_advertiser.addresses = ["192.168.1.9"]
     db._dashboard_advertiser = fake_advertiser
 
     events: list[Event[RemoteBuildListenerChangedData]] = []
@@ -365,6 +367,9 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
         advertised_port = fake_advertiser.set_remote_build_port.call_args.args[0]
         assert db.remote_build_listener_port == advertised_port
         assert [e.data["listener_port"] for e in events] == [advertised_port]
+        # The event carries the full advertised address, not just the port.
+        assert events[0].data["listener_host"] == fake_advertiser.hostname
+        assert events[0].data["listener_addresses"] == fake_advertiser.addresses
 
         # Teardown clears the port and broadcasts the change.
         await db._remote_build_lifecycle._teardown_runner()
@@ -520,6 +525,8 @@ async def test_maybe_start_remote_build_site_advertises_actual_port_for_ephemera
     fake_advertiser.set_pin_sha256 = MagicMock()
     fake_advertiser.set_remote_build_port = MagicMock()
     fake_advertiser.refresh = AsyncMock()
+    fake_advertiser.hostname = "esphome-builder-test.local"
+    fake_advertiser.addresses = ["192.168.1.9"]
     db._dashboard_advertiser = fake_advertiser
 
     try:
