@@ -169,11 +169,24 @@ async def _start_with_captured_dispatch(
     return captured["dispatch"]
 
 
-async def _let_ping_loop_run_briefly(monitor: DeviceStateMonitor) -> None:
-    """Yield long enough for the ping loop (paired with ``_shrink_ping_intervals``) to sweep."""
+async def _let_ping_loop_run_briefly(
+    monitor: DeviceStateMonitor, *, until: Callable[[], bool] | None = None
+) -> None:
+    """Yield long enough for the ping loop (paired with ``_shrink_ping_intervals``) to sweep.
+
+    Positive assertions pass *until* — a loaded CI worker can stretch a
+    sweep past any fixed sleep, so the wait polls for the condition up
+    to a generous deadline. Negative assertions keep the bare fixed
+    yield (there is nothing to wait for).
+    """
     if monitor._ping_task is None:
         return
-    await asyncio.sleep(0.05)
+    if until is None:
+        await asyncio.sleep(0.05)
+        return
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while not until() and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.01)
 
 
 async def _stop_and_drain(monitor: DeviceStateMonitor) -> None:
@@ -1446,7 +1459,9 @@ async def test_start_drives_ping_pipeline_to_online_state(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(monitor)
+        await _let_ping_loop_run_briefly(
+            monitor, until=lambda: device.runtime_state.state == DeviceState.ONLINE
+        )
         assert device.runtime_state.state == DeviceState.ONLINE
     finally:
         await _stop_and_drain(monitor)
@@ -1504,7 +1519,9 @@ async def test_start_marks_offline_on_icmp_exception(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(monitor)
+        await _let_ping_loop_run_briefly(
+            monitor, until=lambda: device.runtime_state.state == DeviceState.OFFLINE
+        )
         assert device.runtime_state.state == DeviceState.OFFLINE
     finally:
         await _stop_and_drain(monitor)
@@ -1778,7 +1795,9 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(monitor)
+        await _let_ping_loop_run_briefly(
+            monitor, until=lambda: device.runtime_state.state == DeviceState.ONLINE
+        )
         assert device.runtime_state.state == DeviceState.ONLINE
         assert device.ip == "fe80::1%en0"
     finally:
