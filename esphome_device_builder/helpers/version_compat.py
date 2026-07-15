@@ -52,13 +52,21 @@ _RELEASE_RE = re.compile(r"\d+(?:\.\d+)*")
 
 
 def is_release_version(version: str) -> bool:
-    """Return whether *version* is a final release, not a pre / dev / local build.
-
-    Stricter than :func:`is_pep440_version`: only a plain release pins to a
-    reproducible ``pip install esphome==<version>``, so the provisioner
-    refuses anything else (a ``-dev`` build can't be pinned to an exact commit).
-    """
+    """Return whether *version* is a final release, not a pre / dev / local build."""
     return _RELEASE_RE.fullmatch(version) is not None
+
+
+_PINNABLE_RE = re.compile(r"\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?")
+
+
+def is_pinnable_version(version: str) -> bool:
+    """Return whether *version* pins to a reproducible ``pip install esphome==<v>``.
+
+    Final releases and a/b/rc pre-releases are both published to PyPI;
+    a ``-dev`` / local build can't be pinned to an exact commit, so the
+    provisioner refuses it.
+    """
+    return _PINNABLE_RE.fullmatch(version) is not None
 
 
 class VersionMatchPolicy(StrEnum):

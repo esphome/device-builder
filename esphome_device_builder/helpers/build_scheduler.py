@@ -25,7 +25,7 @@ from ..models.remote_build import (
     StoredPairing,
 )
 from .api import CommandError
-from .version_compat import VersionMatchPolicy, is_release_version, version_satisfies_policy
+from .version_compat import VersionMatchPolicy, is_pinnable_version, version_satisfies_policy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -268,14 +268,16 @@ def _no_compatible_peer_message(result: _FilterResult, inputs: BuildSchedulerInp
 
 
 def _provisionable_mismatch(inputs: BuildSchedulerInputs, pairing: StoredPairing) -> bool:
-    """Whether *pairing* can auto-provision this offloader's (release) esphome.
+    """Whether *pairing* can auto-provision this offloader's esphome.
 
     A version-mismatched receiver that advertises ``auto_provision_supported``
     stays eligible because it builds our version into a venv — but only when
-    our own version is a plain release it can pin (a dev offloader can't be
-    provisioned, so don't route a mismatch to it).
+    our own version is pinnable on PyPI (release or a/b/rc pre-release; a dev
+    offloader can't be provisioned, so don't route a mismatch to it).
     """
-    return pairing.auto_provision_supported and is_release_version(inputs.offloader_esphome_version)
+    return pairing.auto_provision_supported and is_pinnable_version(
+        inputs.offloader_esphome_version
+    )
 
 
 def _eligible_pairings(inputs: BuildSchedulerInputs) -> _FilterResult:

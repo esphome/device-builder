@@ -182,8 +182,8 @@ async def test_cached_cmd_returns_none_when_not_provisioned(tmp_path: Path) -> N
     assert await provisioner.cached_cmd("2026.6.4") is None
 
 
-async def test_cached_cmd_refuses_non_release(tmp_path: Path) -> None:
-    """A dev / prerelease version is never cached-servable."""
+async def test_cached_cmd_refuses_unpinnable(tmp_path: Path) -> None:
+    """A dev / local version is never cached-servable."""
     provisioner = EnvProvisioner(data_dir=tmp_path)
     assert await provisioner.cached_cmd("2026.7.0-dev") is None
 
@@ -203,10 +203,10 @@ async def test_cached_cmd_returns_cmd_after_provision(
     assert runner.count("venv") == 1  # no extra build
 
 
-async def test_provision_refuses_non_release(
+async def test_provision_refuses_unpinnable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A dev / prerelease target is refused before any subprocess runs."""
+    """A dev / local target is refused before any subprocess runs."""
     runner = _FakeRunner()
     _patch_runner(monkeypatch, runner)
     provisioner = EnvProvisioner(data_dir=tmp_path)
@@ -215,6 +215,20 @@ async def test_provision_refuses_non_release(
         await provisioner.provision("2026.7.0-dev")
 
     assert runner.calls == []
+
+
+async def test_provision_accepts_prerelease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PyPI pre-release (beta) provisions and cache-serves like a release."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+
+    built = await provisioner.provision("2026.7.0b2")
+
+    assert "esphome-2026.7.0b2" in str(built[0])
+    assert await provisioner.cached_cmd("2026.7.0b2") == built
 
 
 @pytest.mark.parametrize("fail_at", ["venv", "install", "version"])

@@ -744,6 +744,24 @@ def test_auto_provision_ignored_when_offloader_is_dev() -> None:
     assert pick_build_path(inputs).path is BuildPath.LOCAL
 
 
+def test_auto_provision_allows_prerelease_offloader() -> None:
+    """A PyPI pre-release offloader can be pinned, so the mismatch routes REMOTE."""
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        pin_sha256=pin, esphome_version="2026.5.0", auto_provision_supported=True
+    )
+    inputs = _inputs(
+        pairings={pin: pairing},
+        open_peer_links={pin},
+        peer_queue_status={pin: _stub_queue_status(pin_sha256=pin)},
+        offloader_esphome_version="2026.7.0b2",
+        version_match_policy=VersionMatchPolicy.RELEASE,
+    )
+    decision = pick_build_path(inputs)
+    assert decision.path is BuildPath.REMOTE
+    assert decision.pin_sha256 == pin
+
+
 def test_version_mismatch_without_auto_provision_falls_back_local() -> None:
     """A mismatched receiver that can't auto-provision still filters to LOCAL."""
     pin = "a" * 64

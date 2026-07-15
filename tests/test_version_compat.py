@@ -7,6 +7,7 @@ import pytest
 from esphome_device_builder.helpers.version_compat import (
     VersionMatchPolicy,
     is_pep440_version,
+    is_pinnable_version,
     is_release_version,
     major_versions_match,
     version_satisfies_policy,
@@ -34,6 +35,26 @@ from esphome_device_builder.helpers.version_compat import (
 def test_is_release_version(version: str, expected: bool) -> None:
     """Only plain dotted-numeric releases pass; pre / dev / post / local do not."""
     assert is_release_version(version) is expected
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        pytest.param("2026.6.4", True, id="release"),
+        pytest.param("2026.7.0a1", True, id="alpha"),
+        pytest.param("2026.7.0b2", True, id="beta"),
+        pytest.param("2026.7.0rc1", True, id="rc"),
+        pytest.param("2026.7.0-dev", False, id="dev"),
+        pytest.param("1.0.0.post1", False, id="post"),
+        pytest.param("1.0.0+local", False, id="local"),
+        pytest.param("1!2.0.0", False, id="epoch"),
+        pytest.param("", False, id="empty"),
+        pytest.param("not-a-version", False, id="garbage"),
+    ],
+)
+def test_is_pinnable_version(version: str, expected: bool) -> None:
+    """PyPI-published shapes (release plus a/b/rc pre-releases) pass; dev / post / local do not."""
+    assert is_pinnable_version(version) is expected
 
 
 @pytest.mark.parametrize(
