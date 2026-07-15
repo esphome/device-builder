@@ -60,11 +60,11 @@ _PINNABLE_RE = re.compile(r"\d+(?:\.\d+)*(?:(?:a|b|rc)\d+)?")
 
 
 def is_pinnable_version(version: str) -> bool:
-    """Return whether *version* pins to a reproducible ``pip install esphome==<v>``.
+    """Return whether *version* is a plain release or an a/b/rc pre-release.
 
-    Final releases and a/b/rc pre-releases are both published to PyPI;
-    a ``-dev`` / local build can't be pinned to an exact commit, so the
-    provisioner refuses it.
+    Exactly the shapes PyPI publishes for esphome, so they pin to a
+    reproducible ``pip install esphome==<v>``; dev / post / local /
+    epoch forms are refused.
     """
     return _PINNABLE_RE.fullmatch(version) is not None
 

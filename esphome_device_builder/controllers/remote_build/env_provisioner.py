@@ -1,9 +1,9 @@
-"""Provision + cache one esphome venv per release version (receiver-side).
+"""Provision + cache one esphome venv per pinnable version (receiver-side).
 
 A receiver whose installed esphome differs from the offloader's builds the
 offloader's version into an isolated venv and compiles from it, instead of
 handing back firmware built with the wrong version. Venvs are cached per
-release under ``<data_dir>/.remote_builds/venvs/esphome-<version>/`` and reused
+version under ``<data_dir>/.remote_builds/venvs/esphome-<version>/`` and reused
 across every device/build; a per-version lock serialises concurrent first
 builds of the same version while different versions build concurrently.
 
@@ -47,7 +47,7 @@ class EnvProvisionError(Exception):
 
 class EnvProvisioner:
     """
-    Create + cache one esphome venv per release version, keyed by version.
+    Create + cache one esphome venv per pinnable version, keyed by version.
 
     Callers serialize on the compile lane (``provision`` in COMPILE,
     ``clean_all`` in RESET_BUILD_ENV, ``sweep_stale`` at start), so a wipe
