@@ -1907,7 +1907,10 @@ def test_validate_port_rejects_out_of_range(port: int) -> None:
 
 
 def _stub_identity_db(
-    controller: RemoteBuildController, *, listener_bound: bool = False
+    controller: RemoteBuildController,
+    *,
+    listener_bound: bool = False,
+    listener_port: int | None = None,
 ) -> AsyncMock:
     """
     Wire the controller's ``_db`` for an identity-rotation test.
@@ -1929,6 +1932,7 @@ def _stub_identity_db(
     reload_mock = AsyncMock(return_value=listener_bound)
     controller.offloader._db.reload_remote_build_identity = reload_mock
     controller.offloader._db.is_remote_build_listener_bound = listener_bound
+    controller.offloader._db.remote_build_listener_port = listener_port
     controller.offloader._db.bus = MagicMock()
     return reload_mock
 
@@ -1981,6 +1985,18 @@ async def test_get_identity_reflects_listener_bound_state(tmp_path: Path) -> Non
     _stub_identity_db(controller, listener_bound=False)
     unbound_view = await controller.receiver.get_identity()
     assert unbound_view.listener_bound is False
+
+
+async def test_get_identity_reports_listener_port(tmp_path: Path) -> None:
+    """``listener_port`` mirrors the bound port; ``None`` while unbound."""
+    controller = _make_controller(config_dir=tmp_path)
+    _stub_identity_db(controller, listener_bound=True, listener_port=6055)
+    bound_view = await controller.receiver.get_identity()
+    assert bound_view.listener_port == 6055
+
+    _stub_identity_db(controller, listener_bound=False)
+    unbound_view = await controller.receiver.get_identity()
+    assert unbound_view.listener_port is None
 
 
 async def test_get_identity_does_not_leak_cert_or_key_pem(tmp_path: Path) -> None:

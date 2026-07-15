@@ -287,6 +287,11 @@ class DeviceBuilder:
         """True iff the remote-build peer-link Noise WS listener is currently bound."""
         return self._remote_build_lifecycle.is_listener_bound
 
+    @property
+    def remote_build_listener_port(self) -> int | None:
+        """The bound peer-link port, or ``None`` while the listener is down."""
+        return self._remote_build_lifecycle.listener_port
+
     async def apply_remote_build_enabled(self) -> bool:
         """Converge the peer-link listener to the on-disk ``enabled`` flag."""
         return await self._remote_build_lifecycle.apply_enabled()

@@ -31,7 +31,11 @@ async def get_identity(controller: ReceiverController) -> IdentityView:
         controller._db.settings.config_dir,
         controller._db.peer_link_identity_store,
     )
-    return identity_view(identity, listener_bound=controller._db.is_remote_build_listener_bound)
+    return identity_view(
+        identity,
+        listener_bound=controller._db.is_remote_build_listener_bound,
+        listener_port=controller._db.remote_build_listener_port,
+    )
 
 
 async def rotate_identity(controller: ReceiverController) -> IdentityView:
@@ -85,6 +89,10 @@ async def _rotate_and_reload(controller: ReceiverController) -> IdentityView:
                 pin_sha256=identity.pin_sha256,
             ),
         )
-        return identity_view(identity, listener_bound=listener_bound)
+        return identity_view(
+            identity,
+            listener_bound=listener_bound,
+            listener_port=controller._db.remote_build_listener_port,
+        )
     finally:
         controller.state.rotation_in_flight = False

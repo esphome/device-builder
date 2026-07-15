@@ -65,6 +65,8 @@ class RemoteBuildLifecycle:
         # ``/remote-build/peer-link`` (issue #106). Bound only when
         # ``RemoteBuildSettings.enabled`` is true; ``None`` otherwise.
         self._runner: web.AppRunner | None = None
+        # Bound peer-link port; ``None`` whenever ``_runner`` is.
+        self._bound_port: int | None = None
         # Serialises listener-state mutations so two clients
         # toggling ``set_settings`` (or a ``rotate_identity`` racing a
         # toggle) can't interleave their teardown + rebind sequences.
@@ -76,6 +78,11 @@ class RemoteBuildLifecycle:
     def is_listener_bound(self) -> bool:
         """True iff the remote-build peer-link Noise WS listener is currently bound."""
         return self._runner is not None
+
+    @property
+    def listener_port(self) -> int | None:
+        """The bound peer-link port, or ``None`` while the listener is down."""
+        return self._bound_port
 
     async def maybe_start(self) -> None:
         """
@@ -159,6 +166,7 @@ class RemoteBuildLifecycle:
             )
             return
         self._runner = runner
+        self._bound_port = port
 
         # Update the mDNS advertise AFTER the bind succeeds. If the
         # bind raised (port in use, permission denied, ...) the
@@ -304,6 +312,7 @@ class RemoteBuildLifecycle:
                 return
             old_runner = self._runner
             self._runner = None
+            self._bound_port = None
             await self._cleanup_runner(old_runner)
 
     def _get_lock(self) -> asyncio.Lock:
@@ -329,6 +338,7 @@ class RemoteBuildLifecycle:
             return
         old_runner = self._runner
         self._runner = None
+        self._bound_port = None
         await self._cleanup_runner(old_runner)
         await self.publish_advertise(
             pin_sha256=None,

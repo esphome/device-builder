@@ -348,6 +348,9 @@ async def test_maybe_start_remote_build_site_updates_advertiser_on_success(
         # Pin and listener port both made it to the advertiser.
         assert fake_advertiser.set_pin_sha256.called
         assert fake_advertiser.set_remote_build_port.called
+        # The bound port is also exposed for the identity view.
+        advertised_port = fake_advertiser.set_remote_build_port.call_args.args[0]
+        assert db.remote_build_listener_port == advertised_port
         # ``refresh`` was awaited so the TXT change actually
         # leaves the local cache.
         assert fake_advertiser.refresh.called
