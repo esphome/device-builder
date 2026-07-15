@@ -247,10 +247,18 @@ class ResetBuildEnvFrameData(TypedDict):
     the target derives exclusively from the session's Noise-
     authenticated ``dashboard_id``, so a peer can only ever reset
     its own tree. ``request_id`` correlates the ack.
+
+    ``esphome_version`` is the offloader's own esphome version, so the
+    receiver can also clear the cached ``esphome-<version>`` venv this
+    offloader's builds provision (the shared toolchain is the one thing
+    a subtree wipe alone can't fix). The receiver only wipes it when it
+    exists — a version matching the receiver's installed esphome, or an
+    unpinnable dev build, never has a venv.
     """
 
     type: Literal["reset_build_env"]
     request_id: str
+    esphome_version: str
 
 
 class ResetBuildEnvAckFrameData(TypedDict):

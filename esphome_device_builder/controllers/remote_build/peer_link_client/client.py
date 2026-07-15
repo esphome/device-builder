@@ -350,9 +350,9 @@ class PeerLinkClient:
     async def cancel_job(self, *, job_id: str) -> bool:
         return await _submit.cancel_job(self, job_id=job_id)
 
-    async def reset_build_env(self) -> ResetBuildEnvAckFrameData:
-        """Ask the receiver to wipe this offloader's isolated build subtree."""
-        return await _submit.reset_build_env(self)
+    async def reset_build_env(self, *, esphome_version: str) -> ResetBuildEnvAckFrameData:
+        """Ask the receiver to wipe this offloader's build env (subtree + its venv)."""
+        return await _submit.reset_build_env(self, esphome_version=esphome_version)
 
     async def download_artifacts(self, *, job_id: str) -> DownloadArtifactsResult:
         return await _submit.download_artifacts(self, job_id=job_id)

@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from esphome.const import __version__ as _installed_esphome_version
+
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...models import ErrorCode
@@ -200,10 +202,13 @@ async def reset_peer_build_env(
 ) -> dict[str, bool]:
     """Ask the receiver behind *pin_sha256* to wipe this offloader's build env.
 
-    Request/ack over the live peer-link. The receiver refuses
-    ``busy`` while this offloader has a job queued / running or a
-    bundle mid-upload there — cancel or wait, then retry. Returns
-    ``{"accepted": True}`` once the wipe completed.
+    Request/ack over the live peer-link. Sends this offloader's own
+    esphome version so the receiver clears the cached venv its builds
+    provision, not just the extract/build subtree. The receiver refuses
+    ``busy`` while this offloader has a job queued / running or a bundle
+    mid-upload there, or while another offloader is compiling with that
+    same venv — cancel or wait, then retry. Returns ``{"accepted": True}``
+    once the wipe completed.
     """
     clean_pin = validate_pin_sha256(pin_sha256)
     pairing = controller.state.pairings.get(clean_pin)
@@ -218,7 +223,7 @@ async def reset_peer_build_env(
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
     client = controller._lookup_open_peer_link_client(clean_pin, label="reset_peer_build_env")
     try:
-        ack = await client.reset_build_env()
+        ack = await client.reset_build_env(esphome_version=_installed_esphome_version)
     except PeerLinkNoSessionError as exc:
         raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
     except (SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
@@ -227,8 +232,9 @@ async def reset_peer_build_env(
         reason = ack.get("reason", "")
         if reason == "busy":
             msg = (
-                "reset_peer_build_env: the build server refused — this dashboard "
-                "still has a job queued, running, or uploading there"
+                "reset_peer_build_env: the build server is busy — this dashboard, "
+                "or another one building with the same esphome version, has a "
+                "build in progress. Try again once it finishes."
             )
             raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
         msg = f"reset_peer_build_env: the build server refused ({reason or 'unknown'})"

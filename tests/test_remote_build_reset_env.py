@@ -1,4 +1,4 @@
-"""Receiver-side ``reset_build_env`` handler: scoped wipe, busy gate, acks."""
+"""Receiver-side ``reset_build_env`` handler: scoped wipe, venv, busy gate, acks."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from esphome.const import __version__ as _installed_esphome_version
 from esphome.core import CORE
 
 from esphome_device_builder.controllers.remote_build import reset_env
@@ -17,13 +18,21 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
 from esphome_device_builder.helpers.remote_build_layout import (
     dashboard_config_subtree,
     dashboard_data_subtree,
-    venvs_dir,
+    venv_dir,
 )
 
 from .conftest import RemoteBuildTestHandles, make_remote_build_controller
 
 _DASHBOARD_ID = "abcdef0123456789"
 _OTHER_DASHBOARD_ID = "zzzzzzzz11111111"
+# A pinnable release that won't collide with the test env's installed
+# esphome (date-based), so its venv is always a wipe candidate.
+_VERSION = "1.0.0"
+_OTHER_VERSION = "2.0.0"
+
+
+def _frame(request_id: str, *, version: str = _VERSION) -> dict[str, Any]:
+    return {"type": "reset_build_env", "request_id": request_id, "esphome_version": version}
 
 
 def _make_session(dashboard_id: str = _DASHBOARD_ID) -> MagicMock:
@@ -49,6 +58,26 @@ def _seed_subtrees(config_dir: Path, dashboard_id: str) -> tuple[Path, Path]:
     return config_subtree, data_subtree
 
 
+def _seed_venv(version: str) -> Path:
+    venv = venv_dir(Path(CORE.data_dir), version)
+    venv.mkdir(parents=True, exist_ok=True)
+    (venv / "sentinel.txt").write_text("x")
+    return venv
+
+
+def _remote_job(dashboard_id: str, version: str) -> MagicMock:
+    job = MagicMock()
+    job.remote_peer = dashboard_id
+    job.target_esphome_version = version
+    return job
+
+
+def _wire_firmware(handles: RemoteBuildTestHandles, jobs: list[MagicMock]) -> None:
+    firmware = MagicMock()
+    firmware.active_remote_peer_jobs = MagicMock(side_effect=lambda: iter(jobs))
+    handles.receiver._db.firmware = firmware
+
+
 def _make_handles(tmp_path: Path) -> RemoteBuildTestHandles:
     handles = make_remote_build_controller(config_dir=tmp_path)
     # No firmware controller / submit receiver by default: not busy.
@@ -57,30 +86,58 @@ def _make_handles(tmp_path: Path) -> RemoteBuildTestHandles:
     return handles
 
 
-async def test_reset_wipes_both_subtrees_and_leaves_neighbours(tmp_path: Path) -> None:
-    """Success wipes the requester's trees; venvs + other offloaders survive."""
+async def test_reset_wipes_subtrees_and_the_requesters_venv(tmp_path: Path) -> None:
+    """Success wipes the requester's trees + its venv; neighbours survive."""
     handles = _make_handles(tmp_path)
     config_subtree, data_subtree = _seed_subtrees(tmp_path, _DASHBOARD_ID)
     other_config, other_data = _seed_subtrees(tmp_path, _OTHER_DASHBOARD_ID)
-    venvs = venvs_dir(Path(CORE.data_dir))
-    (venvs / "esphome-2026.6.5").mkdir(parents=True)
+    my_venv = _seed_venv(_VERSION)
+    other_venv = _seed_venv(_OTHER_VERSION)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r1"))
+
+    assert _sent_ack(session)["accepted"] is True
+    assert not config_subtree.exists()
+    assert not data_subtree.exists()
+    assert not my_venv.exists()
+    # Other offloader's trees and unrelated version venvs are untouched.
+    assert other_config.exists()
+    assert other_data.exists()
+    assert other_venv.exists()
+    session.terminate.assert_not_called()
+
+
+async def test_reset_leaves_venv_when_version_matches_installed(tmp_path: Path) -> None:
+    """A version equal to the receiver's installed esphome has no venv to wipe."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    # Even if a venv dir happens to exist for the installed version, the
+    # handler must not target it (the provisioner never caches that one).
+    venv = _seed_venv(_installed_esphome_version)
     session = _make_session()
 
     await reset_env.handle_reset_build_env(
-        handles.receiver, session, {"type": "reset_build_env", "request_id": "r1"}
+        handles.receiver, session, _frame("r2", version=_installed_esphome_version)
     )
 
-    assert _sent_ack(session) == {
-        "type": "reset_build_env_ack",
-        "request_id": "r1",
-        "accepted": True,
-    }
-    assert not config_subtree.exists()
-    assert not data_subtree.exists()
-    assert other_config.exists()
-    assert other_data.exists()
-    assert (venvs / "esphome-2026.6.5").exists()
-    session.terminate.assert_not_called()
+    assert _sent_ack(session)["accepted"] is True
+    assert venv.exists()
+
+
+async def test_reset_leaves_venv_for_unpinnable_version(tmp_path: Path) -> None:
+    """A dev / non-pinnable version never has a provisioned venv to wipe."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    venv = _seed_venv("2026.8.0-dev")
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, _frame("r3", version="2026.8.0-dev")
+    )
+
+    assert _sent_ack(session)["accepted"] is True
+    assert venv.exists()
 
 
 async def test_reset_with_missing_dirs_still_acks_accepted(tmp_path: Path) -> None:
@@ -88,27 +145,19 @@ async def test_reset_with_missing_dirs_still_acks_accepted(tmp_path: Path) -> No
     handles = _make_handles(tmp_path)
     session = _make_session()
 
-    await reset_env.handle_reset_build_env(
-        handles.receiver, session, {"type": "reset_build_env", "request_id": "r2"}
-    )
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r4"))
 
     assert _sent_ack(session)["accepted"] is True
 
 
-async def test_reset_refused_busy_while_job_active(tmp_path: Path) -> None:
+async def test_reset_refused_busy_while_own_job_active(tmp_path: Path) -> None:
     """A queued/running job from the same offloader refuses the wipe."""
     handles = _make_handles(tmp_path)
-    job = MagicMock()
-    job.remote_peer = _DASHBOARD_ID
-    firmware = MagicMock()
-    firmware.active_remote_peer_jobs = MagicMock(return_value=iter([job]))
-    handles.receiver._db.firmware = firmware
+    _wire_firmware(handles, [_remote_job(_DASHBOARD_ID, _VERSION)])
     config_subtree, _ = _seed_subtrees(tmp_path, _DASHBOARD_ID)
     session = _make_session()
 
-    await reset_env.handle_reset_build_env(
-        handles.receiver, session, {"type": "reset_build_env", "request_id": "r3"}
-    )
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r5"))
 
     ack = _sent_ack(session)
     assert ack["accepted"] is False
@@ -116,21 +165,34 @@ async def test_reset_refused_busy_while_job_active(tmp_path: Path) -> None:
     assert config_subtree.exists()
 
 
-async def test_reset_ignores_other_offloaders_jobs(tmp_path: Path) -> None:
-    """Another offloader's in-flight job does not block this one's reset."""
+async def test_reset_refused_when_another_offloader_uses_the_venv(tmp_path: Path) -> None:
+    """Another offloader compiling with the same venv version refuses the wipe."""
     handles = _make_handles(tmp_path)
-    job = MagicMock()
-    job.remote_peer = _OTHER_DASHBOARD_ID
-    firmware = MagicMock()
-    firmware.active_remote_peer_jobs = MagicMock(return_value=iter([job]))
-    handles.receiver._db.firmware = firmware
+    _wire_firmware(handles, [_remote_job(_OTHER_DASHBOARD_ID, _VERSION)])
+    my_venv = _seed_venv(_VERSION)
     session = _make_session()
 
-    await reset_env.handle_reset_build_env(
-        handles.receiver, session, {"type": "reset_build_env", "request_id": "r4"}
-    )
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r6"))
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "busy"
+    assert my_venv.exists()
+
+
+async def test_reset_proceeds_when_other_offloader_builds_a_different_version(
+    tmp_path: Path,
+) -> None:
+    """Another offloader on a different venv version doesn't block the wipe."""
+    handles = _make_handles(tmp_path)
+    _wire_firmware(handles, [_remote_job(_OTHER_DASHBOARD_ID, _OTHER_VERSION)])
+    my_venv = _seed_venv(_VERSION)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r7"))
 
     assert _sent_ack(session)["accepted"] is True
+    assert not my_venv.exists()
 
 
 async def test_reset_refused_busy_while_bundle_inflight(tmp_path: Path) -> None:
@@ -141,9 +203,7 @@ async def test_reset_refused_busy_while_bundle_inflight(tmp_path: Path) -> None:
     handles.receiver.state.submit_job_receiver = receiver_stub
     session = _make_session()
 
-    await reset_env.handle_reset_build_env(
-        handles.receiver, session, {"type": "reset_build_env", "request_id": "r5"}
-    )
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r8"))
 
     ack = _sent_ack(session)
     assert ack["accepted"] is False
@@ -152,11 +212,13 @@ async def test_reset_refused_busy_while_bundle_inflight(tmp_path: Path) -> None:
 
 
 async def test_reset_malformed_frame_acks_and_terminates(tmp_path: Path) -> None:
-    """A frame without ``request_id`` acks invalid_frame + terminates the session."""
+    """A frame missing a required field acks invalid_frame + terminates the session."""
     handles = _make_handles(tmp_path)
     session = _make_session()
 
-    await reset_env.handle_reset_build_env(handles.receiver, session, {"type": "reset_build_env"})
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r9"}
+    )
 
     ack = _sent_ack(session)
     assert ack["accepted"] is False
@@ -171,16 +233,10 @@ async def test_reset_target_derives_from_session_identity(tmp_path: Path) -> Non
     own_config, own_data = _seed_subtrees(tmp_path, _DASHBOARD_ID)
     session = _make_session()
 
-    await reset_env.handle_reset_build_env(
-        handles.receiver,
-        session,
-        {
-            "type": "reset_build_env",
-            "request_id": "r6",
-            "dashboard_id": _OTHER_DASHBOARD_ID,
-            "dir": "../../..",
-        },
-    )
+    frame = _frame("r10")
+    frame["dashboard_id"] = _OTHER_DASHBOARD_ID
+    frame["dir"] = "../../.."
+    await reset_env.handle_reset_build_env(handles.receiver, session, frame)
 
     assert _sent_ack(session)["accepted"] is True
     assert victim_config.exists()
@@ -200,11 +256,9 @@ async def test_reset_io_error_acks_io_error(
     def _boom(*_args: object) -> None:
         raise OSError("disk on fire")
 
-    monkeypatch.setattr(reset_env, "_wipe_subtrees", _boom)
+    monkeypatch.setattr(reset_env, "_wipe_paths", _boom)
 
-    await reset_env.handle_reset_build_env(
-        handles.receiver, session, {"type": "reset_build_env", "request_id": "r7"}
-    )
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r11"))
 
     ack = _sent_ack(session)
     assert ack["accepted"] is False

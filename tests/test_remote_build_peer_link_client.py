@@ -4753,7 +4753,7 @@ async def test_reset_build_env_raises_no_session_error_when_session_closed() -> 
     """:meth:`reset_build_env` without a live session raises :class:`PeerLinkNoSessionError`."""
     client = _make_offloader_client(EventBus())
     with pytest.raises(PeerLinkNoSessionError):
-        await client.reset_build_env()
+        await client.reset_build_env(esphome_version="1.0.0")
 
 
 async def test_submit_job_sends_header_chunks_and_returns_ack(
@@ -6639,7 +6639,7 @@ async def test_reset_peer_build_env_busy_maps_to_precondition(
     with pytest.raises(CommandError) as excinfo:
         await offloader.reset_peer_build_env(pin_sha256=pin)
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
-    assert "queued, running, or uploading" in excinfo.value.message
+    assert "busy" in excinfo.value.message
 
 
 async def test_reset_peer_build_env_io_error_maps_to_internal(

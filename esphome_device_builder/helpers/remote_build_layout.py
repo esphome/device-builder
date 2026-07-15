@@ -41,10 +41,20 @@ BUNDLE_SUFFIX = ".tar.gz"
 # extract dirs, keyed by version rather than dashboard.
 _VENVS_NAME = "venvs"
 
+# Per-version venv directory name: ``esphome-<version>`` under
+# :func:`venvs_dir`. Single source of truth for the naming the
+# provisioner writes and the remote-reset wipe reads.
+VENV_PREFIX = "esphome-"
+
 
 def venvs_dir(data_dir: Path) -> Path:
     """Return the base dir for the receiver's cached per-version esphome venvs."""
     return data_dir / REMOTE_BUILDS_NAME / _VENVS_NAME
+
+
+def venv_dir(data_dir: Path, version: str) -> Path:
+    """Return the cached venv directory for *version* under :func:`venvs_dir`."""
+    return venvs_dir(data_dir) / f"{VENV_PREFIX}{version}"
 
 
 def dashboard_dir_id(dashboard_id: str) -> str:

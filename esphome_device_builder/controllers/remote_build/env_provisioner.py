@@ -31,7 +31,9 @@ from ...helpers.version_compat import is_pinnable_version, pinnable_version_key
 
 _LOGGER = logging.getLogger(__name__)
 
-_VENV_PREFIX = "esphome-"
+# Alias the layout module's naming so the provisioner (which writes the
+# venvs) and the remote-reset wipe (which reads them) can't drift.
+_VENV_PREFIX = remote_build_layout.VENV_PREFIX
 _VENV_TIMEOUT = 120.0
 # ``pip install esphome`` pulls platformio + a large dep tree; allow generously.
 _PIP_TIMEOUT = 900.0

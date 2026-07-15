@@ -84,11 +84,15 @@ async def submit_job(
         client._submit_job_acks.pop(job_id, None)
 
 
-async def reset_build_env(client: PeerLinkClient) -> ResetBuildEnvAckFrameData:
+async def reset_build_env(
+    client: PeerLinkClient, *, esphome_version: str
+) -> ResetBuildEnvAckFrameData:
     """
     Send a ``reset_build_env`` frame and await the receiver's ack.
 
-    Raises :class:`PeerLinkNoSessionError` without a live session,
+    *esphome_version* is this offloader's own version, so the receiver
+    can also clear the cached venv its builds provision. Raises
+    :class:`PeerLinkNoSessionError` without a live session,
     :class:`SubmitJobTimeoutError` on a silent wire, and
     :class:`SubmitJobSessionLostError` when the session ends before
     the ack (the drain in ``_run_session_loops`` fails the future).
@@ -97,7 +101,11 @@ async def reset_build_env(client: PeerLinkClient) -> ResetBuildEnvAckFrameData:
     request_id = uuid4().hex[:12]
     ack_fut: asyncio.Future[ResetBuildEnvAckFrameData] = asyncio.get_running_loop().create_future()
     client._reset_env_acks[request_id] = ack_fut
-    frame: ResetBuildEnvFrameData = {"type": "reset_build_env", "request_id": request_id}
+    frame: ResetBuildEnvFrameData = {
+        "type": "reset_build_env",
+        "request_id": request_id,
+        "esphome_version": esphome_version,
+    }
     try:
         await channel.send_frame(cast(dict[str, Any], frame))
         try:
