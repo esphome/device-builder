@@ -76,6 +76,9 @@ from esphome_device_builder.controllers.remote_build.peer_link_client.client imp
     _LOCAL_CLOSE_RECEIVER_REJECTED,
     _mdns_record_name,
 )
+from esphome_device_builder.controllers.remote_build.peer_link_lifecycle import (
+    spawn_peer_link_client,
+)
 from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
@@ -6253,6 +6256,8 @@ async def test_wait_reconnect_wakes_on_receiver_address_record() -> None:
     assert not waiter.done()
 
     listeners[0].async_update_records(zc, 0.0, [matching])
+    # A second matching batch after the wake is a no-op (one-shot gate).
+    listeners[0].async_update_records(zc, 0.0, [matching])
     await asyncio.wait_for(waiter, timeout=1.0)
     zc.async_remove_listener.assert_called_once()
 
@@ -6266,3 +6271,28 @@ async def test_wait_reconnect_plain_sleep_for_ip_endpoint() -> None:
     await client._wait_reconnect(0)
 
     zc.async_add_listener.assert_not_called()
+
+
+async def test_spawn_peer_link_client_wires_the_zeroconf_getter(
+    offloader_controller_dir: Path,
+) -> None:
+    """The spawned client reads the shared zeroconf lazily through its getter."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = EventBus()
+    _prime_offloader_identity_for_spawn(offloader)
+    pairing = _stub_pairing(status=PeerStatus.APPROVED)
+
+    spawn_peer_link_client(offloader, pairing)
+    handle = offloader.state.peer_link_clients[pairing.pin_sha256]
+    try:
+        assert handle.client._get_zeroconf is not None
+        # devices.zeroconf is the lazily-read source; follow both shapes.
+        assert handle.client._get_zeroconf() is None
+        sentinel = MagicMock()
+        offloader._db.devices.zeroconf = sentinel
+        assert handle.client._get_zeroconf() is sentinel
+        offloader._db.devices = None
+        assert handle.client._get_zeroconf() is None
+    finally:
+        handle.task.cancel()
+        await asyncio.gather(handle.task, return_exceptions=True)
