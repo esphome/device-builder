@@ -1610,7 +1610,7 @@ async def test_repeat_sweep_with_unchanged_targets_logs_once(
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["192.0.2.5"])
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=False)
     # The shrunk interval gives the loop plenty of room to run
-    # several sweeps inside ``_let_ping_loop_run_briefly``'s window — a
+    # several sweeps inside ``_wait_for_ping_sweep``'s window — a
     # regression that re-logs every cycle would emit multiple
     # "Pinging" lines instead of one.
     _shrink_ping_intervals(monkeypatch)
