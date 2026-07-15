@@ -131,6 +131,17 @@ def _extract_ha_addon(response: dict[str, Any]) -> bool:
     return value if isinstance(value, bool) else False
 
 
+def _extract_reset_build_env_supported(response: dict[str, Any]) -> bool:
+    """
+    Lift the receiver's ``reset_build_env_supported`` flag off the response.
+
+    Missing or non-bool ⇒ ``False`` — an older receiver that never
+    sends the field doesn't accept the remote reset frame.
+    """
+    value = response.get("reset_build_env_supported", False)
+    return value if isinstance(value, bool) else False
+
+
 def _build_ws_url(hostname: str, port: int) -> URL:
     """
     Build the peer-link WS URL for *hostname* / *port*.

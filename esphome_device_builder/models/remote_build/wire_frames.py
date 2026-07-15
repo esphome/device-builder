@@ -236,3 +236,34 @@ class CancelJobFrameData(TypedDict):
 
     type: Literal["cancel_job"]
     job_id: str
+
+
+class ResetBuildEnvFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.RESET_BUILD_ENV``.
+
+    Offloader → receiver: wipe this offloader's isolated build
+    subtree. Deliberately carries no directory or dashboard field —
+    the target derives exclusively from the session's Noise-
+    authenticated ``dashboard_id``, so a peer can only ever reset
+    its own tree. ``request_id`` correlates the ack.
+    """
+
+    type: Literal["reset_build_env"]
+    request_id: str
+
+
+class ResetBuildEnvAckFrameData(TypedDict):
+    """
+    Application-frame payload for ``AppMessageType.RESET_BUILD_ENV_ACK``.
+
+    ``reason`` is ``NotRequired`` — present only on
+    ``accepted=False``: ``"busy"`` (the offloader has a job queued,
+    running, or a bundle mid-upload on the receiver), ``"io_error"``
+    (the wipe raised), or ``"invalid_frame"``.
+    """
+
+    type: Literal["reset_build_env_ack"]
+    request_id: str
+    accepted: bool
+    reason: NotRequired[str]

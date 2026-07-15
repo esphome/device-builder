@@ -503,6 +503,16 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*."""
         return await submit_job_commands.cancel_job(self, pin_sha256=pin_sha256, job_id=job_id)
 
+    @api_command("remote_build/reset_peer_build_env")
+    async def reset_peer_build_env(
+        self,
+        *,
+        pin_sha256: str,
+        **kwargs: Any,
+    ) -> dict[str, bool]:
+        """Ask the receiver behind *pin_sha256* to wipe this offloader's build env."""
+        return await submit_job_commands.reset_peer_build_env(self, pin_sha256=pin_sha256)
+
     def get_pairing(self, pin_sha256: str) -> StoredPairing | None:
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
         return self.state.pairings.get(pin_sha256)

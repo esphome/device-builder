@@ -1058,3 +1058,15 @@ def test_discard_session_unknown_is_noop(tmp_path: Path) -> None:
     """Discarding a session that never registered is a no-op."""
     receiver = _make_receiver(tmp_path)
     receiver.discard_session("never-seen")  # should not raise
+
+
+async def test_has_inflight_tracks_bundle_uploads(tmp_path: Path) -> None:
+    """``has_inflight`` is true between the header and discard, per dashboard."""
+    receiver = _make_receiver(tmp_path)
+    assert receiver.has_inflight("alpha") is False
+    session = _make_session(dashboard_id="alpha")
+    await receiver.handle_submit_job(session, _header(bundle=b"x" * 100))
+    assert receiver.has_inflight("alpha") is True
+    assert receiver.has_inflight("beta") is False
+    receiver.discard_session("alpha")
+    assert receiver.has_inflight("alpha") is False

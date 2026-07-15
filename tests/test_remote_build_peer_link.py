@@ -62,7 +62,10 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
 from esphome_device_builder.controllers.remote_build.peer_link import (
     session as _peer_link_session_module,
 )
-from esphome_device_builder.controllers.remote_build.peer_link.session import _receive_loop
+from esphome_device_builder.controllers.remote_build.peer_link.session import (
+    _APP_FRAME_DISPATCH,
+    _receive_loop,
+)
 from esphome_device_builder.controllers.remote_build.peer_link.wire_io import (
     _PEER_LABEL_MAX_CHARS,
     _normalize_label,
@@ -502,6 +505,7 @@ async def test_send_response_advertises_esphome_version() -> None:
         "intent_response": IntentResponse.OK.value,
         "esphome_version": esphome_version,
         "auto_provision_supported": True,
+        "reset_build_env_supported": True,
         "friendly_name": "",
         "ha_addon": False,
     }
@@ -2489,3 +2493,15 @@ async def test_handle_cancel_job_swallows_firmware_command_error(tmp_path: Path)
         {"type": "cancel_job", "job_id": "j-1"},
     )
     controller.offloader._db.firmware.cancel.assert_awaited_once()
+
+
+async def test_app_frame_dispatch_routes_reset_build_env() -> None:
+    """An inbound ``reset_build_env`` frame routes to the controller handler."""
+    controller = MagicMock(spec=ReceiverController)
+    controller.handle_reset_build_env = AsyncMock()
+    session = MagicMock(spec=PeerLinkSession)
+    frame = {"type": "reset_build_env", "request_id": "r1"}
+
+    await _APP_FRAME_DISPATCH["reset_build_env"](controller, session, frame)
+
+    controller.handle_reset_build_env.assert_awaited_once_with(session, frame)

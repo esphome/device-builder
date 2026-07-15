@@ -47,6 +47,33 @@ def venvs_dir(data_dir: Path) -> Path:
     return data_dir / REMOTE_BUILDS_NAME / _VENVS_NAME
 
 
+def dashboard_dir_id(dashboard_id: str) -> str:
+    """On-disk directory key for *dashboard_id* (idempotent truncation)."""
+    return dashboard_id[:_DASHBOARD_DIR_ID_CHARS]
+
+
+def dashboard_config_subtree(config_dir: Path, dashboard_id: str) -> Path:
+    """
+    Return one offloader's whole extract tree under *config_dir*.
+
+    Parent of every :meth:`RemoteBuildPath.subtree` / bundle for the
+    dashboard — the remote reset wipes it as a unit.
+    """
+    return config_dir / REMOTE_BUILDS_SUBDIR / dashboard_dir_id(dashboard_id)
+
+
+def dashboard_data_subtree(data_dir: Path, dashboard_id: str) -> Path:
+    """
+    Return one offloader's whole isolated data tree under *data_dir*.
+
+    Parent of :meth:`RemoteBuildPath.data_dir`'s ``.esphome`` (holds
+    the per-offloader ``.platformio`` toolchain + ``build/`` caches).
+    Never the sibling :func:`venvs_dir` — that cache is shared across
+    every paired offloader.
+    """
+    return data_dir / REMOTE_BUILDS_NAME / dashboard_dir_id(dashboard_id)
+
+
 # POSIX-form parts of ``REMOTE_BUILDS_SUBDIR``, pre-split once.
 # :attr:`FirmwareJob.configuration` is forward-slash on every
 # platform so the reverse parse uses these directly.
@@ -78,7 +105,7 @@ class RemoteBuildPath:
     @property
     def dir_id(self) -> str:
         """On-disk directory key: first :data:`_DASHBOARD_DIR_ID_CHARS` chars of the id."""
-        return self.dashboard_id[:_DASHBOARD_DIR_ID_CHARS]
+        return dashboard_dir_id(self.dashboard_id)
 
     def subtree(self, config_dir: Path) -> Path:
         """Return the absolute extract directory under *config_dir*."""

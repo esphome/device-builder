@@ -70,6 +70,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     _extract_ha_addon,
     _extract_receiver_esphome_version,
     _extract_receiver_friendly_name,
+    _extract_reset_build_env_supported,
     drive_initiator_round_trip,
     one_shot,
     preview_pair,
@@ -1307,6 +1308,7 @@ async def test_offloader_peer_link_event_listeners_update_open_set(
         "auto_provision_supported": False,
         "friendly_name": "",
         "ha_addon": False,
+        "reset_build_env_supported": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=opened))
     assert pin in offloader.state.open_peer_links
@@ -1422,6 +1424,23 @@ def test_extract_ha_addon_branches(response: dict[str, Any], expected: bool) -> 
     assert _extract_ha_addon(response) is expected
 
 
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        ({"reset_build_env_supported": True}, True),
+        ({"reset_build_env_supported": False}, False),
+        ({}, False),
+        ({"reset_build_env_supported": "1"}, False),
+        ({"reset_build_env_supported": 1}, False),
+    ],
+)
+def test_extract_reset_build_env_supported_branches(
+    response: dict[str, Any], expected: bool
+) -> None:
+    """Helper reads the reset capability; missing / non-bool ⇒ ``False``."""
+    assert _extract_reset_build_env_supported(response) is expected
+
+
 async def test_peer_link_opened_refreshes_stored_pairing_version(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1468,6 +1487,7 @@ async def test_peer_link_opened_refreshes_stored_pairing_version(
             "auto_provision_supported": False,
             "friendly_name": "",
             "ha_addon": False,
+            "reset_build_env_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1532,6 +1552,7 @@ async def test_peer_link_opened_refreshes_auto_provision_capability(
             "auto_provision_supported": supported,
             "friendly_name": "",
             "ha_addon": False,
+            "reset_build_env_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1581,6 +1602,7 @@ async def test_peer_link_opened_refreshes_display_identity(
             "auto_provision_supported": False,
             "friendly_name": friendly_name,
             "ha_addon": ha_addon,
+            "reset_build_env_supported": False,
         }
         return MagicMock(data=payload)
 
@@ -1610,6 +1632,50 @@ async def test_peer_link_opened_refreshes_display_identity(
     assert pairing.friendly_name == "Renamed-Host"
 
 
+async def test_peer_link_opened_refreshes_reset_capability(
+    offloader_controller_dir: Path,
+) -> None:
+    """``reset_build_env_supported`` lands on the pairing and saves only on change."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pin = "a" * 64
+    pairing = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        status=PeerStatus.APPROVED,
+    )
+    offloader.state.pairings[pin] = pairing
+    save_calls: list[None] = []
+    offloader._schedule_pairings_save = lambda: save_calls.append(None)  # type: ignore[method-assign]
+
+    def _opened(supported: bool) -> Any:
+        payload: OffloaderPeerLinkOpenedData = {
+            "receiver_hostname": "rcv.local",
+            "receiver_port": 6055,
+            "pin_sha256": pin,
+            "esphome_version": "",
+            "auto_provision_supported": False,
+            "friendly_name": "",
+            "ha_addon": False,
+            "reset_build_env_supported": supported,
+        }
+        return MagicMock(data=payload)
+
+    offloader._on_offloader_peer_link_opened(_opened(True))
+    assert pairing.reset_build_env_supported is True
+    saves = len(save_calls)
+    assert saves >= 1
+
+    offloader._on_offloader_peer_link_opened(_opened(True))
+    assert len(save_calls) == saves
+
+    # Downgraded receiver: the capability tracks the wire back off.
+    offloader._on_offloader_peer_link_opened(_opened(False))
+    assert pairing.reset_build_env_supported is False
+    assert len(save_calls) == saves + 1
+
+
 async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
     offloader_controller_dir: Path,
 ) -> None:
@@ -1636,6 +1702,7 @@ async def test_peer_link_opened_for_unknown_pin_is_silent_no_op(
         "auto_provision_supported": False,
         "friendly_name": "",
         "ha_addon": False,
+        "reset_build_env_supported": False,
     }
     offloader._on_offloader_peer_link_opened(MagicMock(data=payload))
     assert len(save_calls) == 0
@@ -4645,6 +4712,50 @@ async def test_submit_job_raises_no_session_error_when_session_closed() -> None:
         )
 
 
+async def test_run_session_loops_resolves_reset_build_env_ack_future(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``reset_build_env_ack`` frame fires the matching ack future."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    ack_fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._reset_env_acks["r-1"] = ack_fut
+
+    frame = {
+        "type": "reset_build_env_ack",
+        "request_id": "r-1",
+        "accepted": False,
+        "reason": "busy",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        ack = await asyncio.wait_for(ack_fut, timeout=2.0)
+
+    assert ack == frame
+
+
+async def test_run_session_loops_finally_drains_pending_reset_acks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pending reset acks complete with :class:`SubmitJobSessionLostError` on session end."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    pending: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._reset_env_acks["abandoned"] = pending
+
+    async with _drive_session_with_frames(client, monkeypatch, []):
+        await asyncio.sleep(0)
+
+    with pytest.raises(SubmitJobSessionLostError):
+        await pending
+
+
+async def test_reset_build_env_raises_no_session_error_when_session_closed() -> None:
+    """:meth:`reset_build_env` without a live session raises :class:`PeerLinkNoSessionError`."""
+    client = _make_offloader_client(EventBus())
+    with pytest.raises(PeerLinkNoSessionError):
+        await client.reset_build_env()
+
+
 async def test_submit_job_sends_header_chunks_and_returns_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -6440,3 +6551,126 @@ async def test_spawn_peer_link_client_wires_the_zeroconf_getter(
     finally:
         handle.task.cancel()
         await asyncio.gather(handle.task, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# remote_build/reset_peer_build_env WS command
+# ---------------------------------------------------------------------------
+
+
+def _seed_reset_capable_pairing(offloader: OffloaderController, pin: str) -> StoredPairing:
+    pairing = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    pairing.reset_build_env_supported = True
+    offloader.state.pairings[pin] = pairing
+    return pairing
+
+
+async def test_reset_peer_build_env_unknown_pin_raises_not_found(
+    offloader_controller_dir: Path,
+) -> None:
+    """No pairing for the pin → NOT_FOUND."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256="b" * 64)
+    assert excinfo.value.code is ErrorCode.NOT_FOUND
+
+
+async def test_reset_peer_build_env_without_capability_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """A receiver that never advertised the capability refuses before any wire I/O."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    offloader.state.pairings[pin] = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "does not support" in excinfo.value.message
+
+
+async def test_reset_peer_build_env_not_connected_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """Capability present but no live session → the lookup's PRECONDITION_FAILED."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "not ready" in excinfo.value.message
+
+
+def _stub_reset_client(offloader: OffloaderController, ack: Any) -> MagicMock:
+    """Route ``_lookup_open_peer_link_client`` to a stub whose reset returns/raises *ack*."""
+    client = MagicMock()
+    if isinstance(ack, Exception):
+        client.reset_build_env = AsyncMock(side_effect=ack)
+    else:
+        client.reset_build_env = AsyncMock(return_value=ack)
+    offloader._lookup_open_peer_link_client = (  # type: ignore[method-assign]
+        lambda pin_sha256, label: client
+    )
+    return client
+
+
+async def test_reset_peer_build_env_accepted(offloader_controller_dir: Path) -> None:
+    """An accepted ack returns ``{"accepted": True}``."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    _stub_reset_client(
+        offloader, {"type": "reset_build_env_ack", "request_id": "r", "accepted": True}
+    )
+    assert await offloader.reset_peer_build_env(pin_sha256=pin) == {"accepted": True}
+
+
+async def test_reset_peer_build_env_busy_maps_to_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """A ``busy`` refusal maps to PRECONDITION_FAILED with actionable copy."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    _stub_reset_client(
+        offloader,
+        {"type": "reset_build_env_ack", "request_id": "r", "accepted": False, "reason": "busy"},
+    )
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "queued, running, or uploading" in excinfo.value.message
+
+
+async def test_reset_peer_build_env_io_error_maps_to_internal(
+    offloader_controller_dir: Path,
+) -> None:
+    """A receiver-side ``io_error`` refusal maps to INTERNAL_ERROR."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    _stub_reset_client(
+        offloader,
+        {
+            "type": "reset_build_env_ack",
+            "request_id": "r",
+            "accepted": False,
+            "reason": "io_error",
+        },
+    )
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.INTERNAL_ERROR
+
+
+async def test_reset_peer_build_env_timeout_maps_to_unavailable(
+    offloader_controller_dir: Path,
+) -> None:
+    """A silent wire (ack timeout) maps to UNAVAILABLE."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    _stub_reset_client(offloader, SubmitJobTimeoutError("no ack"))
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.UNAVAILABLE

@@ -4932,6 +4932,13 @@ def test_pairing_summary_surfaces_display_identity() -> None:
     assert summary.ha_addon is True
 
 
+def test_pairing_summary_surfaces_reset_capability() -> None:
+    """``PairingSummary.reset_build_env_supported`` mirrors the storage-shape field."""
+    pairing = _valid_stored_pairing()
+    pairing.reset_build_env_supported = True
+    assert pairing_summary(pairing, connected=False).reset_build_env_supported is True
+
+
 def test_peer_summary_surfaces_display_identity() -> None:
     """``PeerSummary`` mirrors ``friendly_name`` / ``ha_addon`` / ``label_auto``."""
     peer = _stored_peer()

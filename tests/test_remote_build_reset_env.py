@@ -1,0 +1,211 @@
+"""Receiver-side ``reset_build_env`` handler: scoped wipe, busy gate, acks."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from esphome.core import CORE
+
+from esphome_device_builder.controllers.remote_build import reset_env
+from esphome_device_builder.controllers.remote_build.peer_link import (
+    PeerLinkSession,
+    TerminateReason,
+)
+from esphome_device_builder.helpers.remote_build_layout import (
+    dashboard_config_subtree,
+    dashboard_data_subtree,
+    venvs_dir,
+)
+
+from .conftest import RemoteBuildTestHandles, make_remote_build_controller
+
+_DASHBOARD_ID = "abcdef0123456789"
+_OTHER_DASHBOARD_ID = "zzzzzzzz11111111"
+
+
+def _make_session(dashboard_id: str = _DASHBOARD_ID) -> MagicMock:
+    session = MagicMock(spec=PeerLinkSession)
+    session.dashboard_id = dashboard_id
+    session.send_app_frame = AsyncMock(return_value=True)
+    session.terminate = AsyncMock()
+    return session
+
+
+def _sent_ack(session: MagicMock) -> dict[str, Any]:
+    session.send_app_frame.assert_awaited_once()
+    return session.send_app_frame.call_args.args[0]
+
+
+def _seed_subtrees(config_dir: Path, dashboard_id: str) -> tuple[Path, Path]:
+    """Create both per-offloader trees with a sentinel file each."""
+    config_subtree = dashboard_config_subtree(config_dir, dashboard_id)
+    data_subtree = dashboard_data_subtree(Path(CORE.data_dir), dashboard_id)
+    for base in (config_subtree / "kitchen", data_subtree / ".esphome" / "build"):
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "sentinel.txt").write_text("x")
+    return config_subtree, data_subtree
+
+
+def _make_handles(tmp_path: Path) -> RemoteBuildTestHandles:
+    handles = make_remote_build_controller(config_dir=tmp_path)
+    # No firmware controller / submit receiver by default: not busy.
+    handles.receiver._db.firmware = None
+    handles.receiver.state.submit_job_receiver = None
+    return handles
+
+
+async def test_reset_wipes_both_subtrees_and_leaves_neighbours(tmp_path: Path) -> None:
+    """Success wipes the requester's trees; venvs + other offloaders survive."""
+    handles = _make_handles(tmp_path)
+    config_subtree, data_subtree = _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    other_config, other_data = _seed_subtrees(tmp_path, _OTHER_DASHBOARD_ID)
+    venvs = venvs_dir(Path(CORE.data_dir))
+    (venvs / "esphome-2026.6.5").mkdir(parents=True)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r1"}
+    )
+
+    assert _sent_ack(session) == {
+        "type": "reset_build_env_ack",
+        "request_id": "r1",
+        "accepted": True,
+    }
+    assert not config_subtree.exists()
+    assert not data_subtree.exists()
+    assert other_config.exists()
+    assert other_data.exists()
+    assert (venvs / "esphome-2026.6.5").exists()
+    session.terminate.assert_not_called()
+
+
+async def test_reset_with_missing_dirs_still_acks_accepted(tmp_path: Path) -> None:
+    """Nothing on disk yet: the wipe is a no-op success, not an error."""
+    handles = _make_handles(tmp_path)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r2"}
+    )
+
+    assert _sent_ack(session)["accepted"] is True
+
+
+async def test_reset_refused_busy_while_job_active(tmp_path: Path) -> None:
+    """A queued/running job from the same offloader refuses the wipe."""
+    handles = _make_handles(tmp_path)
+    job = MagicMock()
+    job.remote_peer = _DASHBOARD_ID
+    firmware = MagicMock()
+    firmware.active_remote_peer_jobs = MagicMock(return_value=iter([job]))
+    handles.receiver._db.firmware = firmware
+    config_subtree, _ = _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r3"}
+    )
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "busy"
+    assert config_subtree.exists()
+
+
+async def test_reset_ignores_other_offloaders_jobs(tmp_path: Path) -> None:
+    """Another offloader's in-flight job does not block this one's reset."""
+    handles = _make_handles(tmp_path)
+    job = MagicMock()
+    job.remote_peer = _OTHER_DASHBOARD_ID
+    firmware = MagicMock()
+    firmware.active_remote_peer_jobs = MagicMock(return_value=iter([job]))
+    handles.receiver._db.firmware = firmware
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r4"}
+    )
+
+    assert _sent_ack(session)["accepted"] is True
+
+
+async def test_reset_refused_busy_while_bundle_inflight(tmp_path: Path) -> None:
+    """A bundle mid-upload from the same offloader refuses the wipe."""
+    handles = _make_handles(tmp_path)
+    receiver_stub = MagicMock()
+    receiver_stub.has_inflight = MagicMock(return_value=True)
+    handles.receiver.state.submit_job_receiver = receiver_stub
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r5"}
+    )
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "busy"
+    receiver_stub.has_inflight.assert_called_once_with(_DASHBOARD_ID)
+
+
+async def test_reset_malformed_frame_acks_and_terminates(tmp_path: Path) -> None:
+    """A frame without ``request_id`` acks invalid_frame + terminates the session."""
+    handles = _make_handles(tmp_path)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, {"type": "reset_build_env"})
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "invalid_frame"
+    session.terminate.assert_awaited_once_with(TerminateReason.MALFORMED_FRAME)
+
+
+async def test_reset_target_derives_from_session_identity(tmp_path: Path) -> None:
+    """A hostile dashboard/dir field in the frame is ignored; the session id wins."""
+    handles = _make_handles(tmp_path)
+    victim_config, victim_data = _seed_subtrees(tmp_path, _OTHER_DASHBOARD_ID)
+    own_config, own_data = _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver,
+        session,
+        {
+            "type": "reset_build_env",
+            "request_id": "r6",
+            "dashboard_id": _OTHER_DASHBOARD_ID,
+            "dir": "../../..",
+        },
+    )
+
+    assert _sent_ack(session)["accepted"] is True
+    assert victim_config.exists()
+    assert victim_data.exists()
+    assert not own_config.exists()
+    assert not own_data.exists()
+
+
+async def test_reset_io_error_acks_io_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An ``OSError`` from the wipe surfaces as an ``io_error`` refusal."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    session = _make_session()
+
+    def _boom(*_args: object) -> None:
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(reset_env, "_wipe_subtrees", _boom)
+
+    await reset_env.handle_reset_build_env(
+        handles.receiver, session, {"type": "reset_build_env", "request_id": "r7"}
+    )
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "io_error"

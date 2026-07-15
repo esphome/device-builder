@@ -17,7 +17,11 @@ from esphome_device_builder.helpers.remote_build_layout import (
     BUNDLE_SUFFIX,
     REMOTE_BUILDS_SUBDIR,
     RemoteBuildPath,
+    dashboard_config_subtree,
+    dashboard_data_subtree,
+    dashboard_dir_id,
     parse_from_configuration,
+    venvs_dir,
 )
 
 
@@ -148,3 +152,21 @@ def test_parse_round_trip_idempotent_for_long_id(tmp_path: Path) -> None:
     assert parsed.dashboard_id == "Nc7uJKFU"  # the truncated dir_id, not the full wire id
     assert parsed.subtree(tmp_path) == key.subtree(tmp_path)
     assert parsed.data_dir(tmp_path) == key.data_dir(tmp_path)
+
+
+def test_dashboard_dir_id_truncates_idempotently() -> None:
+    """The on-disk key is the first 8 chars; re-truncation is a no-op."""
+    assert dashboard_dir_id("abcdef0123456789") == "abcdef01"
+    assert dashboard_dir_id(dashboard_dir_id("abcdef0123456789")) == "abcdef01"
+
+
+def test_dashboard_subtrees_are_the_per_offloader_parents(tmp_path: Path) -> None:
+    """The subtree helpers parent the per-device paths; venvs stays a sibling."""
+    key = RemoteBuildPath(dashboard_id="abcdef0123456789", device_name="kitchen")
+    config_subtree = dashboard_config_subtree(tmp_path, "abcdef0123456789")
+    data_subtree = dashboard_data_subtree(tmp_path, "abcdef0123456789")
+
+    assert key.subtree(tmp_path).is_relative_to(config_subtree)
+    assert key.bundle(tmp_path).is_relative_to(config_subtree)
+    assert key.data_dir(tmp_path).is_relative_to(data_subtree)
+    assert not venvs_dir(tmp_path).is_relative_to(data_subtree)

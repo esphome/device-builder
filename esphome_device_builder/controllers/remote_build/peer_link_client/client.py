@@ -42,6 +42,7 @@ from ....models import (
     IntentResponse,
     PeerLinkIntent,
     RejectReason,
+    ResetBuildEnvAckFrameData,
     SubmitJobAckFrameData,
 )
 from .._client_models import (
@@ -66,6 +67,7 @@ from .one_shot import (
     _extract_ha_addon,
     _extract_receiver_esphome_version,
     _extract_receiver_friendly_name,
+    _extract_reset_build_env_supported,
 )
 
 if TYPE_CHECKING:
@@ -254,6 +256,9 @@ class PeerLinkClient:
         # :meth:`_run_session_loops`'s ``finally`` on session
         # loss so callers don't hang on the ack timeout.
         self._submit_job_acks: dict[str, asyncio.Future[SubmitJobAckFrameData]] = {}
+        # Per-request reset_build_env ack futures — same drain shape
+        # as ``_submit_job_acks`` (force-completed on session loss).
+        self._reset_env_acks: dict[str, asyncio.Future[ResetBuildEnvAckFrameData]] = {}
         # Operator-facing "Last connection error" line. Populated
         # by :meth:`_run_one_session`'s exception paths, cleared
         # on every successful session-open so a stale message
@@ -344,6 +349,10 @@ class PeerLinkClient:
 
     async def cancel_job(self, *, job_id: str) -> bool:
         return await _submit.cancel_job(self, job_id=job_id)
+
+    async def reset_build_env(self) -> ResetBuildEnvAckFrameData:
+        """Ask the receiver to wipe this offloader's isolated build subtree."""
+        return await _submit.reset_build_env(self)
 
     async def download_artifacts(self, *, job_id: str) -> DownloadArtifactsResult:
         return await _submit.download_artifacts(self, job_id=job_id)
@@ -524,6 +533,7 @@ class PeerLinkClient:
                 auto_provision = _extract_auto_provision_supported(response)
                 receiver_friendly_name = _extract_receiver_friendly_name(response)
                 receiver_ha_addon = _extract_ha_addon(response)
+                reset_supported = _extract_reset_build_env_supported(response)
                 channel = PeerLinkChannel(
                     noise=session, ws=ws, log_label=f"{self._hostname}:{self._port}"
                 )
@@ -534,6 +544,7 @@ class PeerLinkClient:
                     auto_provision_supported=auto_provision,
                     friendly_name=receiver_friendly_name,
                     ha_addon=receiver_ha_addon,
+                    reset_build_env_supported=reset_supported,
                 )
                 try:
                     return await self._run_session_loops(channel)
@@ -567,7 +578,7 @@ class PeerLinkClient:
             self._last_connect_error = f"{type(exc).__name__}: {exc}"
             return _LOCAL_CLOSE_TRANSPORT_ERROR
 
-    async def _run_session_loops(self, channel: PeerLinkChannel) -> str:  # noqa: C901
+    async def _run_session_loops(self, channel: PeerLinkChannel) -> str:  # noqa: C901, PLR0912
         """
         Run the receive loop with a heartbeat task in parallel.
 
@@ -669,6 +680,16 @@ class PeerLinkClient:
                             f"for job_id={pending_job_id!r}"
                         )
                     )
+            # Same drain shape for pending reset_build_env acks.
+            for pending_request_id, reset_fut in list(self._reset_env_acks.items()):
+                if not reset_fut.done():
+                    reset_fut.set_exception(
+                        SubmitJobSessionLostError(
+                            f"reset_build_env: peer-link session to "
+                            f"{self._hostname}:{self._port} ended before ack "
+                            f"for request_id={pending_request_id!r}"
+                        )
+                    )
             # Same drain shape for in-flight artifact downloads.
             for pending_job_id, dl_state in list(self._artifacts_downloads.items()):
                 if not dl_state.future.done():
@@ -695,6 +716,7 @@ class PeerLinkClient:
         return {
             AppMessageType.QUEUE_STATUS.value: self._dispatch_queue_status,
             AppMessageType.SUBMIT_JOB_ACK.value: self._dispatch_submit_job_ack,
+            AppMessageType.RESET_BUILD_ENV_ACK.value: self._dispatch_reset_build_env_ack,
             AppMessageType.JOB_STATE_CHANGED.value: self._dispatch_job_state_changed,
             AppMessageType.JOB_OUTPUT.value: self._dispatch_job_output,
             AppMessageType.ARTIFACTS_START.value: self._dispatch_artifacts_start,
@@ -707,6 +729,9 @@ class PeerLinkClient:
 
     def _dispatch_submit_job_ack(self, parsed: dict[str, Any]) -> None:
         _dispatch.dispatch_submit_job_ack(self, parsed)
+
+    def _dispatch_reset_build_env_ack(self, parsed: dict[str, Any]) -> None:
+        _dispatch.dispatch_reset_build_env_ack(self, parsed)
 
     def _log_malformed(self, frame_type: str, parsed: dict[str, Any]) -> None:
         _dispatch.log_malformed(self, frame_type, parsed)
@@ -733,6 +758,7 @@ class PeerLinkClient:
         auto_provision_supported: bool = False,
         friendly_name: str = "",
         ha_addon: bool = False,
+        reset_build_env_supported: bool = False,
     ) -> None:
         _dispatch.fire_opened(
             self,
@@ -740,6 +766,7 @@ class PeerLinkClient:
             auto_provision_supported=auto_provision_supported,
             friendly_name=friendly_name,
             ha_addon=ha_addon,
+            reset_build_env_supported=reset_build_env_supported,
         )
 
     def _fire_closed(self, reason: str, *, error_detail: str = "") -> None:

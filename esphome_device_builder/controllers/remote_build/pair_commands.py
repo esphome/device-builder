@@ -232,6 +232,7 @@ async def request_pair(
         pairing.auto_provision_supported = prior.auto_provision_supported
         pairing.friendly_name = prior.friendly_name
         pairing.ha_addon = prior.ha_addon
+        pairing.reset_build_env_supported = prior.reset_build_env_supported
     # Sweep any stale entry at the same endpoint under a
     # different pin (rotation, or a different receiver took
     # the hostname) so the old row's listener + alert don't

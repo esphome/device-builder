@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING, Any, Literal, cast
+from uuid import uuid4
 
 from ....helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
@@ -14,6 +15,8 @@ from ....helpers.peer_link_bundle import (
 from ....models import (
     CancelJobFrameData,
     DownloadArtifactsFrameData,
+    ResetBuildEnvAckFrameData,
+    ResetBuildEnvFrameData,
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
@@ -36,6 +39,11 @@ if TYPE_CHECKING:
 # pinning the offloader's submit handler forever if the wire
 # goes silent.
 _SUBMIT_JOB_ACK_TIMEOUT_SECONDS = 60.0
+
+# The wipe is one rmtree of a possibly multi-GB PlatformIO tree on
+# a constrained SoC; match the submit budget rather than a short
+# control-frame timeout.
+_RESET_BUILD_ENV_ACK_TIMEOUT_SECONDS = 60.0
 
 
 async def submit_job(
@@ -74,6 +82,33 @@ async def submit_job(
         return await _await_submit_job_ack(client, ack_fut, job_id=job_id)
     finally:
         client._submit_job_acks.pop(job_id, None)
+
+
+async def reset_build_env(client: PeerLinkClient) -> ResetBuildEnvAckFrameData:
+    """
+    Send a ``reset_build_env`` frame and await the receiver's ack.
+
+    Raises :class:`PeerLinkNoSessionError` without a live session,
+    :class:`SubmitJobTimeoutError` on a silent wire, and
+    :class:`SubmitJobSessionLostError` when the session ends before
+    the ack (the drain in ``_run_session_loops`` fails the future).
+    """
+    channel = _require_open_channel(client, label="reset_build_env")
+    request_id = uuid4().hex[:12]
+    ack_fut: asyncio.Future[ResetBuildEnvAckFrameData] = asyncio.get_running_loop().create_future()
+    client._reset_env_acks[request_id] = ack_fut
+    frame: ResetBuildEnvFrameData = {"type": "reset_build_env", "request_id": request_id}
+    try:
+        await channel.send_frame(cast(dict[str, Any], frame))
+        try:
+            return await asyncio.wait_for(ack_fut, timeout=_RESET_BUILD_ENV_ACK_TIMEOUT_SECONDS)
+        except TimeoutError as exc:
+            raise SubmitJobTimeoutError(
+                f"reset_build_env: no ack from {client._hostname}:{client._port} "
+                f"after {_RESET_BUILD_ENV_ACK_TIMEOUT_SECONDS:.0f}s"
+            ) from exc
+    finally:
+        client._reset_env_acks.pop(request_id, None)
 
 
 async def cancel_job(client: PeerLinkClient, *, job_id: str) -> bool:

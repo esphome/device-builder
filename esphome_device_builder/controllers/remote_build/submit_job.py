@@ -369,6 +369,10 @@ class SubmitJobReceiver:
         """
         self._inflight.pop(dashboard_id, None)
 
+    def has_inflight(self, dashboard_id: str) -> bool:
+        """Whether *dashboard_id* has a bundle upload mid-stream."""
+        return dashboard_id in self._inflight
+
     async def handle_submit_job(self, session: PeerLinkSession, frame: SubmitJobFrameData) -> None:
         """Validate the header, set up the assembler, register as in-flight.
 

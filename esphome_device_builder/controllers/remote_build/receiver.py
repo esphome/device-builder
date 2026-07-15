@@ -49,6 +49,7 @@ from . import (
     pairing_window,
     peer_crud,
     peer_link_sessions,
+    reset_env,
     settings_receiver,
 )
 from ._receiver_state import ReceiverState
@@ -177,6 +178,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
     async def handle_cancel_job(self, session: PeerLinkSession, frame: dict[str, Any]) -> None:
         """Receiver-side dispatch for inbound ``cancel_job`` frames."""
         await peer_link_sessions.handle_cancel_job(self, session, frame)
+
+    async def handle_reset_build_env(self, session: PeerLinkSession, frame: dict[str, Any]) -> None:
+        """Receiver-side dispatch for inbound ``reset_build_env`` frames."""
+        await reset_env.handle_reset_build_env(self, session, frame)
 
     def get_submit_job_receiver(self) -> SubmitJobReceiver:
         """Return the receiver-side ``submit_job`` flow handler, raising if not started.

@@ -193,3 +193,44 @@ async def cancel_job(
     except PeerLinkNoSessionError as exc:
         raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
     return {"sent": sent}
+
+
+async def reset_peer_build_env(
+    controller: OffloaderController, *, pin_sha256: str
+) -> dict[str, bool]:
+    """Ask the receiver behind *pin_sha256* to wipe this offloader's build env.
+
+    Request/ack over the live peer-link. The receiver refuses
+    ``busy`` while this offloader has a job queued / running or a
+    bundle mid-upload there — cancel or wait, then retry. Returns
+    ``{"accepted": True}`` once the wipe completed.
+    """
+    clean_pin = validate_pin_sha256(pin_sha256)
+    pairing = controller.state.pairings.get(clean_pin)
+    if pairing is None:
+        msg = f"reset_peer_build_env: no pairing for pin_sha256={clean_pin!r}"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    if not pairing.reset_build_env_supported:
+        msg = (
+            "reset_peer_build_env: the receiver does not support a remote "
+            "build-environment reset (upgrade it, or reset from its own dashboard)"
+        )
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    client = controller._lookup_open_peer_link_client(clean_pin, label="reset_peer_build_env")
+    try:
+        ack = await client.reset_build_env()
+    except PeerLinkNoSessionError as exc:
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
+    except (SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
+        raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
+    if not ack["accepted"]:
+        reason = ack.get("reason", "")
+        if reason == "busy":
+            msg = (
+                "reset_peer_build_env: the build server refused — this dashboard "
+                "still has a job queued, running, or uploading there"
+            )
+            raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+        msg = f"reset_peer_build_env: the build server refused ({reason or 'unknown'})"
+        raise CommandError(ErrorCode.INTERNAL_ERROR, msg)
+    return {"accepted": True}

@@ -329,6 +329,14 @@ async def _dispatch_download_artifacts(
     await controller.get_artifacts_download_sender().handle_download_artifacts(session, parsed)
 
 
+async def _dispatch_reset_build_env(
+    controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
+) -> None:
+    # Wipes the requesting offloader's isolated subtree; replies with one
+    # reset_build_env_ack. The target derives from session.dashboard_id.
+    await controller.handle_reset_build_env(session, parsed)
+
+
 # Inbound app-frame type → async handler. PING / PONG / TERMINATE branch in
 # the receive loop body; they touch session-local state or close the loop and
 # don't fit the shared handler shape. Malformed frames branch upstream.
@@ -339,6 +347,7 @@ _APP_FRAME_DISPATCH: dict[
     AppMessageType.SUBMIT_JOB_CHUNK.value: _dispatch_submit_job_chunk,
     AppMessageType.CANCEL_JOB.value: _dispatch_cancel_job,
     AppMessageType.DOWNLOAD_ARTIFACTS.value: _dispatch_download_artifacts,
+    AppMessageType.RESET_BUILD_ENV.value: _dispatch_reset_build_env,
 }
 
 
