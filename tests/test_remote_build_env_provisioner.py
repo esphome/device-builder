@@ -199,6 +199,23 @@ async def test_provision_on_build_fires_only_on_cache_miss(
     assert len(lines) == 1  # warm hit announces nothing
 
 
+async def test_provision_survives_a_raising_on_build_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A raising observer logs and the provision proceeds (best-effort hook)."""
+    runner = _FakeRunner()
+    _patch_runner(monkeypatch, runner)
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+
+    def _boom(_line: str) -> None:
+        raise RuntimeError("observer broke")
+
+    cmd = await provisioner.provision("2026.6.4", on_build=_boom)
+
+    assert "esphome-2026.6.4" in str(cmd[0])
+    assert runner.count("venv") == 1  # the build still ran
+
+
 async def test_cached_cmd_refuses_unpinnable(tmp_path: Path) -> None:
     """A dev / local version is never cached-servable."""
     provisioner = EnvProvisioner(data_dir=tmp_path)
