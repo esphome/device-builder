@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
 
@@ -22,14 +23,21 @@ def _bare_app() -> web.Application:
     return app
 
 
-async def test_server_info_carries_deployment_signals(
+@pytest.mark.parametrize("in_docker", [True, False])
+async def test_server_info_forwards_in_docker(
     aiohttp_client: AiohttpClient,
+    monkeypatch: pytest.MonkeyPatch,
+    in_docker: bool,
 ) -> None:
-    """First frame carries the installation signals the frontend maps."""
+    """The handshake forwards the probed container flag verbatim.
+
+    Patching ``_IN_DOCKER`` pins the wiring — comparing against the live
+    constant would pass even on a hardcoded ``False`` in a non-container CI.
+    """
+    monkeypatch.setattr(ws_module, "_IN_DOCKER", in_docker)
     client = await aiohttp_client(_bare_app())
     async with client.ws_connect("/ws") as ws:
         info = loads((await ws.receive(timeout=2.0)).data)
     assert info["ha_addon"] is False
-    assert info["in_docker"] is ws_module._IN_DOCKER
-    assert isinstance(info["in_docker"], bool)
+    assert info["in_docker"] is in_docker
     assert "desktop_version" in info
