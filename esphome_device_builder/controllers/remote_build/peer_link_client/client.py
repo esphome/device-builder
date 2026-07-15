@@ -408,12 +408,7 @@ class PeerLinkClient:
             return
         wake = asyncio.Event()
         listener = _ReceiverWakeListener(self._wake_record_name, wake)
-        try:
-            zc.async_add_listener(listener, None)
-        except Exception:  # noqa: BLE001 - the wake is an optimisation, never a requirement
-            # A wedged / closing zeroconf falls back to the plain sleep.
-            await asyncio.sleep(backoff)
-            return
+        zc.async_add_listener(listener, None)
         try:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(wake.wait(), backoff)
