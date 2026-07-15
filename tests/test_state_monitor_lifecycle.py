@@ -169,23 +169,25 @@ async def _start_with_captured_dispatch(
     return captured["dispatch"]
 
 
-async def _let_ping_loop_run_briefly(
+async def _wait_for_ping_sweep(
     monitor: DeviceStateMonitor, *, until: Callable[[], bool] | None = None
 ) -> None:
-    """Yield long enough for the ping loop (paired with ``_shrink_ping_intervals``) to sweep.
+    """
+    Poll *until* (deadline-bounded, raising on timeout), or one fixed yield without it.
 
-    Positive assertions pass *until* — a loaded CI worker can stretch a
-    sweep past any fixed sleep, so the wait polls for the condition up
-    to a generous deadline. Negative assertions keep the bare fixed
-    yield (there is nothing to wait for).
+    The bare-yield form is for negative assertions — nothing to wait for.
     """
     if monitor._ping_task is None:
         return
     if until is None:
         await asyncio.sleep(0.05)
         return
-    deadline = asyncio.get_running_loop().time() + 5.0
-    while not until() and asyncio.get_running_loop().time() < deadline:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 5.0
+    while not until():
+        if loop.time() >= deadline:
+            msg = "ping loop did not reach the expected state within 5s"
+            raise AssertionError(msg)
         await asyncio.sleep(0.01)
 
 
@@ -1431,7 +1433,7 @@ def test_revisit_importable_seeds_nothing_on_cache_miss(
 
 
 def _shrink_ping_intervals(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Collapse the bootstrap delay + interval so ``_let_ping_loop_run_briefly`` sees sweeps."""
+    """Collapse the bootstrap delay + interval so ``_wait_for_ping_sweep`` sees sweeps."""
     monkeypatch.setattr(ping_module.PingSource, "_bootstrap_delay", 0)
     monkeypatch.setattr(ping_module.PingSource, "_interval", 0.001)
 
@@ -1459,7 +1461,7 @@ async def test_start_drives_ping_pipeline_to_online_state(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(
+        await _wait_for_ping_sweep(
             monitor, until=lambda: device.runtime_state.state == DeviceState.ONLINE
         )
         assert device.runtime_state.state == DeviceState.ONLINE
@@ -1519,7 +1521,7 @@ async def test_start_marks_offline_on_icmp_exception(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(
+        await _wait_for_ping_sweep(
             monitor, until=lambda: device.runtime_state.state == DeviceState.OFFLINE
         )
         assert device.runtime_state.state == DeviceState.OFFLINE
@@ -1552,7 +1554,7 @@ async def test_start_skips_ping_for_cached_dns_failures(
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _let_ping_loop_run_briefly(monitor)
+            await _wait_for_ping_sweep(monitor)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1580,7 +1582,7 @@ async def test_start_logs_ping_count_at_debug(
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _let_ping_loop_run_briefly(monitor)
+            await _wait_for_ping_sweep(monitor)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1616,7 +1618,7 @@ async def test_repeat_sweep_with_unchanged_targets_logs_once(
     with caplog.at_level(logging.DEBUG, logger=ping_module.__name__):
         await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
         try:
-            await _let_ping_loop_run_briefly(monitor)
+            await _wait_for_ping_sweep(monitor)
         finally:
             await _stop_and_drain(monitor)
 
@@ -1698,7 +1700,7 @@ async def test_start_skips_devices_without_address(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(monitor)
+        await _wait_for_ping_sweep(monitor)
         monitor.state.dns_cache.async_resolve.assert_not_called()
     finally:
         await _stop_and_drain(monitor)
@@ -1795,7 +1797,7 @@ async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
 
     await _start_with_captured_dispatch(monitor, monkeypatch, park_ping_loop=False)
     try:
-        await _let_ping_loop_run_briefly(
+        await _wait_for_ping_sweep(
             monitor, until=lambda: device.runtime_state.state == DeviceState.ONLINE
         )
         assert device.runtime_state.state == DeviceState.ONLINE
