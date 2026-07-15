@@ -10,6 +10,7 @@ from esphome_device_builder.helpers.version_compat import (
     is_pinnable_version,
     is_release_version,
     major_versions_match,
+    pinnable_version_key,
     version_satisfies_policy,
     versions_match_exactly,
 )
@@ -55,6 +56,20 @@ def test_is_release_version(version: str, expected: bool) -> None:
 def test_is_pinnable_version(version: str, expected: bool) -> None:
     """PyPI-published shapes (release plus a/b/rc pre-releases) pass; dev / post / local do not."""
     assert is_pinnable_version(version) is expected
+
+
+def test_pinnable_version_key_ordering() -> None:
+    """Trailing ``.0`` normalises equal; pre-releases order a < b < rc < final."""
+    key = pinnable_version_key
+    assert key("2026.6") == key("2026.6.0")
+    assert key("2026.6.4") < key("2026.7.0")
+    assert key("2026.7.0a1") < key("2026.7.0b2")
+    assert key("2026.7.0b2") < key("2026.7.0b3")
+    assert key("2026.7.0b3") < key("2026.7.0rc1")
+    assert key("2026.7.0rc1") < key("2026.7.0")
+    assert key("2026.6.4") < key("2026.7.0b1")
+    with pytest.raises(ValueError, match="not a pinnable version"):
+        key("2026.7.0-dev")
 
 
 @pytest.mark.parametrize(

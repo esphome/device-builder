@@ -299,6 +299,20 @@ async def test_sweep_stale_removes_older_keeps_installed_and_newer(tmp_path: Pat
     assert newer.exists()
 
 
+async def test_sweep_stale_orders_beta_installs(tmp_path: Path) -> None:
+    """A beta-installed receiver sweeps older releases and keeps the final it precedes."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    older = await _seed_venv(provisioner, "2026.6.4")
+    earlier_beta = await _seed_venv(provisioner, "2026.7.0b1")
+    final = await _seed_venv(provisioner, "2026.7.0")
+
+    await provisioner.sweep_stale("2026.7.0b3")
+
+    assert not older.exists()
+    assert not earlier_beta.exists()
+    assert final.exists()  # the beta precedes its final; never sweep it
+
+
 async def test_sweep_stale_tolerates_missing_dir_and_skips_non_venv_entries(
     tmp_path: Path,
 ) -> None:

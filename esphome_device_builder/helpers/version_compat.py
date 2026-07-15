@@ -69,6 +69,31 @@ def is_pinnable_version(version: str) -> bool:
     return _PINNABLE_RE.fullmatch(version) is not None
 
 
+_PINNABLE_KEY_RE = re.compile(r"(\d+(?:\.\d+)*)(?:(a|b|rc)(\d+))?")
+_PRE_ORDER = {"a": 0, "b": 1, "rc": 2}
+
+
+def pinnable_version_key(version: str) -> tuple[tuple[int, ...], int, int, int]:
+    """
+    Sort key for a pinnable version.
+
+    Trailing ``.0`` release parts are normalised out (``2026.6`` orders
+    equal to ``2026.6.0``) and a pre-release orders before its final
+    (``2026.7.0b3 < 2026.7.0``). Raises ``ValueError`` for a version
+    :func:`is_pinnable_version` rejects.
+    """
+    match = _PINNABLE_KEY_RE.fullmatch(version)
+    if match is None:
+        msg = f"not a pinnable version: {version!r}"
+        raise ValueError(msg)
+    parts = [int(part) for part in match.group(1).split(".")]
+    while len(parts) > 1 and parts[-1] == 0:
+        parts.pop()
+    if match.group(2) is None:
+        return (tuple(parts), 1, 0, 0)
+    return (tuple(parts), 0, _PRE_ORDER[match.group(2)], int(match.group(3)))
+
+
 class VersionMatchPolicy(StrEnum):
     """How strictly the offloader filters peers by ESPHome version.
 

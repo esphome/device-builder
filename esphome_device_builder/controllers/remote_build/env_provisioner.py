@@ -26,7 +26,7 @@ from esphome.helpers import rmtree as _esphome_rmtree
 from ...helpers import remote_build_layout
 from ...helpers.async_ import run_in_executor
 from ...helpers.subprocess import run_subprocess_capture
-from ...helpers.version_compat import is_pinnable_version
+from ...helpers.version_compat import is_pinnable_version, pinnable_version_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,9 +125,9 @@ class EnvProvisioner:
         """
         if not is_pinnable_version(installed_version):
             return
-        installed_key = _release_key(installed_version)
+        installed_key = pinnable_version_key(installed_version)
         for venv, version in await run_in_executor(self._list_venvs):
-            if _release_key(version) < installed_key:
+            if pinnable_version_key(version) < installed_key:
                 _LOGGER.info(
                     "Removing stale esphome venv %s (older than installed %s)",
                     version,
@@ -243,18 +243,6 @@ def _venv_esphome_cmd(venv: Path) -> list[str]:
 def _version_in_output(version: str, output: str) -> bool:
     """Whether *version* appears in *output* as a whole token, not inside a longer number."""
     return re.search(rf"(?<![\w.]){re.escape(version)}(?![\w.])", output) is not None
-
-
-def _release_key(version: str) -> tuple[int, ...]:
-    """Sort key for a plain-release version, trailing ``.0`` normalised out.
-
-    So ``2026.6`` and ``2026.6.0`` order equal rather than the shorter one
-    counting as older, which would sweep an effectively-installed venv.
-    """
-    parts = [int(part) for part in version.split(".")]
-    while len(parts) > 1 and parts[-1] == 0:
-        parts.pop()
-    return tuple(parts)
 
 
 def _prepare_venv_dir(venv: Path) -> None:
