@@ -256,6 +256,7 @@ def fire_offloader_pairing_added(
         "last_connect_error": summary.last_connect_error,
         "esphome_version": summary.esphome_version,
         "enabled": summary.enabled,
+        "auto_provision_supported": summary.auto_provision_supported,
     }
     controller._db.bus.fire(EventType.OFFLOADER_PAIRING_ADDED, payload)
 

@@ -52,6 +52,7 @@ class OffloaderPairingAddedData(TypedDict):
     last_connect_error: str
     esphome_version: str
     enabled: bool
+    auto_provision_supported: bool
 
 
 class OffloaderPairEndpointReboundData(TypedDict):
