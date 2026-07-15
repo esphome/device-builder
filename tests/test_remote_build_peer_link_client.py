@@ -6268,6 +6268,18 @@ async def test_wait_reconnect_wakes_on_receiver_address_record() -> None:
     zc.async_remove_listener.assert_called_once()
 
 
+async def test_wait_reconnect_falls_back_to_sleep_when_listener_registration_fails() -> None:
+    """A wedged zeroconf degrades to the plain sleep instead of raising."""
+    client = _make_offloader_client(EventBus(), receiver_hostname="esphome-builder-abc.local")
+    zc = MagicMock(spec=Zeroconf)
+    zc.async_add_listener = MagicMock(side_effect=RuntimeError("closing"))
+    client._get_zeroconf = lambda: zc
+
+    await client._wait_reconnect(0)
+
+    zc.async_remove_listener.assert_not_called()
+
+
 async def test_wait_reconnect_plain_sleep_for_ip_endpoint() -> None:
     """An IP-endpoint pairing has nothing to match; the wait is a plain sleep."""
     client = _make_offloader_client(EventBus(), receiver_hostname="192.168.1.5")
