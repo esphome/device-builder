@@ -67,11 +67,12 @@ async def handle_reset_build_env(
         await session.terminate(TerminateReason.MALFORMED_FRAME)
         return
     request_id = cast(str, frame["request_id"])
-    # The venv the offloader's builds use, or None when its version
+    # Version of the venv the offloader's builds use, or None when it
     # matches ours / isn't pinnable (no venv is ever cached for those).
-    venv = _venv_for_version(cast(str, frame["esphome_version"]))
+    # Pure check — no filesystem access on the event loop.
+    venv_version = _venv_version(cast(str, frame["esphome_version"]))
 
-    if _reset_busy(controller, session.dashboard_id, venv_version=venv[1] if venv else None):
+    if _reset_busy(controller, session.dashboard_id, venv_version=venv_version):
         _LOGGER.info(
             "peer-link reset_build_env from %s refused: jobs in flight",
             session.dashboard_id,
@@ -79,14 +80,13 @@ async def handle_reset_build_env(
         await _send_ack(session, request_id=request_id, accepted=False, reason=_REASON_BUSY)
         return
 
-    targets = [
-        dashboard_config_subtree(Path(controller._db.settings.config_dir), session.dashboard_id),
-        dashboard_data_subtree(Path(CORE.data_dir), session.dashboard_id),
-    ]
-    if venv is not None:
-        targets.append(venv[0])
+    # ``CORE.data_dir`` stats ``config_dir`` on access, so build every path
+    # inside the executor with the wipe rather than on the event loop.
+    config_dir = Path(controller._db.settings.config_dir)
     try:
-        await run_in_executor(_wipe_paths, targets)
+        wiped = await run_in_executor(
+            _wipe_build_env, config_dir, session.dashboard_id, venv_version
+        )
     except OSError as exc:
         _LOGGER.warning(
             "peer-link reset_build_env from %s failed: %s",
@@ -98,22 +98,22 @@ async def handle_reset_build_env(
     _LOGGER.info(
         "peer-link reset_build_env from %s: wiped %s",
         session.dashboard_id,
-        ", ".join(str(t) for t in targets),
+        ", ".join(str(t) for t in wiped),
     )
     await _send_ack(session, request_id=request_id, accepted=True)
 
 
-def _venv_for_version(version: str) -> tuple[Path, str] | None:
+def _venv_version(version: str) -> str | None:
     """
-    Return ``(venv_path, version)`` for the offloader's cached venv, or ``None``.
+    Return the version whose cached venv the reset should clear, or ``None``.
 
     Only a pinnable version that differs from the receiver's installed
     esphome ever gets a provisioned venv; a matching or dev version has
-    none, so there's nothing to wipe.
+    none. Pure — no filesystem access (safe on the event loop).
     """
     if not version or version == _installed_esphome_version or not is_pinnable_version(version):
         return None
-    return venv_dir(Path(CORE.data_dir), version), version
+    return version
 
 
 def _reset_busy(
@@ -140,17 +140,25 @@ def _reset_busy(
     return receiver is not None and receiver.has_inflight(dashboard_id)
 
 
-def _wipe_paths(targets: list[Path]) -> None:
+def _wipe_build_env(config_dir: Path, dashboard_id: str, venv_version: str | None) -> list[Path]:
     """
-    Blocking wipe of each per-offloader / venv tree (executor-side).
+    Blocking wipe of the offloader's subtrees + venv; return the wiped paths.
 
-    Each target's parent is its ``.remote_builds`` root by construction
-    (``dashboard_*_subtree`` / ``venv_dir``), so a resolve-under-parent
-    check is the defense-in-depth symlink guard — ``dashboard_id`` is
-    already ``DASHBOARD_ID_PATTERN``-validated and the version is
-    ``is_pinnable_version``-gated, so a failure here means symlink games
-    on disk, not wire input.
+    Runs entirely in an executor because building the targets reads
+    ``CORE.data_dir`` (which stats). Each target's parent is its
+    ``.remote_builds`` root by construction (``dashboard_*_subtree`` /
+    ``venv_dir``), so a resolve-under-parent check is the defense-in-depth
+    symlink guard — ``dashboard_id`` is already ``DASHBOARD_ID_PATTERN``-
+    validated and the version is ``is_pinnable_version``-gated, so a
+    failure here means symlink games on disk, not wire input.
     """
+    data_dir = Path(CORE.data_dir)
+    targets = [
+        dashboard_config_subtree(config_dir, dashboard_id),
+        dashboard_data_subtree(data_dir, dashboard_id),
+    ]
+    if venv_version is not None:
+        targets.append(venv_dir(data_dir, venv_version))
     for target in targets:
         root = target.parent
         resolved = target.resolve()
@@ -161,6 +169,7 @@ def _wipe_paths(targets: list[Path]) -> None:
             raise OSError(msg) from exc
         if resolved.exists():
             rmtree(resolved)
+    return targets
 
 
 async def _send_ack(

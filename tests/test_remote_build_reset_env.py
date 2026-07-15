@@ -256,7 +256,7 @@ async def test_reset_io_error_acks_io_error(
     def _boom(*_args: object) -> None:
         raise OSError("disk on fire")
 
-    monkeypatch.setattr(reset_env, "_wipe_paths", _boom)
+    monkeypatch.setattr(reset_env, "_wipe_build_env", _boom)
 
     await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r11"))
 
