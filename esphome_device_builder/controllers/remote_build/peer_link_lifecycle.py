@@ -19,7 +19,10 @@ lookup) reach into a stable surface.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING
+
+from zeroconf import Zeroconf
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import drain_tasks
@@ -29,6 +32,17 @@ from .peer_link_client import PeerLinkClient
 
 if TYPE_CHECKING:
     from .offloader import OffloaderController
+
+
+def _zeroconf_getter(controller: OffloaderController) -> Callable[[], Zeroconf | None]:
+    """Return a lazy reader for the shared inner sync ``Zeroconf``."""
+
+    def _get() -> Zeroconf | None:
+        devices = controller._db.devices
+        aiozc = devices.zeroconf if devices is not None else None
+        return aiozc.zeroconf if aiozc is not None else None
+
+    return _get
 
 
 def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairing) -> None:
@@ -68,10 +82,9 @@ def spawn_peer_link_client(controller: OffloaderController, pairing: StoredPairi
         resolver=controller.state.peer_link_resolver,
         # Same shared zeroconf the resolver rides; read lazily so a
         # zeroconf that comes up (or goes away) after spawn is honoured
-        # on the next reconnect wait.
-        get_zeroconf=lambda: (
-            controller._db.devices.zeroconf if controller._db.devices is not None else None
-        ),
+        # on the next reconnect wait. The listener API lives on the
+        # inner sync ``Zeroconf``, not the ``AsyncZeroconf`` wrapper.
+        get_zeroconf=_zeroconf_getter(controller),
     )
     task = asyncio.create_task(
         client.run(),

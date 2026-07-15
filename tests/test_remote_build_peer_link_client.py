@@ -34,6 +34,8 @@ from aiohttp import WSMessage, WSMsgType, web
 from aiohttp.test_utils import TestServer, get_unused_port_socket
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from noise.exceptions import NoiseInvalidMessage
+from zeroconf import Zeroconf
+from zeroconf.asyncio import AsyncZeroconf
 from zeroconf.const import _TYPE_A
 
 from esphome_device_builder.api.ws import init_ws_app
@@ -6229,6 +6231,7 @@ def test_mdns_record_name_shapes() -> None:
     assert _mdns_record_name("Esphome-Builder-ABC.local") == "esphome-builder-abc.local."
     assert _mdns_record_name("esphome-builder-abc.local.") == "esphome-builder-abc.local."
     assert _mdns_record_name("192.168.1.5") is None
+    assert _mdns_record_name("192.168.1.5.") is None
     assert _mdns_record_name("fd00::a1") is None
 
 
@@ -6236,7 +6239,10 @@ async def test_wait_reconnect_wakes_on_receiver_address_record() -> None:
     """An A record for the receiver's host breaks the backoff wait immediately."""
     client = _make_offloader_client(EventBus(), receiver_hostname="esphome-builder-abc.local")
     listeners: list[Any] = []
-    zc = MagicMock()
+    # spec'd so a call to a method the real sync Zeroconf doesn't have
+    # fails here instead of only in production (the AsyncZeroconf-vs-
+    # Zeroconf wrapper bug shape).
+    zc = MagicMock(spec=Zeroconf)
     zc.async_add_listener = MagicMock(side_effect=lambda lst, _q: listeners.append(lst))
     client._get_zeroconf = lambda: zc
 
@@ -6265,7 +6271,7 @@ async def test_wait_reconnect_wakes_on_receiver_address_record() -> None:
 async def test_wait_reconnect_plain_sleep_for_ip_endpoint() -> None:
     """An IP-endpoint pairing has nothing to match; the wait is a plain sleep."""
     client = _make_offloader_client(EventBus(), receiver_hostname="192.168.1.5")
-    zc = MagicMock()
+    zc = MagicMock(spec=Zeroconf)
     client._get_zeroconf = lambda: zc
 
     await client._wait_reconnect(0)
@@ -6286,11 +6292,18 @@ async def test_spawn_peer_link_client_wires_the_zeroconf_getter(
     handle = offloader.state.peer_link_clients[pairing.pin_sha256]
     try:
         assert handle.client._get_zeroconf is not None
-        # devices.zeroconf is the lazily-read source; follow both shapes.
+        # devices.zeroconf is the lazily-read source; follow every shape.
+        offloader._db.devices.zeroconf = None
         assert handle.client._get_zeroconf() is None
-        sentinel = MagicMock()
-        offloader._db.devices.zeroconf = sentinel
-        assert handle.client._get_zeroconf() is sentinel
+        # The getter must hand back the inner sync Zeroconf (where the
+        # listener API lives), not the AsyncZeroconf wrapper.
+        aiozc = MagicMock(spec=AsyncZeroconf)
+        inner = MagicMock(spec=Zeroconf)
+        aiozc.zeroconf = inner
+        offloader._db.devices.zeroconf = aiozc
+        got = handle.client._get_zeroconf()
+        assert got is inner
+        assert hasattr(got, "async_add_listener")  # the sync Zeroconf API
         offloader._db.devices = None
         assert handle.client._get_zeroconf() is None
     finally:

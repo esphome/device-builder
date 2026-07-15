@@ -129,19 +129,15 @@ _LOCAL_CLOSE_PIN_MISMATCH = "pin_mismatch"
 
 def _mdns_record_name(hostname: str) -> str | None:
     """Return the lowercase trailing-dot record name, or ``None`` for an IP."""
+    bare = hostname.rstrip(".")
     with contextlib.suppress(ValueError):
-        ipaddress.ip_address(hostname)
+        ipaddress.ip_address(bare)
         return None
-    return f"{hostname.rstrip('.').lower()}."
+    return f"{bare.lower()}."
 
 
 class _ReceiverWakeListener(RecordUpdateListener):
-    """One-shot wake on an A/AAAA record for the receiver's hostname.
-
-    The receiver's startup advertise re-announces its address records,
-    so waking the reconnect wait on one turns a worst-case 30s backoff
-    into an immediate retry (aioesphomeapi's ReconnectLogic pattern).
-    """
+    """One-shot wake on an A/AAAA record for the receiver's hostname."""
 
     def __init__(self, record_name: str, wake: asyncio.Event) -> None:
         self._record_name = record_name
@@ -412,7 +408,12 @@ class PeerLinkClient:
             return
         wake = asyncio.Event()
         listener = _ReceiverWakeListener(self._wake_record_name, wake)
-        zc.async_add_listener(listener, None)
+        try:
+            zc.async_add_listener(listener, None)
+        except Exception:  # noqa: BLE001 - the wake is an optimisation, never a requirement
+            # A wedged / closing zeroconf falls back to the plain sleep.
+            await asyncio.sleep(backoff)
+            return
         try:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(wake.wait(), backoff)
