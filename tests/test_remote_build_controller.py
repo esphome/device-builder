@@ -72,6 +72,7 @@ from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentitySt
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
 from esphome_device_builder.models import (
+    DEFAULT_CLEANUP_TTL_SECONDS,
     ErrorCode,
     EventType,
     IdentityView,
@@ -1402,6 +1403,20 @@ async def test_set_settings_round_trips(tmp_path: Path) -> None:
     assert written == RemoteBuildSettingsView(enabled=True)
     read = await controller.receiver.get_settings()
     assert read == RemoteBuildSettingsView(enabled=True)
+
+
+async def test_settings_snapshot_tracks_ram_canonical_settings(tmp_path: Path) -> None:
+    """``settings_snapshot`` reads the RAM-canonical scalars, following writes."""
+    controller = _make_controller(config_dir=tmp_path)
+    assert controller.receiver.settings_snapshot() == {
+        "enabled": True,
+        "cleanup_ttl_seconds": DEFAULT_CLEANUP_TTL_SECONDS,
+    }
+    await controller.receiver.set_settings(enabled=False, cleanup_ttl_seconds=7200)
+    assert controller.receiver.settings_snapshot() == {
+        "enabled": False,
+        "cleanup_ttl_seconds": 7200,
+    }
 
 
 async def test_set_settings_rejects_non_bool(tmp_path: Path) -> None:
