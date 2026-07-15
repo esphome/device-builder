@@ -374,6 +374,11 @@ class DashboardAdvertiser:
         return self._hostname
 
     @property
+    def addresses(self) -> list[str]:
+        """The A/AAAA addresses in the current advertise; ``[]`` before register."""
+        return self._info.parsed_addresses() if self._info is not None else []
+
+    @property
     def registered(self) -> bool:
         """True between a successful :meth:`register` and :meth:`unregister`."""
         return self._info is not None

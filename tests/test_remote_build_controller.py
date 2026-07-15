@@ -1911,6 +1911,7 @@ def _stub_identity_db(
     *,
     listener_bound: bool = False,
     listener_host: str | None = None,
+    listener_addresses: list[str] | None = None,
     listener_port: int | None = None,
 ) -> AsyncMock:
     """
@@ -1934,6 +1935,7 @@ def _stub_identity_db(
     controller.offloader._db.reload_remote_build_identity = reload_mock
     controller.offloader._db.is_remote_build_listener_bound = listener_bound
     controller.offloader._db.remote_build_listener_host = listener_host
+    controller.offloader._db.remote_build_listener_addresses = listener_addresses or []
     controller.offloader._db.remote_build_listener_port = listener_port
     controller.offloader._db.bus = MagicMock()
     return reload_mock
@@ -1989,22 +1991,32 @@ async def test_get_identity_reflects_listener_bound_state(tmp_path: Path) -> Non
     assert unbound_view.listener_bound is False
 
 
-async def test_get_identity_reports_listener_address(tmp_path: Path) -> None:
-    """``listener_host``/``listener_port`` mirror the advertised address; ``None`` while down."""
+async def test_identity_views_report_listener_address(tmp_path: Path) -> None:
+    """Both identity views mirror the advertised address; empty while down."""
     controller = _make_controller(config_dir=tmp_path)
     _stub_identity_db(
         controller,
         listener_bound=True,
         listener_host="esphome-builder-abc.local",
+        listener_addresses=["192.168.1.5"],
         listener_port=6055,
     )
     bound_view = await controller.receiver.get_identity()
     assert bound_view.listener_host == "esphome-builder-abc.local"
+    assert bound_view.listener_addresses == ["192.168.1.5"]
     assert bound_view.listener_port == 6055
+
+    # The rotate path builds its view through separate control flow
+    # (reload_remote_build_identity) — pin the same fields there.
+    rotated_view = await controller.receiver.rotate_identity()
+    assert rotated_view.listener_host == "esphome-builder-abc.local"
+    assert rotated_view.listener_addresses == ["192.168.1.5"]
+    assert rotated_view.listener_port == 6055
 
     _stub_identity_db(controller, listener_bound=False)
     unbound_view = await controller.receiver.get_identity()
     assert unbound_view.listener_host is None
+    assert unbound_view.listener_addresses == []
     assert unbound_view.listener_port is None
 
 

@@ -122,17 +122,15 @@ def identity_view(
     *,
     listener_bound: bool,
     listener_host: str | None,
+    listener_addresses: list[str],
     listener_port: int | None,
 ) -> IdentityView:
-    """Project a :class:`DashboardIdentity` into the wire shape.
+    """
+    Project a :class:`DashboardIdentity` into the wire shape.
 
-    The listener-bound bool and address come from the dashboard's
-    :meth:`DeviceBuilder.is_remote_build_listener_bound` /
-    :meth:`DeviceBuilder.remote_build_listener_host` /
-    :meth:`DeviceBuilder.remote_build_listener_port` accessors;
-    surfaced on the view so the receiver-side UI can branch on
-    "this dashboard advertises itself" and show the pairing
-    address without re-checking the bind state on every paint.
+    The listener fields come from the ``DeviceBuilder``'s
+    ``is_remote_build_listener_bound`` / ``remote_build_listener_*``
+    accessors.
     """
     return IdentityView(
         dashboard_id=identity.dashboard_id,
@@ -141,5 +139,6 @@ def identity_view(
         esphome_version=esphome_version,
         listener_bound=listener_bound,
         listener_host=listener_host,
+        listener_addresses=listener_addresses,
         listener_port=listener_port,
     )

@@ -999,6 +999,8 @@ async def test_device_builder_advertises_in_ha_addon_mode(
             self.set_pin_sha256 = MagicMock()
             self.set_remote_build_port = MagicMock()
             self.refresh = AsyncMock()
+            self.hostname = "esphome-builder-test.local"
+            self.addresses = []
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
@@ -1048,6 +1050,8 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
             self.set_pin_sha256 = MagicMock()
             self.set_remote_build_port = MagicMock()
             self.refresh = AsyncMock()
+            self.hostname = "esphome-builder-test.local"
+            self.addresses = []
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)

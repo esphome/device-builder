@@ -298,6 +298,12 @@ class DeviceBuilder:
         advertiser = self._dashboard_advertiser
         return advertiser.hostname if advertiser is not None else None
 
+    @property
+    def remote_build_listener_addresses(self) -> list[str]:
+        """The mDNS-advertised A/AAAA addresses; ``[]`` without a registered advertiser."""
+        advertiser = self._dashboard_advertiser
+        return advertiser.addresses if advertiser is not None else []
+
     async def apply_remote_build_enabled(self) -> bool:
         """Converge the peer-link listener to the on-disk ``enabled`` flag."""
         return await self._remote_build_lifecycle.apply_enabled()
