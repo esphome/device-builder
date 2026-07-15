@@ -12,8 +12,6 @@ from esphome.helpers import rmtree
 from ...helpers.async_ import run_in_executor
 from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.remote_build_layout import (
-    REMOTE_BUILDS_NAME,
-    REMOTE_BUILDS_SUBDIR,
     dashboard_config_subtree,
     dashboard_data_subtree,
 )
@@ -109,19 +107,14 @@ def _wipe_subtrees(config_subtree: Path, data_subtree: Path) -> None:
     """
     Blocking wipe of both per-offloader trees (executor-side).
 
-    Defense-in-depth: each target must still resolve under its
-    remote-builds root before the ``rmtree`` — ``dashboard_id`` is
-    already ``DASHBOARD_ID_PATTERN``-validated at the handshake, so
-    a failure here indicates symlink games on disk, not wire input.
+    Each target's parent is the ``.remote_builds`` root by construction
+    (``dashboard_*_subtree``), so a resolve-under-parent check is the
+    defense-in-depth symlink guard — ``dashboard_id`` is already
+    ``DASHBOARD_ID_PATTERN``-validated at the handshake, so a failure
+    here means symlink games on disk, not wire input.
     """
-    for target, root_parts in (
-        (config_subtree, REMOTE_BUILDS_SUBDIR.parts),
-        (data_subtree, (REMOTE_BUILDS_NAME,)),
-    ):
+    for target in (config_subtree, data_subtree):
         root = target.parent
-        if root.parts[-len(root_parts) :] != tuple(root_parts):
-            msg = f"reset_build_env target {target} is not under a remote-builds root"
-            raise OSError(msg)
         resolved = target.resolve()
         try:
             resolved.relative_to(root.resolve())

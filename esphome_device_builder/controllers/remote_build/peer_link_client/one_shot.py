@@ -100,6 +100,12 @@ def _extract_receiver_esphome_version(response: dict[str, Any]) -> str:
     )
 
 
+def _extract_bool(response: dict[str, Any], key: str) -> bool:
+    """Lift a bool capability flag off the response; missing / non-bool ⇒ ``False``."""
+    value = response.get(key, False)
+    return value if isinstance(value, bool) else False
+
+
 def _extract_auto_provision_supported(response: dict[str, Any]) -> bool:
     """
     Lift the receiver's ``auto_provision_supported`` flag off the response.
@@ -107,8 +113,7 @@ def _extract_auto_provision_supported(response: dict[str, Any]) -> bool:
     Missing or non-bool ⇒ ``False`` — an older receiver that never sends
     the field is treated as unable to provision.
     """
-    value = response.get("auto_provision_supported", False)
-    return value if isinstance(value, bool) else False
+    return _extract_bool(response, "auto_provision_supported")
 
 
 def _extract_receiver_friendly_name(response: dict[str, Any]) -> str:
@@ -127,8 +132,7 @@ def _extract_receiver_friendly_name(response: dict[str, Any]) -> str:
 
 def _extract_ha_addon(response: dict[str, Any]) -> bool:
     """Lift the receiver's ``ha_addon`` flag off the response; non-bool ⇒ ``False``."""
-    value = response.get("ha_addon", False)
-    return value if isinstance(value, bool) else False
+    return _extract_bool(response, "ha_addon")
 
 
 def _extract_reset_build_env_supported(response: dict[str, Any]) -> bool:
@@ -138,8 +142,7 @@ def _extract_reset_build_env_supported(response: dict[str, Any]) -> bool:
     Missing or non-bool ⇒ ``False`` — an older receiver that never
     sends the field doesn't accept the remote reset frame.
     """
-    value = response.get("reset_build_env_supported", False)
-    return value if isinstance(value, bool) else False
+    return _extract_bool(response, "reset_build_env_supported")
 
 
 def _build_ws_url(hostname: str, port: int) -> URL:
