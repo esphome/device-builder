@@ -4,7 +4,7 @@ mDNS source: zeroconf responder, browser, and cache accessors.
 :class:`MdnsSource` owns the ``AsyncEsphomeZeroconf`` responder and
 the ``AsyncServiceBrowser`` it drives, the esphomelib service-state
 callback that reaches into the monitor's apply path, the ``_http._tcp``
-fallback callback that reads a non-API device's ``version`` TXT, and the
+fallback callback that reads a non-API device's identity TXT, and the
 cache-inspection accessors the drawer's reachability snapshot reads.
 """
 
@@ -67,6 +67,18 @@ _MDNS_CLOSE_TIMEOUT = 1.0
 # guarantees ``async_resolve_host`` falls through its cache short-
 # circuit and actually goes on the wire (see ``refresh_mdns``).
 _MDNS_REFRESH_PADDING_SECONDS = 1.0
+
+# TXT keys ``_apply_identity_txt`` reads. The ``http_identity_live``
+# flag keys on their presence: a contentless ``_http._tcp`` service (an
+# api+web_server device, or old web_server firmware) must never vouch
+# for the identity trio, or a flag-True device with an identity-less
+# cached TXT would verify-resolve every sweep forever.
+_IDENTITY_TXT_KEYS = ("version", "config_hash", "mac")
+
+
+def _has_identity_keys(props: Mapping[str, str | None]) -> bool:
+    """Whether *props* carries any identity TXT key with a value."""
+    return any(props.get(key) for key in _IDENTITY_TXT_KEYS)
 
 
 class MdnsSource:
@@ -289,6 +301,8 @@ class MdnsSource:
         # untouched (see ``_apply_http_txt``).
         if props := self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}"):
             self._apply_identity_txt(device_name, props)
+            if _has_identity_keys(props):
+                self._monitor.apply_http_identity_live(device_name, live=True)
 
     async def resolve_and_claim(self, device_name: str) -> None:
         """Resolve the esphomelib service (cache first, wire fallback) and claim mdns on a hit."""
@@ -309,6 +323,39 @@ class MdnsSource:
     def has_live_ptr(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired esphomelib PTR for *device_name*."""
         return self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}") is not None
+
+    def has_live_http_identity_txt(self, device_name: str) -> bool:
+        """Whether the cache holds an unexpired ``_http._tcp`` TXT carrying identity keys."""
+        return _has_identity_keys(
+            self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}")
+        )
+
+    async def verify_http_identity(self, device_name: str) -> None:
+        """
+        Re-resolve the ``_http._tcp`` service before dropping identity freshness.
+
+        Only a confirmed miss (or a resolve whose authoritative
+        atomic-per-announce TXT provably lacks the identity keys)
+        clears ``http_identity_live``; a swallowed error or in-flight
+        resolve leaves the flag alone — never demote on uncertainty.
+        A successful identity-bearing resolve refreshes the cache and
+        re-stamps through ``_apply_http_txt``.
+        """
+        if (zc := self._zeroconf) is None:
+            return
+        info = AsyncServiceInfo(_HTTP_SERVICE_TYPE, f"{device_name}.{_HTTP_SERVICE_TYPE}")
+        verdict = await self.resolve_then(
+            zc.zeroconf,
+            info,
+            device_name,
+            self._apply_http_txt,
+            timeout_ms=_SWEEP_RESOLVE_TIMEOUT_MS,
+        )
+        if verdict is None:
+            return
+        if verdict and _has_identity_keys(info.decoded_properties):
+            return
+        self._monitor.apply_http_identity_live(device_name, live=False)
 
     def live_ptr_service_names(self) -> set[str]:
         """
@@ -565,7 +612,10 @@ class MdnsSource:
         API has no encryption state, and the absent-key-means-plaintext
         rule from the esphomelib path would stamp a false confirmation.
         """
-        self._apply_identity_txt(device_name, info.decoded_properties)
+        props = info.decoded_properties
+        self._apply_identity_txt(device_name, props)
+        if _has_identity_keys(props):
+            self._monitor.apply_http_identity_live(device_name, live=True)
 
     def _cached_ptr(self, service_name: str) -> DNSRecord | None:
         """

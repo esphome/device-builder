@@ -46,8 +46,9 @@ class DeviceRuntimeState(DashboardModel):
     fields the metadata sidecar persists (``deployed_version``,
     ``deployed_config_hash``, ``queued_update``,
     ``api_encryption_active``) are also seeded from disk on cold load,
-    while ``state`` / ``active_source`` / ``ip_addresses`` start empty
-    and repopulate on the next announce. A Device rebuild carries the
+    while ``state`` / ``active_source`` / ``ip_addresses`` /
+    ``http_identity_live`` start empty and repopulate on the next
+    announce. A Device rebuild carries the
     whole object from the previous in-memory instance so a re-scan
     doesn't wipe what the monitors have discovered since.
     """
@@ -79,6 +80,15 @@ class DeviceRuntimeState(DashboardModel):
     # confirmed, ``""`` = TXT seen with the key absent (confirmed
     # plaintext), ``None`` = no broadcast yet.
     api_encryption_active: str | None = None
+    # True while an unexpired ``_http._tcp`` TXT carrying identity keys
+    # (version / config_hash / mac) backs this device, or one was applied
+    # live this session and hasn't been confirmed gone by a targeted
+    # re-resolve. Freshness for the non-API identity trio only — never a
+    # reachability claim. Session-only: a cold start has no cache to
+    # vouch for the sidecar-seeded identity, which is exactly what the
+    # flag reports; the frontend gates the non-API deployed identity on
+    # it.
+    http_identity_live: bool = False
 
 
 # Canonical name set for routing flat attr names onto ``runtime_state``.

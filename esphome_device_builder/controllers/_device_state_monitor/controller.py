@@ -26,7 +26,7 @@ import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from functools import partial
-from typing import Any
+from typing import Any, Protocol
 
 from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit
 from ...helpers.subscriber_presence import SubscriberPresence
@@ -100,6 +100,16 @@ ApiEncryptionChangeCallback = Callable[[str, str], None]
 # firmware without the broadcast doesn't blank a known MAC.
 MacAddressChangeCallback = Callable[[str, str], None]
 
+
+# ``_http._tcp`` identity-TXT freshness for non-API devices: True when
+# an identity-carrying TXT was applied (live or from the unexpired
+# cache), False only after a targeted re-resolve confirmed it gone.
+# Never a reachability claim. A Protocol (not a ``Callable`` alias)
+# because ``live`` is keyword-only at every implementer.
+class HttpIdentityLiveCallback(Protocol):
+    def __call__(self, name: str, *, live: bool) -> None: ...
+
+
 # Discovery banner ADD / REMOVE — a device advertising
 # ``package_import_url`` / ``project_name`` / ``project_version`` is
 # a factory build ready to be adopted into the dashboard.
@@ -153,6 +163,7 @@ class DeviceStateMonitor(TaskControllerBase):
         on_source_change: SourceChangeCallback | None = None,
         on_persisted_ip_invalidated: PersistedIpInvalidatedCallback | None = None,
         on_resolved_addresses_cleared: ResolvedAddressesClearedCallback | None = None,
+        on_http_identity_live_change: HttpIdentityLiveCallback | None = None,
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
@@ -178,6 +189,7 @@ class DeviceStateMonitor(TaskControllerBase):
         self._resolve_api_connection = resolve_api_connection
         self._on_persisted_ip_invalidated = on_persisted_ip_invalidated
         self._on_resolved_addresses_cleared = on_resolved_addresses_cleared
+        self._on_http_identity_live_change = on_http_identity_live_change
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
         self._api_info_task: asyncio.Task | None = None
@@ -485,6 +497,15 @@ class DeviceStateMonitor(TaskControllerBase):
         if not self._any_matching_device_differs(name, "mac_address", normalized):
             return False
         self._on_mac_address_change(name, normalized)
+        return True
+
+    def apply_http_identity_live(self, name: str, *, live: bool) -> bool:
+        """Record whether a live ``_http._tcp`` identity TXT backs *name*; True iff forwarded."""
+        if self._on_http_identity_live_change is None:
+            return False
+        if not self._any_matching_device_differs(name, "http_identity_live", live):
+            return False
+        self._on_http_identity_live_change(name, live=live)
         return True
 
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:

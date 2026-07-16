@@ -155,6 +155,8 @@ def test_reconcile_reads_http_identity_txt_for_non_api_device() -> None:
     assert ("on_version_change", "kitchen", "2026.8.0") in callbacks.calls
     assert ("on_config_hash_change", "kitchen", "abcd1234") in callbacks.calls
     assert ("on_mac_address_change", "kitchen", "94:C9:60:1F:8C:F1") in callbacks.calls
+    assert ("on_http_identity_live_change", "kitchen", True) in callbacks.calls
+    assert device.runtime_state.http_identity_live is True
     assert callbacks.calls_for("on_api_encryption_change") == []
     assert callbacks.calls_for("on_state_change") == []
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
@@ -171,6 +173,7 @@ def test_reconcile_http_txt_old_firmware_version_only() -> None:
     monitor.mdns.reconcile_from_cache("kitchen")
 
     assert device.runtime_state.deployed_version == "2026.6.4"
+    assert device.runtime_state.http_identity_live is True
     assert callbacks.calls_for("on_config_hash_change") == []
     assert callbacks.calls_for("on_mac_address_change") == []
 
@@ -204,6 +207,8 @@ async def test_sweep_heals_blank_device_from_cache_end_to_end() -> None:
     assert device.mac_address == "94:C9:60:1F:8C:F1"
     assert device.runtime_state.state == DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
+    # The esphomelib TXT never vouches for the _http._tcp identity.
+    assert device.runtime_state.http_identity_live is False
     fetch.assert_not_called()
 
 
@@ -229,7 +234,64 @@ async def test_sweep_heals_blank_non_api_device_from_http_cache() -> None:
     assert device.runtime_state.deployed_version == "2026.8.0"
     assert device.runtime_state.deployed_config_hash == "abcd1234"
     assert device.mac_address == "94:C9:60:1F:8C:F1"
+    assert device.runtime_state.http_identity_live is True
     fetch.assert_not_called()
+
+
+async def test_sweep_stamps_populated_non_api_device_from_http_cache() -> None:
+    """The level-sync stamps a fully-populated device the missing-field reconcile gate skips."""
+    device = make_online_api_device(
+        api_enabled=False,
+        loaded_integrations=["mqtt", "wifi"],
+        mac_address="94:C9:60:1F:8C:F1",
+        deployed_version="2026.8.0",
+        deployed_config_hash="abcd1234",
+    )
+    assert device.runtime_state.http_identity_live is False
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    _seed_txt_cache(
+        monitor,
+        [
+            _txt_record(
+                {"version": "2026.8.0", "config_hash": "abcd1234", "mac": "94c9601f8cf1"},
+                service_name=_HTTP_SERVICE_NAME,
+            )
+        ],
+    )
+    fetch = MagicMock()
+    monitor.api_info._fetch = fetch  # type: ignore[method-assign]
+
+    await monitor.api_info._sweep()
+
+    assert device.runtime_state.http_identity_live is True
+    fetch.assert_not_called()
+
+
+async def test_sweep_verifies_flag_true_device_when_cache_goes_dark() -> None:
+    """A flag-True non-API device with no live cached identity TXT is verify-resolved."""
+    device = make_online_api_device(
+        api_enabled=False, loaded_integrations=["mqtt", "wifi"], http_identity_live=True
+    )
+    api_sibling = make_online_api_device(
+        name="office",
+        http_identity_live=True,
+        mac_address="AA:BB:CC:DD:EE:F1",
+        deployed_version="2026.8.0",
+    )
+    monitor, _callbacks = make_state_monitor_with_callbacks([device, api_sibling])
+    _seed_txt_cache(monitor, [])
+    verified: list[str] = []
+
+    async def fake_verify(name: str) -> None:
+        verified.append(name)
+
+    monitor.mdns.verify_http_identity = fake_verify  # type: ignore[method-assign]
+    monitor.api_info._fetch = MagicMock()  # type: ignore[method-assign]
+
+    await monitor.api_info._sweep()
+
+    # The api sibling's freshness is owned by active_source, never verified here.
+    assert verified == ["kitchen"]
 
 
 async def test_resolve_then_dedupes_inflight_service_names() -> None:

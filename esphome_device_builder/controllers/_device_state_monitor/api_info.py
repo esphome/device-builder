@@ -6,7 +6,9 @@ case) a device can be ONLINE via ping yet have a blank ``mac_address`` /
 ``deployed_version`` — those fields come only from the ``_esphomelib._tcp``
 TXT records. Each sweep first re-applies zeroconf-cached TXT payloads for
 free (the browser handler can miss an announce whose records still landed in
-the cache), then connects to still-blank devices over the Native API in a
+the cache), level-syncs the non-API ``http_identity_live`` freshness flag
+against the cached ``_http._tcp`` identity TXT, then connects to still-blank
+devices over the Native API in a
 short-lived subprocess. It only ever supplies the TXT-derived fields; it
 never drives ONLINE/OFFLINE, so it stays out of the source-precedence
 ledger. The one Native API path that does drive state is the last-resort
@@ -15,10 +17,12 @@ revival in ``api_reviver.py``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING
 
+from ...helpers.async_ import log_gather_failures
 from ...helpers.cooldown import CooldownLedger
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState, ReachabilitySource
@@ -99,6 +103,7 @@ class ApiInfoSource(ApiSweepSource):
         # holds its TXT, and same-content TTL refreshes never re-fire the
         # handler. Devices the cache fills drop out of ``_select_targets``.
         self._reconcile_from_mdns_cache(devices)
+        await self._sync_http_identity_liveness(devices)
         if not self._api_available:
             return
         # Cap probes per sweep so an mDNS-dark fleet where every probe runs
@@ -153,6 +158,39 @@ class ApiInfoSource(ApiSweepSource):
         }
         for name in sorted(names):
             monitor.mdns.reconcile_from_cache(name)
+
+    async def _sync_http_identity_liveness(self, devices: list[Device]) -> None:
+        """
+        Level-sync ``http_identity_live`` against the cached ``_http._tcp`` identity TXT.
+
+        Stamp-side repair goes through ``reconcile_from_cache`` (not a
+        bare flag write) so a device re-flashed while the dashboard was
+        down also refreshes its *populated* identity fields, which the
+        missing-field reconcile gate above never revisits. Clear-side
+        is verify-before-demote: only a targeted re-resolve that
+        confirms the TXT gone drops the flag.
+        """
+        mdns = self._monitor.mdns
+        if mdns.zeroconf is None:
+            return
+        stamp: set[str] = set()
+        verify: set[str] = set()
+        for device in devices:
+            if device.api_enabled:
+                continue
+            if mdns.has_live_http_identity_txt(device.name):
+                if not device.runtime_state.http_identity_live:
+                    stamp.add(device.name)
+            elif device.runtime_state.http_identity_live:
+                verify.add(device.name)
+        for name in sorted(stamp):
+            mdns.reconcile_from_cache(name)
+        if verify:
+            results = await asyncio.gather(
+                *(mdns.verify_http_identity(name) for name in sorted(verify)),
+                return_exceptions=True,
+            )
+            log_gather_failures(results, "http identity verify failed; continuing")
 
     def _is_due(self, device: Device) -> bool:
         """
