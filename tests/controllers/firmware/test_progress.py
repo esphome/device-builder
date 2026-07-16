@@ -7,9 +7,11 @@ real ones (PlatformIO ``[ NN%]`` per-file markers, esptool
 ``(NN %)``, ESPHome OTA ``Uploading: 100%``) and skip everything
 else (PIO platform-extract bars, memory-usage reports, stray
 percentages in narrative log text). ESP-IDF builds emit no percent
-at all — their ninja ``[N/M]`` counter derives one, with a total
-floor so ``[1/2] Re-running CMake...`` sub-steps and the bootloader
-sub-build never drive the gauge.
+at all — their ninja ``[N/M]`` counter is parsed separately
+(``_parse_ninja_counter``) and ``_ingest_output_line`` derives the
+percentage, gated on the largest total seen so ``[1/2] Re-running
+CMake...`` sub-steps and the bootloader ExternalProject sub-build
+never drive the gauge.
 
 The regression these tests guard against: a wide-open
 ``\d{1,3}%`` regex pinned ``job.progress`` to 100 the moment
@@ -22,7 +24,13 @@ from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.controllers.firmware.helpers import _parse_progress
+from esphome_device_builder.controllers.firmware.helpers import (
+    _ingest_output_line,
+    _parse_ninja_counter,
+    _parse_progress,
+)
+from esphome_device_builder.helpers.event_bus import EventBus
+from esphome_device_builder.models.firmware import FirmwareJob, JobType
 
 
 class TestRealProgressLines:
@@ -185,7 +193,7 @@ class TestOutOfRange:
 
 
 class TestNinjaCounterLines:
-    """Ninja ``[N/M]`` counters resolve to a percentage above the total floor."""
+    """Ninja ``[N/M]`` counters parse to ``(done, total)``; noise doesn't."""
 
     @pytest.mark.parametrize(
         ("line", "expected"),
@@ -193,38 +201,26 @@ class TestNinjaCounterLines:
             (
                 "[907/1424] Building C object esp-idf/bt/CMakeFiles/__idf_bt.dir/"
                 "host/bluedroid/bta/av/bta_av_cfg.c.obj",
-                63,
+                (907, 1424),
             ),
-            (
-                "[707/1473] Building C object esp-idf/mbedtls/mbedtls/library/"
-                "CMakeFiles/mbedtls.dir/mbedtls_debug.c.obj",
-                47,
-            ),
-            ("[1424/1424] Linking .pioenvs/firmware.elf", 100),
-            ("[1/1424] Generating memory view", 0),
-            # Total exactly at the floor still counts.
-            ("[50/100] Building C object foo.c.obj", 50),
-            ("    [907/1424] Building C object foo.c.obj", 63),
+            ("[1424/1424] Linking .pioenvs/firmware.elf", (1424, 1424)),
+            ("[1/1424] Generating memory view", (1, 1424)),
+            ("[1/2] Re-running CMake...", (1, 2)),
+            ("    [907/1424] Building C object foo.c.obj", (907, 1424)),
             # CR-terminated in-place refresh chunk.
-            ("[907/1424] Building C object foo.c.obj\r", 63),
+            ("[907/1424] Building C object foo.c.obj\r", (907, 1424)),
             # ANSI clear-line prefix — a bare ``^\s*`` anchor would
             # silently fail in production while passing plain-text tests
             # (same trap as the esptool ``Writing at`` pattern).
-            ("\x1b[2K[907/1424] Building C object foo.c.obj", 63),
+            ("\x1b[2K[907/1424] Building C object foo.c.obj", (907, 1424)),
         ],
     )
-    def test_counter_lines_parse(self, line: str, expected: int) -> None:
-        assert _parse_progress(line) == expected
+    def test_counter_lines_parse(self, line: str, expected: tuple[int, int]) -> None:
+        assert _parse_ninja_counter(line) == expected
 
     @pytest.mark.parametrize(
         "line",
         [
-            # Totals under the floor: CMake sub-steps, bootloader
-            # sub-build, tiny incremental rebuilds.
-            "[1/2] Re-running CMake...",
-            "[97/97] Linking bootloader.elf",
-            "[3/7] Building C object foo.c.obj",
-            "[0/0] nothing",
             # Malformed: done past total.
             "[150/100] Building C object foo.c.obj",
             # Mid-line counters are narrative text, not progress.
@@ -239,4 +235,47 @@ class TestNinjaCounterLines:
         ],
     )
     def test_non_counter_lines_ignored(self, line: str) -> None:
-        assert _parse_progress(line) is None
+        assert _parse_ninja_counter(line) is None
+
+    def test_parse_progress_leaves_counters_alone(self) -> None:
+        assert _parse_progress("[907/1424] Building C object foo.c.obj") is None
+
+
+def _job() -> FirmwareJob:
+    return FirmwareJob(job_id="j1", configuration="kitchen.yaml", job_type=JobType.COMPILE)
+
+
+def _feed(job: FirmwareJob, *lines: str) -> None:
+    bus = EventBus()
+    for line in lines:
+        _ingest_output_line(job, bus, line + "\n")
+
+
+class TestNinjaGaugeGating:
+    """``_ingest_output_line`` derives ninja progress from the dominant counter only."""
+
+    def test_subbuild_final_counter_does_not_latch_100(self) -> None:
+        # The bootloader ExternalProject sub-build (123 steps on IDF 5.x)
+        # streams its own counter mid-run; its [N/N] final step must not
+        # pin the gauge to 100 while the app build is at 99.
+        job = _job()
+        _feed(job, "[10/1133] Building C object a.c.obj")
+        _feed(job, "[123/123] Linking CXX executable bootloader.elf")
+        _feed(job, "[1123/1133] Completed 'bootloader'")
+        assert job.progress == 99
+        _feed(job, "[1133/1133] Linking .pioenvs/firmware.elf")
+        assert job.progress == 100
+
+    def test_totals_under_floor_never_start_the_gauge(self) -> None:
+        job = _job()
+        _feed(job, "[1/2] Re-running CMake...", "[97/97] Linking bootloader.elf")
+        assert job.progress is None
+
+    def test_growing_total_keeps_advancing(self) -> None:
+        # Ninja recomputes its total as edges are discovered; an equal or
+        # larger total stays authoritative.
+        job = _job()
+        _feed(job, "[10/100] Building C object a.c.obj")
+        assert job.progress == 10
+        _feed(job, "[60/120] Building C object b.c.obj")
+        assert job.progress == 50

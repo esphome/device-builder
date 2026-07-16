@@ -189,10 +189,11 @@ def _parse_progress(line: str) -> int | None:
     """Extract a 0-100 progress percentage from a build/flash output line.
 
     Returns ``None`` when the line doesn't match one of the known
-    percent shapes (see ``_PROGRESS_PATTERNS``) or a ninja ``[N/M]``
-    counter with at least ``_NINJA_MIN_TOTAL`` steps. Stray ``%``
-    signs elsewhere in the build output (Unpacking bars, memory-usage
-    reports) are intentionally ignored.
+    percent shapes (see ``_PROGRESS_PATTERNS``). Stray ``%`` signs
+    elsewhere in the build output (Unpacking bars, memory-usage
+    reports) are intentionally ignored. Ninja ``[N/M]`` counters are
+    handled separately (:func:`_parse_ninja_counter`) — deriving a
+    percentage from one needs per-job state.
     """
     for pattern in _PROGRESS_PATTERNS:
         match = pattern.search(line)
@@ -201,10 +202,15 @@ def _parse_progress(line: str) -> int | None:
         value = int(match.group(1))
         if 0 <= value <= 100:
             return value
+    return None
+
+
+def _parse_ninja_counter(line: str) -> tuple[int, int] | None:
+    """Extract ``(done, total)`` from a ninja ``[N/M]`` counter line, else ``None``."""
     if match := _NINJA_PROGRESS_PATTERN.match(line):
         done, total = int(match.group(1)), int(match.group(2))
-        if total >= _NINJA_MIN_TOTAL and done <= total:
-            return done * 100 // total
+        if done <= total:
+            return done, total
     return None
 
 
@@ -368,6 +374,17 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     bus.fire(EventType.JOB_OUTPUT, out_payload)
     _stamp_compile_phase(job, line)
     progress = _parse_progress(line)
+    if progress is None and (counter := _parse_ninja_counter(line)) is not None:
+        done, total = counter
+        # Only the largest total seen drives the gauge: an ExternalProject
+        # sub-build (the esp-idf bootloader, 123 steps on IDF 5.x) streams
+        # its own counter through the same output, and its ``[N/N]`` final
+        # step would otherwise latch 100% mid-build. The floor still drops
+        # tiny sub-steps (``[1/2] Re-running CMake...``) before any real
+        # counter has registered a total.
+        if total >= _NINJA_MIN_TOTAL and total >= job.ninja_total:
+            job.ninja_total = total
+            progress = done * 100 // total
     if progress is None or progress <= (job.progress or 0):
         return
     _fire_job_progress(job, bus, progress)

@@ -607,9 +607,11 @@ async def test_ninja_compile_progress_lines_fire_job_progress(
 ) -> None:
     """Ninja ``[N/M]`` counters drive ``JOB_PROGRESS`` for ESP-IDF builds.
 
-    ESP-IDF builds emit no percentage at all; the per-target
-    counter is the only progress signal, and sub-100 totals
-    (CMake re-runs) must not move the gauge.
+    ESP-IDF builds emit no percentage at all; the per-target counter
+    is the only progress signal. Sub-100 totals (CMake re-runs) must
+    not move the gauge, and the bootloader ExternalProject sub-build's
+    own counter — over 100 steps on IDF 5.x — must not latch 100%
+    before the app build finishes.
     """
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
@@ -619,6 +621,9 @@ async def test_ninja_compile_progress_lines_fire_job_progress(
         "print('[1/2] Re-running CMake...')\n"
         "print('[100/1424] Building C object esp-idf/a.c.obj')\n"
         "print('[907/1424] Building C object esp-idf/b.c.obj')\n"
+        "print('[10/123] Building C object esp-idf/log/log.c.obj')\n"
+        "print('[123/123] Linking CXX executable bootloader.elf')\n"
+        "print(\"[1409/1424] Completed 'bootloader'\")\n"
         "print('[1424/1424] Linking firmware.elf')\n"
         "sys.exit(0)\n",
     )
@@ -628,8 +633,11 @@ async def test_ninja_compile_progress_lines_fire_job_progress(
     captured = await _run_until_terminal(controller)
 
     progress_values = [d["progress"] for d in captured["job_progress"]]
-    # The [1/2] CMake sub-step is below the total floor and fires nothing.
-    assert progress_values == [7, 63, 100]
+    # The [1/2] CMake sub-step is below the total floor and the
+    # bootloader sub-build's counters carry a smaller total than the
+    # app build's — neither fires; 100 lands only on the app's final
+    # target.
+    assert progress_values == [7, 63, 98, 100]
     assert job.progress == 100
     assert job.status == JobStatus.COMPLETED
 
