@@ -165,10 +165,10 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
     storage_path = resolve_storage_path(configuration)
     storage = StorageJSON.load(storage_path)
     if storage is None or not storage.build_path:
-        return _DecodeTarget(unavailable_reason="no_build")
+        return _DecodeTarget(unavailable_reason=DecodeUnavailable.NO_BUILD)
     idedata_path = resolve_idedata_path(configuration, name=storage.name)
     if not _artifacts_present(storage, idedata_path):
-        return _DecodeTarget(unavailable_reason="no_build")
+        return _DecodeTarget(unavailable_reason=DecodeUnavailable.NO_BUILD)
     return _DecodeTarget(
         storage_path=storage_path,
         idedata_path=idedata_path,
