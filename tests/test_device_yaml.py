@@ -2518,12 +2518,8 @@ def test_load_device_handles_storage_without_core_platform_attr(
 ) -> None:
     """``StorageJSON`` from older esphome (< 2025.6) lacks ``core_platform`` entirely.
 
-    pyproject's floor is ``esphome>=2024.1.0`` so the attribute
-    can be missing on the loaded object — not just ``None``.
-    Direct attribute access would raise ``AttributeError`` and
-    blow up the device scan. ``getattr`` with a default keeps
-    the loader compatible while we wait for the dep floor to
-    move past 2025.6.
+    Pins that a missing attribute — not just ``None`` — degrades to the YAML
+    fallback rather than raising ``AttributeError`` out of the device scan.
     """
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text(
