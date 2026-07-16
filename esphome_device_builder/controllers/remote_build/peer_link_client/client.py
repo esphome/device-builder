@@ -21,7 +21,7 @@ import asyncio
 import contextlib
 import ipaddress
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any, Literal
 
 import aiohttp
@@ -249,23 +249,22 @@ class PeerLinkClient:
         # (controller's WS submit handler), same event loop — no
         # lock needed.
         self._active_channel: PeerLinkChannel | None = None
-        # Per-job ack futures populated by :meth:`submit_job`
-        # before the header goes out, drained by the receive
-        # loop's submit_job_ack dispatch, force-completed with
-        # :class:`SubmitJobSessionLostError` in
-        # :meth:`_run_session_loops`'s ``finally`` on session
-        # loss so callers don't hang on the ack timeout.
+        # Per-job ack futures populated by :meth:`submit_job` before
+        # the header goes out, drained by the receive loop's
+        # submit_job_ack dispatch, force-completed by
+        # :meth:`_drain_pending` on session loss so callers don't
+        # hang on the ack timeout.
         self._submit_job_acks: dict[str, asyncio.Future[SubmitJobAckFrameData]] = {}
-        # Per-mirror-job reset_build_env ack futures — same drain shape
-        # as ``_submit_job_acks`` (force-completed on session loss).
+        # Per-mirror-job reset_build_env ack futures — same
+        # register / dispatch / drain lifecycle as ``_submit_job_acks``.
         self._reset_env_acks: dict[str, asyncio.Future[ResetBuildEnvAckFrameData]] = {}
         # Operator-facing "Last connection error" line. Populated
         # by :meth:`_run_one_session`'s exception paths, cleared
         # on every successful session-open so a stale message
         # doesn't survive a reconnect.
         self._last_connect_error: str = ""
-        # Per-job in-flight download state — same drain shape as
-        # ``_submit_job_acks`` (force-completed on session loss).
+        # Per-job in-flight download state — same register / drain
+        # lifecycle as ``_submit_job_acks``, plus assembler state.
         self._artifacts_downloads: dict[str, _DownloadArtifactsState] = {}
 
     @property
@@ -578,7 +577,7 @@ class PeerLinkClient:
             self._last_connect_error = f"{type(exc).__name__}: {exc}"
             return _LOCAL_CLOSE_TRANSPORT_ERROR
 
-    async def _run_session_loops(self, channel: PeerLinkChannel) -> str:  # noqa: C901
+    async def _run_session_loops(self, channel: PeerLinkChannel) -> str:
         """
         Run the receive loop with a heartbeat task in parallel.
 
@@ -669,32 +668,33 @@ class PeerLinkClient:
             # Drain in-flight requesters so they raise
             # :class:`SubmitJobSessionLostError` immediately
             # instead of waiting on the per-flow timeout.
-            self._drain_pending_acks(self._submit_job_acks, label="submit_job")
-            self._drain_pending_acks(self._reset_env_acks, label="reset_build_env")
-            # Same drain shape for in-flight artifact downloads.
-            for pending_job_id, dl_state in list(self._artifacts_downloads.items()):
-                if not dl_state.future.done():
-                    dl_state.future.set_exception(
-                        SubmitJobSessionLostError(
-                            f"download_artifacts: peer-link session to "
-                            f"{self._hostname}:{self._port} ended before "
-                            f"artifacts_end for job_id={pending_job_id!r}"
-                        )
-                    )
+            self._drain_pending(self._submit_job_acks.items(), label="submit_job")
+            self._drain_pending(self._reset_env_acks.items(), label="reset_build_env")
+            self._drain_pending(
+                ((job_id, dl.future) for job_id, dl in self._artifacts_downloads.items()),
+                label="download_artifacts",
+                awaiting="artifacts_end",
+            )
             await drain_tasks((heartbeat_task,))
 
-    def _drain_pending_acks(self, acks: dict[str, asyncio.Future[Any]], *, label: str) -> None:
-        """Fail every undone ack future in *acks* with a session-lost error.
+    def _drain_pending(
+        self,
+        pending: Iterable[tuple[str, asyncio.Future[Any]]],
+        *,
+        label: str,
+        awaiting: str = "ack",
+    ) -> None:
+        """Fail every undone future in *pending* with a session-lost error.
 
         Snapshot before iterating — each requester's ``finally`` pops its
         entry as soon as the future fires.
         """
-        for pending_job_id, pending_fut in list(acks.items()):
+        for pending_job_id, pending_fut in list(pending):
             if not pending_fut.done():
                 pending_fut.set_exception(
                     SubmitJobSessionLostError(
                         f"{label}: peer-link session to "
-                        f"{self._hostname}:{self._port} ended before ack "
+                        f"{self._hostname}:{self._port} ended before {awaiting} "
                         f"for job_id={pending_job_id!r}"
                     )
                 )

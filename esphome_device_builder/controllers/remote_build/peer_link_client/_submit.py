@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ....helpers.peer_link_bundle import (
@@ -60,7 +61,12 @@ async def submit_job(
     already.
     """
     channel = _require_open_channel(client, label="submit_job")
-    ack_fut = _register_ack_future(client._submit_job_acks, job_id, label="submit_job")
+    ack_fut = _register_pending(
+        client._submit_job_acks,
+        job_id,
+        asyncio.get_running_loop().create_future,
+        label="submit_job",
+    )
     try:
         await _send_submit_job_frames(
             client,
@@ -86,7 +92,12 @@ async def reset_build_env(client: PeerLinkClient, *, job_id: str) -> ResetBuildE
     on the ack and every fan-out frame of its reset job.
     """
     channel = _require_open_channel(client, label="reset_build_env")
-    ack_fut = _register_ack_future(client._reset_env_acks, job_id, label="reset_build_env")
+    ack_fut = _register_pending(
+        client._reset_env_acks,
+        job_id,
+        asyncio.get_running_loop().create_future,
+        label="reset_build_env",
+    )
     frame: ResetBuildEnvFrameData = {"type": "reset_build_env", "job_id": job_id}
     try:
         if not await channel.send_frame(cast(dict[str, Any], frame)):
@@ -125,14 +136,12 @@ async def download_artifacts(client: PeerLinkClient, *, job_id: str) -> Download
     session loss mid-download as :class:`SubmitJobSessionLostError`.
     """
     channel = _require_open_channel(client, label="download_artifacts")
-    if job_id in client._artifacts_downloads:
-        msg = (
-            f"download_artifacts: future already registered for job_id={job_id!r} "
-            f"(duplicate download on the same session)"
-        )
-        raise PeerLinkNoSessionError(msg)
-    result: asyncio.Future[DownloadArtifactsResult] = asyncio.get_running_loop().create_future()
-    client._artifacts_downloads[job_id] = _DownloadArtifactsState(future=result)
+    state = _register_pending(
+        client._artifacts_downloads,
+        job_id,
+        lambda: _DownloadArtifactsState(future=asyncio.get_running_loop().create_future()),
+        label="download_artifacts",
+    )
     try:
         frame: DownloadArtifactsFrameData = {
             "type": "download_artifacts",
@@ -143,7 +152,7 @@ async def download_artifacts(client: PeerLinkClient, *, job_id: str) -> Download
                 f"download_artifacts: request send failed mid-flow to "
                 f"{client._hostname}:{client._port}"
             )
-        return await result
+        return await state.future
     finally:
         client._artifacts_downloads.pop(job_id, None)
 
@@ -157,21 +166,20 @@ def _require_open_channel(client: PeerLinkClient, *, label: str) -> PeerLinkChan
     return channel
 
 
-def _register_ack_future[AckT](
-    acks: dict[str, asyncio.Future[AckT]], job_id: str, *, label: str
-) -> asyncio.Future[AckT]:
-    """Allocate + register the per-``job_id`` ack future in *acks*, refusing duplicates."""
-    if job_id in acks:
+def _register_pending[EntryT](
+    pending: dict[str, EntryT], job_id: str, make_entry: Callable[[], EntryT], *, label: str
+) -> EntryT:
+    """Build + register the per-``job_id`` in-flight entry in *pending*, refusing duplicates."""
+    if job_id in pending:
         msg = (
-            f"{label}: ack future already registered for job_id={job_id!r} "
+            f"{label}: request already registered for job_id={job_id!r} "
             f"(duplicate {label} on the same session)"
         )
         raise PeerLinkNoSessionError(msg)
-    # Register BEFORE the request goes out so a same-tick ack from the
+    # Register BEFORE the request goes out so a same-tick reply from the
     # receive loop can't beat the registration into the map.
-    ack_fut: asyncio.Future[AckT] = asyncio.get_running_loop().create_future()
-    acks[job_id] = ack_fut
-    return ack_fut
+    entry = pending[job_id] = make_entry()
+    return entry
 
 
 async def _send_submit_job_frames(
