@@ -265,13 +265,13 @@ async def test_decode_backtrace_non_dict_reply_degrades(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
-async def test_decode_backtrace_non_list_decoded_is_dropped(
+async def test_decode_backtrace_non_list_decoded_is_a_broken_contract(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``decoded`` that isn't a list yields no frames rather than raising."""
+    """A ``decoded`` that isn't a list is drift, surfaced rather than swallowed."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     _write_idedata(tmp_path)
     controller = make_controller(tmp_path)
@@ -279,7 +279,38 @@ async def test_decode_backtrace_non_list_decoded_is_dropped(
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
-    assert result["decoded"] == []
+    assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "helper_failed"}
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_dropped_entries_surface_as_helper_failed(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A partial shape drift is a broken contract, not a short backtrace.
+
+    The contract reads an empty ``decoded`` with no reason as a clean decode,
+    so silently dropping the bad entries would hide the loss from the client.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_helper(
+        monkeypatch,
+        {
+            "decoded": [
+                {"index": 0, "text": "Decoded 0x400d1a2c: loop()"},
+                {"index": "nope", "text": "bad index"},
+            ],
+            "unavailable_reason": "",
+        },
+    )
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "helper_failed"}
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -356,13 +387,13 @@ async def test_decode_backtrace_timeout_degrades(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
-async def test_decode_backtrace_coerces_malformed_reply(
+async def test_decode_backtrace_all_good_entries_pass_the_boundary(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only well-shaped ``{index, text}`` entries survive the boundary."""
+    """A reply whose entries are all well-shaped passes through intact."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     _write_idedata(tmp_path)
     controller = make_controller(tmp_path)
@@ -371,10 +402,7 @@ async def test_decode_backtrace_coerces_malformed_reply(
         {
             "decoded": [
                 {"index": 0, "text": "Decoded 0x400d1a2c: loop()"},
-                {"index": "nope", "text": "bad index"},
-                {"text": "no index"},
-                "garbage",
-                7,
+                {"index": 0, "text": "  (inlined by) tick()"},
             ],
             "unavailable_reason": "",
         },
@@ -382,7 +410,11 @@ async def test_decode_backtrace_coerces_malformed_reply(
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
-    assert result["decoded"] == [{"index": 0, "text": "Decoded 0x400d1a2c: loop()"}]
+    assert result["decoded"] == [
+        {"index": 0, "text": "Decoded 0x400d1a2c: loop()"},
+        {"index": 0, "text": "  (inlined by) tick()"},
+    ]
+    assert result["unavailable_reason"] == ""
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

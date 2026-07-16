@@ -77,9 +77,15 @@ async def decode_backtrace(
     reply = await _run_helper(configuration, request)
     if reply is None:
         return _result(unavailable_reason="helper_failed")
+    decoded, malformed = _coerce_decoded(reply.get("decoded"))
+    if malformed:
+        # A shape drift between host and child is a broken contract, not the
+        # successful empty decode an all-clear reason would read as; report it
+        # so the client shows the raw dump instead of a symbol-less report.
+        return _result(unavailable_reason="helper_failed")
     reason = str(reply.get("unavailable_reason") or "")
     return _result(
-        decoded=_coerce_decoded(reply.get("decoded")),
+        decoded=decoded,
         # Qualifies the decode, so it can't be set without one: the build dir
         # can lose its race with the host-side gate and come back no_build.
         stale_build=not reason and _is_stale(controller, configuration, target.local_config_hash),
@@ -200,13 +206,17 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
     return parsed
 
 
-def _coerce_decoded(payload: Any) -> list[dict[str, Any]]:
-    """Keep only well-shaped ``{index, text}`` entries from the child's reply."""
+def _coerce_decoded(payload: Any) -> tuple[list[dict[str, Any]], bool]:
+    """Well-shaped ``{index, text}`` entries plus whether any were malformed.
+
+    The bool is the caller's cue that the child broke its contract, so a
+    drift can't masquerade as a successful empty decode.
+    """
     if not isinstance(payload, list):
         _LOGGER.warning(
             "Backtrace decoder returned a %s for 'decoded', not a list", type(payload).__name__
         )
-        return []
+        return [], True
     entries = [
         {"index": entry["index"], "text": entry["text"]}
         for entry in payload
@@ -214,14 +224,10 @@ def _coerce_decoded(payload: Any) -> list[dict[str, Any]]:
         and isinstance(entry.get("index"), int)
         and isinstance(entry.get("text"), str)
     ]
-    if len(entries) != len(payload):
-        # Say so: the reply still reports a successful decode, so a host/child
-        # shape drift would otherwise just look like a short backtrace.
-        _LOGGER.warning(
-            "Dropped %d malformed entries from the backtrace decoder's reply",
-            len(payload) - len(entries),
-        )
-    return entries
+    dropped = len(payload) - len(entries)
+    if dropped:
+        _LOGGER.warning("Dropped %d malformed entries from the backtrace decoder's reply", dropped)
+    return entries, bool(dropped)
 
 
 def _is_stale(controller: DevicesController, configuration: str, local_config_hash: str) -> bool:
