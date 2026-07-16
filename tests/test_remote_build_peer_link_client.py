@@ -107,6 +107,8 @@ from esphome_device_builder.models import (
     EventType,
     IntentResponse,
     JobFailureReason,
+    JobSource,
+    JobType,
     OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
@@ -6601,3 +6603,78 @@ async def test_spawn_peer_link_client_wires_the_zeroconf_getter(
     finally:
         handle.task.cancel()
         await asyncio.gather(handle.task, return_exceptions=True)
+
+
+# ---------------------------------------------------------------------------
+# remote_build/reset_peer_build_env WS command
+# ---------------------------------------------------------------------------
+
+
+def _seed_reset_capable_pairing(offloader: OffloaderController, pin: str) -> StoredPairing:
+    pairing = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    pairing.reset_build_env_supported = True
+    offloader.state.pairings[pin] = pairing
+    return pairing
+
+
+async def test_reset_peer_build_env_unknown_pin_raises_not_found(
+    offloader_controller_dir: Path,
+) -> None:
+    """No pairing for the pin → NOT_FOUND."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256="b" * 64)
+    assert excinfo.value.code is ErrorCode.NOT_FOUND
+
+
+async def test_reset_peer_build_env_without_capability_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """A receiver that never advertised the capability refuses before any wire I/O."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    offloader.state.pairings[pin] = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "does not support" in excinfo.value.message
+
+
+async def test_reset_peer_build_env_not_connected_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """Capability present but no live session → the lookup's PRECONDITION_FAILED."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+async def test_reset_peer_build_env_enqueues_server_bound_mirror_job(
+    offloader_controller_dir: Path,
+) -> None:
+    """A capable, connected pairing enqueues a REMOTE-source mirror job and returns it."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    pairing = _seed_reset_capable_pairing(offloader, pin)
+    pairing.esphome_version = "2026.6.0"
+    offloader._lookup_open_peer_link_client = (  # type: ignore[method-assign]
+        lambda pin_sha256, label: MagicMock()
+    )
+    firmware = MagicMock()
+    firmware._enqueue = AsyncMock(side_effect=lambda job, **_: job)
+    offloader._db.firmware = firmware
+
+    job = await offloader.reset_peer_build_env(pin_sha256=pin)
+
+    assert job is firmware._create_job.return_value
+    args, kwargs = firmware._create_job.call_args
+    assert args == ("", JobType.RESET_BUILD_ENV)
+    build_source = kwargs["build_source"]
+    assert build_source.source is JobSource.REMOTE
+    assert build_source.source_pin_sha256 == pin
+    assert build_source.source_label == pairing.label
+    assert build_source.source_esphome_version == "2026.6.0"
+    assert firmware._enqueue.call_args.kwargs == {"supersede": False}

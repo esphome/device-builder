@@ -38,6 +38,7 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
     FirmwareJob,
+    JobSource,
     JobStatus,
     JobType,
 )
@@ -380,6 +381,12 @@ async def test_upload_blocked_by_active_reset_or_same_config_clean(
 
     reset = _job("r", "", JobType.RESET_BUILD_ENV, status=JobStatus.RUNNING)
     controller.state.jobs[reset.job_id] = reset
+    assert controller.state.upload_blocked(upload) is True
+    # A REMOTE-source reset wipes the receiver's tree, not any local
+    # artifact, so it must not gate local flashes.
+    reset.source = JobSource.REMOTE
+    assert controller.state.upload_blocked(upload) is False
+    reset.source = JobSource.LOCAL
     assert controller.state.upload_blocked(upload) is True
     reset.status = JobStatus.COMPLETED  # terminal — no longer blocks
     assert controller.state.upload_blocked(upload) is False

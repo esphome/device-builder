@@ -142,18 +142,29 @@ async def run_remote_job(  # noqa: C901
       ``firmware/clean`` queues one of these per connected
       peer so receivers that built this device locally drop
       their stale artifacts too.
+    * :attr:`JobType.RESET_BUILD_ENV` — one bundle-less
+      ``reset_build_env`` frame (a full reset carries no
+      YAML); the receiver enqueues its own local reset job
+      tagged with this job's id, so progress and the terminal
+      frame ride the same fan-out as a compile. Finalise like
+      CLEAN — no artifacts.
 
-    Other job types (``RENAME`` / ``RESET_BUILD_ENV``) are
-    rejected at the top because the receiver-side
-    ``submit_job`` contract doesn't carry a wire shape for
-    them yet.
+    ``RENAME`` is rejected at the top because the receiver-side
+    contract doesn't carry a wire shape for it.
     """
-    if job.job_type not in (JobType.COMPILE, JobType.UPLOAD, JobType.INSTALL, JobType.CLEAN):
+    if job.job_type not in (
+        JobType.COMPILE,
+        JobType.UPLOAD,
+        JobType.INSTALL,
+        JobType.CLEAN,
+        JobType.RESET_BUILD_ENV,
+    ):
         _fail_locally(
             controller,
             job,
             reason=(
-                f"unsupported job_type {job.job_type.value!r} (COMPILE/UPLOAD/INSTALL/CLEAN only)"
+                f"unsupported job_type {job.job_type.value!r} "
+                f"(COMPILE/UPLOAD/INSTALL/CLEAN/RESET_BUILD_ENV only)"
             ),
         )
         return
@@ -265,16 +276,24 @@ async def _dispatch_and_drive(
     call site — every early-return failure path here still
     releases the bus subscriptions.
     """
-    bundle_bytes = await _build_bundle_or_fail(controller, job)
-    if bundle_bytes is None:
-        return
-    client = _open_peer_link_client_or_fail(controller, job)
-    if client is None:
-        return
-    if not await _submit_job_to_receiver(
-        controller=controller, job=job, client=client, bundle_bytes=bundle_bytes
-    ):
-        return
+    if job.job_type is JobType.RESET_BUILD_ENV:
+        # A full reset carries no YAML — no bundle to build.
+        client = _open_peer_link_client_or_fail(controller, job)
+        if client is None:
+            return
+        if not await _send_reset_to_receiver(controller=controller, job=job, client=client):
+            return
+    else:
+        bundle_bytes = await _build_bundle_or_fail(controller, job)
+        if bundle_bytes is None:
+            return
+        client = _open_peer_link_client_or_fail(controller, job)
+        if client is None:
+            return
+        if not await _submit_job_to_receiver(
+            controller=controller, job=job, client=client, bundle_bytes=bundle_bytes
+        ):
+            return
 
     wire_status = await _await_terminal(
         controller=controller,
@@ -375,6 +394,27 @@ async def _submit_job_to_receiver(
     return True
 
 
+async def _send_reset_to_receiver(
+    *,
+    controller: FirmwareController,
+    job: FirmwareJob,
+    client: PeerLinkClient,
+) -> bool:
+    """Send ``reset_build_env`` and return ``True`` on accepted ack, ``False`` otherwise."""
+    try:
+        ack = await client.reset_build_env(job_id=job.job_id)
+    except (PeerLinkNoSessionError, SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
+        _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
+        return False
+    if not ack["accepted"]:
+        reason = ack.get("reason", "no reason given")
+        if reason == "busy":
+            reason = "the build server is busy with another job; retry when its queue is empty"
+        _fail_locally(controller, job, reason=f"receiver rejected reset: {reason}")
+        return False
+    return True
+
+
 async def _finalise_after_receiver_completed(
     *,
     controller: FirmwareController,
@@ -383,11 +423,11 @@ async def _finalise_after_receiver_completed(
 ) -> None:
     """Wire the post-completed dispatch by job_type.
 
-    CLEAN finalises immediately (wipe-only). COMPILE / UPLOAD /
-    INSTALL all materialise first; UPLOAD / INSTALL then spawn
+    CLEAN / RESET_BUILD_ENV finalise immediately (wipe-only). COMPILE /
+    UPLOAD / INSTALL all materialise first; UPLOAD / INSTALL then spawn
     the local flash subprocess.
     """
-    if job.job_type is JobType.CLEAN:
+    if job.job_type in (JobType.CLEAN, JobType.RESET_BUILD_ENV):
         job.exit_code = 0
         _finalize_success(controller, job)
         return

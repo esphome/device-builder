@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...models import ErrorCode
+from ...models import ErrorCode, FirmwareJob, JobBuildSource, JobType
 from ._validators import (
     download_artifacts_error_to_command_error,
     validate_pin_sha256,
@@ -193,3 +193,43 @@ async def cancel_job(
     except PeerLinkNoSessionError as exc:
         raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
     return {"sent": sent}
+
+
+async def reset_peer_build_env(controller: OffloaderController, *, pin_sha256: str) -> FirmwareJob:
+    """Enqueue a mirror job that resets the receiver's whole build environment.
+
+    The receiver runs its full local reset (``esphome clean-all`` +
+    every cached venv) as its own job tagged with the returned mirror
+    job's id; progress and the terminal state ride the normal firmware
+    job events. The receiver refuses ``busy`` while it has any active
+    job, which surfaces here as the mirror job failing with a
+    retry-when-idle message.
+    """
+    clean_pin = validate_pin_sha256(pin_sha256)
+    pairing = controller.get_pairing(clean_pin)
+    if pairing is None:
+        msg = "no pairing matches pin_sha256"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    if not pairing.reset_build_env_supported:
+        msg = "the receiver does not support remote build-environment reset (update it)"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    # Connectivity precheck so a dead link refuses here instead of
+    # enqueuing a job doomed to fail its dispatch.
+    controller._lookup_open_peer_link_client(clean_pin, label="reset_peer_build_env")
+    firmware = controller._db.firmware
+    if firmware is None:
+        msg = "firmware controller not available"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    job = firmware._create_job(
+        "",
+        JobType.RESET_BUILD_ENV,
+        build_source=JobBuildSource.for_server(
+            pin_sha256=clean_pin,
+            label=pairing.label,
+            esphome_version=pairing.esphome_version,
+        ),
+    )
+    # supersede=False: reset jobs share the empty configuration key; the
+    # default supersede would cancel an unrelated reset targeting another
+    # server (the firmware/clean fan-out precedent).
+    return await firmware._enqueue(job, supersede=False)

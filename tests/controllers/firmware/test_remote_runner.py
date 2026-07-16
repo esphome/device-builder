@@ -140,6 +140,18 @@ def _make_client(
     # job. Tests that want to inspect the call or simulate
     # failure override this assignment.
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
+
+    async def _echo_reset_ack(**kwargs: Any) -> dict[str, Any]:
+        ack: dict[str, Any] = {"job_id": kwargs["job_id"], "accepted": accepted}
+        if reason is not None:
+            ack["reason"] = reason
+        return ack
+
+    client.reset_build_env = (
+        AsyncMock(side_effect=submit_error)
+        if submit_error is not None
+        else AsyncMock(side_effect=_echo_reset_ack)
+    )
     return client
 
 
@@ -1940,3 +1952,117 @@ async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
     assert job.status == JobStatus.COMPLETED
     assert len(captured[EventType.JOB_COMPLETED]) == 1
     client.download_artifacts.assert_awaited_once()
+
+
+def _make_reset_job(*, job_id: str = "reset-1") -> FirmwareJob:
+    return FirmwareJob(
+        job_id=job_id,
+        configuration="",
+        job_type=JobType.RESET_BUILD_ENV,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN,
+        source_label="desktop",
+    )
+
+
+async def _wait_until_reset_dispatched(client: Any, *, timeout: float = 1.0) -> None:
+    """Yield until the runner moved past ``await client.reset_build_env(...)``."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while client.reset_build_env.await_count == 0:
+        if loop.time() >= deadline:
+            msg = f"reset_build_env not awaited within {timeout}s"
+            raise AssertionError(msg)
+        await asyncio.sleep(0)
+
+
+async def test_remote_reset_dispatches_frame_and_finalises_on_completed(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """A REMOTE reset sends one bundle-less frame, streams output, finalises COMPLETED."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_reset_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_reset_dispatched(client)
+    _fire_output(controller, job_id=job.job_id, line="Deleting PlatformIO cache\n")
+    _fire_state(controller, job_id=job.job_id, status="completed")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.COMPLETED
+    assert job.exit_code == 0
+    assert [d["line"] for d in captured[EventType.JOB_OUTPUT]] == [
+        "Deleting PlatformIO cache\n",
+    ]
+    assert len(captured[EventType.JOB_COMPLETED]) == 1
+    client.reset_build_env.assert_awaited_once_with(job_id=job.job_id)
+    # No bundle build, no submit, no artifact fetch — the whole point.
+    patch_bundle.assert_not_awaited()
+    client.submit_job.assert_not_called()
+    client.download_artifacts.assert_not_called()
+
+
+async def test_remote_reset_busy_reject_fails_with_retry_message(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A ``busy`` reject finalises FAILED with the retry-when-idle message."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client(accepted=False, reason="busy")
+    _wire_remote_build(controller, client=client)
+    job = _make_reset_job()
+
+    await asyncio.wait_for(remote_runner.run_remote_job(controller, job), timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None
+    assert "busy" in job.error
+    assert "retry when its queue is empty" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_reset_session_lost_mid_reset_fires_job_failed(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A peer-link close mid-reset fails the mirror; the receiver's wipe continues."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_reset_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_reset_dispatched(client)
+    _fire_session_closed(controller)
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None
+    assert "session" in job.error.lower()
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_reset_cancel_round_trip(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A local Stop sends ``cancel_job``; the receiver's ``cancelled`` finalises the mirror."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client()
+    _wire_remote_build(controller, client=client)
+    job = _make_reset_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await _wait_until_reset_dispatched(client)
+    _request_remote_cancel(controller, job)
+    await _wait_for_wire_cancel(client)
+    _fire_state(controller, job_id=job.job_id, status="cancelled")
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
+    assert len(captured[EventType.JOB_CANCELLED]) == 1

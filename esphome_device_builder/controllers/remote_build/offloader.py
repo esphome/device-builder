@@ -36,6 +36,7 @@ from ...helpers.peer_link_resolver import make_peer_link_resolver
 from ...helpers.storage import Store
 from ...models import (
     EventType,
+    FirmwareJob,
     OffloaderAlertSnapshotEntry,
     OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
@@ -502,6 +503,16 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
     ) -> dict[str, bool]:
         """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*."""
         return await submit_job_commands.cancel_job(self, pin_sha256=pin_sha256, job_id=job_id)
+
+    @api_command("remote_build/reset_peer_build_env")
+    async def reset_peer_build_env(
+        self,
+        *,
+        pin_sha256: str,
+        **kwargs: Any,
+    ) -> FirmwareJob:
+        """Enqueue a mirror job resetting the whole build env on *pin_sha256*'s receiver."""
+        return await submit_job_commands.reset_peer_build_env(self, pin_sha256=pin_sha256)
 
     def get_pairing(self, pin_sha256: str) -> StoredPairing | None:
         """Return the :class:`StoredPairing` for *pin_sha256*, or ``None``."""
