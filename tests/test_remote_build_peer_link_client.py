@@ -4757,6 +4757,23 @@ async def test_reset_build_env_raises_no_session_error_when_session_closed() -> 
         await client.reset_build_env(esphome_version="1.0.0")
 
 
+async def test_reset_build_env_send_failure_raises_session_lost() -> None:
+    """``send_frame`` returning ``False`` fails fast instead of waiting for the ack timeout."""
+    client = _make_offloader_client(EventBus())
+
+    async def _send_frame_fails(_frame: dict[str, Any]) -> bool:
+        return False  # Noise encrypt / WS send failed at this tick
+
+    channel = MagicMock()
+    channel.send_frame = _send_frame_fails
+    client._active_channel = channel
+
+    with pytest.raises(SubmitJobSessionLostError, match="request send failed"):
+        await client.reset_build_env(esphome_version="1.0.0")
+    # The request-id slot is freed even on the failure path.
+    assert not client._reset_env_acks
+
+
 async def test_submit_job_sends_header_chunks_and_returns_ack(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

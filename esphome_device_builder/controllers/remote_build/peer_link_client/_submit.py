@@ -94,8 +94,9 @@ async def reset_build_env(
     can also clear the cached venv its builds provision. Raises
     :class:`PeerLinkNoSessionError` without a live session,
     :class:`SubmitJobTimeoutError` on a silent wire, and
-    :class:`SubmitJobSessionLostError` when the session ends before
-    the ack (the drain in ``_run_session_loops`` fails the future).
+    :class:`SubmitJobSessionLostError` when the frame fails to send or
+    the session ends before the ack (the drain in ``_run_session_loops``
+    fails the future).
     """
     channel = _require_open_channel(client, label="reset_build_env")
     request_id = uuid4().hex[:12]
@@ -107,7 +108,11 @@ async def reset_build_env(
         "esphome_version": esphome_version,
     }
     try:
-        await channel.send_frame(cast(dict[str, Any], frame))
+        if not await channel.send_frame(cast(dict[str, Any], frame)):
+            raise SubmitJobSessionLostError(
+                f"reset_build_env: request send failed mid-flow to "
+                f"{client._hostname}:{client._port}"
+            )
         try:
             return await asyncio.wait_for(ack_fut, timeout=_RESET_BUILD_ENV_ACK_TIMEOUT_SECONDS)
         except TimeoutError as exc:

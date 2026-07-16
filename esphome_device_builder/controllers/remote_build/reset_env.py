@@ -17,7 +17,7 @@ from ...helpers.remote_build_layout import (
     dashboard_data_subtree,
 )
 from ...helpers.version_compat import is_pinnable_version
-from ...models import ResetBuildEnvAckFrameData
+from ...models import JobStatus, ResetBuildEnvAckFrameData
 from .peer_link import TerminateReason
 
 if TYPE_CHECKING:
@@ -117,10 +117,13 @@ def _reset_busy(
     """
     Whether the reset must be refused ``busy``.
 
-    True when this offloader has a job queued / running or a bundle
-    mid-upload, or when *any* offloader is compiling with the venv the
-    wipe would clear (``venv_version`` set) — yanking it mid-build would
-    truncate that build's toolchain.
+    True when this offloader has any active job (queued / running) or a
+    bundle mid-upload, or when another offloader is *running* a build on
+    the venv the wipe would clear (``venv_version`` set) — yanking it
+    mid-compile truncates that build's toolchain. A merely-queued
+    same-version job doesn't block: it re-provisions clean after the
+    wipe, and blocking it would strand the last-resort reset behind a
+    queue.
     """
     firmware = controller._db.firmware
     if firmware is not None:
@@ -128,7 +131,8 @@ def _reset_busy(
         if any(job.remote_peer == dashboard_id for job in active):
             return True
         if venv_version is not None and any(
-            job.target_esphome_version == venv_version for job in active
+            job.status == JobStatus.RUNNING and job.target_esphome_version == venv_version
+            for job in active
         ):
             return True
     receiver = controller.state.submit_job_receiver

@@ -21,6 +21,7 @@ from esphome_device_builder.helpers.remote_build_layout import (
     dashboard_data_subtree,
     venv_dir,
 )
+from esphome_device_builder.models import JobStatus
 
 from .conftest import RemoteBuildTestHandles, make_remote_build_controller
 
@@ -66,10 +67,13 @@ def _seed_venv(version: str) -> Path:
     return venv
 
 
-def _remote_job(dashboard_id: str, version: str) -> MagicMock:
+def _remote_job(
+    dashboard_id: str, version: str, *, status: JobStatus = JobStatus.RUNNING
+) -> MagicMock:
     job = MagicMock()
     job.remote_peer = dashboard_id
     job.target_esphome_version = version
+    job.status = status
     return job
 
 
@@ -154,10 +158,10 @@ async def test_reset_with_missing_dirs_still_acks_accepted(tmp_path: Path) -> No
     assert _sent_ack(session)["accepted"] is True
 
 
-async def test_reset_refused_busy_while_own_job_active(tmp_path: Path) -> None:
-    """A queued/running job from the same offloader refuses the wipe."""
+async def test_reset_refused_busy_while_own_job_queued(tmp_path: Path) -> None:
+    """Even a merely-queued job from the same offloader refuses the wipe."""
     handles = _make_handles(tmp_path)
-    _wire_firmware(handles, [_remote_job(_DASHBOARD_ID, _VERSION)])
+    _wire_firmware(handles, [_remote_job(_DASHBOARD_ID, _VERSION, status=JobStatus.QUEUED)])
     config_subtree, _ = _seed_subtrees(tmp_path, _DASHBOARD_ID)
     session = _make_session()
 
@@ -169,10 +173,10 @@ async def test_reset_refused_busy_while_own_job_active(tmp_path: Path) -> None:
     assert config_subtree.exists()
 
 
-async def test_reset_refused_when_another_offloader_uses_the_venv(tmp_path: Path) -> None:
-    """Another offloader compiling with the same venv version refuses the wipe."""
+async def test_reset_refused_when_another_offloader_is_running_on_the_venv(tmp_path: Path) -> None:
+    """Another offloader actively compiling with the same venv refuses the wipe."""
     handles = _make_handles(tmp_path)
-    _wire_firmware(handles, [_remote_job(_OTHER_DASHBOARD_ID, _VERSION)])
+    _wire_firmware(handles, [_remote_job(_OTHER_DASHBOARD_ID, _VERSION, status=JobStatus.RUNNING)])
     my_venv = _seed_venv(_VERSION)
     session = _make_session()
 
@@ -182,6 +186,23 @@ async def test_reset_refused_when_another_offloader_uses_the_venv(tmp_path: Path
     assert ack["accepted"] is False
     assert ack["reason"] == "busy"
     assert my_venv.exists()
+
+
+async def test_reset_proceeds_when_another_offloader_only_queued_same_venv(tmp_path: Path) -> None:
+    """A merely-queued same-version job on another offloader doesn't block the wipe.
+
+    It re-provisions clean after the reset, so blocking it would strand
+    the last-resort reset behind a queue.
+    """
+    handles = _make_handles(tmp_path)
+    _wire_firmware(handles, [_remote_job(_OTHER_DASHBOARD_ID, _VERSION, status=JobStatus.QUEUED)])
+    my_venv = _seed_venv(_VERSION)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r6b"))
+
+    assert _sent_ack(session)["accepted"] is True
+    assert not my_venv.exists()
 
 
 async def test_reset_proceeds_when_other_offloader_builds_a_different_version(
