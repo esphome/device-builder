@@ -80,14 +80,11 @@ class DeviceRuntimeState(DashboardModel):
     # confirmed, ``""`` = TXT seen with the key absent (confirmed
     # plaintext), ``None`` = no broadcast yet.
     api_encryption_active: str | None = None
-    # True while an unexpired ``_http._tcp`` TXT carrying identity keys
-    # (version / config_hash / mac) backs this device, or one was applied
-    # live this session and hasn't been confirmed gone by a targeted
-    # re-resolve. Freshness for the non-API identity trio only — never a
-    # reachability claim. Session-only: a cold start has no cache to
-    # vouch for the sidecar-seeded identity, which is exactly what the
-    # flag reports; the frontend gates the non-API deployed identity on
-    # it.
+    # True while fresh evidence backs the non-API deployed identity: an
+    # unexpired ``_http._tcp`` identity TXT, or a flash this dashboard
+    # performed this session. Never a reachability claim. Session-only:
+    # a cold start has no evidence for the sidecar-seeded values, which
+    # is exactly what the flag reports.
     http_identity_live: bool = False
 
 

@@ -68,11 +68,12 @@ _MDNS_CLOSE_TIMEOUT = 1.0
 # circuit and actually goes on the wire (see ``refresh_mdns``).
 _MDNS_REFRESH_PADDING_SECONDS = 1.0
 
-# TXT keys ``_apply_identity_txt`` reads. The ``http_identity_live``
-# flag keys on their presence: a contentless ``_http._tcp`` service (an
-# api+web_server device, or old web_server firmware) must never vouch
-# for the identity trio, or a flag-True device with an identity-less
-# cached TXT would verify-resolve every sweep forever.
+# The identity TXT keys, in ``_apply_identity_txt``'s applier order.
+# The ``http_identity_live`` flag keys on their presence: a contentless
+# ``_http._tcp`` service (an api+web_server device, or old web_server
+# firmware) must never vouch for the identity trio, or a flag-True
+# device with an identity-less cached TXT would verify-resolve every
+# sweep forever.
 _IDENTITY_TXT_KEYS = ("version", "config_hash", "mac")
 
 
@@ -300,9 +301,7 @@ class MdnsSource:
         # absent, so no bucket gate is needed; api_encryption stays
         # untouched (see ``_apply_http_txt``).
         if props := self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}"):
-            self._apply_identity_txt(device_name, props)
-            if _has_identity_keys(props):
-                self._monitor.apply_http_identity_live(device_name, live=True)
+            self._apply_http_identity_props(device_name, props)
 
     async def resolve_and_claim(self, device_name: str) -> None:
         """Resolve the esphomelib service (cache first, wire fallback) and claim mdns on a hit."""
@@ -330,16 +329,30 @@ class MdnsSource:
             self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}")
         )
 
+    def has_cached_http_trace(self, device_name: str) -> bool:
+        """
+        Whether the cache holds any address or ``_http._tcp`` TXT record, expired included.
+
+        The sweep's clear side keys on it: an mDNS-dark deployment
+        leaves no trace, and a wire miss there proves nothing.
+        """
+        if self._zeroconf is None:
+            return False
+        if self._get_address_records(device_name):
+            return True
+        return bool(
+            self._zeroconf.zeroconf.cache.get_all_by_details(
+                f"{device_name}.{_HTTP_SERVICE_TYPE}", _TYPE_TXT, _CLASS_IN
+            )
+        )
+
     async def verify_http_identity(self, device_name: str) -> None:
         """
         Re-resolve the ``_http._tcp`` service before dropping identity freshness.
 
-        Only a confirmed miss (or a resolve whose authoritative
-        atomic-per-announce TXT provably lacks the identity keys)
-        clears ``http_identity_live``; a swallowed error or in-flight
-        resolve leaves the flag alone — never demote on uncertainty.
-        A successful identity-bearing resolve refreshes the cache and
-        re-stamps through ``_apply_http_txt``.
+        Only a confirmed miss, or an answer provably lacking the identity
+        keys, clears the flag; no verdict leaves it — never demote on
+        uncertainty.
         """
         if (zc := self._zeroconf) is None:
             return
@@ -570,12 +583,10 @@ class MdnsSource:
     def _apply_identity_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply the version / config_hash / mac identity TXT keys, tolerating absence."""
         monitor = self._monitor
-        if version := props.get("version"):
-            monitor.apply_version(device_name, version)
-        if config_hash := props.get("config_hash"):
-            monitor.apply_config_hash(device_name, config_hash)
-        if mac := props.get("mac"):
-            monitor.apply_mac_address(device_name, mac)
+        appliers = (monitor.apply_version, monitor.apply_config_hash, monitor.apply_mac_address)
+        for key, apply in zip(_IDENTITY_TXT_KEYS, appliers, strict=True):
+            if value := props.get(key):
+                apply(device_name, value)
 
     def _on_http_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -612,7 +623,10 @@ class MdnsSource:
         API has no encryption state, and the absent-key-means-plaintext
         rule from the esphomelib path would stamp a false confirmation.
         """
-        props = info.decoded_properties
+        self._apply_http_identity_props(device_name, info.decoded_properties)
+
+    def _apply_http_identity_props(self, device_name: str, props: Mapping[str, str | None]) -> None:
+        """Apply ``_http._tcp`` identity keys and stamp freshness when any are present."""
         self._apply_identity_txt(device_name, props)
         if _has_identity_keys(props):
             self._monitor.apply_http_identity_live(device_name, live=True)

@@ -267,8 +267,8 @@ async def test_sweep_stamps_populated_non_api_device_from_http_cache() -> None:
     fetch.assert_not_called()
 
 
-async def test_sweep_verifies_flag_true_device_when_cache_goes_dark() -> None:
-    """A flag-True non-API device with no live cached identity TXT is verify-resolved."""
+async def test_sweep_verifies_flag_true_device_when_txt_expires() -> None:
+    """A flag-True non-API device whose cached identity TXT expired is verify-resolved."""
     device = make_online_api_device(
         api_enabled=False, loaded_integrations=["mqtt", "wifi"], http_identity_live=True
     )
@@ -279,7 +279,19 @@ async def test_sweep_verifies_flag_true_device_when_cache_goes_dark() -> None:
         deployed_version="2026.8.0",
     )
     monitor, _callbacks = make_state_monitor_with_callbacks([device, api_sibling])
-    _seed_txt_cache(monitor, [])
+    # Expired TXT: no longer live, but still the mDNS trace the clear
+    # side requires before it trusts a wire miss.
+    _seed_txt_cache(
+        monitor,
+        [
+            _txt_record(
+                {"version": "2026.8.0"},
+                age_ms=5_000_000,
+                ttl=4500,
+                service_name=_HTTP_SERVICE_NAME,
+            )
+        ],
+    )
     verified: list[str] = []
 
     async def fake_verify(name: str) -> None:
@@ -292,6 +304,27 @@ async def test_sweep_verifies_flag_true_device_when_cache_goes_dark() -> None:
 
     # The api sibling's freshness is owned by active_source, never verified here.
     assert verified == ["kitchen"]
+
+
+async def test_sweep_never_verifies_without_an_mdns_trace() -> None:
+    """An mDNS-dark deployment (post-flash stamp only) keeps its flag; a miss proves nothing."""
+    device = make_online_api_device(
+        api_enabled=False, loaded_integrations=["mqtt", "wifi"], http_identity_live=True
+    )
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    _seed_txt_cache(monitor, [])
+    verified: list[str] = []
+
+    async def fake_verify(name: str) -> None:
+        verified.append(name)
+
+    monitor.mdns.verify_http_identity = fake_verify  # type: ignore[method-assign]
+    monitor.api_info._fetch = MagicMock()  # type: ignore[method-assign]
+
+    await monitor.api_info._sweep()
+
+    assert verified == []
+    assert device.runtime_state.http_identity_live is True
 
 
 async def test_resolve_then_dedupes_inflight_service_names() -> None:

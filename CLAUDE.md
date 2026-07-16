@@ -551,13 +551,13 @@ against legacy behaviour before assuming the simpler version suffices.
     reads both services' cached TXT. The one state the path does drive is
     `runtime_state.http_identity_live` — the session-only freshness bit
     the frontend gates the non-API deployed identity on (their
-    `active_source` never says `mdns`). Stamped on every identity-bearing
-    apply, level-synced against the unexpired cached TXT each API-info
-    sweep, and cleared only after a targeted `_http._tcp` re-resolve
-    confirms the TXT gone (`verify_http_identity` — never demote on
-    uncertainty). A contentless `_http._tcp` TXT never stamps it
-    (`_has_identity_keys`), or a flag-true device would verify-loop
-    every sweep.
+    `active_source` never says `mdns`). Stamped by every identity-bearing
+    apply and by the post-flash optimistic sync; level-synced against the
+    unexpired cached TXT each API-info sweep, whose clear side needs a
+    cached mDNS trace plus a confirming re-resolve
+    (`verify_http_identity`) — never demote on uncertainty, and an
+    mDNS-dark deployment (post-flash stamp only) is never demoted at
+    all.
   - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
     API devices the ping sweep is about to ICMP). Exists because the
     zeroconf browser never re-asks: after its startup queries it only

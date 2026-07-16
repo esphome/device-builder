@@ -15,6 +15,7 @@ from .conftest import (
     make_device,
     make_devices_controller_with_bus,
     make_state_monitor_with_callbacks,
+    stub_async_service_info,
 )
 
 
@@ -22,16 +23,6 @@ def _device(**overrides: Any) -> Any:
     base: dict[str, Any] = {"api_enabled": False, "loaded_integrations": ["mqtt", "wifi"]}
     base.update(overrides)
     return make_device(**base)
-
-
-def _http_info(monkeypatch: pytest.MonkeyPatch, props: dict[str, str]) -> MagicMock:
-    info = MagicMock()
-    info.decoded_properties = props
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.mdns.AsyncServiceInfo",
-        lambda *_a, **_k: info,
-    )
-    return info
 
 
 # ─── Controller handler ───────────────────────────────────────────
@@ -99,77 +90,40 @@ def test_apply_http_identity_live_unwired_is_a_noop() -> None:
 # ─── verify_http_identity ─────────────────────────────────────────
 
 
-async def test_verify_confirmed_miss_clears_the_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    device = _device(http_identity_live=True)
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
-    monitor.mdns._zeroconf = MagicMock()
-    _http_info(monkeypatch, {})
-
-    async def fake_resolve(*_a: Any, **_k: Any) -> bool:
-        return False
-
-    monkeypatch.setattr(monitor.mdns, "resolve_then", fake_resolve)
-
-    await monitor.mdns.verify_http_identity("kitchen")
-
-    assert device.runtime_state.http_identity_live is False
-    assert ("on_http_identity_live_change", "kitchen", False) in callbacks.calls
-
-
-async def test_verify_error_verdict_leaves_the_flag(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No verdict (swallowed error / in-flight resolve) never demotes."""
-    device = _device(http_identity_live=True)
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
-    monitor.mdns._zeroconf = MagicMock()
-    _http_info(monkeypatch, {})
-
-    async def fake_resolve(*_a: Any, **_k: Any) -> None:
-        return None
-
-    monkeypatch.setattr(monitor.mdns, "resolve_then", fake_resolve)
-
-    await monitor.mdns.verify_http_identity("kitchen")
-
-    assert device.runtime_state.http_identity_live is True
-    assert callbacks.calls_for("on_http_identity_live_change") == []
-
-
-async def test_verify_identity_bearing_resolve_keeps_the_flag(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize(
+    ("resolved", "props", "expected"),
+    [
+        pytest.param(False, {}, False, id="confirmed_miss_clears"),
+        pytest.param(True, {"version": "2026.8.0"}, True, id="identity_bearing_keeps"),
+        pytest.param(True, {"path": "/"}, False, id="identity_less_clears"),
+    ],
+)
+async def test_verify_http_identity_verdicts(
+    monkeypatch: pytest.MonkeyPatch, resolved: bool, props: dict[str, str], expected: bool
 ) -> None:
-    device = _device(http_identity_live=True)
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
-    monitor.mdns._zeroconf = MagicMock()
-    _http_info(monkeypatch, {"version": "2026.8.0"})
-
-    async def fake_resolve(*_a: Any, **_k: Any) -> bool:
-        return True
-
-    monkeypatch.setattr(monitor.mdns, "resolve_then", fake_resolve)
-
-    await monitor.mdns.verify_http_identity("kitchen")
-
-    assert device.runtime_state.http_identity_live is True
-    assert callbacks.calls_for("on_http_identity_live_change") == []
-
-
-async def test_verify_identity_less_resolve_clears_the_flag(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A service that answers without identity keys proves the trio gone (atomic TXT)."""
+    """Only a confirmed miss or an identity-less answer clears the flag."""
     device = _device(http_identity_live=True)
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.mdns._zeroconf = MagicMock()
-    _http_info(monkeypatch, {"path": "/"})
-
-    async def fake_resolve(*_a: Any, **_k: Any) -> bool:
-        return True
-
-    monkeypatch.setattr(monitor.mdns, "resolve_then", fake_resolve)
+    stub_async_service_info(monkeypatch, resolved=resolved, properties=props)
 
     await monitor.mdns.verify_http_identity("kitchen")
 
-    assert device.runtime_state.http_identity_live is False
+    assert device.runtime_state.http_identity_live is expected
+
+
+async def test_verify_inflight_resolve_leaves_the_flag(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No verdict (a resolve already in flight) never demotes."""
+    device = _device(http_identity_live=True)
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.mdns._zeroconf = MagicMock()
+    info = stub_async_service_info(monkeypatch, properties={})
+    monitor.mdns._inflight_resolves.add(info.name)
+
+    await monitor.mdns.verify_http_identity("kitchen")
+
+    assert device.runtime_state.http_identity_live is True
+    assert callbacks.calls_for("on_http_identity_live_change") == []
 
 
 async def test_verify_without_zeroconf_is_a_noop() -> None:

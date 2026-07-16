@@ -167,8 +167,10 @@ class ApiInfoSource(ApiSweepSource):
         bare flag write) so a device re-flashed while the dashboard was
         down also refreshes its *populated* identity fields, which the
         missing-field reconcile gate above never revisits. Clear-side
-        is verify-before-demote: only a targeted re-resolve that
-        confirms the TXT gone drops the flag.
+        is verify-before-demote and requires a cached mDNS trace: an
+        mDNS-dark deployment (where the post-flash stamp is the only
+        evidence) gains no multicast traffic, so a wire miss there
+        proves nothing.
         """
         mdns = self._monitor.mdns
         if mdns.zeroconf is None:
@@ -181,13 +183,20 @@ class ApiInfoSource(ApiSweepSource):
             if mdns.has_live_http_identity_txt(device.name):
                 if not device.runtime_state.http_identity_live:
                     stamp.add(device.name)
-            elif device.runtime_state.http_identity_live:
+            elif device.runtime_state.http_identity_live and mdns.has_cached_http_trace(
+                device.name
+            ):
                 verify.add(device.name)
         for name in sorted(stamp):
             mdns.reconcile_from_cache(name)
         if verify:
+            # Same per-sweep bound as the API probes: a whole-fleet cache
+            # expiry (suspend/wake) must not burst hundreds of concurrent
+            # wire resolves. The overflow stays flag-True and re-qualifies
+            # next sweep.
+            targets = sorted(verify)[:_MAX_PROBES_PER_SWEEP]
             results = await asyncio.gather(
-                *(mdns.verify_http_identity(name) for name in sorted(verify)),
+                *(mdns.verify_http_identity(name) for name in targets),
                 return_exceptions=True,
             )
             log_gather_failures(results, "http identity verify failed; continuing")
