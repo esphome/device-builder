@@ -107,16 +107,14 @@ _PROGRESS_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 # ESP-IDF / ninja per-target counter: ``[907/1424] Building C object …``.
 # Kept out of ``_PROGRESS_PATTERNS`` because it carries no percentage —
-# ``_ingest_output_line`` derives one from the two capture groups.
-# Anchored to the line start and to ninja's literal space after the
-# ``]`` so mid-line ``[N/M]`` text and bare bracketed fragments never
-# trip it; the start anchor tolerates ANSI CSI prefixes (``\x1b[2K``
-# etc.) — same production concern as the ``Writing at`` pattern above.
-# Counters with totals under ``_NINJA_MIN_TOTAL`` are ignored, so
-# ``[1/2] Re-running CMake...`` sub-steps can't spike the gauge. The
-# floor alone no longer filters the bootloader ExternalProject
-# sub-build (123 steps on IDF 5.x, up from ~97) — the largest-total
-# gate in ``_ingest_output_line`` handles sub-builds of any size.
+# ``_ninja_progress`` derives one from the two capture groups. Anchored
+# to the line start and to ninja's literal space after the ``]`` so
+# mid-line ``[N/M]`` text and bare bracketed fragments never trip it;
+# the start anchor tolerates ANSI CSI prefixes (``\x1b[2K`` etc.) —
+# same production concern as the ``Writing at`` pattern above. The
+# ``_NINJA_MIN_TOTAL`` floor drops tiny sub-steps (``[1/2] Re-running
+# CMake...``); ExternalProject sub-builds of any size are kept off the
+# gauge by ``_ninja_progress``'s largest-total gate.
 _NINJA_MIN_TOTAL = 100
 _NINJA_PROGRESS_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:\x1b\[[0-9;]*[A-Za-z])*\s*\[\s*(\d+)\s*/\s*(\d+)\s*\] "

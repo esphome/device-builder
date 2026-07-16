@@ -213,11 +213,9 @@ class FirmwareJob(DashboardModel):
     # yet -- most compile output is opaque, but the heavy phases (PIO
     # build, esptool flash) do emit percentages we can latch onto.
     progress: int | None = None
-    # Largest ninja ``[N/M]`` total seen this run. Counters with smaller
-    # totals (ExternalProject sub-builds like the esp-idf bootloader)
-    # don't drive the gauge — their ``[N/N]`` final step would latch
-    # 100% mid-build. Parser bookkeeping only: kept off the wire and
-    # off disk.
+    # Largest ninja ``[N/M]`` total seen this run — backs the sub-build
+    # gate in ``_ninja_progress``. Parser bookkeeping only: kept off
+    # the wire and off disk.
     ninja_total: int = field(default=0, metadata={"serialize": "omit"})
     # Offloader's ``dashboard_id`` when this job came in via the
     # peer-link ``submit_job`` flow (issue #106). Empty for

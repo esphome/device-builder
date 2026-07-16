@@ -8,7 +8,7 @@ real ones (PlatformIO ``[ NN%]`` per-file markers, esptool
 else (PIO platform-extract bars, memory-usage reports, stray
 percentages in narrative log text). ESP-IDF builds emit no percent
 at all — their ninja ``[N/M]`` counter is parsed separately
-(``_parse_ninja_counter``) and ``_ingest_output_line`` derives the
+(``_parse_ninja_counter``) and ``_ninja_progress`` derives the
 percentage, gated on the largest total seen so ``[1/2] Re-running
 CMake...`` sub-steps and the bootloader ExternalProject sub-build
 never drive the gauge.
@@ -25,11 +25,10 @@ from __future__ import annotations
 import pytest
 
 from esphome_device_builder.controllers.firmware.helpers import (
-    _ingest_output_line,
+    _ninja_progress,
     _parse_ninja_counter,
     _parse_progress,
 )
-from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models.firmware import FirmwareJob, JobType
 
 
@@ -245,37 +244,27 @@ def _job() -> FirmwareJob:
     return FirmwareJob(job_id="j1", configuration="kitchen.yaml", job_type=JobType.COMPILE)
 
 
-def _feed(job: FirmwareJob, *lines: str) -> None:
-    bus = EventBus()
-    for line in lines:
-        _ingest_output_line(job, bus, line + "\n")
-
-
 class TestNinjaGaugeGating:
-    """``_ingest_output_line`` derives ninja progress from the dominant counter only."""
+    """``_ninja_progress`` derives a percentage from the dominant counter only."""
 
     def test_subbuild_final_counter_does_not_latch_100(self) -> None:
         # The bootloader ExternalProject sub-build (123 steps on IDF 5.x)
         # streams its own counter mid-run; its [N/N] final step must not
         # pin the gauge to 100 while the app build is at 99.
         job = _job()
-        _feed(job, "[10/1133] Building C object a.c.obj")
-        _feed(job, "[123/123] Linking CXX executable bootloader.elf")
-        _feed(job, "[1123/1133] Completed 'bootloader'")
-        assert job.progress == 99
-        _feed(job, "[1133/1133] Linking .pioenvs/firmware.elf")
-        assert job.progress == 100
+        assert _ninja_progress(job, "[10/1133] Building C object a.c.obj") == 0
+        assert _ninja_progress(job, "[123/123] Linking CXX executable bootloader.elf") is None
+        assert _ninja_progress(job, "[1123/1133] Completed 'bootloader'") == 99
+        assert _ninja_progress(job, "[1133/1133] Linking .pioenvs/firmware.elf") == 100
 
     def test_totals_under_floor_never_start_the_gauge(self) -> None:
         job = _job()
-        _feed(job, "[1/2] Re-running CMake...", "[97/97] Linking bootloader.elf")
-        assert job.progress is None
+        assert _ninja_progress(job, "[1/2] Re-running CMake...") is None
+        assert _ninja_progress(job, "[97/97] Linking bootloader.elf") is None
 
     def test_growing_total_keeps_advancing(self) -> None:
         # Ninja recomputes its total as edges are discovered; an equal or
         # larger total stays authoritative.
         job = _job()
-        _feed(job, "[10/100] Building C object a.c.obj")
-        assert job.progress == 10
-        _feed(job, "[60/120] Building C object b.c.obj")
-        assert job.progress == 50
+        assert _ninja_progress(job, "[10/100] Building C object a.c.obj") == 10
+        assert _ninja_progress(job, "[60/120] Building C object b.c.obj") == 50
