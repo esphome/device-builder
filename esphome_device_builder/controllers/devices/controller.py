@@ -63,6 +63,7 @@ from . import (
     add_component,
     api_key,
     archive,
+    backtrace,
     firmware_sync,
     importable,
     logs,
@@ -929,6 +930,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             client=client,
             message_id=message_id,
         )
+
+    @api_command("devices/decode_backtrace")
+    async def decode_backtrace(
+        self, *, configuration: str, lines: list[str], **kwargs: Any
+    ) -> dict[str, Any]:
+        """Decode crash-region log *lines* against *configuration*'s local build."""
+        return await backtrace.decode_backtrace(self, configuration, lines)
 
     @api_command("devices/stop_stream")
     async def stop_stream(
