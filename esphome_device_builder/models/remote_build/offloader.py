@@ -81,6 +81,7 @@ _PAIRING_VALIDATOR = vol.Schema(
         vol.Required("auto_provision_supported"): bool,
         vol.Required("friendly_name"): vol.All(str, vol.Length(max=PAIRING_FRIENDLY_NAME_MAX_LEN)),
         vol.Required("ha_addon"): bool,
+        vol.Required("reset_build_env_supported"): bool,
     }
 )
 
@@ -153,6 +154,10 @@ class StoredPairing(DashboardModel):
     friendly_name: str = ""
     # Receiver-advertised HA add-on flag; refreshed on session-open.
     ha_addon: bool = False
+    # Receiver-advertised: accepts the remote ``reset_build_env``
+    # frame. Refreshed on every session-open; ``False`` on a fresh
+    # row, an older sidecar, or an older receiver.
+    reset_build_env_supported: bool = False
 
     def __post_init__(self) -> None:
         """Run :data:`_PAIRING_VALIDATOR`; re-raise as ``ValueError``."""
@@ -211,6 +216,9 @@ class PairingSummary(DashboardModel):
     friendly_name: str = ""
     # Receiver's HA add-on flag from the session handshake.
     ha_addon: bool = False
+    # Receiver capability from the session handshake: the UI offers
+    # the remote build-environment reset only when advertised.
+    reset_build_env_supported: bool = False
 
 
 @dataclass

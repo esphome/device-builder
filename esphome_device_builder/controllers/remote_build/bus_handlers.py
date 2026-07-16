@@ -145,6 +145,10 @@ def on_offloader_peer_link_opened(
     if pairing.ha_addon != ha_addon:
         pairing.ha_addon = ha_addon
         changed = True
+    reset_supported = data["reset_build_env_supported"]
+    if pairing.reset_build_env_supported != reset_supported:
+        pairing.reset_build_env_supported = reset_supported
+        changed = True
     if changed:
         controller._schedule_pairings_save()
 

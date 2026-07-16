@@ -502,6 +502,7 @@ async def test_send_response_advertises_esphome_version() -> None:
         "intent_response": IntentResponse.OK.value,
         "esphome_version": esphome_version,
         "auto_provision_supported": True,
+        "reset_build_env_supported": True,
         "friendly_name": "",
         "ha_addon": False,
     }

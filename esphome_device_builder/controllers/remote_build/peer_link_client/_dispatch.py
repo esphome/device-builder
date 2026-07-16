@@ -313,6 +313,7 @@ def fire_opened(
     auto_provision_supported: bool = False,
     friendly_name: str = "",
     ha_addon: bool = False,
+    reset_build_env_supported: bool = False,
 ) -> None:
     """Fire ``OFFLOADER_PEER_LINK_OPENED`` for a session that reached intent_response=ok."""
     payload: OffloaderPeerLinkOpenedData = {
@@ -323,6 +324,7 @@ def fire_opened(
         "auto_provision_supported": auto_provision_supported,
         "friendly_name": friendly_name,
         "ha_addon": ha_addon,
+        "reset_build_env_supported": reset_build_env_supported,
     }
     client._bus.fire(EventType.OFFLOADER_PEER_LINK_OPENED, payload)
 

@@ -19,7 +19,7 @@ from esphome.const import __version__ as esphome_version
 from ....helpers import json as _json
 from ....helpers.peer_link_noise import NOISE_ERRORS, PeerLinkNoiseSession
 from ....models import IntentResponse, PeerLinkIntent, RejectReason
-from ..provision import receiver_supports_auto_provision
+from ..provision import receiver_supports_auto_provision, receiver_supports_reset_build_env
 
 if TYPE_CHECKING:
     from .handshake import _HandshakeStep
@@ -132,6 +132,7 @@ async def _send_response(
         "intent_response": response.value,
         "esphome_version": esphome_version,
         "auto_provision_supported": receiver_supports_auto_provision(),
+        "reset_build_env_supported": receiver_supports_reset_build_env(),
         "friendly_name": friendly_name,
         "ha_addon": ha_addon,
     }

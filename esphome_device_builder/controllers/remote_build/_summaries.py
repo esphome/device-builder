@@ -120,6 +120,7 @@ def pairing_summary(
         auto_provision_supported=pairing.auto_provision_supported,
         friendly_name=pairing.friendly_name,
         ha_addon=pairing.ha_addon,
+        reset_build_env_supported=pairing.reset_build_env_supported,
     )
 
 
