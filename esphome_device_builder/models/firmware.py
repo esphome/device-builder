@@ -48,9 +48,10 @@ class JobType(StrEnum):
 
     COMPILE = "compile"
     UPLOAD = "upload"
-    # Retained so older persisted INSTALL jobs still deserialise and run as a
-    # fused ``esphome run`` (runner + CLI). New installs enqueue a COMPILE + a
-    # dependent UPLOAD instead.
+    # A fused ``esphome run`` (runner + CLI). Local installs enqueue a
+    # COMPILE + a dependent UPLOAD instead; the live producers are older
+    # persisted jobs and the receiver's remote-submitted "Compile and
+    # upload" (one job keeps the wire ``remote_job_id`` correlation 1:1).
     INSTALL = "install"
     CLEAN = "clean"
     # Wipes ``.esphome/build/``, ``external_components/``, and

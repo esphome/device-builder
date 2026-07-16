@@ -673,7 +673,7 @@ class SubmitJobReceiver:
                 job_type=job_type,
                 # The wire header carries no flash target; pin OTA so the
                 # esphome CLI never falls into its interactive device
-                # chooser on a headless receiver (#2107).
+                # chooser on a headless receiver.
                 port=OTA_PORT if job_type is JobType.INSTALL else "",
                 remote_peer=session.dashboard_id,
                 remote_peer_label=remote_peer_label,

@@ -664,12 +664,7 @@ async def test_submit_job_clean_target_creates_clean_job(
 async def test_submit_job_upload_target_creates_ota_install_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``target="upload"`` queues an INSTALL pinned to OTA, never a bare upload.
-
-    An unpinned port would send the esphome CLI into its interactive
-    device chooser on a receiver with a serial adapter attached — a
-    permanent hang on a headless build server (#2107).
-    """
+    """``target="upload"`` queues an INSTALL pinned to OTA, never a bare upload."""
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session(dashboard_id="alpha-dashboard")
