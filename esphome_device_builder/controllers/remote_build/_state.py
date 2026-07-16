@@ -33,6 +33,7 @@ from ...helpers.peer_link_resolver import PeerLinkDNSResolver
 from ...helpers.version_compat import VersionMatchPolicy
 from ...models import (
     OffloaderAlertSnapshotEntry,
+    OffloaderRemoteJobSnapshotEntry,
     PeerQueueStatusSnapshotEntry,
     RemoteBuildPeer,
     StoredPairing,
@@ -52,6 +53,7 @@ class OffloaderState:
     open_peer_links: set[str] = field(default_factory=set)
     offloader_alerts: dict[str, OffloaderAlertSnapshotEntry] = field(default_factory=dict)
     peer_queue_status: dict[str, PeerQueueStatusSnapshotEntry] = field(default_factory=dict)
+    offloader_remote_jobs: dict[str, OffloaderRemoteJobSnapshotEntry] = field(default_factory=dict)
     rebind_probe_until: dict[str, float] = field(default_factory=dict)
     remote_builds_enabled: bool = True
     version_match_policy: VersionMatchPolicy = VersionMatchPolicy.ANY

@@ -6188,3 +6188,49 @@ async def test_reset_peer_build_env_enqueues_server_bound_mirror_job(
     assert build_source.source_label == pairing.label
     assert build_source.source_esphome_version == "2026.6.0"
     assert firmware._enqueue.call_args.kwargs == {"supersede": False}
+
+
+async def test_offloader_remote_jobs_cache_seeded_on_running_event(
+    offloader_controller_dir: Path,
+) -> None:
+    """A ``running`` event populates the cache so late tabs see the in-flight job."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    _fire_offloader_job_state(offloader, job_id="j-1", status="running")
+    snapshot = offloader.offloader_remote_jobs_snapshot()
+    assert len(snapshot) == 1
+    assert snapshot[0]["job_id"] == "j-1"
+    assert snapshot[0]["status"] == "running"
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
+async def test_offloader_remote_jobs_cache_drops_on_terminal_event(
+    offloader_controller_dir: Path,
+    status: str,
+) -> None:
+    """A terminal ``status`` drops the cache entry."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    _fire_offloader_job_state(offloader, job_id="j-1", status="running")
+    assert len(offloader.offloader_remote_jobs_snapshot()) == 1
+    _fire_offloader_job_state(offloader, job_id="j-1", status=status)
+    assert offloader.offloader_remote_jobs_snapshot() == []
+
+
+async def test_offloader_remote_jobs_cache_cleared_on_unpair(
+    offloader_controller_dir: Path,
+) -> None:
+    """Unpairing a peer drops in-flight job entries for that pin."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pairing = _stub_pairing(receiver_hostname="rcv.local", status=PeerStatus.APPROVED)
+    offloader.state.pairings[pairing.pin_sha256] = pairing
+    _fire_offloader_job_state(
+        offloader, pin_sha256=pairing.pin_sha256, job_id="j-pin-a", status="running"
+    )
+    # And a job under a different pin — should NOT be dropped.
+    _fire_offloader_job_state(offloader, pin_sha256="b" * 64, job_id="j-pin-b", status="running")
+    assert len(offloader.offloader_remote_jobs_snapshot()) == 2
+
+    await offloader.unpair(pin_sha256=pairing.pin_sha256)
+    remaining = offloader.offloader_remote_jobs_snapshot()
+    assert len(remaining) == 1
+    assert remaining[0]["job_id"] == "j-pin-b"

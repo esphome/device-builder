@@ -188,6 +188,9 @@ def sweep_stale_pairings_at_endpoint(
         controller._cancel_pair_status_listener(stale_pin)
         controller._cancel_peer_link_client(stale_pin)
         controller.state.peer_queue_status.pop(stale_pin, None)
+        for job_id, entry in list(controller.state.offloader_remote_jobs.items()):
+            if entry["pin_sha256"] == stale_pin:
+                controller.state.offloader_remote_jobs.pop(job_id, None)
         controller.state.open_peer_links.discard(stale_pin)
         # Fire "removed" so connected clients drop the row from
         # their pairings list — without it a swept (possibly

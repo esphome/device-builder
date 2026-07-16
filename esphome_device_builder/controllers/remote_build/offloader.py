@@ -37,6 +37,7 @@ from ...models import (
     EventType,
     FirmwareJob,
     OffloaderAlertSnapshotEntry,
+    OffloaderJobStateChangedData,
     OffloaderPairAlertDismissedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
@@ -45,6 +46,7 @@ from ...models import (
     OffloaderQueueStatusChangedData,
     OffloaderRemoteBuildSettings,
     OffloaderRemoteBuildSettingsView,
+    OffloaderRemoteJobSnapshotEntry,
     OffloaderSettingsSnapshot,
     PairingSummary,
     PeerQueueStatusSnapshotEntry,
@@ -124,6 +126,7 @@ class OffloaderController(_RemoteBuildBase):
         self._subscribe(
             EventType.OFFLOADER_QUEUE_STATUS_CHANGED, self._on_offloader_queue_status_changed
         )
+        self._subscribe(EventType.OFFLOADER_JOB_STATE_CHANGED, self._on_offloader_job_state_changed)
         self._subscribe(EventType.OFFLOADER_PAIR_PIN_MISMATCH, self._on_offloader_pair_pin_mismatch)
         self._subscribe(EventType.OFFLOADER_PAIR_PEER_REVOKED, self._on_offloader_pair_peer_revoked)
         self._subscribe(EventType.OFFLOADER_PEER_LINK_OPENED, self._on_offloader_peer_link_opened)
@@ -156,6 +159,7 @@ class OffloaderController(_RemoteBuildBase):
             await callback()
         state.pairings.clear()
         state.peer_queue_status.clear()
+        state.offloader_remote_jobs.clear()
         state.open_peer_links.clear()
         state.rebind_probe_until.clear()
         state.peers.clear()
@@ -259,6 +263,14 @@ class OffloaderController(_RemoteBuildBase):
     def peer_queue_status_snapshot(self) -> list[PeerQueueStatusSnapshotEntry]:
         """Per-peer queue-status snapshot for ``subscribe_events`` seeding."""
         return list(self.state.peer_queue_status.values())
+
+    def _on_offloader_job_state_changed(self, event: Event[OffloaderJobStateChangedData]) -> None:
+        """Maintain the offloader-side in-flight remote-job cache."""
+        bus_handlers.on_offloader_job_state_changed(self, event)
+
+    def offloader_remote_jobs_snapshot(self) -> list[OffloaderRemoteJobSnapshotEntry]:
+        """In-flight remote-job snapshot for ``subscribe_events`` seeding."""
+        return list(self.state.offloader_remote_jobs.values())
 
     async def _close_peer_link_resolver(self) -> None:
         """Release the shared mDNS-aware aiohttp resolver, if any.

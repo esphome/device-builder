@@ -10,9 +10,11 @@ Five callbacks the controller registers in :meth:`start`:
   tracking.
 - ``_on_offloader_queue_status_changed`` — updates the
   per-peer queue-status cache.
+- ``_on_offloader_job_state_changed`` — maintains the
+  in-flight remote-job cache.
 
 Bodies take :class:`OffloaderController` as the first arg;
-the controller keeps the ``_on_offloader_*`` methods as
+the controller keeps the five ``_on_offloader_*`` methods as
 thin bound-method delegates so the
 ``self._db.bus.add_listener(EventType.X, self._on_x)``
 registrations in :meth:`OffloaderController.start` continue
@@ -28,6 +30,7 @@ from ...helpers.event_bus import Event
 from ...models import (
     PAIRING_FRIENDLY_NAME_MAX_LEN,
     PAIRING_VERSION_MAX_LEN,
+    OffloaderJobStateChangedData,
     OffloaderPairPeerRevokedData,
     OffloaderPairPinMismatchData,
     OffloaderPeerLinkClosedData,
@@ -35,11 +38,18 @@ from ...models import (
     OffloaderPeerRevokedAlert,
     OffloaderPinMismatchAlert,
     OffloaderQueueStatusChangedData,
+    OffloaderRemoteJobSnapshotEntry,
     PeerQueueStatusSnapshotEntry,
 )
 
 if TYPE_CHECKING:
     from .offloader import OffloaderController
+
+# Terminal status set for the offloader-side remote-job cache
+# drop-on-terminal logic.
+_OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES: frozenset[str] = frozenset(
+    {"completed", "failed", "cancelled"}
+)
 
 
 def on_offloader_pair_pin_mismatch(
@@ -162,4 +172,30 @@ def on_offloader_queue_status_changed(
         idle=data["idle"],
         running=data["running"],
         queue_depth=data["queue_depth"],
+    )
+
+
+def on_offloader_job_state_changed(
+    controller: OffloaderController, event: Event[OffloaderJobStateChangedData]
+) -> None:
+    """
+    Maintain the offloader-side in-flight remote-job cache.
+
+    Upserts the entry on ``queued`` / ``running``; drops on
+    terminal (``completed`` / ``failed`` / ``cancelled``)
+    so the snapshot only ever carries actively-running
+    rows. The :class:`PeerLinkClient` receive loop already
+    validated the wire shape before firing this event.
+    """
+    data = event.data
+    if data["status"] in _OFFLOADER_REMOTE_JOB_TERMINAL_STATUSES:
+        controller.state.offloader_remote_jobs.pop(data["job_id"], None)
+        return
+    controller.state.offloader_remote_jobs[data["job_id"]] = OffloaderRemoteJobSnapshotEntry(
+        receiver_hostname=data["receiver_hostname"],
+        receiver_port=data["receiver_port"],
+        pin_sha256=data["pin_sha256"],
+        job_id=data["job_id"],
+        status=data["status"],
+        error_message=data["error_message"],
     )
