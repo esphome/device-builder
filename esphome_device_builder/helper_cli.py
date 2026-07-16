@@ -195,7 +195,14 @@ def _pin_idedata(idedata_path: Path) -> None:
         # Kept local, and inside the try, so an upstream move of the module
         # fails this decode rather than the whole helper's import (which
         # download-types shares).
-        from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
+        try:
+            from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
+        except ImportError:  # pragma: no cover; esphome before the platformio split
+            # Both symbols lived here until the package split (~2026.5). The
+            # memo mechanism is identical either side of the move, so only the
+            # path differs; without this every PlatformIO decode (esp32-arduino,
+            # esp8266, rp2040) is dead on the older half of our version floor.
+            from esphome.platformio_api import KEY_IDEDATA, IDEData  # noqa: PLC0415
 
         CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(loads(idedata_path.read_bytes()))
     except Exception as err:

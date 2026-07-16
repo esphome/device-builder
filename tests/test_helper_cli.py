@@ -9,6 +9,7 @@ download path never pulls those modules into the main process.
 
 from __future__ import annotations
 
+import builtins
 import importlib
 import io
 import json
@@ -20,6 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from esphome.const import KEY_CORE
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
@@ -249,6 +251,35 @@ def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) ->
 
     assert err.value.reply["unavailable_reason"] == "decode_failed"
     assert "could not pin idedata" in err.value.reply["detail"]
+
+
+def test_pin_idedata_falls_back_to_the_pre_split_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Esphome before the platformio package split still pins.
+
+    The installed esphome only has the new path, so CI never walks the
+    fallback; without it every PlatformIO decode is dead on the older half of
+    our version floor.
+    """
+    idedata_path = tmp_path / "idedata.json"
+    idedata_path.write_text(json.dumps({"prog_path": "/build/firmware.elf", "cc_path": "/bin/gcc"}))
+    pre_split = SimpleNamespace(KEY_IDEDATA="idedata", IDEData=lambda raw: raw)
+    real_import = builtins.__import__
+
+    def _without_the_split(name: str, *args: object, **kwargs: object) -> object:
+        if name == "esphome.platformio.toolchain":
+            raise ImportError("No module named 'esphome.platformio'")
+        if name == "esphome.platformio_api":
+            return pre_split
+        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(builtins, "__import__", _without_the_split)
+    CORE.data[KEY_CORE] = {}
+
+    helper_cli._pin_idedata(idedata_path)
+
+    assert CORE.data[KEY_CORE]["idedata"]["cc_path"] == "/bin/gcc"
 
 
 def _write_idedata(tmp_path: Path) -> Path:
