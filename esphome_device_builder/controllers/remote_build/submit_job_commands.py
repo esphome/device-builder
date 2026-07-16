@@ -96,8 +96,8 @@ async def submit_job(
 ) -> dict[str, Any]:
     """Bundle *configuration* and dispatch a build to the receiver behind *pin_sha256*.
 
-    ``target="compile"`` / ``"clean"`` stream the gzipped tarball
-    over the existing peer-link session and return the receiver's
+    ``target="compile"`` streams the gzipped tarball over the
+    existing peer-link session and returns the receiver's
     ``submit_job_ack``. ``target="upload"`` queues a server-pinned
     INSTALL :class:`FirmwareJob` locally and never touches the
     wire. Live job lifecycle + output ride
@@ -175,17 +175,18 @@ async def download_artifacts(
 async def cancel_job(
     controller: OffloaderController, *, pin_sha256: str, job_id: str
 ) -> dict[str, bool]:
-    """Send a ``cancel_job`` frame to the receiver behind *pin_sha256*.
+    """Cancel the job behind *job_id* — locally when it names a local FirmwareJob.
 
-    Fire-and-forget cancel for a previously-submitted
-    remote-driven job; the receiver's resulting
+    A *job_id* matching a local job (a server-pinned INSTALL
+    from ``target="upload"``) cancels through
+    ``firmware.cancel`` and returns ``{"sent": True}`` without
+    touching the wire or reading *pin_sha256* past validation.
+    Otherwise: fire-and-forget ``cancel_job`` frame to the
+    receiver behind *pin_sha256*; the receiver's resulting
     ``job_state_changed{cancelled}`` is the confirmation,
-    surfaced via ``OFFLOADER_JOB_STATE_CHANGED``.
-
-    Returns ``{"sent": <bool>}`` reflecting whether the
-    frame made it onto the wire; ``sent=false`` is a
-    same-tick channel failure the caller should treat as
-    an error.
+    surfaced via ``OFFLOADER_JOB_STATE_CHANGED``, and
+    ``sent=false`` is a same-tick channel failure the caller
+    should treat as an error.
     """
     clean_pin = validate_pin_sha256(pin_sha256)
     if not isinstance(job_id, str) or not job_id:
