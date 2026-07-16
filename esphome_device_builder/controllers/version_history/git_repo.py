@@ -773,8 +773,4 @@ class GitRepo:
 
 def _encloses_own_source(toplevel: Path) -> bool:
     """Whether *toplevel* is the Device Builder's own source checkout."""
-    try:
-        _OWN_SOURCE_ROOT.relative_to(toplevel.resolve())
-    except ValueError:
-        return False
-    return True
+    return _OWN_SOURCE_ROOT.is_relative_to(toplevel.resolve())

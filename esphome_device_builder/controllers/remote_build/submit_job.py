@@ -63,6 +63,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.lazy_module import async_import_module
+from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...helpers.peer_link_bundle import (
     BundleAssembler,
     BundleAssemblerError,
@@ -623,7 +624,10 @@ class SubmitJobReceiver:
                 self._config_dir,
                 prepare,
             )
-        except _PathEscapeError as exc:
+        except PathEscapeError as exc:
+            # Wire-shape problem (traversal via ``configuration_filename``
+            # / ``dashboard_id``), not a receiver-side I/O failure — maps
+            # to ``invalid_header``, distinct from ``extract_failed``.
             _LOGGER.warning(
                 "submit_job from %s: target_dir %s escaped remote-builds root; rejecting",
                 session.dashboard_id,
@@ -756,20 +760,6 @@ class _SubmitJobRejectionError(Exception):
         self.reason = reason
 
 
-class _PathEscapeError(Exception):
-    """*target_dir* resolved outside the remote-builds root.
-
-    Surfaced from :func:`_validate_write_extract_bundle` so the
-    caller can map to a typed
-    :class:`SubmitJobAckFrameData.reason` of ``invalid_header``.
-    Distinct from the ``EsphomeError`` / ``OSError`` paths
-    (which surface as ``extract_failed``) because this is a
-    wire-shape problem — the offloader's ``configuration_filename``
-    or its captured ``dashboard_id`` carries a path-traversal
-    shape — not a receiver-side I/O failure.
-    """
-
-
 def _validate_write_extract_bundle(
     bundle_path: Path,
     bundle_bytes: bytes,
@@ -800,24 +790,18 @@ def _validate_write_extract_bundle(
     (#678) still produces an absolute-vs-absolute
     ``relative_to`` pair.
 
-    Raises :class:`_PathEscapeError` on the path-escape branch
+    Raises :class:`PathEscapeError` on the path-escape branch
     so the caller can distinguish "bad input shape" from
     "extract failed". Raises
     :class:`esphome.bundle.EsphomeError` / :class:`OSError`
     untouched for the extract / write paths.
     """
-    # Resolve-and-stay-under-root. ``Path.resolve()`` normalises
-    # ``..`` / symlinks; ``relative_to`` raises ``ValueError``
-    # when the result climbs outside the remote-builds root.
     # The upstream filename validator catches separator / ``..``
     # in ``configuration_filename`` upfront, but ``dashboard_id``
     # flows through unvalidated from the Noise handshake /
     # receiver-side registration; this gate catches anything an
     # exotic ``dashboard_id`` shape would slip past.
-    try:
-        target_dir.resolve().relative_to(remote_builds_root.resolve())
-    except ValueError as exc:
-        raise _PathEscapeError(str(target_dir)) from exc
+    resolve_under_root(target_dir, remote_builds_root)
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_path.write_bytes(bundle_bytes)
     extracted: Path = prepare_bundle_for_compile(bundle_path, target_dir)

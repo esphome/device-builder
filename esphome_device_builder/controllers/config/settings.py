@@ -24,6 +24,7 @@ from ...helpers.api import CommandError
 from ...helpers.auth import hash_password
 from ...helpers.credentials import resolve_credentials
 from ...helpers.network_interfaces import resolve_bind_host
+from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...helpers.secrets_state import migrate_placeholder_wifi_secrets
 from ...models import ErrorCode
 
@@ -294,9 +295,9 @@ class DashboardSettings:
         """
         Return a path relative to the config dir, validated against path traversal.
 
-        ``relative_to`` raises ``ValueError`` when ``parts`` resolve outside
-        the config dir; we translate that into a ``CommandError`` so the
-        WS dispatcher surfaces it as ``INVALID_ARGS`` instead of the
+        :class:`PathEscapeError` (when ``parts`` resolve outside the
+        config dir) is translated into a ``CommandError`` so the WS
+        dispatcher surfaces it as ``INVALID_ARGS`` instead of the
         generic ``INTERNAL_ERROR`` that an unclassified ``ValueError``
         would produce. Single chokepoint for every handler that builds
         a configuration path.
@@ -304,8 +305,8 @@ class DashboardSettings:
         joined = self.config_dir.joinpath(*parts)
         assert self.absolute_config_dir is not None  # type narrowing
         try:
-            joined.resolve().relative_to(self.absolute_config_dir)
-        except ValueError as err:
+            resolve_under_root(joined, self.absolute_config_dir)
+        except PathEscapeError as err:
             # ``!r`` quotes + escapes the offending value so embedded
             # CR/LF/control bytes can't break the error string when
             # the frontend echoes it back to the user. ``!r`` *first*,

@@ -24,6 +24,7 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
+from ...helpers.paths import resolve_under_root
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
 from .helpers import _find_sibling_cli
@@ -229,7 +230,7 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
     """Resolve a build artifact to ``(path, download_name)``, traversal-safe.
 
     Raises ``FileNotFoundError`` when the device isn't built or *file* is
-    absent, and ``ValueError`` (from ``relative_to``) when *file* escapes the
+    absent, and ``PathEscapeError`` (a ``ValueError``) when *file* escapes the
     build directory. ``download_name`` is restricted to a filename-safe charset
     so it can't inject into a ``Content-Disposition`` header.
     """
@@ -239,10 +240,7 @@ def _resolve_artifact_path(configuration: str, file: str) -> tuple[Path, str]:
         raise FileNotFoundError(msg)
 
     base_dir = storage.firmware_bin_path.parent.resolve()
-    path = (base_dir / file).resolve()
-    # Path traversal protection — resolve() collapses ``..`` / absolute
-    # ``file`` / symlinks, then relative_to raises if it escaped base_dir.
-    path.relative_to(base_dir)
+    path = resolve_under_root(base_dir / file, base_dir)
 
     if not path.is_file():
         msg = f"Binary not found: {file}"
