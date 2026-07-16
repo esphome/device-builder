@@ -43,7 +43,7 @@ _SUBMIT_JOB_ACK_TIMEOUT_SECONDS = 60.0
 # The wipe is one rmtree of a possibly multi-GB PlatformIO tree on
 # a constrained SoC; match the submit budget rather than a short
 # control-frame timeout.
-_RESET_BUILD_ENV_ACK_TIMEOUT_SECONDS = 60.0
+_RESET_BUILD_ENV_ACK_TIMEOUT_SECONDS = _SUBMIT_JOB_ACK_TIMEOUT_SECONDS
 
 
 async def submit_job(

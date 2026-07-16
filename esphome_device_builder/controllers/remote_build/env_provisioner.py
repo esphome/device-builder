@@ -31,8 +31,8 @@ from ...helpers.version_compat import is_pinnable_version, pinnable_version_key
 
 _LOGGER = logging.getLogger(__name__)
 
-# Alias the layout module's naming so the provisioner (which writes the
-# venvs) and the remote-reset wipe (which reads them) can't drift.
+# Forward naming goes through ``remote_build_layout.venv_dir``; this alias is
+# only for reverse-parsing a venv dir name back to its version in ``_list_venvs``.
 _VENV_PREFIX = remote_build_layout.VENV_PREFIX
 _VENV_TIMEOUT = 120.0
 # ``pip install esphome`` pulls platformio + a large dep tree; allow generously.
@@ -72,10 +72,17 @@ class EnvProvisioner:
         self._verified: set[str] = set()
 
     @property
+    def _base_dir(self) -> Path:
+        return self._data_dir if self._data_dir is not None else Path(CORE.data_dir)
+
+    @property
     def venvs_dir(self) -> Path:
         """Base directory holding every per-version venv."""
-        base = self._data_dir if self._data_dir is not None else Path(CORE.data_dir)
-        return remote_build_layout.venvs_dir(base)
+        return remote_build_layout.venvs_dir(self._base_dir)
+
+    def _venv_for(self, version: str) -> Path:
+        """Return *version*'s cached venv dir — the one forward-naming site."""
+        return remote_build_layout.venv_dir(self._base_dir, version)
 
     async def provision(
         self, version: str, *, on_build: Callable[[str], None] | None = None
@@ -96,7 +103,7 @@ class EnvProvisioner:
             raise EnvProvisionError(
                 f"cannot provision esphome version {version!r} (not a PyPI release or pre-release)"
             )
-        venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
+        venv = self._venv_for(version)
         async with self._lock_for(version):
             if not await self._warm(venv, version):
                 if not await self._is_healthy(venv, version):
@@ -131,7 +138,7 @@ class EnvProvisioner:
         """
         if not is_pinnable_version(version):
             return None
-        venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
+        venv = self._venv_for(version)
         async with self._lock_for(version):
             if await self._warm(venv, version) or await self._is_healthy(venv, version):
                 self._verified.add(version)
@@ -191,7 +198,7 @@ class EnvProvisioner:
 
     def _rmtree_version(self, version: str) -> Path:
         """Blocking wipe of *version*'s venv dir; return the path (executor-only)."""
-        venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
+        venv = self._venv_for(version)
         _rmtree(venv)
         return venv
 

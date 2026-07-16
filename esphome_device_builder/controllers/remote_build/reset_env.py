@@ -82,11 +82,8 @@ async def handle_reset_build_env(
     # deletion mid-build. ``CORE.data_dir`` stats ``config_dir`` on access,
     # so the subtree paths are built inside the executor, not on the loop.
     config_dir = Path(controller._db.settings.config_dir)
-    # ``wiped`` is pre-seeded so the failure log can report partial
-    # progress: the venv wipe runs first, so a subtree failure means the
-    # venv is already gone (a retry finishes the subtree — the wipe is
-    # idempotent). Any wipe failure must still ack, or the offloader hangs
-    # until its 60s ack timeout instead of learning io_error promptly.
+    # Pre-seeded so the ``except`` log can name what was already wiped (venv
+    # first, so a later subtree failure means the venv is already gone).
     wiped: list[Path] = []
     try:
         wiped = await _wipe_venv(controller, venv_version)
@@ -168,16 +165,11 @@ async def _wipe_venv(controller: ReceiverController, venv_version: str | None) -
 
 def _wipe_build_env(config_dir: Path, dashboard_id: str) -> list[Path]:
     """
-    Blocking wipe of the offloader's per-offloader subtrees; return the wiped paths.
+    Blocking wipe of the offloader's per-offloader subtrees; return the paths (executor-only).
 
-    Runs entirely in an executor because building the targets reads
-    ``CORE.data_dir`` (which stats). ``dashboard_id`` is already
-    ``DASHBOARD_ID_PATTERN``-validated, so the defense-in-depth guard is
-    against symlink games on disk: each resolved target must stay within its
-    resolved trusted base (the receiver's own config / data dir), which
-    rejects any symlink in the ``.remote_builds`` chain that escapes the tree
-    — a symlinked root resolves consistently with its own parent and would
-    slip a bare parent check.
+    Each resolved target must stay within its resolved trusted base (the
+    receiver's own config / data dir) — defense-in-depth against a symlink in
+    the ``.remote_builds`` chain escaping the tree.
     """
     data_dir = Path(CORE.data_dir)
     targets = [
