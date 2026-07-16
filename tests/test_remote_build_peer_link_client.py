@@ -56,6 +56,7 @@ from esphome_device_builder.controllers.remote_build.peer_link import (
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
+    DuplicateRequestError,
     PairStatusResult,
     PeerLinkClient,
     PeerLinkClientError,
@@ -4791,7 +4792,7 @@ async def test_reset_build_env_duplicate_job_id_refused() -> None:
     client._active_channel = MagicMock()
     client._reset_env_acks["j-1"] = asyncio.get_running_loop().create_future()
 
-    with pytest.raises(PeerLinkNoSessionError, match="already registered"):
+    with pytest.raises(DuplicateRequestError, match="already registered"):
         await client.reset_build_env(job_id="j-1")
 
 
@@ -4929,7 +4930,7 @@ async def test_submit_job_rejects_duplicate_job_id() -> None:
     )
     # Pre-register a future under the id we'll re-submit against.
     client._submit_job_acks["j-dup"] = asyncio.get_running_loop().create_future()
-    with pytest.raises(PeerLinkNoSessionError):
+    with pytest.raises(DuplicateRequestError, match="already registered"):
         await client.submit_job(
             job_id="j-dup",
             configuration_filename="kitchen.yaml",
@@ -5788,13 +5789,13 @@ async def test_download_artifacts_raises_no_session_error_when_session_closed() 
 
 
 async def test_download_artifacts_rejects_duplicate_job_id_on_same_session() -> None:
-    """A second concurrent download on the same job_id raises :class:`PeerLinkNoSessionError`."""
+    """A second concurrent download on the same job_id raises :class:`DuplicateRequestError`."""
     client = _make_offloader_client(EventBus())
     parked: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
     client._artifacts_downloads["already-running"] = _DownloadArtifactsState(future=parked)
     # Spoof an open channel so the no-session check passes.
     client._active_channel = MagicMock()
-    with pytest.raises(PeerLinkNoSessionError, match="duplicate download"):
+    with pytest.raises(DuplicateRequestError, match="duplicate download_artifacts"):
         await client.download_artifacts(job_id="already-running")
 
 

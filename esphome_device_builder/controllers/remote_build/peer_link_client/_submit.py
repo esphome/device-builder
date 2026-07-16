@@ -23,6 +23,7 @@ from ....models import (
 )
 from .._client_models import (
     DownloadArtifactsResult,
+    DuplicateRequestError,
     PeerLinkNoSessionError,
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
@@ -55,7 +56,7 @@ async def submit_job(
     """
     Send a ``submit_job`` header + chunked bundle and await the receiver's ack.
 
-    Same-``job_id`` reentry mid-flow raises :class:`PeerLinkNoSessionError`;
+    Same-``job_id`` reentry mid-flow raises :class:`DuplicateRequestError`;
     the WS layer should generate a fresh id per submit. Callers must not
     retry on timeout / session-loss: the receiver may have queued the job
     already.
@@ -131,7 +132,7 @@ async def download_artifacts(client: PeerLinkClient, *, job_id: str) -> Download
     carries the bootloader / partition / ota_data offsets via
     ``idedata.json``).
 
-    Same-``job_id`` reentry raises :class:`PeerLinkNoSessionError`.
+    Same-``job_id`` reentry raises :class:`DuplicateRequestError`.
     Receiver-reported failures surface as :class:`DownloadArtifactsError`;
     session loss mid-download as :class:`SubmitJobSessionLostError`.
     """
@@ -175,7 +176,7 @@ def _register_pending[EntryT](
             f"{label}: request already registered for job_id={job_id!r} "
             f"(duplicate {label} on the same session)"
         )
-        raise PeerLinkNoSessionError(msg)
+        raise DuplicateRequestError(msg)
     # Register BEFORE the request goes out so a same-tick reply from the
     # receive loop can't beat the registration into the map.
     entry = pending[job_id] = make_entry()

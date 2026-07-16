@@ -5,6 +5,7 @@ from __future__ import annotations
 from .._client_models import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
+    DuplicateRequestError,
     InitiatorRoundTrip,
     PairStatusResult,
     PeerLinkClientError,
@@ -35,6 +36,7 @@ from .one_shot import (
 __all__ = (
     "DownloadArtifactsError",
     "DownloadArtifactsResult",
+    "DuplicateRequestError",
     "InitiatorRoundTrip",
     "PairStatusResult",
     "PeerLinkClient",

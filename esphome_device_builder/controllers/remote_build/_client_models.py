@@ -12,6 +12,7 @@ Public surface (every type without a leading underscore):
 
 * :class:`PeerLinkClientError`,
   :class:`PeerLinkNoSessionError`,
+  :class:`DuplicateRequestError`,
   :class:`SubmitJobTimeoutError`,
   :class:`SubmitJobSessionLostError`,
   :class:`DownloadArtifactsError` — the typed exceptions the
@@ -168,21 +169,24 @@ class PairStatusResult:
 class PeerLinkNoSessionError(RuntimeError):
     """Raised when a peer-link application send needs a live session and there isn't one.
 
-    Used by every :class:`PeerLinkClient` sender that requires
-    the post-handshake dispatch loop to be parked:
-    :meth:`PeerLinkClient.submit_job` and
-    :meth:`PeerLinkClient.cancel_job`. The check funnels through
-    :meth:`PeerLinkClient._require_open_channel`,
-    so a future application-message sender that calls
-    ``_require_open_channel`` inherits the same exception
-    automatically.
+    Every sender that requires the post-handshake dispatch loop
+    to be parked funnels its check through
+    :meth:`PeerLinkClient._require_open_channel`, so a future
+    application-message sender inherits this automatically.
 
-    The WS command on the controller side maps this to a typed
-    ``CommandError(PRECONDITION_FAILED)`` so the frontend can
-    branch on "peer is paired but currently disconnected" vs.
-    "send rejected by the receiver." Same error code at every
-    call site — the user's recovery (wait for reconnect, retry)
-    doesn't depend on which sender raised.
+    The WS command maps it to ``CommandError(PRECONDITION_FAILED)``
+    so the frontend can branch on "peer is paired but currently
+    disconnected" vs. "send rejected by the receiver."
+    """
+
+
+class DuplicateRequestError(RuntimeError):
+    """Raised when a same-``job_id`` request is already in flight on this session.
+
+    A live session exists — the recovery is a fresh ``job_id``,
+    not waiting for reconnect. Maps to the same
+    ``CommandError(PRECONDITION_FAILED)`` as
+    :class:`PeerLinkNoSessionError`.
     """
 
 

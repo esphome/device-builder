@@ -54,6 +54,7 @@ from ...models import (
 )
 from ..remote_build.peer_link_client import (
     DownloadArtifactsError,
+    DuplicateRequestError,
     PeerLinkNoSessionError,
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
@@ -384,7 +385,12 @@ async def _submit_job_to_receiver(
             # what this offloader would have built locally.
             target_esphome_version=_offloader_esphome_version,
         )
-    except (PeerLinkNoSessionError, SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
+    except (
+        PeerLinkNoSessionError,
+        DuplicateRequestError,
+        SubmitJobTimeoutError,
+        SubmitJobSessionLostError,
+    ) as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
         return False
     if not ack["accepted"]:
@@ -403,7 +409,12 @@ async def _send_reset_to_receiver(
     """Send ``reset_build_env`` and return ``True`` on accepted ack, ``False`` otherwise."""
     try:
         ack = await client.reset_build_env(job_id=job.job_id)
-    except (PeerLinkNoSessionError, SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
+    except (
+        PeerLinkNoSessionError,
+        DuplicateRequestError,
+        SubmitJobTimeoutError,
+        SubmitJobSessionLostError,
+    ) as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
         return False
     if not ack["accepted"]:
@@ -614,6 +625,7 @@ async def _fetch_and_materialise(
         packed = await client.download_artifacts(job_id=job.job_id)
     except (
         PeerLinkNoSessionError,
+        DuplicateRequestError,
         SubmitJobSessionLostError,
         DownloadArtifactsError,
     ) as exc:

@@ -30,6 +30,7 @@ from ._validators import (
 from .artifacts_tarball import UnpackArtifactsError, unpack_artifacts_response
 from .peer_link_client import (
     DownloadArtifactsError,
+    DuplicateRequestError,
     PeerLinkNoSessionError,
     SubmitJobSessionLostError,
     SubmitJobTimeoutError,
@@ -118,7 +119,7 @@ async def submit_job(
             target=clean_target,
             bundle_bytes=bundle_bytes,
         )
-    except PeerLinkNoSessionError as exc:
+    except (PeerLinkNoSessionError, DuplicateRequestError) as exc:
         raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
     except (SubmitJobTimeoutError, SubmitJobSessionLostError) as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
@@ -156,7 +157,7 @@ async def download_artifacts(
     client = controller._lookup_open_peer_link_client(clean_pin, label="download_artifacts")
     try:
         packed = await client.download_artifacts(job_id=job_id)
-    except PeerLinkNoSessionError as exc:
+    except (PeerLinkNoSessionError, DuplicateRequestError) as exc:
         raise CommandError(ErrorCode.PRECONDITION_FAILED, str(exc)) from exc
     except SubmitJobSessionLostError as exc:
         raise CommandError(ErrorCode.UNAVAILABLE, str(exc)) from exc
