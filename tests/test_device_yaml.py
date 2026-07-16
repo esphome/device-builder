@@ -2516,11 +2516,7 @@ def test_load_device_falls_back_to_yaml_when_core_platform_missing(tmp_path: Pat
 def test_load_device_handles_storage_without_core_platform_attr(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``StorageJSON`` from older esphome (< 2025.6) lacks ``core_platform`` entirely.
-
-    Pins that a missing attribute — not just ``None`` — degrades to the YAML
-    fallback rather than raising ``AttributeError`` out of the device scan.
-    """
+    """A missing ``core_platform`` attribute, not just ``None``, uses the YAML fallback."""
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text(
         "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
