@@ -2353,12 +2353,7 @@ async def test_request_pair_approved_preserves_operator_enabled_and_version(
 async def test_request_pair_repair_carries_receiver_label_auto_when_omitted(
     offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A re-pair that omits ``receiver_label_auto`` keeps the prior row's flag.
-
-    An explicit value from the pair dialog still wins over the prior; ``None``
-    (the re-pair paths that don't send it) preserves it rather than resetting
-    to the ``False`` default.
-    """
+    """A re-pair omitting ``receiver_label_auto`` keeps the prior flag; an explicit value wins."""
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     offloader._db.bus = MagicMock()
     pubkey = b"\x44" * 32
