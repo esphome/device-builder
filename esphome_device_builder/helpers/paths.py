@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 class PathEscapeError(ValueError):
-    """*target* resolved outside the trusted *root*."""
+    """*target* resolved outside the trusted *root*, or couldn't be resolved at all."""
 
 
 def resolve_under_root(target: Path, root: Path) -> Path:
@@ -29,5 +29,7 @@ def resolve_under_root(target: Path, root: Path) -> Path:
     except ValueError as err:
         raise PathEscapeError(f"{str(target)!r} is unresolvable: {err}") from err
     if not resolved.is_relative_to(root.resolve()):
-        raise PathEscapeError(f"{target} resolves outside {root}")
+        # ``!r`` so control characters in a user-controlled filename
+        # can't inject into logs / error strings built from this message.
+        raise PathEscapeError(f"{str(target)!r} resolves outside {str(root)!r}")
     return resolved
