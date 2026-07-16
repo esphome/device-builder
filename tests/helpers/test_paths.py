@@ -61,6 +61,17 @@ def test_unresolvable_target_fails_closed(tmp_path: Path) -> None:
         resolve_under_root(tmp_path / "bad\x00name.yaml", tmp_path)
 
 
+def test_resolve_value_error_fails_closed(tmp_path: Path) -> None:
+    """A non-NUL ``ValueError`` out of ``resolve()`` also surfaces as an escape."""
+
+    class _UnresolvablePath(type(tmp_path)):  # type: ignore[misc]
+        def resolve(self, strict: bool = False) -> Path:
+            raise ValueError("boom")
+
+    with pytest.raises(PathEscapeError, match="unresolvable"):
+        resolve_under_root(_UnresolvablePath(tmp_path, "x"), tmp_path)
+
+
 def test_escape_error_is_a_value_error(tmp_path: Path) -> None:
     """Callers with an existing ``except ValueError`` contract keep working."""
     root = tmp_path / "root"
