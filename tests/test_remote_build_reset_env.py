@@ -306,6 +306,66 @@ async def test_reset_venv_io_error_acks_io_error(tmp_path: Path) -> None:
     assert ack["reason"] == "io_error"
 
 
+async def test_reset_unexpected_error_still_acks_io_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-``OSError`` from the wipe still acks ``io_error`` rather than hanging the offloader."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    session = _make_session()
+
+    def _boom(*_args: object) -> None:
+        raise RuntimeError("something unexpected")
+
+    monkeypatch.setattr(reset_env, "_wipe_build_env", _boom)
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r12b"))
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "io_error"
+
+
+async def test_reset_partial_wipe_reports_the_venv_already_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A subtree failure after the venv wipe acks io_error, but the venv is already gone."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    my_venv = _seed_venv(_VERSION)
+    session = _make_session()
+
+    def _boom(*_args: object) -> None:
+        raise OSError("subtree disk on fire")
+
+    monkeypatch.setattr(reset_env, "_wipe_build_env", _boom)
+
+    with caplog.at_level("WARNING"):
+        await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r12c"))
+
+    assert _sent_ack(session)["reason"] == "io_error"
+    # Venv-first ordering: it's already wiped even though the reset "failed".
+    assert not my_venv.exists()
+    assert "failed after wiping" in caplog.text
+    assert str(my_venv) in caplog.text
+
+
+async def test_reset_ack_delivery_failure_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A dropped ack (session closing) is logged, not silently swallowed."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    session = _make_session()
+    session.send_app_frame = AsyncMock(return_value=False)
+
+    with caplog.at_level("WARNING"):
+        await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r12d"))
+
+    session.send_app_frame.assert_awaited_once()
+    assert "not delivered" in caplog.text
+
+
 async def test_reset_without_provisioner_skips_venv(tmp_path: Path) -> None:
     """No provisioner up: subtrees still wiped, the venv is left, ack accepted."""
     handles = _make_handles(tmp_path)

@@ -79,14 +79,20 @@ async def handle_reset_build_env(
     # deletion mid-build. ``CORE.data_dir`` stats ``config_dir`` on access,
     # so the subtree paths are built inside the executor, not on the loop.
     config_dir = Path(controller._db.settings.config_dir)
+    # ``wiped`` is pre-seeded so the failure log can report partial
+    # progress: the venv wipe runs first, so a subtree failure means the
+    # venv is already gone (a retry finishes the subtree — the wipe is
+    # idempotent). Any wipe failure must still ack, or the offloader hangs
+    # until its 60s ack timeout instead of learning io_error promptly.
+    wiped: list[Path] = []
     try:
         wiped = await _wipe_venv(controller, venv_version)
         wiped += await run_in_executor(_wipe_build_env, config_dir, session.dashboard_id)
-    except OSError as exc:
-        _LOGGER.warning(
-            "peer-link reset_build_env from %s failed: %s",
+    except Exception:
+        _LOGGER.exception(
+            "peer-link reset_build_env from %s failed after wiping %s",
             session.dashboard_id,
-            exc,
+            ", ".join(str(t) for t in wiped) or "nothing",
         )
         await _send_ack(session, request_id=request_id, accepted=False, reason=_REASON_IO_ERROR)
         return
@@ -189,7 +195,7 @@ def _wipe_build_env(config_dir: Path, dashboard_id: str) -> list[Path]:
 async def _send_ack(
     session: PeerLinkSession, *, request_id: str, accepted: bool, reason: str | None = None
 ) -> None:
-    """Send one ``reset_build_env_ack``; best-effort (send failures are logged upstream)."""
+    """Send one ``reset_build_env_ack``; warn if delivery is dropped (session closing)."""
     payload: ResetBuildEnvAckFrameData = {
         "type": "reset_build_env_ack",
         "request_id": request_id,
@@ -197,4 +203,10 @@ async def _send_ack(
     }
     if reason is not None:
         payload["reason"] = reason
-    await session.send_app_frame(dict(payload))
+    if not await session.send_app_frame(dict(payload)):
+        _LOGGER.warning(
+            "peer-link reset_build_env_ack (accepted=%s) to %s not delivered — session closing; "
+            "the offloader will fall back to its ack timeout",
+            accepted,
+            session.dashboard_id,
+        )
