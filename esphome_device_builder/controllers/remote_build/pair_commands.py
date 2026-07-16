@@ -158,10 +158,9 @@ async def request_pair(
 
     *receiver_label_auto* is the offloader-local analog of
     *offloader_label_auto* for *receiver_label*: an explicit
-    ``bool`` marks whether the display name was left at its
-    prefill (the pair dialog sends it). ``None`` (the re-pair
-    paths that omit it) carries the prior row's flag forward so
-    a re-handshake doesn't drop it.
+    ``bool`` (the pair dialog sends it) marks whether the display
+    name was left at its prefill; ``None`` carries the prior row's
+    flag forward for the re-pair paths that omit it.
 
     TOCTOU defense: the *pin_sha256* arg is compared against
     the receiver's actual pubkey mid-handshake, before msg3 (and
@@ -250,14 +249,13 @@ async def request_pair(
         pairing.friendly_name = prior.friendly_name
         pairing.ha_addon = prior.ha_addon
         pairing.reset_build_env_supported = prior.reset_build_env_supported
-    # ``receiver_label_auto`` is offloader-local, not an operator
-    # toggle: an explicit value from the pair dialog wins (it just
-    # re-set ``label``), but a re-pair path that omits it (``None``)
-    # keeps the prior row's flag instead of resetting to ``False``.
+        # Carried like the rest, but overridable below — unlike the
+        # operator/handshake fields, the pair dialog's explicit value
+        # wins (it just re-set ``label``). A re-pair path that omits
+        # it keeps this carried value instead of resetting the display.
+        pairing.receiver_label_auto = prior.receiver_label_auto
     if clean_receiver_label_auto is not None:
         pairing.receiver_label_auto = clean_receiver_label_auto
-    elif prior is not None:
-        pairing.receiver_label_auto = prior.receiver_label_auto
     # Sweep any stale entry at the same endpoint under a
     # different pin (rotation, or a different receiver took
     # the hostname) so the old row's listener + alert don't
