@@ -155,7 +155,10 @@ def test_run_decoder_latches_off_after_the_first_failure() -> None:
     result = helper_cli._run_decoder(_raising, "esp32", ["BT0: 0x400d1a2c"] * 12)
 
     assert calls == ["BT0: 0x400d1a2c"]
-    assert result == {"decoded": [], "unavailable_reason": "decode_failed"}
+    assert result["decoded"] == []
+    assert result["unavailable_reason"] == "decode_failed"
+    # The parent discards our stderr, so the why has to ride the reply.
+    assert "FileNotFoundError" in result["detail"]
 
 
 def test_run_decoder_tags_each_message_with_its_source_line() -> None:
@@ -223,12 +226,27 @@ def test_decode_backtrace_missing_storage_is_unavailable(tmp_path: Path) -> None
         lines=["PC: 0x400d1a2c"],
     )
 
-    assert result == {"decoded": [], "unavailable_reason": "no_build"}
+    assert result["unavailable_reason"] == "no_build"
+    assert "absent.json" in result["detail"]
 
 
-def test_pin_idedata_refuses_a_missing_cache(tmp_path: Path) -> None:
-    """Failing closed here costs a decode; failing open costs a ``pio run``."""
-    assert helper_cli._pin_idedata(tmp_path / "absent.json") is False
+def test_pin_idedata_reports_a_missing_cache_as_no_build(tmp_path: Path) -> None:
+    """An absent cache means the device was never compiled here."""
+    reason, detail = helper_cli._pin_idedata(tmp_path / "absent.json")
+
+    assert reason == "no_build"
+    assert "no idedata cache" in detail
+
+
+def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) -> None:
+    """A cache that exists but won't load is not fixed by compiling again."""
+    idedata_path = tmp_path / "idedata.json"
+    idedata_path.write_text("{not json")
+
+    reason, detail = helper_cli._pin_idedata(idedata_path)
+
+    assert reason == "decode_failed"
+    assert "could not pin idedata" in detail
 
 
 def _write_idedata(tmp_path: Path) -> Path:
@@ -264,10 +282,8 @@ def test_decode_backtrace_pins_idedata_then_runs_the_platform_decoder(
     )
 
     assert seen == ["PC: 0x400d1a2c"]
-    assert result == {
-        "decoded": [{"index": 0, "text": "Decoded 0x400d1a2c: loop()"}],
-        "unavailable_reason": "",
-    }
+    assert result["decoded"] == [{"index": 0, "text": "Decoded 0x400d1a2c: loop()"}]
+    assert result["unavailable_reason"] == ""
     # apply_to_core() left CORE pointed at the sidecar's build, which is how
     # the decoder resolves its ELF without a read_config.
     assert CORE.name == "demo"
@@ -294,7 +310,7 @@ def test_decode_backtrace_without_the_idedata_cache_is_unavailable(
         lines=["PC: 0x400d1a2c"],
     )
 
-    assert result == {"decoded": [], "unavailable_reason": "no_build"}
+    assert result["unavailable_reason"] == "no_build"
 
 
 def test_decode_backtrace_platform_without_a_decoder_is_unsupported(
@@ -311,7 +327,7 @@ def test_decode_backtrace_platform_without_a_decoder_is_unsupported(
         lines=["PC: 0x400d1a2c"],
     )
 
-    assert result == {"decoded": [], "unavailable_reason": "unsupported_platform"}
+    assert result["unavailable_reason"] == "unsupported_platform"
 
 
 def test_decode_backtrace_absent_platform_package_is_unsupported(
@@ -332,11 +348,11 @@ def test_decode_backtrace_absent_platform_package_is_unsupported(
         lines=["PC: 0x400d1a2c"],
     )
 
-    assert result == {"decoded": [], "unavailable_reason": "unsupported_platform"}
+    assert result["unavailable_reason"] == "unsupported_platform"
 
 
 def test_decode_backtrace_broken_esphome_install_is_not_called_unsupported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A dependency missing inside the platform package reports ``decode_failed``."""
     storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
@@ -346,16 +362,37 @@ def test_decode_backtrace_broken_esphome_install_is_not_called_unsupported(
 
     monkeypatch.setattr(helper_cli.importlib, "import_module", _broken)
 
-    with caplog.at_level(logging.WARNING):
-        result = helper_cli._decode_backtrace(
-            config_path=tmp_path / "demo.yaml",
-            storage_path=storage_path,
-            idedata_path=_write_idedata(tmp_path),
-            lines=["PC: 0x400d1a2c"],
-        )
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
 
-    assert result == {"decoded": [], "unavailable_reason": "decode_failed"}
-    assert "Importing the esp32 decoder failed" in caplog.text
+    assert result["unavailable_reason"] == "decode_failed"
+    assert "'serial'" in result["detail"]
+
+
+def test_decode_backtrace_module_raising_at_import_is_decode_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-ImportError from the module body keeps its typed reason."""
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+
+    def _raises(name: str) -> object:
+        raise RuntimeError("version guard tripped")
+
+    monkeypatch.setattr(helper_cli.importlib, "import_module", _raises)
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert result["unavailable_reason"] == "decode_failed"
+    assert "version guard tripped" in result["detail"]
 
 
 @pytest.mark.parametrize(
@@ -381,7 +418,9 @@ def test_load_decoder_never_imports_an_unvetted_platform_name(
 
     monkeypatch.setattr(helper_cli.importlib, "import_module", _no_import)
 
-    assert helper_cli._load_decoder(platform) == (None, "unsupported_platform")
+    decoder, reason, _detail = helper_cli._load_decoder(platform)
+
+    assert (decoder, reason) == (None, "unsupported_platform")
 
 
 def test_decode_backtrace_rejects_a_platform_name_it_would_have_to_import(
@@ -402,7 +441,7 @@ def test_decode_backtrace_rejects_a_platform_name_it_would_have_to_import(
         lines=["PC: 0x400d1a2c"],
     )
 
-    assert result == {"decoded": [], "unavailable_reason": "unsupported_platform"}
+    assert result["unavailable_reason"] == "unsupported_platform"
 
 
 def test_main_dispatches_decode_backtrace(
@@ -422,7 +461,9 @@ def test_main_dispatches_decode_backtrace(
 
     assert helper_cli.main() == 0
 
-    assert json.loads(capsys.readouterr().out) == {"decoded": [], "unavailable_reason": "no_build"}
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["decoded"] == []
+    assert payload["unavailable_reason"] == "no_build"
 
 
 def test_helper_decode_backtrace_round_trips_through_the_child(tmp_path: Path) -> None:

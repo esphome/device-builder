@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -26,6 +27,15 @@ _LOGGER = logging.getLogger(__name__)
 _HELPER_MODULE = "esphome_device_builder.helper_cli"
 # addr2line is spawned per address against an ELF that can run to tens of MB.
 _HELPER_TIMEOUT_S = 60.0
+
+# Each child imports ``esphome.components.<platform>`` (~70 MiB RSS) and holds
+# it for up to the timeout above, and WS dispatch runs every command in its own
+# task, so nothing else serialises a burst of decodes. Same reasoning (and the
+# same low-RAM HA Green target) as ``_config_semaphore`` in
+# ``helpers/device_yaml/_resolve.py``; a decode is user-initiated and rare, so
+# the cap is tighter. Callers queue past it.
+_MAX_CONCURRENT_DECODES = 2
+_decode_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_DECODES)
 
 # The frontend's crash excerpt is bounded (25 lines of context + at most 60
 # after the marker). Cap anyway: every address in the input costs an addr2line
@@ -91,13 +101,17 @@ async def decode_backtrace(
         # so the client shows the raw dump instead of a symbol-less report.
         return _result(unavailable_reason="helper_failed")
     reason = str(reply.get("unavailable_reason") or "")
-    return _result(
-        decoded=decoded,
-        # Qualifies the decode, so it can't be set without one: the build dir
-        # can lose its race with the host-side gate and come back no_build.
-        stale_build=not reason and _is_stale(controller, configuration, target.local_config_hash),
-        unavailable_reason=reason,
-    )
+    detail = str(reply.get("detail") or "")
+    if reason and detail:
+        # The child's stderr goes to DEVNULL so stdout carries the why. Log it
+        # here or it's lost, and a decode_failed is the least reproducible
+        # thing there is: it arrives from a user filing a crash report.
+        _LOGGER.warning("Backtrace decode for %s reported %s: %s", configuration, reason, detail)
+    # Qualifies the frames, so it tracks whether there are any rather than
+    # whether a reason is set: the latch returns the frames it decoded before
+    # it gave up, and those need the caption just as much.
+    stale = bool(decoded) and _is_stale(controller, configuration, target.local_config_hash)
+    return _result(decoded=decoded, stale_build=stale, unavailable_reason=reason)
 
 
 def _result(
@@ -181,15 +195,18 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
     report down with it.
     """
     try:
-        result = await run_subprocess_capture(
-            # Same locator the download-types caller uses, so the two paths
-            # can't end up resolving the helper differently.
-            *_find_sibling_cli("device-builder-helper", _HELPER_MODULE),
-            "decode-backtrace",
-            timeout=_HELPER_TIMEOUT_S,
-            stdin_data=request,
-            merge_stderr=False,
-        )
+        # Held around the spawn only: the coercion below is pure CPU and
+        # holding through it would stall a queued decode for nothing.
+        async with _decode_semaphore:
+            result = await run_subprocess_capture(
+                # Same locator the download-types caller uses, so the two paths
+                # can't end up resolving the helper differently.
+                *_find_sibling_cli("device-builder-helper", _HELPER_MODULE),
+                "decode-backtrace",
+                timeout=_HELPER_TIMEOUT_S,
+                stdin_data=request,
+                merge_stderr=False,
+            )
     except OSError:
         _LOGGER.warning("Could not spawn the backtrace decoder for %s", configuration)
         return None
@@ -199,8 +216,14 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
     if result.returncode != 0:
         # A well-formed dict on stdout from a child that still exited non-zero
         # is a partial/aborted decode, not a success. Same host-side-miss
-        # stance as run_worker in _api_probe.
-        _LOGGER.warning("Backtrace decoder for %s exited %s", configuration, result.returncode)
+        # stance as run_worker in _api_probe. Echo stdout: the child's stderr
+        # is DEVNULL, so this is the only trace of a crashed child there is.
+        _LOGGER.warning(
+            "Backtrace decoder for %s exited %s: %r",
+            configuration,
+            result.returncode,
+            result.stdout[:200],
+        )
         return None
     try:
         parsed = loads(result.stdout) if result.stdout else None

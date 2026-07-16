@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -311,6 +312,116 @@ async def test_decode_backtrace_unavailable_reply_is_never_flagged_stale(
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
     assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "no_build"}
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_caps_concurrent_children(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Each child holds an esphome.components import; a burst must queue.
+
+    WS dispatch gives every command its own task, so nothing else serialises
+    decodes and N in flight would stack N x ~70 MiB on a low-RAM host.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    burst = 6
+    live = 0
+    peak = 0
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow(*args: str, **kwargs: Any):
+        nonlocal live, peak
+        live += 1
+        peak = max(peak, live)
+        entered.set()
+        await release.wait()
+        live -= 1
+        return CapturedSubprocess(returncode=0, stdout=dumps(_DECODED_REPLY), timed_out=False)
+
+    monkeypatch.setattr(backtrace, "run_subprocess_capture", _slow)
+    tasks = [
+        asyncio.create_task(backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES))
+        for _ in range(burst)
+    ]
+    # Every task has to clear a real executor hop before it reaches the
+    # semaphore, so wait for the first to arrive and then leave the rest
+    # ample room to pile in behind it. Uncapped, all six land here.
+    await asyncio.wait_for(entered.wait(), timeout=5)
+    for _ in range(20):
+        await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(*tasks)
+
+    assert peak == backtrace._MAX_CONCURRENT_DECODES
+    assert peak < burst
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_logs_the_childs_detail(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The child's stderr is discarded, so its reported detail must be logged."""
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_helper(
+        monkeypatch,
+        {
+            "decoded": [],
+            "unavailable_reason": "decode_failed",
+            "detail": "decoding line 2 failed: RuntimeError('no addr2line')",
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == "decode_failed"
+    assert "no addr2line" in caplog.text
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_flags_a_stale_partial_decode(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The latch returns what it decoded before giving up; those frames still stale.
+
+    ``stale_build`` qualifies the frames, so it tracks whether any came back,
+    not whether a reason rode along with them.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    device.runtime_state.deployed_config_hash = "5a94a12d"
+    controller._scanner.get_by_configuration = lambda configuration: device
+    monkeypatch.setattr(backtrace, "read_build_info_hash", lambda yaml_path: "f3e21d5a")
+    _stub_helper(
+        monkeypatch,
+        {
+            "decoded": [{"index": 2, "text": "Decoded 0x400d1a2c: loop()"}],
+            "unavailable_reason": "decode_failed",
+            "detail": "gave up after one frame",
+        },
+    )
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["decoded"]
+    assert result["stale_build"] is True
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
