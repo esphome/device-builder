@@ -158,6 +158,12 @@ class TestCompileEnd:
             # Real ANSI banner: colours sit *inside* the brackets.
             "\x1b[0m===== [\x1b[32m\x1b[1mSUCCESS\x1b[0m] Took 14.73 seconds =====\x1b[0m",
             "[\x1b[31m\x1b[1mFAILED\x1b[0m] Took 4.10 seconds",
+            # Native esp-idf prints no banner; esphome's own INFO line closes it.
+            "\x1b[32mINFO Successfully compiled program to path "
+            "'/data/build/x/.pioenvs/x/program'\x1b[0m\n",
+            "INFO Successfully compiled program.",
+            # A failed ninja build ends with its build-stopped closer instead.
+            "ninja: build stopped: subcommand failed.",
         ],
     )
     def test_banner_ends_after_start(self, line: str) -> None:

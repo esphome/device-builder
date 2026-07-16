@@ -394,12 +394,14 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     """
     Stamp the compile-phase wall-clocks off *line*.
 
-    Start on the first build line and end on the summary banner, so the span
-    excludes the download and, for an install, the flash. ANSI is stripped
-    first — the ``[SUCCESS] Took`` banner colours *inside* the brackets. Runs
-    per streamed line, so it short-circuits once both stamps are latched (an
-    install flashes long after the compile ends) and pre-filters the end scan
-    on a plain-text substring before paying for the ANSI strip + regex.
+    Start on the first build line and end on the summary banner (pio) or
+    esphome's ``Successfully compiled program`` line (native esp-idf), so the
+    span excludes the download and, for an install, the flash. ANSI is
+    stripped first — the ``[SUCCESS] Took`` banner colours *inside* the
+    brackets. Runs per streamed line, so it short-circuits once both stamps
+    are latched (an install flashes long after the compile ends) and
+    pre-filters the end scan on plain-text substrings before paying for the
+    ANSI strip + regex.
     """
     if job.compile_ended_at is not None:
         return
@@ -407,9 +409,12 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
         if _is_compile_start_line(_ANSI_ESCAPE.sub("", line)):
             job.compile_started_at = _now_iso()
         return
-    # ``Took `` is plain text in the banner (only the [SUCCESS]/[FAILED] token
-    # carries inline ANSI), so this skips the strip + regex on every other line.
-    if "Took " in line and _COMPILE_END_PATTERN.search(_ANSI_ESCAPE.sub("", line)):
+    # Every end marker carries a plain-text token (the banner colours only the
+    # [SUCCESS]/[FAILED] word; the INFO line is wrapped, not interleaved), so
+    # this skips the strip + regex on every other line.
+    if (
+        "Took " in line or "Successfully compiled" in line or "build stopped" in line
+    ) and _COMPILE_END_PATTERN.search(_ANSI_ESCAPE.sub("", line)):
         job.compile_ended_at = _now_iso()
 
 

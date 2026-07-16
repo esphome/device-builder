@@ -156,8 +156,13 @@ _COMPILE_BRACKET_PERCENT: re.Pattern[str] = re.compile(r"^\s*\[\s*\d{1,3}\s*%\s*
 
 # PlatformIO closes each environment with ``===== [SUCCESS] Took N seconds =====``
 # (or ``[FAILED]``); marks ``compile_ended_at`` so an install's flash phase,
-# which streams after, isn't counted.
-_COMPILE_END_PATTERN: re.Pattern[str] = re.compile(r"\[(?:SUCCESS|FAILED)\] Took ")
+# which streams after, isn't counted. esp-idf's native (non-pio) build prints
+# no banner — there esphome's own ``Successfully compiled program`` INFO line
+# (emitted right after ninja returns) closes the span, and ninja's
+# ``ninja: build stopped: subcommand failed.`` closes a failed build.
+_COMPILE_END_PATTERN: re.Pattern[str] = re.compile(
+    r"\[(?:SUCCESS|FAILED)\] Took |Successfully compiled program|ninja: build stopped"
+)
 
 # History retention.
 #   - "Primary" = COMPILE / UPLOAD / INSTALL: dedup'd to the most
