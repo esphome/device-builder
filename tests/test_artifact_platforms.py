@@ -159,6 +159,14 @@ def test_esp32_includes_native_idf_elf() -> None:
     assert "build/firmware.elf" in rendered
 
 
+def test_esp32_includes_native_idf_bootloader_set() -> None:
+    """Native-IDF bootloader / partition-table OTA reads the nested build/ paths."""
+    rendered = [f.format(name="kitchen") for f in esp32.BUILD_FILES]
+    assert "build/bootloader/bootloader.bin" in rendered
+    assert "build/partition_table/partition-table.bin" in rendered
+    assert "build/ota_data_initial.bin" in rendered
+
+
 def test_libretiny_includes_uf2_and_bin() -> None:
     """Libretiny ships both .uf2 (UART/ltchiptool) and .bin (OTA)."""
     rendered = [f.format(name="bw15") for f in build_files_for_platform("bk72xx")]

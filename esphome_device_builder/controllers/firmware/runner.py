@@ -362,6 +362,12 @@ async def tracked_subprocess(
     call the helper after to short-circuit if the cancel landed
     between this subprocess and the next one.
     """
+    # No job subprocess legitimately reads stdin, and nothing can
+    # answer one that tries: an inherited tty parks an interactive
+    # CLI prompt (esphome's device chooser) forever, hanging the
+    # lane. DEVNULL turns the prompt into an immediate EOFError
+    # traceback in the streamed job output instead.
+    kwargs.setdefault("stdin", asyncio.subprocess.DEVNULL)
     proc = await create_subprocess_exec(*args, **kwargs)
     prev = lane.current_process
     lane.current_process = proc

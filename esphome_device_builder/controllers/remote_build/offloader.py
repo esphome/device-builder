@@ -416,6 +416,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
         offloader_label: str,
         pairing_key: str | None = None,
         offloader_label_auto: bool = False,
+        receiver_label_auto: bool | None = None,
         **kwargs: Any,
     ) -> PairingSummary:
         """Open a Noise XX WS, send ``intent="pair_request"``, persist a local row."""
@@ -428,6 +429,7 @@ class OffloaderController(_RemoteBuildBase):  # noqa: PLR0904
             offloader_label=offloader_label,
             pairing_key=pairing_key,
             offloader_label_auto=offloader_label_auto,
+            receiver_label_auto=receiver_label_auto,
         )
 
     @api_command("remote_build/unpair")

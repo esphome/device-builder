@@ -62,14 +62,14 @@ version = "0.0.0" # Set by GH action on release
 
 [project.optional-dependencies]
 esphome = [
-  "esphome>=2024.1.0",
+  "esphome>=2026.5.1",
 ]
 test = [
   "blockbuster>=1.5.5,<1.6",
-  "codespell==2.4.2",
+  "codespell==2.4.3",
   "importtime-waterfall==1.0.0",
   "jsonschema>=4.20.0",
-  "mypy==2.2.0",
+  "mypy==2.3.0",
   "pre-commit==4.6.0",
   "pre-commit-hooks==6.0.0",
   "pytest==9.1.1",
@@ -78,7 +78,7 @@ test = [
   "pytest-cov==7.1.0",
   "pytest-timeout==2.4.0",
   "pytest-xdist==3.8.0",
-  "ruff==0.15.20",
+  "ruff==0.15.21",
   "types-PyYAML",
 ]
 

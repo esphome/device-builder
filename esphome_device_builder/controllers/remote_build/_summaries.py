@@ -121,6 +121,7 @@ def pairing_summary(
         friendly_name=pairing.friendly_name,
         ha_addon=pairing.ha_addon,
         reset_build_env_supported=pairing.reset_build_env_supported,
+        receiver_label_auto=pairing.receiver_label_auto,
     )
 
 

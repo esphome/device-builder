@@ -4969,6 +4969,14 @@ def test_stored_pairing_rejects_oversize_friendly_name() -> None:
         StoredPairing.from_dict(row)
 
 
+def test_stored_pairing_old_sidecar_defaults_receiver_label_auto() -> None:
+    """A sidecar row predating ``receiver_label_auto`` loads as ``False``."""
+    row = _valid_stored_pairing().to_dict()
+    del row["receiver_label_auto"]
+    pairing = StoredPairing.from_dict(row)
+    assert pairing.receiver_label_auto is False
+
+
 def test_stored_peer_old_sidecar_defaults_display_identity() -> None:
     """A receiver peers row predating the identity fields loads with defaults."""
     row = _stored_peer().to_dict()

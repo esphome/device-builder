@@ -260,6 +260,7 @@ def fire_offloader_pairing_added(
         "friendly_name": summary.friendly_name,
         "ha_addon": summary.ha_addon,
         "reset_build_env_supported": summary.reset_build_env_supported,
+        "receiver_label_auto": summary.receiver_label_auto,
     }
     controller._db.bus.fire(EventType.OFFLOADER_PAIRING_ADDED, payload)
 

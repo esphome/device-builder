@@ -64,6 +64,7 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -763,6 +764,60 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             raise RuntimeError(msg)
 
     assert controller.state.compile_lane.current_process is None
+
+
+async def test_tracked_subprocess_gets_devnull_stdin(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A spawn that reads stdin sees immediate EOF, never a blocking prompt."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+
+    async with controller._tracked_subprocess(
+        controller.state.compile_lane,
+        sys.executable,
+        "-c",
+        "import sys\nprint(repr(sys.stdin.read()))\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert proc.stdout is not None
+        output = await asyncio.wait_for(proc.stdout.read(), timeout=10)
+        exit_code = await proc.wait()
+
+    assert output.strip() == b"''"
+    assert exit_code == 0
+
+
+async def test_tracked_subprocess_defaults_stdin_to_devnull(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """The spawn kwarg defaults to DEVNULL stdin."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    with patch(
+        "esphome_device_builder.controllers.firmware.runner.create_subprocess_exec",
+        new=AsyncMock(),
+    ) as spawn:
+        async with controller._tracked_subprocess(controller.state.compile_lane, "/bin/true"):
+            pass
+    assert spawn.await_args is not None
+    assert spawn.await_args.kwargs["stdin"] is asyncio.subprocess.DEVNULL
+
+
+async def test_tracked_subprocess_stdin_override_wins(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """An explicit stdin kwarg survives the DEVNULL default."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    with patch(
+        "esphome_device_builder.controllers.firmware.runner.create_subprocess_exec",
+        new=AsyncMock(),
+    ) as spawn:
+        async with controller._tracked_subprocess(
+            controller.state.compile_lane, "/bin/true", stdin=asyncio.subprocess.PIPE
+        ):
+            pass
+    assert spawn.await_args is not None
+    assert spawn.await_args.kwargs["stdin"] is asyncio.subprocess.PIPE
 
 
 async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(

@@ -976,6 +976,81 @@ async def test_controller_request_pair_fires_pairing_added_event(
     assert added[0] == summary.to_dict()
 
 
+async def test_controller_request_pair_persists_receiver_label_auto(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    offloader_controller_dir: Path,
+) -> None:
+    """``receiver_label_auto=True`` lands on the RAM row, summary, and event."""
+    server, receiver_controller, expected_pin, _ = receiver_server
+    await receiver_controller.set_pairing_window(open=True, client="test-tab")
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    summary = await offloader.request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        pin_sha256=expected_pin,
+        receiver_label="my-receiver",
+        offloader_label="my-builder",
+        receiver_label_auto=True,
+    )
+
+    assert summary.receiver_label_auto is True
+    assert offloader.state.pairings[expected_pin].receiver_label_auto is True
+    added = [
+        call.args[1]
+        for call in offloader._db.bus.fire.call_args_list
+        if call.args[0] is EventType.OFFLOADER_PAIRING_ADDED
+    ]
+    assert added[0]["receiver_label_auto"] is True
+
+
+async def test_controller_request_pair_defaults_receiver_label_auto_false(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    offloader_controller_dir: Path,
+) -> None:
+    """Omitting ``receiver_label_auto`` on a fresh pair defaults it to ``False``."""
+    server, receiver_controller, expected_pin, _ = receiver_server
+    await receiver_controller.set_pairing_window(open=True, client="test-tab")
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    summary = await offloader.request_pair(
+        hostname="127.0.0.1",
+        port=server.port,
+        pin_sha256=expected_pin,
+        receiver_label="my-receiver",
+        offloader_label="my-builder",
+    )
+
+    assert summary.receiver_label_auto is False
+
+
+async def test_controller_request_pair_rejects_non_bool_receiver_label_auto(
+    receiver_server: tuple[TestServer, ReceiverController, str, bytes],
+    offloader_controller_dir: Path,
+) -> None:
+    """A non-``bool`` ``receiver_label_auto`` is refused with INVALID_ARGS."""
+    server, receiver_controller, expected_pin, _ = receiver_server
+    await receiver_controller.set_pairing_window(open=True, client="test-tab")
+
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+
+    with pytest.raises(CommandError) as exc:
+        await offloader.request_pair(
+            hostname="127.0.0.1",
+            port=server.port,
+            pin_sha256=expected_pin,
+            receiver_label="my-receiver",
+            offloader_label="my-builder",
+            receiver_label_auto="true",  # type: ignore[arg-type]
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
 async def test_controller_request_pair_pin_mismatch_raises_precondition_failed(
     receiver_server: tuple[TestServer, ReceiverController, str, bytes],
     offloader_controller_dir: Path,
@@ -2274,6 +2349,72 @@ async def test_request_pair_approved_preserves_operator_enabled_and_version(
     refreshed = offloader.state.pairings[pin]
     assert refreshed.enabled is False
     assert refreshed.esphome_version == "2025.5.0"
+
+
+async def test_request_pair_repair_carries_receiver_label_auto_when_omitted(
+    offloader_controller_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A re-pair omitting ``receiver_label_auto`` keeps the prior flag; an explicit value wins."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    offloader._db.bus = MagicMock()
+    pubkey = b"\x44" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+
+    offloader.state.pairings[pin] = _stub_pairing(
+        receiver_hostname="rcv.local",
+        receiver_port=6055,
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        status=PeerStatus.APPROVED,
+    )
+    offloader.state.pairings[pin].receiver_label_auto = True
+
+    async def _fake_request_pair(**_: object) -> RequestPairResult:
+        return RequestPairResult(
+            status=IntentResponse.APPROVED,
+            pin_sha256=pin,
+            remote_static_pub=pubkey,
+        )
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.pair_commands.peer_link_request_pair",
+        _fake_request_pair,
+    )
+    fake_identity = MagicMock()
+    fake_identity.private_bytes = b"\x00" * 32
+    fake_dashboard = MagicMock()
+    fake_dashboard.dashboard_id = "dashboard-stub"
+
+    async def _fake_load_offloader_identities(
+        _fi: MagicMock = fake_identity, _fd: MagicMock = fake_dashboard
+    ) -> tuple[MagicMock, MagicMock]:
+        return _fi, _fd
+
+    monkeypatch.setattr(
+        offloader, "_load_offloader_identities_async", _fake_load_offloader_identities
+    )
+    monkeypatch.setattr(offloader, "_spawn_peer_link_client", MagicMock())
+
+    # Omitted → prior True carries forward.
+    carried = await offloader.request_pair(
+        hostname="rcv.local",
+        port=6055,
+        pin_sha256=pin,
+        receiver_label="lab-pc",
+        offloader_label="off",
+    )
+    assert carried.receiver_label_auto is True
+
+    # Explicit False → the fresh value wins over the prior.
+    overridden = await offloader.request_pair(
+        hostname="rcv.local",
+        port=6055,
+        pin_sha256=pin,
+        receiver_label="lab-pc",
+        offloader_label="off",
+        receiver_label_auto=False,
+    )
+    assert overridden.receiver_label_auto is False
 
 
 async def test_unpair_does_not_fire_event_when_nothing_to_remove(

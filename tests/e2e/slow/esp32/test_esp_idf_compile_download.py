@@ -61,12 +61,24 @@ async def test_esp_idf_compile_download_round_trip(
     paired_instances: PairedInstances,
 ) -> None:
     """A native-IDF compile lands the same downloads offloader-side as a local build (#1102)."""
-    data_dir, _build_path = await run_offload_compile_round_trip(
+    data_dir, build_path = await run_offload_compile_round_trip(
         paired_instances,
         job_id="off-idf-1",
         configuration_filename=_CONFIGURATION_FILENAME,
         yaml_body=_ESP_IDF_YAML,
     )
+
+    # The native bootloader/partition set rides back for OTA
+    # bootloader / partition-table updates.
+    native_flash_files = [
+        build_path / "build" / "bootloader" / "bootloader.bin",
+        build_path / "build" / "partition_table" / "partition-table.bin",
+        build_path / "build" / "ota_data_initial.bin",
+    ]
+    missing = await asyncio.to_thread(
+        lambda: [str(p) for p in native_flash_files if not p.is_file()]
+    )
+    assert not missing, f"native flash files not materialised: {missing}"
 
     # The set a local build of this device would offer for download. Off the
     # loop: ``collect_download_entries`` stats the build dir (blockbuster).
