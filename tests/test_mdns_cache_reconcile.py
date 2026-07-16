@@ -45,6 +45,8 @@ def _seed_txt_cache(monitor: Any, records: list[DNSText]) -> None:
     fake_zeroconf.zeroconf.cache.get_all_by_details = MagicMock(
         side_effect=lambda name, *_a: [r for r in records if r.name == name]
     )
+    # No cached PTRs: a bare MagicMock is truthy and would read as one.
+    fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias = MagicMock(return_value=None)
     monitor.mdns._zeroconf = fake_zeroconf
 
 

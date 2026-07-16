@@ -329,23 +329,6 @@ class MdnsSource:
             self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}")
         )
 
-    def has_cached_http_trace(self, device_name: str) -> bool:
-        """
-        Whether the cache holds any address or ``_http._tcp`` TXT record, expired included.
-
-        The sweep's clear side keys on it: an mDNS-dark deployment
-        leaves no trace, and a wire miss there proves nothing.
-        """
-        if self._zeroconf is None:
-            return False
-        if self._get_address_records(device_name):
-            return True
-        return bool(
-            self._zeroconf.zeroconf.cache.get_all_by_details(
-                f"{device_name}.{_HTTP_SERVICE_TYPE}", _TYPE_TXT, _CLASS_IN
-            )
-        )
-
     async def verify_http_identity(self, device_name: str) -> None:
         """
         Re-resolve the ``_http._tcp`` service before dropping identity freshness.
@@ -387,23 +370,25 @@ class MdnsSource:
             if not record.is_expired(now_ms)
         }
 
-    def has_cached_trace(self, name: str) -> bool:
+    def has_cached_trace(self, name: str, service_type: str = _ESPHOME_SERVICE_TYPE) -> bool:
         """
         Whether the cache holds any record for *name*, expired included.
 
         Same record buckets as :meth:`get_mdns_cache_info`; keep the
-        two in lockstep.
+        two in lockstep. Sweep-side verify resolves gate on it: an
+        mDNS-dark deployment leaves no trace, and a wire miss there
+        proves nothing.
         """
         if self._zeroconf is None:
             return False
         if self._get_address_records(name):
             return True
         cache = self._zeroconf.zeroconf.cache
-        service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
+        service_name = f"{name}.{service_type}"
         return bool(
             cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN)
             or cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN)
-            or self._cached_ptr(service_name) is not None
+            or self._cached_ptr(service_name, service_type) is not None
         )
 
     def probe_device(self, device_name: str, service_name: str | None = None) -> None:
@@ -631,9 +616,11 @@ class MdnsSource:
         if _has_identity_keys(props):
             self._monitor.apply_http_identity_live(device_name, live=True)
 
-    def _cached_ptr(self, service_name: str) -> DNSRecord | None:
+    def _cached_ptr(
+        self, service_name: str, service_type: str = _ESPHOME_SERVICE_TYPE
+    ) -> DNSRecord | None:
         """
-        Look up the live (unexpired) cached esphomelib PTR for *service_name*.
+        Look up the live (unexpired) cached PTR for *service_name*.
 
         PTR is owned by the type-domain (``_esphomelib._tcp.local.``) and
         carries the service-instance as its ``alias``;
@@ -643,7 +630,7 @@ class MdnsSource:
         if self._zeroconf is None:
             return None
         ptr: DNSRecord | None = self._zeroconf.zeroconf.cache.current_entry_with_name_and_alias(
-            _ESPHOME_SERVICE_TYPE, service_name
+            service_type, service_name
         )
         return ptr
 

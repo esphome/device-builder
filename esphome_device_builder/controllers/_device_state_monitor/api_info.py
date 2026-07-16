@@ -32,6 +32,7 @@ from ._api_probe import (
     api_worker_available,
     apply_worker_info,
 )
+from .helpers import _HTTP_SERVICE_TYPE
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -183,8 +184,8 @@ class ApiInfoSource(ApiSweepSource):
             if mdns.has_live_http_identity_txt(device.name):
                 if not device.runtime_state.http_identity_live:
                     stamp.add(device.name)
-            elif device.runtime_state.http_identity_live and mdns.has_cached_http_trace(
-                device.name
+            elif device.runtime_state.http_identity_live and mdns.has_cached_trace(
+                device.name, service_type=_HTTP_SERVICE_TYPE
             ):
                 verify.add(device.name)
         for name in sorted(stamp):
