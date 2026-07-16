@@ -176,12 +176,8 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # clean to every connected peer when the operator clicks "Clean
 # build files" so receivers that have built this device locally
 # also drop their stale artifacts.
-# ``target="upload"`` is deliberately absent: the receiver never
-# flashes a device (it may not be able to reach it). Modern
-# offloaders run "Compile and upload" as a server-pinned INSTALL —
-# remote compile, local flash; an older offloader still sending
-# ``upload`` gets the explicit ``upload_unsupported`` reject in
-# :meth:`SubmitJobReceiver.handle_submit_job`.
+# ``target="upload"`` is deliberately absent — rejected with
+# ``upload_unsupported`` in :meth:`SubmitJobReceiver.handle_submit_job`.
 _TARGET_TO_JOB_TYPE: dict[str, JobType] = {
     "compile": JobType.COMPILE,
     "clean": JobType.CLEAN,
@@ -391,8 +387,7 @@ class SubmitJobReceiver:
           enforce at runtime (target outside the
           ``compile`` / ``clean`` set, malformed
           ``configuration_filename``), plus the explicit
-          ``upload_unsupported`` reject — the receiver never
-          flashes a device.
+          ``upload_unsupported`` reject.
         * Assembler-construction validation (oversized total,
           empty bundle, etc.) — these come from the announced
           header values, so they map to a ``submit_job_ack``

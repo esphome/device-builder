@@ -5331,44 +5331,34 @@ async def test_controller_submit_job_upload_target_no_firmware_raises_preconditi
     assert "firmware controller" in excinfo.value.message
 
 
+@pytest.mark.parametrize(
+    ("is_terminal", "expect_cancel"),
+    [pytest.param(False, True, id="active"), pytest.param(True, False, id="terminal")],
+)
 async def test_controller_cancel_job_resolves_local_pinned_install_first(
-    offloader_controller_dir: Path,
+    offloader_controller_dir: Path, is_terminal: bool, expect_cancel: bool
 ) -> None:
     """A job_id matching a local FirmwareJob cancels via firmware.cancel, no wire I/O.
 
     The receiver only learns a server-pinned INSTALL's id at dispatch, so
     the wire-only path would silently no-op while the job sits queued and
-    the device would get flashed after the user clicked Stop.
+    the device would get flashed after the user clicked Stop. An already-
+    terminal local job is a no-op success.
     """
     offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
     firmware = MagicMock()
     job = MagicMock()
-    job.is_terminal = False
+    job.is_terminal = is_terminal
     firmware.state.jobs = {"local-job-1": job}
     firmware.cancel = AsyncMock()
     offloader._db.firmware = firmware
 
     result = await offloader.cancel_job(pin_sha256="a" * 64, job_id="local-job-1")
 
-    firmware.cancel.assert_awaited_once_with(job_id="local-job-1")
-    assert result == {"sent": True}
-
-
-async def test_controller_cancel_job_terminal_local_job_noop_success(
-    offloader_controller_dir: Path,
-) -> None:
-    """An already-terminal local job returns sent=true without a cancel call."""
-    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
-    firmware = MagicMock()
-    job = MagicMock()
-    job.is_terminal = True
-    firmware.state.jobs = {"local-job-1": job}
-    firmware.cancel = AsyncMock()
-    offloader._db.firmware = firmware
-
-    result = await offloader.cancel_job(pin_sha256="a" * 64, job_id="local-job-1")
-
-    firmware.cancel.assert_not_awaited()
+    if expect_cancel:
+        firmware.cancel.assert_awaited_once_with(job_id="local-job-1")
+    else:
+        firmware.cancel.assert_not_awaited()
     assert result == {"sent": True}
 
 

@@ -98,11 +98,9 @@ async def submit_job(
 
     ``target="compile"`` / ``"clean"`` stream the gzipped tarball
     over the existing peer-link session and return the receiver's
-    ``submit_job_ack``. ``target="upload"`` never asks the
-    receiver to flash — the receiver may not be able to reach the
-    device — and instead queues a server-pinned INSTALL
-    :class:`FirmwareJob` (remote compile, artifacts pulled back,
-    local OTA flash). Live job lifecycle + output ride
+    ``submit_job_ack``. ``target="upload"`` queues a server-pinned
+    INSTALL :class:`FirmwareJob` locally and never touches the
+    wire. Live job lifecycle + output ride
     ``OFFLOADER_JOB_STATE_CHANGED`` / ``OFFLOADER_JOB_OUTPUT``
     events on the ``subscribe_events`` stream either way.
 
