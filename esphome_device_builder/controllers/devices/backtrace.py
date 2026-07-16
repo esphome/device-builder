@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
-from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
+from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, DecodeUnavailable
 from ...helpers.api import CommandError, ErrorCode
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_hash import read_build_info_hash
@@ -54,6 +54,8 @@ _MAX_LINE_LENGTH = 500
 # second copy here would be one more thing to keep in sync.
 _ADDRESS_RE = re.compile(r"(?:0x)?[0-9a-fA-F]{8}\b")
 
+_REASONS = frozenset(DecodeUnavailable)
+
 
 async def decode_backtrace(
     controller: DevicesController, configuration: str, lines: list[str]
@@ -73,7 +75,7 @@ async def decode_backtrace(
     if not any(_ADDRESS_RE.search(line) for line in lines):
         # Cheapest refusal there is, and it runs before the disk touch: no
         # address in the batch means no crash signal to decode.
-        return _result(unavailable_reason="no_backtrace")
+        return _result(unavailable_reason=DecodeUnavailable.NO_BACKTRACE)
     target = await run_in_executor(_resolve_target, configuration, yaml_path)
     if target.unavailable_reason:
         return _result(unavailable_reason=target.unavailable_reason)
@@ -87,14 +89,14 @@ async def decode_backtrace(
     )
     reply = await _run_helper(configuration, request)
     if reply is None:
-        return _result(unavailable_reason="helper_failed")
+        return _result(unavailable_reason=DecodeUnavailable.HELPER_FAILED)
     decoded = _coerce_decoded(reply.get("decoded"))
     if decoded is None:
         # A shape drift between host and child is a broken contract, not the
         # successful empty decode an all-clear reason would read as; report it
         # so the client shows the raw dump instead of a symbol-less report.
-        return _result(unavailable_reason="helper_failed")
-    reason = str(reply.get("unavailable_reason") or "")
+        return _result(unavailable_reason=DecodeUnavailable.HELPER_FAILED)
+    reason = _coerce_reason(reply.get("unavailable_reason"))
     if reason:
         # The child's stderr is DEVNULL, so this is the only place its reason
         # is ever seen. Unconditional on detail: a reason arriving without one
@@ -116,8 +118,24 @@ def _result(
     return {
         "decoded": decoded or [],
         "stale_build": stale_build,
-        "unavailable_reason": unavailable_reason,
+        "unavailable_reason": str(unavailable_reason),
     }
+
+
+def _coerce_reason(payload: Any) -> str:
+    """Return the child's reason; ``helper_failed`` when it isn't one we ship.
+
+    The reason is a closed vocabulary the frontend branches on, so a child
+    that drifts must not have an unrenderable code forwarded to it verbatim;
+    same stance as ``_coerce_decoded`` takes on the rest of the reply.
+    """
+    if not payload:
+        return ""
+    reason = str(payload)
+    if reason in _REASONS:
+        return reason
+    _LOGGER.warning("Backtrace decoder returned an unknown reason %r", reason)
+    return DecodeUnavailable.HELPER_FAILED
 
 
 def _validate_lines(lines: Any) -> None:

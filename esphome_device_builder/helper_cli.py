@@ -39,7 +39,7 @@ from esphome.const import KEY_CORE
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
-from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
+from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, DecodeUnavailable
 from .definitions import coerce_download_entries
 from .helpers.json import dumps_str, loads
 
@@ -112,7 +112,7 @@ class _UnavailableError(Exception):
 
     def __init__(self, reason: str, detail: str) -> None:
         super().__init__(f"{reason}: {detail}")
-        self.reply = {"decoded": [], "unavailable_reason": reason, "detail": detail}
+        self.reply = {"decoded": [], "unavailable_reason": str(reason), "detail": detail}
 
 
 def _decode_backtrace(
@@ -130,7 +130,9 @@ def _prepare_decoder(config_path: Path, storage_path: Path, idedata_path: Path) 
     """Bootstrap CORE off the sidecar and find the platform's decoder."""
     storage = StorageJSON.load(storage_path)
     if storage is None:
-        raise _UnavailableError("no_build", f"no StorageJSON sidecar at {storage_path}")
+        raise _UnavailableError(
+            DecodeUnavailable.NO_BUILD, f"no StorageJSON sidecar at {storage_path}"
+        )
     # apply_to_core() sets name / build_path / toolchain / target_platform but
     # not config_path, which CORE.config_dir and CORE.data_dir resolve off.
     CORE.config_path = config_path
@@ -154,26 +156,35 @@ def _load_decoder(platform: str) -> Any:
     rather than at the caller where the next caller could miss it.
     """
     if not _COMPONENT_RE.fullmatch(platform):
-        raise _UnavailableError("unsupported_platform", f"platform {platform!r} is not importable")
+        raise _UnavailableError(
+            DecodeUnavailable.UNSUPPORTED_PLATFORM, f"platform {platform!r} is not importable"
+        )
     try:
         module = importlib.import_module(f"esphome.components.{platform}")
     except ImportError as err:
         if isinstance(err, ModuleNotFoundError) and err.name == f"esphome.components.{platform}":
             raise _UnavailableError(
-                "unsupported_platform", f"no esphome.components.{platform} package"
+                DecodeUnavailable.UNSUPPORTED_PLATFORM,
+                f"no esphome.components.{platform} package",
             ) from err
         # An ImportError raised from *inside* the package is a broken esphome
         # install (a missing native dep, a half-installed toolchain), not a
         # platform without a decoder. Reporting it as the latter would tell
         # the user esp32 can't be decoded, which is a lie they'd act on.
-        raise _UnavailableError("decode_failed", f"importing {platform} failed: {err!r}") from err
+        raise _UnavailableError(
+            DecodeUnavailable.DECODE_FAILED, f"importing {platform} failed: {err!r}"
+        ) from err
     except Exception as err:
-        raise _UnavailableError("decode_failed", f"importing {platform} raised: {err!r}") from err
+        raise _UnavailableError(
+            DecodeUnavailable.DECODE_FAILED, f"importing {platform} raised: {err!r}"
+        ) from err
     # Discovery is an attribute lookup, same as esphome's own log clients; a
     # platform without a decoder (libretiny, host, ...) just doesn't have one.
     process_stacktrace = getattr(module, "process_stacktrace", None)
     if process_stacktrace is None:
-        raise _UnavailableError("unsupported_platform", f"{platform} has no process_stacktrace")
+        raise _UnavailableError(
+            DecodeUnavailable.UNSUPPORTED_PLATFORM, f"{platform} has no process_stacktrace"
+        )
     return process_stacktrace
 
 
@@ -200,7 +211,7 @@ def _pin_idedata(idedata_path: Path, *, required: bool) -> None:
     user to compile wouldn't fix a corrupt file or an upstream module move.
     """
     if required and not idedata_path.is_file():
-        raise _UnavailableError("no_build", f"no idedata cache at {idedata_path}")
+        raise _UnavailableError(DecodeUnavailable.NO_BUILD, f"no idedata cache at {idedata_path}")
     try:
         # Kept local, and inside the try, so an upstream move of the module
         # fails this decode rather than the whole helper's import (which
@@ -211,7 +222,8 @@ def _pin_idedata(idedata_path: Path, *, required: bool) -> None:
         CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(raw)
     except Exception as err:
         raise _UnavailableError(
-            "decode_failed", f"could not pin idedata from {idedata_path}: {err!r}"
+            DecodeUnavailable.DECODE_FAILED,
+            f"could not pin idedata from {idedata_path}: {err!r}",
         ) from err
 
 
@@ -243,7 +255,7 @@ def _run_decoder(process_stacktrace: Any, platform: str, lines: list[str]) -> di
             except Exception as err:  # noqa: BLE001 — upstream raises OSError / RuntimeError / EsphomeError
                 # Latch off. A crash dump repeats the same failing lookup once
                 # per backtrace frame, and each attempt can be a subprocess.
-                reason = "decode_failed"
+                reason = DecodeUnavailable.DECODE_FAILED
                 detail = f"decoding line {index} failed: {err!r}"
             # Whatever the line logged before it raised is kept: a decoder can
             # emit a frame and then fail on the next address in the same line,
@@ -260,7 +272,7 @@ def _run_decoder(process_stacktrace: Any, platform: str, lines: list[str]) -> di
     finally:
         logger.removeHandler(collector)
         logger.setLevel(previous_level)
-    return {"decoded": decoded, "unavailable_reason": reason, "detail": detail}
+    return {"decoded": decoded, "unavailable_reason": str(reason), "detail": detail}
 
 
 class _RecordCollector(logging.Handler):

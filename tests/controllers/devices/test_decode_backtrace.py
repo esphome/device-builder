@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from esphome_device_builder.constants import DecodeUnavailable
 from esphome_device_builder.controllers.devices import backtrace
 from esphome_device_builder.helpers.api import CommandError, ErrorCode
 from esphome_device_builder.helpers.json import dumps, loads
@@ -245,6 +246,52 @@ async def test_decode_backtrace_non_dict_reply_degrades(
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
     assert result["unavailable_reason"] == "helper_failed"
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_unknown_reason_is_a_broken_contract(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A reason we don't ship is drift, not a new reason the client can act on.
+
+    The frontend branches on a closed vocabulary; forwarding an unrecognised
+    code reaches it as something it can't render.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, {"decoded": [], "unavailable_reason": "nonsense_reason"})
+
+    with caplog.at_level(logging.WARNING):
+        result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == "helper_failed"
+    # The raw value still reaches the log, or the drift is undiagnosable.
+    assert "nonsense_reason" in caplog.text
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_every_shipped_reason_passes_through(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The documented vocabulary reaches the client verbatim."""
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+
+    for reason in DecodeUnavailable:
+        _stub_helper(monkeypatch, {"decoded": [], "unavailable_reason": str(reason)})
+
+        result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+        assert result["unavailable_reason"] == str(reason)
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

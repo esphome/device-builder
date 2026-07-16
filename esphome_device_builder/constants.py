@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -134,3 +135,21 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 # nothing to import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
+
+
+class DecodeUnavailable(StrEnum):
+    """Why ``devices/decode_backtrace`` produced no frames.
+
+    A closed vocabulary on the wire, minted by both the dashboard and the
+    helper child and branched on by the frontend, so it lives in one place
+    rather than as literals in each. The host validates the child's reply
+    against it and maps anything else to ``HELPER_FAILED``, the same way a
+    malformed ``decoded`` is treated: a drift between the two is a broken
+    contract, not a new reason the client can act on.
+    """
+
+    NO_BACKTRACE = "no_backtrace"
+    NO_BUILD = "no_build"
+    UNSUPPORTED_PLATFORM = "unsupported_platform"
+    DECODE_FAILED = "decode_failed"
+    HELPER_FAILED = "helper_failed"
