@@ -69,7 +69,7 @@ async def test_esp_idf_compile_download_round_trip(
     )
 
     # The native bootloader/partition set rides back for OTA
-    # bootloader / partition-table updates (#2113).
+    # bootloader / partition-table updates.
     native_flash_files = [
         build_path / "build" / "bootloader" / "bootloader.bin",
         build_path / "build" / "partition_table" / "partition-table.bin",

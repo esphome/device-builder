@@ -160,7 +160,7 @@ def test_esp32_includes_native_idf_elf() -> None:
 
 
 def test_esp32_includes_native_idf_bootloader_set() -> None:
-    """Native-IDF bootloader / partition-table OTA reads the nested build/ paths (#2113)."""
+    """Native-IDF bootloader / partition-table OTA reads the nested build/ paths."""
     rendered = [f.format(name="kitchen") for f in esp32.BUILD_FILES]
     assert "build/bootloader/bootloader.bin" in rendered
     assert "build/partition_table/partition-table.bin" in rendered
