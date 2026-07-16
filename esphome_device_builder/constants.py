@@ -125,23 +125,12 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 
 # esphome ``Toolchain`` values, as the plain strings a StorageJSON sidecar
 # stores. Matched as strings rather than through ``esphome.const.Toolchain``
-# members because that enum gains members over time, and reading one an older
-# esphome lacks raises for every decode, not just the platform it names. The
-# wire values themselves don't change. Shared because the dashboard's spawn
-# gate (``controllers/devices/backtrace.py``) and the helper child's
-# idedata decision (``helper_cli.py``) encode one contract and must agree;
-# stdlib-only home, so the child pays nothing to import it.
+# members because that enum gains members over time and the floor has no
+# ceiling, so reading one a supported esphome lacks would raise for every
+# decode, not just the platform it names. The wire values don't change.
+# Shared because the dashboard's spawn gate (``controllers/devices/
+# backtrace.py``) and the helper child's idedata decision (``helper_cli.py``)
+# encode one contract and must agree; stdlib-only home, so the child pays
+# nothing to import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
-
-
-def sidecar_toolchain(storage: object) -> str | None:
-    """Return a StorageJSON's recorded toolchain, or ``None`` when it has none.
-
-    ``StorageJSON.toolchain`` is newer than our esphome floor (it landed in
-    2026.5.1), so a plain attribute read raises on older installs. ``None``
-    is also what a sidecar written before the field says, and both callers
-    already route that to the PlatformIO branch — which is the right answer
-    for an esphome that predates the field, since it predates the split too.
-    """
-    return getattr(storage, "toolchain", None)

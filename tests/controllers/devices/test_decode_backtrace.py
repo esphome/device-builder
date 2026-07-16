@@ -163,40 +163,6 @@ async def test_decode_backtrace_uncompiled_device_does_not_spawn(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
-async def test_decode_backtrace_reports_on_a_sidecar_with_no_toolchain_field(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    seed_device: SeedDeviceFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """``StorageJSON.toolchain`` is newer than our esphome floor (2026.5.1).
-
-    A bare attribute read raises out of the executor into the WS dispatcher,
-    which answers INTERNAL_ERROR and breaks this command's report-don't-raise
-    contract. Absent means no recorded toolchain, which is the PlatformIO
-    branch.
-    """
-    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
-    _write_idedata(tmp_path)
-    controller = make_controller(tmp_path)
-    _stub_helper(monkeypatch, _DECODED_REPLY)
-    real_load = backtrace.StorageJSON.load
-
-    def _pre_2026_5_1(path: Path) -> Any:
-        storage = real_load(path)
-        # An esphome that predates the field has no attribute at all.
-        del storage.toolchain
-        return storage
-
-    monkeypatch.setattr(backtrace.StorageJSON, "load", staticmethod(_pre_2026_5_1))
-
-    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
-
-    assert result["unavailable_reason"] == ""
-    assert result["decoded"] == _DECODED_REPLY["decoded"]
-
-
-@pytest.mark.usefixtures("redirect_storage_path")
 async def test_decode_backtrace_esp_idf_without_a_cmake_cache_does_not_spawn(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

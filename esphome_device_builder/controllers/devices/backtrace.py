@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
-from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, sidecar_toolchain
+from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
 from ...helpers.api import CommandError, ErrorCode
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_hash import read_build_info_hash
@@ -168,10 +168,9 @@ def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
     versions this runs against never carry the fix.
     """
     build_path = Path(storage.build_path)
-    toolchain = sidecar_toolchain(storage)
-    if toolchain == TOOLCHAIN_ESP_IDF:
+    if storage.toolchain == TOOLCHAIN_ESP_IDF:
         return (build_path / "build" / "CMakeCache.txt").is_file()
-    if toolchain == TOOLCHAIN_SDK_NRF:
+    if storage.toolchain == TOOLCHAIN_SDK_NRF:
         # nrf52 resolves addr2line off PATH and the ELF from the Zephyr tree,
         # reporting a miss itself rather than shelling out to find one.
         return build_path.is_dir()

@@ -9,7 +9,6 @@ download path never pulls those modules into the main process.
 
 from __future__ import annotations
 
-import builtins
 import importlib
 import io
 import json
@@ -21,7 +20,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from esphome.const import KEY_CORE
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
@@ -253,31 +251,6 @@ def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) ->
     assert "could not pin idedata" in err.value.reply["detail"]
 
 
-def test_decode_backtrace_without_apply_to_core_reports_rather_than_crashes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Esphome below 2026.5.0 has no apply_to_core; say so, don't die.
-
-    Letting the AttributeError escape kills the child, which reaches the host
-    as ``helper_failed`` — indistinguishable from a genuinely broken helper.
-    """
-    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
-    # A pre-2026.5.0 sidecar object: no apply_to_core to bootstrap CORE with.
-    monkeypatch.setattr(
-        helper_cli.StorageJSON, "load", staticmethod(lambda path: SimpleNamespace())
-    )
-
-    result = helper_cli._decode_backtrace(
-        config_path=tmp_path / "demo.yaml",
-        storage_path=storage_path,
-        idedata_path=_write_idedata(tmp_path),
-        lines=["PC: 0x400d1a2c"],
-    )
-
-    assert result["unavailable_reason"] == "decode_failed"
-    assert "apply_to_core" in result["detail"]
-
-
 def test_run_decoder_keeps_the_frames_the_failing_line_already_logged() -> None:
     """The latch drops the rest of the dump, not what it had at the fault."""
     logger = logging.getLogger("esphome.components.esp32")
@@ -291,35 +264,6 @@ def test_run_decoder_keeps_the_frames_the_failing_line_already_logged() -> None:
     # The frame nearest the fault survives; the rest of the dump is skipped.
     assert result["decoded"] == [{"index": 0, "text": "Decoded 0x400d1a2c: loop()"}]
     assert result["unavailable_reason"] == "decode_failed"
-
-
-def test_pin_idedata_falls_back_to_the_pre_split_module(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Esphome before the platformio package split still pins.
-
-    The installed esphome only has the new path, so CI never walks the
-    fallback; without it every PlatformIO decode is dead on the older half of
-    our version floor.
-    """
-    idedata_path = tmp_path / "idedata.json"
-    idedata_path.write_text(json.dumps({"prog_path": "/build/firmware.elf", "cc_path": "/bin/gcc"}))
-    pre_split = SimpleNamespace(KEY_IDEDATA="idedata", IDEData=lambda raw: raw)
-    real_import = builtins.__import__
-
-    def _without_the_split(name: str, *args: object, **kwargs: object) -> object:
-        if name == "esphome.platformio.toolchain":
-            raise ImportError("No module named 'esphome.platformio'")
-        if name == "esphome.platformio_api":
-            return pre_split
-        return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
-
-    monkeypatch.setattr(builtins, "__import__", _without_the_split)
-    CORE.data[KEY_CORE] = {}
-
-    helper_cli._pin_idedata(idedata_path)
-
-    assert CORE.data[KEY_CORE]["idedata"]["cc_path"] == "/bin/gcc"
 
 
 def _write_idedata(tmp_path: Path) -> Path:

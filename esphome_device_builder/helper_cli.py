@@ -36,11 +36,10 @@ from pathlib import Path
 from typing import Any
 
 from esphome.const import KEY_CORE
-from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
-from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, sidecar_toolchain
+from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
 from .definitions import coerce_download_entries
 from .helpers.json import dumps_str, loads
 
@@ -132,24 +131,14 @@ def _prepare_decoder(config_path: Path, storage_path: Path, idedata_path: Path) 
     storage = StorageJSON.load(storage_path)
     if storage is None:
         raise _UnavailableError("no_build", f"no StorageJSON sidecar at {storage_path}")
-    if not hasattr(storage, "apply_to_core"):
-        # Landed in esphome 2026.5.0. There's no bootstrapping CORE off the
-        # sidecar without it, and no shim for that — say so plainly rather
-        # than let the AttributeError kill the child and report itself as a
-        # broken helper.
-        raise _UnavailableError(
-            "decode_failed",
-            f"esphome {esphome_version} has no StorageJSON.apply_to_core; "
-            "decoding needs 2026.5.0 or newer",
-        )
     # apply_to_core() sets name / build_path / toolchain / target_platform but
     # not config_path, which CORE.config_dir and CORE.data_dir resolve off.
     CORE.config_path = config_path
     storage.apply_to_core()
     # esp-idf reads its toolchain out of the CMake cache and nrf52 walks the
-    # Zephyr build tree; only the PlatformIO path (also where an older sidecar
-    # with no recorded toolchain lands) can reach get_idedata.
-    if sidecar_toolchain(storage) not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF):
+    # Zephyr build tree; only the PlatformIO path (also where a sidecar with
+    # no recorded toolchain lands) can reach get_idedata.
+    if storage.toolchain not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF):
         _pin_idedata(idedata_path)
     platform = CORE.target_platform
     return _load_decoder(platform), platform
@@ -206,14 +195,7 @@ def _pin_idedata(idedata_path: Path) -> None:
         # Kept local, and inside the try, so an upstream move of the module
         # fails this decode rather than the whole helper's import (which
         # download-types shares).
-        try:
-            from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
-        except ImportError:  # pragma: no cover; esphome before the platformio split
-            # Both symbols lived here until the package split (~2026.5). The
-            # memo mechanism is identical either side of the move, so only the
-            # path differs; without this every PlatformIO decode (esp32-arduino,
-            # esp8266, rp2040) is dead on the older half of our version floor.
-            from esphome.platformio_api import KEY_IDEDATA, IDEData  # noqa: PLC0415
+        from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
 
         CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(loads(idedata_path.read_bytes()))
     except Exception as err:
