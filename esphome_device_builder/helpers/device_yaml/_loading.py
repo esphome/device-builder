@@ -227,10 +227,7 @@ def load_device_from_storage(
     # 1. ``storage.core_platform`` — post-codegen ground truth
     #    written by upstream's ``StorageJSON.from_esphome_core``
     #    (esphome#9028, 2025.6+). Always the lowercase platform
-    #    key, never the chip variant. The ``getattr`` default is
-    #    now redundant against pyproject's floor, which carries
-    #    the attribute; it costs nothing and still covers a
-    #    sidecar object from an unpinned install.
+    #    key, never the chip variant.
     # 2. ``detect_platform_from_yaml`` — the YAML's top-level
     #    platform key, also lowercase. Picks up never-compiled
     #    devices and pre-2025.6 ``StorageJSON`` files that don't
@@ -246,10 +243,8 @@ def load_device_from_storage(
     # the call site, where the variant *is* the right level of
     # detail.
     target_platform = ""
-    if storage:
-        core_platform = getattr(storage, "core_platform", None)
-        if core_platform:
-            target_platform = core_platform.lower()
+    if storage and storage.core_platform:
+        target_platform = storage.core_platform.lower()
     if not target_platform:
         target_platform = detect_platform_from_yaml(yaml_content, resolved_config)
     target_platform = normalize_platform(target_platform)

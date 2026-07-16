@@ -7,21 +7,8 @@ import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, NoReturn
 
-try:
-    # ``friendly_name_slugify`` lives in ``esphome.helpers`` from
-    # esphome/esphome#16206 onwards. The fallback is for older
-    # esphome releases that still expose it from the dashboard
-    # package; once those drop the hard dependency goes away.
-    from esphome.helpers import friendly_name_slugify
-except ImportError:  # pragma: no cover; covered by the import below
-    from esphome.dashboard.util.text import friendly_name_slugify
-
-try:
-    from esphome.core.config import FRIENDLY_NAME_MAX_LEN
-except ImportError:  # pragma: no cover; older esphome without the constant
-    FRIENDLY_NAME_MAX_LEN = 120
-
-from esphome.helpers import sort_ip_addresses
+from esphome.core.config import FRIENDLY_NAME_MAX_LEN
+from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 
 from ...helpers.api import CommandError
 from ...helpers.hostname import is_local_hostname, normalize_hostname
