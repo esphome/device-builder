@@ -267,6 +267,11 @@ async def _queue_upload_as_local_install(
     if firmware is None:
         msg = "firmware controller not available"
         raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    # Deliberate: the fused INSTALL holds the compile lane through the whole
+    # remote compile + local flash (only REMOTE_PENDING compiles pool), which
+    # is what keeps cancel working in every phase. The install-chain follow-up
+    # (enqueue_install_or_defer with a build_source override) reclaims the
+    # lane via the dispatch pool.
     job = firmware._create_job(
         configuration,
         JobType.INSTALL,
