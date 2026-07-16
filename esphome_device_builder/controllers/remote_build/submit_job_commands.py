@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...models import ErrorCode, FirmwareJob, JobBuildSource, JobType
+from ...models import OTA_PORT, ErrorCode, FirmwareJob, JobBuildSource, JobType
 from ._validators import (
     download_artifacts_error_to_command_error,
     validate_pin_sha256,
@@ -96,12 +96,15 @@ async def submit_job(
 ) -> dict[str, Any]:
     """Bundle *configuration* and dispatch a build to the receiver behind *pin_sha256*.
 
-    Streams the gzipped tarball over the existing peer-link
-    session. Live job lifecycle + output ride
-    ``OFFLOADER_JOB_STATE_CHANGED`` /
-    ``OFFLOADER_JOB_OUTPUT`` events on the
-    ``subscribe_events`` stream; this call returns only the
-    receiver's ``submit_job_ack``.
+    ``target="compile"`` / ``"clean"`` stream the gzipped tarball
+    over the existing peer-link session and return the receiver's
+    ``submit_job_ack``. ``target="upload"`` never asks the
+    receiver to flash — the receiver may not be able to reach the
+    device — and instead queues a server-pinned INSTALL
+    :class:`FirmwareJob` (remote compile, artifacts pulled back,
+    local OTA flash). Live job lifecycle + output ride
+    ``OFFLOADER_JOB_STATE_CHANGED`` / ``OFFLOADER_JOB_OUTPUT``
+    events on the ``subscribe_events`` stream either way.
 
     Returns ``{"job_id": <our id>, "accepted": <bool>,
     "reason": <str>}`` (``reason`` only on rejection).
@@ -109,6 +112,8 @@ async def submit_job(
     clean_pin = validate_pin_sha256(pin_sha256)
     clean_target = validate_submit_job_target(target)
     clean_config, yaml_path = await controller._validate_submit_job_config(configuration)
+    if clean_target == "upload":
+        return await _queue_upload_as_local_install(controller, clean_pin, clean_config)
     client = controller._lookup_open_peer_link_client(clean_pin, label="submit_job")
     bundle_bytes = await controller._build_submit_job_bundle(clean_config, yaml_path)
     job_id = uuid4().hex[:12]
@@ -234,3 +239,39 @@ async def reset_peer_build_env(controller: OffloaderController, *, pin_sha256: s
     # default supersede would cancel an unrelated reset targeting another
     # server (the firmware/clean fan-out precedent).
     return await firmware._enqueue(job, supersede=False)
+
+
+async def _queue_upload_as_local_install(
+    controller: OffloaderController, pin_sha256: str, configuration: str
+) -> dict[str, Any]:
+    """
+    Queue ``target="upload"`` as a server-pinned INSTALL that flashes locally.
+
+    The receiver compiles and ships artifacts back; this dashboard
+    runs the OTA flash. Uploads always happen local — the receiver
+    may not be able to reach the device (cross-subnet, NAT), and
+    this dashboard by definition can.
+    """
+    pairing = controller.get_pairing(pin_sha256)
+    if pairing is None:
+        msg = "no pairing matches pin_sha256"
+        raise CommandError(ErrorCode.NOT_FOUND, msg)
+    # Connectivity precheck so a dead link refuses here instead of
+    # enqueuing a job doomed to fail its dispatch.
+    controller._lookup_open_peer_link_client(pin_sha256, label="submit_job")
+    firmware = controller._db.firmware
+    if firmware is None:
+        msg = "firmware controller not available"
+        raise CommandError(ErrorCode.PRECONDITION_FAILED, msg)
+    job = firmware._create_job(
+        configuration,
+        JobType.INSTALL,
+        port=OTA_PORT,
+        build_source=JobBuildSource.for_server(
+            pin_sha256=pin_sha256,
+            label=pairing.label,
+            esphome_version=pairing.esphome_version,
+        ),
+    )
+    await firmware._enqueue(job)
+    return {"job_id": job.job_id, "accepted": True}

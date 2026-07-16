@@ -105,6 +105,7 @@ _REASON_JOB_ID_MISMATCH = "job_id_mismatch"
 _REASON_CHUNK_DECODE_FAILED = "chunk_decode_failed"
 _REASON_EXTRACT_FAILED = "extract_failed"
 _REASON_QUEUE_REJECTED = "queue_rejected"
+_REASON_UPLOAD_UNSUPPORTED = "upload_unsupported"
 
 # Cap on the peer-controlled display strings the header carries
 # (``device_name`` / ``device_friendly_name``). The schema gate
@@ -166,7 +167,7 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # construction failure.
 #
 # ``target="clean"`` rides the same submit_job pipeline as
-# compile / upload — receiver re-extracts the YAML to the
+# compile — receiver re-extracts the YAML to the
 # per-offloader subtree, then runs ``esphome clean`` against it,
 # which wipes ``<data_dir>/build/<device_name>/``. The receiver's
 # 6c TTL sweep eventually reclaims the subtree itself; an
@@ -175,9 +176,14 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # clean to every connected peer when the operator clicks "Clean
 # build files" so receivers that have built this device locally
 # also drop their stale artifacts.
+# ``target="upload"`` is deliberately absent: the receiver never
+# flashes a device (it may not be able to reach it). Modern
+# offloaders run "Compile and upload" as a server-pinned INSTALL —
+# remote compile, local flash; an older offloader still sending
+# ``upload`` gets the explicit ``upload_unsupported`` reject in
+# :meth:`SubmitJobReceiver.handle_submit_job`.
 _TARGET_TO_JOB_TYPE: dict[str, JobType] = {
     "compile": JobType.COMPILE,
-    "upload": JobType.UPLOAD,
     "clean": JobType.CLEAN,
 }
 
@@ -383,8 +389,10 @@ class SubmitJobReceiver:
           flight on the same session.
         * Header field shapes the wire-format TypedDict can't
           enforce at runtime (target outside the
-          ``compile`` / ``upload`` set, malformed
-          ``configuration_filename``).
+          ``compile`` / ``clean`` set, malformed
+          ``configuration_filename``), plus the explicit
+          ``upload_unsupported`` reject — the receiver never
+          flashes a device.
         * Assembler-construction validation (oversized total,
           empty bundle, etc.) — these come from the announced
           header values, so they map to a ``submit_job_ack``
@@ -415,6 +423,11 @@ class SubmitJobReceiver:
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_DUPLICATE_SUBMIT)
             return
         target = frame["target"]
+        if target == "upload":
+            # Distinct from ``invalid_header`` so an older offloader's
+            # dialog surfaces a recognisable refusal, not "bad frame".
+            await self._reject(session, job_id=frame["job_id"], reason=_REASON_UPLOAD_UNSUPPORTED)
+            return
         if target not in _TARGET_TO_JOB_TYPE:
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
             return

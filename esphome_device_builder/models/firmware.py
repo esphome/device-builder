@@ -48,9 +48,11 @@ class JobType(StrEnum):
 
     COMPILE = "compile"
     UPLOAD = "upload"
-    # Retained so older persisted INSTALL jobs still deserialise and run as a
-    # fused ``esphome run`` (runner + CLI). New installs enqueue a COMPILE + a
-    # dependent UPLOAD instead.
+    # One job that compiles and flashes. LOCAL-source runs a fused
+    # ``esphome run`` (only older persisted jobs produce that shape —
+    # ``firmware/install`` enqueues a COMPILE + dependent UPLOAD chain);
+    # Send-builds "Compile and upload" produces a server-pinned REMOTE
+    # INSTALL: the receiver compiles, this dashboard flashes.
     INSTALL = "install"
     CLEAN = "clean"
     # Wipes ``.esphome/build/``, ``external_components/``, and

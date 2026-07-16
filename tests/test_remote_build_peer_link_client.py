@@ -103,6 +103,7 @@ from esphome_device_builder.helpers.peer_link_noise import (
 )
 from esphome_device_builder.helpers.peer_link_resolver import _SkipHostsResolver
 from esphome_device_builder.models import (
+    OTA_PORT,
     PAIRING_VERSION_MAX_LEN,
     ErrorCode,
     EventType,
@@ -5226,7 +5227,7 @@ async def test_controller_submit_job_passes_through_reject_reason(
         result = await offloader.submit_job(
             pin_sha256=pairing.pin_sha256,
             configuration="kitchen.yaml",
-            target="upload",
+            target="compile",
         )
     finally:
         offloader.state.peer_link_clients[pairing.pin_sha256].task.cancel()
@@ -5252,6 +5253,63 @@ async def test_controller_submit_job_invalid_target_raises_invalid_args(
             target="install",  # not in {compile, upload}
         )
     assert exc_info.value.code == ErrorCode.INVALID_ARGS
+
+
+async def test_controller_submit_job_upload_target_enqueues_pinned_local_install(
+    offloader_controller_dir: Path,
+) -> None:
+    """``target="upload"`` queues a server-pinned INSTALL that flashes locally, no wire I/O."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    pairing = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    pairing.esphome_version = "2026.6.0"
+    offloader.state.pairings[pin] = pairing
+    offloader._lookup_open_peer_link_client = (  # type: ignore[method-assign]
+        lambda pin_sha256, label: MagicMock()
+    )
+    firmware = MagicMock()
+    firmware._enqueue = AsyncMock(side_effect=lambda job, **_: job)
+    offloader._db.firmware = firmware
+
+    result = await offloader.submit_job(
+        pin_sha256=pin, configuration="kitchen.yaml", target="upload"
+    )
+
+    args, kwargs = firmware._create_job.call_args
+    assert args == ("kitchen.yaml", JobType.INSTALL)
+    assert kwargs["port"] == OTA_PORT
+    build_source = kwargs["build_source"]
+    assert build_source.source is JobSource.REMOTE
+    assert build_source.source_pin_sha256 == pin
+    assert build_source.source_label == pairing.label
+    assert build_source.source_esphome_version == "2026.6.0"
+    firmware._enqueue.assert_awaited_once()
+    job = firmware._create_job.return_value
+    assert result == {"job_id": job.job_id, "accepted": True}
+
+
+async def test_controller_submit_job_upload_target_unknown_pin_raises_not_found(
+    offloader_controller_dir: Path,
+) -> None:
+    """No pairing for the pin → NOT_FOUND before any job is created."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.submit_job(
+            pin_sha256="b" * 64, configuration="kitchen.yaml", target="upload"
+        )
+    assert excinfo.value.code is ErrorCode.NOT_FOUND
+
+
+async def test_controller_submit_job_upload_target_not_connected_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """Paired but no live session → the lookup's PRECONDITION_FAILED, nothing enqueued."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    offloader.state.pairings[pin] = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.submit_job(pin_sha256=pin, configuration="kitchen.yaml", target="upload")
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
 
 async def test_controller_submit_job_unknown_pairing_raises_not_found(
