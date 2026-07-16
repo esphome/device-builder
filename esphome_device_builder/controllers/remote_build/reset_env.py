@@ -17,7 +17,7 @@ from ...helpers.remote_build_layout import (
     dashboard_data_subtree,
 )
 from ...helpers.version_compat import is_pinnable_version
-from ...models import JobStatus, ResetBuildEnvAckFrameData
+from ...models import JobStatus, ResetBuildEnvAckFrameData, ResetBuildEnvFrameData
 from .peer_link import TerminateReason
 
 if TYPE_CHECKING:
@@ -59,11 +59,14 @@ async def handle_reset_build_env(
         )
         await session.terminate(TerminateReason.MALFORMED_FRAME)
         return
-    request_id = cast(str, frame["request_id"])
+    # ``is_valid_frame`` verified both fields are present + ``str``; cast the
+    # whole frame to its TypedDict once so the reads below are typed.
+    valid = cast(ResetBuildEnvFrameData, frame)
+    request_id = valid["request_id"]
     # Version of the venv the offloader's builds use, or None when it
     # matches ours / isn't pinnable (no venv is ever cached for those).
     # Pure check — no filesystem access on the event loop.
-    venv_version = _venv_version(cast(str, frame["esphome_version"]))
+    venv_version = _venv_version(valid["esphome_version"])
 
     if _reset_busy(controller, session.dashboard_id, venv_version=venv_version):
         _LOGGER.info(
