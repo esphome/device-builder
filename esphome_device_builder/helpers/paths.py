@@ -19,10 +19,15 @@ def resolve_under_root(target: Path, root: Path) -> Path:
     escape. Blocking (``resolve`` walks the filesystem) — call from
     executor threads.
     """
+    # Explicit NUL gate: POSIX ``resolve()`` raises ``ValueError`` on an
+    # embedded NUL but Windows swallows it, so the check can't ride the
+    # except below on every platform.
+    if "\x00" in str(target):
+        raise PathEscapeError(f"{str(target)!r} contains a NUL byte")
     try:
         resolved = target.resolve()
     except ValueError as err:
-        raise PathEscapeError(f"{target!r} is unresolvable: {err}") from err
+        raise PathEscapeError(f"{str(target)!r} is unresolvable: {err}") from err
     if not resolved.is_relative_to(root.resolve()):
         raise PathEscapeError(f"{target} resolves outside {root}")
     return resolved
