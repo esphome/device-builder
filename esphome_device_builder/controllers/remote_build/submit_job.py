@@ -179,7 +179,10 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # ``target="upload"`` maps to INSTALL (``esphome run --no-logs``), not
 # UPLOAD: the submit dialog sells it as "Compile and upload", and a bare
 # ``esphome upload`` doesn't compile. The OTA pin at queue time
-# (``_extract_and_queue``) keeps the run non-interactive.
+# (``_extract_and_queue``) keeps the run non-interactive. The fused
+# INSTALL rides the compile lane through its flash phase by design —
+# a COMPILE + dependent UPLOAD chain would map one wire ``remote_job_id``
+# onto two jobs, breaking the fan-out / cancel 1:1 correlation.
 _TARGET_TO_JOB_TYPE: dict[str, JobType] = {
     "compile": JobType.COMPILE,
     "upload": JobType.INSTALL,
