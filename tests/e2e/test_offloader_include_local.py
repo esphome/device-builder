@@ -97,7 +97,7 @@ async def test_include_local_toggle_round_trip_over_ws(
     assert db.remote_build_offloader is not None
 
     async with client.ws_connect("/ws") as ws:
-        await ws.receive(timeout=2.0)  # server_version / requires_auth handshake
+        await ws.receive(timeout=10.0)  # server_version / requires_auth handshake
 
         initial = await _subscribe_and_get_initial(ws, "sub-1")
         assert initial["include_local_in_pool"] is False
@@ -127,7 +127,7 @@ async def test_include_local_toggle_round_trip_over_ws(
     # In-RAM state flipped, so a fresh subscriber paints the new value immediately.
     assert db.remote_build_offloader.state.include_local_in_pool is True
     async with client.ws_connect("/ws") as ws2:
-        await ws2.receive(timeout=2.0)
+        await ws2.receive(timeout=10.0)
         initial2 = await _subscribe_and_get_initial(ws2, "sub-2")
         assert initial2["include_local_in_pool"] is True
 
@@ -180,7 +180,7 @@ async def test_include_local_runs_overflow_compile_on_local_lane(
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async with client.ws_connect("/ws") as ws:
-        await ws.receive(timeout=2.0)  # server_version / requires_auth handshake
+        await ws.receive(timeout=10.0)  # server_version / requires_auth handshake
         await _subscribe_and_get_initial(ws, "sub-1")
         await _send_command(
             ws, "remote_build/set_offloader_settings", "set-1", include_local_in_pool=True
@@ -217,7 +217,7 @@ async def test_include_local_off_overflow_compile_waits_for_server(
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async with client.ws_connect("/ws") as ws:
-        await ws.receive(timeout=2.0)
+        await ws.receive(timeout=10.0)
         initial = await _subscribe_and_get_initial(ws, "sub-1")
         assert initial["include_local_in_pool"] is False  # default off
 

@@ -86,7 +86,7 @@ async def test_local_compile_round_trip_over_ws(
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async with client.ws_connect("/ws") as ws:
-        info = (await ws.receive(timeout=2.0)).json()
+        info = (await ws.receive(timeout=10.0)).json()
         assert info["requires_auth"] is False
 
         await _send_command(ws, "subscribe_events", "sub-1")

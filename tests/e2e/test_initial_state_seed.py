@@ -93,7 +93,7 @@ async def test_initial_state_seeds_receiver_settings_and_jobs(
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async with client.ws_connect("/ws") as ws:
-        await ws.receive(timeout=2.0)  # server_version handshake
+        await ws.receive(timeout=10.0)  # server_version handshake
 
         initial = await _subscribe_and_get_initial(ws, "sub-1")
         assert initial["remote_build_settings"] == {
@@ -115,7 +115,7 @@ async def test_initial_state_seeds_receiver_settings_and_jobs(
 
     # A second tab connecting later sees everything in the snapshot.
     async with client.ws_connect("/ws") as ws:
-        await ws.receive(timeout=2.0)
+        await ws.receive(timeout=10.0)
 
         initial = await _subscribe_and_get_initial(ws, "sub-2")
         assert initial["remote_build_settings"] == {

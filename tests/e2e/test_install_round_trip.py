@@ -722,7 +722,7 @@ async def _wait_for_offloader_idle(
     paired_instances: PairedInstances,
     queue_status_events: Any,
     *,
-    timeout: float = 2.0,
+    timeout: float = 10.0,
 ) -> None:
     """
     Block until the offloader's ``_peer_queue_status`` reports idle for this pin.

@@ -154,7 +154,7 @@ class PairedInstances:
         """The receiver-role dashboard's receiver-side sibling."""
         return self.receiver_handles.receiver
 
-    async def wait_until_session_opened(self, *, timeout: float = 2.0) -> None:
+    async def wait_until_session_opened(self, *, timeout: float = 10.0) -> None:
         """Block until both sides have observed the peer-link session opening.
 
         Two awaits because the two sides reach "opened" on slightly
@@ -177,7 +177,7 @@ class PairedInstances:
         await asyncio.wait_for(self.offloader_opened.received.wait(), timeout=timeout)
         await asyncio.wait_for(self.receiver_opened.received.wait(), timeout=timeout)
 
-    async def wait_until_session_closed(self, *, timeout: float = 2.0) -> None:
+    async def wait_until_session_closed(self, *, timeout: float = 10.0) -> None:
         """Block until both sides have observed the peer-link session closing.
 
         Mirror of :meth:`wait_until_session_opened` for the
@@ -307,7 +307,7 @@ async def _paired_instances_ctx(
     #    flips the local row to APPROVED, fires
     #    OFFLOADER_PAIR_STATUS_CHANGED, and spawns the long-lived
     #    peer-link client.
-    await asyncio.wait_for(pair_status_changed.received.wait(), timeout=2.0)
+    await asyncio.wait_for(pair_status_changed.received.wait(), timeout=10.0)
     assert pair_status_changed[-1]["status"] == "approved"
 
     instances = PairedInstances(

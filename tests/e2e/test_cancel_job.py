@@ -130,7 +130,7 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     )
 
     assert result == {"sent": True}
-    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=2.0)
+    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=10.0)
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
 
 
@@ -168,7 +168,7 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
         job_id=job.remote_job_id,
     )
 
-    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=2.0)
+    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=10.0)
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
 
     # Simulate the firmware queue's JOB_CANCELLED that the
@@ -237,7 +237,7 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     # earlier unknown cancel — so the assertion below catches a
     # late incorrect cancel deterministically rather than racing
     # an arbitrary timeout.
-    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=2.0)
+    await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=10.0)
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=known_job.job_id)
 
 

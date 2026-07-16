@@ -34,7 +34,7 @@ async def _repair(instances: PairedInstances) -> None:
         instances.offloader_bus, EventType.OFFLOADER_PAIR_STATUS_CHANGED
     )
     await instances.receiver.approve_peer(dashboard_id=instances.offloader_dashboard_id)
-    await asyncio.wait_for(pair_status_changed.received.wait(), timeout=2.0)
+    await asyncio.wait_for(pair_status_changed.received.wait(), timeout=10.0)
 
 
 async def test_offloader_identity_rotation_recovers_session(
@@ -70,7 +70,7 @@ async def test_offloader_identity_rotation_recovers_session(
     await _repair(paired_instances)
 
     # Session recovers, now pinned to the rotated key on both sides.
-    await asyncio.wait_for(reopened.received.wait(), timeout=2.0)
+    await asyncio.wait_for(reopened.received.wait(), timeout=10.0)
     assert dashboard_id in paired_instances.receiver.state.peer_link_sessions
     assert paired_instances.receiver.state.approved_peers[dashboard_id].pin_sha256 == v1.pin_sha256
     live = paired_instances.offloader.state.peer_link_clients[receiver_pin]

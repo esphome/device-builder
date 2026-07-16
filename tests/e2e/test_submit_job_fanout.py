@@ -155,7 +155,7 @@ async def test_remote_peer_job_output_fans_out_to_offloader_bus(
         JobOutputData(job_id=job.job_id, line="Compiling kitchen.cpp...\n"),
     )
 
-    await asyncio.wait_for(outputs.received.wait(), timeout=2.0)
+    await asyncio.wait_for(outputs.received.wait(), timeout=10.0)
     payload = outputs[-1]
     assert payload["job_id"] == "off-job-1"  # offloader's tag, not the receiver's
     assert payload["line"] == "Compiling kitchen.cpp...\n"

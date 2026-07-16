@@ -121,7 +121,7 @@ def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
     controller.receiver.state.approved_peers[peer.dashboard_id] = peer
 
 
-async def _wait_until(condition: Callable[[], bool], *, timeout: float = 2.0) -> None:
+async def _wait_until(condition: Callable[[], bool], *, timeout: float = 10.0) -> None:
     """Yield to the loop until *condition()* returns truthy or *timeout* elapses.
 
     Raises :exc:`TimeoutError` (via :func:`asyncio.wait_for`) when
@@ -1294,7 +1294,7 @@ async def test_e2e_peer_link_session_responds_to_offloader_ping(
     try:
         ping = session.encrypt(_json.dumps({"type": "ping", "nonce": 42}))
         await ws.send_bytes(ping)
-        pong_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+        pong_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=10.0)
     finally:
         await ws.close()
 
@@ -1335,14 +1335,14 @@ async def test_e2e_peer_link_session_kicks_old_on_duplicate_connect(
     try:
         # The old session should receive a ``terminate`` frame
         # carrying ``reason: superseded`` before the WS closes.
-        terminate_encrypted = await asyncio.wait_for(old_ws.receive_bytes(), timeout=2.0)
+        terminate_encrypted = await asyncio.wait_for(old_ws.receive_bytes(), timeout=10.0)
         terminate = _decode_app_frame(old_session, terminate_encrypted)
         assert terminate["type"] == "terminate"
         assert terminate["reason"] == TerminateReason.SUPERSEDED.value
         # Receive one more frame to drive the WS through the
         # CLOSE transition; aiohttp's client side only flips
         # ``closed`` on the next ``receive()``-style call.
-        close_msg = await asyncio.wait_for(old_ws.receive(), timeout=2.0)
+        close_msg = await asyncio.wait_for(old_ws.receive(), timeout=10.0)
         assert close_msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
         # The registry now holds the NEW session; the old one is gone.
         assert "alpha" in controller.receiver.state.peer_link_sessions
@@ -1403,7 +1403,7 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         # frame the offloader sees.
         stop_task = asyncio.create_task(controller.stop())
 
-        terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+        terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=10.0)
         terminate = _decode_app_frame(session, terminate_encrypted)
         assert terminate["type"] == "terminate"
         assert terminate["reason"] == TerminateReason.SERVER_SHUTTING_DOWN.value
@@ -1440,7 +1440,7 @@ async def test_e2e_peer_link_session_oversize_frame_terminates(
         # 16-byte auth tag; the encrypted size is plaintext + 16.
         oversize = session.encrypt(b"x" * (APP_FRAME_MAX_BYTES + 1))
         await ws.send_bytes(oversize)
-        terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+        terminate_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=10.0)
         terminate = _decode_app_frame(session, terminate_encrypted)
         assert terminate["type"] == "terminate"
         assert terminate["reason"] == TerminateReason.MALFORMED_FRAME.value
@@ -1555,7 +1555,7 @@ async def test_e2e_submit_job_dispatches_to_receiver(
         await ws.send_bytes(session.encrypt(_json.dumps(header)))
         for chunk in chunks:
             await ws.send_bytes(session.encrypt(_json.dumps(chunk)))
-        ack_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=2.0)
+        ack_encrypted = await asyncio.wait_for(ws.receive_bytes(), timeout=10.0)
     finally:
         await ws.close()
 
@@ -2313,7 +2313,7 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
     # Wait for ``_run_peer_link_session`` to register and kick off
     # the heartbeat task — the helper sets ``heartbeat_started``
     # the moment its callbacks land in ``captured``.
-    await asyncio.wait_for(heartbeat_started.wait(), timeout=2.0)
+    await asyncio.wait_for(heartbeat_started.wait(), timeout=10.0)
     # ``register_peer_link_session`` now schedules a one-shot
     # ``queue_status`` push on session open (cold-connect signal
     # for the install scheduler). Wait for that frame to

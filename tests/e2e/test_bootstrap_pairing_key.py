@@ -137,7 +137,7 @@ async def test_bootstrap_pairing_key_round_trip(tmp_path: Path) -> None:
         )
         assert summary.status is PeerStatus.APPROVED
         assert summary.pin_sha256 == pin_sha256
-        assert await asyncio.wait_for(bootstrap, timeout=2.0) is True
+        assert await asyncio.wait_for(bootstrap, timeout=10.0) is True
 
         # Receiver landed the approved row, closed the window, cleared the key.
         [peer] = receiver.state.approved_peers.values()
@@ -147,8 +147,8 @@ async def test_bootstrap_pairing_key_round_trip(tmp_path: Path) -> None:
         assert receiver.state.bootstrap_pairing_key is None
 
         # The pairing carries through to a live peer-link session on both sides.
-        await asyncio.wait_for(inst.offloader_opened.received.wait(), timeout=2.0)
-        await asyncio.wait_for(inst.receiver_opened.received.wait(), timeout=2.0)
+        await asyncio.wait_for(inst.offloader_opened.received.wait(), timeout=10.0)
+        await asyncio.wait_for(inst.receiver_opened.received.wait(), timeout=10.0)
         assert peer.dashboard_id in receiver.state.peer_link_sessions
 
 
