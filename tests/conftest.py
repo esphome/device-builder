@@ -364,6 +364,9 @@ def make_remote_build_controller(
     _idle = QueueStatus(idle=True, running=False, queue_depth=0)
     # The receiver broadcasts compile-lane idleness to offloaders.
     db.firmware.compile_queue_status = MagicMock(return_value=_idle)
+    # Real dict, not an auto-mock: cancel_job's local-first branch probes
+    # ``firmware.state.jobs`` and a MagicMock would claim every job id.
+    db.firmware.state.jobs = {}
     if bus is not None:
         db.bus = bus
     return RemoteBuildTestHandles(
@@ -383,6 +386,7 @@ def reset_offloader_firmware_stub(
         handles.offloader._db.bus = MagicMock()
     firmware = handles.offloader._db.firmware = MagicMock()
     firmware.compile_queue_status = MagicMock(**queue_status_kwargs)
+    firmware.state.jobs = {}
     return firmware
 
 

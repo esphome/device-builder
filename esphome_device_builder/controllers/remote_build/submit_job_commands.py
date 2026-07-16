@@ -193,6 +193,18 @@ async def cancel_job(
     if not isinstance(job_id, str) or not job_id:
         msg = "job_id must be a non-empty string"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # A server-pinned INSTALL is a local FirmwareJob the receiver only
+    # learns about at dispatch; a wire-only cancel would be a silent no-op
+    # while it sits queued (and during the local flash). ``firmware.cancel``
+    # covers every phase — queued, remote compile (the runner's registered
+    # cancel event translates to a wire ``cancel_job``), local flash. An
+    # already-terminal job is a no-op success, matching the wire path's
+    # receiver-drops-unknown-frame semantics.
+    firmware = controller._db.firmware
+    if firmware is not None and (job := firmware.state.jobs.get(job_id)) is not None:
+        if not job.is_terminal:
+            await firmware.cancel(job_id=job_id)
+        return {"sent": True}
     client = controller._lookup_open_peer_link_client(clean_pin, label="cancel_job")
     try:
         sent = await client.cancel_job(job_id=job_id)

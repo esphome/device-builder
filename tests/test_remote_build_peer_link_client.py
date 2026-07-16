@@ -859,6 +859,9 @@ def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db.settings = MagicMock()
     db.settings.config_dir = config_dir
     db.settings.on_ha_addon = False
+    # None (not an auto-mock): cancel_job's local-first branch probes
+    # ``_db.firmware.state.jobs`` and a bare MagicMock would claim every id.
+    db.firmware = None
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     controller = OffloaderController(db)
     _CREATED_OFFLOADERS.append(controller)
@@ -5310,6 +5313,47 @@ async def test_controller_submit_job_upload_target_not_connected_raises_precondi
     with pytest.raises(CommandError) as excinfo:
         await offloader.submit_job(pin_sha256=pin, configuration="kitchen.yaml", target="upload")
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+async def test_controller_cancel_job_resolves_local_pinned_install_first(
+    offloader_controller_dir: Path,
+) -> None:
+    """A job_id matching a local FirmwareJob cancels via firmware.cancel, no wire I/O.
+
+    The receiver only learns a server-pinned INSTALL's id at dispatch, so
+    the wire-only path would silently no-op while the job sits queued and
+    the device would get flashed after the user clicked Stop.
+    """
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    firmware = MagicMock()
+    job = MagicMock()
+    job.is_terminal = False
+    firmware.state.jobs = {"local-job-1": job}
+    firmware.cancel = AsyncMock()
+    offloader._db.firmware = firmware
+
+    result = await offloader.cancel_job(pin_sha256="a" * 64, job_id="local-job-1")
+
+    firmware.cancel.assert_awaited_once_with(job_id="local-job-1")
+    assert result == {"sent": True}
+
+
+async def test_controller_cancel_job_terminal_local_job_noop_success(
+    offloader_controller_dir: Path,
+) -> None:
+    """An already-terminal local job returns sent=true without a cancel call."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    firmware = MagicMock()
+    job = MagicMock()
+    job.is_terminal = True
+    firmware.state.jobs = {"local-job-1": job}
+    firmware.cancel = AsyncMock()
+    offloader._db.firmware = firmware
+
+    result = await offloader.cancel_job(pin_sha256="a" * 64, job_id="local-job-1")
+
+    firmware.cancel.assert_not_awaited()
+    assert result == {"sent": True}
 
 
 async def test_controller_submit_job_unknown_pairing_raises_not_found(
