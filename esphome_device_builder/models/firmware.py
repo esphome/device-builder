@@ -438,9 +438,9 @@ class FirmwareJob(DashboardModel):
           another build server uses :meth:`clear_run_state`
           instead, so it doesn't claim a restart that didn't
           happen.)
-        - **Clears per-run state** — ``progress`` / ``error`` /
-          ``started_at`` / ``completed_at`` / ``exit_code``
-          back to their defaults.
+        - **Clears per-run state** — ``progress`` / ``ninja_total`` /
+          ``error`` / ``started_at`` / ``completed_at`` /
+          ``exit_code`` back to their defaults.
         - **Doesn't change ``status``** — the caller decides
           the transition (load path flips ``RUNNING`` →
           ``QUEUED``; future callers might want a different
@@ -502,13 +502,14 @@ class FirmwareJob(DashboardModel):
             self.apply_build_source(REMOTE_PENDING_JOB_BUILD_SOURCE)
 
     def clear_run_state(self) -> None:
-        """Clear per-run fields (progress / error / timing / exit code); keeps output and identity.
+        """Clear per-run fields (progress / gauge / error / timing); keeps output and identity.
 
         ``reset`` is this plus a restart marker; a mid-build re-route to
         another server calls this directly so the log isn't stamped with a
         restart notice that never happened.
         """
         self.progress = None
+        self.ninja_total = 0
         self.error = None
         self.failure_reason = JobFailureReason.NONE
         self.started_at = None

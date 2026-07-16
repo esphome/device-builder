@@ -253,3 +253,21 @@ def test_ninja_gauge_gating(steps: list[tuple[str, int | None]]) -> None:
     job = _job()
     for line, expected in steps:
         assert _ninja_progress(job, line) == expected
+
+
+def test_ninja_total_stays_off_the_wire() -> None:
+    job = _job()
+    assert _ninja_progress(job, "[500/1133] Building C object a.c.obj") == 44
+    assert job.ninja_total == 1133
+    assert "ninja_total" not in job.to_dict()
+    assert FirmwareJob.from_dict(job.to_dict()).ninja_total == 0
+
+
+def test_clear_run_state_resets_ninja_total() -> None:
+    # A mid-build re-route reuses the same job instance; a stale total
+    # from the aborted run must not gate the fresh run's counters.
+    job = _job()
+    _ninja_progress(job, "[500/1133] Building C object a.c.obj")
+    job.clear_run_state()
+    assert job.ninja_total == 0
+    assert _ninja_progress(job, "[60/120] Building C object b.c.obj") == 50
