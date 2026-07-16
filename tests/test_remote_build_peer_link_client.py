@@ -860,7 +860,7 @@ def _make_offloader_controller(*, config_dir: Path) -> OffloaderController:
     db.settings.config_dir = config_dir
     db.settings.on_ha_addon = False
     # None (not an auto-mock): cancel_job's local-first branch probes
-    # ``_db.firmware.state.jobs`` and a bare MagicMock would claim every id.
+    # ``firmware.get_job`` and a bare MagicMock would claim every id.
     db.firmware = None
     db.peer_link_identity_store = PeerLinkIdentityStore(config_dir)
     controller = OffloaderController(db)
