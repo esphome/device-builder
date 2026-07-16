@@ -35,6 +35,7 @@ from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
+    DuplicateRequestError,
     PeerLinkNoSessionError,
 )
 from esphome_device_builder.helpers.api import CommandError
@@ -2022,6 +2023,25 @@ async def test_remote_reset_busy_reject_fails_with_retry_message(
     assert job.error is not None
     assert "busy" in job.error
     assert "retry when its queue is empty" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_reset_duplicate_request_fires_job_failed(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """``reset_build_env`` refusing a duplicate ``job_id`` surfaces in ``job.error``."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client(
+        submit_error=DuplicateRequestError("reset_build_env: request already registered")
+    )
+    _wire_remote_build(controller, client=client)
+    job = _make_reset_job()
+
+    await asyncio.wait_for(remote_runner.run_remote_job(controller, job), timeout=2.0)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None and "already registered" in job.error
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
