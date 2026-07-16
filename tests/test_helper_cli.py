@@ -20,7 +20,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from esphome.const import KEY_CORE
 from esphome.core import CORE
+from esphome.platformio.toolchain import KEY_IDEDATA, get_idedata
 from esphome.storage_json import StorageJSON
 
 from esphome_device_builder import helper_cli
@@ -233,10 +235,28 @@ def test_decode_backtrace_missing_storage_is_unavailable(tmp_path: Path) -> None
 def test_pin_idedata_reports_a_missing_cache_as_no_build(tmp_path: Path) -> None:
     """An absent cache means the device was never compiled here."""
     with pytest.raises(helper_cli._UnavailableError) as err:
-        helper_cli._pin_idedata(tmp_path / "absent.json")
+        helper_cli._pin_idedata(tmp_path / "absent.json", required=True)
 
     assert err.value.reply["unavailable_reason"] == "no_build"
     assert "no idedata cache" in err.value.reply["detail"]
+
+
+def test_pin_idedata_pins_a_sentinel_when_the_cache_is_not_required(tmp_path: Path) -> None:
+    """esp-idf / nrf52 pin an empty memo rather than leaving it unset.
+
+    At the declared floor esp32's ``_decode_pc`` reaches ``get_idedata``
+    whatever the toolchain, and an unset memo there means ``_load_idedata``
+    shells out to a full ``pio run -t idedata`` from a read-only decode.
+    """
+    CORE.data[KEY_CORE] = {}
+
+    helper_cli._pin_idedata(tmp_path / "absent.json", required=False)
+
+    assert KEY_IDEDATA in CORE.data[KEY_CORE]
+    # get_idedata answers off the memo, so it can never reach _load_idedata;
+    # the empty sentinel then fails the way the latch already handles.
+    with pytest.raises(KeyError):
+        _ = get_idedata({}).addr2line_path
 
 
 def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) -> None:
@@ -245,7 +265,7 @@ def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) ->
     idedata_path.write_text("{not json")
 
     with pytest.raises(helper_cli._UnavailableError) as err:
-        helper_cli._pin_idedata(idedata_path)
+        helper_cli._pin_idedata(idedata_path, required=True)
 
     assert err.value.reply["unavailable_reason"] == "decode_failed"
     assert "could not pin idedata" in err.value.reply["detail"]

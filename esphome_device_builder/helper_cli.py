@@ -135,11 +135,13 @@ def _prepare_decoder(config_path: Path, storage_path: Path, idedata_path: Path) 
     # not config_path, which CORE.config_dir and CORE.data_dir resolve off.
     CORE.config_path = config_path
     storage.apply_to_core()
-    # esp-idf reads its toolchain out of the CMake cache and nrf52 walks the
-    # Zephyr build tree; only the PlatformIO path (also where a sidecar with
-    # no recorded toolchain lands) can reach get_idedata.
-    if storage.toolchain not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF):
-        _pin_idedata(idedata_path)
+    # Only the PlatformIO path resolves addr2line through the idedata cache, so
+    # only it treats a missing cache as "never compiled here". esp-idf reads
+    # its toolchain out of the CMake cache and nrf52 walks the Zephyr tree.
+    _pin_idedata(
+        idedata_path,
+        required=storage.toolchain not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF),
+    )
     platform = CORE.target_platform
     return _load_decoder(platform), platform
 
@@ -175,8 +177,8 @@ def _load_decoder(platform: str) -> Any:
     return process_stacktrace
 
 
-def _pin_idedata(idedata_path: Path) -> None:
-    """Seed ``CORE``'s idedata memo from the on-disk cache; raise if unusable.
+def _pin_idedata(idedata_path: Path, *, required: bool) -> None:
+    """Seed ``CORE``'s idedata memo; raise when the cache is needed but unusable.
 
     Load-bearing, not an optimisation. ``get_idedata`` returns the memo when
     set, so this is what stops ``_load_idedata`` from deciding the cache is
@@ -185,11 +187,19 @@ def _pin_idedata(idedata_path: Path) -> None:
     supposed to be a read-only decode. Failing closed here costs a decode;
     failing open costs a compile.
 
+    Pinned even when *required* is False, i.e. for toolchains that shouldn't
+    consult idedata at all. At our floor (2026.5.1) esp32's ``_decode_pc``
+    routes through ``get_idedata`` whatever the toolchain -- the CMake-cache
+    branch only arrives in 2026.6 -- so leaving the memo unset there is the
+    compile this exists to prevent. An empty sentinel makes that unreachable
+    on every branch; the ``KeyError`` it raises instead lands in the decode
+    latch as ``decode_failed``, which is what the user already sees.
+
     An absent cache is ``no_build`` (the device was never compiled here); a
     cache that exists but won't load is ``decode_failed``, because telling the
     user to compile wouldn't fix a corrupt file or an upstream module move.
     """
-    if not idedata_path.is_file():
+    if required and not idedata_path.is_file():
         raise _UnavailableError("no_build", f"no idedata cache at {idedata_path}")
     try:
         # Kept local, and inside the try, so an upstream move of the module
@@ -197,7 +207,8 @@ def _pin_idedata(idedata_path: Path) -> None:
         # download-types shares).
         from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
 
-        CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(loads(idedata_path.read_bytes()))
+        raw = loads(idedata_path.read_bytes()) if idedata_path.is_file() else {}
+        CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(raw)
     except Exception as err:
         raise _UnavailableError(
             "decode_failed", f"could not pin idedata from {idedata_path}: {err!r}"
