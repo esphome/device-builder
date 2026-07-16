@@ -122,3 +122,14 @@ BUS_CATEGORIES: frozenset[str] = frozenset({"bus", "one_wire", "canbus"})
 # deliberately absent: a page's ``time:`` platform is a hard dependency of
 # leaves like ``sensor.total_daily_energy``, so imports must carry it.
 FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update"})
+
+# esphome ``Toolchain`` values, as the plain strings a StorageJSON sidecar
+# stores. Matched as strings rather than through ``esphome.const.Toolchain``
+# members because that enum gains members over time, and reading one an older
+# esphome lacks raises for every decode, not just the platform it names. The
+# wire values themselves don't change. Shared because the dashboard's spawn
+# gate (``controllers/devices/backtrace.py``) and the helper child's
+# idedata decision (``helper_cli.py``) encode one contract and must agree;
+# stdlib-only home, so the child pays nothing to import it.
+TOOLCHAIN_ESP_IDF = "esp-idf"
+TOOLCHAIN_SDK_NRF = "sdk-nrf"

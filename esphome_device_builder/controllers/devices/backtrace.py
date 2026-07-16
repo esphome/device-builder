@@ -11,20 +11,20 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
+from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
 from ...helpers.api import CommandError, ErrorCode
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.storage_path import resolve_idedata_path, resolve_storage_path
 from ...helpers.subprocess import run_subprocess_capture
-from ..firmware.helpers import _find_sibling_cli
+from ..firmware.helpers import helper_cli_cmd
 
 if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
 
-_HELPER_MODULE = "esphome_device_builder.helper_cli"
 # addr2line is spawned per address against an ELF that can run to tens of MB.
 _HELPER_TIMEOUT_S = 60.0
 
@@ -33,7 +33,9 @@ _HELPER_TIMEOUT_S = 60.0
 # task, so nothing else serialises a burst of decodes. Same reasoning (and the
 # same low-RAM HA Green target) as ``_config_semaphore`` in
 # ``helpers/device_yaml/_resolve.py``; a decode is user-initiated and rare, so
-# the cap is tighter. Callers queue past it.
+# the cap is tighter. Callers queue past it. Note this bounds decodes only:
+# it and ``_config_semaphore`` are separate budgets, so a decode burst
+# concurrent with a fleet config-resolve can still stack both pools' children.
 _MAX_CONCURRENT_DECODES = 2
 _decode_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_DECODES)
 
@@ -51,14 +53,6 @@ _MAX_LINE_LENGTH = 500
 # crash-marker grammar: that lives in the frontend's crash-detector, and a
 # second copy here would be one more thing to keep in sync.
 _ADDRESS_RE = re.compile(r"(?:0x)?[0-9a-fA-F]{8}\b")
-
-# esphome's ``Toolchain`` values, matched as the plain strings the sidecar
-# stores rather than through ``Toolchain.<MEMBER>``. The enum gains members
-# over time (``SDK_NRF`` is recent), and an attribute that doesn't exist on
-# an older esphome would raise here for *every* decode, not just the platform
-# it names. The wire values themselves don't change.
-_TOOLCHAIN_ESP_IDF = "esp-idf"
-_TOOLCHAIN_SDK_NRF = "sdk-nrf"
 
 
 async def decode_backtrace(
@@ -94,8 +88,8 @@ async def decode_backtrace(
     reply = await _run_helper(configuration, request)
     if reply is None:
         return _result(unavailable_reason="helper_failed")
-    decoded, malformed = _coerce_decoded(reply.get("decoded"))
-    if malformed:
+    decoded = _coerce_decoded(reply.get("decoded"))
+    if decoded is None:
         # A shape drift between host and child is a broken contract, not the
         # successful empty decode an all-clear reason would read as; report it
         # so the client shows the raw dump instead of a symbol-less report.
@@ -103,13 +97,11 @@ async def decode_backtrace(
     reason = str(reply.get("unavailable_reason") or "")
     detail = str(reply.get("detail") or "")
     if reason and detail:
-        # The child's stderr goes to DEVNULL so stdout carries the why. Log it
-        # here or it's lost, and a decode_failed is the least reproducible
-        # thing there is: it arrives from a user filing a crash report.
+        # The child's stderr is DEVNULL, so this is the only place its reason
+        # is ever seen.
         _LOGGER.warning("Backtrace decode for %s reported %s: %s", configuration, reason, detail)
-    # Qualifies the frames, so it tracks whether there are any rather than
-    # whether a reason is set: the latch returns the frames it decoded before
-    # it gave up, and those need the caption just as much.
+    # Keyed on the frames, not the reason: the latch returns what it decoded
+    # before giving up, and those frames need the caption too.
     stale = bool(decoded) and _is_stale(controller, configuration, target.local_config_hash)
     return _result(decoded=decoded, stale_build=stale, unavailable_reason=reason)
 
@@ -168,18 +160,16 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
 def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
     """Report whether the decoder has everything it needs already on disk.
 
-    The load-bearing guard, not an optimisation: without a build,
-    ``_decode_pc`` walks into ``check_esp_idf_install()`` and starts
-    downloading the whole ESP-IDF framework to serve a decode that cannot
-    succeed. esphome/esphome#17597 fixes that upstream, but the dependency is
-    a floor (``esphome>=2024.1.0``) with no ceiling, so most versions this
-    runs against will never carry the fix. Answer "no build" here and the
-    child is never spawned.
+    Load-bearing, not an optimisation: without a build, ``_decode_pc`` walks
+    into ``check_esp_idf_install()`` and downloads a whole ESP-IDF framework
+    to serve a decode that cannot succeed. esphome/esphome#17597 fixes that
+    upstream, but our floor (``esphome>=2024.1.0``) has no ceiling, so most
+    versions this runs against never carry the fix.
     """
     build_path = Path(storage.build_path)
-    if storage.toolchain == _TOOLCHAIN_ESP_IDF:
+    if storage.toolchain == TOOLCHAIN_ESP_IDF:
         return (build_path / "build" / "CMakeCache.txt").is_file()
-    if storage.toolchain == _TOOLCHAIN_SDK_NRF:
+    if storage.toolchain == TOOLCHAIN_SDK_NRF:
         # nrf52 resolves addr2line off PATH and the ELF from the Zephyr tree,
         # reporting a miss itself rather than shelling out to find one.
         return build_path.is_dir()
@@ -199,9 +189,7 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
         # holding through it would stall a queued decode for nothing.
         async with _decode_semaphore:
             result = await run_subprocess_capture(
-                # Same locator the download-types caller uses, so the two paths
-                # can't end up resolving the helper differently.
-                *_find_sibling_cli("device-builder-helper", _HELPER_MODULE),
+                *helper_cli_cmd(),
                 "decode-backtrace",
                 timeout=_HELPER_TIMEOUT_S,
                 stdin_data=request,
@@ -242,17 +230,17 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
     return parsed
 
 
-def _coerce_decoded(payload: Any) -> tuple[list[dict[str, Any]], bool]:
-    """Well-shaped ``{index, text}`` entries plus whether any were malformed.
+def _coerce_decoded(payload: Any) -> list[dict[str, Any]] | None:
+    """Return the child's ``{index, text}`` entries; ``None`` if any was malformed.
 
-    The bool is the caller's cue that the child broke its contract, so a
-    drift can't masquerade as a successful empty decode.
+    ``None`` means the child broke its contract, so a drift can't masquerade
+    as a successful empty decode.
     """
     if not isinstance(payload, list):
         _LOGGER.warning(
             "Backtrace decoder returned a %s for 'decoded', not a list", type(payload).__name__
         )
-        return [], True
+        return None
     entries = [
         {"index": entry["index"], "text": entry["text"]}
         for entry in payload
@@ -263,7 +251,8 @@ def _coerce_decoded(payload: Any) -> tuple[list[dict[str, Any]], bool]:
     dropped = len(payload) - len(entries)
     if dropped:
         _LOGGER.warning("Dropped %d malformed entries from the backtrace decoder's reply", dropped)
-    return entries, bool(dropped)
+        return None
+    return entries
 
 
 def _is_stale(controller: DevicesController, configuration: str, local_config_hash: str) -> bool:

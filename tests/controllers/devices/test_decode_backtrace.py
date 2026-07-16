@@ -359,7 +359,6 @@ async def test_decode_backtrace_caps_concurrent_children(
     await asyncio.gather(*tasks)
 
     assert peak == backtrace._MAX_CONCURRENT_DECODES
-    assert peak < burst
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

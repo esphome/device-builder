@@ -232,10 +232,11 @@ def test_decode_backtrace_missing_storage_is_unavailable(tmp_path: Path) -> None
 
 def test_pin_idedata_reports_a_missing_cache_as_no_build(tmp_path: Path) -> None:
     """An absent cache means the device was never compiled here."""
-    reason, detail = helper_cli._pin_idedata(tmp_path / "absent.json")
+    with pytest.raises(helper_cli._UnavailableError) as err:
+        helper_cli._pin_idedata(tmp_path / "absent.json")
 
-    assert reason == "no_build"
-    assert "no idedata cache" in detail
+    assert err.value.reply["unavailable_reason"] == "no_build"
+    assert "no idedata cache" in err.value.reply["detail"]
 
 
 def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) -> None:
@@ -243,10 +244,11 @@ def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) ->
     idedata_path = tmp_path / "idedata.json"
     idedata_path.write_text("{not json")
 
-    reason, detail = helper_cli._pin_idedata(idedata_path)
+    with pytest.raises(helper_cli._UnavailableError) as err:
+        helper_cli._pin_idedata(idedata_path)
 
-    assert reason == "decode_failed"
-    assert "could not pin idedata" in detail
+    assert err.value.reply["unavailable_reason"] == "decode_failed"
+    assert "could not pin idedata" in err.value.reply["detail"]
 
 
 def _write_idedata(tmp_path: Path) -> Path:
@@ -418,9 +420,10 @@ def test_load_decoder_never_imports_an_unvetted_platform_name(
 
     monkeypatch.setattr(helper_cli.importlib, "import_module", _no_import)
 
-    decoder, reason, _detail = helper_cli._load_decoder(platform)
+    with pytest.raises(helper_cli._UnavailableError) as err:
+        helper_cli._load_decoder(platform)
 
-    assert (decoder, reason) == (None, "unsupported_platform")
+    assert err.value.reply["unavailable_reason"] == "unsupported_platform"
 
 
 def test_decode_backtrace_rejects_a_platform_name_it_would_have_to_import(

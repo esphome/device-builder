@@ -15,7 +15,8 @@ Commands:
 
   decode-backtrace
       Read ``{config_path, storage_path, idedata_path, lines}`` as JSON on stdin
-      and print ``{decoded: [{index, text}], unavailable_reason}``. Feeds the
+      and print ``{decoded: [{index, text}], unavailable_reason, detail}``,
+      where ``detail`` is free text for the parent's log. Feeds the
       lines through ``esphome.components.<platform>.process_stacktrace`` so a
       crash captured over Web Serial (no inline decoder) gets the same addr2line
       output ``esphome logs`` produces. Request rides stdin rather than argv:
@@ -38,6 +39,7 @@ from esphome.const import KEY_CORE
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
+from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
 from .definitions import coerce_download_entries
 from .helpers.json import dumps_str, loads
 
@@ -49,11 +51,6 @@ _LOGGER = logging.getLogger(__name__)
 # depth: the name is already confined to the ``esphome.components.`` prefix and
 # import_module is not eval, but keep the surface minimal).
 _COMPONENT_RE = re.compile(r"[a-z0-9_]+")
-
-# esphome ``Toolchain`` values as the plain strings the sidecar stores; see
-# controllers/devices/backtrace.py for why these aren't ``Toolchain`` members.
-_TOOLCHAIN_ESP_IDF = "esp-idf"
-_TOOLCHAIN_SDK_NRF = "sdk-nrf"
 
 
 def _cmd_download_types(args: argparse.Namespace) -> int:
@@ -105,80 +102,81 @@ def main() -> int:
     return int(args.func(args))
 
 
-def _unavailable(reason: str, detail: str = "") -> dict[str, Any]:
-    """Build an empty reply.
+class _UnavailableError(Exception):
+    """Nothing was decoded, and why.
 
-    *detail* is free text for the host's log. The parent discards our stderr
-    (``merge_stderr=False``), so anything we want a maintainer to ever see has
-    to ride stdout — same channel, and same reason, as
-    ``helpers/api_device_info``'s ``error`` field.
+    *detail* is free text for the host's log: the parent discards our stderr
+    (``merge_stderr=False``), so anything a maintainer should ever see has to
+    ride stdout, the same channel ``helpers/api_device_info``'s ``error`` uses.
     """
-    return {"decoded": [], "unavailable_reason": reason, "detail": detail}
+
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(f"{reason}: {detail}")
+        self.reply = {"decoded": [], "unavailable_reason": reason, "detail": detail}
 
 
 def _decode_backtrace(
     *, config_path: Path, storage_path: Path, idedata_path: Path, lines: list[str]
 ) -> dict[str, Any]:
     """Run *lines* through the target platform's ``process_stacktrace``."""
+    try:
+        process_stacktrace, platform = _prepare_decoder(config_path, storage_path, idedata_path)
+    except _UnavailableError as err:
+        return err.reply
+    return _run_decoder(process_stacktrace, platform, lines)
+
+
+def _prepare_decoder(config_path: Path, storage_path: Path, idedata_path: Path) -> tuple[Any, str]:
+    """Bootstrap CORE off the sidecar and find the platform's decoder."""
     storage = StorageJSON.load(storage_path)
     if storage is None:
-        return _unavailable("no_build", f"no StorageJSON sidecar at {storage_path}")
+        raise _UnavailableError("no_build", f"no StorageJSON sidecar at {storage_path}")
     # apply_to_core() sets name / build_path / toolchain / target_platform but
     # not config_path, which CORE.config_dir and CORE.data_dir resolve off.
     CORE.config_path = config_path
     storage.apply_to_core()
-    platform = CORE.target_platform
     # esp-idf reads its toolchain out of the CMake cache and nrf52 walks the
     # Zephyr build tree; only the PlatformIO path (also where an older sidecar
-    # with no recorded toolchain lands) can reach get_idedata. Read off the
-    # sidecar's plain string rather than CORE.using_toolchain_*: those
-    # properties track an enum that gains members, so one missing on an older
-    # esphome would break every decode.
-    uses_idedata = storage.toolchain not in (_TOOLCHAIN_ESP_IDF, _TOOLCHAIN_SDK_NRF)
-    if uses_idedata:
-        reason, detail = _pin_idedata(idedata_path)
-        if reason:
-            return _unavailable(reason, detail)
-    process_stacktrace, reason, detail = _load_decoder(platform)
-    if process_stacktrace is None:
-        return _unavailable(reason, detail)
-    return _run_decoder(process_stacktrace, platform, lines)
+    # with no recorded toolchain lands) can reach get_idedata.
+    if storage.toolchain not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF):
+        _pin_idedata(idedata_path)
+    platform = CORE.target_platform
+    return _load_decoder(platform), platform
 
 
-def _load_decoder(platform: str) -> tuple[Any | None, str, str]:
-    """Find *platform*'s ``process_stacktrace``; ``(None, reason, detail)`` when absent.
+def _load_decoder(platform: str) -> Any:
+    """Return *platform*'s ``process_stacktrace``, or raise :class:`_UnavailableError`.
 
     *platform* is read off the on-disk sidecar and interpolated into an import
     path, so the name gate lives here, next to the interpolation it protects,
     rather than at the caller where the next caller could miss it.
     """
     if not _COMPONENT_RE.fullmatch(platform):
-        return None, "unsupported_platform", f"platform {platform!r} is not an importable name"
+        raise _UnavailableError("unsupported_platform", f"platform {platform!r} is not importable")
     try:
         module = importlib.import_module(f"esphome.components.{platform}")
     except ImportError as err:
         if isinstance(err, ModuleNotFoundError) and err.name == f"esphome.components.{platform}":
-            return None, "unsupported_platform", f"no esphome.components.{platform} package"
+            raise _UnavailableError(
+                "unsupported_platform", f"no esphome.components.{platform} package"
+            ) from err
         # An ImportError raised from *inside* the package is a broken esphome
         # install (a missing native dep, a half-installed toolchain), not a
         # platform without a decoder. Reporting it as the latter would tell
         # the user esp32 can't be decoded, which is a lie they'd act on.
-        return None, "decode_failed", f"importing the {platform} decoder failed: {err!r}"
-    except Exception as err:  # noqa: BLE001 — a module body can raise anything
-        # Not an ImportError: an esphome module can raise at import time (a
-        # config-validation or version guard). Letting it escape would kill the
-        # child and flatten a typed reason into helper_failed.
-        return None, "decode_failed", f"importing the {platform} decoder raised: {err!r}"
+        raise _UnavailableError("decode_failed", f"importing {platform} failed: {err!r}") from err
+    except Exception as err:
+        raise _UnavailableError("decode_failed", f"importing {platform} raised: {err!r}") from err
     # Discovery is an attribute lookup, same as esphome's own log clients; a
     # platform without a decoder (libretiny, host, ...) just doesn't have one.
     process_stacktrace = getattr(module, "process_stacktrace", None)
     if process_stacktrace is None:
-        return None, "unsupported_platform", f"{platform} has no process_stacktrace"
-    return process_stacktrace, "", ""
+        raise _UnavailableError("unsupported_platform", f"{platform} has no process_stacktrace")
+    return process_stacktrace
 
 
-def _pin_idedata(idedata_path: Path) -> tuple[str, str]:
-    """Seed ``CORE``'s idedata memo from the on-disk cache; ``("", "")`` on success.
+def _pin_idedata(idedata_path: Path) -> None:
+    """Seed ``CORE``'s idedata memo from the on-disk cache; raise if unusable.
 
     Load-bearing, not an optimisation. ``get_idedata`` returns the memo when
     set, so this is what stops ``_load_idedata`` from deciding the cache is
@@ -192,7 +190,7 @@ def _pin_idedata(idedata_path: Path) -> tuple[str, str]:
     user to compile wouldn't fix a corrupt file or an upstream module move.
     """
     if not idedata_path.is_file():
-        return "no_build", f"no idedata cache at {idedata_path}"
+        raise _UnavailableError("no_build", f"no idedata cache at {idedata_path}")
     try:
         # Kept local, and inside the try, so an upstream move of the module
         # fails this decode rather than the whole helper's import (which
@@ -200,9 +198,10 @@ def _pin_idedata(idedata_path: Path) -> tuple[str, str]:
         from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
 
         CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(loads(idedata_path.read_bytes()))
-    except Exception as err:  # noqa: BLE001 — corrupt JSON, upstream move, bad shape
-        return "decode_failed", f"could not pin idedata from {idedata_path}: {err!r}"
-    return "", ""
+    except Exception as err:
+        raise _UnavailableError(
+            "decode_failed", f"could not pin idedata from {idedata_path}: {err!r}"
+        ) from err
 
 
 def _run_decoder(process_stacktrace: Any, platform: str, lines: list[str]) -> dict[str, Any]:
