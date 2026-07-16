@@ -14,6 +14,8 @@ from ....helpers.peer_link_bundle import (
 from ....models import (
     CancelJobFrameData,
     DownloadArtifactsFrameData,
+    ResetBuildEnvAckFrameData,
+    ResetBuildEnvFrameData,
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
@@ -74,6 +76,44 @@ async def submit_job(
         return await _await_submit_job_ack(client, ack_fut, job_id=job_id)
     finally:
         client._submit_job_acks.pop(job_id, None)
+
+
+async def reset_build_env(client: PeerLinkClient, *, job_id: str) -> ResetBuildEnvAckFrameData:
+    """
+    Send a ``reset_build_env`` frame and await the receiver's enqueue ack.
+
+    *job_id* is the offloader-side mirror job's id; the receiver echoes it
+    on the ack and every fan-out frame of its reset job. Raises
+    :class:`PeerLinkNoSessionError` without a live session,
+    :class:`SubmitJobTimeoutError` on a silent wire, and
+    :class:`SubmitJobSessionLostError` when the frame fails to send or the
+    session ends before the ack.
+    """
+    channel = _require_open_channel(client, label="reset_build_env")
+    if job_id in client._reset_env_acks:
+        msg = (
+            f"reset_build_env: ack future already registered for job_id={job_id!r} "
+            f"(duplicate reset on the same session)"
+        )
+        raise PeerLinkNoSessionError(msg)
+    ack_fut: asyncio.Future[ResetBuildEnvAckFrameData] = asyncio.get_running_loop().create_future()
+    client._reset_env_acks[job_id] = ack_fut
+    frame: ResetBuildEnvFrameData = {"type": "reset_build_env", "job_id": job_id}
+    try:
+        if not await channel.send_frame(cast(dict[str, Any], frame)):
+            raise SubmitJobSessionLostError(
+                f"reset_build_env: request send failed mid-flow to "
+                f"{client._hostname}:{client._port}"
+            )
+        try:
+            return await asyncio.wait_for(ack_fut, timeout=_SUBMIT_JOB_ACK_TIMEOUT_SECONDS)
+        except TimeoutError as exc:
+            raise SubmitJobTimeoutError(
+                f"reset_build_env: no ack from {client._hostname}:{client._port} "
+                f"after {_SUBMIT_JOB_ACK_TIMEOUT_SECONDS:.0f}s"
+            ) from exc
+    finally:
+        client._reset_env_acks.pop(job_id, None)
 
 
 async def cancel_job(client: PeerLinkClient, *, job_id: str) -> bool:

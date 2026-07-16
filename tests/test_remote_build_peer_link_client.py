@@ -4699,6 +4699,100 @@ async def test_run_session_loops_finally_drains_pending_submit_acks(
         await pending
 
 
+async def test_run_session_loops_resolves_reset_build_env_ack_future(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``reset_build_env_ack`` frame fires the matching ack future."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    ack_fut: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._reset_env_acks["j-1"] = ack_fut
+
+    frame = {
+        "type": "reset_build_env_ack",
+        "job_id": "j-1",
+        "accepted": False,
+        "reason": "busy",
+    }
+    async with _drive_session_with_frames(client, monkeypatch, [frame]):
+        ack = await asyncio.wait_for(ack_fut, timeout=2.0)
+
+    assert ack == frame
+
+
+async def test_run_session_loops_finally_drains_pending_reset_acks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pending reset acks complete with :class:`SubmitJobSessionLostError` on session end."""
+    bus = EventBus()
+    client = _make_offloader_client(bus)
+    pending: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+    client._reset_env_acks["abandoned"] = pending
+
+    async with _drive_session_with_frames(client, monkeypatch, []):
+        await asyncio.sleep(0)
+
+    with pytest.raises(SubmitJobSessionLostError):
+        await pending
+
+
+async def test_reset_build_env_raises_no_session_error_when_session_closed() -> None:
+    """:meth:`reset_build_env` without a live session raises :class:`PeerLinkNoSessionError`."""
+    client = _make_offloader_client(EventBus())
+    with pytest.raises(PeerLinkNoSessionError):
+        await client.reset_build_env(job_id="j-1")
+
+
+async def test_reset_build_env_send_failure_raises_session_lost() -> None:
+    """``send_frame`` returning ``False`` fails fast instead of waiting for the ack timeout."""
+    client = _make_offloader_client(EventBus())
+
+    async def _send_frame_fails(_frame: dict[str, Any]) -> bool:
+        return False  # Noise encrypt / WS send failed at this tick
+
+    channel = MagicMock()
+    channel.send_frame = _send_frame_fails
+    client._active_channel = channel
+
+    with pytest.raises(SubmitJobSessionLostError, match="request send failed"):
+        await client.reset_build_env(job_id="j-1")
+    # The per-job slot is freed even on the failure path.
+    assert not client._reset_env_acks
+
+
+async def test_reset_build_env_sends_frame_and_returns_ack() -> None:
+    """The reset frame carries the mirror job_id; the resolved ack is returned."""
+    client = _make_offloader_client(EventBus())
+    sent: list[dict[str, Any]] = []
+
+    async def _send_frame(frame: dict[str, Any]) -> bool:
+        sent.append(frame)
+        client._dispatch_reset_build_env_ack(
+            {"type": "reset_build_env_ack", "job_id": frame["job_id"], "accepted": True}
+        )
+        return True
+
+    channel = MagicMock()
+    channel.send_frame = _send_frame
+    client._active_channel = channel
+
+    ack = await client.reset_build_env(job_id="j-9")
+
+    assert sent == [{"type": "reset_build_env", "job_id": "j-9"}]
+    assert ack == {"type": "reset_build_env_ack", "job_id": "j-9", "accepted": True}
+    assert not client._reset_env_acks
+
+
+async def test_reset_build_env_duplicate_job_id_refused() -> None:
+    """A same-``job_id`` reset mid-flight is refused rather than clobbering the future."""
+    client = _make_offloader_client(EventBus())
+    client._active_channel = MagicMock()
+    client._reset_env_acks["j-1"] = asyncio.get_running_loop().create_future()
+
+    with pytest.raises(PeerLinkNoSessionError, match="already registered"):
+        await client.reset_build_env(job_id="j-1")
+
+
 async def test_submit_job_raises_no_session_error_when_session_closed() -> None:
     """:meth:`submit_job` without a live session raises :class:`PeerLinkNoSessionError`."""
     client = _make_offloader_client(EventBus())
