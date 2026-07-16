@@ -50,6 +50,11 @@ _LOGGER = logging.getLogger(__name__)
 # import_module is not eval, but keep the surface minimal).
 _COMPONENT_RE = re.compile(r"[a-z0-9_]+")
 
+# esphome ``Toolchain`` values as the plain strings the sidecar stores; see
+# controllers/devices/backtrace.py for why these aren't ``Toolchain`` members.
+_TOOLCHAIN_ESP_IDF = "esp-idf"
+_TOOLCHAIN_SDK_NRF = "sdk-nrf"
+
 
 def _cmd_download_types(args: argparse.Namespace) -> int:
     storage = StorageJSON.load(Path(args.storage_path))
@@ -118,8 +123,11 @@ def _decode_backtrace(
     platform = CORE.target_platform
     # esp-idf reads its toolchain out of the CMake cache and nrf52 walks the
     # Zephyr build tree; only the PlatformIO path (also where an older sidecar
-    # with no recorded toolchain lands) can reach get_idedata.
-    uses_idedata = not CORE.using_toolchain_esp_idf and not CORE.using_toolchain_sdk_nrf
+    # with no recorded toolchain lands) can reach get_idedata. Read off the
+    # sidecar's plain string rather than CORE.using_toolchain_*: those
+    # properties track an enum that gains members, so one missing on an older
+    # esphome would break every decode.
+    uses_idedata = storage.toolchain not in (_TOOLCHAIN_ESP_IDF, _TOOLCHAIN_SDK_NRF)
     if uses_idedata and not _pin_idedata(idedata_path):
         return _unavailable("no_build")
     process_stacktrace, reason = _load_decoder(platform)

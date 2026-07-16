@@ -1,11 +1,4 @@
-"""Tests for ``devices/decode_backtrace``.
-
-The guard tests here are the point of the suite: the decoder child must be
-spawned only when there is a crash signal *and* a local build to decode it
-against. Without the second, esphome walks into an ESP-IDF framework install to
-serve a request that cannot succeed; esphome/esphome#17597 fixes that upstream,
-but our dependency is a floor with no ceiling, so the guard can't assume it.
-"""
+"""Tests for ``devices/decode_backtrace``."""
 
 from __future__ import annotations
 
@@ -141,11 +134,7 @@ async def test_decode_backtrace_without_build_does_not_spawn(
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """No cached idedata means no decode, and crucially no child (#17597).
-
-    Reaching the child here is what lets upstream's ``_decode_pc`` start
-    installing an ESP-IDF framework to answer a doomed request.
-    """
+    """A PlatformIO build with no cached idedata is refused without a spawn."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     controller = make_controller(tmp_path)
     _forbid_helper(monkeypatch)
@@ -179,11 +168,7 @@ async def test_decode_backtrace_esp_idf_without_a_cmake_cache_does_not_spawn(
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The esp-idf gate is the one that matters.
-
-    Reaching the child without a CMake cache is what starts an ESP-IDF
-    framework download to serve a doomed decode (#17597).
-    """
+    """An esp-idf build with no CMake cache is refused without a spawn."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     write_storage_json(
         tmp_path,
@@ -230,10 +215,7 @@ async def test_decode_backtrace_nrf52_needs_no_idedata(
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """nrf52 finds its own ELF in the Zephyr tree.
-
-    So the idedata cache isn't the precondition it is for a PlatformIO build.
-    """
+    """An nrf52 build decodes without the idedata cache a PlatformIO one needs."""
     _yaml, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     write_storage_json(
         tmp_path, "kitchen.yaml", build_path=build_path, overrides={"toolchain": "sdk-nrf"}
@@ -289,11 +271,7 @@ async def test_decode_backtrace_dropped_entries_surface_as_helper_failed(
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A partial shape drift is a broken contract, not a short backtrace.
-
-    The contract reads an empty ``decoded`` with no reason as a clean decode,
-    so silently dropping the bad entries would hide the loss from the client.
-    """
+    """A partial shape drift reports ``helper_failed``, not a short backtrace."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     _write_idedata(tmp_path)
     controller = make_controller(tmp_path)
@@ -320,11 +298,7 @@ async def test_decode_backtrace_unavailable_reply_is_never_flagged_stale(
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``stale_build`` qualifies a decode, so it can't ride an unavailable one.
-
-    The build can lose its race with the host-side gate and come back
-    ``no_build`` from the child, with device state still saying stale.
-    """
+    """``stale_build`` qualifies a decode, so it can't ride an unavailable one."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     _write_idedata(tmp_path)
     controller = make_controller(tmp_path)
@@ -393,11 +367,7 @@ async def test_decode_backtrace_nonzero_exit_is_not_trusted(
     seed_device: SeedDeviceFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A well-formed reply from a child that still exited non-zero is a miss.
-
-    The child crashed after writing its payload; the decode it reports is
-    partial, not complete.
-    """
+    """A well-formed reply from a child that exited non-zero is not trusted."""
     await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
     _write_idedata(tmp_path)
     controller = make_controller(tmp_path)

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from esphome.const import Toolchain
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError, ErrorCode
@@ -42,6 +41,14 @@ _MAX_LINE_LENGTH = 500
 # crash-marker grammar: that lives in the frontend's crash-detector, and a
 # second copy here would be one more thing to keep in sync.
 _ADDRESS_RE = re.compile(r"(?:0x)?[0-9a-fA-F]{8}\b")
+
+# esphome's ``Toolchain`` values, matched as the plain strings the sidecar
+# stores rather than through ``Toolchain.<MEMBER>``. The enum gains members
+# over time (``SDK_NRF`` is recent), and an attribute that doesn't exist on
+# an older esphome would raise here for *every* decode, not just the platform
+# it names. The wire values themselves don't change.
+_TOOLCHAIN_ESP_IDF = "esp-idf"
+_TOOLCHAIN_SDK_NRF = "sdk-nrf"
 
 
 async def decode_backtrace(
@@ -156,9 +163,9 @@ def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
     child is never spawned.
     """
     build_path = Path(storage.build_path)
-    if storage.toolchain == Toolchain.ESP_IDF:
+    if storage.toolchain == _TOOLCHAIN_ESP_IDF:
         return (build_path / "build" / "CMakeCache.txt").is_file()
-    if storage.toolchain == Toolchain.SDK_NRF:
+    if storage.toolchain == _TOOLCHAIN_SDK_NRF:
         # nrf52 resolves addr2line off PATH and the ELF from the Zephyr tree,
         # reporting a miss itself rather than shelling out to find one.
         return build_path.is_dir()

@@ -145,12 +145,7 @@ def test_main_dispatches_download_types(
 
 
 def test_run_decoder_latches_off_after_the_first_failure() -> None:
-    """One failure disables decoding for the rest of the dump (esphome/esphome#17597).
-
-    A crash dump repeats the same failing lookup once per backtrace frame, and
-    upstream's lookup can spawn a subprocess or install a framework, so this
-    must not be retried per line.
-    """
+    """The first failure disables decoding for the rest of the dump."""
     calls: list[str] = []
 
     def _raising(config: dict, line: str, state: bool) -> bool:
@@ -343,11 +338,7 @@ def test_decode_backtrace_absent_platform_package_is_unsupported(
 def test_decode_backtrace_broken_esphome_install_is_not_called_unsupported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A dependency missing *inside* the platform package is a broken install.
-
-    Reporting it as ``unsupported_platform`` would tell the user esp32 has no
-    decoder, which is both false and unactionable.
-    """
+    """A dependency missing inside the platform package reports ``decode_failed``."""
     storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
 
     def _broken(name: str) -> object:
@@ -383,11 +374,7 @@ def test_decode_backtrace_broken_esphome_install_is_not_called_unsupported(
 def test_load_decoder_never_imports_an_unvetted_platform_name(
     monkeypatch: pytest.MonkeyPatch, platform: str
 ) -> None:
-    """The sidecar's platform reaches an import path, so it is gated first.
-
-    Asserted against ``_load_decoder`` rather than through ``_decode_backtrace``
-    so the gate is pinned to the function that does the interpolating.
-    """
+    """A platform name outside ``[a-z0-9_]+`` is rejected before any import."""
 
     def _no_import(name: str) -> object:
         raise AssertionError(f"must not import {name!r}")
@@ -441,16 +428,9 @@ def test_main_dispatches_decode_backtrace(
 def test_helper_decode_backtrace_round_trips_through_the_child(tmp_path: Path) -> None:
     """End to end through the real child: stdin request in, decoded JSON out.
 
-    Pins the whole chain the unit tests stub over — apply_to_core, the idedata
-    pin, platform discovery, and the log capture — against the installed
-    esphome. The addr2line binary itself is bogus, which upstream swallows, so
-    what survives is the decoder's own "found it" line.
-
-    Doubles as the regression pin for the idedata pin: there's no
-    ``platformio.ini`` here, so an unpinned ``get_idedata`` would judge the
-    cache stale and shell out to ``pio run -t idedata`` with an empty config,
-    which lands in the latch as ``decode_failed`` instead of the clean reply
-    asserted below.
+    Also pins the idedata pin: with no ``platformio.ini`` here, an unpinned
+    ``get_idedata`` judges the cache stale and shells out to ``pio run -t
+    idedata``, landing in the latch as ``decode_failed``.
     """
     storage_path, build_dir = _make_storage(tmp_path, "ESP32", "firmware.bin")
     idedata_path = tmp_path / "idedata.json"
