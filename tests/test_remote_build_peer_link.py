@@ -1467,6 +1467,7 @@ def _install_stub_submit_job_receiver(
         *,
         configuration: str,
         job_type: Any,
+        port: str = "",
         remote_peer: str = "",
         remote_peer_label: str = "",
         remote_job_id: str = "",
@@ -1477,6 +1478,8 @@ def _install_stub_submit_job_receiver(
         job = MagicMock()
         job.job_id = f"local-{len(queued_jobs)}"
         job.configuration = configuration
+        job.job_type = job_type
+        job.port = port
         job.remote_peer = remote_peer
         job.remote_peer_label = remote_peer_label
         job.remote_job_id = remote_job_id
