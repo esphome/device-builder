@@ -240,20 +240,12 @@ class CancelJobFrameData(TypedDict):
 
 class ResetBuildEnvFrameData(TypedDict):
     """
-    Application-frame payload for ``AppMessageType.RESET_BUILD_ENV``.
+    Offloader → receiver ``RESET_BUILD_ENV`` payload.
 
-    Offloader → receiver: wipe this offloader's isolated build
-    subtree. Deliberately carries no directory or dashboard field —
-    the target derives exclusively from the session's Noise-
-    authenticated ``dashboard_id``, so a peer can only ever reset
-    its own tree. ``request_id`` correlates the ack.
-
-    ``esphome_version`` is the offloader's own esphome version, so the
-    receiver can also clear the cached ``esphome-<version>`` venv this
-    offloader's builds provision (the shared toolchain is the one thing
-    a subtree wipe alone can't fix). The receiver only wipes it when it
-    exists — a version matching the receiver's installed esphome, or an
-    unpinnable dev build, never has a venv.
+    Carries no directory field: the target derives from the session's
+    authenticated ``dashboard_id``. ``esphome_version`` is the offloader's
+    own version, selecting the cached ``esphome-<version>`` venv to clear
+    alongside the subtree. ``request_id`` correlates the ack.
     """
 
     type: Literal["reset_build_env"]
@@ -263,12 +255,10 @@ class ResetBuildEnvFrameData(TypedDict):
 
 class ResetBuildEnvAckFrameData(TypedDict):
     """
-    Application-frame payload for ``AppMessageType.RESET_BUILD_ENV_ACK``.
+    Receiver → offloader ``RESET_BUILD_ENV_ACK`` payload.
 
-    ``reason`` is ``NotRequired`` — present only on
-    ``accepted=False``: ``"busy"`` (the offloader has a job queued,
-    running, or a bundle mid-upload on the receiver), ``"io_error"``
-    (the wipe raised), or ``"invalid_frame"``.
+    ``reason`` is present only on ``accepted=False``: ``"busy"``,
+    ``"io_error"``, or ``"invalid_frame"``.
     """
 
     type: Literal["reset_build_env_ack"]

@@ -37,20 +37,12 @@ async def handle_reset_build_env(
     controller: ReceiverController, session: PeerLinkSession, frame: dict[str, Any]
 ) -> None:
     """
-    Wipe the requesting offloader's build environment; ack the result.
+    Wipe the requesting offloader's build subtree + cached venv; ack the result.
 
-    The target dirs derive exclusively from the session's Noise-
-    authenticated ``dashboard_id``; the frame's ``esphome_version`` names
-    the offloader's own version so the cached ``esphome-<version>`` venv
-    its builds provision is cleared too — the last-resort hammer has to
-    reach the shared toolchain, which a subtree wipe alone can't. The venv
-    wipe goes through ``EnvProvisioner.reset_version`` so it holds the
-    per-version lock a concurrent provision serializes on. Refuses
-    ``busy`` while this offloader has a job queued / running or a bundle
-    mid-upload, or while *any* offloader is compiling with that same
-    venv (wiping it mid-build would truncate their toolchain). The
-    receive loop awaits this handler, so no same-session submit can
-    interleave with the wipe.
+    Target derives from the session's authenticated ``dashboard_id``; the
+    frame's version selects the cached venv. Refuses ``busy`` while that
+    offloader has work in flight or another offloader is mid-build on the
+    venv. Concurrency contract in ARCHITECTURE.md (Remote build-env reset).
     """
     if not is_valid_frame(_RESET_BUILD_ENV_SCHEMA, frame):
         _LOGGER.warning(
@@ -81,12 +73,15 @@ async def handle_reset_build_env(
         await _send_ack(session, request_id=request_id, accepted=False, reason=_REASON_BUSY)
         return
 
-    # ``CORE.data_dir`` stats ``config_dir`` on access, so build every path
-    # inside the executor with the wipe rather than on the event loop.
+    # Wipe the venv first, under its per-version lock, before the long
+    # subtree ``rmtree``: a same-version compile arriving during the reset
+    # then blocks on the lock and re-provisions clean rather than racing a
+    # deletion mid-build. ``CORE.data_dir`` stats ``config_dir`` on access,
+    # so the subtree paths are built inside the executor, not on the loop.
     config_dir = Path(controller._db.settings.config_dir)
     try:
-        wiped = await run_in_executor(_wipe_build_env, config_dir, session.dashboard_id)
-        wiped += await _wipe_venv(controller, venv_version)
+        wiped = await _wipe_venv(controller, venv_version)
+        wiped += await run_in_executor(_wipe_build_env, config_dir, session.dashboard_id)
     except OSError as exc:
         _LOGGER.warning(
             "peer-link reset_build_env from %s failed: %s",
