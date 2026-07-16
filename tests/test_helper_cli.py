@@ -253,6 +253,46 @@ def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) ->
     assert "could not pin idedata" in err.value.reply["detail"]
 
 
+def test_decode_backtrace_without_apply_to_core_reports_rather_than_crashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Esphome below 2026.5.0 has no apply_to_core; say so, don't die.
+
+    Letting the AttributeError escape kills the child, which reaches the host
+    as ``helper_failed`` — indistinguishable from a genuinely broken helper.
+    """
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+    # A pre-2026.5.0 sidecar object: no apply_to_core to bootstrap CORE with.
+    monkeypatch.setattr(
+        helper_cli.StorageJSON, "load", staticmethod(lambda path: SimpleNamespace())
+    )
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert result["unavailable_reason"] == "decode_failed"
+    assert "apply_to_core" in result["detail"]
+
+
+def test_run_decoder_keeps_the_frames_the_failing_line_already_logged() -> None:
+    """The latch drops the rest of the dump, not what it had at the fault."""
+    logger = logging.getLogger("esphome.components.esp32")
+
+    def _decode(config: dict, line: str, state: bool) -> bool:
+        logger.warning("Decoded %s", "0x400d1a2c: loop()")
+        raise RuntimeError("addr2line vanished")
+
+    result = helper_cli._run_decoder(_decode, "esp32", ["PC: 0x400d1a2c", "BT0: 0x400d9150"])
+
+    # The frame nearest the fault survives; the rest of the dump is skipped.
+    assert result["decoded"] == [{"index": 0, "text": "Decoded 0x400d1a2c: loop()"}]
+    assert result["unavailable_reason"] == "decode_failed"
+
+
 def test_pin_idedata_falls_back_to_the_pre_split_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

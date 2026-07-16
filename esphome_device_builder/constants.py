@@ -133,3 +133,15 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 # stdlib-only home, so the child pays nothing to import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
+
+
+def sidecar_toolchain(storage: object) -> str | None:
+    """Return a StorageJSON's recorded toolchain, or ``None`` when it has none.
+
+    ``StorageJSON.toolchain`` is newer than our esphome floor (it landed in
+    2026.5.1), so a plain attribute read raises on older installs. ``None``
+    is also what a sidecar written before the field says, and both callers
+    already route that to the PlatformIO branch — which is the right answer
+    for an esphome that predates the field, since it predates the split too.
+    """
+    return getattr(storage, "toolchain", None)

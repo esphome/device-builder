@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
-from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
+from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, sidecar_toolchain
 from ...helpers.api import CommandError, ErrorCode
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_hash import read_build_info_hash
@@ -95,10 +95,11 @@ async def decode_backtrace(
         # so the client shows the raw dump instead of a symbol-less report.
         return _result(unavailable_reason="helper_failed")
     reason = str(reply.get("unavailable_reason") or "")
-    detail = str(reply.get("detail") or "")
-    if reason and detail:
+    if reason:
         # The child's stderr is DEVNULL, so this is the only place its reason
-        # is ever seen.
+        # is ever seen. Unconditional on detail: a reason arriving without one
+        # is itself worth knowing.
+        detail = str(reply.get("detail") or "<no detail>")
         _LOGGER.warning("Backtrace decode for %s reported %s: %s", configuration, reason, detail)
     # Keyed on the frames, not the reason: the latch returns what it decoded
     # before giving up, and those frames need the caption too.
@@ -167,9 +168,10 @@ def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
     versions this runs against never carry the fix.
     """
     build_path = Path(storage.build_path)
-    if storage.toolchain == TOOLCHAIN_ESP_IDF:
+    toolchain = sidecar_toolchain(storage)
+    if toolchain == TOOLCHAIN_ESP_IDF:
         return (build_path / "build" / "CMakeCache.txt").is_file()
-    if storage.toolchain == TOOLCHAIN_SDK_NRF:
+    if toolchain == TOOLCHAIN_SDK_NRF:
         # nrf52 resolves addr2line off PATH and the ELF from the Zephyr tree,
         # reporting a miss itself rather than shelling out to find one.
         return build_path.is_dir()

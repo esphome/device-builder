@@ -36,10 +36,11 @@ from pathlib import Path
 from typing import Any
 
 from esphome.const import KEY_CORE
+from esphome.const import __version__ as esphome_version
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
-from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF
+from .constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, sidecar_toolchain
 from .definitions import coerce_download_entries
 from .helpers.json import dumps_str, loads
 
@@ -131,6 +132,16 @@ def _prepare_decoder(config_path: Path, storage_path: Path, idedata_path: Path) 
     storage = StorageJSON.load(storage_path)
     if storage is None:
         raise _UnavailableError("no_build", f"no StorageJSON sidecar at {storage_path}")
+    if not hasattr(storage, "apply_to_core"):
+        # Landed in esphome 2026.5.0. There's no bootstrapping CORE off the
+        # sidecar without it, and no shim for that — say so plainly rather
+        # than let the AttributeError kill the child and report itself as a
+        # broken helper.
+        raise _UnavailableError(
+            "decode_failed",
+            f"esphome {esphome_version} has no StorageJSON.apply_to_core; "
+            "decoding needs 2026.5.0 or newer",
+        )
     # apply_to_core() sets name / build_path / toolchain / target_platform but
     # not config_path, which CORE.config_dir and CORE.data_dir resolve off.
     CORE.config_path = config_path
@@ -138,7 +149,7 @@ def _prepare_decoder(config_path: Path, storage_path: Path, idedata_path: Path) 
     # esp-idf reads its toolchain out of the CMake cache and nrf52 walks the
     # Zephyr build tree; only the PlatformIO path (also where an older sidecar
     # with no recorded toolchain lands) can reach get_idedata.
-    if storage.toolchain not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF):
+    if sidecar_toolchain(storage) not in (TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF):
         _pin_idedata(idedata_path)
     platform = CORE.target_platform
     return _load_decoder(platform), platform
@@ -241,7 +252,9 @@ def _run_decoder(process_stacktrace: Any, platform: str, lines: list[str]) -> di
                 # per backtrace frame, and each attempt can be a subprocess.
                 reason = "decode_failed"
                 detail = f"decoding line {index} failed: {err!r}"
-                break
+            # Whatever the line logged before it raised is kept: a decoder can
+            # emit a frame and then fail on the next address in the same line,
+            # and the frames nearest the fault are the ones worth having.
             decoded.extend(
                 {"index": index, "text": text}
                 for message in collector.messages
@@ -249,6 +262,8 @@ def _run_decoder(process_stacktrace: Any, platform: str, lines: list[str]) -> di
                 # record; split so they arrive as the caller's log would show.
                 for text in message.splitlines()
             )
+            if reason:
+                break
     finally:
         logger.removeHandler(collector)
         logger.setLevel(previous_level)
