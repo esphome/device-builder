@@ -387,6 +387,33 @@ async def test_decode_backtrace_timeout_degrades(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_nonzero_exit_is_not_trusted(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A well-formed reply from a child that still exited non-zero is a miss.
+
+    The child crashed after writing its payload; the decode it reports is
+    partial, not complete.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+
+    async def _crashed(*args: str, **kwargs: Any):
+        return CapturedSubprocess(returncode=1, stdout=dumps(_DECODED_REPLY), timed_out=False)
+
+    monkeypatch.setattr(backtrace, "run_subprocess_capture", _crashed)
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == "helper_failed"
+    assert result["decoded"] == []
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_decode_backtrace_all_good_entries_pass_the_boundary(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

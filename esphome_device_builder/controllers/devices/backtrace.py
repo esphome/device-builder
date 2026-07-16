@@ -189,6 +189,12 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
     if result.timed_out:
         _LOGGER.warning("Backtrace decoding for %s timed out", configuration)
         return None
+    if result.returncode != 0:
+        # A well-formed dict on stdout from a child that still exited non-zero
+        # is a partial/aborted decode, not a success. Same host-side-miss
+        # stance as run_worker in _api_probe.
+        _LOGGER.warning("Backtrace decoder for %s exited %s", configuration, result.returncode)
+        return None
     try:
         parsed = loads(result.stdout) if result.stdout else None
     except (JSONDecodeError, ValueError):
