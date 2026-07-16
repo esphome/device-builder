@@ -45,43 +45,12 @@ from .conftest import (
     make_peer_link_session as _make_session,
 )
 from .conftest import (
+    make_stub_firmware_controller as _make_firmware_controller,
+)
+from .conftest import (
     make_submit_job_frames,
     make_tar_bundle,
 )
-
-
-def _make_firmware_controller() -> Any:
-    """Stub ``FirmwareController`` recording ``_create_job`` / ``_enqueue`` calls."""
-    firmware = MagicMock()
-    created_jobs: list[Any] = []
-
-    def _create_job(
-        configuration: str,
-        job_type: JobType,
-        *,
-        port: str = "",
-        remote_peer: str = "",
-        remote_peer_label: str = "",
-        device_name: str = "",
-        device_friendly_name: str = "",
-        **_: Any,
-    ) -> Any:
-        job = MagicMock()
-        job.job_id = f"local-{len(created_jobs)}"
-        job.configuration = configuration
-        job.job_type = job_type
-        job.port = port
-        job.remote_peer = remote_peer
-        job.remote_peer_label = remote_peer_label
-        job.device_name = device_name
-        job.device_friendly_name = device_friendly_name
-        created_jobs.append(job)
-        return job
-
-    firmware._create_job = MagicMock(side_effect=_create_job)
-    firmware._enqueue = AsyncMock(side_effect=lambda job: job)
-    firmware.created_jobs = created_jobs
-    return firmware
 
 
 def _make_receiver(tmp_path: Path, firmware: Any | None = None) -> SubmitJobReceiver:

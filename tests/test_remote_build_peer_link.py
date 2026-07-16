@@ -106,6 +106,7 @@ from esphome_device_builder.models import (
 from .conftest import RemoteBuildTestHandles as RemoteBuildController
 from .conftest import (
     make_remote_build_controller,
+    make_stub_firmware_controller,
     make_submit_job_frames,
     make_tar_bundle,
     reset_offloader_firmware_stub,
@@ -1460,45 +1461,12 @@ def _install_stub_submit_job_receiver(
     install a fresh receiver here. Returns the firmware stub +
     a list that captures every queued :class:`FirmwareJob`.
     """
-    queued_jobs: list[Any] = []
-    firmware_stub = MagicMock()
-
-    def _create_job(
-        *,
-        configuration: str,
-        job_type: Any,
-        port: str = "",
-        remote_peer: str = "",
-        remote_peer_label: str = "",
-        remote_job_id: str = "",
-        device_name: str = "",
-        device_friendly_name: str = "",
-        target_esphome_version: str = "",
-    ) -> Any:
-        job = MagicMock()
-        job.job_id = f"local-{len(queued_jobs)}"
-        job.configuration = configuration
-        job.job_type = job_type
-        job.port = port
-        job.remote_peer = remote_peer
-        job.remote_peer_label = remote_peer_label
-        job.remote_job_id = remote_job_id
-        job.device_name = device_name
-        job.device_friendly_name = device_friendly_name
-        job.target_esphome_version = target_esphome_version
-        return job
-
-    async def _enqueue(job: Any) -> Any:
-        queued_jobs.append(job)
-        return job
-
-    firmware_stub._create_job = MagicMock(side_effect=_create_job)
-    firmware_stub._enqueue = AsyncMock(side_effect=_enqueue)
+    firmware_stub = make_stub_firmware_controller()
     controller.receiver.state.submit_job_receiver = SubmitJobReceiver(
         config_dir=controller.offloader._db.settings.config_dir,
         firmware_controller=firmware_stub,
     )
-    return firmware_stub, queued_jobs
+    return firmware_stub, firmware_stub.queued_jobs
 
 
 async def test_e2e_submit_job_dispatches_to_receiver(

@@ -511,6 +511,54 @@ def make_submit_job_frames(
     return header, chunks
 
 
+def make_stub_firmware_controller() -> Any:
+    """Stub ``FirmwareController`` recording ``_create_job`` / ``_enqueue`` calls.
+
+    ``created_jobs`` records at create time, ``queued_jobs`` at
+    enqueue time; assert on whichever seam the test drives.
+    """
+    firmware = MagicMock()
+    created_jobs: list[Any] = []
+    queued_jobs: list[Any] = []
+
+    def _create_job(
+        configuration: str,
+        job_type: Any,
+        *,
+        port: str = "",
+        remote_peer: str = "",
+        remote_peer_label: str = "",
+        remote_job_id: str = "",
+        device_name: str = "",
+        device_friendly_name: str = "",
+        target_esphome_version: str = "",
+        **_: Any,
+    ) -> Any:
+        job = MagicMock()
+        job.job_id = f"local-{len(created_jobs)}"
+        job.configuration = configuration
+        job.job_type = job_type
+        job.port = port
+        job.remote_peer = remote_peer
+        job.remote_peer_label = remote_peer_label
+        job.remote_job_id = remote_job_id
+        job.device_name = device_name
+        job.device_friendly_name = device_friendly_name
+        job.target_esphome_version = target_esphome_version
+        created_jobs.append(job)
+        return job
+
+    async def _enqueue(job: Any) -> Any:
+        queued_jobs.append(job)
+        return job
+
+    firmware._create_job = MagicMock(side_effect=_create_job)
+    firmware._enqueue = AsyncMock(side_effect=_enqueue)
+    firmware.created_jobs = created_jobs
+    firmware.queued_jobs = queued_jobs
+    return firmware
+
+
 @pytest.fixture(scope="session")
 def session_board_catalog() -> BoardCatalog:
     """Real ``BoardCatalog`` loaded once per xdist worker."""
