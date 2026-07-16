@@ -2,8 +2,9 @@
 
 The guard tests here are the point of the suite: the decoder child must be
 spawned only when there is a crash signal *and* a local build to decode it
-against. Without the second, the pinned esphome walks into an ESP-IDF framework
-install to serve a request that cannot succeed (esphome/esphome#17597).
+against. Without the second, esphome walks into an ESP-IDF framework install to
+serve a request that cannot succeed; esphome/esphome#17597 fixes that upstream,
+but our dependency is a floor with no ceiling, so the guard can't assume it.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from esphome_device_builder.helpers.json import dumps, loads
 from esphome_device_builder.helpers.subprocess import CapturedSubprocess
 from esphome_device_builder.models import Device
 
+from ..._storage_fixtures import write_storage_json
 from .conftest import MakeControllerFactory, SeedDeviceFactory
 
 _CRASH_LINES = [
@@ -93,6 +95,24 @@ async def test_decode_backtrace_returns_decoded_frames(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
+async def test_devices_decode_backtrace_command_reaches_the_decoder(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The WS command's kwargs land on the submodule unchanged."""
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, _DECODED_REPLY)
+
+    result = await controller.decode_backtrace(configuration="kitchen.yaml", lines=_CRASH_LINES)
+
+    assert result["decoded"] == _DECODED_REPLY["decoded"]
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
 async def test_decode_backtrace_without_crash_signal_does_not_spawn(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -150,6 +170,142 @@ async def test_decode_backtrace_uncompiled_device_does_not_spawn(
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
     assert result["unavailable_reason"] == "no_build"
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_esp_idf_without_a_cmake_cache_does_not_spawn(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The esp-idf gate is the one that matters.
+
+    Reaching the child without a CMake cache is what starts an ESP-IDF
+    framework download to serve a doomed decode (#17597).
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    write_storage_json(
+        tmp_path,
+        "kitchen.yaml",
+        build_path=tmp_path / ".esphome" / "build" / "kitchen",
+        overrides={"toolchain": "esp-idf"},
+    )
+    _write_idedata(tmp_path)  # present, and deliberately not what esp-idf reads
+    controller = make_controller(tmp_path)
+    _forbid_helper(monkeypatch)
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == "no_build"
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_esp_idf_with_a_cmake_cache_decodes(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An esp-idf build is decodable off its CMake cache, with no idedata."""
+    _yaml, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    write_storage_json(
+        tmp_path, "kitchen.yaml", build_path=build_path, overrides={"toolchain": "esp-idf"}
+    )
+    (build_path / "build").mkdir(parents=True, exist_ok=True)
+    (build_path / "build" / "CMakeCache.txt").write_text("CMAKE_ADDR2LINE:FILEPATH=/bin/addr2line")
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, _DECODED_REPLY)
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == ""
+    assert result["decoded"] == _DECODED_REPLY["decoded"]
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_nrf52_needs_no_idedata(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """nrf52 finds its own ELF in the Zephyr tree.
+
+    So the idedata cache isn't the precondition it is for a PlatformIO build.
+    """
+    _yaml, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    write_storage_json(
+        tmp_path, "kitchen.yaml", build_path=build_path, overrides={"toolchain": "sdk-nrf"}
+    )
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, _DECODED_REPLY)
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == ""
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_non_dict_reply_degrades(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid JSON that isn't an object is still a broken contract."""
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, ["not", "an", "object"])
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == "helper_failed"
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_non_list_decoded_is_dropped(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``decoded`` that isn't a list yields no frames rather than raising."""
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    _stub_helper(monkeypatch, {"decoded": {"not": "a list"}, "unavailable_reason": ""})
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["decoded"] == []
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_unavailable_reply_is_never_flagged_stale(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stale_build`` qualifies a decode, so it can't ride an unavailable one.
+
+    The build can lose its race with the host-side gate and come back
+    ``no_build`` from the child, with device state still saying stale.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    device = Device(name="kitchen", friendly_name="Kitchen", configuration="kitchen.yaml")
+    device.runtime_state.deployed_config_hash = "5a94a12d"
+    controller._scanner.get_by_configuration = lambda configuration: device
+    monkeypatch.setattr(backtrace, "read_build_info_hash", lambda yaml_path: "f3e21d5a")
+    _stub_helper(monkeypatch, {"decoded": [], "unavailable_reason": "no_build"})
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "no_build"}
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

@@ -116,22 +116,44 @@ def _decode_backtrace(
     CORE.config_path = config_path
     storage.apply_to_core()
     platform = CORE.target_platform
-    if not _COMPONENT_RE.fullmatch(platform):
-        return _unavailable("unsupported_platform")
     # esp-idf reads its toolchain out of the CMake cache and nrf52 walks the
     # Zephyr build tree; only the PlatformIO path (also where an older sidecar
     # with no recorded toolchain lands) can reach get_idedata.
     uses_idedata = not CORE.using_toolchain_esp_idf and not CORE.using_toolchain_sdk_nrf
     if uses_idedata and not _pin_idedata(idedata_path):
         return _unavailable("no_build")
+    process_stacktrace, reason = _load_decoder(platform)
+    if process_stacktrace is None:
+        return _unavailable(reason)
+    return _run_decoder(process_stacktrace, platform, lines)
+
+
+def _load_decoder(platform: str) -> tuple[Any | None, str]:
+    """Find *platform*'s ``process_stacktrace``; ``(None, reason)`` when absent.
+
+    *platform* is read off the on-disk sidecar and interpolated into an import
+    path, so the name gate lives here, next to the interpolation it protects,
+    rather than at the caller where the next caller could miss it.
+    """
+    if not _COMPONENT_RE.fullmatch(platform):
+        return None, "unsupported_platform"
     try:
         module = importlib.import_module(f"esphome.components.{platform}")
-        process_stacktrace = module.process_stacktrace
-    except (AttributeError, ImportError):
-        # Same discovery esphome's own log clients do; a platform without a
-        # decoder (libretiny, host, ...) simply has no attribute.
-        return _unavailable("unsupported_platform")
-    return _run_decoder(process_stacktrace, platform, lines)
+    except ImportError as err:
+        if isinstance(err, ModuleNotFoundError) and err.name == f"esphome.components.{platform}":
+            return None, "unsupported_platform"
+        # An ImportError raised from *inside* the package is a broken esphome
+        # install (a missing native dep, a half-installed toolchain), not a
+        # platform without a decoder. Reporting it as the latter would tell
+        # the user esp32 can't be decoded, which is a lie they'd act on.
+        _LOGGER.warning("Importing the %s decoder failed", platform, exc_info=True)
+        return None, "decode_failed"
+    # Discovery is an attribute lookup, same as esphome's own log clients; a
+    # platform without a decoder (libretiny, host, ...) just doesn't have one.
+    process_stacktrace = getattr(module, "process_stacktrace", None)
+    if process_stacktrace is None:
+        return None, "unsupported_platform"
+    return process_stacktrace, ""
 
 
 def _pin_idedata(idedata_path: Path) -> bool:

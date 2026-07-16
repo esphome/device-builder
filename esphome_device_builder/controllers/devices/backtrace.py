@@ -77,10 +77,13 @@ async def decode_backtrace(
     reply = await _run_helper(configuration, request)
     if reply is None:
         return _result(unavailable_reason="helper_failed")
+    reason = str(reply.get("unavailable_reason") or "")
     return _result(
         decoded=_coerce_decoded(reply.get("decoded")),
-        stale_build=_is_stale(controller, configuration, target.local_config_hash),
-        unavailable_reason=str(reply.get("unavailable_reason") or ""),
+        # Qualifies the decode, so it can't be set without one: the build dir
+        # can lose its race with the host-side gate and come back no_build.
+        stale_build=not reason and _is_stale(controller, configuration, target.local_config_hash),
+        unavailable_reason=reason,
     )
 
 
@@ -138,11 +141,13 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
 def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
     """Report whether the decoder has everything it needs already on disk.
 
-    The load-bearing guard, not an optimisation: without a build, the pinned
-    esphome's ``_decode_pc`` walks into ``check_esp_idf_install()`` and starts
+    The load-bearing guard, not an optimisation: without a build,
+    ``_decode_pc`` walks into ``check_esp_idf_install()`` and starts
     downloading the whole ESP-IDF framework to serve a decode that cannot
-    succeed (esphome/esphome#17597). Answer "no build" here and the child is
-    never spawned.
+    succeed. esphome/esphome#17597 fixes that upstream, but the dependency is
+    a floor (``esphome>=2024.1.0``) with no ceiling, so most versions this
+    runs against will never carry the fix. Answer "no build" here and the
+    child is never spawned.
     """
     build_path = Path(storage.build_path)
     if storage.toolchain == Toolchain.ESP_IDF:
@@ -198,14 +203,25 @@ async def _run_helper(configuration: str, request: bytes) -> dict[str, Any] | No
 def _coerce_decoded(payload: Any) -> list[dict[str, Any]]:
     """Keep only well-shaped ``{index, text}`` entries from the child's reply."""
     if not isinstance(payload, list):
+        _LOGGER.warning(
+            "Backtrace decoder returned a %s for 'decoded', not a list", type(payload).__name__
+        )
         return []
-    return [
+    entries = [
         {"index": entry["index"], "text": entry["text"]}
         for entry in payload
         if isinstance(entry, dict)
         and isinstance(entry.get("index"), int)
         and isinstance(entry.get("text"), str)
     ]
+    if len(entries) != len(payload):
+        # Say so: the reply still reports a successful decode, so a host/child
+        # shape drift would otherwise just look like a short backtrace.
+        _LOGGER.warning(
+            "Dropped %d malformed entries from the backtrace decoder's reply",
+            len(payload) - len(entries),
+        )
+    return entries
 
 
 def _is_stale(controller: DevicesController, configuration: str, local_config_hash: str) -> bool:

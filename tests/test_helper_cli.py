@@ -20,6 +20,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
 from esphome_device_builder import helper_cli
@@ -233,6 +234,188 @@ def test_decode_backtrace_missing_storage_is_unavailable(tmp_path: Path) -> None
 def test_pin_idedata_refuses_a_missing_cache(tmp_path: Path) -> None:
     """Failing closed here costs a decode; failing open costs a ``pio run``."""
     assert helper_cli._pin_idedata(tmp_path / "absent.json") is False
+
+
+def _write_idedata(tmp_path: Path) -> Path:
+    idedata_path = tmp_path / "idedata.json"
+    idedata_path.write_text(json.dumps({"prog_path": "/build/firmware.elf", "cc_path": "/bin/gcc"}))
+    return idedata_path
+
+
+def _stub_platform_module(monkeypatch: pytest.MonkeyPatch, module: object) -> None:
+    """Stand in for ``esphome.components.<platform>`` without importing it."""
+    monkeypatch.setattr(helper_cli.importlib, "import_module", lambda name: module)
+
+
+def test_decode_backtrace_pins_idedata_then_runs_the_platform_decoder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The success path: CORE bootstrapped off the sidecar, decoder driven."""
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+    seen: list[str] = []
+
+    def _decode(config: dict, line: str, state: bool) -> bool:
+        seen.append(line)
+        logging.getLogger("esphome.components.esp32").warning("Decoded %s", "0x400d1a2c: loop()")
+        return state
+
+    _stub_platform_module(monkeypatch, SimpleNamespace(process_stacktrace=_decode))
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert seen == ["PC: 0x400d1a2c"]
+    assert result == {
+        "decoded": [{"index": 0, "text": "Decoded 0x400d1a2c: loop()"}],
+        "unavailable_reason": "",
+    }
+    # apply_to_core() left CORE pointed at the sidecar's build, which is how
+    # the decoder resolves its ELF without a read_config.
+    assert CORE.name == "demo"
+
+
+def test_decode_backtrace_without_the_idedata_cache_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PlatformIO build with no cached idedata refuses before decoding.
+
+    Decoding anyway is what lets ``get_idedata`` fall through to a full
+    ``pio run -t idedata``.
+    """
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+    _stub_platform_module(
+        monkeypatch,
+        SimpleNamespace(process_stacktrace=lambda config, line, state: state),
+    )
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=tmp_path / "absent.json",
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert result == {"decoded": [], "unavailable_reason": "no_build"}
+
+
+def test_decode_backtrace_platform_without_a_decoder_is_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discovery is an attribute lookup, same as esphome's own log clients."""
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+    _stub_platform_module(monkeypatch, SimpleNamespace())  # no process_stacktrace
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert result == {"decoded": [], "unavailable_reason": "unsupported_platform"}
+
+
+def test_decode_backtrace_absent_platform_package_is_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No component package for the platform at all: nothing to decode with."""
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+
+    def _absent(name: str) -> object:
+        raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+
+    monkeypatch.setattr(helper_cli.importlib, "import_module", _absent)
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert result == {"decoded": [], "unavailable_reason": "unsupported_platform"}
+
+
+def test_decode_backtrace_broken_esphome_install_is_not_called_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A dependency missing *inside* the platform package is a broken install.
+
+    Reporting it as ``unsupported_platform`` would tell the user esp32 has no
+    decoder, which is both false and unactionable.
+    """
+    storage_path, _build = _make_storage(tmp_path, "ESP32", "firmware.bin")
+
+    def _broken(name: str) -> object:
+        raise ModuleNotFoundError("No module named 'serial'", name="serial")
+
+    monkeypatch.setattr(helper_cli.importlib, "import_module", _broken)
+
+    with caplog.at_level(logging.WARNING):
+        result = helper_cli._decode_backtrace(
+            config_path=tmp_path / "demo.yaml",
+            storage_path=storage_path,
+            idedata_path=_write_idedata(tmp_path),
+            lines=["PC: 0x400d1a2c"],
+        )
+
+    assert result == {"decoded": [], "unavailable_reason": "decode_failed"}
+    assert "Importing the esp32 decoder failed" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "platform",
+    [
+        pytest.param("esp32.evil", id="dotted_subpath"),
+        pytest.param("..evil", id="relative_escape"),
+        pytest.param("esp32/../../evil", id="path_traversal"),
+        pytest.param("esp32;rm -rf", id="shell_metacharacters"),
+        pytest.param("esp32\nevil", id="newline"),
+        pytest.param("ESP32", id="uppercase"),
+        pytest.param("esp32-evil", id="dash"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_load_decoder_never_imports_an_unvetted_platform_name(
+    monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    """The sidecar's platform reaches an import path, so it is gated first.
+
+    Asserted against ``_load_decoder`` rather than through ``_decode_backtrace``
+    so the gate is pinned to the function that does the interpolating.
+    """
+
+    def _no_import(name: str) -> object:
+        raise AssertionError(f"must not import {name!r}")
+
+    monkeypatch.setattr(helper_cli.importlib, "import_module", _no_import)
+
+    assert helper_cli._load_decoder(platform) == (None, "unsupported_platform")
+
+
+def test_decode_backtrace_rejects_a_platform_name_it_would_have_to_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """End to end from a sidecar carrying a name shaped to escape the package."""
+    storage_path, _build = _make_storage(tmp_path, "esp32.evil", "firmware.bin")
+
+    def _no_import(name: str) -> object:
+        raise AssertionError(f"must not import {name!r}")
+
+    monkeypatch.setattr(helper_cli.importlib, "import_module", _no_import)
+
+    result = helper_cli._decode_backtrace(
+        config_path=tmp_path / "demo.yaml",
+        storage_path=storage_path,
+        idedata_path=_write_idedata(tmp_path),
+        lines=["PC: 0x400d1a2c"],
+    )
+
+    assert result == {"decoded": [], "unavailable_reason": "unsupported_platform"}
 
 
 def test_main_dispatches_decode_backtrace(
