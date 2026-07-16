@@ -128,9 +128,11 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 # stores. Matched as strings rather than through ``esphome.const.Toolchain``
 # to keep this module a stdlib-only leaf; the wire values don't change.
 # Shared because the dashboard's spawn gate (``controllers/devices/
-# backtrace.py``) and the helper child's idedata decision (``helper_cli.py``)
-# encode one contract and must agree; stdlib-only home, so the child pays
-# nothing to import it.
+# backtrace.py``), the helper child's idedata decision (``helper_cli.py``) and
+# the offload pack / unpack pair (``controllers/remote_build/
+# artifacts_tarball.py``, ``helpers/remote_artifacts_materialise.py``) encode
+# one contract and must agree; stdlib-only home, so the child pays nothing to
+# import it.
 TOOLCHAIN_ESP_IDF = "esp-idf"
 TOOLCHAIN_SDK_NRF = "sdk-nrf"
 

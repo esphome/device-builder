@@ -58,7 +58,6 @@ from esphome_device_builder.models import (
     JobStatus,
 )
 
-from .conftest import HAS_NATIVE_IDF_TOOLCHAIN
 from .conftest import make_peer_link_session as _make_session
 
 # ---------------------------------------------------------------------------
@@ -631,9 +630,6 @@ def test_pack_build_artifacts_raises_when_pio_platformio_ini_missing(tmp_path: P
         pack_build_artifacts("kitchen.yaml")
 
 
-@pytest.mark.skipif(
-    not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
-)
 def test_pack_build_artifacts_native_idf_omits_pio_metadata(tmp_path: Path) -> None:
     """Native ESP-IDF (no platformio.ini / idedata) packs storage + build/ files, no PIO members."""
     _write_receiver_state(

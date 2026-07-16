@@ -3,9 +3,9 @@ A real native ESP-IDF compile round-trips through the offload session (#1102).
 
 The native-IDF toolchain (``esp32: toolchain: esp-idf``) builds into
 ``build/`` not ``.pioenvs/<name>/``, so it stresses the offloader's
-artifact enumeration differently than the LibreTiny e2e. Skipped on
-esphome without the toolchain (< 2026.5.0); runs for real on the e2e
-CI job's ``dev`` channel. ``timeout(900)`` covers a cold IDF install.
+artifact enumeration differently than the LibreTiny e2e. Runs for real
+on the e2e CI job's ``dev`` channel. ``timeout(900)`` covers a cold IDF
+install.
 """
 
 from __future__ import annotations
@@ -22,12 +22,7 @@ from esphome_device_builder.controllers.firmware.download import (
     get_binaries,
 )
 
-from ....conftest import HAS_NATIVE_IDF_TOOLCHAIN
 from ...conftest import PairedInstances, run_offload_compile_round_trip
-
-pytestmark = pytest.mark.skipif(
-    not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
-)
 
 _DEVICE = "esp-idf-e2e"
 _CONFIGURATION_FILENAME = f"{_DEVICE}.yaml"

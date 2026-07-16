@@ -30,6 +30,7 @@ from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
 from esphome.writer import storage_should_clean
 
+from ..constants import TOOLCHAIN_ESP_IDF
 from ..controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
@@ -179,7 +180,7 @@ def _open_and_extract_build_tree(tarball: bytes, configuration: str) -> _Extract
     # their absence there is wire drift. Detect native-IDF positively off
     # the toolchain, never off file absence, so a corrupt PIO tarball that
     # lost its metadata still raises rather than passing as native-IDF.
-    if receiver_storage.get("toolchain") != "esp-idf":
+    if receiver_storage.get("toolchain") != TOOLCHAIN_ESP_IDF:
         if not (build_path / PLATFORMIO_INI_MEMBER_NAME).is_file():
             raise MaterialiseError(
                 f"tarball missing required {PLATFORMIO_INI_MEMBER_NAME!r} member"
