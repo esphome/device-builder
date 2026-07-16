@@ -350,6 +350,23 @@ async def test_reset_partial_wipe_reports_the_venv_already_gone(
     assert str(my_venv) in caplog.text
 
 
+def test_wipe_build_env_refuses_a_symlinked_remote_builds_root(tmp_path: Path) -> None:
+    """A ``.remote_builds`` root symlinked outside the config tree can't redirect the wipe."""
+    config_dir = tmp_path / "config"
+    (config_dir / ".esphome").mkdir(parents=True)
+    escape = tmp_path / "escape"  # a real tree outside config_dir
+    escape.mkdir()
+    (config_dir / ".esphome" / ".remote_builds").symlink_to(escape, target_is_directory=True)
+    victim = escape / dashboard_config_subtree(config_dir, _DASHBOARD_ID).name
+    victim.mkdir()
+    (victim / "precious.txt").write_text("do not delete")
+
+    with pytest.raises(OSError, match="escapes"):
+        reset_env._wipe_build_env(config_dir, _DASHBOARD_ID)
+
+    assert victim.exists()  # the guard refused before any rmtree
+
+
 async def test_reset_ack_delivery_failure_is_logged(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

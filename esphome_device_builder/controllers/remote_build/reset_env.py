@@ -168,28 +168,27 @@ def _wipe_build_env(config_dir: Path, dashboard_id: str) -> list[Path]:
     Blocking wipe of the offloader's per-offloader subtrees; return the wiped paths.
 
     Runs entirely in an executor because building the targets reads
-    ``CORE.data_dir`` (which stats). Each target's parent is its
-    ``.remote_builds`` root by construction (``dashboard_*_subtree``), so a
-    resolve-under-parent check is the defense-in-depth symlink guard —
-    ``dashboard_id`` is already ``DASHBOARD_ID_PATTERN``-validated, so a
-    failure here means symlink games on disk, not wire input.
+    ``CORE.data_dir`` (which stats). ``dashboard_id`` is already
+    ``DASHBOARD_ID_PATTERN``-validated, so the defense-in-depth guard is
+    against symlink games on disk: each resolved target must stay within its
+    resolved trusted base (the receiver's own config / data dir), which
+    rejects any symlink in the ``.remote_builds`` chain that escapes the tree
+    — a symlinked root resolves consistently with its own parent and would
+    slip a bare parent check.
     """
     data_dir = Path(CORE.data_dir)
     targets = [
-        dashboard_config_subtree(config_dir, dashboard_id),
-        dashboard_data_subtree(data_dir, dashboard_id),
+        (config_dir, dashboard_config_subtree(config_dir, dashboard_id)),
+        (data_dir, dashboard_data_subtree(data_dir, dashboard_id)),
     ]
-    for target in targets:
-        root = target.parent
+    for base, target in targets:
         resolved = target.resolve()
-        try:
-            resolved.relative_to(root.resolve())
-        except ValueError as exc:
-            msg = f"reset_build_env target {target} escapes {root}"
-            raise OSError(msg) from exc
+        if not resolved.is_relative_to(base.resolve()):
+            msg = f"reset_build_env target {target} escapes {base}"
+            raise OSError(msg)
         if resolved.exists():
             rmtree(resolved)
-    return targets
+    return [target for _, target in targets]
 
 
 async def _send_ack(
