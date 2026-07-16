@@ -29,12 +29,9 @@ async def handle_reset_build_env(
     """
     Enqueue the receiver's full build-env reset for the requesting offloader; ack the outcome.
 
-    Acceptance means a ``RESET_BUILD_ENV`` job tagged with the session's
-    ``dashboard_id`` + the frame's ``job_id`` was enqueued — progress and
-    the terminal state ride the JobFanout stream, not this ack. Refuses
-    ``busy`` while *any* job is active or a bundle is mid-upload: a full
-    reset must never yank the toolchain out from under another tenant's
-    build, and the peer must not force-cancel other dashboards' work.
+    Acceptance means a tagged ``RESET_BUILD_ENV`` job was enqueued —
+    progress and the terminal state ride the JobFanout stream, not this
+    ack. Refuses ``busy`` while any job is active or a bundle is mid-upload.
     """
     if not is_valid_frame(_RESET_BUILD_ENV_SCHEMA, frame):
         _LOGGER.warning(

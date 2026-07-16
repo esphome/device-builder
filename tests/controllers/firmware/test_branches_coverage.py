@@ -396,6 +396,11 @@ async def test_upload_blocked_by_active_reset_or_same_config_clean(
     controller.state.jobs[same.job_id] = same
     controller.state.jobs[other.job_id] = other
     assert controller.state.upload_blocked(upload) is True  # same-config clean blocks
+    # A REMOTE-source clean (the per-peer fan-out) wipes the receiver's
+    # tree, not local artifacts — no gate; its LOCAL sibling still blocks.
+    same.source = JobSource.REMOTE
+    assert controller.state.upload_blocked(upload) is False
+    same.source = JobSource.LOCAL
     same.status = JobStatus.CANCELLED
     assert controller.state.upload_blocked(upload) is False  # only other-config clean left
     # A compile is never gated — compile-lane ops serialize behind the clean/reset.

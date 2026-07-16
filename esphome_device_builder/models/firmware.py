@@ -340,6 +340,19 @@ class FirmwareJob(DashboardModel):
         return self.job_type is JobType.UPLOAD or self.is_rename_tail
 
     @property
+    def wipes_local_build_tree(self) -> bool:
+        """
+        Whether this job deletes local build artifacts a flash could be reading.
+
+        A REMOTE-source clean / reset targets the paired receiver's tree,
+        never this dashboard's.
+        """
+        return (
+            self.job_type in (JobType.CLEAN, JobType.RESET_BUILD_ENV)
+            and self.source is not JobSource.REMOTE
+        )
+
+    @property
     def new_filename(self) -> str:
         """The YAML filename a rename's ``new_name`` resolves to."""
         return f"{self.new_name}.yaml"

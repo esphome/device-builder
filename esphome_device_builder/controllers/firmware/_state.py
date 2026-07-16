@@ -190,18 +190,18 @@ class FirmwareState:
 
         A clean/reset rmtree's build artifacts that ``esphome upload`` reads;
         since they run on separate lanes, an unguarded upload could flash a
-        truncated binary mid-wipe. A local RESET_BUILD_ENV (whole tree) blocks
-        every flash — a REMOTE-source one wipes the *receiver's* tree, not any
-        local artifact, so it doesn't. A CLEAN blocks only the flash reading
-        its configuration's build tree — for a rename tail that's the *new*
-        filename's.
+        truncated binary mid-wipe. Only jobs wiping the *local* tree gate
+        (``wipes_local_build_tree`` — a REMOTE clean/reset targets the paired
+        receiver's tree): a RESET_BUILD_ENV (whole tree) blocks every flash, a
+        CLEAN only the flash reading its configuration's build tree — for a
+        rename tail that's the *new* filename's.
         """
         if not job.is_network_flash:
             return False
         guarded = job.flash_configuration
         for other in self.active_jobs():
-            if other.job_type is JobType.RESET_BUILD_ENV and other.source is not JobSource.REMOTE:
-                return True
-            if other.job_type is JobType.CLEAN and other.configuration == guarded:
+            if not other.wipes_local_build_tree:
+                continue
+            if other.job_type is JobType.RESET_BUILD_ENV or other.configuration == guarded:
                 return True
         return False

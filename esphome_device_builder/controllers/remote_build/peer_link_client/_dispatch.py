@@ -28,8 +28,6 @@ from ....models import (
     OffloaderPeerLinkClosedData,
     OffloaderPeerLinkOpenedData,
     OffloaderQueueStatusChangedData,
-    ResetBuildEnvAckFrameData,
-    SubmitJobAckFrameData,
 )
 from .._client_models import DownloadArtifactsError, DownloadArtifactsResult
 
@@ -44,8 +42,8 @@ _LOGGER = logging.getLogger(__name__)
 # way it does for every shared frame schema in the project.
 # Optional fields (``*FrameData.reason``) live outside the schema
 # — dispatchers read via ``frame.get("reason")`` post-validate.
-_SUBMIT_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
-_RESET_BUILD_ENV_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
+# One shape serves both ``submit_job_ack`` and ``reset_build_env_ack``.
+_JOB_ACK_SCHEMA = frame_schema({"job_id": str, "accepted": bool})
 
 _JOB_STATE_CHANGED_SCHEMA = frame_schema({"job_id": str, "status": str, "error_message": str})
 
@@ -129,15 +127,31 @@ def dispatch_queue_status(client: PeerLinkClient, parsed: dict[str, Any]) -> Non
 
 def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
     """Resolve the matching ack future for an inbound ``submit_job_ack`` frame."""
-    if not is_valid_frame(_SUBMIT_JOB_ACK_SCHEMA, parsed):
-        log_malformed(client, "submit_job_ack", parsed)
+    _resolve_job_ack(client, parsed, acks=client._submit_job_acks, frame_type="submit_job_ack")
+
+
+def dispatch_reset_build_env_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
+    """Resolve the matching ack future for an inbound ``reset_build_env_ack`` frame."""
+    _resolve_job_ack(client, parsed, acks=client._reset_env_acks, frame_type="reset_build_env_ack")
+
+
+def _resolve_job_ack(
+    client: PeerLinkClient,
+    parsed: dict[str, Any],
+    *,
+    acks: dict[str, Any],
+    frame_type: str,
+) -> None:
+    """Validate a ``{job_id, accepted, reason?}`` ack frame and resolve its future."""
+    if not is_valid_frame(_JOB_ACK_SCHEMA, parsed):
+        log_malformed(client, frame_type, parsed)
         return
     job_id = cast(str, parsed["job_id"])
-    ack_fut = client._submit_job_acks.get(job_id)
+    ack_fut = acks.get(job_id)
     if ack_fut is None or ack_fut.done():
         _LOGGER.debug(
-            "peer-link client dropping submit_job_ack from %s:%d "
-            "(job_id=%r, has_future=%s, done=%s)",
+            "peer-link client dropping %s from %s:%d (job_id=%r, has_future=%s, done=%s)",
+            frame_type,
             client._hostname,
             client._port,
             job_id,
@@ -146,11 +160,7 @@ def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> N
         )
         return
     accepted = cast(bool, parsed["accepted"])
-    ack: SubmitJobAckFrameData = {
-        "type": "submit_job_ack",
-        "job_id": job_id,
-        "accepted": accepted,
-    }
+    ack: dict[str, Any] = {"type": frame_type, "job_id": job_id, "accepted": accepted}
     # Preserve the typed shape: ``reason`` is NotRequired and only
     # carries content on ``accepted=False``. Spurious ``reason`` on
     # accept is off-contract; drop it (logged at debug).
@@ -158,42 +168,16 @@ def dispatch_submit_job_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> N
     if isinstance(reason, str):
         if accepted:
             _LOGGER.debug(
-                "peer-link client dropping spurious reason=%r on accepted ack "
+                "peer-link client dropping spurious reason=%r on accepted %s "
                 "from %s:%d (job_id=%r)",
                 reason,
+                frame_type,
                 client._hostname,
                 client._port,
                 job_id,
             )
         else:
             ack["reason"] = reason
-    ack_fut.set_result(ack)
-
-
-def dispatch_reset_build_env_ack(client: PeerLinkClient, parsed: dict[str, Any]) -> None:
-    """Resolve the matching ack future for an inbound ``reset_build_env_ack`` frame."""
-    if not is_valid_frame(_RESET_BUILD_ENV_ACK_SCHEMA, parsed):
-        log_malformed(client, "reset_build_env_ack", parsed)
-        return
-    job_id = cast(str, parsed["job_id"])
-    ack_fut = client._reset_env_acks.get(job_id)
-    if ack_fut is None or ack_fut.done():
-        _LOGGER.debug(
-            "peer-link client dropping reset_build_env_ack from %s:%d (job_id=%r, has_future=%s)",
-            client._hostname,
-            client._port,
-            job_id,
-            ack_fut is not None,
-        )
-        return
-    ack: ResetBuildEnvAckFrameData = {
-        "type": "reset_build_env_ack",
-        "job_id": job_id,
-        "accepted": cast(bool, parsed["accepted"]),
-    }
-    reason = parsed.get("reason")
-    if isinstance(reason, str) and not ack["accepted"]:
-        ack["reason"] = reason
     ack_fut.set_result(ack)
 
 
