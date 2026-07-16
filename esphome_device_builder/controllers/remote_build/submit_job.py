@@ -358,6 +358,10 @@ class SubmitJobReceiver:
         self._firmware = firmware_controller
         self._inflight: dict[str, _PendingSubmit] = {}
 
+    def has_any_inflight(self) -> bool:
+        """Whether any offloader has a bundle mid-upload (the reset busy gate)."""
+        return bool(self._inflight)
+
     def discard_session(self, dashboard_id: str) -> None:
         """Drop any in-flight submit state for *dashboard_id*.
 

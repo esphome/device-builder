@@ -76,3 +76,11 @@ class AppMessageType(StrEnum):
     ARTIFACTS_START = "artifacts_start"
     ARTIFACTS_CHUNK = "artifacts_chunk"
     ARTIFACTS_END = "artifacts_end"
+    # Offloader → receiver: run the receiver's full local build-env
+    # reset (``esphome clean-all`` + every cached venv) as a tracked
+    # job. Acceptance means a RESET_BUILD_ENV job was enqueued tagged
+    # with the offloader's ``job_id``; progress and the terminal state
+    # ride the same ``job_state_changed`` / ``job_output`` fan-out as
+    # submitted builds. Refused ``busy`` while any job is active.
+    RESET_BUILD_ENV = "reset_build_env"
+    RESET_BUILD_ENV_ACK = "reset_build_env_ack"

@@ -236,3 +236,31 @@ class CancelJobFrameData(TypedDict):
 
     type: Literal["cancel_job"]
     job_id: str
+
+
+class ResetBuildEnvFrameData(TypedDict):
+    """
+    Offloader → receiver ``RESET_BUILD_ENV`` payload.
+
+    ``job_id`` is the offloader's correlation id, echoed on the ack and
+    every fan-out frame of the receiver-side reset job. No other field:
+    the full reset runs with the receiver's own esphome.
+    """
+
+    type: Literal["reset_build_env"]
+    job_id: str
+
+
+class ResetBuildEnvAckFrameData(TypedDict):
+    """
+    Receiver → offloader ``RESET_BUILD_ENV_ACK`` payload.
+
+    ``accepted=True`` means a tagged RESET_BUILD_ENV job was enqueued;
+    ``reason`` is present only on ``accepted=False``: ``"busy"``,
+    ``"invalid_frame"``, ``"not_ready"``, or ``"queue_rejected"``.
+    """
+
+    type: Literal["reset_build_env_ack"]
+    job_id: str
+    accepted: bool
+    reason: NotRequired[str]

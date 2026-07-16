@@ -321,6 +321,14 @@ async def _dispatch_cancel_job(
     await controller.handle_cancel_job(session, parsed)
 
 
+async def _dispatch_reset_build_env(
+    controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
+) -> None:
+    # Enqueues the receiver's full local build-env reset as a job tagged
+    # with the requesting session; replies with one reset_build_env_ack.
+    await controller.handle_reset_build_env(session, parsed)
+
+
 async def _dispatch_download_artifacts(
     controller: ReceiverController, session: PeerLinkSession, parsed: dict[str, Any]
 ) -> None:
@@ -339,6 +347,7 @@ _APP_FRAME_DISPATCH: dict[
     AppMessageType.SUBMIT_JOB_CHUNK.value: _dispatch_submit_job_chunk,
     AppMessageType.CANCEL_JOB.value: _dispatch_cancel_job,
     AppMessageType.DOWNLOAD_ARTIFACTS.value: _dispatch_download_artifacts,
+    AppMessageType.RESET_BUILD_ENV.value: _dispatch_reset_build_env,
 }
 
 
