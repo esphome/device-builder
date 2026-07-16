@@ -74,6 +74,7 @@ from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 from ...helpers.version_compat import coerce_pep440_version
 from ...models import (
+    OTA_PORT,
     PAIRING_VERSION_MAX_LEN,
     JobType,
     SubmitJobAckFrameData,
@@ -175,9 +176,13 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
 # clean to every connected peer when the operator clicks "Clean
 # build files" so receivers that have built this device locally
 # also drop their stale artifacts.
+# ``target="upload"`` maps to INSTALL (``esphome run --no-logs``), not
+# UPLOAD: the submit dialog sells it as "Compile and upload", and a bare
+# ``esphome upload`` doesn't compile. The OTA pin at queue time
+# (``_extract_and_queue``) keeps the run non-interactive.
 _TARGET_TO_JOB_TYPE: dict[str, JobType] = {
     "compile": JobType.COMPILE,
-    "upload": JobType.UPLOAD,
+    "upload": JobType.INSTALL,
     "clean": JobType.CLEAN,
 }
 
@@ -658,10 +663,15 @@ class SubmitJobReceiver:
         if receiver is not None:
             remote_peer_label = receiver.approved_peer_label(session.dashboard_id)
 
+        job_type = _TARGET_TO_JOB_TYPE[pending.target]
         try:
             job = self._firmware._create_job(
                 configuration=configuration,
-                job_type=_TARGET_TO_JOB_TYPE[pending.target],
+                job_type=job_type,
+                # The wire header carries no flash target; pin OTA so the
+                # esphome CLI never falls into its interactive device
+                # chooser on a headless receiver (#2107).
+                port=OTA_PORT if job_type is JobType.INSTALL else "",
                 remote_peer=session.dashboard_id,
                 remote_peer_label=remote_peer_label,
                 remote_job_id=pending.job_id,

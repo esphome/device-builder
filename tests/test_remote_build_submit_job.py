@@ -35,6 +35,7 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
 from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
+    OTA_PORT,
     JobType,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
@@ -58,6 +59,7 @@ def _make_firmware_controller() -> Any:
         configuration: str,
         job_type: JobType,
         *,
+        port: str = "",
         remote_peer: str = "",
         remote_peer_label: str = "",
         device_name: str = "",
@@ -68,6 +70,7 @@ def _make_firmware_controller() -> Any:
         job.job_id = f"local-{len(created_jobs)}"
         job.configuration = configuration
         job.job_type = job_type
+        job.port = port
         job.remote_peer = remote_peer
         job.remote_peer_label = remote_peer_label
         job.device_name = device_name
@@ -543,6 +546,7 @@ async def test_submit_job_happy_path_extracts_and_queues(
     job = firmware.created_jobs[0]
     assert job.remote_peer == "alpha-dashboard"
     assert job.job_type is JobType.COMPILE
+    assert job.port == ""
     # Production emits ``as_posix()`` for cross-platform stable
     # wire shape (Windows vs Linux receivers); test asserts in
     # the same form.
@@ -652,6 +656,54 @@ async def test_submit_job_clean_target_creates_clean_job(
     assert len(firmware.created_jobs) == 1
     job = firmware.created_jobs[0]
     assert job.job_type is JobType.CLEAN
+    assert job.port == ""
+    assert job.remote_peer == "alpha-dashboard"
+    firmware._enqueue.assert_awaited_once()
+
+
+async def test_submit_job_upload_target_creates_ota_install_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``target="upload"`` queues an INSTALL pinned to OTA, never a bare upload.
+
+    An unpinned port would send the esphome CLI into its interactive
+    device chooser on a receiver with a serial adapter attached — a
+    permanent hang on a headless build server (#2107).
+    """
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session(dashboard_id="alpha-dashboard")
+    bundle = make_tar_bundle("kitchen.yaml", b"esphome:\n  name: kitchen\n")
+
+    expected_yaml = (
+        RemoteBuildPath(dashboard_id="alpha-dashboard", device_name="kitchen").subtree(tmp_path)
+        / "kitchen.yaml"
+    )
+
+    def _stub_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        expected_yaml.parent.mkdir(parents=True, exist_ok=True)
+        expected_yaml.write_bytes(b"esphome:\n  name: kitchen\n")
+        return expected_yaml
+
+    monkeypatch.setattr(
+        "esphome.bundle.prepare_bundle_for_compile",
+        _stub_prepare,
+    )
+
+    await receiver.handle_submit_job(session, _header(target="upload", bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is True
+    assert payload["job_id"] == "job-1"
+    assert "reason" not in payload
+
+    assert len(firmware.created_jobs) == 1
+    job = firmware.created_jobs[0]
+    assert job.job_type is JobType.INSTALL
+    assert job.port == OTA_PORT
     assert job.remote_peer == "alpha-dashboard"
     firmware._enqueue.assert_awaited_once()
 
