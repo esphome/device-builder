@@ -5315,6 +5315,22 @@ async def test_controller_submit_job_upload_target_not_connected_raises_precondi
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
 
 
+async def test_controller_submit_job_upload_target_no_firmware_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """No firmware controller wired → PRECONDITION_FAILED after the link precheck."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    offloader.state.pairings[pin] = _stub_pairing(pin_sha256=pin, status=PeerStatus.APPROVED)
+    offloader._lookup_open_peer_link_client = (  # type: ignore[method-assign]
+        lambda pin_sha256, label: MagicMock()
+    )
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.submit_job(pin_sha256=pin, configuration="kitchen.yaml", target="upload")
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "firmware controller" in excinfo.value.message
+
+
 async def test_controller_cancel_job_resolves_local_pinned_install_first(
     offloader_controller_dir: Path,
 ) -> None:
@@ -6894,6 +6910,22 @@ async def test_reset_peer_build_env_not_connected_raises_precondition(
     with pytest.raises(CommandError) as excinfo:
         await offloader.reset_peer_build_env(pin_sha256=pin)
     assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+
+
+async def test_reset_peer_build_env_no_firmware_raises_precondition(
+    offloader_controller_dir: Path,
+) -> None:
+    """No firmware controller wired → PRECONDITION_FAILED after the link precheck."""
+    offloader = _make_offloader_controller(config_dir=offloader_controller_dir)
+    pin = "a" * 64
+    _seed_reset_capable_pairing(offloader, pin)
+    offloader._lookup_open_peer_link_client = (  # type: ignore[method-assign]
+        lambda pin_sha256, label: MagicMock()
+    )
+    with pytest.raises(CommandError) as excinfo:
+        await offloader.reset_peer_build_env(pin_sha256=pin)
+    assert excinfo.value.code is ErrorCode.PRECONDITION_FAILED
+    assert "firmware controller" in excinfo.value.message
 
 
 async def test_reset_peer_build_env_enqueues_server_bound_mirror_job(
