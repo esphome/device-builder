@@ -5349,7 +5349,7 @@ async def test_controller_cancel_job_resolves_local_pinned_install_first(
     firmware = MagicMock()
     job = MagicMock()
     job.is_terminal = is_terminal
-    firmware.state.jobs = {"local-job-1": job}
+    firmware.get_job = AsyncMock(return_value=job)
     firmware.cancel = AsyncMock()
     offloader._db.firmware = firmware
 

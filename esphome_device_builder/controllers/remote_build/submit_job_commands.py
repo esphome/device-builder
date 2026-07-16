@@ -200,7 +200,7 @@ async def cancel_job(
     # already-terminal job is a no-op success, matching the wire path's
     # receiver-drops-unknown-frame semantics.
     firmware = controller._db.firmware
-    if firmware is not None and (job := firmware.state.jobs.get(job_id)) is not None:
+    if firmware is not None and (job := await firmware.get_job(job_id=job_id)) is not None:
         if not job.is_terminal:
             await firmware.cancel(job_id=job_id)
         return {"sent": True}
@@ -255,14 +255,7 @@ async def reset_peer_build_env(controller: OffloaderController, *, pin_sha256: s
 async def _queue_upload_as_local_install(
     controller: OffloaderController, pin_sha256: str, configuration: str
 ) -> dict[str, Any]:
-    """
-    Queue ``target="upload"`` as a server-pinned INSTALL that flashes locally.
-
-    The receiver compiles and ships artifacts back; this dashboard
-    runs the OTA flash. Uploads always happen local — the receiver
-    may not be able to reach the device (cross-subnet, NAT), and
-    this dashboard by definition can.
-    """
+    """Queue ``target="upload"`` as a server-pinned INSTALL: receiver compiles, we flash."""
     pairing = controller.get_pairing(pin_sha256)
     if pairing is None:
         msg = "no pairing matches pin_sha256"
