@@ -27,4 +27,10 @@ BUILD_FILES: tuple[str, ...] = (
     "build/firmware.factory.bin",
     "build/{name}.bin",
     "build/firmware.elf",
+    # Native counterparts of the PIO bootloader/partition trio above —
+    # ``esphome upload --bootloader`` / ``--partition-table`` read these
+    # exact paths on an esp-idf-toolchain build (#2113).
+    "build/bootloader/bootloader.bin",
+    "build/partition_table/partition-table.bin",
+    "build/ota_data_initial.bin",
 )

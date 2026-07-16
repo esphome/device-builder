@@ -744,6 +744,9 @@ def test_materialise_native_idf_round_trip_without_pio_metadata(
             "build/firmware.factory.bin": b"FACTORY",
             "build/firmware.ota.bin": b"OTA",
             "build/firmware.elf": b"ELF",
+            "build/bootloader/bootloader.bin": b"BOOT",
+            "build/partition_table/partition-table.bin": b"PART",
+            "build/ota_data_initial.bin": b"OTADATA",
         },
     )
     build_path = _materialise_in_tmp(tarball, offloader_root)
@@ -751,6 +754,11 @@ def test_materialise_native_idf_round_trip_without_pio_metadata(
     assert build_path == offloader_root / ".esphome" / "build" / "kitchen"
     assert (build_path / "build" / "kitchen.bin").is_file()
     assert (build_path / "build" / "firmware.factory.bin").is_file()
+    # esphome upload --bootloader / --partition-table read these exact
+    # nested paths on an esp-idf-toolchain build (#2113).
+    assert (build_path / "build" / "bootloader" / "bootloader.bin").is_file()
+    assert (build_path / "build" / "partition_table" / "partition-table.bin").is_file()
+    assert (build_path / "build" / "ota_data_initial.bin").is_file()
     assert not (build_path / "platformio.ini").exists()
     # Native IDF ships no idedata cache, so the offloader stages none.
     sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
