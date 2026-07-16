@@ -345,6 +345,20 @@ async def test_submit_job_invalid_target_rejected(tmp_path: Path) -> None:
     assert payload["reason"] == "invalid_header"
 
 
+async def test_submit_job_upload_target_rejected_unsupported(tmp_path: Path) -> None:
+    """``target="upload"`` rejects ``upload_unsupported`` — the receiver never flashes."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+
+    await receiver.handle_submit_job(session, _header(target="upload"))
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "upload_unsupported"
+    # No terminate — an older offloader gets a clean, displayable refusal.
+    session.terminate.assert_not_called()
+
+
 async def test_submit_job_path_traversal_filename_rejected(tmp_path: Path) -> None:
     """A ``configuration_filename`` with path traversal rejects ``invalid_header``."""
     receiver = _make_receiver(tmp_path)

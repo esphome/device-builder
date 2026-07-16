@@ -2203,10 +2203,10 @@ async def test_identity_rotation_refreshes_snapshot_and_respawns_approved_client
     spawn.assert_called_once_with(approved)
 
 
-async def test_sweep_stale_pairing_fires_removed_and_clears_remote_jobs(
+async def test_sweep_stale_pairing_fires_removed(
     tmp_path: Path,
 ) -> None:
-    """Sweeping a stale pairing fires ``"removed"`` and drops its remote-job cache entry."""
+    """Sweeping a stale pairing fires ``"removed"``."""
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
     stale_pin = "a" * 64
@@ -2220,21 +2220,11 @@ async def test_sweep_stale_pairing_fires_removed_and_clears_remote_jobs(
         paired_at=1.0,
         status=PeerStatus.APPROVED,
     )
-    controller.offloader.state.offloader_remote_jobs["job-1"] = {
-        "receiver_hostname": "r.local",
-        "receiver_port": 6055,
-        "pin_sha256": stale_pin,
-        "job_id": "job-1",
-        "status": "running",
-        "error_message": "",
-    }
-
     controller.offloader._sweep_stale_pairings_at_endpoint(
         "r.local", 6055, keep_pin_sha256=keep_pin
     )
 
     assert stale_pin not in controller.offloader.state.pairings
-    assert "job-1" not in controller.offloader.state.offloader_remote_jobs
     fire = controller.offloader._db.bus.fire
     fire.assert_called_once()
     event_type, payload = fire.call_args.args

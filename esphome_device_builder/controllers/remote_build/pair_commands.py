@@ -313,9 +313,6 @@ async def unpair(controller: OffloaderController, *, pin_sha256: str) -> dict[st
     # Drop derived per-peer caches so the snapshot doesn't
     # surface stale data for a row the user just removed.
     controller.state.peer_queue_status.pop(key, None)
-    for job_id, entry in list(controller.state.offloader_remote_jobs.items()):
-        if entry["pin_sha256"] == key:
-            controller.state.offloader_remote_jobs.pop(job_id, None)
     controller.state.open_peer_links.discard(key)
     return {"removed": True}
 

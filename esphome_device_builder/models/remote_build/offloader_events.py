@@ -399,27 +399,6 @@ class OffloaderSettingsSnapshot(TypedDict):
     include_local_in_pool: bool
 
 
-class OffloaderRemoteJobSnapshotEntry(TypedDict):
-    """
-    Snapshot row in the offloader-side in-flight remote-job cache.
-
-    Surfaced via ``subscribe_events.initial_state.remote_jobs``
-    so a tab subscribing AFTER a ``running`` transition still
-    sees the job alive without waiting for the next event.
-    Terminal entries (``completed`` / ``failed`` / ``cancelled``)
-    are dropped from the cache on the matching event — a page
-    reload after a build completes shows no entry; the frontend
-    keeps history itself if needed.
-    """
-
-    receiver_hostname: str
-    receiver_port: int
-    pin_sha256: str
-    job_id: str
-    status: Literal["queued", "running", "completed", "failed", "cancelled"]
-    error_message: str
-
-
 class PeerQueueStatusSnapshotEntry(TypedDict):
     """
     Snapshot row in the offloader-side per-peer queue-status cache.

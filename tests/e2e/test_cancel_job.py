@@ -12,7 +12,7 @@ slipping past two unit suites that pass on the same drift.
 
 The chain:
 
-  offloader-side ``OffloaderController.cancel_job`` WS handler
+  offloader-side ``PeerLinkClient.cancel_job`` frame
                        →  ``PeerLinkClient.cancel_job``
                        →  peer-link ``cancel_job`` frame
                           (real Noise AEAD)
@@ -109,8 +109,9 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     1. Receiver fires ``JOB_QUEUED`` so the :class:`JobFanout`
        cache learns the ``(remote_peer, remote_job_id)`` →
        ``firmware_job_id`` correlation.
-    2. Offloader's ``cancel_job`` WS handler fires the wire
-       frame via :meth:`PeerLinkClient.cancel_job`.
+    2. The offloader fires the wire frame via
+       :meth:`PeerLinkClient.cancel_job` (production caller: the
+       remote runner's ``_send_cancel_or_finalise``).
     3. Receiver's :meth:`handle_cancel_job` resolves the
        offloader's ``job_id`` back to the receiver-local
        firmware id via :meth:`JobFanout.resolve_firmware_job_id`,
@@ -124,12 +125,10 @@ async def test_offloader_cancel_job_routes_to_receiver_firmware_cancel(
     await paired_instances.wait_until_session_opened()
     job = await make_and_seed_remote_peer_job(paired_instances)
 
-    result = await paired_instances.offloader.cancel_job(
-        pin_sha256=paired_instances.pin_sha256,
-        job_id=job.remote_job_id,
-    )
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
+    sent = await handle.client.cancel_job(job_id=job.remote_job_id)
 
-    assert result == {"sent": True}
+    assert sent is True
     await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=10.0)
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
 
@@ -163,10 +162,8 @@ async def test_offloader_cancel_job_full_round_trip_to_state_changed(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
 
-    await paired_instances.offloader.cancel_job(
-        pin_sha256=paired_instances.pin_sha256,
-        job_id=job.remote_job_id,
-    )
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
+    await handle.client.cancel_job(job_id=job.remote_job_id)
 
     await asyncio.wait_for(receiver_firmware_cancel.called.wait(), timeout=10.0)
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=job.job_id)
@@ -198,11 +195,11 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     exception propagates, ``firmware.cancel`` is never called,
     no terminate-frame is sent.
 
-    The offloader's WS handler still returns ``sent=true``: the
-    frame made it onto the wire. Whether the receiver acted on
-    it is the receiver's call, and the offloader's UI relies on
-    the next observed ``job_state_changed`` (or its absence) for
-    the actual state.
+    The client still reports ``sent=true``: the frame made it
+    onto the wire. Whether the receiver acted on it is the
+    receiver's call; the offloader's runner relies on the next
+    observed ``job_state_changed`` (or its absence) for the
+    actual state.
 
     Negative-path sync uses a known-good cancel as a barrier
     rather than an arbitrary sleep. The unknown cancel goes out
@@ -220,17 +217,12 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     # no correlation for it.
     known_job = await make_and_seed_remote_peer_job(paired_instances)
 
-    unknown_result = await paired_instances.offloader.cancel_job(
-        pin_sha256=paired_instances.pin_sha256,
-        job_id="off-job-never-seen",
-    )
-    assert unknown_result == {"sent": True}
+    handle = paired_instances.offloader.state.peer_link_clients[paired_instances.pin_sha256]
+    unknown_sent = await handle.client.cancel_job(job_id="off-job-never-seen")
+    assert unknown_sent is True
 
-    known_result = await paired_instances.offloader.cancel_job(
-        pin_sha256=paired_instances.pin_sha256,
-        job_id=known_job.remote_job_id,
-    )
-    assert known_result == {"sent": True}
+    known_sent = await handle.client.cancel_job(job_id=known_job.remote_job_id)
+    assert known_sent is True
 
     # Sync on the known cancel landing. By the time this fires,
     # the receiver's serial frame loop has already processed the
@@ -241,9 +233,7 @@ async def test_offloader_cancel_job_unknown_correlation_drops_silently(
     receiver_firmware_cancel.mock.assert_awaited_once_with(job_id=known_job.job_id)
 
 
-# WS-layer error-mapping (CommandError(NOT_FOUND) /
-# CommandError(PRECONDITION_FAILED) / CommandError(INVALID_ARGS))
-# is pinned by unit tests on the same handler in
-# ``test_remote_build_controller.py``; the e2e variant adds value
-# only on the wire round-trip cases above, where the contract
-# spans both halves of the pair.
+# The wire round-trip above is the production cancel path: the
+# remote runner's ``_send_cancel_or_finalise`` sends the same
+# ``client.cancel_job`` frame when a user stops a pool-routed
+# remote compile.

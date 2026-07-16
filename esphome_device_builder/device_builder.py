@@ -699,10 +699,6 @@ class DeviceBuilder:
                 initial["peer_queue_status"] = list(
                     self.remote_build_offloader.peer_queue_status_snapshot()
                 )
-                initial["remote_jobs"] = [
-                    dict(entry)
-                    for entry in self.remote_build_offloader.offloader_remote_jobs_snapshot()
-                ]
                 initial |= self.remote_build_offloader.offloader_settings_snapshot()
             if self.remote_build_receiver is not None:
                 # Receiver-side peers (PENDING + APPROVED) for the
