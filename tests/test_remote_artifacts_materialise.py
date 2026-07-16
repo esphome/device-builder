@@ -754,8 +754,6 @@ def test_materialise_native_idf_round_trip_without_pio_metadata(
     assert build_path == offloader_root / ".esphome" / "build" / "kitchen"
     assert (build_path / "build" / "kitchen.bin").is_file()
     assert (build_path / "build" / "firmware.factory.bin").is_file()
-    # esphome upload --bootloader / --partition-table read these exact
-    # nested paths on an esp-idf-toolchain build (#2113).
     assert (build_path / "build" / "bootloader" / "bootloader.bin").is_file()
     assert (build_path / "build" / "partition_table" / "partition-table.bin").is_file()
     assert (build_path / "build" / "ota_data_initial.bin").is_file()
