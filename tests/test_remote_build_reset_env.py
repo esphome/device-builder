@@ -11,6 +11,7 @@ from esphome.const import __version__ as _installed_esphome_version
 from esphome.core import CORE
 
 from esphome_device_builder.controllers.remote_build import reset_env
+from esphome_device_builder.controllers.remote_build.env_provisioner import EnvProvisioner
 from esphome_device_builder.controllers.remote_build.peer_link import (
     PeerLinkSession,
     TerminateReason,
@@ -83,6 +84,9 @@ def _make_handles(tmp_path: Path) -> RemoteBuildTestHandles:
     # No firmware controller / submit receiver by default: not busy.
     handles.receiver._db.firmware = None
     handles.receiver.state.submit_job_receiver = None
+    # A real provisioner reading CORE.data_dir lazily, so the venv wipe
+    # targets the same tree ``_seed_venv`` writes.
+    handles.receiver.state.env_provisioner = EnvProvisioner()
     return handles
 
 
@@ -248,7 +252,7 @@ async def test_reset_target_derives_from_session_identity(tmp_path: Path) -> Non
 async def test_reset_io_error_acks_io_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An ``OSError`` from the wipe surfaces as an ``io_error`` refusal."""
+    """An ``OSError`` from the subtree wipe surfaces as an ``io_error`` refusal."""
     handles = _make_handles(tmp_path)
     _seed_subtrees(tmp_path, _DASHBOARD_ID)
     session = _make_session()
@@ -263,3 +267,34 @@ async def test_reset_io_error_acks_io_error(
     ack = _sent_ack(session)
     assert ack["accepted"] is False
     assert ack["reason"] == "io_error"
+
+
+async def test_reset_venv_io_error_acks_io_error(tmp_path: Path) -> None:
+    """An ``OSError`` wiping the venv surfaces as an ``io_error`` refusal."""
+    handles = _make_handles(tmp_path)
+    _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    handles.receiver.state.env_provisioner.reset_version = AsyncMock(  # type: ignore[union-attr]
+        side_effect=OSError("venv on fire")
+    )
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r12"))
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "io_error"
+
+
+async def test_reset_without_provisioner_skips_venv(tmp_path: Path) -> None:
+    """No provisioner up: subtrees still wiped, the venv is left, ack accepted."""
+    handles = _make_handles(tmp_path)
+    handles.receiver.state.env_provisioner = None
+    config_subtree, _ = _seed_subtrees(tmp_path, _DASHBOARD_ID)
+    venv = _seed_venv(_VERSION)
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame("r13"))
+
+    assert _sent_ack(session)["accepted"] is True
+    assert not config_subtree.exists()
+    assert venv.exists()

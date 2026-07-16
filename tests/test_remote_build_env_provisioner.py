@@ -384,3 +384,34 @@ async def test_clean_all_removes_every_venv(tmp_path: Path) -> None:
     await provisioner.clean_all()
 
     assert not provisioner.venvs_dir.exists()
+
+
+async def test_reset_version_removes_only_that_version(tmp_path: Path) -> None:
+    """The remote per-offloader reset wipes one version, leaving the rest."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+    target = await _seed_venv(provisioner, "2026.5.0")
+    kept = await _seed_venv(provisioner, "2026.6.4")
+    provisioner._verified.add("2026.5.0")
+
+    wiped = await provisioner.reset_version("2026.5.0")
+
+    assert wiped == target
+    assert not target.exists()
+    assert kept.exists()
+    assert "2026.5.0" not in provisioner._verified
+
+
+async def test_reset_version_tolerates_missing_venv(tmp_path: Path) -> None:
+    """Resetting a version never provisioned is a no-op that returns the path."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+
+    wiped = await provisioner.reset_version("2026.5.0")
+
+    assert wiped == _venv_dir(provisioner, "2026.5.0")
+
+
+async def test_reset_version_returns_none_for_unpinnable(tmp_path: Path) -> None:
+    """A dev / non-pinnable version was never cached, so there's nothing to wipe."""
+    provisioner = EnvProvisioner(data_dir=tmp_path)
+
+    assert await provisioner.reset_version("2026.8.0-dev") is None

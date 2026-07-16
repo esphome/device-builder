@@ -52,10 +52,12 @@ class EnvProvisioner:
     """
     Create + cache one esphome venv per pinnable version, keyed by version.
 
-    Callers serialize on the compile lane (``provision`` in COMPILE,
-    ``clean_all`` in RESET_BUILD_ENV, ``sweep_stale`` at start), so a wipe
-    never races a provision; the per-version lock guards same-version double
-    builds only.
+    Compile-lane callers (``provision`` in COMPILE, ``clean_all`` in the
+    local RESET_BUILD_ENV, ``sweep_stale`` at start) are already serialized
+    against each other. The per-version lock additionally guards same-version
+    double builds and ``reset_version`` — the remote per-offloader wipe, which
+    runs off the lane in the peer-link receive loop and would otherwise race a
+    concurrent provision of the same version.
     """
 
     def __init__(self, data_dir: Path | None = None, *, base_python: str | None = None) -> None:
@@ -137,6 +139,23 @@ class EnvProvisioner:
             self._verified.discard(version)
         return None
 
+    async def reset_version(self, version: str) -> Path | None:
+        """
+        Remove *version*'s cached venv under its per-version lock; return the path or ``None``.
+
+        Serializes with :meth:`provision` / :meth:`cached_cmd` on the same
+        version, so a same-version build arriving during the wipe blocks on the
+        lock and then re-provisions clean rather than reading a half-deleted
+        tree. ``None`` when *version* isn't pinnable (never cached).
+        """
+        if not is_pinnable_version(version):
+            return None
+        async with self._lock_for(version):
+            self._verified.discard(version)
+            # ``venvs_dir`` reads ``CORE.data_dir`` (which stats); build the
+            # path inside the executor with the wipe, not on the event loop.
+            return await run_in_executor(self._rmtree_version, version)
+
     async def sweep_stale(self, installed_version: str) -> None:
         """Remove cached venvs older than *installed_version* (a startup sweep).
 
@@ -169,6 +188,12 @@ class EnvProvisioner:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _rmtree_version(self, version: str) -> Path:
+        """Blocking wipe of *version*'s venv dir; return the path (executor-only)."""
+        venv = self.venvs_dir / f"{_VENV_PREFIX}{version}"
+        _rmtree(venv)
+        return venv
 
     def _lock_for(self, version: str) -> asyncio.Lock:
         lock = self._locks.get(version)

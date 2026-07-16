@@ -15,7 +15,6 @@ from ...helpers.peer_link_frames import frame_schema, is_valid_frame
 from ...helpers.remote_build_layout import (
     dashboard_config_subtree,
     dashboard_data_subtree,
-    venv_dir,
 )
 from ...helpers.version_compat import is_pinnable_version
 from ...models import ResetBuildEnvAckFrameData
@@ -44,7 +43,9 @@ async def handle_reset_build_env(
     authenticated ``dashboard_id``; the frame's ``esphome_version`` names
     the offloader's own version so the cached ``esphome-<version>`` venv
     its builds provision is cleared too — the last-resort hammer has to
-    reach the shared toolchain, which a subtree wipe alone can't. Refuses
+    reach the shared toolchain, which a subtree wipe alone can't. The venv
+    wipe goes through ``EnvProvisioner.reset_version`` so it holds the
+    per-version lock a concurrent provision serializes on. Refuses
     ``busy`` while this offloader has a job queued / running or a bundle
     mid-upload, or while *any* offloader is compiling with that same
     venv (wiping it mid-build would truncate their toolchain). The
@@ -84,9 +85,8 @@ async def handle_reset_build_env(
     # inside the executor with the wipe rather than on the event loop.
     config_dir = Path(controller._db.settings.config_dir)
     try:
-        wiped = await run_in_executor(
-            _wipe_build_env, config_dir, session.dashboard_id, venv_version
-        )
+        wiped = await run_in_executor(_wipe_build_env, config_dir, session.dashboard_id)
+        wiped += await _wipe_venv(controller, venv_version)
     except OSError as exc:
         _LOGGER.warning(
             "peer-link reset_build_env from %s failed: %s",
@@ -140,16 +140,33 @@ def _reset_busy(
     return receiver is not None and receiver.has_inflight(dashboard_id)
 
 
-def _wipe_build_env(config_dir: Path, dashboard_id: str, venv_version: str | None) -> list[Path]:
+async def _wipe_venv(controller: ReceiverController, venv_version: str | None) -> list[Path]:
     """
-    Blocking wipe of the offloader's subtrees + venv; return the wiped paths.
+    Wipe the offloader's cached ``esphome-<version>`` venv through the provisioner.
+
+    Delegating to :meth:`EnvProvisioner.reset_version` holds the per-version
+    lock, so a concurrent same-version provision can't race the ``rmtree``.
+    Empty when there's no venv to clear (version matches the receiver's own /
+    isn't pinnable) or the provisioner isn't up.
+    """
+    if venv_version is None:
+        return []
+    provisioner = controller.state.env_provisioner
+    if provisioner is None:
+        return []
+    venv = await provisioner.reset_version(venv_version)
+    return [venv] if venv is not None else []
+
+
+def _wipe_build_env(config_dir: Path, dashboard_id: str) -> list[Path]:
+    """
+    Blocking wipe of the offloader's per-offloader subtrees; return the wiped paths.
 
     Runs entirely in an executor because building the targets reads
     ``CORE.data_dir`` (which stats). Each target's parent is its
-    ``.remote_builds`` root by construction (``dashboard_*_subtree`` /
-    ``venv_dir``), so a resolve-under-parent check is the defense-in-depth
-    symlink guard — ``dashboard_id`` is already ``DASHBOARD_ID_PATTERN``-
-    validated and the version is ``is_pinnable_version``-gated, so a
+    ``.remote_builds`` root by construction (``dashboard_*_subtree``), so a
+    resolve-under-parent check is the defense-in-depth symlink guard —
+    ``dashboard_id`` is already ``DASHBOARD_ID_PATTERN``-validated, so a
     failure here means symlink games on disk, not wire input.
     """
     data_dir = Path(CORE.data_dir)
@@ -157,8 +174,6 @@ def _wipe_build_env(config_dir: Path, dashboard_id: str, venv_version: str | Non
         dashboard_config_subtree(config_dir, dashboard_id),
         dashboard_data_subtree(data_dir, dashboard_id),
     ]
-    if venv_version is not None:
-        targets.append(venv_dir(data_dir, venv_version))
     for target in targets:
         root = target.parent
         resolved = target.resolve()
