@@ -765,6 +765,33 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     assert controller.state.compile_lane.current_process is None
 
 
+async def test_tracked_subprocess_gets_devnull_stdin(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A spawn that reads stdin sees immediate EOF, never a blocking prompt.
+
+    An inherited tty would park an interactive CLI prompt (esphome's
+    device chooser) forever, hanging the lane. The ``wait_for`` bound
+    turns a regression into a test failure instead of a suite hang.
+    """
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+
+    async with controller._tracked_subprocess(
+        controller.state.compile_lane,
+        sys.executable,
+        "-c",
+        "import sys\nprint(repr(sys.stdin.read()))\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert proc.stdout is not None
+        output = await asyncio.wait_for(proc.stdout.read(), timeout=10)
+        exit_code = await proc.wait()
+
+    assert output.strip() == b"''"
+    assert exit_code == 0
+
+
 async def test_cancel_in_gap_between_verify_and_main_spawn_terminates(
     firmware_controller_factory: FirmwareControllerFactory,
     tmp_path: Path,
