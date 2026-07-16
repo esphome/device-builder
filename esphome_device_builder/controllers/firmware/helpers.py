@@ -394,9 +394,10 @@ def _stamp_compile_phase(job: FirmwareJob, line: str) -> None:
     """
     Stamp the compile-phase wall-clocks off *line*.
 
-    Start on the first build line and end on the summary banner (pio) or
-    esphome's ``Successfully compiled program`` line (native esp-idf), so the
-    span excludes the download and, for an install, the flash. ANSI is
+    Start on the first build line and end on the summary banner (pio) or, for
+    native esp-idf, esphome's ``Successfully compiled program`` line — ninja's
+    ``build stopped`` closer on failure — so the span excludes the download
+    and, for an install, the flash. ANSI is
     stripped first — the ``[SUCCESS] Took`` banner colours *inside* the
     brackets. Runs per streamed line, so it short-circuits once both stamps
     are latched (an install flashes long after the compile ends) and
