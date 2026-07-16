@@ -77,7 +77,9 @@ class AppMessageType(StrEnum):
     ARTIFACTS_CHUNK = "artifacts_chunk"
     ARTIFACTS_END = "artifacts_end"
     # Offloader → receiver: wipe the offloader's isolated build
-    # subtree (never the shared venvs). Request/ack — the receiver
+    # subtree plus the cached ``esphome-<version>`` venv its builds
+    # provision (version-keyed; the receiver refuses busy if another
+    # offloader is mid-build on it). Request/ack — the receiver
     # answers with one ``reset_build_env_ack`` (accepted, or refused
     # busy / io_error / invalid_frame).
     RESET_BUILD_ENV = "reset_build_env"
