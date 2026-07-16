@@ -167,24 +167,25 @@ class PairStatusResult:
 
 
 class PeerLinkNoSessionError(RuntimeError):
-    """Raised when a peer-link application send needs a live session and there isn't one.
+    """
+    Raised when a peer-link application send needs a live session and there isn't one.
 
-    Every sender that requires the post-handshake dispatch loop
-    to be parked funnels its check through
+    Every sender that requires the post-handshake dispatch loop to be
+    parked funnels its check through
     :meth:`PeerLinkClient._require_open_channel`, so a future
-    application-message sender inherits this automatically.
-
-    The WS command maps it to ``CommandError(PRECONDITION_FAILED)``
-    so the frontend can branch on "peer is paired but currently
-    disconnected" vs. "send rejected by the receiver."
+    application-message sender inherits this automatically. The WS
+    command maps it to ``CommandError(PRECONDITION_FAILED)`` so the
+    frontend can branch on "peer is paired but currently disconnected"
+    vs. "send rejected by the receiver."
     """
 
 
 class DuplicateRequestError(RuntimeError):
-    """Raised when a same-``job_id`` request is already in flight on this session.
+    """
+    Raised when a same-``job_id`` request is already in flight on this session.
 
-    A live session exists — the recovery is a fresh ``job_id``,
-    not waiting for reconnect. Maps to the same
+    A live session exists, so the recovery is a fresh ``job_id`` rather
+    than waiting for reconnect; maps to the same
     ``CommandError(PRECONDITION_FAILED)`` as
     :class:`PeerLinkNoSessionError`.
     """
