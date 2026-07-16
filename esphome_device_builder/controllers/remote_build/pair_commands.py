@@ -137,6 +137,7 @@ async def request_pair(
     offloader_label: str,
     pairing_key: str | None = None,
     offloader_label_auto: bool = False,
+    receiver_label_auto: bool | None = None,
 ) -> PairingSummary:
     """
     Open a Noise XX WS, send ``intent="pair_request"``, persist a local row.
@@ -155,6 +156,12 @@ async def request_pair(
     dashboard's advertised ``friendly_name`` / ``ha_addon`` so
     the receiver can show a human machine name.
 
+    *receiver_label_auto* is the offloader-local analog of
+    *offloader_label_auto* for *receiver_label*: an explicit
+    ``bool`` (the pair dialog sends it) marks whether the display
+    name was left at its prefill; ``None`` carries the prior row's
+    flag forward for the re-pair paths that omit it.
+
     TOCTOU defense: the *pin_sha256* arg is compared against
     the receiver's actual pubkey mid-handshake, before msg3 (and
     any ``pairing_key`` in it) is written; a mismatch returns
@@ -170,6 +177,15 @@ async def request_pair(
     clean_receiver_label = validate_pair_label(receiver_label, field=PairLabelField.RECEIVER_LABEL)
     clean_offloader_label = validate_pair_label(
         offloader_label, field=PairLabelField.OFFLOADER_LABEL
+    )
+    clean_receiver_label_auto = (
+        None
+        if receiver_label_auto is None
+        else validate_bool(
+            receiver_label_auto,
+            command="remote_build/request_pair",
+            field="receiver_label_auto",
+        )
     )
     clean_key = validate_pairing_key(pairing_key)
     peer_link_identity, dashboard_identity = await controller._load_offloader_identities_async()
@@ -233,6 +249,13 @@ async def request_pair(
         pairing.friendly_name = prior.friendly_name
         pairing.ha_addon = prior.ha_addon
         pairing.reset_build_env_supported = prior.reset_build_env_supported
+        # Carried like the rest, but overridable below — unlike the
+        # operator/handshake fields, the pair dialog's explicit value
+        # wins (it just re-set ``label``). A re-pair path that omits
+        # it keeps this carried value instead of resetting the display.
+        pairing.receiver_label_auto = prior.receiver_label_auto
+    if clean_receiver_label_auto is not None:
+        pairing.receiver_label_auto = clean_receiver_label_auto
     # Sweep any stale entry at the same endpoint under a
     # different pin (rotation, or a different receiver took
     # the hostname) so the old row's listener + alert don't

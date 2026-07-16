@@ -123,6 +123,10 @@ async def test_paired_instances_snapshot_reflects_connected_state(
     assert summary.connected is True
     assert summary.connecting is False
     assert summary.last_connect_error == ""
+    # The fixture pairs without the auto-label signal, so the
+    # projection carries the storage default through the real
+    # handshake round-trip.
+    assert summary.receiver_label_auto is False
 
 
 async def test_paired_instances_snapshot_carries_receiver_esphome_version(
