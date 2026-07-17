@@ -577,6 +577,7 @@ async def test_sync_after_flash_unknown_configuration_is_noop(monkeypatch: Any) 
 _DELAY = (
     "esphome_device_builder.controllers.devices.firmware_sync._POST_FLASH_VERSION_REPROBE_DELAY"
 )
+_INTERVAL = firmware_sync._DEEP_SLEEP_REPROBE_INTERVAL
 
 
 def _reprobe_controller(device: Device | None) -> Any:
@@ -648,7 +649,7 @@ async def test_deep_sleep_arms_burst_not_single_probe() -> None:
     controller._schedule_version_reprobe("kitchen.yaml")
 
     handle = controller._reprobe_timers["kitchen.yaml"]
-    expected = firmware_sync._DEEP_SLEEP_REPROBE_FIRST_DELAY
+    expected = firmware_sync._DEEP_SLEEP_REPROBE_INTERVAL
     assert handle.when() - loop.time() == pytest.approx(expected, abs=1)
     controller._cancel_reprobe_timers()
 
@@ -671,7 +672,9 @@ async def test_burst_requests_and_rearms_until_deadline() -> None:
     controller = _reprobe_controller(_device())  # default state UNKNOWN
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() + 1000)
+    firmware_sync._fire_version_reprobe(
+        controller, "kitchen.yaml", deadline=loop.time() + 1000, interval=_INTERVAL
+    )
 
     controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
     assert "kitchen.yaml" in controller._reprobe_timers  # re-armed
@@ -683,7 +686,9 @@ async def test_burst_probes_despite_stale_online_reading() -> None:
     controller = _reprobe_controller(_device(state=DeviceState.ONLINE))
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() + 1000)
+    firmware_sync._fire_version_reprobe(
+        controller, "kitchen.yaml", deadline=loop.time() + 1000, interval=_INTERVAL
+    )
 
     controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
     assert "kitchen.yaml" in controller._reprobe_timers  # re-armed, not aborted
@@ -695,7 +700,9 @@ async def test_burst_stops_at_deadline() -> None:
     controller = _reprobe_controller(_device())
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() - 1)
+    firmware_sync._fire_version_reprobe(
+        controller, "kitchen.yaml", deadline=loop.time() - 1, interval=_INTERVAL
+    )
 
     controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
     assert controller._reprobe_timers == {}  # deadline passed, not re-armed
