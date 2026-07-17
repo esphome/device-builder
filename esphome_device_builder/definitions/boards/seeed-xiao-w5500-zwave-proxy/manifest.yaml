@@ -68,8 +68,8 @@ featured_components:
   fields:
     devices:
     - id: device_0
-      vid: 0x303A
-      pid: 0x4001
+      vid: "0x303A"
+      pid: "0x4001"
 - id: zwave_usb_uart
   component_id: usb_uart
   name: ZWA-2 Serial (CDC-ACM)
@@ -78,8 +78,8 @@ featured_components:
   - zwave_usb_host
   fields:
     type: CDC_ACM
-    vid: 0x303A
-    pid: 0x4001
+    vid: "0x303A"
+    pid: "0x4001"
     channels:
     - id: uch_1
       baud_rate: 115200
