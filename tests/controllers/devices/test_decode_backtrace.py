@@ -126,7 +126,13 @@ async def test_decode_backtrace_without_crash_signal_does_not_spawn(
         ["[I][app:029]: Running through setup()", "[I][wifi:303]: WiFi connected"],
     )
 
-    assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "no_backtrace"}
+    assert result == {
+        "decoded": [],
+        "stale_build": False,
+        "unavailable_reason": "no_backtrace",
+        # Refused before the build dir was ever read, so there is no build to name.
+        "local_build_hash": "",
+    }
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -363,7 +369,9 @@ async def test_decode_backtrace_non_list_decoded_is_a_broken_contract(
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
-    assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "helper_failed"}
+    assert result["decoded"] == []
+    assert result["stale_build"] is False
+    assert result["unavailable_reason"] == "helper_failed"
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -390,7 +398,9 @@ async def test_decode_backtrace_dropped_entries_surface_as_helper_failed(
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
-    assert result == {"decoded": [], "stale_build": False, "unavailable_reason": "helper_failed"}
+    assert result["decoded"] == []
+    assert result["stale_build"] is False
+    assert result["unavailable_reason"] == "helper_failed"
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -414,7 +424,12 @@ async def test_decode_backtrace_reports_staleness_even_when_it_decodes_nothing(
 
     # The hashes disagree whether or not anything decoded, and a client that
     # decodes this ELF some other way needs the caveat as much as we would.
-    assert result == {"decoded": [], "stale_build": True, "unavailable_reason": "no_build"}
+    assert result == {
+        "decoded": [],
+        "stale_build": True,
+        "unavailable_reason": "no_build",
+        "local_build_hash": "f3e21d5a",
+    }
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -449,6 +464,8 @@ async def test_decode_backtrace_reports_staleness_when_declining_to_decode(
         "decoded": [],
         "stale_build": True,
         "unavailable_reason": DecodeUnavailable.NO_LOCAL_TOOLCHAIN,
+        # Names the build whoever decodes this ELF will be reading.
+        "local_build_hash": "f3e21d5a",
     }
 
 

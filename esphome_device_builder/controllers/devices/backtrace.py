@@ -63,11 +63,12 @@ async def decode_backtrace(
     """
     Decode the crash-region *lines* against *configuration*'s local build.
 
-    Answers ``{decoded, stale_build, unavailable_reason}``. A device that
-    was never compiled here is a normal outcome, reported as
-    ``unavailable_reason``, not raised. ``stale_build`` is answered even when
-    declining, because a client that decodes the ELF some other way needs the
-    same caveat and only this side knows both hashes.
+    Answers ``{decoded, stale_build, unavailable_reason, local_build_hash}``.
+    A device that was never compiled here is a normal outcome, reported as
+    ``unavailable_reason``, not raised. ``stale_build`` and ``local_build_hash``
+    are answered even when declining: a client that decodes the ELF some other
+    way needs the same caveat, and needs to know which build it read, and only
+    this side knows either.
     """
     # ``resolve_storage_path`` collapses to ``<data_dir>/storage/<basename>``,
     # so a traversal-shaped *configuration* could still reach an
@@ -86,6 +87,7 @@ async def decode_backtrace(
         return _result(
             unavailable_reason=target.unavailable_reason,
             stale_build=_is_stale(controller, configuration, target.local_config_hash),
+            local_build_hash=target.local_config_hash,
         )
     request = dumps(
         {
@@ -116,7 +118,12 @@ async def decode_backtrace(
     # them. The latch returns what it decoded before giving up, and a caller we
     # decline may decode the same ELF itself; both need the caption.
     stale = _is_stale(controller, configuration, target.local_config_hash)
-    return _result(decoded=decoded, stale_build=stale, unavailable_reason=reason)
+    return _result(
+        decoded=decoded,
+        stale_build=stale,
+        unavailable_reason=reason,
+        local_build_hash=target.local_config_hash,
+    )
 
 
 def _result(
@@ -124,11 +131,13 @@ def _result(
     decoded: list[dict[str, Any]] | None = None,
     stale_build: bool = False,
     unavailable_reason: str = "",
+    local_build_hash: str = "",
 ) -> dict[str, Any]:
     return {
         "decoded": decoded or [],
         "stale_build": stale_build,
         "unavailable_reason": str(unavailable_reason),
+        "local_build_hash": local_build_hash,
     }
 
 
