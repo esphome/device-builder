@@ -100,6 +100,30 @@ async def test_match_applies_mac_and_version_from_the_same_dial() -> None:
     assert ("on_version_change", "kitchen", "2026.7.0") in callbacks.calls
 
 
+async def test_match_stamps_deployed_identity_live() -> None:
+    """The verified dial is first-party identity evidence."""
+    device = make_stuck_offline_device()
+    _monitor, callbacks, src = _reviver([device])
+
+    await src._sweep()
+
+    assert device.runtime_state.deployed_identity_live is True
+    assert ("on_deployed_identity_live_change", "kitchen", True) in callbacks.calls
+
+
+async def test_name_mismatch_does_not_stamp_deployed_identity_live() -> None:
+    """A stranger answering the persisted IP proves nothing about our device."""
+    device = make_stuck_offline_device()
+    _monitor, callbacks, src = _reviver(
+        [device], worker_result={**_WORKER_MATCH, "name": "stranger"}
+    )
+
+    await src._sweep()
+
+    assert device.runtime_state.deployed_identity_live is False
+    assert callbacks.calls_for("on_deployed_identity_live_change") == []
+
+
 async def test_match_with_blank_persisted_mac_still_claims() -> None:
     """Name alone suffices when either MAC side is unknown."""
     device = make_stuck_offline_device(mac_address="")

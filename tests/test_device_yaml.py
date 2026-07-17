@@ -2616,7 +2616,7 @@ def test_load_device_without_previous_defaults_active_source_to_unknown(
     device = load_device_from_storage(yaml_path)
 
     assert device.runtime_state.active_source is ReachabilitySource.UNKNOWN
-    assert device.runtime_state.http_identity_live is False
+    assert device.runtime_state.deployed_identity_live is False
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
@@ -2635,7 +2635,7 @@ def test_load_device_carries_runtime_state_from_previous(tmp_path: Path) -> None
         deployed_config_hash="deadbeef",
         queued_update=True,
         api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
-        http_identity_live=True,
+        deployed_identity_live=True,
     )
 
     reloaded = load_device_from_storage(yaml_path, previous=previous)
@@ -3112,5 +3112,5 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "deployed_config_hash": "",
         "queued_update": False,
         "api_encryption_active": None,
-        "http_identity_live": False,
+        "deployed_identity_live": False,
     }

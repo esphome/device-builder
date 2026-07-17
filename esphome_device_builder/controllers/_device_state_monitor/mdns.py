@@ -73,7 +73,7 @@ _MDNS_REFRESH_PADDING_SECONDS = 1.0
 # methods: ``DeviceStateMonitor`` is TYPE_CHECKING-only here (circular
 # import), and the call-time attribute lookup keeps instance-level
 # overrides (tests) working like the inline calls they replaced. The
-# ``http_identity_live`` flag keys on their presence: a contentless
+# ``deployed_identity_live`` flag keys on their presence: a contentless
 # ``_http._tcp`` service (an api+web_server device, or old web_server
 # firmware) must never vouch for the identity trio, or a flag-True
 # device with an identity-less cached TXT would verify-resolve every
@@ -359,7 +359,7 @@ class MdnsSource:
             return
         if verdict and _has_identity_keys(info.decoded_properties):
             return
-        self._monitor.apply_http_identity_live(device_name, live=False)
+        self._monitor.apply_deployed_identity_live(device_name, live=False)
 
     def live_ptr_service_names(self) -> set[str]:
         """
@@ -623,7 +623,7 @@ class MdnsSource:
         """Apply ``_http._tcp`` identity keys and stamp freshness when any are present."""
         self._apply_identity_txt(device_name, props)
         if _has_identity_keys(props):
-            self._monitor.apply_http_identity_live(device_name, live=True)
+            self._monitor.apply_deployed_identity_live(device_name, live=True)
 
     def _cached_ptr(
         self, service_name: str, service_type: str = _ESPHOME_SERVICE_TYPE

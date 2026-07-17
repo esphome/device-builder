@@ -101,12 +101,16 @@ ApiEncryptionChangeCallback = Callable[[str, str], None]
 MacAddressChangeCallback = Callable[[str, str], None]
 
 
-# ``_http._tcp`` identity-TXT freshness for non-API devices: True when
-# an identity-carrying TXT was applied (live or from the unexpired
-# cache), False only after a targeted re-resolve confirmed it gone.
-# Never a reachability claim. A Protocol (not a ``Callable`` alias)
-# because ``live`` is keyword-only at every implementer.
-class HttpIdentityLiveCallback(Protocol):
+# Deployed-identity freshness: True when first-party evidence was just
+# applied — an identity-carrying ``_http._tcp`` TXT (non-API, live or
+# from the unexpired cache), a Native API ``device_info`` connection
+# (api devices the mDNS ledger doesn't own), or our own flash. False
+# after a targeted ``_http._tcp`` re-resolve confirmed the TXT gone, or
+# when mDNS takes ownership of an api device (its announce lifecycle
+# vouches from then on). Never a reachability claim. A Protocol (not a
+# ``Callable`` alias) because ``live`` is keyword-only at every
+# implementer.
+class DeployedIdentityLiveCallback(Protocol):
     def __call__(self, name: str, *, live: bool) -> None: ...
 
 
@@ -163,7 +167,7 @@ class DeviceStateMonitor(TaskControllerBase):
         on_source_change: SourceChangeCallback | None = None,
         on_persisted_ip_invalidated: PersistedIpInvalidatedCallback | None = None,
         on_resolved_addresses_cleared: ResolvedAddressesClearedCallback | None = None,
-        on_http_identity_live_change: HttpIdentityLiveCallback | None = None,
+        on_deployed_identity_live_change: DeployedIdentityLiveCallback | None = None,
     ) -> None:
         super().__init__()
         self._get_devices = get_devices
@@ -189,7 +193,7 @@ class DeviceStateMonitor(TaskControllerBase):
         self._resolve_api_connection = resolve_api_connection
         self._on_persisted_ip_invalidated = on_persisted_ip_invalidated
         self._on_resolved_addresses_cleared = on_resolved_addresses_cleared
-        self._on_http_identity_live_change = on_http_identity_live_change
+        self._on_deployed_identity_live_change = on_deployed_identity_live_change
         self.state = MonitorState(reachability=reachability)
         self._ping_task: asyncio.Task | None = None
         self._api_info_task: asyncio.Task | None = None
@@ -288,7 +292,20 @@ class DeviceStateMonitor(TaskControllerBase):
 
     def _emit_source_change(self, name: str, old: str, new: str) -> None:
         """Notify the owner when *name*'s authoritative source actually flips."""
-        if self._on_source_change is not None and old != new:
+        if old == new:
+            return
+        # mDNS taking ownership of an api device supersedes any Native-API
+        # identity stamp: the announce lifecycle (verify-before-demote
+        # ``Removed``) vouches for freshness from here, so a powered-off
+        # device blanks instead of a stale flag resurfacing its identity.
+        # api-scoped because a non-api mdns claim is a bare A-record
+        # resolve — reachability only — and clearing there would strand a
+        # post-flash stamp on firmware with no identity TXT to re-stamp it.
+        if ReachabilitySource(new) is ReachabilitySource.MDNS and any(
+            device.api_enabled for device in self._get_devices_by_name(name)
+        ):
+            self.apply_deployed_identity_live(name, live=False)
+        if self._on_source_change is not None:
             self._on_source_change(name, ReachabilitySource(new))
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
@@ -499,13 +516,13 @@ class DeviceStateMonitor(TaskControllerBase):
         self._on_mac_address_change(name, normalized)
         return True
 
-    def apply_http_identity_live(self, name: str, *, live: bool) -> bool:
-        """Record whether a live ``_http._tcp`` identity TXT backs *name*; True iff forwarded."""
-        if self._on_http_identity_live_change is None:
+    def apply_deployed_identity_live(self, name: str, *, live: bool) -> bool:
+        """Record whether fresh first-party evidence backs *name*'s identity; True iff forwarded."""
+        if self._on_deployed_identity_live_change is None:
             return False
-        if not self._any_matching_device_differs(name, "http_identity_live", live):
+        if not self._any_matching_device_differs(name, "deployed_identity_live", live):
             return False
-        self._on_http_identity_live_change(name, live=live)
+        self._on_deployed_identity_live_change(name, live=live)
         return True
 
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:

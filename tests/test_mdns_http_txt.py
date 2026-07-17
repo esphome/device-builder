@@ -157,7 +157,7 @@ def test_http_skips_unconfigured_device(monkeypatch: pytest.MonkeyPatch) -> None
 def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     """We never drive state off an HTTP ``Removed``; the sweep's level-sync owns freshness."""
     device = _mqtt_device()
-    device.runtime_state.http_identity_live = True
+    device.runtime_state.deployed_identity_live = True
     monitor = _make_monitor(device)
     calls = _capture_apply(monitor, monkeypatch)
 
@@ -166,7 +166,7 @@ def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     assert calls == []
-    assert device.runtime_state.http_identity_live is True
+    assert device.runtime_state.deployed_identity_live is True
 
 
 # ----------------------------------------------------------------------
@@ -184,8 +184,8 @@ def _capture_monitor_applies(
         )
     monkeypatch.setattr(
         monitor,
-        "apply_http_identity_live",
-        lambda name, live: applied.append(("apply_http_identity_live", name, live)),
+        "apply_deployed_identity_live",
+        lambda name, live: applied.append(("apply_deployed_identity_live", name, live)),
     )
     monkeypatch.setattr(
         monitor,
@@ -224,7 +224,7 @@ def test_apply_http_txt_reads_identity_trio(monkeypatch: pytest.MonkeyPatch) -> 
         ("apply_version", "klo", "2026.8.0"),
         ("apply_config_hash", "klo", "5a94a12d"),
         ("apply_mac_address", "klo", "94c9601f8cf1"),
-        ("apply_http_identity_live", "klo", True),
+        ("apply_deployed_identity_live", "klo", True),
     ]
 
 
@@ -237,7 +237,7 @@ def test_apply_http_txt_old_firmware_version_only(monkeypatch: pytest.MonkeyPatc
 
     assert applied == [
         ("apply_version", "klo", "2026.6.4"),
-        ("apply_http_identity_live", "klo", True),
+        ("apply_deployed_identity_live", "klo", True),
     ]
 
 

@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 from esphome.core import CORE
 
 from esphome_device_builder.controllers._device_scanner import (
@@ -46,6 +47,7 @@ from esphome_device_builder.models import (
     FirmwareJob,
     JobStatus,
     JobType,
+    ReachabilitySource,
 )
 from tests._recording_scanner import RecordingScanner
 from tests._storage_fixtures import write_storage_json
@@ -432,6 +434,9 @@ def _flush_controller(device: Device) -> tuple[Any, list[Any]]:
 
     state_monitor.apply_config_hash.side_effect = _apply_hash
     state_monitor.apply_version.side_effect = _apply_version
+    # Not mdns-owned by default — the identity stamp's common case; the
+    # mdns-owned test overrides this.
+    state_monitor.priority_for.return_value = ReachabilitySource.PING
 
     controller = DevicesController.__new__(DevicesController)
     controller._db = db
@@ -528,26 +533,50 @@ async def test_sync_after_flash_already_in_sync_is_noop(monkeypatch: Any) -> Non
     assert fired == []
 
 
-async def test_sync_after_flash_stamps_http_identity_for_non_api_device(monkeypatch: Any) -> None:
-    """A flash is first-party identity evidence for a device without api:."""
+@pytest.mark.parametrize("api_enabled", [False, True], ids=["non_api", "api_not_mdns_owned"])
+async def test_sync_after_flash_stamps_deployed_identity(
+    monkeypatch: Any, api_enabled: bool
+) -> None:
+    """A flash is first-party identity evidence when mDNS doesn't own the device."""
     monkeypatch.setattr(_VERSION_READ, lambda _cfg: "2026.6.2")
-    device = _device(api_enabled=False, expected_config_hash="aaaa1111")
+    device = _device(api_enabled=api_enabled, expected_config_hash="aaaa1111")
     controller, _fired = _flush_controller(device)
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    controller._state_monitor.apply_http_identity_live.assert_called_once_with("kitchen", live=True)
+    controller._state_monitor.apply_deployed_identity_live.assert_called_once_with(
+        "kitchen", live=True
+    )
 
 
-async def test_sync_after_flash_skips_http_identity_for_api_device(monkeypatch: Any) -> None:
-    """An api device's identity freshness stays owned by active_source."""
+async def test_sync_after_flash_skips_identity_stamp_for_mdns_owned_api_device(
+    monkeypatch: Any,
+) -> None:
+    """Under mdns ownership the announce vouches; a stamp there would never clear."""
     monkeypatch.setattr(_VERSION_READ, lambda _cfg: "2026.6.2")
     device = _device(api_enabled=True, expected_config_hash="aaaa1111")
     controller, _fired = _flush_controller(device)
+    controller._state_monitor.priority_for.return_value = ReachabilitySource.MDNS
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    controller._state_monitor.apply_http_identity_live.assert_not_called()
+    controller._state_monitor.apply_deployed_identity_live.assert_not_called()
+
+
+async def test_sync_after_flash_mdns_owned_non_api_device_still_stamps(
+    monkeypatch: Any,
+) -> None:
+    """A non-api mdns claim is a bare A-record resolve — identity-blind, so stamp anyway."""
+    monkeypatch.setattr(_VERSION_READ, lambda _cfg: "2026.6.2")
+    device = _device(api_enabled=False, expected_config_hash="aaaa1111")
+    controller, _fired = _flush_controller(device)
+    controller._state_monitor.priority_for.return_value = ReachabilitySource.MDNS
+
+    await controller._sync_deployed_state_after_flash("kitchen.yaml")
+
+    controller._state_monitor.apply_deployed_identity_live.assert_called_once_with(
+        "kitchen", live=True
+    )
 
 
 async def test_sync_after_flash_unknown_configuration_is_noop(monkeypatch: Any) -> None:
