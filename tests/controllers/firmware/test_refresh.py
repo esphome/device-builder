@@ -43,6 +43,7 @@ from esphome_device_builder.controllers.devices._metadata_store import DeviceMet
 from esphome_device_builder.helpers.event_bus import Event
 from esphome_device_builder.models import (
     Device,
+    DeviceState,
     EventType,
     FirmwareJob,
     JobStatus,
@@ -637,6 +638,70 @@ async def test_cancel_reprobe_timers_cancels_pending(monkeypatch: Any) -> None:
 
     assert handle.cancelled()
     assert controller._reprobe_timers == {}
+
+
+async def test_deep_sleep_arms_burst_not_single_probe() -> None:
+    """A ``uses_deep_sleep`` device arms the first burst tick at the short delay, not 60s."""
+    controller = _reprobe_controller(_device(uses_deep_sleep=True))
+    loop = asyncio.get_running_loop()
+
+    controller._schedule_version_reprobe("kitchen.yaml")
+
+    handle = controller._reprobe_timers["kitchen.yaml"]
+    expected = firmware_sync._DEEP_SLEEP_REPROBE_FIRST_DELAY
+    assert handle.when() - loop.time() == pytest.approx(expected, abs=1)
+    controller._cancel_reprobe_timers()
+
+
+async def test_non_deep_sleep_arms_single_probe(monkeypatch: Any) -> None:
+    """A device without ``deep_sleep:`` keeps the single ~60s probe."""
+    monkeypatch.setattr(_DELAY, 60)
+    controller = _reprobe_controller(_device(uses_deep_sleep=False))
+    loop = asyncio.get_running_loop()
+
+    controller._schedule_version_reprobe("kitchen.yaml")
+
+    handle = controller._reprobe_timers["kitchen.yaml"]
+    assert handle.when() - loop.time() == pytest.approx(60, abs=1)
+    controller._cancel_reprobe_timers()
+
+
+async def test_burst_requests_and_rearms_until_deadline() -> None:
+    """Each burst tick re-probes an offline device and re-arms while inside the window."""
+    controller = _reprobe_controller(_device())  # default state UNKNOWN
+    loop = asyncio.get_running_loop()
+
+    firmware_sync._fire_version_reprobe_burst(
+        controller, "kitchen.yaml", deadline=loop.time() + 1000
+    )
+
+    controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
+    assert "kitchen.yaml" in controller._reprobe_timers  # re-armed
+    controller._cancel_reprobe_timers()
+
+
+async def test_burst_stops_once_device_online() -> None:
+    """The burst stops re-probing and re-arming once the device is back ONLINE."""
+    controller = _reprobe_controller(_device(state=DeviceState.ONLINE))
+    loop = asyncio.get_running_loop()
+
+    firmware_sync._fire_version_reprobe_burst(
+        controller, "kitchen.yaml", deadline=loop.time() + 1000
+    )
+
+    controller._state_monitor.api_info.request_reprobe.assert_not_called()
+    assert controller._reprobe_timers == {}  # not re-armed
+
+
+async def test_burst_stops_at_deadline() -> None:
+    """The last tick before the deadline re-probes but does not re-arm."""
+    controller = _reprobe_controller(_device())
+    loop = asyncio.get_running_loop()
+
+    firmware_sync._fire_version_reprobe_burst(controller, "kitchen.yaml", deadline=loop.time() - 1)
+
+    controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
+    assert controller._reprobe_timers == {}  # deadline passed, not re-armed
 
 
 # ----------------------------------------------------------------------

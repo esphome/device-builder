@@ -323,6 +323,11 @@ def load_device_from_storage(
             if resolved_config is not None
             else yaml_has_top_level_block(yaml_content, "mqtt")
         ),
+        uses_deep_sleep=(
+            config_has_top_level_block(resolved_config, "deep_sleep")
+            if resolved_config is not None
+            else yaml_has_top_level_block(yaml_content, "deep_sleep")
+        ),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
         mac_address=mac_address,

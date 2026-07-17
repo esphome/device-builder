@@ -15,7 +15,13 @@ from ...helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
 from ...helpers.storage_path import resolve_storage_path
-from ...models import COMPILING_JOB_TYPES, JobLifecycleData, JobStatus, JobType
+from ...models import (
+    COMPILING_JOB_TYPES,
+    DeviceState,
+    JobLifecycleData,
+    JobStatus,
+    JobType,
+)
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -25,6 +31,13 @@ _LOGGER = logging.getLogger(__name__)
 # Delay before the post-flash Native-API version re-probe so the device
 # has time to reboot into the new image before we connect.
 _POST_FLASH_VERSION_REPROBE_DELAY = 60
+
+# A deep-sleep device is only awake briefly after the reboot, so the single
+# 60s probe above would miss it. Fire a tight burst across the reboot + awake
+# window instead, stopping as soon as the device is seen.
+_DEEP_SLEEP_REPROBE_FIRST_DELAY = 5
+_DEEP_SLEEP_REPROBE_INTERVAL = 5
+_DEEP_SLEEP_REPROBE_WINDOW = 40
 
 
 def on_job_completed(controller: DevicesController, event: Event[JobLifecycleData]) -> None:
@@ -186,21 +199,36 @@ async def sync_deployed_state_after_flash(
 
 def schedule_version_reprobe(controller: DevicesController, configuration: str) -> None:
     """
-    Arm a one-shot Native-API version re-probe ~60s after a flash.
+    Arm the post-flash Native-API version re-probe(s).
 
-    The delay lets the device reboot into the new image before we
-    connect; the re-probe then confirms the optimistically-pinned
-    version (and catches a rollback) where mDNS can't reach us.
-    Re-arming for the same configuration cancels the prior timer so a
-    rapid re-flash doesn't stack probes; the handle is tracked on the
-    controller so ``stop`` can cancel anything still pending.
+    A normal device gets one probe ~60s after the flash, letting it
+    reboot into the new image before we connect. A deep-sleep device
+    (``Device.uses_deep_sleep``) is only awake briefly, so it gets a
+    tight burst across the reboot + awake window that stops once the
+    device is seen. Either way the re-probe confirms the
+    optimistically-pinned version (and catches a rollback) where mDNS
+    can't reach us. Re-arming for the same configuration cancels the
+    prior timer so a rapid re-flash doesn't stack probes; the handle is
+    tracked on the controller so ``stop`` can cancel anything still
+    pending.
     """
     existing = controller._reprobe_timers.pop(configuration, None)
     if existing is not None:
         existing.cancel()
+    device = controller._scanner.get_by_configuration(configuration)
     loop = asyncio.get_running_loop()
+    if device is None or not device.uses_deep_sleep:
+        controller._reprobe_timers[configuration] = loop.call_later(
+            _POST_FLASH_VERSION_REPROBE_DELAY, _fire_version_reprobe, controller, configuration
+        )
+        return
+    deadline = loop.time() + _DEEP_SLEEP_REPROBE_WINDOW
     controller._reprobe_timers[configuration] = loop.call_later(
-        _POST_FLASH_VERSION_REPROBE_DELAY, _fire_version_reprobe, controller, configuration
+        _DEEP_SLEEP_REPROBE_FIRST_DELAY,
+        _fire_version_reprobe_burst,
+        controller,
+        configuration,
+        deadline,
     )
 
 
@@ -233,6 +261,32 @@ def _fire_version_reprobe(controller: DevicesController, configuration: str) -> 
     device = controller._scanner.get_by_configuration(configuration)
     if device is not None:
         controller._state_monitor.api_info.request_reprobe(device.name)
+
+
+def _fire_version_reprobe_burst(
+    controller: DevicesController, configuration: str, deadline: float
+) -> None:
+    """
+    Deep-sleep re-probe tick: probe, then re-arm until the device is seen or *deadline* passes.
+
+    Stops early once the device is ONLINE (an announce or an earlier
+    probe landed); the ``priority_for != MDNS`` guard in
+    ``request_reprobe`` still skips a device already seen over mDNS.
+    """
+    controller._reprobe_timers.pop(configuration, None)
+    device = controller._scanner.get_by_configuration(configuration)
+    if device is None or device.runtime_state.state is DeviceState.ONLINE:
+        return
+    controller._state_monitor.api_info.request_reprobe(device.name)
+    loop = asyncio.get_running_loop()
+    if loop.time() + _DEEP_SLEEP_REPROBE_INTERVAL <= deadline:
+        controller._reprobe_timers[configuration] = loop.call_later(
+            _DEEP_SLEEP_REPROBE_INTERVAL,
+            _fire_version_reprobe_burst,
+            controller,
+            configuration,
+            deadline,
+        )
 
 
 def _read_compiled_esphome_version(configuration: str) -> str:

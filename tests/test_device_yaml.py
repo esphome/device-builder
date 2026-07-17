@@ -982,6 +982,19 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
     assert spy.call_count == 1
 
 
+def test_load_device_from_storage_detects_deep_sleep(tmp_path: Path) -> None:
+    """A top-level ``deep_sleep:`` block sets ``uses_deep_sleep``; its absence clears it."""
+    sleeper = tmp_path / "sleeper.yaml"
+    sleeper.write_text(
+        "esphome:\n  name: sleeper\ndeep_sleep:\n  sleep_duration: 60s\n", encoding="utf-8"
+    )
+    assert load_device_from_storage(sleeper).uses_deep_sleep is True
+
+    awake = tmp_path / "awake.yaml"
+    awake.write_text("esphome:\n  name: awake\napi:\n", encoding="utf-8")
+    assert load_device_from_storage(awake).uses_deep_sleep is False
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [

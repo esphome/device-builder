@@ -148,6 +148,7 @@ class Device(DashboardModel):
     pending_changes_via_hash: bool = False
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
+    uses_deep_sleep: bool = False  # True if the YAML declares a top-level deep_sleep: block
     # Native API surface flags — drive the lock-icon indicator in
     # the device list. Both fields are computed in
     # ``helpers.device_yaml.load_device_from_storage`` as the
