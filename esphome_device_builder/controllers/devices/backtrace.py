@@ -67,9 +67,8 @@ async def decode_backtrace(
     Answers ``{decoded, stale_build, unavailable_reason, local_config_hash}``.
     A device that was never compiled here is a normal outcome, reported as
     ``unavailable_reason``, not raised. ``stale_build`` and ``local_config_hash``
-    are answered even when declining: a client that decodes the ELF some other
-    way needs the same caveat, and needs to know which build it read, and only
-    this side knows either.
+    describe the local build, so they are answered even when declining to
+    decode it.
     """
     # ``resolve_storage_path`` collapses to ``<data_dir>/storage/<basename>``,
     # so a traversal-shaped *configuration* could still reach an
@@ -201,10 +200,8 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
 def _missing_artifacts_reason(storage: StorageJSON) -> str:
     """Say whether the ELF is here without its build tree, or nothing is here.
 
-    Both were ``no_build`` once, which conflated "never compiled here" with
-    "compiled on a remote build server", and left a client that can decode an
-    ELF itself asking a second time to tell them apart. The ELF is the only
-    input such a decoder needs, so its presence is the whole distinction.
+    The ELF is the only input a decoder needs, so its presence is the whole
+    distinction.
     """
     elf = resolve_elf_path(storage)
     return DecodeUnavailable.ELF_ONLY if elf and elf.is_file() else DecodeUnavailable.NO_BUILD

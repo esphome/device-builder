@@ -151,8 +151,7 @@ class DecodeUnavailable(StrEnum):
     NO_BACKTRACE = "no_backtrace"
     NO_BUILD = "no_build"
     # The ELF is here but the build tree it was compiled in is not, so nothing
-    # local can resolve addr2line: a device built on a remote build server. A
-    # client that can read an ELF itself still can.
+    # local can resolve addr2line.
     ELF_ONLY = "elf_only"
     UNSUPPORTED_PLATFORM = "unsupported_platform"
     DECODE_FAILED = "decode_failed"
