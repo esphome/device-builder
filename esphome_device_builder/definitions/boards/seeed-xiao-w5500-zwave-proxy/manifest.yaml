@@ -1,0 +1,152 @@
+id: seeed-xiao-w5500-zwave-proxy
+name: Seeed Studio XIAO W5500 Z-Wave Proxy (ZWA-2)
+description: >-
+  Seeed Studio XIAO W5500 Ethernet Adapter (XIAO ESP32-S3 Plus, 16MB flash,
+  8MB PSRAM) preconfigured as a Z-Wave proxy for a Home Assistant Connect
+  ZWA-2 in its USB-C port; with the stick occupying USB-C the adapter is PoE
+  powered over its wired Ethernet. One of many possible Z-Wave proxy setups —
+  this one is available off the shelf.
+manufacturer: Seeed Studio
+esphome:
+  platform: esp32
+  board: seeed_xiao_esp32_s3_plus
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- compact
+- poe
+- usb-c
+docs_url: https://esphome.io/components/zwave_proxy
+product_url: https://www.seeedstudio.com/XIAO-W5500-Ethernet-Adapter-p-6472.html
+images:
+- https://files.seeedstudio.com/wiki/xiao_w5500_poe/0.jpg
+- https://files.seeedstudio.com/wiki/xiao_w5500_poe/2.jpg
+- https://files.seeedstudio.com/wiki/xiao_w5500_poe/3.jpg
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet (PoE)
+  description: W5500 Ethernet controller (SPI) — wired networking, 802.3af PoE powered.
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO7
+      locked: true
+    mosi_pin:
+      value: GPIO9
+      locked: true
+    miso_pin:
+      value: GPIO8
+      locked: true
+    cs_pin:
+      value: GPIO2
+      locked: true
+    interrupt_pin:
+      value: GPIO10
+      locked: true
+- id: onboard_psram
+  component_id: psram
+  name: Onboard PSRAM (8MB octal)
+  fields:
+    mode: octal
+    speed: 80MHz
+- id: zwave_usb_host
+  component_id: usb_host
+  name: USB Host (ZWA-2 stick)
+  description: USB-C host port configured for the Home Assistant Connect ZWA-2.
+  image_url: https://www.home-assistant.io/images/connect/zwa-2/device/intro.webp
+  fields:
+    devices:
+    - id: device_0
+      vid: 0x303A
+      pid: 0x4001
+- id: zwave_usb_uart
+  component_id: usb_uart
+  name: ZWA-2 Serial (CDC-ACM)
+  image_url: https://www.home-assistant.io/images/connect/zwa-2/device/intro.webp
+  requires:
+  - zwave_usb_host
+  fields:
+    type: CDC_ACM
+    vid: 0x303A
+    pid: 0x4001
+    channels:
+    - id: uch_1
+      baud_rate: 115200
+      buffer_size: 4096
+- id: zwave_radio
+  component_id: zwave_proxy
+  name: Z-Wave Proxy
+  description: Proxies the ZWA-2 Z-Wave radio to Z-Wave JS over the native API.
+  image_url: https://www.home-assistant.io/images/connect/zwa-2/device/intro.webp
+  requires:
+  - zwave_usb_uart
+  fields:
+    id: zw_proxy
+featured_bundles:
+- id: zwave_proxy_setup
+  name: Z-Wave Proxy (full setup)
+  description: USB host + CDC-ACM serial + zwave_proxy for a ZWA-2 stick in the USB-C port.
+  image_url: https://www.home-assistant.io/images/connect/zwa-2/device/intro.webp
+  component_ids:
+  - zwave_usb_host
+  - zwave_usb_uart
+  - zwave_radio
+default_components:
+- onboard_psram
+- onboard_ethernet
+- zwave_usb_host
+- zwave_usb_uart
+- zwave_radio
+- id: mdns
+  fields:
+    services:
+    - service: _zwave
+      protocol: _tcp
+      port: 6053
+      txt:
+        protocol: esphome
+pins:
+- gpio: 7
+  label: GPIO7
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 9
+  label: GPIO9
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 8
+  label: GPIO8
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 2
+  label: GPIO2
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 10
+  label: GPIO10
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 19
+  label: GPIO19
+  features:
+  - usb_dm
+  available: false
+  occupied_by: USB-C host port
+  notes: Native USB D- wired to the USB-C host port (ZWA-2 stick)
+- gpio: 20
+  label: GPIO20
+  features:
+  - usb_dp
+  available: false
+  occupied_by: USB-C host port
+  notes: Native USB D+ wired to the USB-C host port (ZWA-2 stick)
