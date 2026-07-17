@@ -264,9 +264,9 @@ def test_pin_idedata_reports_a_missing_cache_as_no_build(tmp_path: Path) -> None
 def test_pin_idedata_pins_a_sentinel_when_the_cache_is_not_required(tmp_path: Path) -> None:
     """esp-idf / nrf52 pin an empty memo rather than leaving it unset.
 
-    At the declared floor esp32's ``_decode_pc`` reaches ``get_idedata``
-    whatever the toolchain, and an unset memo there means ``_load_idedata``
-    shells out to a full ``pio run -t idedata`` from a read-only decode.
+    An unset memo on a branch that does reach ``get_idedata`` means
+    ``_load_idedata`` shells out to a full ``pio run -t idedata`` from a
+    read-only decode; an unused memo entry costs nothing.
     """
     CORE.data[KEY_CORE] = {}
 
@@ -277,6 +277,37 @@ def test_pin_idedata_pins_a_sentinel_when_the_cache_is_not_required(tmp_path: Pa
     # the empty sentinel then fails the way the latch already handles.
     with pytest.raises(KeyError):
         _ = get_idedata({}).addr2line_path
+
+
+def test_cmd_decode_backtrace_reports_an_unhandled_failure_on_the_reply(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unhandled child failure rides stdout; the parent discards stderr."""
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=io.BytesIO(b"{not json")))
+
+    assert helper_cli._cmd_decode_backtrace(SimpleNamespace()) == 0
+
+    reply = json.loads(capsys.readouterr().out)
+    # A bare exit code over an empty stdout would leave the operator nothing:
+    # the parent opens our stderr as DEVNULL.
+    assert reply["unavailable_reason"] == "helper_failed"
+    assert reply["decoded"] == []
+    assert "JSONDecodeError" in reply["detail"]
+
+
+def test_pin_idedata_reports_a_required_cache_that_vanishes_as_no_build(
+    tmp_path: Path,
+) -> None:
+    """A required cache read that misses is no_build, not decode_failed."""
+    CORE.data[KEY_CORE] = {}
+
+    with pytest.raises(helper_cli._UnavailableError) as err:
+        helper_cli._pin_idedata(tmp_path / "absent.json", required=True)
+
+    # Telling the user to compile is the actionable answer; a test-then-read
+    # would have substituted the sentinel and blamed the decoder instead.
+    assert err.value.reply["unavailable_reason"] == "no_build"
 
 
 def test_pin_idedata_reports_a_corrupt_cache_as_decode_failed(tmp_path: Path) -> None:

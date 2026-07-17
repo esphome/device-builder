@@ -71,16 +71,26 @@ def _cmd_download_types(args: argparse.Namespace) -> int:
 
 
 def _cmd_decode_backtrace(args: argparse.Namespace) -> int:
-    request = loads(sys.stdin.buffer.read())
-    # Same stdout-purity contract as download-types: the component import and
-    # addr2line shell-outs both print.
-    with contextlib.redirect_stdout(sys.stderr):
-        result = _decode_backtrace(
-            config_path=Path(request["config_path"]),
-            storage_path=Path(request["storage_path"]),
-            idedata_path=Path(request["idedata_path"]),
-            lines=request["lines"],
-        )
+    try:
+        request = loads(sys.stdin.buffer.read())
+        # Same stdout-purity contract as download-types: the component import
+        # and addr2line shell-outs both print.
+        with contextlib.redirect_stdout(sys.stderr):
+            result = _decode_backtrace(
+                config_path=Path(request["config_path"]),
+                storage_path=Path(request["storage_path"]),
+                idedata_path=Path(request["idedata_path"]),
+                lines=request["lines"],
+            )
+    except Exception as err:  # noqa: BLE001 — the reply is the only channel out
+        # The parent discards our stderr, so anything unhandled would reach it
+        # as a bare exit code over an empty stdout. Put the cause on the reply
+        # every other reason already travels on.
+        result = {
+            "decoded": [],
+            "unavailable_reason": DecodeUnavailable.HELPER_FAILED,
+            "detail": repr(err),
+        }
     sys.stdout.write(dumps_str(result))
     return 0
 
@@ -209,16 +219,25 @@ def _pin_idedata(idedata_path: Path, *, required: bool) -> None:
     cache that exists but won't load is ``decode_failed``, because telling the
     user to compile wouldn't fix a corrupt file or an upstream module move.
     """
-    if required and not idedata_path.is_file():
-        raise _UnavailableError(DecodeUnavailable.NO_BUILD, f"no idedata cache at {idedata_path}")
     try:
         # Kept local, and inside the try, so an upstream move of the module
         # fails this decode rather than the whole helper's import (which
         # download-types shares).
         from esphome.platformio.toolchain import KEY_IDEDATA, IDEData  # noqa: PLC0415
 
-        raw = loads(idedata_path.read_bytes()) if idedata_path.is_file() else {}
+        try:
+            # Read rather than test-then-read: a cache that vanishes between
+            # the two would substitute the sentinel for one that was required.
+            raw = loads(idedata_path.read_bytes())
+        except FileNotFoundError:
+            if required:
+                raise
+            raw = {}
         CORE.data[KEY_CORE][KEY_IDEDATA] = IDEData(raw)
+    except FileNotFoundError as err:
+        raise _UnavailableError(
+            DecodeUnavailable.NO_BUILD, f"no idedata cache at {idedata_path}"
+        ) from err
     except Exception as err:
         raise _UnavailableError(
             DecodeUnavailable.DECODE_FAILED,
