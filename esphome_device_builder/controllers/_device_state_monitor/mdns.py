@@ -69,11 +69,15 @@ _MDNS_CLOSE_TIMEOUT = 1.0
 _MDNS_REFRESH_PADDING_SECONDS = 1.0
 
 # Identity TXT key → monitor applier, the single source for both the
-# apply loop and the presence check. The ``http_identity_live`` flag
-# keys on their presence: a contentless ``_http._tcp`` service (an
-# api+web_server device, or old web_server firmware) must never vouch
-# for the identity trio, or a flag-True device with an identity-less
-# cached TXT would verify-resolve every sweep forever.
+# apply loop and the presence check. Lambdas, not partials / bound
+# methods: ``DeviceStateMonitor`` is TYPE_CHECKING-only here (circular
+# import), and the call-time attribute lookup keeps instance-level
+# overrides (tests) working like the inline calls they replaced. The
+# ``http_identity_live`` flag keys on their presence: a contentless
+# ``_http._tcp`` service (an api+web_server device, or old web_server
+# firmware) must never vouch for the identity trio, or a flag-True
+# device with an identity-less cached TXT would verify-resolve every
+# sweep forever.
 _IDENTITY_TXT_APPLIERS: tuple[tuple[str, Callable[[DeviceStateMonitor, str, str], bool]], ...] = (
     ("version", lambda monitor, name, value: monitor.apply_version(name, value)),
     ("config_hash", lambda monitor, name, value: monitor.apply_config_hash(name, value)),
