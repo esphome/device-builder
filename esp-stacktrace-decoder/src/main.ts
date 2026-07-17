@@ -80,7 +80,18 @@ async function decodeRegion(elf: ArrayBuffer, dump: string): Promise<DecodedFram
     // also where a malformed region is most likely to throw partway through;
     // leaving the rest to the FinalizationRegistry there is the one case it was
     // meant to avoid. Double-freeing is not a risk: each handle is freed once.
-    for (const entry of decoded) entry.free();
+    //
+    // Each free is guarded so cleanup always finishes: an unguarded throw here
+    // would abandon the remaining handles, leaking the arena this exists to
+    // reclaim, and would replace the in-flight decode error, reporting the
+    // wrong reason the region failed.
+    for (const entry of decoded) {
+      try {
+        entry.free();
+      } catch (err) {
+        console.warn("Freeing a decoded frame failed", err);
+      }
+    }
   }
   return frames;
 }
@@ -156,8 +167,19 @@ if (peer && !nonce) {
   let waited = 0;
   readyTimer = window.setInterval(() => {
     waited += 500;
-    if (requested || waited >= 10000) {
+    if (requested) {
       stopReadyRetry();
+      return;
+    }
+    if (waited >= 10000) {
+      stopReadyRetry();
+      // Same reasoning as the missing-nonce branch: going quiet here is
+      // indistinguishable from never having loaded, so an embedder that
+      // attached late (a throttled background tab) would look like an outage.
+      console.error(
+        "No decode was requested within 10s of loading, so this page has " +
+          "stopped announcing itself. Reload the frame to retry.",
+      );
       return;
     }
     sendReady();
