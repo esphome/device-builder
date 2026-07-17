@@ -44,8 +44,10 @@ class _Toolchain(NamedTuple):
     build_subdir: str  # artifact dir under build/<name>/ proving the compile landed
 
 
+# Keys double as pytest param ids the CI matrix selects with ``-k``, whose expression grammar
+# can't express a hyphen — keep them underscore-only.
 _TOOLCHAINS = {
-    "native-idf": _Toolchain(
+    "native_idf": _Toolchain(
         yaml_line="",
         env_var="ESPHOME_ESP_IDF_PREFIX",
         root_subdir="idf",
