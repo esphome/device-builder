@@ -97,6 +97,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     # empty/whitespace ESPHOME_ESP_IDF_PREFIX as unset — mirror that or an empty var would
     # silently fall back to the long + spaced machine-global cache this exists to avoid.
     user_set_idf = bool(os.environ.get("ESPHOME_ESP_IDF_PREFIX", "").strip())
+    prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")  # may be present-but-empty; kept verbatim
     idf_cache = _default_idf_cache()
     idf_sources = (idf_cache,) if idf_cache is not None else ()
     override_idf = not user_set_idf and _relocate_into(idf, *idf_sources)
@@ -111,14 +112,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     try:
         yield
     finally:
-        # All three vars were unset on entry (ESPHOME_DATA_DIR guarded above; the toolchain vars
-        # only overridden when absent — or, for the IDF prefix, empty, which esphome also treats
-        # as unset), so popping is the right restore.
-        os.environ.pop("ESPHOME_DATA_DIR", None)
-        if override_pio:
-            os.environ.pop("PLATFORMIO_CORE_DIR", None)
-        if override_idf:
-            os.environ.pop("ESPHOME_ESP_IDF_PREFIX", None)
+        _restore_env(override_pio=override_pio, override_idf=override_idf, prev_idf=prev_idf)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +133,25 @@ def _is_windows() -> bool:
 def _platformio_dir() -> Path:
     """Default toolchain dir to migrate from (a seam; tests avoid the real ~/.platformio)."""
     return Path.home() / ".platformio"
+
+
+def _restore_env(*, override_pio: bool, override_idf: bool, prev_idf: str | None) -> None:
+    """
+    Undo the relocation's env overrides on exit.
+
+    ESPHOME_DATA_DIR / PLATFORMIO_CORE_DIR were unset on entry (guarded before overriding), so
+    popping restores them. The IDF prefix may have been present-but-empty (esphome treats that as
+    unset, so it was still overridden) — the original value goes back verbatim.
+    """
+    os.environ.pop("ESPHOME_DATA_DIR", None)
+    if override_pio:
+        os.environ.pop("PLATFORMIO_CORE_DIR", None)
+    if not override_idf:
+        return
+    if prev_idf is None:
+        os.environ.pop("ESPHOME_ESP_IDF_PREFIX", None)
+    else:
+        os.environ["ESPHOME_ESP_IDF_PREFIX"] = prev_idf
 
 
 def _default_idf_cache() -> Path | None:
@@ -162,8 +175,10 @@ def _relocate_into(dst: Path, *sources: Path) -> bool:
     it is keyed off a source still existing, not bare ``dst.exists()``, so a marker write lost
     after a successful move never triggers a destructive re-relocation. Returns ``False`` when the
     move is incomplete -- a partial *dst* that could not be cleared, or a move that left the source
-    behind -- so the caller never points env at incomplete data or a corrupt toolchain. Used for
-    both the build root and the toolchain so the two paths cannot drift apart.
+    behind -- so the caller never points env at incomplete data or a corrupt toolchain. The one
+    exception: a failed move whose copy verifiably completed (:func:`_copy_completed`) adopts
+    *dst*, because there the half-deleted *source* is the damaged side. Used for both the build
+    root and the toolchains so the paths cannot drift apart.
     """
     marker = dst / _RELOCATED_MARKER
     if marker.is_file():
@@ -177,12 +192,29 @@ def _relocate_into(dst: Path, *sources: Path) -> bool:
             if dst.exists():
                 _LOGGER.warning("Could not clear partial %s; leaving %s in place", dst, src)
                 return False
+        adopted_dst = False
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)  # nested rename target needs its parent
             shutil.move(str(src), str(dst))
         except OSError:
-            _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
-        if src.is_dir():
+            # A cross-volume move is copy-then-delete: when only the delete phase died, dst holds
+            # a complete copy and the source is already half-deleted — falling back would point
+            # the consumer at the damaged tree, so adopt dst instead. Any other failure (rename
+            # denied, copy died partway) leaves the source authoritative and dst discardable.
+            adopted_dst = _copy_completed(src, dst)
+            if adopted_dst:
+                shutil.rmtree(src, ignore_errors=True)
+                if src.is_dir():
+                    _LOGGER.exception(
+                        "Relocated %s to %s but the source could not be removed; delete %s "
+                        "manually to reclaim space",
+                        src,
+                        dst,
+                        src,
+                    )
+            else:
+                _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
+        if src.is_dir() and not adopted_dst:
             _LOGGER.warning("%s not relocated; source remains at %s", dst, src)
             return False
     # No source left here: none existed, the move just completed, or a prior run moved it and only
@@ -194,3 +226,31 @@ def _relocate_into(dst: Path, *sources: Path) -> bool:
         _LOGGER.warning("Could not finalize relocation dir %s", dst)
         return False
     return True
+
+
+def _copy_completed(src: Path, dst: Path) -> bool:
+    """
+    Whether every file still under *src* has an identical-size counterpart under *dst*.
+
+    Classifies a failed ``shutil.move``: a copy-phase death leaves the source complete and the
+    copy missing files (``False``, source is authoritative); a delete-phase death leaves only
+    already-copied leftovers under the source (``True``, the copy is complete). A source with no
+    files left is ambiguous — nothing distinguishes the phases — so it stays ``False`` and the
+    caller falls back fail-closed.
+    """
+    if not dst.is_dir():
+        return False
+    matched_file = False
+    try:
+        for current, _dirs, files in os.walk(src):
+            rel = Path(current).relative_to(src)
+            for name in files:
+                copied = dst / rel / name
+                if not copied.is_file():
+                    return False
+                if copied.stat().st_size != (Path(current) / name).stat().st_size:
+                    return False
+                matched_file = True
+    except OSError:
+        return False
+    return matched_file
