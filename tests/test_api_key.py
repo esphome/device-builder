@@ -8,14 +8,10 @@ indicator.
 
 from __future__ import annotations
 
-import importlib
-import sys
-import types
 from pathlib import Path
 from unittest import mock
 
 import pytest
-from esphome.components import packages as _real_esphome_packages
 
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -202,10 +198,10 @@ def test_load_device_yaml_merges_packages(tmp_path: Path) -> None:
     dashboard report ``api_encrypted=False``, ``target_platform=""``,
     ``loaded_integrations=[]`` because the unmerged config still
     had those keys nested under ``packages:`` instead of at the
-    top level. We delegate to ESPHome's own ``do_packages_pass`` +
-    ``merge_packages`` (the same two-step the compiler's
-    ``validate_config`` runs) so the dashboard sees what the
-    compiler sees.
+    top level. We delegate to ESPHome's own ``resolve_packages``
+    (the wrapper over the ``do_packages_pass`` + ``merge_packages``
+    the compiler's ``validate_config`` chains itself) so the
+    dashboard sees what the compiler sees.
     """
     (tmp_path / "common.yaml").write_text(
         "esp32:\n"
@@ -265,161 +261,27 @@ def test_detect_platform_from_yaml_returns_empty_when_resolved_config_has_no_pla
     assert detect_platform_from_yaml(yaml_content, resolved) == ""
 
 
-def test_load_device_yaml_uses_two_step_when_resolve_packages_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Two-step fallback runs when the upstream ``resolve_packages`` is missing.
-
-    Pins the fallback path independently of which esphome release
-    happens to be installed in the test runner. CI runs against
-    whatever esphome ships today (no ``resolve_packages``); local
-    development can hit either side. The forced-None monkeypatch
-    makes coverage of the two-step branch deterministic regardless.
-    """
-    monkeypatch.setattr(device_yaml._loading, "_resolve_packages", None)
-    (tmp_path / "common.yaml").write_text(
-        "esp32:\n  board: esp32dev\nwifi:\n  ssid: x\n  password: y\n"
-    )
-    yaml_file = tmp_path / "ble.yaml"
-    yaml_file.write_text("esphome:\n  name: ble\npackages:\n  common: !include common.yaml\n")
-    config = load_device_yaml(yaml_file)
-    assert config is not None
-    # Two-step path fired → packages merged → top-level keys
-    # surface.
-    assert "packages" not in config
-    assert "esp32" in config
-    assert "wifi" in config
-
-
-def test_load_device_yaml_uses_upstream_resolve_packages_when_available(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """When the upstream ``resolve_packages`` import is available it wins.
-
-    The two-step ``do_packages_pass`` + ``merge_packages`` path is
-    the fallback for older esphome releases — once the upstream PR
-    (esphome/esphome#16235) lands and the dashboard's dep floor
-    moves past it, the single-call seam takes over. Stubs the
-    upstream symbol with a spy and confirms the wrapper goes
-    through it (and the two-step is NOT called).
-    """
-    yaml_file = tmp_path / "with_pkg.yaml"
-    yaml_file.write_text("esphome:\n  name: x\npackages:\n  shared:\n    wifi:\n      ssid: y\n")
-    spy = mock.MagicMock(side_effect=lambda c: c)
-    monkeypatch.setattr(device_yaml._loading, "_resolve_packages", spy)
-    with mock.patch.object(device_yaml._loading, "_do_packages_pass") as two_step_spy:
-        config = load_device_yaml(yaml_file)
-    assert config is not None
-    spy.assert_called_once()
-    two_step_spy.assert_not_called()
-
-
 def test_load_device_yaml_recovers_when_merge_raises(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A bad / unreachable package can't blank the device's metadata.
 
     Pinning the catch-all error handler on the merge call: if
-    ``do_packages_pass`` (or ``resolve_packages``) raises — the
-    typical case is a remote package whose git ref vanished, but
-    also a malformed local package YAML, a missing file, etc. —
-    the function returns the unmerged config so the raw-YAML
-    fallback paths at the call sites still surface what they
-    can. Pre-fix degradation, not a hard failure.
+    ``resolve_packages`` raises — the typical case is a remote
+    package whose git ref vanished, but also a malformed local
+    package YAML, a missing file, etc. — the function returns the
+    unmerged config so the raw-YAML fallback paths at the call
+    sites still surface what they can. Pre-fix degradation, not a
+    hard failure.
     """
     yaml_file = tmp_path / "broken_pkg.yaml"
     yaml_file.write_text("esphome:\n  name: x\npackages:\n  shared:\n    wifi:\n      ssid: y\n")
     boom = mock.MagicMock(side_effect=RuntimeError("simulated package failure"))
-    monkeypatch.setattr(device_yaml._loading, "_resolve_packages", boom)
+    monkeypatch.setattr(device_yaml._loading, "resolve_packages", boom)
     config = load_device_yaml(yaml_file)
     assert config is not None
     # Merge raised → caller keeps the unmerged shape rather than
     # crashing or returning ``None``.
-    assert "packages" in config
-
-
-def test_module_import_handles_missing_resolve_packages(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Module load survives an esphome that lacks ``resolve_packages``.
-
-    Pins the ``except ImportError: _resolve_packages = None`` branch
-    at module load. Reloads ``device_yaml`` against a stubbed
-    ``esphome.components.packages`` that has only the two-step
-    helpers — the typical shape of ESPHome releases that ship
-    BEFORE esphome/esphome#16235 lands. Without the import guard
-    the module would fail to import on those releases.
-    """
-    real_packages = _real_esphome_packages
-    stub = types.SimpleNamespace(
-        do_packages_pass=real_packages.do_packages_pass,
-        merge_packages=real_packages.merge_packages,
-        # Intentionally NO ``resolve_packages`` attribute — that's
-        # the upstream-not-yet-shipped state.
-    )
-    monkeypatch.setitem(sys.modules, "esphome.components.packages", stub)
-    reloaded = importlib.reload(device_yaml._loading)
-    try:
-        assert reloaded._resolve_packages is None
-        assert reloaded._do_packages_pass is real_packages.do_packages_pass
-        assert reloaded._merge_packages is real_packages.merge_packages
-    finally:
-        # Restore so subsequent tests see the real module.
-        monkeypatch.setitem(sys.modules, "esphome.components.packages", real_packages)
-        importlib.reload(device_yaml._loading)
-
-
-def test_module_import_handles_missing_two_step(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Module load survives an esphome that drops the two-step helpers.
-
-    Pins the ``except ImportError`` branch on the
-    ``do_packages_pass`` / ``merge_packages`` import. Belt-and-
-    suspenders for the day esphome ships only ``resolve_packages``
-    and removes / renames the two-step. Without the guard the
-    module would fail to import once the dep floor moves.
-    """
-    real_packages = _real_esphome_packages
-    stub = types.SimpleNamespace(
-        # Only ``resolve_packages`` exposed — no two-step helpers.
-        resolve_packages=getattr(real_packages, "resolve_packages", lambda c: c),
-    )
-    monkeypatch.setitem(sys.modules, "esphome.components.packages", stub)
-    reloaded = importlib.reload(device_yaml._loading)
-    try:
-        assert reloaded._do_packages_pass is None
-        assert reloaded._merge_packages is None
-        assert reloaded._resolve_packages is stub.resolve_packages
-    finally:
-        monkeypatch.setitem(sys.modules, "esphome.components.packages", real_packages)
-        importlib.reload(device_yaml._loading)
-
-
-def test_load_device_yaml_falls_back_when_both_imports_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """No-op gracefully when neither upstream import shape is available.
-
-    A future esphome that deprecates ``do_packages_pass`` /
-    ``merge_packages`` AND moves ``resolve_packages`` (rename,
-    refactor, …) would otherwise leave us with no merge path. The
-    module's ``try/except ImportError`` guards both imports - the
-    function then degrades to the unmerged shape, the same fallback
-    we use when a package merge fails at runtime. Pre-fix
-    behaviour stays available even if the upstream API surface
-    drifts.
-    """
-    monkeypatch.setattr(device_yaml._loading, "_resolve_packages", None)
-    monkeypatch.setattr(device_yaml._loading, "_do_packages_pass", None)
-    monkeypatch.setattr(device_yaml._loading, "_merge_packages", None)
-    yaml_file = tmp_path / "with_pkg.yaml"
-    yaml_file.write_text("esphome:\n  name: x\npackages:\n  shared:\n    wifi:\n      ssid: y\n")
-    config = load_device_yaml(yaml_file)
-    assert config is not None
-    # Without a merge path the ``packages:`` block stays — caller
-    # then falls back to the raw-scan / StorageJSON surfaces the
-    # rest of the metadata pipeline already handles.
     assert "packages" in config
 
 

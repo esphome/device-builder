@@ -542,13 +542,22 @@ against legacy behaviour before assuming the simpler version suffices.
     identity keys through the shared `_apply_identity_txt` (each key
     tolerates absence) and **nothing else** — never api-encryption: the
     absent-key-means-plaintext rule from the esphomelib path would stamp
-    a false confirmation on a device with no API. Drive **no** state off
-    it (no ONLINE claim, `Removed` ignored): the same shared browser
+    a false confirmation on a device with no API. Drive **no** reachability
+    off it (no ONLINE claim, `Removed` ignored): the same shared browser
     watches `_http._tcp`, but reachability stays owned by the
     active-resolve / MQTT / ping paths, so an all-API name bucket is
     skipped (a device broadcasting the API gets its identity from the
     esphomelib path). The level-triggered repair (`reconcile_from_cache`)
-    reads both services' cached TXT.
+    reads both services' cached TXT. The one state the path does drive is
+    `runtime_state.http_identity_live` — the session-only freshness bit
+    the frontend gates the non-API deployed identity on (their
+    `active_source` never says `mdns`). Stamped by every identity-bearing
+    apply and by the post-flash optimistic sync; level-synced against the
+    unexpired cached TXT each API-info sweep, whose clear side needs a
+    cached mDNS trace plus a confirming re-resolve
+    (`verify_http_identity`) — never demote on uncertainty, and an
+    mDNS-dark deployment (post-flash stamp only) is never demoted at
+    all.
   - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
     API devices the ping sweep is about to ICMP). Exists because the
     zeroconf browser never re-asks: after its startup queries it only

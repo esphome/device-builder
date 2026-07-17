@@ -126,9 +126,7 @@ FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update
 
 # esphome ``Toolchain`` values, as the plain strings a StorageJSON sidecar
 # stores. Matched as strings rather than through ``esphome.const.Toolchain``
-# members because that enum gains members over time and the floor has no
-# ceiling, so reading one a supported esphome lacks would raise for every
-# decode, not just the platform it names. The wire values don't change.
+# to keep this module a stdlib-only leaf; the wire values don't change.
 # Shared because the dashboard's spawn gate (``controllers/devices/
 # backtrace.py``) and the helper child's idedata decision (``helper_cli.py``)
 # encode one contract and must agree; stdlib-only home, so the child pays

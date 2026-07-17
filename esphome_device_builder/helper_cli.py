@@ -199,12 +199,11 @@ def _pin_idedata(idedata_path: Path, *, required: bool) -> None:
     failing open costs a compile.
 
     Pinned even when *required* is False, i.e. for toolchains that shouldn't
-    consult idedata at all. At our floor (2026.5.1) esp32's ``_decode_pc``
-    routes through ``get_idedata`` whatever the toolchain -- the esp-idf
-    branch arrives in 2026.5.2 -- so leaving the memo unset there is the
-    compile this exists to prevent. An empty sentinel makes that unreachable
-    on every branch; the ``KeyError`` it raises instead lands in the decode
-    latch as ``decode_failed``, which is what the user already sees.
+    consult idedata at all. Which branch ``_decode_pc`` takes is upstream's
+    call, and the two outcomes aren't symmetric: an unused memo entry costs
+    nothing, while an unset one on a branch that does reach ``get_idedata``
+    is the ``pio run -t idedata`` this exists to prevent. The empty
+    sentinel's ``KeyError`` lands in the decode latch as ``decode_failed``.
 
     An absent cache is ``no_build`` (the device was never compiled here); a
     cache that exists but won't load is ``decode_failed``, because telling the

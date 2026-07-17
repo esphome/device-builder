@@ -949,6 +949,10 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_mac_address_change", name, mac))
         self._flip(name, "mac_address", mac)
 
+    def on_http_identity_live_change(self, name: str, *, live: bool) -> None:
+        self.calls.append(("on_http_identity_live_change", name, live))
+        self._flip(name, "http_identity_live", live)
+
     def on_persisted_ip_invalidated(self, name: str, stale_ip: str) -> None:
         self.calls.append(("on_persisted_ip_invalidated", name, stale_ip))
         for device in self._devices:
@@ -986,6 +990,7 @@ def make_state_monitor_with_callbacks(
         on_mac_address_change=callbacks.on_mac_address_change,
         on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
         on_resolved_addresses_cleared=callbacks.on_resolved_addresses_cleared,
+        on_http_identity_live_change=callbacks.on_http_identity_live_change,
     )
     return monitor, callbacks
 

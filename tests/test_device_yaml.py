@@ -10,7 +10,7 @@ import logging
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, ClassVar
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -2512,41 +2512,6 @@ def test_load_device_falls_back_to_yaml_when_core_platform_missing(tmp_path: Pat
     assert device.target_platform == "esp32"
 
 
-@pytest.mark.usefixtures("_redirect_ext_storage")
-def test_load_device_handles_storage_without_core_platform_attr(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A missing ``core_platform`` attribute, not just ``None``, uses the YAML fallback."""
-    yaml_path = tmp_path / "kitchen.yaml"
-    yaml_path.write_text(
-        "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
-        encoding="utf-8",
-    )
-
-    class _LegacyStorage:
-        # Pre-#9028 ``StorageJSON`` shape — no ``core_platform``
-        # attribute at all. Carries the upstream-canonical chip
-        # variant uppercase as ``target_platform``.
-        name = "kitchen"
-        friendly_name = None
-        comment = None
-        address = ""
-        web_port = None
-        target_platform = "ESP32C3"
-        firmware_bin_path = None
-        esphome_version = ""
-        loaded_integrations: ClassVar[list[str]] = []
-
-    monkeypatch.setattr(
-        "esphome_device_builder.helpers.device_yaml.StorageJSON.load",
-        staticmethod(lambda _p: _LegacyStorage()),
-    )
-
-    device = load_device_from_storage(yaml_path)
-
-    assert device.target_platform == "esp32"
-
-
 # ---------------------------------------------------------------------------
 # load_device_from_storage — labels threading
 # ---------------------------------------------------------------------------
@@ -2651,6 +2616,7 @@ def test_load_device_without_previous_defaults_active_source_to_unknown(
     device = load_device_from_storage(yaml_path)
 
     assert device.runtime_state.active_source is ReachabilitySource.UNKNOWN
+    assert device.runtime_state.http_identity_live is False
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")
@@ -2669,6 +2635,7 @@ def test_load_device_carries_runtime_state_from_previous(tmp_path: Path) -> None
         deployed_config_hash="deadbeef",
         queued_update=True,
         api_encryption_active="Noise_NNpsk0_25519_ChaChaPoly_SHA256",
+        http_identity_live=True,
     )
 
     reloaded = load_device_from_storage(yaml_path, previous=previous)
@@ -3145,4 +3112,5 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "deployed_config_hash": "",
         "queued_update": False,
         "api_encryption_active": None,
+        "http_identity_live": False,
     }

@@ -155,8 +155,10 @@ def test_http_skips_unconfigured_device(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    """We never drive state off an HTTP ``Removed``; reachability owns that."""
-    monitor = _make_monitor(_mqtt_device())
+    """We never drive state off an HTTP ``Removed``; the sweep's level-sync owns freshness."""
+    device = _mqtt_device()
+    device.runtime_state.http_identity_live = True
+    monitor = _make_monitor(device)
     calls = _capture_apply(monitor, monkeypatch)
 
     monitor.mdns._on_http_service_state_change(
@@ -164,6 +166,7 @@ def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     assert calls == []
+    assert device.runtime_state.http_identity_live is True
 
 
 # ----------------------------------------------------------------------
@@ -173,12 +176,17 @@ def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _capture_monitor_applies(
     monitor: DeviceStateMonitor, monkeypatch: pytest.MonkeyPatch
-) -> list[tuple[str, str, str]]:
-    applied: list[tuple[str, str, str]] = []
+) -> list[tuple[str, str, Any]]:
+    applied: list[tuple[str, str, Any]] = []
     for method in ("apply_version", "apply_config_hash", "apply_mac_address"):
         monkeypatch.setattr(
             monitor, method, lambda name, value, m=method: applied.append((m, name, value))
         )
+    monkeypatch.setattr(
+        monitor,
+        "apply_http_identity_live",
+        lambda name, live: applied.append(("apply_http_identity_live", name, live)),
+    )
     monkeypatch.setattr(
         monitor,
         "apply_api_encryption",
@@ -216,6 +224,7 @@ def test_apply_http_txt_reads_identity_trio(monkeypatch: pytest.MonkeyPatch) -> 
         ("apply_version", "klo", "2026.8.0"),
         ("apply_config_hash", "klo", "5a94a12d"),
         ("apply_mac_address", "klo", "94c9601f8cf1"),
+        ("apply_http_identity_live", "klo", True),
     ]
 
 
@@ -226,7 +235,10 @@ def test_apply_http_txt_old_firmware_version_only(monkeypatch: pytest.MonkeyPatc
 
     monitor.mdns._apply_http_txt("klo", _http_info({"version": "2026.6.4"}))
 
-    assert applied == [("apply_version", "klo", "2026.6.4")]
+    assert applied == [
+        ("apply_version", "klo", "2026.6.4"),
+        ("apply_http_identity_live", "klo", True),
+    ]
 
 
 def test_apply_http_txt_empty_props_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:

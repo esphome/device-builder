@@ -18,6 +18,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from esphome.upload_targets import PortType, get_port_type
+
 from ...helpers.api import CommandError
 from ...helpers.subprocess import run_subprocess_capture
 from ...models import (
@@ -46,13 +48,6 @@ from .constants import (
     _OUTPUT_TRIM_NOTICE_PREFIX,
     _PROGRESS_PATTERNS,
 )
-
-try:
-    from esphome.upload_targets import PortType, get_port_type
-except ModuleNotFoundError as exc:
-    if exc.name != "esphome.upload_targets":
-        raise
-    from ._upload_targets_fallback import PortType, get_port_type
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import EventBus

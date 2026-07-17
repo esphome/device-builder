@@ -88,6 +88,15 @@ def on_source_change(controller: DevicesController, name: str, source: Reachabil
         controller._fire_device_updated(device)
 
 
+def on_http_identity_live_change(controller: DevicesController, name: str, *, live: bool) -> None:
+    """Update ``http_identity_live`` and fire DEVICE_UPDATED; runtime-only, not persisted."""
+    for device in controller._devices_by_name(name):
+        if device.runtime_state.http_identity_live == live:
+            continue
+        device.runtime_state.http_identity_live = live
+        controller._fire_device_updated(device)
+
+
 def on_ip_change(controller: DevicesController, name: str, ip: str, addresses: list[str]) -> None:
     """Forward IP updates onto the event bus and persist the primary value."""
     new_addresses = list(addresses)

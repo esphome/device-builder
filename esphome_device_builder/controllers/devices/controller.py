@@ -215,6 +215,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             resolve_api_connection=self._resolve_device_api_connection,
             on_persisted_ip_invalidated=self._on_persisted_ip_invalidated,
             on_resolved_addresses_cleared=self._on_resolved_addresses_cleared,
+            on_http_identity_live_change=self._on_http_identity_live_change,
         )
         # Per-signal freshness tracker (mDNS / ping / MQTT last-seen,
         # ping RTT) feeding the device drawer's Reachability section.
@@ -1142,6 +1143,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _on_source_change(self, name: str, source: ReachabilitySource) -> None:
         state_callbacks.on_source_change(self, name, source)
+
+    def _on_http_identity_live_change(self, name: str, *, live: bool) -> None:
+        state_callbacks.on_http_identity_live_change(self, name, live=live)
 
     def _on_version_change(self, name: str, version: str) -> None:
         state_callbacks.on_version_change(self, name, version)
