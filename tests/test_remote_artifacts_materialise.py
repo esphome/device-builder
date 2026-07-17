@@ -48,7 +48,6 @@ from esphome_device_builder.helpers.storage_path import (
     resolve_idedata_path,
     resolve_storage_path,
 )
-from tests.conftest import HAS_NATIVE_IDF_TOOLCHAIN
 from tests.test_remote_build_artifacts_download import _write_receiver_state
 
 _SENTINEL = object()
@@ -729,9 +728,6 @@ def test_materialise_remaps_posix_receiver_on_separator_mangling_offloader(
     assert (build_path / ".pioenvs" / "kitchen" / "firmware.bin").is_file()
 
 
-@pytest.mark.skipif(
-    not HAS_NATIVE_IDF_TOOLCHAIN, reason="esphome lacks the native ESP-IDF toolchain (< 2026.5.0)"
-)
 def test_materialise_native_idf_round_trip_without_pio_metadata(
     paired_roots: tuple[Path, Path],
 ) -> None:

@@ -501,7 +501,10 @@ against legacy behaviour before assuming the simpler version suffices.
   forces one Native-API version probe via `api_info.request_reprobe` —
   the only signal of a rollback / failed boot where the announce never
   arrives. The forced probe still honours `_is_due`'s `priority_for !=
-  MDNS` guard, so a device already seen over mDNS is skipped.
+  MDNS` guard, so a device already seen over mDNS is skipped. The sync
+  also stamps `deployed_identity_live`; the monitor's apply refuses the
+  stamp for an mdns-owned api device (the announce vouches there, and a
+  stamp under ownership would never see the transition-to-mdns clear).
 - **Two mDNS paths with different OFFLINE semantics:**
   - **Browser callback** (`_on_service_state_change`) — passively
     subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
@@ -549,15 +552,22 @@ against legacy behaviour before assuming the simpler version suffices.
     skipped (a device broadcasting the API gets its identity from the
     esphomelib path). The level-triggered repair (`reconcile_from_cache`)
     reads both services' cached TXT. The one state the path does drive is
-    `runtime_state.http_identity_live` — the session-only freshness bit
-    the frontend gates the non-API deployed identity on (their
-    `active_source` never says `mdns`). Stamped by every identity-bearing
-    apply and by the post-flash optimistic sync; level-synced against the
-    unexpired cached TXT each API-info sweep, whose clear side needs a
-    cached mDNS trace plus a confirming re-resolve
-    (`verify_http_identity`) — never demote on uncertainty, and an
-    mDNS-dark deployment (post-flash stamp only) is never demoted at
-    all.
+    the non-API side of `runtime_state.deployed_identity_live` — the
+    session-only freshness bit the frontend gates the deployed identity
+    on (a non-API device's `mdns` ownership is a bare A-record resolve
+    from the active-resolve path above, reachability only, so it can't
+    vouch). Stamped by every identity-bearing apply and by the post-flash
+    optimistic sync; level-synced against the unexpired cached TXT each
+    API-info sweep, whose clear side needs a cached mDNS trace plus a
+    confirming re-resolve (`verify_http_identity`) — never demote on
+    uncertainty, and an mDNS-dark deployment (post-flash stamp only) is
+    never demoted at all. The api side of the same flag is owned by the
+    Native-API paths instead: `apply_worker_info` stamps it on any
+    identity-carrying `device_info` payload (API-info probe, reviver
+    dial). The ownership rule lives once, in the monitor
+    (`_mdns_owns_api_identity`): `live=True` is refused while mDNS owns
+    an api device, and the flag clears when mDNS takes ownership,
+    handing blanking to the announce lifecycle.
   - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
     API devices the ping sweep is about to ICMP). Exists because the
     zeroconf browser never re-asks: after its startup queries it only

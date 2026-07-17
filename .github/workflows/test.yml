@@ -200,7 +200,13 @@ jobs:
           uv pip install -e '.[esphome,test]'
 
       - name: Run pytest
-        # ``uv run`` resolves the .venv created above. Single-line —
+        # ``uv run --no-sync`` uses the .venv created above as-is.
+        # Without ``--no-sync``, ``uv run`` re-locks the project
+        # universally (every Python / platform ``requires-python``
+        # admits), so a transitive-pin conflict on an environment we
+        # never test — esphome 2026.7.0's esptool/cryptography clash
+        # on Intel macOS — fails the job even though the venv it
+        # actually runs in installed cleanly. Single-line —
         # Windows runners default to PowerShell, which doesn't accept
         # bash-style ``\`` line continuation. ``-n auto`` runs the
         # suite under pytest-xdist with one worker per logical CPU;
@@ -221,7 +227,7 @@ jobs:
         #   at ~1-2 minutes; without the cap a single hung worker
         #   burns the runner's full 6h budget.
         timeout-minutes: 5
-        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term
+        run: uv run --no-sync pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e --cov=esphome_device_builder --cov-report=xml --cov-report=term
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
@@ -292,7 +298,9 @@ jobs:
         run: uv pip show esphome | grep -E '^(Name|Version):'
 
       - name: Run pytest
-        # ``uv run`` resolves the .venv created above. ``-n auto``
+        # ``uv run --no-sync`` uses the .venv created above as-is
+        # (no universal re-lock; see the OS-axis job). It also can't
+        # touch the channel-specific esphome installed above. ``-n auto``
         # runs under pytest-xdist for the same speedup the OS-axis
         # matrix gets. No ``--cov`` here — the merged coverage report
         # comes from the OS-axis ``test`` job; this run is purely a
@@ -302,7 +310,7 @@ jobs:
         # upstream beta/dev are exactly the case this protects
         # against.
         timeout-minutes: 5
-        run: uv run pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e
+        run: uv run --no-sync pytest -q -n auto --maxfail=5 --durations=10 --timeout=120 --ignore=tests/benchmarks --ignore=tests/real_compile --ignore=tests/e2e
 
   e2e:
     name: E2E (esphome ${{ matrix.channel }})
@@ -356,7 +364,7 @@ jobs:
         # fast wire-level e2e suite. ``--timeout=120`` is plenty for it.
         timeout-minutes: 10
         run: >-
-          uv run pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
+          uv run --no-sync pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
           --ignore=tests/e2e/slow
 
   e2e-libretiny:
@@ -400,7 +408,7 @@ jobs:
         # 20 min outer cap: a cold LibreTiny SDK clone plus compile runs
         # minutes. The test's own ``@pytest.mark.timeout(600)`` caps it.
         timeout-minutes: 20
-        run: uv run pytest -q tests/e2e/slow/libretiny --durations=10 --timeout=600 --no-cov
+        run: uv run --no-sync pytest -q tests/e2e/slow/libretiny --durations=10 --timeout=600 --no-cov
 
   e2e-native-idf:
     name: E2E native ESP-IDF (esphome dev)
@@ -456,7 +464,7 @@ jobs:
         timeout-minutes: 25
         env:
           ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
-        run: uv run pytest -q tests/e2e/slow/esp32 --durations=10 --timeout=900 --no-cov
+        run: uv run --no-sync pytest -q tests/e2e/slow/esp32 --durations=10 --timeout=900 --no-cov
 
   e2e-boards:
     name: E2E board create validation (esphome stable)
@@ -489,7 +497,7 @@ jobs:
         # multi-threaded xdist worker risks a deadlock. The test's own pool
         # provides the parallelism; its ``@pytest.mark.timeout`` caps it.
         timeout-minutes: 10
-        run: uv run pytest -q tests/e2e/slow/boards --durations=10 --timeout=600 --no-cov
+        run: uv run --no-sync pytest -q tests/e2e/slow/boards --durations=10 --timeout=600 --no-cov
 
   benchmarks:
     name: Run benchmarks (CodSpeed)

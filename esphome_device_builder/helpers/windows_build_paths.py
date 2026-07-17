@@ -2,16 +2,22 @@ r"""
 Relocate Windows build data to one short, space-free root (dodges MAX_PATH + spaces).
 
 Native Windows ESP-IDF builds fail two ways from a normal config path: the 260-char ``MAX_PATH``
-limit on the deep build tree, and a pioarduino whitespace guard / gcc ``-fdebug-prefix-map``
-truncation when the path contains a space (common: ``C:\Users\First Last\...``).
+limit on the deep build tree and toolchain install (the native ESP-IDF toolchain nests ~209 chars
+below its install dir), and spaces in the path (common: ``C:\Users\First Last\...``) — ESP-IDF
+refuses spaced install paths, and pioarduino has its own whitespace guard / gcc
+``-fdebug-prefix-map`` truncation.
 
 :func:`windows_short_build_paths` points the build tree at ``C:\esphb\<id8>`` for the ``with``
-block by setting ``ESPHOME_DATA_DIR`` = that root and ``PLATFORMIO_CORE_DIR`` = ``<root>\pio`` in
-the process env (so ``CORE.data_dir`` and every compile subprocess resolve there). Per-dashboard
+block by setting ``ESPHOME_DATA_DIR`` = that root, ``PLATFORMIO_CORE_DIR`` = ``<root>\pio`` and
+``ESPHOME_ESP_IDF_PREFIX`` = ``<root>\idf`` in the process env (so ``CORE.data_dir`` and every
+compile subprocess resolve there, whichever toolchain the config selects). Per-dashboard
 roots nest under one ``C:\esphb`` parent rather than scattering ``C:\esphb-*`` across the drive
 root. Existing data is moved in once (best-effort) so warm caches survive: from the legacy flat
-``C:\esphb-<id8>`` of the first relocation release, else from ``<config>/.esphome`` +
-``~/.platformio``. Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long
+``C:\esphb-<id8>`` of the first relocation release, else from ``<config>/.esphome``,
+``~/.platformio`` and esphome's machine-global IDF cache. Sweeping the IDF cache in trades
+upstream's all-projects sharing for the space-free guarantee: the multi-GB install becomes
+per-dashboard, and a cache later repopulated by CLI use is not re-merged (the completion marker
+short-circuits). Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long
 path. The tree is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by
 hand to reclaim space. No-op off Windows (including a Linux Docker container on Windows -- the
 gate is ``os.name == "nt"``), and skipped if the user already set ``ESPHOME_DATA_DIR`` (a
@@ -27,6 +33,8 @@ import string
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+
+from esphome.helpers import rmtree
 
 from .dashboard_identity import get_or_create_dashboard_id
 
@@ -47,7 +55,7 @@ _RELOCATED_MARKER = ".device-builder-relocated.json"
 
 @contextmanager
 def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
-    """Point ESPHOME_DATA_DIR + PLATFORMIO_CORE_DIR at a short space-free root for the block."""
+    """Point the build-data + toolchain env vars at a short space-free root for the block."""
     if not _is_windows() or "ESPHOME_DATA_DIR" in os.environ:
         yield
         return
@@ -78,23 +86,46 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         yield
         return
     pio = root / "pio"
+    idf = root / "idf"
 
+    saved: dict[str, str | None] = {"ESPHOME_DATA_DIR": None}  # absent on entry (guarded above)
     os.environ["ESPHOME_DATA_DIR"] = str(root)
-    # Relocate the toolchain unless the user deliberately set PLATFORMIO_CORE_DIR (leave their
-    # choice and their ~/.platformio untouched), or a corrupt partial copy can't be made clean.
-    user_set_pio = "PLATFORMIO_CORE_DIR" in os.environ
-    override_pio = not user_set_pio and _relocate_into(pio, _platformio_dir())
+    # Relocate each toolchain unless the user deliberately set its env var (leave their choice
+    # and their existing install untouched), or a corrupt partial copy can't be made clean.
+    override_pio = "PLATFORMIO_CORE_DIR" not in os.environ and _relocate_into(
+        pio, _platformio_dir()
+    )
     if override_pio:
+        saved["PLATFORMIO_CORE_DIR"] = None  # only overridden when absent
         os.environ["PLATFORMIO_CORE_DIR"] = str(pio)
-    _LOGGER.info("Windows build data at %s (core %s)", root, pio if override_pio else "default")
+    # Unlike ESPHOME_DATA_DIR (bare presence wins in CORE.data_dir), esphome treats an
+    # empty/whitespace ESPHOME_ESP_IDF_PREFIX as unset — mirror that or an empty var would
+    # silently fall back to the long + spaced machine-global cache this exists to avoid.
+    prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")
+    user_set_idf = bool(prev_idf and prev_idf.strip())
+    idf_cache = _default_idf_cache()
+    override_idf = not user_set_idf and _relocate_into(idf, idf_cache)
+    if override_idf:
+        saved["ESPHOME_ESP_IDF_PREFIX"] = prev_idf  # may be present-but-empty; kept verbatim
+        os.environ["ESPHOME_ESP_IDF_PREFIX"] = str(idf)
+    elif not user_set_idf:
+        # Unrelocated, esphome falls back to its machine-global cache — the long + spaced path
+        # this exists to avoid — so name it before the compile fails cryptically.
+        _LOGGER.warning(
+            "ESP-IDF toolchain not relocated; native builds will use %s, where deep or spaced "
+            "paths may fail",
+            idf_cache or "esphome's default cache location",
+        )
+    _LOGGER.info(
+        "Windows build data at %s (pio %s, idf %s)",
+        root,
+        pio if override_pio else "default",
+        idf if override_idf else "default",
+    )
     try:
         yield
     finally:
-        # Both vars were unset on entry (ESPHOME_DATA_DIR guarded above; PLATFORMIO_CORE_DIR only
-        # overridden when it was absent), so popping is the right restore.
-        os.environ.pop("ESPHOME_DATA_DIR", None)
-        if override_pio:
-            os.environ.pop("PLATFORMIO_CORE_DIR", None)
+        _restore_env(saved)
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +148,30 @@ def _platformio_dir() -> Path:
     return Path.home() / ".platformio"
 
 
-def _relocate_into(dst: Path, *sources: Path) -> bool:
+def _restore_env(saved: dict[str, str | None]) -> None:
+    """Put each overridden env var back exactly as found (``None`` means absent)."""
+    for var, prev in saved.items():
+        if prev is None:
+            os.environ.pop(var, None)
+        else:
+            os.environ[var] = prev
+
+
+def _default_idf_cache() -> Path | None:
+    """Esphome's machine-global native-IDF install dir to migrate from (a seam for tests)."""
+    # platformdirs ships with the esphome extra, not this package; without it there is no
+    # existing install to migrate, but the relocated dir is still created and pointed at.
+    try:
+        import platformdirs  # noqa: PLC0415
+    except ImportError:
+        # Distinguishes migration-skipped-because-unavailable from a genuinely absent cache;
+        # the relocation marker written this run means a later install won't re-migrate.
+        _LOGGER.debug("platformdirs unavailable; no machine-global IDF cache to migrate")
+        return None
+    return Path(platformdirs.user_cache_dir("esphome", appauthor=False)) / "idf"
+
+
+def _relocate_into(dst: Path, *sources: Path | None) -> bool:
     """
     Move the first existing of *sources* into *dst* once; return whether *dst* is trusted.
 
@@ -128,19 +182,22 @@ def _relocate_into(dst: Path, *sources: Path) -> bool:
     after a successful move never triggers a destructive re-relocation. Returns ``False`` when the
     move is incomplete -- a partial *dst* that could not be cleared, or a move that left the source
     behind -- so the caller never points env at incomplete data or a corrupt toolchain. Used for
-    both the build root and the toolchain so the two paths cannot drift apart.
+    both the build root and the toolchains so the paths cannot drift apart.
     """
     marker = dst / _RELOCATED_MARKER
     if marker.is_file():
         return True  # already relocated; trust dst, ignore any stale leftover at the source
-    src = next((s for s in sources if s.is_dir()), None)
+    src = next((s for s in sources if s is not None and s.is_dir()), None)
     if src is not None:
         # Source still present, so the move never completed. A partial dst from an interrupted
         # cross-volume copy would nest the retry, so discard it before re-moving.
         if dst.exists():
-            shutil.rmtree(dst, ignore_errors=True)
-            if dst.exists():
-                _LOGGER.warning("Could not clear partial %s; leaving %s in place", dst, src)
+            try:
+                rmtree(dst)  # esphome's rmtree clears the read-only flags toolchain trees carry
+            except OSError as err:
+                _LOGGER.warning(
+                    "Could not clear partial %s (%s); leaving %s in place", dst, err, src
+                )
                 return False
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)  # nested rename target needs its parent

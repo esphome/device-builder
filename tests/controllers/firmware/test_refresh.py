@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
 from esphome.core import CORE
 
 from esphome_device_builder.controllers._device_scanner import (
@@ -528,26 +529,20 @@ async def test_sync_after_flash_already_in_sync_is_noop(monkeypatch: Any) -> Non
     assert fired == []
 
 
-async def test_sync_after_flash_stamps_http_identity_for_non_api_device(monkeypatch: Any) -> None:
-    """A flash is first-party identity evidence for a device without api:."""
+@pytest.mark.parametrize("api_enabled", [False, True], ids=["non_api", "api"])
+async def test_sync_after_flash_stamps_deployed_identity(
+    monkeypatch: Any, api_enabled: bool
+) -> None:
+    """A flash is first-party identity evidence; the monitor owns the ownership guard."""
     monkeypatch.setattr(_VERSION_READ, lambda _cfg: "2026.6.2")
-    device = _device(api_enabled=False, expected_config_hash="aaaa1111")
+    device = _device(api_enabled=api_enabled, expected_config_hash="aaaa1111")
     controller, _fired = _flush_controller(device)
 
     await controller._sync_deployed_state_after_flash("kitchen.yaml")
 
-    controller._state_monitor.apply_http_identity_live.assert_called_once_with("kitchen", live=True)
-
-
-async def test_sync_after_flash_skips_http_identity_for_api_device(monkeypatch: Any) -> None:
-    """An api device's identity freshness stays owned by active_source."""
-    monkeypatch.setattr(_VERSION_READ, lambda _cfg: "2026.6.2")
-    device = _device(api_enabled=True, expected_config_hash="aaaa1111")
-    controller, _fired = _flush_controller(device)
-
-    await controller._sync_deployed_state_after_flash("kitchen.yaml")
-
-    controller._state_monitor.apply_http_identity_live.assert_not_called()
+    controller._state_monitor.apply_deployed_identity_live.assert_called_once_with(
+        "kitchen", live=True
+    )
 
 
 async def test_sync_after_flash_unknown_configuration_is_noop(monkeypatch: Any) -> None:

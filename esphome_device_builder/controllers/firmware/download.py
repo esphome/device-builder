@@ -27,7 +27,7 @@ from ...helpers.json import loads as json_loads
 from ...helpers.paths import resolve_under_root
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
-from .helpers import _find_sibling_cli
+from .helpers import helper_cli_cmd
 
 if TYPE_CHECKING:
     from .controller import FirmwareController
@@ -73,7 +73,7 @@ _platform_sets()
 
 def _helper_cmd() -> tuple[str, ...]:
     """Argv prefix for the device-builder-helper child (cached by _find_sibling_cli)."""
-    return _find_sibling_cli("device-builder-helper", "esphome_device_builder.helper_cli")
+    return helper_cli_cmd()
 
 
 # Stable ``type`` tag per artifact filename so the frontend can map it to a

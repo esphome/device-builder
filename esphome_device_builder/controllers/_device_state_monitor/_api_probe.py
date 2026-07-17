@@ -109,10 +109,18 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
     Apply a worker payload's mac/version; True iff either was newly written.
 
     Judged on the ``apply_*`` returns, not a post-apply Device re-read —
-    apply dedupes and fans out across same-named devices.
+    apply dedupes and fans out across same-named devices. An
+    identity-carrying payload also stamps ``deployed_identity_live``,
+    even when nothing was newly written — a confirming re-probe is
+    evidence too. The monitor itself refuses the stamp under mDNS
+    ownership.
     """
-    filled_mac = monitor.apply_mac_address(name, info.get("mac_address", ""))
-    filled_version = monitor.apply_version(name, info.get("esphome_version", ""))
+    mac = info.get("mac_address", "")
+    version = info.get("esphome_version", "")
+    filled_mac = monitor.apply_mac_address(name, mac)
+    filled_version = monitor.apply_version(name, version)
+    if mac or version:
+        monitor.apply_deployed_identity_live(name, live=True)
     return filled_mac or filled_version
 
 

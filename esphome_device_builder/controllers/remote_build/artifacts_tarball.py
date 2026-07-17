@@ -60,6 +60,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from esphome.storage_json import StorageJSON
 
+from ...constants import TOOLCHAIN_ESP_IDF
 from ...helpers.build_artifacts import _firmware_offset_for_platform
 from ...helpers.cross_os_path import cross_os_basename
 from ...helpers.json import loads as json_loads
@@ -206,7 +207,7 @@ def _collect_pack_members(  # noqa: C901
     # absence on a PIO build is a real failure that must surface here rather
     # than ship a silently-incomplete tarball. Detect native-IDF positively
     # off the build toolchain, never off file absence.
-    if getattr(storage, "toolchain", None) != "esp-idf":
+    if storage.toolchain != TOOLCHAIN_ESP_IDF:
         if not platformio_ini.is_file():
             msg = f"platformio.ini missing for {configuration}: {platformio_ini}"
             raise FileNotFoundError(msg)

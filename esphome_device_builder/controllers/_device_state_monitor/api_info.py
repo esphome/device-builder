@@ -6,7 +6,7 @@ case) a device can be ONLINE via ping yet have a blank ``mac_address`` /
 ``deployed_version`` — those fields come only from the ``_esphomelib._tcp``
 TXT records. Each sweep first re-applies zeroconf-cached TXT payloads for
 free (the browser handler can miss an announce whose records still landed in
-the cache), level-syncs the non-API ``http_identity_live`` freshness flag
+the cache), level-syncs the non-API ``deployed_identity_live`` freshness flag
 against the cached ``_http._tcp`` identity TXT, then connects to still-blank
 devices over the Native API in a
 short-lived subprocess. It only ever supplies the TXT-derived fields; it
@@ -162,7 +162,7 @@ class ApiInfoSource(ApiSweepSource):
 
     async def _sync_http_identity_liveness(self, devices: list[Device]) -> None:
         """
-        Level-sync ``http_identity_live`` against the cached ``_http._tcp`` identity TXT.
+        Level-sync ``deployed_identity_live`` against the cached ``_http._tcp`` identity TXT.
 
         Stamp-side repair goes through ``reconcile_from_cache`` (not a
         bare flag write) so a device re-flashed while the dashboard was
@@ -184,9 +184,9 @@ class ApiInfoSource(ApiSweepSource):
             if device.api_enabled:
                 continue
             if mdns.has_live_http_identity_txt(device.name):
-                if not device.runtime_state.http_identity_live:
+                if not device.runtime_state.deployed_identity_live:
                     stamp.add(device.name)
-            elif device.runtime_state.http_identity_live and mdns.has_cached_trace(
+            elif device.runtime_state.deployed_identity_live and mdns.has_cached_trace(
                 device.name, service_type=_HTTP_SERVICE_TYPE
             ):
                 verify.add(device.name)

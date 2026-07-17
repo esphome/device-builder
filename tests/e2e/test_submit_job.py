@@ -39,11 +39,11 @@ The chain:
                        →  ``submit_job_ack{accepted: true}`` rides
                           back to the offloader
 
-The offloader's ``remote_build/submit_job`` WS command
-additionally spawns the ``esphome bundle`` CLI subprocess to
-build *bundle_bytes* from a YAML on disk; we bypass that step
-and call :meth:`PeerLinkClient.submit_job` with a pre-built
-in-test bundle so the test stays focused on the receiver-side
+The remote runner additionally spawns the ``esphome bundle``
+CLI subprocess to build *bundle_bytes* from a YAML on disk; we
+bypass that step and call :meth:`PeerLinkClient.submit_job`
+with a pre-built in-test bundle so the test stays focused on
+the receiver-side
 gap. The subprocess invocation is upstream esphome's contract,
 covered separately by tests on :func:`build_yaml_bundle`.
 """

@@ -47,7 +47,7 @@ class DeviceRuntimeState(DashboardModel):
     ``deployed_config_hash``, ``queued_update``,
     ``api_encryption_active``) are also seeded from disk on cold load,
     while ``state`` / ``active_source`` / ``ip_addresses`` /
-    ``http_identity_live`` start empty and repopulate on the next
+    ``deployed_identity_live`` start empty and repopulate on the next
     announce. A Device rebuild carries the
     whole object from the previous in-memory instance so a re-scan
     doesn't wipe what the monitors have discovered since.
@@ -80,12 +80,14 @@ class DeviceRuntimeState(DashboardModel):
     # confirmed, ``""`` = TXT seen with the key absent (confirmed
     # plaintext), ``None`` = no broadcast yet.
     api_encryption_active: str | None = None
-    # True while fresh evidence backs the non-API deployed identity: an
-    # unexpired ``_http._tcp`` identity TXT, or a flash this dashboard
-    # performed this session. Never a reachability claim. Session-only:
-    # a cold start has no evidence for the sidecar-seeded values, which
-    # is exactly what the flag reports.
-    http_identity_live: bool = False
+    # True while fresh first-party evidence backs the deployed identity:
+    # an unexpired ``_http._tcp`` identity TXT (non-API devices), a live
+    # Native API ``device_info`` connection (api devices the mDNS ledger
+    # doesn't own), or a flash this dashboard performed this session.
+    # Never a reachability claim. Session-only: a cold start has no
+    # evidence for the sidecar-seeded values, which is exactly what the
+    # flag reports.
+    deployed_identity_live: bool = False
 
 
 # Canonical name set for routing flat attr names onto ``runtime_state``.

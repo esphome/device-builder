@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from enum import StrEnum
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -122,3 +123,33 @@ BUS_CATEGORIES: frozenset[str] = frozenset({"bus", "one_wire", "canbus"})
 # deliberately absent: a page's ``time:`` platform is a hard dependency of
 # leaves like ``sensor.total_daily_energy``, so imports must carry it.
 FEATURED_EXCLUDED_CATEGORIES: frozenset[str] = frozenset({"core", "ota", "update"})
+
+# esphome ``Toolchain`` values, as the plain strings a StorageJSON sidecar
+# stores. Matched as strings rather than through ``esphome.const.Toolchain``
+# to keep this module a stdlib-only leaf; the wire values don't change.
+# Shared because the dashboard's spawn gate (``controllers/devices/
+# backtrace.py``), the helper child's idedata decision (``helper_cli.py``) and
+# the offload pack / unpack pair (``controllers/remote_build/
+# artifacts_tarball.py``, ``helpers/remote_artifacts_materialise.py``) encode
+# one contract and must agree; stdlib-only home, so the child pays nothing to
+# import it.
+TOOLCHAIN_ESP_IDF = "esp-idf"
+TOOLCHAIN_SDK_NRF = "sdk-nrf"
+
+
+class DecodeUnavailable(StrEnum):
+    """Why ``devices/decode_backtrace`` produced no frames.
+
+    A closed vocabulary on the wire, minted by both the dashboard and the
+    helper child and branched on by the frontend, so it lives in one place
+    rather than as literals in each. The host validates the child's reply
+    against it and maps anything else to ``HELPER_FAILED``, the same way a
+    malformed ``decoded`` is treated: a drift between the two is a broken
+    contract, not a new reason the client can act on.
+    """
+
+    NO_BACKTRACE = "no_backtrace"
+    NO_BUILD = "no_build"
+    UNSUPPORTED_PLATFORM = "unsupported_platform"
+    DECODE_FAILED = "decode_failed"
+    HELPER_FAILED = "helper_failed"

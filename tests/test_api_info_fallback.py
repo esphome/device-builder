@@ -169,6 +169,70 @@ async def test_fetch_applies_mac_and_version() -> None:
     assert ("on_version_change", "kitchen", "2026.6.1") in callbacks.calls
 
 
+async def test_fetch_stamps_deployed_identity_live_when_ping_owned() -> None:
+    """A connection that delivered identity is first-party evidence for the flag."""
+    device = make_online_api_device(address="")
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.apply("kitchen", DeviceState.ONLINE, "ping", claim=True)
+    monitor.api_info._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
+    )
+
+    await monitor.api_info._fetch(device)
+
+    assert device.runtime_state.deployed_identity_live is True
+    assert ("on_deployed_identity_live_change", "kitchen", True) in callbacks.calls
+
+
+async def test_fetch_never_stamps_under_mdns_ownership() -> None:
+    """A claim landing mid-probe must not leave a stamp no transition would clear."""
+    device = make_online_api_device(address="")
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
+    monitor.api_info._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
+    )
+
+    await monitor.api_info._fetch(device)
+
+    assert device.runtime_state.deployed_version == "2026.6.1"  # fields still fill
+    assert device.runtime_state.deployed_identity_live is False
+    assert callbacks.calls_for("on_deployed_identity_live_change") == []
+
+
+async def test_forced_reprobe_confirming_known_values_still_stamps() -> None:
+    """A connect that newly writes nothing is evidence all the same — and no cooldown."""
+    device = make_online_api_device(
+        mac_address="94:C9:60:1F:8C:F1", deployed_version="2026.6.1", address=""
+    )
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    src = monitor.api_info
+    src._force_reprobe.add("kitchen")
+    src._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "94c9601f8cf1", "esphome_version": "2026.6.1"}
+    )
+
+    await src._fetch(device)
+
+    assert device.runtime_state.deployed_identity_live is True
+    assert ("on_deployed_identity_live_change", "kitchen", True) in callbacks.calls
+    assert "kitchen" not in src._cooldown
+
+
+async def test_fetch_empty_payload_does_not_stamp() -> None:
+    """A connect that carried no identity vouches for nothing."""
+    device = make_online_api_device(address="")
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.api_info._run_worker = AsyncMock(  # type: ignore[method-assign]
+        return_value={"mac_address": "", "esphome_version": ""}
+    )
+
+    await monitor.api_info._fetch(device)
+
+    assert device.runtime_state.deployed_identity_live is False
+    assert callbacks.calls_for("on_deployed_identity_live_change") == []
+
+
 async def test_fetch_failure_sets_cooldown_and_skips_next_select() -> None:
     """A failed fetch parks the device so the next sweep doesn't reconnect it."""
     device = make_online_api_device()

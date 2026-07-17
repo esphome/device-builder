@@ -17,7 +17,6 @@ regressions, not async hygiene.
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import re
 import sys
@@ -31,7 +30,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from blockbuster import blockbuster_ctx
 from esphome.core import CORE
-from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
     DeviceMqttCoordinator,
@@ -68,15 +66,6 @@ from esphome_device_builder.models import (
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
-
-# True when the installed esphome's StorageJSON carries a ``toolchain``
-# field (>= 2026.5.0). That field is the exact dependency the offload path
-# keys native-IDF detection on (``toolchain == "esp-idf"``); older esphome
-# drops it on load, so tests that synthesize a native-IDF build skip there.
-# Probed off the StorageJSON signature directly rather than a correlated
-# const so the gate tracks the real runtime dependency. Mirrors the
-# native-IDF compile e2e gate.
-HAS_NATIVE_IDF_TOOLCHAIN = "toolchain" in inspect.signature(StorageJSON.__init__).parameters
 
 # Call sites known to do bounded blocking I/O during one-time server
 # startup, where the cost is paid once and not on the request path.
@@ -949,9 +938,9 @@ class RecordingMonitorCallbacks:
         self.calls.append(("on_mac_address_change", name, mac))
         self._flip(name, "mac_address", mac)
 
-    def on_http_identity_live_change(self, name: str, *, live: bool) -> None:
-        self.calls.append(("on_http_identity_live_change", name, live))
-        self._flip(name, "http_identity_live", live)
+    def on_deployed_identity_live_change(self, name: str, *, live: bool) -> None:
+        self.calls.append(("on_deployed_identity_live_change", name, live))
+        self._flip(name, "deployed_identity_live", live)
 
     def on_persisted_ip_invalidated(self, name: str, stale_ip: str) -> None:
         self.calls.append(("on_persisted_ip_invalidated", name, stale_ip))
@@ -990,7 +979,7 @@ def make_state_monitor_with_callbacks(
         on_mac_address_change=callbacks.on_mac_address_change,
         on_persisted_ip_invalidated=callbacks.on_persisted_ip_invalidated,
         on_resolved_addresses_cleared=callbacks.on_resolved_addresses_cleared,
-        on_http_identity_live_change=callbacks.on_http_identity_live_change,
+        on_deployed_identity_live_change=callbacks.on_deployed_identity_live_change,
     )
     return monitor, callbacks
 

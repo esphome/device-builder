@@ -17,6 +17,8 @@ resolving after the subpackage split. Submodules:
   subprocess fallback).
 - ``archive`` — archive / unarchive / delete helpers + the
   bulk-fan-out runner.
+- ``backtrace`` — ``devices/decode_backtrace`` WS command body
+  (build-artifact gate + the decoder subprocess dial).
 - ``firmware_sync`` — firmware-job → device-state sync helpers
   (post-flash hash refresh, deployed-hash sync, StorageJSON
   version write).

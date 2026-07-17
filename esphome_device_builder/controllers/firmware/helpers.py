@@ -143,6 +143,15 @@ def _find_esphome_cmd() -> list[str]:
     return list(_find_sibling_cli("esphome"))
 
 
+def helper_cli_cmd() -> tuple[str, ...]:
+    """Argv prefix for the ``device-builder-helper`` child.
+
+    One spelling of the name/module pair, so the download-types and
+    decode-backtrace callers can't resolve the helper differently.
+    """
+    return _find_sibling_cli("device-builder-helper", "esphome_device_builder.helper_cli")
+
+
 def _find_esptool_cmd() -> list[str]:
     """Locate the ``esptool`` CLI, preferring the same interpreter as ours.
 

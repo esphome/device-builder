@@ -1,11 +1,11 @@
 name: Windows real-compile (MAX_PATH)
 
-# tests/e2e/slow/windows: a real ESP-IDF compile on a windows-latest runner that proves the
-# Windows build-data relocation (short, space-free root) builds and keeps building — covering
-# both MAX_PATH and spaced profile dirs. A cold ESP-IDF toolchain download makes this a
-# ~20-40 min job, so it is gated to changes that touch the mechanism plus a weekly drift check
-# rather than running on every PR. The default test matrix ignores tests/e2e, so this workflow
-# is the only place this e2e runs.
+# tests/e2e/slow/windows: real compiles on windows-latest runners that prove the Windows
+# build-data relocation (short, space-free root) builds and keeps building — covering both
+# MAX_PATH and spaced profile dirs. Each suite is a cold multi-minute toolchain download plus a
+# full compile, so they fan out one-per-runner (this is the longest CI job) and are gated to
+# changes that touch the mechanism plus a weekly drift check rather than running on every PR.
+# The default test matrix ignores tests/e2e, so this workflow is the only place these e2e run.
 #
 # YAML anchors (``&trigger-paths`` / ``*trigger-paths``) keep the push and pull_request path
 # filters in lockstep.
@@ -34,10 +34,23 @@ on:
 
 jobs:
   windows-maxpath:
-    name: Real ESP-IDF compile (Windows MAX_PATH)
+    name: Windows real compile (${{ matrix.suite }})
     runs-on: windows-latest
-    # Cold ESP-IDF toolchain download + a full mbedtls compile, then clean / clean-all, runs
-    # minutes; the pytest --timeout=3000 below caps the run, this caps the whole job.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ``native_idf`` / ``platformio`` select one toolchain parametrization of the MAX_PATH
+          # e2e (its compile fixture is module-scoped per toolchain); ``migration`` is the
+          # original-layout-survives-relocation esp8266 case.
+          - suite: native_idf
+            tests: tests/e2e/slow/windows/test_windows_short_paths.py -k native_idf
+          - suite: platformio
+            tests: tests/e2e/slow/windows/test_windows_short_paths.py -k platformio
+          - suite: migration
+            tests: tests/e2e/slow/windows/test_windows_migration.py
+    # Cold toolchain download + a full compile, then clean / clean-all, runs minutes; the
+    # pytest --timeout=3000 below caps the run, this caps the whole job.
     timeout-minutes: 60
     steps:
       - name: Check out code from GitHub
@@ -56,5 +69,5 @@ jobs:
       - name: Show installed esphome version
         run: uv pip show esphome
 
-      - name: Run Windows MAX_PATH e2e
-        run: uv run pytest -q tests/e2e/slow/windows --durations=10 --timeout=3000 --no-cov
+      - name: Run Windows MAX_PATH e2e (${{ matrix.suite }})
+        run: uv run --no-sync pytest -q ${{ matrix.tests }} --durations=10 --timeout=3000 --no-cov
