@@ -56,14 +56,11 @@ from script._board_import import (  # noqa: E402
     build_esphome_block,
     build_pins,
     connectivity_for,
-    dump_manifest,
     emit_manifest,
     extract_ethernet,
     get_repo_revision,
     gpio_number,
     hash_content,
-    imported_remote_id,
-    is_imported_manifest,
     is_placeholder_value,
     load_components_index,
     prune_removed,
@@ -79,7 +76,6 @@ _ESP32_VARIANT_DEFAULT_BOARD = ESP32_VARIANT_DEFAULT_BOARD
 _build_esphome_block = build_esphome_block
 _build_pins = build_pins
 _connectivity_for = connectivity_for
-_dump_manifest = dump_manifest
 _extract_ethernet = extract_ethernet
 _get_repo_revision = get_repo_revision
 _gpio_number = gpio_number
@@ -2286,19 +2282,9 @@ def _build_source_block(folder_name: str, revision: str, content_hash: str) -> d
 # ---------------------------------------------------------------------------
 
 
-def _emit_manifest(record: dict[str, Any], src: _DeviceSource) -> Path | None:
+def _emit_manifest(record: dict[str, Any]) -> Path | None:
     """Write ``boards/<id>/manifest.yaml`` under this sync's ownership rules."""
-    return emit_manifest(record, source_type=DEVICE_IMPORT_SOURCE_TYPE, boards_dir=_BOARDS_DIR)
-
-
-def _imported_remote_id(prior: dict[str, Any] | None) -> tuple[bool, str | None]:
-    """Return ``(is_imported, remote_id)`` for an already-parsed manifest dict."""
-    return imported_remote_id(prior, source_type=DEVICE_IMPORT_SOURCE_TYPE)
-
-
-def _is_imported_manifest(manifest_path: Path) -> tuple[bool, str | None]:
-    """Return ``(is_imported, remote_id)`` for an existing board manifest."""
-    return is_imported_manifest(manifest_path, source_type=DEVICE_IMPORT_SOURCE_TYPE)
+    return emit_manifest(record, boards_dir=_BOARDS_DIR)
 
 
 def _prune_removed(active_remote_ids: set[str]) -> list[str]:
@@ -2381,7 +2367,7 @@ def main() -> int:
         if gate_reason is not None:
             report.skipped.append(_SkippedDevice(src.folder_name, gate_reason))
             continue
-        if not args.dry_run and _emit_manifest(record, src) is None:
+        if not args.dry_run and _emit_manifest(record) is None:
             report.skipped.append(
                 _SkippedDevice(src.folder_name, "slug collides with hand-curated board")
             )

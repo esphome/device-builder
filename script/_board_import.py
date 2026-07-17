@@ -399,17 +399,19 @@ def is_imported_manifest(manifest_path: Path, *, source_type: str) -> tuple[bool
     return imported_remote_id(read_manifest_dict(manifest_path), source_type=source_type)
 
 
-def emit_manifest(record: dict[str, Any], *, source_type: str, boards_dir: Path) -> Path | None:
+def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
     """
     Write ``boards/<id>/manifest.yaml``.
 
-    Skips with a warning when the target already holds a manifest this
-    source doesn't own — a hand-curated board (no ``source.type``) or
-    another import source's output. Images are referenced as upstream
-    URLs in the manifest itself; any pre-existing local ``images/``
-    subdir from older syncs is removed so the wheel doesn't carry stale
-    mirrors.
+    Ownership is derived from the record's own ``source.type`` so the
+    emitted manifest and the ownership check can't disagree. Skips with a
+    warning when the target already holds a manifest this source doesn't
+    own — a hand-curated board (no ``source.type``) or another import
+    source's output. Images are referenced as upstream URLs in the
+    manifest itself; any pre-existing local ``images/`` subdir from older
+    syncs is removed so the wheel doesn't carry stale mirrors.
     """
+    source_type = record["source"]["type"]
     target_dir = boards_dir / record["id"]
     manifest_path = target_dir / "manifest.yaml"
     prior = read_manifest_dict(manifest_path)

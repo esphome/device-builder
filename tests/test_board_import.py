@@ -52,12 +52,15 @@ def test_imported_remote_id_is_per_source_type(
     [
         pytest.param(None, False, id="curated_refused"),
         pytest.param("source-b", False, id="cross_source_refused"),
+        pytest.param("unparsable", False, id="unparsable_refused"),
         pytest.param("source-a", True, id="own_type_overwritten"),
     ],
 )
 def test_emit_manifest_ownership(tmp_path: Path, existing_type: str | None, emitted: bool) -> None:
-    _write_manifest(tmp_path, "some_board", existing_type)
-    result = emit_manifest(dict(_RECORD), source_type="source-a", boards_dir=tmp_path)
+    path = _write_manifest(tmp_path, "some_board", existing_type)
+    if existing_type == "unparsable":
+        path.write_text("name: X\n\tnot: [valid", encoding="utf-8")
+    result = emit_manifest(dict(_RECORD), boards_dir=tmp_path)
     manifest = tmp_path / "some_board" / "manifest.yaml"
     if emitted:
         assert result == tmp_path / "some_board"
@@ -70,7 +73,7 @@ def test_emit_manifest_ownership(tmp_path: Path, existing_type: str | None, emit
 def test_emit_manifest_preserves_full_config_override(tmp_path: Path) -> None:
     path = _write_manifest(tmp_path, "some_board", "source-a")
     path.write_text(path.read_text(encoding="utf-8") + "full_config: false\n", encoding="utf-8")
-    assert emit_manifest(dict(_RECORD), source_type="source-a", boards_dir=tmp_path) is not None
+    assert emit_manifest(dict(_RECORD), boards_dir=tmp_path) is not None
     text = path.read_text(encoding="utf-8")
     assert "full_config: false" in text
     # Re-inserted right after the esphome block, keeping key order stable.
