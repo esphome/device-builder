@@ -38,7 +38,12 @@ from esphome_device_builder.controllers.devices.mutations_yaml import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import _safe_yaml_scalar
-from esphome_device_builder.models import ComponentCatalogEntry, ComponentCategory, ErrorCode
+from esphome_device_builder.models import (
+    ComponentCatalogEntry,
+    ComponentCategory,
+    Connectivity,
+    ErrorCode,
+)
 
 from .conftest import MakeControllerFactory, StubBoardLookups
 
@@ -699,6 +704,46 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     assert "report" in excinfo.value.message.lower()
     assert not (tmp_path / "kitchen.yaml").exists()
     assert ctrl._scanner.calls == []
+
+
+def _package_board() -> MagicMock:
+    """Board stub for a remote-package (bluetooth-proxies) catalog entry."""
+    board = MagicMock()
+    board.id = "olimex-esp32-poe-iso-bluetooth-proxy"
+    board.name = "Olimex ESP32-POE-ISO Bluetooth Proxy"
+    board.manufacturer = "OLIMEX"
+    board.package_import_url = (
+        "github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main"
+    )
+    board.package_name = "esphome.bluetooth-proxy"
+    board.featured_components = []
+    board.default_components = []
+    board.hardware.connectivity = [Connectivity.ETHERNET]
+    return board
+
+
+async def test_create_device_package_board_writes_package_yaml(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A package board create lands the ``packages:`` shape, validated tolerantly.
+
+    The generated YAML only validates through a live upstream fetch, so
+    the create must use the adoption contract — unavailability tolerated
+    with a short budget — rather than the strict template policy.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    ctrl._db.boards.get_board = AsyncMock(return_value=_package_board())
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError)
+
+    await ctrl.create_device(name="proxy", board_id="olimex-esp32-poe-iso-bluetooth-proxy")
+
+    content = (tmp_path / "proxy.yaml").read_text(encoding="utf-8")
+    assert "packages:" in content
+    assert "github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main" in content
+    # The wired package provides the network, so no local wifi block lands.
+    assert "wifi:" not in content
+    # Tolerant validation: the timed-out upstream fetch kept the file.
+    ctrl._db.editor.validate_yaml.assert_awaited_once()
 
 
 async def test_create_device_clears_residual_metadata_from_archived_same_name(
