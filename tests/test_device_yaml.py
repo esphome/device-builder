@@ -6,7 +6,6 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from copy import deepcopy
 from pathlib import Path
@@ -19,7 +18,6 @@ import yaml
 from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
 
-from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
@@ -2736,20 +2734,21 @@ def test_every_board_body_generates_creatable_platform_block() -> None:
     assert not offenders, "boards generate invalid create YAML:\n" + "\n".join(offenders)
 
 
-def test_nested_list_field_presets_render_as_yaml_lists() -> None:
+@pytest.mark.xdist_group("catalog")
+async def test_nested_list_field_presets_render_as_yaml_lists(
+    session_component_catalog: Any,
+) -> None:
     """Nested-list field presets survive default resolution into parseable YAML.
 
     ``seeed-xiao-w5500-zwave-proxy`` is the first board presetting
     list-of-mapping fields (``usb_host.devices``, ``usb_uart.channels``,
     ``mdns.services``); pins that the generation path renders them intact.
-    Sync test: the direct disk loads stay off the event loop (blockbuster);
-    the resolution itself hops to the executor for its body reads.
     """
-    board = load_board_body_from_disk("seeed-xiao-w5500-zwave-proxy")
+    board = await session_component_catalog._db.boards.get_board(
+        board_id="seeed-xiao-w5500-zwave-proxy"
+    )
     assert board is not None
-    catalog = ComponentCatalog()
-    catalog.load()
-    defaults = asyncio.run(catalog.resolve_default_components(board))
+    defaults = await session_component_catalog.resolve_default_components(board)
     config = yaml.safe_load(
         generate_device_yaml("zw", "Zw", board, ssid="", psk="", defaults=defaults)
     )
