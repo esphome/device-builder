@@ -22,7 +22,6 @@ frontend would have to parse.
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal, cast
 
 from yarl import URL
 
@@ -83,16 +82,6 @@ class PairLabelField(StrEnum):
 
     RECEIVER_LABEL = "receiver_label"
     OFFLOADER_LABEL = "offloader_label"
-
-
-# Allowed values of ``submit_job``'s ``target`` arg. Wire-side
-# the receiver enforces the same set
-# (:data:`controllers.remote_build.submit_job._TARGET_TO_JOB_TYPE`);
-# rejecting unknown targets here means a typo lands as a clean
-# ``INVALID_ARGS`` for the frontend to render inline rather than
-# a ``submit_job_ack{accepted: false, reason: "invalid_header"}``
-# only after the bundle's been built and shipped.
-_SUBMIT_JOB_VALID_TARGETS: frozenset[str] = frozenset({"compile", "upload"})
 
 
 # Maps non-success ``IntentResponse`` values from a peer-link
@@ -287,14 +276,6 @@ def validate_pairing_key(raw: object) -> str | None:
         msg = "pairing_key must contain only printable characters"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return cleaned
-
-
-def validate_submit_job_target(raw: object) -> Literal["compile", "upload"]:
-    """Validate the WS *target* arg for ``remote_build/submit_job``."""
-    if not isinstance(raw, str) or raw not in _SUBMIT_JOB_VALID_TARGETS:
-        msg = f"target must be one of {sorted(_SUBMIT_JOB_VALID_TARGETS)}; got {raw!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    return cast(Literal["compile", "upload"], raw)
 
 
 def validate_bool(raw: object, *, command: str, field: str) -> bool:
