@@ -171,7 +171,9 @@ class ApiInfoSource(ApiSweepSource):
         is verify-before-demote and requires a cached mDNS trace: an
         mDNS-dark deployment (where the post-flash stamp is the only
         evidence) gains no multicast traffic, so a wire miss there
-        proves nothing.
+        proves nothing. Deliberately not ONLINE-gated like the stage
+        above: the flag states the TXT's freshness, not reachability,
+        so an OFFLINE device's flag tracks its cached TXT the same way.
         """
         mdns = self._monitor.mdns
         if mdns.zeroconf is None:
