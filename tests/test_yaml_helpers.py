@@ -1769,6 +1769,26 @@ def test_generate_component_yaml_emits_list_of_dicts_as_block_sequence() -> None
     assert "      b: y" in out
 
 
+def test_generate_component_yaml_recurses_nested_values_in_list_items() -> None:
+    """A mapping or list nested inside a ``- mapping`` item emits as block YAML.
+
+    Pins the mdns ``services[].txt`` shape: the nested dict used to fall
+    through ``_format_yaml_value`` as a Python-repr flow map that the
+    structured editor could not read back.
+    """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(
+        component,
+        {"services": [{"service": "_zwave", "txt": {"protocol": "esphome"}, "ports": [1, 2]}]},
+    )
+    assert "      txt:\n        protocol: esphome" in out
+    assert "      ports: [1, 2]" in out
+    assert "{'" not in out
+    assert yaml.safe_load(out)["myc"]["services"] == [
+        {"service": "_zwave", "txt": {"protocol": "esphome"}, "ports": [1, 2]}
+    ]
+
+
 @pytest.mark.parametrize("key", ["on", "off", "yes", "no", "true", "false", "null"])
 def test_generate_component_yaml_quotes_reserved_word_map_keys(key: str) -> None:
     """A user-typed map key that is a YAML 1.1 keyword round-trips as a string.

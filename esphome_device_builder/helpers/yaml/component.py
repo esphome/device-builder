@@ -448,9 +448,11 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
 
     Nested mappings (dict values) recurse with deeper indent so a
     ConfigEntry with type=NESTED renders as a YAML mapping under its
-    parent. Lists of dicts render as ``- mapping`` entries; lists of
-    scalars render as ``[a, b, c]`` flow-style for compactness.
-    Lambda sentinels (``{_lambda, _tag}``) emit a ``!lambda |-`` block.
+    parent. Lists of dicts render as ``- mapping`` entries whose values
+    recurse the same way, so a mapping or list nested inside a list item
+    emits as block YAML too. Lists of scalars render as ``[a, b, c]``
+    flow-style for compactness. Lambda sentinels (``{_lambda, _tag}``)
+    emit a ``!lambda |-`` block.
     """
     safe_key = _safe_yaml_scalar(key)
     if is_lambda_sentinel(value):
@@ -462,25 +464,17 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
         return lines
     if isinstance(value, list) and value and all(isinstance(item, dict) for item in value):
         lines = [f"{indent}{safe_key}:"]
-        # Block-scalar lambda bodies under a list item indent three
-        # steps past the field key (matches the frontend serializer).
-        body_indent = indent + ESPHOME_YAML_INDENT * 3
+        item_indent = indent + ESPHOME_YAML_INDENT * 2
         for item in value:
             first = True
             for sub_key, sub_value in item.items():
-                prefix = (
-                    f"{indent}{ESPHOME_YAML_INDENT}- "
-                    if first
-                    else f"{indent}{ESPHOME_YAML_INDENT * 2}"
-                )
-                safe_sub = _safe_yaml_scalar(sub_key)
-                if is_lambda_sentinel(sub_value):
-                    lines.extend(
-                        _emit_lambda_lines(f"{prefix}{safe_sub}: ", body_indent, sub_value)
+                sub_lines = _emit_field(sub_key, sub_value, item_indent)
+                if first:
+                    sub_lines[0] = (
+                        f"{indent}{ESPHOME_YAML_INDENT}- {sub_lines[0].removeprefix(item_indent)}"
                     )
-                else:
-                    lines.append(f"{prefix}{safe_sub}: {_format_yaml_value(sub_value)}")
-                first = False
+                    first = False
+                lines.extend(sub_lines)
         return lines
     if isinstance(value, list):
         rendered = ", ".join(_format_flow_yaml_value(item) for item in value)
