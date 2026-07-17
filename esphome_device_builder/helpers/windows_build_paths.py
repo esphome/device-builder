@@ -31,7 +31,7 @@ import os
 import shutil
 import string
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from pathlib import Path
 
 from esphome.helpers import rmtree
@@ -191,10 +191,12 @@ def _relocate_into(dst: Path, *sources: Path | None) -> bool:
         # Source still present, so the move never completed. A partial dst from an interrupted
         # cross-volume copy would nest the retry, so discard it before re-moving.
         if dst.exists():
-            with suppress(OSError):
+            try:
                 rmtree(dst)  # esphome's rmtree clears the read-only flags toolchain trees carry
-            if dst.exists():
-                _LOGGER.warning("Could not clear partial %s; leaving %s in place", dst, src)
+            except OSError as err:
+                _LOGGER.warning(
+                    "Could not clear partial %s (%s); leaving %s in place", dst, err, src
+                )
                 return False
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)  # nested rename target needs its parent

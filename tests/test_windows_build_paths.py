@@ -444,7 +444,12 @@ def test_partial_root_discard_failure_stays_on_old_dir(
     root = fake_windows / "esphb" / _ID8
     root.mkdir(parents=True)
     (root / "half.txt").write_text("partial", encoding="utf-8")
-    monkeypatch.setattr(wbp.shutil, "rmtree", lambda *_a, **_k: None)  # discard fails to remove
+
+    def _denied(*_a: object, **_k: object) -> None:
+        msg = "denied"
+        raise OSError(msg)
+
+    monkeypatch.setattr(wbp, "rmtree", _denied)  # the partial discard fails
 
     with windows_short_build_paths(config_dir):
         assert "ESPHOME_DATA_DIR" not in os.environ
