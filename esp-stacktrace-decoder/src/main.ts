@@ -39,7 +39,15 @@ function post(msg: OutboundMessage): void {
 // for many regions over one session.
 let ready: Promise<unknown> | undefined;
 function wasm(): Promise<unknown> {
-  if (ready === undefined) ready = init();
+  if (ready === undefined) {
+    ready = init().catch((err) => {
+      // Only the success is worth keeping. Latching a rejection would turn one
+      // transient fetch failure into raw dumps for the rest of the session,
+      // which is not what memoizing a ~1MB compile is for.
+      ready = undefined;
+      throw err;
+    });
+  }
   return ready;
 }
 
@@ -55,17 +63,24 @@ async function decodeRegion(elf: ArrayBuffer, dump: string): Promise<DecodedFram
   await wasm();
   const decoded = decode(new Uint8Array(elf), dump);
   const frames: DecodedFrame[] = [];
-  for (const entry of decoded) {
-    frames.push({
-      // Rust types the address u64, so the glue hands back a BigInt. Narrow it
-      // here: structured clone would carry a BigInt happily, but JSON.stringify
-      // throws on one, and the embedder caches decodes. An ESP address is 32
-      // bits, so this is lossless.
-      address: Number(entry.address),
-      function_name: entry.function_name,
-      location: entry.location,
-    });
-    entry.free();
+  try {
+    for (const entry of decoded) {
+      frames.push({
+        // Rust types the address u64, so the glue hands back a BigInt. Narrow
+        // it here: structured clone would carry a BigInt happily, but
+        // JSON.stringify throws on one, and the embedder caches decodes. An ESP
+        // address is 32 bits, so this is lossless.
+        address: Number(entry.address),
+        function_name: entry.function_name,
+        location: entry.location,
+      });
+    }
+  } finally {
+    // In a finally because the eager free exists for the crash loop, which is
+    // also where a malformed region is most likely to throw partway through;
+    // leaving the rest to the FinalizationRegistry there is the one case it was
+    // meant to avoid. Double-freeing is not a risk: each handle is freed once.
+    for (const entry of decoded) entry.free();
   }
   return frames;
 }

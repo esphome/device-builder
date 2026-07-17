@@ -13,6 +13,7 @@ on:
     paths:
       - flasher/**
       - esp-stacktrace-decoder/**
+      - pages-index.html
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -64,37 +65,12 @@ jobs:
           mkdir -p _site/flasher _site/esp-stacktrace-decoder
           cp -r flasher/dist/. _site/flasher/
           cp -r esp-stacktrace-decoder/dist/. _site/esp-stacktrace-decoder/
-          cat > _site/index.html <<'HTML'
-          <!doctype html>
-          <html lang="en">
-            <head>
-              <meta charset="utf-8" />
-              <title>ESPHome Device Builder pages</title>
-            </head>
-            <body>
-              <h1>ESPHome Device Builder pages</h1>
-              <p>
-                Helper pages for the ESPHome Device Builder dashboard. Neither is
-                useful on its own; the dashboard drives both.
-              </p>
-              <ul>
-                <li>
-                  <a href="./esp-stacktrace-decoder/">esp-stacktrace-decoder</a>: decodes
-                  ESP crash backtraces in your browser.
-                </li>
-                <li>
-                  <a href="./flasher/">flasher</a>: development target for Web Serial
-                  flashing. The production flasher is
-                  <a href="https://web.esphome.io/">web.esphome.io</a>.
-                </li>
-              </ul>
-            </body>
-          </html>
-          HTML
+          cp pages-index.html _site/index.html
       # Both pages must survive the compose; a missing one would only show up as
       # a 404 for whoever hits it next.
       - name: Check the composed site
         run: |
+          test -f _site/index.html
           test -f _site/flasher/index.html
           test -f _site/flasher/flasher.js
           test -f _site/esp-stacktrace-decoder/index.html

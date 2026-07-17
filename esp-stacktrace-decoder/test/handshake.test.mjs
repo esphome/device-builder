@@ -6,8 +6,8 @@
 // What is ours, and what breaks silently, is the handshake, the nonce gate, and
 // the egress guarantee.
 import http from "node:http";
-import { readFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
 
@@ -33,29 +33,29 @@ const EMBEDDER = `<!doctype html><meta charset=utf-8><script>
 
 const TYPES = { ".js": "text/javascript", ".html": "text/html", ".wasm": "application/wasm" };
 
+// Everything the build produced, by request path. The only files this fixture
+// server will ever hand out.
+const SERVED = new Map(readdirSync(DIST).map((name) => [`/${name}`, join(DIST, name)]));
+
 const server = http.createServer((req, res) => {
   const path = req.url.split("?")[0].split("#")[0];
   if (path === "/embedder.html") {
     res.writeHead(200, { "content-type": "text/html" });
     return res.end(EMBEDDER);
   }
-  // Resolve, then require the result to still sit under dist/. The request
-  // path is attacker-controlled in shape even here, and concatenating it onto
-  // a directory serves ../../ straight off the filesystem.
-  const file = resolve(DIST, path === "/" ? "index.html" : path.replace(/^\/+/, ""));
-  if (file !== DIST && !file.startsWith(DIST + sep)) {
-    res.writeHead(403);
-    return res.end("no");
-  }
-  try {
-    const body = readFileSync(file);
-    const ext = file.slice(file.lastIndexOf("."));
-    res.writeHead(200, { "content-type": TYPES[ext] ?? "application/octet-stream" });
-    res.end(body);
-  } catch {
+  // Look the request up in a table built from dist/, rather than turning it
+  // into a path. Joining a request path onto a directory serves ../../ straight
+  // off the filesystem, and a containment check after the fact is both easy to
+  // get subtly wrong and not something CodeQL can see through. A lookup has no
+  // path expression to get wrong.
+  const file = SERVED.get(path === "/" ? "/index.html" : path);
+  if (file === undefined) {
     res.writeHead(404);
-    res.end("nf");
+    return res.end("nf");
   }
+  const ext = file.slice(file.lastIndexOf("."));
+  res.writeHead(200, { "content-type": TYPES[ext] ?? "application/octet-stream" });
+  res.end(readFileSync(file));
 });
 
 await new Promise((r) => server.listen(0, r));

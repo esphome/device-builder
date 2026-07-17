@@ -32,17 +32,29 @@ else console.log("PASS: connect-src 'self' forbids all off-origin requests");
 if (!/default-src 'none'/.test(csp)) fail("default-src must be 'none' (closes image beacons)");
 else console.log("PASS: default-src 'none'");
 
-// 'wasm-unsafe-eval' is required to compile the module and grants no network
-// reach, but 'unsafe-eval' / 'unsafe-inline' in script-src would.
-if (/script-src[^;]*'unsafe-eval'/.test(csp)) fail("script-src must not allow 'unsafe-eval'");
-else if (/script-src[^;]*'unsafe-inline'/.test(csp))
-  fail("script-src must not allow 'unsafe-inline'");
+// Pinned exactly, like connect-src, rather than by testing for the absence of
+// a couple of bad tokens: `script-src 'self' 'wasm-unsafe-eval' data: blob:`
+// passes any absence check while handing back a script-injection foothold, and
+// the URL scan below can't see it either (data:/blob: have no scheme-slash
+// form). 'wasm-unsafe-eval' is what lets the module compile; it grants no
+// network reach.
+if (!/script-src 'self' 'wasm-unsafe-eval'(;|$)/.test(csp))
+  fail(`script-src must be exactly 'self' 'wasm-unsafe-eval', got: ${csp}`);
 else console.log("PASS: script-src grants only 'self' and 'wasm-unsafe-eval'");
+
+// Also part of the shipped header and the README's guarantee, so also pinned.
+for (const directive of ["form-action 'none'", "base-uri 'none'"]) {
+  if (!csp.includes(directive)) fail(`CSP must carry ${directive}, got: ${csp}`);
+  else console.log(`PASS: ${directive}`);
+}
 
 // A third-party reference would both defeat the CSP's point and leak that a
 // decode happened. Upstream's own page pulls a CDN stylesheet, which is exactly
-// why this page is written here rather than reused from the release.
-for (const file of ["index.html", "decoder.js"]) {
+// why this page is written here rather than reused from the release; the glue
+// is scanned too, because it is the only third-party code that ships, so it is
+// the one file this check was written for. If a bump makes it carry a URL
+// legitimately, that is worth learning here rather than in production.
+for (const file of ["index.html", "decoder.js", "esp_stacktrace_decoder_rs.js"]) {
   const body = readFileSync(join(dist, file), "utf8");
   const external = (body.match(/https?:\/\/[a-zA-Z0-9./-]+/g) ?? []).filter(
     (u) => !u.startsWith("https://esphome.github.io/"),
