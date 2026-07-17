@@ -746,6 +746,30 @@ async def test_create_device_package_board_writes_package_yaml(
     ctrl._db.editor.validate_yaml.assert_awaited_once()
 
 
+async def test_create_device_wifi_package_board_persists_secrets(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Wizard Wi-Fi creds for a Wi-Fi package board land in secrets.yaml, not the YAML."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    board = _package_board()
+    board.hardware.connectivity = [Connectivity.WIFI]
+    ctrl._db.boards.get_board = AsyncMock(return_value=board)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    await ctrl.create_device(name="proxy", board_id=board.id, ssid="MyNetwork", psk="hunter2")
+
+    content = (tmp_path / "proxy.yaml").read_text(encoding="utf-8")
+    assert "packages:" in content
+    assert "  ssid: !secret wifi_ssid\n" in content
+    assert "  password: !secret wifi_password\n" in content
+    assert "MyNetwork" not in content
+    secrets = (tmp_path / "secrets.yaml").read_text(encoding="utf-8")
+    assert 'wifi_ssid: "MyNetwork"' in secrets
+    assert 'wifi_password: "hunter2"' in secrets
+
+
 async def test_create_device_clears_residual_metadata_from_archived_same_name(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
