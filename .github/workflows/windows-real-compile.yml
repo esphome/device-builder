@@ -70,4 +70,4 @@ jobs:
         run: uv pip show esphome
 
       - name: Run Windows MAX_PATH e2e (${{ matrix.suite }})
-        run: uv run pytest -q ${{ matrix.tests }} --durations=10 --timeout=3000 --no-cov
+        run: uv run --no-sync pytest -q ${{ matrix.tests }} --durations=10 --timeout=3000 --no-cov
