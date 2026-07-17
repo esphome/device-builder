@@ -42,9 +42,10 @@ _DEFS_MOD = "esphome_device_builder.definitions"
 
 
 def test_resolve_full_config_derives_from_source_and_honours_override() -> None:
-    """``full_config`` defaults to a devices.esphome.io import, overridable either way."""
-    # Default: derived from source.type.
+    """``full_config`` defaults to "is an import", overridable either way."""
+    # Default: derived from source.type — every known import source qualifies.
     assert _resolve_full_config({"source": {"type": "esphome-devices"}}) is True
+    assert _resolve_full_config({"source": {"type": "bluetooth-proxies"}}) is True
     assert _resolve_full_config({}) is False
     assert _resolve_full_config({"source": {"type": "other"}}) is False
     # Manifest override wins in both directions.

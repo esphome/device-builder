@@ -132,6 +132,10 @@
       "description": "True for generic fallback boards where not all pins may be physically accessible.",
       "default": false
     },
+    "full_config": {
+      "type": "boolean",
+      "description": "Override for whether the featured components form a complete onboard config. Absent, imports (a source block) default true and hand-curated boards false."
+    },
     "featured_components": {
       "type": "array",
       "description": "Components recommended for this board. Surfaced as a 'Recommended' section in the Add Component dialog.",
@@ -156,7 +160,7 @@
         "type": {
           "type": "string",
           "description": "Origin marker. Drives which sync script owns this manifest.",
-          "enum": ["esphome-devices"]
+          "enum": ["esphome-devices", "bluetooth-proxies"]
         },
         "remote_id": {
           "type": "string",

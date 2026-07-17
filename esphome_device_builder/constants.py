@@ -106,6 +106,17 @@ BOARD_PIN_KEYS: frozenset[str] = frozenset(
 # can't drift.
 DEVICE_IMPORT_SOURCE_TYPE = "esphome-devices"
 
+# ``source.type`` written by the esphome/bluetooth-proxies importer
+# (script/sync_bluetooth_proxies.py).
+BLUETOOTH_PROXY_IMPORT_SOURCE_TYPE = "bluetooth-proxies"
+
+# Every ``source.type`` an importer owns. Membership means "imported board":
+# the loader derives ``full_config`` from it, while each importer only
+# overwrites / prunes manifests carrying its own type.
+IMPORT_SOURCE_TYPES: frozenset[str] = frozenset(
+    {DEVICE_IMPORT_SOURCE_TYPE, BLUETOOTH_PROXY_IMPORT_SOURCE_TYPE}
+)
+
 # Generated catalog categories for ESPHome's buses (the ``_CATEGORY_OVERRIDES``
 # bus entries in script/sync_components.py). Mapping-style buses (i2c/spi/uart/
 # modbus) collapse to ``"bus"``; platform-style buses (one_wire/canbus) keep
