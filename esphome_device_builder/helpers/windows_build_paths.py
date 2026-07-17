@@ -14,7 +14,10 @@ compile subprocess resolve there, whichever toolchain the config selects). Per-d
 roots nest under one ``C:\esphb`` parent rather than scattering ``C:\esphb-*`` across the drive
 root. Existing data is moved in once (best-effort) so warm caches survive: from the legacy flat
 ``C:\esphb-<id8>`` of the first relocation release, else from ``<config>/.esphome``,
-``~/.platformio`` and esphome's machine-global IDF cache. Real dirs (no junction), so CMake's
+``~/.platformio`` and esphome's machine-global IDF cache. Sweeping the IDF cache in trades
+upstream's all-projects sharing for the space-free guarantee: the multi-GB install becomes
+per-dashboard, and a cache later repopulated by CLI use is not re-merged (the completion marker
+short-circuits). Real dirs (no junction), so CMake's
 REALPATH can't reintroduce the spaced/long
 path. The tree is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by
 hand to reclaim space. No-op off Windows (including a Linux Docker container on Windows -- the
@@ -91,7 +94,10 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     override_pio = not user_set_pio and _relocate_into(pio, _platformio_dir())
     if override_pio:
         os.environ["PLATFORMIO_CORE_DIR"] = str(pio)
-    user_set_idf = "ESPHOME_ESP_IDF_PREFIX" in os.environ
+    # Unlike ESPHOME_DATA_DIR (bare presence wins in CORE.data_dir), esphome treats an
+    # empty/whitespace ESPHOME_ESP_IDF_PREFIX as unset — mirror that or an empty var would
+    # silently fall back to the long + spaced machine-global cache this exists to avoid.
+    user_set_idf = bool(os.environ.get("ESPHOME_ESP_IDF_PREFIX", "").strip())
     idf_cache = _default_idf_cache()
     idf_sources = (idf_cache,) if idf_cache is not None else ()
     override_idf = not user_set_idf and _relocate_into(idf, *idf_sources)
@@ -107,7 +113,8 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         yield
     finally:
         # All three vars were unset on entry (ESPHOME_DATA_DIR guarded above; the toolchain vars
-        # only overridden when absent), so popping is the right restore.
+        # only overridden when absent — or, for the IDF prefix, empty, which esphome also treats
+        # as unset), so popping is the right restore.
         os.environ.pop("ESPHOME_DATA_DIR", None)
         if override_pio:
             os.environ.pop("PLATFORMIO_CORE_DIR", None)

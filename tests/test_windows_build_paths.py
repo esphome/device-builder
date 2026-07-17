@@ -171,6 +171,44 @@ def test_missing_platformdirs_still_relocates_idf(
         assert (root / "idf").is_dir()
 
 
+def test_empty_esp_idf_prefix_is_not_user_set(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty ESPHOME_ESP_IDF_PREFIX means unset to esphome, so relocation must still apply."""
+    monkeypatch.setenv("ESPHOME_ESP_IDF_PREFIX", "  ")
+    root = fake_windows / "esphb" / _ID8
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
+        assert (root / "idf").is_dir()
+
+
+def test_failed_idf_relocation_leaves_prefix_unset(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interrupted IDF-cache move leaves ESPHOME_ESP_IDF_PREFIX at the default, not corrupt."""
+    config_dir = tmp_path / "First Last" / "esphome"
+    (config_dir / ".esphome").mkdir(parents=True)
+    (tmp_path / "cache_idf").mkdir()
+
+    real_move = wbp.shutil.move
+
+    def _interrupted(src: str, dst: str, *args: object, **kwargs: object) -> object:
+        if "cache_idf" in str(src):
+            # A cross-volume copy that got partway then died: dst half-written, src left behind.
+            Path(dst).mkdir(parents=True, exist_ok=True)
+            (Path(dst) / "half.txt").write_text("partial", encoding="utf-8")
+            msg = "interrupted"
+            raise OSError(msg)
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(wbp.shutil, "move", _interrupted)
+    root = fake_windows / "esphb" / _ID8
+    with windows_short_build_paths(config_dir):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
+        assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ  # corrupt toolchain not adopted
+    assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ
+
+
 def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path) -> None:
     """Existing ``.esphome``, ``~/.platformio`` and the IDF cache are moved into the root once."""
     config_dir = tmp_path / "First Last" / "esphome"
