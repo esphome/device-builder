@@ -38,7 +38,10 @@ const TYPES = { ".js": "text/javascript", ".html": "text/html", ".wasm": "applic
 const SERVED = new Map(readdirSync(DIST).map((name) => [`/${name}`, join(DIST, name)]));
 
 const server = http.createServer((req, res) => {
-  const path = req.url.split("?")[0].split("#")[0];
+  // `url` is typed optional because IncomingMessage is shared with the client
+  // side; a server 'request' always carries one. Defaulted anyway so a throw
+  // here could never take the run down with it.
+  const path = (req.url ?? "/").split("?")[0].split("#")[0];
   if (path === "/embedder.html") {
     res.writeHead(200, { "content-type": "text/html" });
     return res.end(EMBEDDER);
