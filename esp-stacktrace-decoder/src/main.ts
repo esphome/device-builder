@@ -4,9 +4,8 @@ import { PROTOCOL_VERSION } from "./protocol";
 
 const params = new URLSearchParams(location.hash.slice(1));
 const nonce = params.get("nonce") ?? "";
-// The embedder. Unlike the flasher (a tab, so window.opener), this page is
-// framed, so the peer is the parent. Equal to `window` when someone opens the
-// page directly, which is not an embedder and must never be posted to.
+// Equal to `window` when someone opens the page directly, which is not an
+// embedder and must never be posted to.
 const peer: Window | null = window.parent === window ? null : window.parent;
 
 // Where outbound frames are sent. The embedder may pin its origin in the hash;
@@ -14,17 +13,14 @@ const peer: Window | null = window.parent === window ? null : window.parent;
 // ev.origin. Outbound frames carry no nonce (see protocol.ts), so the
 // pre-handoff '*' fallback leaks no secret.
 let targetOrigin = params.get("origin") || "*";
-let requested = false;
 
 function post(msg: OutboundMessage): void {
   try {
     peer?.postMessage(msg, targetOrigin);
   } catch (err) {
     // A malformed origin= hash param (e.g. origin=null) makes postMessage
-    // throw, which would wedge the ready handshake. Fall back to '*' so frames
-    // keep flowing; outbound frames carry no nonce, so the broader audience
-    // leaks nothing. Log rather than swallow so an unrelated failure is still
-    // visible.
+    // throw, which would wedge the handshake. `peer` is one fixed window
+    // either way, so '*' drops the origin assertion, not the audience.
     console.error("Decoder postMessage failed; falling back to '*':", err);
     targetOrigin = "*";
     try {
@@ -41,9 +37,8 @@ let ready: Promise<unknown> | undefined;
 function wasm(): Promise<unknown> {
   if (ready === undefined) {
     ready = init().catch((err) => {
-      // Only the success is worth keeping. Latching a rejection would turn one
-      // transient fetch failure into raw dumps for the rest of the session,
-      // which is not what memoizing a ~1MB compile is for.
+      // Memoize the success, not the failure: one transient fetch error would
+      // otherwise mean raw dumps for the rest of the session.
       ready = undefined;
       throw err;
     });
@@ -66,25 +61,17 @@ async function decodeRegion(elf: ArrayBuffer, dump: string): Promise<DecodedFram
   try {
     for (const entry of decoded) {
       frames.push({
-        // Rust types the address u64, so the glue hands back a BigInt. Narrow
-        // it here: structured clone would carry a BigInt happily, but
-        // JSON.stringify throws on one, and the embedder caches decodes. An ESP
-        // address is 32 bits, so this is lossless.
+        // A BigInt (Rust u64). Structured clone would carry it, but the
+        // embedder caches decodes and JSON.stringify throws on one. An ESP
+        // address is 32 bits, so narrowing is lossless.
         address: Number(entry.address),
         function_name: entry.function_name,
         location: entry.location,
       });
     }
   } finally {
-    // In a finally because the eager free exists for the crash loop, which is
-    // also where a malformed region is most likely to throw partway through;
-    // leaving the rest to the FinalizationRegistry there is the one case it was
-    // meant to avoid. Double-freeing is not a risk: each handle is freed once.
-    //
-    // Each free is guarded so cleanup always finishes: an unguarded throw here
-    // would abandon the remaining handles, leaking the arena this exists to
-    // reclaim, and would replace the in-flight decode error, reporting the
-    // wrong reason the region failed.
+    // Guarded individually so one bad handle can't abandon the rest, or mask
+    // the in-flight decode error.
     for (const entry of decoded) {
       try {
         entry.free();
@@ -103,27 +90,27 @@ window.addEventListener("message", (ev: MessageEvent) => {
   if (!peer || ev.source !== peer) return;
   const data = ev.data as Partial<RequestMessage> | undefined;
   if (!data || data.type !== "esphome-stacktrace-decode:request") return;
-  // Fail closed when we were framed without a nonce, rather than letting the
-  // gate degrade to "" === "" and accept any request carrying an empty one.
-  // Defence in depth (ev.source already restricts this to whoever framed us),
-  // but an auth check that quietly becomes a no-op is worse than no check: it
-  // still reads like one.
+  // Fail closed when framed without a nonce, rather than letting the gate
+  // degrade to "" === "" and accept any request carrying an empty one.
   if (!nonce || data.nonce !== nonce) return;
   // The embedder origin is now known; stop broadcasting and pin to it.
   if (targetOrigin === "*" && ev.origin && ev.origin !== "null") {
     targetOrigin = ev.origin;
   }
-  requested = true;
   stopReadyRetry();
   const id = typeof data.id === "string" ? data.id : "";
-  if (!(data.elf instanceof ArrayBuffer) || typeof data.dump !== "string" || !id) {
-    // The embedder has attached and sent, so the handshake is over even though
-    // this payload is unusable. Answer so it isn't left waiting on a timeout.
+  if (!id) {
+    // An error frame is correlated by id, so answering this one would be
+    // unroutable. Announce instead: it needs no id, and the embedder is left
+    // with something to log rather than a timeout.
     post({
-      type: "esphome-stacktrace-decode:error",
-      id,
-      message: "Malformed decode request",
+      type: "esphome-stacktrace-decode:unavailable",
+      reason: "Decode request carried no id, so its reply could not be routed.",
     });
+    return;
+  }
+  if (!(data.elf instanceof ArrayBuffer) || typeof data.dump !== "string") {
+    post({ type: "esphome-stacktrace-decode:error", id, message: "Malformed decode request" });
     return;
   }
   const { elf, dump } = data;
@@ -155,9 +142,6 @@ function sendReady(): void {
 }
 
 if (peer && !nonce) {
-  // Tell the embedder, not just the console: this page renders in a hidden
-  // iframe, so a console.error here is read by nobody and the embedder would
-  // sit out its whole timeout unable to tell a wiring mistake from an outage.
   const reason =
     "Framed without a nonce, so no decode can be authorized. The embedder must " +
     "frame this page as .../#nonce=<random>&origin=<its-origin>.";
@@ -168,19 +152,11 @@ if (peer && !nonce) {
   let waited = 0;
   readyTimer = window.setInterval(() => {
     waited += 500;
-    if (requested) {
-      stopReadyRetry();
-      return;
-    }
+    // Stop rather than announce: the embedder gives up on the same 10s clock
+    // and drops both its listener and this frame, so there is nobody left to
+    // tell, and nothing re-frames.
     if (waited >= 10000) {
       stopReadyRetry();
-      // Announced, not just logged, for the same reason as above: the embedder
-      // is the only one who can act on it, by re-framing.
-      const reason =
-        "No decode was requested within 10s of loading, so this page has " +
-        "stopped announcing itself. Re-frame it to retry.";
-      console.error(reason);
-      post({ type: "esphome-stacktrace-decode:unavailable", reason });
       return;
     }
     sendReady();

@@ -146,6 +146,26 @@ try {
   else if (bad.id !== "b") fail(`error carried the wrong id: ${bad.id}`);
   else console.log("PASS: malformed request answered with an error, id correlated");
 
+  // 3b. a request with no id can't be answered with an error frame: the
+  // embedder correlates by id, so the reply would be unroutable in exactly the
+  // case that produced the empty one. It gets an announce instead.
+  await page.evaluate(() => {
+    window.__msgs.length = 0;
+    window.__send({
+      type: "esphome-stacktrace-decode:request",
+      nonce: "test-nonce-123",
+      elf: new ArrayBuffer(8),
+      dump: "Backtrace: 0x400d1a2c:0x3ffb1f00",
+    });
+  });
+  await settle();
+  const idless = await msgs(page);
+  if (idless.some((m) => m?.type === "esphome-stacktrace-decode:error"))
+    fail("an id-less request was answered with an error the embedder can't route");
+  else if (!idless.some((m) => m?.type === "esphome-stacktrace-decode:unavailable"))
+    fail("an id-less request went unanswered");
+  else console.log("PASS: id-less request announced rather than answered unroutably");
+
   // 4. a real ELF decodes to real frames. A junk ELF would answer with zero
   // frames, which proves the wasm ran but nothing about the frames themselves;
   // the fixture is here so the assertions below have something to bite on.
