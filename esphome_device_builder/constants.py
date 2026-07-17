@@ -150,6 +150,13 @@ class DecodeUnavailable(StrEnum):
 
     NO_BACKTRACE = "no_backtrace"
     NO_BUILD = "no_build"
+    # The ELF is here but the build tree it was compiled in is not, so nothing
+    # local can resolve addr2line: a device built on a remote server, whose
+    # artifacts were materialised without the CMake tree. Distinct from
+    # NO_BUILD because the two differ in the only way a client cares about,
+    # whether the symbols exist at all, and a client that conflated them had to
+    # ask a second time to find out.
+    NO_LOCAL_TOOLCHAIN = "no_local_toolchain"
     UNSUPPORTED_PLATFORM = "unsupported_platform"
     DECODE_FAILED = "decode_failed"
     HELPER_FAILED = "helper_failed"

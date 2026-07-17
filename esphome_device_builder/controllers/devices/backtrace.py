@@ -65,7 +65,9 @@ async def decode_backtrace(
 
     Answers ``{decoded, stale_build, unavailable_reason}``. A device that
     was never compiled here is a normal outcome, reported as
-    ``unavailable_reason``, not raised.
+    ``unavailable_reason``, not raised. ``stale_build`` is answered even when
+    declining, because a client that decodes the ELF some other way needs the
+    same caveat and only this side knows both hashes.
     """
     # ``resolve_storage_path`` collapses to ``<data_dir>/storage/<basename>``,
     # so a traversal-shaped *configuration* could still reach an
@@ -78,7 +80,13 @@ async def decode_backtrace(
         return _result(unavailable_reason=DecodeUnavailable.NO_BACKTRACE)
     target = await run_in_executor(_resolve_target, configuration, yaml_path)
     if target.unavailable_reason:
-        return _result(unavailable_reason=target.unavailable_reason)
+        # Answer staleness even when declining. Whoever decodes the ELF instead
+        # reads it against the same local build, so the caveat is as true there
+        # as it would have been here, and only this side knows both hashes.
+        return _result(
+            unavailable_reason=target.unavailable_reason,
+            stale_build=_is_stale(controller, configuration, target.local_config_hash),
+        )
     request = dumps(
         {
             "config_path": str(yaml_path),
@@ -103,9 +111,11 @@ async def decode_backtrace(
         # is itself worth knowing.
         detail = str(reply.get("detail") or "<no detail>")
         _LOGGER.warning("Backtrace decode for %s reported %s: %s", configuration, reason, detail)
-    # Keyed on the frames, not the reason: the latch returns what it decoded
-    # before giving up, and those frames need the caption too.
-    stale = bool(decoded) and _is_stale(controller, configuration, target.local_config_hash)
+    # Answered off the hashes alone, not off whether anything decoded: it is a
+    # fact about the local build, and it qualifies frames whoever produced
+    # them. The latch returns what it decoded before giving up, and a caller we
+    # decline may decode the same ELF itself; both need the caption.
+    stale = _is_stale(controller, configuration, target.local_config_hash)
     return _result(decoded=decoded, stale_build=stale, unavailable_reason=reason)
 
 
@@ -167,13 +177,36 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
     if storage is None or not storage.build_path:
         return _DecodeTarget(unavailable_reason=DecodeUnavailable.NO_BUILD)
     idedata_path = resolve_idedata_path(configuration, name=storage.name)
+    # Read the hash before the gate, not after: staleness is knowable whenever
+    # the build dir is, and a client we decline still needs it to caption
+    # whatever decodes the frames instead.
+    local_config_hash = read_build_info_hash(yaml_path) or ""
     if not _artifacts_present(storage, idedata_path):
-        return _DecodeTarget(unavailable_reason=DecodeUnavailable.NO_BUILD)
+        return _DecodeTarget(
+            unavailable_reason=_missing_artifacts_reason(storage),
+            local_config_hash=local_config_hash,
+        )
     return _DecodeTarget(
         storage_path=storage_path,
         idedata_path=idedata_path,
-        local_config_hash=read_build_info_hash(yaml_path) or "",
+        local_config_hash=local_config_hash,
     )
+
+
+def _missing_artifacts_reason(storage: StorageJSON) -> str:
+    """Say whether the ELF is here without its build tree, or nothing is here.
+
+    Both were ``no_build`` once, which conflated "never compiled here" with
+    "compiled on a remote build server", and left a client that can decode an
+    ELF itself asking a second time to tell them apart. The ELF is the only
+    input such a decoder needs, so its presence is the whole distinction.
+    """
+    if storage.firmware_bin_path is None:
+        return DecodeUnavailable.NO_BUILD
+    # Beside firmware.bin on every platform, which is how firmware/download
+    # locates it too (collect_download_entries).
+    elf = storage.firmware_bin_path.parent / "firmware.elf"
+    return DecodeUnavailable.NO_LOCAL_TOOLCHAIN if elf.is_file() else DecodeUnavailable.NO_BUILD
 
 
 def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
