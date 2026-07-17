@@ -359,6 +359,25 @@ async def test_submit_job_upload_target_rejected_unsupported(tmp_path: Path) -> 
     session.terminate.assert_not_called()
 
 
+async def test_submit_job_upload_reject_leaves_session_intact_for_chunks(
+    tmp_path: Path,
+) -> None:
+    """Chunks trailing an ``upload_unsupported`` reject ack ``no_inflight_submit``, no terminate."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"\x00" * 100
+
+    await receiver.handle_submit_job(session, _header(target="upload", bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    payloads = [c.args[0] for c in session.send_app_frame.call_args_list]
+    assert payloads[0]["reason"] == "upload_unsupported"
+    assert len(payloads) > 1, "expected trailing chunk acks"
+    assert all(p["reason"] == "no_inflight_submit" for p in payloads[1:])
+    session.terminate.assert_not_called()
+
+
 async def test_submit_job_path_traversal_filename_rejected(tmp_path: Path) -> None:
     """A ``configuration_filename`` with path traversal rejects ``invalid_header``."""
     receiver = _make_receiver(tmp_path)
