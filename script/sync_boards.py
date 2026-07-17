@@ -107,6 +107,8 @@ _INDEX_DROP_FIELDS: frozenset[str] = frozenset(
         "featured_bundles",
         "default_components",
         "full_config",
+        "package_import_url",
+        "package_name",
     }
 )
 

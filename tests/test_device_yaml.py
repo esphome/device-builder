@@ -33,6 +33,7 @@ from esphome_device_builder.helpers.device_yaml import (
     extract_esphome_meta_from_config,
     generate_device_yaml,
     generate_minimal_stub_yaml,
+    generate_package_device_yaml,
     load_device_from_storage,
     parse_esphome_meta,
     parse_platform_from_yaml,
@@ -55,6 +56,7 @@ from esphome_device_builder.models import (
     DeviceRuntimeState,
     DeviceState,
     Esp32Variant,
+    FeaturedComponent,
     Platform,
     ReachabilitySource,
 )
@@ -2763,6 +2765,71 @@ async def test_nested_list_field_presets_render_as_yaml_lists(
     assert config["ethernet"]["type"] == "W5500"
     assert config["esp32"]["flash_size"] == "16MB"
     assert "wifi" not in config
+
+
+def _make_package_board(*, ethernet: bool) -> BoardCatalogEntry:
+    """Minimal remote-package board; *ethernet* adds the network-provider featured entry."""
+    board = _make_esp32_board()
+    board.package_import_url = (
+        "github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main"
+    )
+    board.package_name = "esphome.bluetooth-proxy"
+    if ethernet:
+        board.featured_components = [
+            FeaturedComponent(id="onboard_ethernet", component_id="ethernet")
+        ]
+    return board
+
+
+def test_generate_package_device_yaml_matches_dashboard_import(tmp_path: Path) -> None:
+    """The package shape stays in lockstep with esphome's ``import_config`` output.
+
+    ``dashboard_import.import_config`` documents device-builder as a consumer
+    of its generated shape; this pins our generator against it structurally
+    (API keys are random, so compared by presence).
+    """
+    from esphome.components.dashboard_import import import_config  # noqa: PLC0415
+
+    from script._board_import import safe_load_yaml  # noqa: PLC0415
+
+    board = _make_package_board(ethernet=False)
+    ours = yaml.safe_load(
+        generate_package_device_yaml("proxy-1", "proxy-1", board, "", "")
+        .replace("!secret wifi_ssid", "wifi_ssid")
+        .replace("!secret wifi_password", "wifi_password")
+    )
+    reference_path = tmp_path / "proxy-1.yaml"
+    import_config(
+        str(reference_path),
+        "proxy-1",
+        "proxy-1",
+        board.package_name,
+        board.package_import_url,
+        network="wifi",
+        encryption=True,
+    )
+    theirs = safe_load_yaml(reference_path.read_text(encoding="utf-8"))
+    assert ours["api"]["encryption"]["key"]
+    assert theirs["api"]["encryption"]["key"]
+    ours["api"]["encryption"]["key"] = theirs["api"]["encryption"]["key"] = "<key>"
+    assert ours == theirs
+
+
+def test_generate_package_device_yaml_network_variants() -> None:
+    """Ethernet-in-package boards get no ``wifi:``; Wi-Fi boards get ``!secret`` refs."""
+    wired = generate_package_device_yaml("p", "P", _make_package_board(ethernet=True), "", "")
+    assert "wifi" not in wired
+    assert "packages:" in wired
+    wifi = generate_package_device_yaml("p", "P", _make_package_board(ethernet=False), "", "")
+    assert "ssid: !secret wifi_ssid" in wifi
+    inline = generate_package_device_yaml(
+        "p", "P", _make_package_board(ethernet=False), "Net #1", "pw"
+    )
+    assert 'ssid: "Net #1"' in inline
+    no_creds = generate_package_device_yaml(
+        "p", "P", _make_package_board(ethernet=False), "", "", wifi_secrets_available=False
+    )
+    assert "wifi" not in no_creds
 
 
 # ---------------------------------------------------------------------------

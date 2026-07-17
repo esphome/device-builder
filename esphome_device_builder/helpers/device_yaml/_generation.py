@@ -147,6 +147,61 @@ def _has_native_wifi(
 # ---------------------------------------------------------------------------
 
 
+def generate_package_device_yaml(
+    name: str,
+    friendly_name: str,
+    board: BoardCatalogEntry,
+    ssid: str,
+    psk: str,
+    *,
+    wifi_secrets_available: bool = True,
+) -> str:
+    """
+    Generate a remote-package device YAML for a ``package_import_url`` board.
+
+    The dashboard-import adoption shape (mirrors esphome's
+    ``dashboard_import.import_config`` output): ``substitutions`` +
+    ``packages:`` referencing the upstream config + a local ``esphome:``
+    override (``name_add_mac_suffix: false``) + a fresh API key. The
+    upstream package carries the platform/network/component blocks, so a
+    ``wifi:`` block (bare credentials or ``!secret`` refs) is added only
+    when the board doesn't provide its own network.
+    """
+    lines: list[str] = []
+    board_label = f"{board.name} ({board.manufacturer})" if board.manufacturer else board.name
+    lines.append(f"# Board: {board_label}")
+    lines.append(f"# Definition: definitions/boards/{board.id}/manifest.yaml")
+    lines.append("")
+    lines.append("substitutions:")
+    lines.append(f"  name: {name}")
+    lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
+    lines.append("")
+    lines.append("packages:")
+    package_key = board.package_name or board.id
+    lines.append(f"  {_safe_yaml_scalar(package_key)}: {board.package_import_url}")
+    lines.append("")
+    lines.append("esphome:")
+    lines.append("  name: ${name}")
+    lines.append("  friendly_name: ${friendly_name}")
+    lines.append("  name_add_mac_suffix: false")
+    lines.append("")
+    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
+    lines.append("api:")
+    lines.append("  encryption:")
+    lines.append(f'    key: "{api_key}"')
+    lines.append("")
+    if not board_provides_network(board) and (bool(ssid) or wifi_secrets_available):
+        lines.append("wifi:")
+        if ssid:
+            lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
+            lines.append(f"  password: {_safe_yaml_scalar(psk)}")
+        else:
+            lines.append("  ssid: !secret wifi_ssid")
+            lines.append("  password: !secret wifi_password")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def generate_device_yaml(
     name: str,
     friendly_name: str,

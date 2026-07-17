@@ -667,6 +667,7 @@ async def test_create_device_template_invalid_yaml_surfaces_internal_error(
     (tmp_path / "secrets.yaml").write_text('wifi_ssid: "x"\nwifi_password: "y"\n', encoding="utf-8")
     # Board returns a valid catalog entry that drives ``generate_device_yaml``.
     board = MagicMock()
+    board.package_import_url = ""
     board.id = "esp32-c3"
     board.esphome.platform = "esp32"
     board.esphome.variant = "esp32c3"
@@ -835,6 +836,7 @@ async def test_create_device_with_board_id_overwrites_archived_board_id(
     )
     # Catalog returns a usable board for the new id.
     new_board = MagicMock()
+    new_board.package_import_url = ""
     new_board.id = "rp2040-new-board"
     new_board.esphome.platform = "rp2040"
     new_board.template = None
@@ -1005,6 +1007,7 @@ async def test_yaml_content_for_create_skips_network_pull_when_default_already_n
     skipped so ``merge_component_yaml`` never emits the block twice.
     """
     board = MagicMock()
+    board.package_import_url = ""
     board.id = "wired-board"
     board.name = "Wired Board"
     board.manufacturer = ""

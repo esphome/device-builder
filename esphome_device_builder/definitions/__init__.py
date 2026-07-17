@@ -379,6 +379,8 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
                     featured=data.get("featured", False),
                     is_generic=data.get("is_generic", False),
                     full_config=full_config,
+                    package_import_url=data.get("package_import_url", ""),
+                    package_name=data.get("package_name", ""),
                     featured_components=[
                         _load_featured_component(fc, board_dir, multi_conf_by_id)
                         for fc in data.get("featured_components", [])

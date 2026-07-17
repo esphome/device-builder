@@ -296,6 +296,14 @@ class BoardCatalogEntry(DashboardModel):
     # Resolved at manifest load: the manifest's optional ``full_config`` wins,
     # else defaults to "is a devices.esphome.io import".
     full_config: bool = False
+    # Remote-package device shape: when set, ``devices/create`` generates a
+    # minimal YAML referencing this upstream config through ``packages:``
+    # (the dashboard-import adoption shape) instead of expanding component
+    # defaults, so the device tracks upstream updates on every compile.
+    package_import_url: str = ""
+    # The ``packages:`` mapping key for the import (e.g.
+    # ``esphome.bluetooth-proxy``); falls back to the board id when empty.
+    package_name: str = ""
     # Components recommended for this board, surfaced in the Add
     # Component dialog as a "Recommended" section.
     featured_components: list[FeaturedComponent] = field(default_factory=list)

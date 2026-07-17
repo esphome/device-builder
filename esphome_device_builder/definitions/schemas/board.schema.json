@@ -136,6 +136,14 @@
       "type": "boolean",
       "description": "Override for whether the featured components form a complete onboard config. Absent, imports (a source block) default true and hand-curated boards false."
     },
+    "package_import_url": {
+      "type": "string",
+      "description": "Remote package shorthand (github://owner/repo/file.yaml@ref). When set, devices/create generates a minimal YAML referencing this upstream config through packages: instead of expanding component defaults."
+    },
+    "package_name": {
+      "type": "string",
+      "description": "The packages: mapping key used with package_import_url (e.g. esphome.bluetooth-proxy); the board id when omitted."
+    },
     "featured_components": {
       "type": "array",
       "description": "Components recommended for this board. Surfaced as a 'Recommended' section in the Add Component dialog.",

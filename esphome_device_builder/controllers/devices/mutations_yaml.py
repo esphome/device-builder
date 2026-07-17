@@ -11,6 +11,7 @@ from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
     generate_device_yaml,
     generate_minimal_stub_yaml,
+    generate_package_device_yaml,
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
@@ -61,6 +62,21 @@ async def yaml_content_for_create(
     """
     if file_content:
         return file_content, "user"
+    if board and board.package_import_url:
+        # Remote-package board (bluetooth-proxies import): the device is a
+        # thin ``packages:`` reference to the upstream config, so it tracks
+        # upstream updates on every compile instead of vendoring the blocks.
+        return (
+            generate_package_device_yaml(
+                name,
+                friendly,
+                board,
+                ssid,
+                psk,
+                wifi_secrets_available=wifi_secrets_available,
+            ),
+            "template",
+        )
     if board:
         defaults = (
             await catalog.resolve_default_components(board)
