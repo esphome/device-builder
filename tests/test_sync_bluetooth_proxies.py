@@ -168,6 +168,15 @@ def test_make_record_acceptance_guards(tmp_path: Path, mutation, reason: str) ->
     assert skip == reason
 
 
+def test_iter_configs_fails_on_cross_vendor_stem_collision(tmp_path: Path) -> None:
+    """Two vendors sharing a file stem would collapse to one board id — fail loudly."""
+    for vendor in ("vendor-a", "vendor-b"):
+        (tmp_path / vendor).mkdir()
+        (tmp_path / vendor / "shared-stem.yaml").write_text(_GENERIC_YAML, encoding="utf-8")
+    with pytest.raises(SystemExit, match="shared-stem"):
+        _iter_configs(tmp_path)
+
+
 def test_make_record_unknown_device_derives_name(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

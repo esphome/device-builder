@@ -252,7 +252,10 @@ def _iter_configs(repo: Path) -> list[_ProxySource]:
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
-            except OSError:
+            except OSError as err:
+                # A dropped file leaves ``active_remote_ids`` and prune_removed
+                # would delete its committed board — keep the skip loud.
+                _LOGGER.warning("Skipping unreadable config %s: %s", path, err)
                 continue
             config = safe_load_yaml(text)
             if not isinstance(config, dict):
@@ -266,6 +269,16 @@ def _iter_configs(repo: Path) -> list[_ProxySource]:
                     text=text,
                     config=config,
                 )
+            )
+    stems: dict[str, str] = {}
+    for source in out:
+        if (other := stems.setdefault(source.stem, source.remote_id)) != source.remote_id:
+            # Board ids derive from the bare stem; two vendors sharing one
+            # would silently overwrite each other's manifest and confuse
+            # pruning — fail the sync instead.
+            raise SystemExit(
+                f"Board id collision: {source.remote_id} and {other} share the "
+                f"file stem {source.stem!r}; rename one upstream."
             )
     return out
 
