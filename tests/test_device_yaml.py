@@ -2809,6 +2809,12 @@ def test_generate_package_device_yaml_matches_dashboard_import(tmp_path: Path) -
     assert ours["api"]["encryption"]["key"]
     assert theirs["api"]["encryption"]["key"]
     ours["api"]["encryption"]["key"] = theirs["api"]["encryption"]["key"] = "<key>"
+    # Deliberate divergence: our packages never reference ``${name}``, so
+    # we emit direct values instead of the substitutions indirection.
+    # Resolve theirs the same way before comparing the rest of the shape.
+    subs = theirs.pop("substitutions")
+    theirs["esphome"]["name"] = subs["name"]
+    theirs["esphome"]["friendly_name"] = subs["friendly_name"]
     assert ours == theirs
 
 

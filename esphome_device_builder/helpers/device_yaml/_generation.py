@@ -164,24 +164,23 @@ def generate_package_device_yaml(
     """
     Generate the adoption-shape YAML for a ``package_import_url`` board.
 
-    ``substitutions`` + ``packages:`` + local ``esphome:`` overrides + a
-    fresh API key; a ``wifi:`` block lands only when the board doesn't
-    provide its own network (the package carries every other block).
+    ``packages:`` + local ``esphome:`` overrides + a fresh API key; a
+    ``wifi:`` block lands only when the board doesn't provide its own
+    network (the package carries every other block).
     """
     lines: list[str] = [*_board_header_lines(board)]
-    lines.append("substitutions:")
-    lines.append(f"  name: {name}")
-    lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
-    lines.append("")
     lines.append("packages:")
     package_key = board.package_name or board.id
     lines.append(
         f"  {_safe_yaml_scalar(package_key)}: {_safe_yaml_scalar(board.package_import_url)}"
     )
     lines.append("")
+    # esphome's adoption template routes the name through a
+    # ``substitutions:`` block for packages that reference ``${name}``
+    # internally; none of ours do, so the direct values read cleaner.
     lines.append("esphome:")
-    lines.append("  name: ${name}")
-    lines.append("  friendly_name: ${friendly_name}")
+    lines.append(f"  name: {name}")
+    lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("  name_add_mac_suffix: false")
     lines.append("")
     lines.append("api:")
