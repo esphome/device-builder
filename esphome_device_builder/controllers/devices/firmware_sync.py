@@ -15,13 +15,7 @@ from ...helpers.remote_build_layout import (
     parse_from_configuration as parse_remote_build_path,
 )
 from ...helpers.storage_path import resolve_storage_path
-from ...models import (
-    COMPILING_JOB_TYPES,
-    DeviceState,
-    JobLifecycleData,
-    JobStatus,
-    JobType,
-)
+from ...models import COMPILING_JOB_TYPES, JobLifecycleData, JobStatus, JobType
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -267,15 +261,18 @@ def _fire_version_reprobe_burst(
     controller: DevicesController, configuration: str, deadline: float
 ) -> None:
     """
-    Deep-sleep re-probe tick: probe, then re-arm until the device is seen or *deadline* passes.
+    Deep-sleep re-probe tick: probe, then re-arm until *deadline* passes.
 
-    Stops early once the device is ONLINE (an announce or an earlier
-    probe landed); the ``priority_for != MDNS`` guard in
-    ``request_reprobe`` still skips a device already seen over mDNS.
+    Same probe as ``_fire_version_reprobe``, repeated across the reboot +
+    awake window because a deep-sleep device is only awake briefly. Does
+    not short-circuit on the device's ONLINE state: right after a flash
+    that reading is the stale pre-reboot one, so aborting on it would
+    skip the whole window. The monitor's ``priority_for != MDNS`` guard
+    in ``request_reprobe`` already skips a device seen fresh over mDNS.
     """
     controller._reprobe_timers.pop(configuration, None)
     device = controller._scanner.get_by_configuration(configuration)
-    if device is None or device.runtime_state.state is DeviceState.ONLINE:
+    if device is None:
         return
     controller._state_monitor.api_info.request_reprobe(device.name)
     loop = asyncio.get_running_loop()

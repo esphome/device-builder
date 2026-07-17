@@ -680,8 +680,8 @@ async def test_burst_requests_and_rearms_until_deadline() -> None:
     controller._cancel_reprobe_timers()
 
 
-async def test_burst_stops_once_device_online() -> None:
-    """The burst stops re-probing and re-arming once the device is back ONLINE."""
+async def test_burst_probes_despite_stale_online_reading() -> None:
+    """Right after a flash the ONLINE reading is stale (pre-reboot); the burst still probes."""
     controller = _reprobe_controller(_device(state=DeviceState.ONLINE))
     loop = asyncio.get_running_loop()
 
@@ -689,8 +689,9 @@ async def test_burst_stops_once_device_online() -> None:
         controller, "kitchen.yaml", deadline=loop.time() + 1000
     )
 
-    controller._state_monitor.api_info.request_reprobe.assert_not_called()
-    assert controller._reprobe_timers == {}  # not re-armed
+    controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
+    assert "kitchen.yaml" in controller._reprobe_timers  # re-armed, not aborted
+    controller._cancel_reprobe_timers()
 
 
 async def test_burst_stops_at_deadline() -> None:
