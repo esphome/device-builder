@@ -155,14 +155,15 @@ function sendReady(): void {
 }
 
 if (peer && !nonce) {
-  // Say so. Without this, a framed page missing its nonce just never answers,
-  // which the embedder cannot tell apart from the page being unreachable, so a
-  // wiring mistake reads as an outage and every crash silently stays raw.
-  console.error(
+  // Tell the embedder, not just the console: this page renders in a hidden
+  // iframe, so a console.error here is read by nobody and the embedder would
+  // sit out its whole timeout unable to tell a wiring mistake from an outage.
+  const reason =
     "Framed without a nonce, so no decode can be authorized. The embedder must " +
-      "frame this page as .../#nonce=<random>&origin=<its-origin>.",
-  );
-} else if (peer && nonce) {
+    "frame this page as .../#nonce=<random>&origin=<its-origin>.";
+  console.error(reason);
+  post({ type: "esphome-stacktrace-decode:unavailable", reason });
+} else if (peer) {
   sendReady();
   let waited = 0;
   readyTimer = window.setInterval(() => {
@@ -173,13 +174,13 @@ if (peer && !nonce) {
     }
     if (waited >= 10000) {
       stopReadyRetry();
-      // Same reasoning as the missing-nonce branch: going quiet here is
-      // indistinguishable from never having loaded, so an embedder that
-      // attached late (a throttled background tab) would look like an outage.
-      console.error(
+      // Announced, not just logged, for the same reason as above: the embedder
+      // is the only one who can act on it, by re-framing.
+      const reason =
         "No decode was requested within 10s of loading, so this page has " +
-          "stopped announcing itself. Reload the frame to retry.",
-      );
+        "stopped announcing itself. Re-frame it to retry.";
+      console.error(reason);
+      post({ type: "esphome-stacktrace-decode:unavailable", reason });
       return;
     }
     sendReady();

@@ -81,4 +81,20 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type OutboundMessage = ReadyMessage | ResultMessage | ErrorMessage;
+// Decoder -> embedder, before any request: this page will never answer, and
+// here is why. Carries no id, because nothing was asked yet.
+//
+// Exists because the alternative is silence, and silence is what an unreachable
+// page looks like: without this an embedder waits out its whole timeout and
+// cannot tell "GitHub is down" from "you framed me wrong". Carries no nonce
+// either (see ReadyMessage), so announcing it costs nothing.
+export interface UnavailableMessage {
+  type: "esphome-stacktrace-decode:unavailable";
+  reason: string;
+}
+
+export type OutboundMessage =
+  | ReadyMessage
+  | ResultMessage
+  | ErrorMessage
+  | UnavailableMessage;
