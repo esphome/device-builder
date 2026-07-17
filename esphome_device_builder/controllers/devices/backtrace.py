@@ -14,6 +14,7 @@ from esphome.storage_json import StorageJSON
 from ...constants import TOOLCHAIN_ESP_IDF, TOOLCHAIN_SDK_NRF, DecodeUnavailable
 from ...helpers.api import CommandError, ErrorCode
 from ...helpers.async_ import run_in_executor
+from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.storage_path import resolve_idedata_path, resolve_storage_path
@@ -63,9 +64,9 @@ async def decode_backtrace(
     """
     Decode the crash-region *lines* against *configuration*'s local build.
 
-    Answers ``{decoded, stale_build, unavailable_reason, local_build_hash}``.
+    Answers ``{decoded, stale_build, unavailable_reason, local_config_hash}``.
     A device that was never compiled here is a normal outcome, reported as
-    ``unavailable_reason``, not raised. ``stale_build`` and ``local_build_hash``
+    ``unavailable_reason``, not raised. ``stale_build`` and ``local_config_hash``
     are answered even when declining: a client that decodes the ELF some other
     way needs the same caveat, and needs to know which build it read, and only
     this side knows either.
@@ -80,15 +81,20 @@ async def decode_backtrace(
         # address in the batch means no crash signal to decode.
         return _result(unavailable_reason=DecodeUnavailable.NO_BACKTRACE)
     target = await run_in_executor(_resolve_target, configuration, yaml_path)
-    if target.unavailable_reason:
-        # Answer staleness even when declining. Whoever decodes the ELF instead
-        # reads it against the same local build, so the caveat is as true there
-        # as it would have been here, and only this side knows both hashes.
+
+    # Bound once, so every answer below carries them: they are facts about the
+    # local build, true whether we decode it or a client we decline decodes the
+    # same ELF itself, and only this side knows them.
+    def answer(reason: str = "", decoded: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return _result(
-            unavailable_reason=target.unavailable_reason,
+            decoded=decoded,
             stale_build=_is_stale(controller, configuration, target.local_config_hash),
-            local_build_hash=target.local_config_hash,
+            unavailable_reason=reason,
+            local_config_hash=target.local_config_hash,
         )
+
+    if target.unavailable_reason:
+        return answer(target.unavailable_reason)
     request = dumps(
         {
             "config_path": str(yaml_path),
@@ -99,13 +105,13 @@ async def decode_backtrace(
     )
     reply = await _run_helper(configuration, request)
     if reply is None:
-        return _result(unavailable_reason=DecodeUnavailable.HELPER_FAILED)
+        return answer(DecodeUnavailable.HELPER_FAILED)
     decoded = _coerce_decoded(reply.get("decoded"))
     if decoded is None:
         # A shape drift between host and child is a broken contract, not the
         # successful empty decode an all-clear reason would read as; report it
         # so the client shows the raw dump instead of a symbol-less report.
-        return _result(unavailable_reason=DecodeUnavailable.HELPER_FAILED)
+        return answer(DecodeUnavailable.HELPER_FAILED)
     reason = _coerce_reason(reply.get("unavailable_reason"))
     if reason:
         # The child's stderr is DEVNULL, so this is the only place its reason
@@ -113,17 +119,7 @@ async def decode_backtrace(
         # is itself worth knowing.
         detail = str(reply.get("detail") or "<no detail>")
         _LOGGER.warning("Backtrace decode for %s reported %s: %s", configuration, reason, detail)
-    # Answered off the hashes alone, not off whether anything decoded: it is a
-    # fact about the local build, and it qualifies frames whoever produced
-    # them. The latch returns what it decoded before giving up, and a caller we
-    # decline may decode the same ELF itself; both need the caption.
-    stale = _is_stale(controller, configuration, target.local_config_hash)
-    return _result(
-        decoded=decoded,
-        stale_build=stale,
-        unavailable_reason=reason,
-        local_build_hash=target.local_config_hash,
-    )
+    return answer(reason, decoded)
 
 
 def _result(
@@ -131,13 +127,13 @@ def _result(
     decoded: list[dict[str, Any]] | None = None,
     stale_build: bool = False,
     unavailable_reason: str = "",
-    local_build_hash: str = "",
+    local_config_hash: str = "",
 ) -> dict[str, Any]:
     return {
         "decoded": decoded or [],
         "stale_build": stale_build,
         "unavailable_reason": str(unavailable_reason),
-        "local_build_hash": local_build_hash,
+        "local_config_hash": local_config_hash,
     }
 
 
@@ -210,12 +206,8 @@ def _missing_artifacts_reason(storage: StorageJSON) -> str:
     ELF itself asking a second time to tell them apart. The ELF is the only
     input such a decoder needs, so its presence is the whole distinction.
     """
-    if storage.firmware_bin_path is None:
-        return DecodeUnavailable.NO_BUILD
-    # Beside firmware.bin on every platform, which is how firmware/download
-    # locates it too (collect_download_entries).
-    elf = storage.firmware_bin_path.parent / "firmware.elf"
-    return DecodeUnavailable.NO_LOCAL_TOOLCHAIN if elf.is_file() else DecodeUnavailable.NO_BUILD
+    elf = resolve_elf_path(storage)
+    return DecodeUnavailable.ELF_ONLY if elf and elf.is_file() else DecodeUnavailable.NO_BUILD
 
 
 def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:

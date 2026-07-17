@@ -131,7 +131,7 @@ async def test_decode_backtrace_without_crash_signal_does_not_spawn(
         "stale_build": False,
         "unavailable_reason": "no_backtrace",
         # Refused before the build dir was ever read, so there is no build to name.
-        "local_build_hash": "",
+        "local_config_hash": "",
     }
 
 
@@ -217,7 +217,7 @@ async def test_decode_backtrace_esp_idf_with_a_cmake_cache_decodes(
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
-async def test_decode_backtrace_esp_idf_with_only_an_elf_says_no_local_toolchain(
+async def test_decode_backtrace_esp_idf_with_only_an_elf_says_elf_only(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
@@ -241,7 +241,7 @@ async def test_decode_backtrace_esp_idf_with_only_an_elf_says_no_local_toolchain
 
     # Not no_build: the symbols are right there, they just cannot be resolved
     # here. A client that can read an ELF itself is told it is worth trying.
-    assert result["unavailable_reason"] == DecodeUnavailable.NO_LOCAL_TOOLCHAIN
+    assert result["unavailable_reason"] == DecodeUnavailable.ELF_ONLY
     assert result["decoded"] == []
 
 
@@ -428,8 +428,37 @@ async def test_decode_backtrace_reports_staleness_even_when_it_decodes_nothing(
         "decoded": [],
         "stale_build": True,
         "unavailable_reason": "no_build",
-        "local_build_hash": "f3e21d5a",
+        "local_config_hash": "f3e21d5a",
     }
+
+
+@pytest.mark.usefixtures("redirect_storage_path")
+async def test_decode_backtrace_names_the_build_on_every_answer(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every answer past the build dir names it, including the failures.
+
+    ``helper_failed`` sends the client to decode the ELF itself, and a client
+    caching those bytes keys on this. Answering "" there would collide two
+    builds under one key and decode the next crash against the wrong one.
+    """
+    await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
+    _write_idedata(tmp_path)
+    controller = make_controller(tmp_path)
+    monkeypatch.setattr(backtrace, "read_build_info_hash", lambda yaml_path: "f3e21d5a")
+
+    async def _broken(*args: str, **kwargs: Any):
+        return CapturedSubprocess(returncode=1, stdout=b"", timed_out=False)
+
+    monkeypatch.setattr(backtrace, "run_subprocess_capture", _broken)
+
+    result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
+
+    assert result["unavailable_reason"] == DecodeUnavailable.HELPER_FAILED
+    assert result["local_config_hash"] == "f3e21d5a"
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -463,9 +492,9 @@ async def test_decode_backtrace_reports_staleness_when_declining_to_decode(
     assert result == {
         "decoded": [],
         "stale_build": True,
-        "unavailable_reason": DecodeUnavailable.NO_LOCAL_TOOLCHAIN,
+        "unavailable_reason": DecodeUnavailable.ELF_ONLY,
         # Names the build whoever decodes this ELF will be reading.
-        "local_build_hash": "f3e21d5a",
+        "local_config_hash": "f3e21d5a",
     }
 
 

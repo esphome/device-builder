@@ -22,6 +22,7 @@ from ...definitions import (
 )
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
 from ...helpers.paths import resolve_under_root
@@ -139,12 +140,10 @@ def collect_download_entries(
     # Filter to files that exist so a cleaned build reads as "compile
     # first" rather than offering a name ``firmware/download`` would 404 on.
     downloads = [dict(t) for t in types if (build_dir / t["file"]).is_file()]
-    # firmware.elf sits beside firmware.bin on every platform
-    # (remote_build/artifact_platforms/*.py). The `not any` guards against a
-    # future get_download_types that lists it, so it can't appear twice.
-    if (build_dir / "firmware.elf").is_file() and not any(
-        t["file"] == "firmware.elf" for t in downloads
-    ):
+    # The `not any` guards against a future get_download_types that lists the
+    # ELF, so it can't appear twice.
+    elf = resolve_elf_path(storage)
+    if elf and elf.is_file() and not any(t["file"] == "firmware.elf" for t in downloads):
         downloads.append(
             {
                 "title": "ELF (for debugging)",
