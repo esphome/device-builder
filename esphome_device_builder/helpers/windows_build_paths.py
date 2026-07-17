@@ -31,8 +31,10 @@ import os
 import shutil
 import string
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
+
+from esphome.helpers import rmtree
 
 from .dashboard_identity import get_or_create_dashboard_id
 
@@ -166,10 +168,8 @@ def _relocate_into(dst: Path, *sources: Path | None) -> bool:
     it is keyed off a source still existing, not bare ``dst.exists()``, so a marker write lost
     after a successful move never triggers a destructive re-relocation. Returns ``False`` when the
     move is incomplete -- a partial *dst* that could not be cleared, or a move that left the source
-    behind -- so the caller never points env at incomplete data or a corrupt toolchain. The one
-    exception: a failed move whose copy verifiably completed (:func:`_copy_completed`) adopts
-    *dst*, because there the half-deleted *source* is the damaged side. Used for both the build
-    root and the toolchains so the paths cannot drift apart.
+    behind -- so the caller never points env at incomplete data or a corrupt toolchain. Used for
+    both the build root and the toolchains so the paths cannot drift apart.
     """
     marker = dst / _RELOCATED_MARKER
     if marker.is_file():
@@ -179,33 +179,17 @@ def _relocate_into(dst: Path, *sources: Path | None) -> bool:
         # Source still present, so the move never completed. A partial dst from an interrupted
         # cross-volume copy would nest the retry, so discard it before re-moving.
         if dst.exists():
-            shutil.rmtree(dst, ignore_errors=True)
+            with suppress(OSError):
+                rmtree(dst)  # esphome's rmtree clears the read-only flags toolchain trees carry
             if dst.exists():
                 _LOGGER.warning("Could not clear partial %s; leaving %s in place", dst, src)
                 return False
-        adopted_dst = False
         try:
             dst.parent.mkdir(parents=True, exist_ok=True)  # nested rename target needs its parent
             shutil.move(str(src), str(dst))
         except OSError:
-            # A cross-volume move is copy-then-delete: when only the delete phase died, dst holds
-            # a complete copy and the source is already half-deleted — falling back would point
-            # the consumer at the damaged tree, so adopt dst instead. Any other failure (rename
-            # denied, copy died partway) leaves the source authoritative and dst discardable.
-            adopted_dst = _copy_completed(src, dst)
-            if adopted_dst:
-                shutil.rmtree(src, ignore_errors=True)
-                if src.is_dir():
-                    _LOGGER.exception(
-                        "Relocated %s to %s but the source could not be removed; delete %s "
-                        "manually to reclaim space",
-                        src,
-                        dst,
-                        src,
-                    )
-            else:
-                _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
-        if not adopted_dst and src.is_dir():
+            _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
+        if src.is_dir():
             _LOGGER.warning("%s not relocated; source remains at %s", dst, src)
             return False
     # No source left here: none existed, the move just completed, or a prior run moved it and only
@@ -217,34 +201,3 @@ def _relocate_into(dst: Path, *sources: Path | None) -> bool:
         _LOGGER.warning("Could not finalize relocation dir %s", dst)
         return False
     return True
-
-
-def _copy_completed(src: Path, dst: Path) -> bool:
-    """
-    Whether every file still under *src* has an identical-size counterpart under *dst*.
-
-    A source with no files left is ambiguous — nothing distinguishes the move's phases — so it
-    stays ``False`` and the caller falls back fail-closed.
-    """
-    if not dst.is_dir():
-        return False
-    matched_file = False
-    try:
-        # onerror: os.walk silently skips unreadable subtrees by default, which would classify
-        # a copy missing that subtree as complete — re-raise so uncertainty stays fail-closed.
-        for current, _dirs, files in os.walk(src, onerror=_raise_walk_error):
-            dst_dir = dst / Path(current).relative_to(src)
-            for name in files:
-                copied = dst_dir / name
-                src_size = (Path(current) / name).stat().st_size
-                if not copied.is_file() or copied.stat().st_size != src_size:
-                    return False
-                matched_file = True
-    except OSError:
-        return False
-    return matched_file
-
-
-def _raise_walk_error(err: OSError) -> None:
-    """Surface an ``os.walk`` traversal error instead of the default silent skip."""
-    raise err

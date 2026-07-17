@@ -180,32 +180,6 @@ def test_empty_esp_idf_prefix_is_not_user_set(
     assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == "  "  # restored verbatim, not popped
 
 
-def test_delete_phase_failure_adopts_complete_copy(
-    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A move whose copy finished but whose source delete died adopts the copy, not the wreck."""
-    config_dir = tmp_path / "First Last" / "esphome"
-    (config_dir / ".esphome").mkdir(parents=True)
-    cache_idf = tmp_path / "cache_idf"
-    cache_idf.mkdir()
-    (cache_idf / "tool.txt").write_text("idf-toolchain", encoding="utf-8")
-
-    real_move = wbp.shutil.move
-
-    def _delete_died(src: str, dst: str, *args: object, **kwargs: object) -> object:
-        if "cache_idf" in str(src):
-            shutil.copytree(src, dst)  # the copy phase completed...
-            msg = "source delete died"
-            raise OSError(msg)  # ...the delete phase did not
-        return real_move(src, dst, *args, **kwargs)
-
-    monkeypatch.setattr(wbp.shutil, "move", _delete_died)
-    root = fake_windows / "esphb" / _ID8
-    with windows_short_build_paths(config_dir):
-        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
-        assert (root / "idf" / "tool.txt").read_text(encoding="utf-8") == "idf-toolchain"
-
-
 def test_failed_idf_relocation_leaves_prefix_unset(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -236,34 +210,6 @@ def test_failed_idf_relocation_leaves_prefix_unset(
         assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ  # corrupt toolchain not adopted
     assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ
     assert (cache_idf / "other.txt").is_file()  # source stayed authoritative
-
-
-def test_size_mismatched_copy_not_adopted(tmp_path: Path) -> None:
-    """A same-name file that differs in size marks the copy incomplete."""
-    src = tmp_path / "src"
-    dst = tmp_path / "dst"
-    src.mkdir()
-    dst.mkdir()
-    (src / "tool.txt").write_text("full-content", encoding="utf-8")
-    (dst / "tool.txt").write_text("part", encoding="utf-8")
-    assert not wbp._copy_completed(src, dst)
-
-
-@pytest.mark.skipif(sys.platform == "win32", reason="chmod 0 does not deny reads on Windows")
-def test_unreadable_source_subtree_fails_closed(tmp_path: Path) -> None:
-    """An unwalkable source subtree classifies the copy incomplete, never silently skipped."""
-    src = tmp_path / "src"
-    dst = tmp_path / "dst"
-    (src / "sub").mkdir(parents=True)
-    dst.mkdir()
-    (src / "top.txt").write_text("x", encoding="utf-8")
-    (dst / "top.txt").write_text("x", encoding="utf-8")  # everything visible matches...
-    (src / "sub" / "hidden.txt").write_text("y", encoding="utf-8")  # ...this never copied
-    (src / "sub").chmod(0)
-    try:
-        assert not wbp._copy_completed(src, dst)
-    finally:
-        (src / "sub").chmod(0o755)
 
 
 def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path) -> None:
