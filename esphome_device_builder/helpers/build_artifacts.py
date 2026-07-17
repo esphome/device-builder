@@ -328,4 +328,6 @@ def resolve_elf_path(storage: StorageJSON) -> Path | None:
     """
     if storage.firmware_bin_path is None:
         return None
-    return storage.firmware_bin_path.parent / "firmware.elf"
+    # Through Path(): the sidecar types the field loosely, so the join off it
+    # would be Any and every caller would silently lose the return type.
+    return Path(storage.firmware_bin_path).parent / "firmware.elf"
