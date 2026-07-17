@@ -7,11 +7,11 @@
 // the egress guarantee.
 import http from "node:http";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
 
-const DIST = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
+const DIST = resolve(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const NONCE = "test-nonce-123";
 // A real (tiny) ELF with DWARF; see fixtures/README.md for how it was built and
 // which addresses it resolves.
@@ -39,9 +39,16 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "text/html" });
     return res.end(EMBEDDER);
   }
-  const file = path === "/" ? "/index.html" : path;
+  // Resolve, then require the result to still sit under dist/. The request
+  // path is attacker-controlled in shape even here, and concatenating it onto
+  // a directory serves ../../ straight off the filesystem.
+  const file = resolve(DIST, path === "/" ? "index.html" : path.replace(/^\/+/, ""));
+  if (file !== DIST && !file.startsWith(DIST + sep)) {
+    res.writeHead(403);
+    return res.end("no");
+  }
   try {
-    const body = readFileSync(DIST + file);
+    const body = readFileSync(file);
     const ext = file.slice(file.lastIndexOf("."));
     res.writeHead(200, { "content-type": TYPES[ext] ?? "application/octet-stream" });
     res.end(body);
