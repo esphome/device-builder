@@ -163,6 +163,26 @@ def test_run_decoder_latches_off_after_the_first_failure() -> None:
     assert "FileNotFoundError" in result["detail"]
 
 
+def test_run_decoder_reports_a_decoder_that_raises_while_logging() -> None:
+    """A record whose format string and args disagree reports, never lies."""
+
+    def _bad_format(config: dict, line: str, state: bool) -> bool:
+        # The mismatch is the subject of the test, so ruff has to allow it here.
+        logging.getLogger("esphome.components.esp32").warning(  # noqa: PLE1206
+            "Decoded %s %s", "one-arg"
+        )
+        return state
+
+    result = helper_cli._run_decoder(_bad_format, "esp32", ["BT0: 0x400d1a2c"])
+
+    # getMessage() interpolates, so the mismatch raises inside the logging call
+    # and escapes the decoder. Nothing about a reply may read as complete when
+    # frames were lost: every other path names a reason, and so does this one.
+    assert result["unavailable_reason"] == "decode_failed"
+    assert result["decoded"] == []
+    assert "TypeError" in result["detail"]
+
+
 def test_run_decoder_tags_each_message_with_its_source_line() -> None:
     """Decoded output is attributed to the line in flight when it was logged."""
     logger = logging.getLogger("esphome.components.esp32")
