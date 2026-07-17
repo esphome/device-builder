@@ -35,7 +35,11 @@ _LOGGER = logging.getLogger(__name__)
 # driven board-id derivation since the stub's hard-coded
 # ``board: esp32dev`` would otherwise pin metadata to whatever
 # catalog entry happens to share that PIO board).
-CreateYamlSource = Literal["user", "template", "stub"]
+# ``"package"`` -> :func:`generate_package_device_yaml` (a thin
+# ``packages: github://...`` reference; validity depends on a live
+# upstream fetch, so the caller validates with the adopt contract —
+# short budget, unavailability tolerated — not the strict template one).
+CreateYamlSource = Literal["user", "template", "stub", "package"]
 
 
 async def yaml_content_for_create(
@@ -66,6 +70,9 @@ async def yaml_content_for_create(
         # Remote-package board (bluetooth-proxies import): the device is a
         # thin ``packages:`` reference to the upstream config, so it tracks
         # upstream updates on every compile instead of vendoring the blocks.
+        # The Wi-Fi opt-in doesn't apply here: a package with an onboard
+        # network pins that network upstream (ESPHome rejects wifi beside
+        # ethernet), so credentials only land when the package needs them.
         return (
             generate_package_device_yaml(
                 name,
@@ -75,7 +82,7 @@ async def yaml_content_for_create(
                 psk,
                 wifi_secrets_available=wifi_secrets_available,
             ),
-            "template",
+            "package",
         )
     if board:
         defaults = (

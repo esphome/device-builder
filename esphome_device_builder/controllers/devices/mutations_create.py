@@ -14,6 +14,7 @@ from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, WizardResponse
+from ..editor import IMPORT_VALIDATE_TIMEOUT
 from .helpers import _looks_binary, clean_friendly_name, slugify_hostname
 
 if TYPE_CHECKING:
@@ -136,6 +137,20 @@ async def create_device(  # noqa: C901, PLR0912
                 "contains binary data, for example a .tar.gz archive. "
                 "Upload a plain-text .yaml file.",
             )
+    elif source == "package":
+        # A ``packages: github://...`` YAML only validates through a live
+        # upstream fetch, so use the adopt contract: short budget,
+        # unavailability tolerated (the compile surfaces a real fetch
+        # failure later). Genuine schema errors still mean our generator
+        # broke.
+        await controller._validate_rewritten_yaml_or_raise(
+            filename,
+            yaml_content,
+            action="create",
+            on_failure=ErrorCode.INTERNAL_ERROR,
+            tolerate_unavailable=True,
+            timeout=IMPORT_VALIDATE_TIMEOUT,
+        )
     else:
         await controller._validate_rewritten_yaml_or_raise(
             filename,
