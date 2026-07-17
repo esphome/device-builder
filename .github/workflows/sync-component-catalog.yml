@@ -151,14 +151,19 @@ jobs:
         run: sed -i "s/^esphome==.*/esphome==$VERSION/" esphome-constraints.txt
 
       - name: Bump esphome floor
+        id: floor
         # The catalog is generated against one esphome version and the sync
         # scripts refuse a mismatched install, so once the catalog moves to a
         # stable release, older esphome versions no longer actually work —
         # raise the pyproject floor in the same PR. The script skips
-        # prereleases and never lowers the floor.
+        # prereleases and never lowers the floor. Its one-line summary goes
+        # into the PR body so the reviewer sees the floor moved.
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: python script/bump_esphome_floor.py "$VERSION"
+        run: |
+          floor=$(python script/bump_esphome_floor.py "$VERSION")
+          echo "floor: $floor"
+          echo "summary=$floor" >> "$GITHUB_OUTPUT"
 
       - name: Smoke-test catalog
         # Catches regressions in popular components (missing fields,
@@ -321,6 +326,7 @@ jobs:
             Automated catalog refresh.
 
             Schema source: **${{ steps.version.outputs.source }}** (version `${{ steps.version.outputs.version }}`).
+            Dependency floor: **${{ steps.floor.outputs.summary }}**.
             Triggered by: **${{ github.event_name == 'schedule' && 'nightly schedule' || format('manual dispatch by @{0}', github.actor) }}**.
 
             ${{ steps.diff.outputs.summary }}
