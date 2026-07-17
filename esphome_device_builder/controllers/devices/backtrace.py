@@ -182,8 +182,7 @@ def _artifacts_present(storage: StorageJSON, idedata_path: Path) -> bool:
     Load-bearing, not an optimisation: without a build, ``_decode_pc`` walks
     into ``check_esp_idf_install()`` and downloads a whole ESP-IDF framework
     to serve a decode that cannot succeed. esphome/esphome#17597 fixes that
-    upstream, but our floor (``esphome>=2024.1.0``) has no ceiling, so most
-    versions this runs against never carry the fix.
+    upstream but is unmerged, so no release this runs against carries it.
     """
     build_path = Path(storage.build_path)
     if storage.toolchain == TOOLCHAIN_ESP_IDF:

@@ -379,27 +379,42 @@ async def test_decode_backtrace_caps_concurrent_children(
     burst = 6
     live = 0
     peak = 0
-    entered = asyncio.Event()
     release = asyncio.Event()
+    resolved = asyncio.Event()
+    resolves = 0
+    real_resolve = backtrace._resolve_target
+
+    # The executor hop every task clears before the semaphore is the one part
+    # of this with real thread scheduling in it, and how long the runner takes
+    # over it is not ours to guess. Count it out instead: once all six are
+    # through, the burst is pure async and the yields below are enough.
+    def _counting_resolve(*args: Any, **kwargs: Any):
+        nonlocal resolves
+        target = real_resolve(*args, **kwargs)
+        resolves += 1
+        if resolves == burst:
+            loop.call_soon_threadsafe(resolved.set)
+        return target
+
+    loop = asyncio.get_running_loop()
 
     async def _slow(*args: str, **kwargs: Any):
         nonlocal live, peak
         live += 1
         peak = max(peak, live)
-        entered.set()
         await release.wait()
         live -= 1
         return CapturedSubprocess(returncode=0, stdout=dumps(_DECODED_REPLY), timed_out=False)
 
     monkeypatch.setattr(backtrace, "run_subprocess_capture", _slow)
+    monkeypatch.setattr(backtrace, "_resolve_target", _counting_resolve)
     tasks = [
         asyncio.create_task(backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES))
         for _ in range(burst)
     ]
-    # Every task has to clear a real executor hop before it reaches the
-    # semaphore, so wait for the first to arrive and then leave the rest
-    # ample room to pile in behind it. Uncapped, all six land here.
-    await asyncio.wait_for(entered.wait(), timeout=5)
+    # All six are past the hop with nothing left to wait on but the semaphore,
+    # so whoever it admits has had its chance to run. Uncapped, that is six.
+    await asyncio.wait_for(resolved.wait(), timeout=30)
     for _ in range(20):
         await asyncio.sleep(0)
     release.set()
