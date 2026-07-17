@@ -1,5 +1,5 @@
 id: seeed-xiao-w5500-zwave-proxy
-name: Seeed Studio XIAO W5500 Z-Wave Proxy (ZWA-2)
+name: Seeed Studio XIAO W5500 v1.2+ Z-Wave Proxy (ZWA-2)
 description: >-
   Seeed Studio XIAO W5500 Ethernet Adapter v1.2 or later (XIAO ESP32-S3 Plus,
   16MB flash, 8MB PSRAM) preconfigured as a Z-Wave proxy for a Home Assistant Connect
