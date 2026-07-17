@@ -162,15 +162,11 @@ def generate_package_device_yaml(
     wifi_secrets_available: bool = True,
 ) -> str:
     """
-    Generate a remote-package device YAML for a ``package_import_url`` board.
+    Generate the adoption-shape YAML for a ``package_import_url`` board.
 
-    The dashboard-import adoption shape (mirrors esphome's
-    ``dashboard_import.import_config`` output): ``substitutions`` +
-    ``packages:`` referencing the upstream config + a local ``esphome:``
-    override (``name_add_mac_suffix: false``) + a fresh API key. The
-    upstream package carries the platform/network/component blocks, so a
-    ``wifi:`` block (bare credentials or ``!secret`` refs) is added only
-    when the board doesn't provide its own network.
+    ``substitutions`` + ``packages:`` + local ``esphome:`` overrides + a
+    fresh API key; a ``wifi:`` block lands only when the board doesn't
+    provide its own network (the package carries every other block).
     """
     lines: list[str] = [*_board_header_lines(board)]
     lines.append("substitutions:")
