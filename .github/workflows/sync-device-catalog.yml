@@ -124,8 +124,10 @@ jobs:
 
           import yaml
 
+          from esphome_device_builder.constants import IMPORT_SOURCE_TYPES
+
           BOARDS = Path("esphome_device_builder/definitions/boards")
-          IMPORT_TYPES = ("esphome-devices", "bluetooth-proxies")
+          IMPORT_TYPES = tuple(sorted(IMPORT_SOURCE_TYPES))
 
           def load_imported_now() -> dict[str, dict]:
               out: dict[str, dict] = {}
