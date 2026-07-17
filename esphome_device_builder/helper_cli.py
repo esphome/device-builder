@@ -200,8 +200,8 @@ def _pin_idedata(idedata_path: Path, *, required: bool) -> None:
 
     Pinned even when *required* is False, i.e. for toolchains that shouldn't
     consult idedata at all. At our floor (2026.5.1) esp32's ``_decode_pc``
-    routes through ``get_idedata`` whatever the toolchain -- the CMake-cache
-    branch only arrives in 2026.6 -- so leaving the memo unset there is the
+    routes through ``get_idedata`` whatever the toolchain -- the esp-idf
+    branch arrives in 2026.5.2 -- so leaving the memo unset there is the
     compile this exists to prevent. An empty sentinel makes that unreachable
     on every branch; the ``KeyError`` it raises instead lands in the decode
     latch as ``decode_failed``, which is what the user already sees.
