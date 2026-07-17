@@ -827,7 +827,10 @@ When changing the sync script or catalog handling, watch for these:
 - **Don't add `Co-Authored-By: Claude` to commits** in this repo.
 - **Don't bump the `esphome` dependency casually.** Dependabot ignores it
   for a reason — bumping needs a coordinated catalog re-sync against the
-  matching schema version. Do it deliberately at release time.
+  matching schema version. The catalog-sync workflow owns the bump: its
+  PR carries the regenerated catalog, the `esphome-constraints.txt` CI
+  pin, and (on stable releases) the pyproject floor via
+  `script/bump_esphome_floor.py`.
 - **Don't reorder existing public methods** without a reason. The
   controllers' API surface is the de-facto public interface for the
   frontend.

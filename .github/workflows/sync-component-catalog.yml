@@ -150,6 +150,16 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: sed -i "s/^esphome==.*/esphome==$VERSION/" esphome-constraints.txt
 
+      - name: Bump esphome floor
+        # The catalog is generated against one esphome version and the sync
+        # scripts refuse a mismatched install, so once the catalog moves to a
+        # stable release, older esphome versions no longer actually work —
+        # raise the pyproject floor in the same PR. The script skips
+        # prereleases and never lowers the floor.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: python script/bump_esphome_floor.py "$VERSION"
+
       - name: Smoke-test catalog
         # Catches regressions in popular components (missing fields,
         # type flips, id-vs-reference confusion). Runs BEFORE the
@@ -168,6 +178,7 @@ jobs:
               esphome_device_builder/definitions/board_bodies/ \
               esphome_device_builder/definitions/featured_components.index.json \
               esphome-constraints.txt \
+              pyproject.toml \
             && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/board_bodies/)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
