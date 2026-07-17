@@ -260,6 +260,15 @@ def _fire_version_reprobe(
     until the deadline passes, since one probe would miss the window. It
     deliberately does not short-circuit on the device's ONLINE state,
     which right after a flash is the stale pre-reboot reading.
+
+    What bounds the reprobe count: each tick force-requests a probe,
+    which intentionally bypasses the api-info failure cooldown so a
+    still-rebooting device isn't backed off past its wake. The *deadline*
+    (not the cooldown) is the bound, to ~``window / interval`` probes.
+    ``request_reprobe`` keys a set, so repeated ticks don't stack; the
+    monitor's mDNS-ownership gate turns the remaining ticks into no-ops
+    once the device re-announces; and the api-info sweep serialises and
+    caps probes, so this never fans out into concurrent dials.
     """
     controller._reprobe_timers.pop(configuration, None)
     device = controller._scanner.get_by_configuration(configuration)
