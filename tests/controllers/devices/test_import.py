@@ -1,15 +1,11 @@
 """Tests for the ``devices/import`` command path.
 
-Covers two regressions discovered while wiring up the adoption flow:
-
-* ``import_config`` lives at ``esphome.components.dashboard_import``,
-  not ``esphome.config_helpers``. The previous import path silently
-  became ``None`` and every adoption attempt raised a generic
-  RuntimeError before doing anything.
-* When the target YAML already exists, ``import_config`` raises
-  ``FileExistsError``. We re-surface it as a ``CommandError`` so the
-  dashboard can show a useful message instead of the WS layer's
-  generic ``Command failed`` fallback.
+The normal adoption writes :func:`generate_adoption_yaml`'s shape
+directly; only a ``?full_config`` import URL still delegates to
+esphome's ``dashboard_import.import_config`` (it downloads and
+rewrites the whole upstream YAML). When the target YAML already
+exists the write raises ``FileExistsError``, re-surfaced as a
+``CommandError`` so the dashboard can show a useful message.
 """
 
 from __future__ import annotations
@@ -46,18 +42,12 @@ def _seed_import_state(controller: DevicesController) -> None:
 def _import_config_stub(
     captured: dict[str, Any] | None = None,
 ) -> Callable[..., None]:
-    """Stub for ``import_config`` that mirrors its on-disk write.
+    """Stub for ``import_config``, reached only via ``?full_config`` URLs.
 
-    The real ``import_config`` writes a YAML to ``args[0]``. The
-    ``import_device`` post-write validation step then reads it
-    back, so a stub that only records call args trips the read
-    with ``FileNotFoundError``. This helper writes a minimal
-    syntactically-valid YAML (parseable, but deliberately not
-    ESPHome-schema-valid — there's no platform block, so the
-    fake validator we mock around it is the source of pass/fail
-    truth) at the destination path and optionally records the
-    call args into *captured* (for tests that assert on what got
-    forwarded to upstream).
+    The real ``import_config`` writes a YAML to ``args[0]``; the
+    post-write validation step reads it back, so the stub writes a
+    minimal parseable YAML there and optionally records the call
+    args into *captured*.
     """
 
     def _stub(*args: Any, **_kw: Any) -> None:
@@ -82,16 +72,11 @@ def test_import_config_resolves_at_import_time() -> None:
     assert callable(dashboard_import.import_config)
 
 
-async def test_import_device_invokes_import_config_and_returns_path(
+async def test_import_device_writes_adoption_yaml_and_returns_path(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Happy path: write the YAML, run a scan, return the configuration name."""
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
-    )
+    """Happy path: write the adoption shape, run a scan, return the configuration name."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -104,17 +89,15 @@ async def test_import_device_invokes_import_config_and_returns_path(
     )
 
     assert result == {"configuration": "kitchen-1a2b3c.yaml"}
-    # Argument order matters — upstream signature is
-    # ``(path, name, friendly_name, project_name, import_url, network, encryption)``.
-    args = captured["args"]
-    assert args[0] == tmp_path / "kitchen-1a2b3c.yaml"
-    assert args[1] == "kitchen-1a2b3c"
-    assert args[2] == "Kitchen"
-    assert args[3] == "acme.kitchen"
-    assert args[4] == "github://acme/firmware.yaml@main"
+    content = (tmp_path / "kitchen-1a2b3c.yaml").read_text(encoding="utf-8")
+    assert "substitutions:" in content
+    assert "  name: kitchen-1a2b3c" in content
+    assert "  friendly_name: Kitchen" in content
+    assert '  acme.kitchen: "github://acme/firmware.yaml@main"' in content
+    assert "name_add_mac_suffix: false" in content
+    assert "api:" in content  # encryption flag truthy → fresh key
     # No matching importable cache entry → fall back to wifi (legacy behaviour).
-    assert args[5] == "wifi"
-    assert args[6] == "true"  # encryption flag forwarded
+    assert "ssid: !secret wifi_ssid" in content
     # ``import_device`` calls ``scan()`` exactly once on the happy
     # path; pin the full call list so a regression that double-scans
     # (or sneaks in a stray ``reload``) breaks here instead of
@@ -122,9 +105,8 @@ async def test_import_device_invokes_import_config_and_returns_path(
     assert ctrl._scanner.calls == [("scan",)]
 
 
-async def test_import_device_passes_ethernet_network_through_to_import_config(
+async def test_import_device_omits_wifi_for_ethernet_network(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
     """An ESP32-PoE / Olimex broadcasts ``network=ethernet`` — preserve it.
@@ -132,14 +114,9 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
     Hard-coding ``CONF_WIFI`` produced a YAML with a Wi-Fi template
     that the user had to fix by hand on every Ethernet adoption.
     Look up the discovered ``AdoptableDevice`` by the
-    ``package_import_url`` the dialog passes and forward its
-    ``network`` field to ``import_config``.
+    ``package_import_url`` the dialog passes and honour its
+    ``network`` field.
     """
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
-    )
-
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl.state.import_result["olimex-poe-aabbcc"] = AdoptableDevice(
@@ -160,12 +137,11 @@ async def test_import_device_passes_ethernet_network_through_to_import_config(
         package_import_url="github://olimex/esp32-poe.yaml",
     )
 
-    assert captured["args"][5] == "ethernet"
+    assert "wifi" not in (tmp_path / "garage.yaml").read_text(encoding="utf-8")
 
 
 async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
     """Multiple identical products on the LAN don't get the wrong network.
@@ -183,11 +159,6 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     Ethernet, one stock) that meant a coin-flip on which network
     the imported YAML got.
     """
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
-    )
-
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     # Two Apollo PLT-1s — same firmware, different network types.
@@ -220,12 +191,12 @@ async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
     )
 
     # Got the Ethernet entry, not whichever came first.
-    assert captured["args"][5] == "ethernet"
+    content = (tmp_path / "apollo-plt-1-ddeeff.yaml").read_text(encoding="utf-8")
+    assert "wifi" not in content
 
 
 async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
     """Older factory firmwares didn't advertise ``network=`` — fall back to wifi.
@@ -236,11 +207,6 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
     Wi-Fi is the historical default and matches what the legacy
     dashboard wrote.
     """
-    captured: dict[str, Any] = {}
-    monkeypatch.setattr(
-        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
-    )
-
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl.state.import_result["legacy-bulb-001122"] = AdoptableDevice(
@@ -259,12 +225,56 @@ async def test_import_device_falls_back_to_wifi_for_old_factory_firmware(
         package_import_url="github://vendor/old.yaml",
     )
 
-    assert captured["args"][5] == "wifi"
+    assert "ssid: !secret wifi_ssid" in (tmp_path / "legacy-bulb.yaml").read_text(encoding="utf-8")
+
+
+async def test_import_device_without_encryption_omits_api(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """No encryption flag in the broadcast → no ``api:`` block, matching upstream."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption=None,
+    )
+
+    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_import_device_full_config_url_delegates_to_dashboard_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``?full_config`` import URL still routes through esphome's ``import_config``.
+
+    That variant downloads and rewrites the whole upstream YAML —
+    machinery :func:`generate_adoption_yaml` deliberately doesn't
+    reimplement.
+    """
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config", _import_config_stub(captured)
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert captured["args"][4] == "github://x/y.yaml@main?full_config"
 
 
 async def test_import_device_translates_file_exists_to_command_error(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
     """``FileExistsError`` becomes a user-facing ``CommandError``.
@@ -275,11 +285,7 @@ async def test_import_device_translates_file_exists_to_command_error(
     ``CommandError`` carrying ``INVALID_ARGS`` and a message that
     names the offending file.
     """
-
-    def raises_file_exists(*_args: Any, **_kwargs: Any) -> None:
-        raise FileExistsError
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", raises_file_exists)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
@@ -314,7 +320,6 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     project (or pick a different one) and retry without a
     leftover ``FileExistsError`` blocking them.
     """
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -368,7 +373,7 @@ async def test_import_device_rolls_back_on_unicode_decode_error_from_read(
         await ctrl.import_device(
             name="kitchen",
             project_name="x",
-            package_import_url="github://x",
+            package_import_url="github://x/y.yaml@main?full_config",
         )
 
     assert not (tmp_path / "kitchen.yaml").exists()
@@ -389,7 +394,6 @@ async def test_import_device_preserves_original_error_when_cleanup_fails(
     cleanup hook's exception is swallowed and logged; the
     original ``CommandError`` propagates.
     """
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(
@@ -439,7 +443,6 @@ async def test_import_device_keeps_yaml_when_validator_unavailable(
     exc: Exception,
 ) -> None:
     """Adopt tolerates an unavailable validator: file kept, adoption completes, scan runs."""
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(side_effect=exc)
@@ -461,7 +464,6 @@ async def test_import_device_propagates_generic_runtime_error(
     make_controller: MakeControllerFactory,
 ) -> None:
     """A generic RuntimeError (a bug, not subprocess loss) propagates and rolls the YAML back."""
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor.validate_yaml = AsyncMock(side_effect=RuntimeError("unexpected bug"))
@@ -485,7 +487,6 @@ async def test_import_device_validates_with_short_timeout(
     """Adopt passes the short import budget so it isn't gated on a cold fetch."""
     from esphome_device_builder.controllers.editor import IMPORT_VALIDATE_TIMEOUT  # noqa: PLC0415
 
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     validate = AsyncMock(return_value={"yaml_errors": [], "validation_errors": []})
@@ -513,7 +514,6 @@ async def test_import_device_skips_validation_when_editor_unavailable(
     lifetime of the process would be worse than landing the
     YAML and letting the next compile surface any schema issues.
     """
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._db.editor = None
@@ -540,7 +540,6 @@ async def test_import_device_returns_even_when_post_scan_fails(
     nothing being wrong. Best-effort scan; the periodic poll picks up
     whatever this attempt missed.
     """
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._scanner.scan = AsyncMock(side_effect=RuntimeError("transient"))
@@ -568,7 +567,6 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     can't clobber it) and pulls the cached IP out of zeroconf so the
     new card has an address right away.
     """
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor(
@@ -597,7 +595,6 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     make_controller: MakeControllerFactory,
 ) -> None:
     """No cached IP → state still flips ONLINE, just no apply_ip call."""
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
@@ -629,7 +626,6 @@ async def test_import_device_drops_matching_import_result_entry(
     so we drop the right entry even when the user typed a different
     YAML name in the dialog.
     """
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)

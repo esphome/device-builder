@@ -31,9 +31,9 @@ from esphome_device_builder.helpers.device_yaml import (
     compute_has_pending_changes,
     configuration_stem,
     extract_esphome_meta_from_config,
+    generate_adoption_yaml,
     generate_device_yaml,
     generate_minimal_stub_yaml,
-    generate_package_device_yaml,
     load_device_from_storage,
     parse_esphome_meta,
     parse_platform_from_yaml,
@@ -2778,61 +2778,73 @@ def _make_package_board(*, ethernet: bool) -> BoardCatalogEntry:
     return board
 
 
-def test_generate_package_device_yaml_matches_dashboard_import(tmp_path: Path) -> None:
-    """The package shape stays in lockstep with esphome's ``import_config`` output.
+@pytest.mark.parametrize(
+    ("network", "friendly"),
+    [
+        pytest.param("wifi", "Proxy 1", id="wifi"),
+        pytest.param("ethernet", "Proxy 1", id="ethernet"),
+        pytest.param("wifi", None, id="no_friendly"),
+    ],
+)
+def test_generate_adoption_yaml_matches_dashboard_import(
+    tmp_path: Path, network: str, friendly: str | None
+) -> None:
+    """The shared adoption shape stays in lockstep with esphome's ``import_config``.
 
     ``dashboard_import.import_config`` documents device-builder as a consumer
-    of its generated shape; this pins our generator against it structurally
-    (API keys are random, so compared by presence).
+    of its generated shape; both ``devices/import`` and package-board creates
+    emit through :func:`generate_adoption_yaml`, pinned here structurally
+    (API keys are random, so normalised before comparing).
     """
     from esphome.components.dashboard_import import import_config  # noqa: PLC0415
 
     from script._board_import import safe_load_yaml  # noqa: PLC0415
 
-    board = _make_package_board(ethernet=False)
-    ours = yaml.safe_load(
-        generate_package_device_yaml("proxy-1", "proxy-1", board, "", "")
-        .replace("!secret wifi_ssid", "wifi_ssid")
-        .replace("!secret wifi_password", "wifi_password")
+    url = "github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main"
+    ours = safe_load_yaml(
+        generate_adoption_yaml(
+            "proxy-1",
+            friendly,
+            "esphome.bluetooth-proxy",
+            url,
+            network_provided=network != "wifi",
+        )
     )
     reference_path = tmp_path / "proxy-1.yaml"
     import_config(
         str(reference_path),
         "proxy-1",
-        "proxy-1",
-        board.package_name,
-        board.package_import_url,
-        network="wifi",
+        friendly,
+        "esphome.bluetooth-proxy",
+        url,
+        network=network,
         encryption=True,
     )
     theirs = safe_load_yaml(reference_path.read_text(encoding="utf-8"))
     assert ours["api"]["encryption"]["key"]
     assert theirs["api"]["encryption"]["key"]
     ours["api"]["encryption"]["key"] = theirs["api"]["encryption"]["key"] = "<key>"
-    # Deliberate divergence: our packages never reference ``${name}``, so
-    # we emit direct values instead of the substitutions indirection.
-    # Resolve theirs the same way before comparing the rest of the shape.
-    subs = theirs.pop("substitutions")
-    theirs["esphome"]["name"] = subs["name"]
-    theirs["esphome"]["friendly_name"] = subs["friendly_name"]
     assert ours == theirs
 
 
-def test_generate_package_device_yaml_network_variants() -> None:
-    """Ethernet-in-package boards get no ``wifi:``; Wi-Fi boards get ``!secret`` refs."""
-    wired = generate_package_device_yaml("p", "P", _make_package_board(ethernet=True), "", "")
-    assert "wifi" not in wired
-    assert "packages:" in wired
-    wifi = generate_package_device_yaml("p", "P", _make_package_board(ethernet=False), "", "")
-    assert "ssid: !secret wifi_ssid" in wifi
-    inline = generate_package_device_yaml(
-        "p", "P", _make_package_board(ethernet=False), "Net #1", "pw"
+def test_generate_adoption_yaml_variants() -> None:
+    """Inline credentials quote through; missing secrets and api opt-out drop blocks."""
+    inline = generate_adoption_yaml(
+        "p", "P", "k", "github://x/y.yaml@main", ssid="Net #1", psk="pw"
     )
     assert 'ssid: "Net #1"' in inline
-    no_creds = generate_package_device_yaml(
-        "p", "P", _make_package_board(ethernet=False), "", "", wifi_secrets_available=False
+    no_creds = generate_adoption_yaml(
+        "p", "P", "k", "github://x/y.yaml@main", wifi_secrets_available=False
     )
     assert "wifi" not in no_creds
+    no_api = generate_adoption_yaml("p", "P", "k", "github://x/y.yaml@main", api_encryption=False)
+    assert "api:" not in no_api
+
+
+def test_board_provides_network_for_package_boards() -> None:
+    """A package board's ethernet claim rides on ``hardware.connectivity``."""
+    assert board_provides_network(_make_package_board(ethernet=True)) is True
+    assert board_provides_network(_make_package_board(ethernet=False)) is False
 
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_yaml import generate_adoption_yaml
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
 from ...models import (
@@ -58,24 +59,44 @@ async def import_device(
         None,
     )
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
-    # ``esphome.components.dashboard_import`` pulls in ~14 MB of
-    # upstream code; load it through ``async_import_module`` so
-    # the first adoption pays the cost on the dedicated import
-    # thread (no event loop block, no concurrent-import race) and
-    # sessions that never adopt a device skip the load entirely.
-    dashboard_import = await async_import_module("esphome.components.dashboard_import")
-
     try:
-        await run_in_executor(
-            dashboard_import.import_config,
-            path,
-            name,
-            friendly_name,
-            project_name,
-            package_import_url,
-            network,
-            encryption,
-        )
+        if "full_config" in package_import_url.partition("?")[2]:
+            # A ``?full_config`` import downloads and rewrites the whole
+            # upstream YAML — keep delegating those to esphome's
+            # implementation. ``esphome.components.dashboard_import`` pulls
+            # in ~14 MB of upstream code; load it through
+            # ``async_import_module`` so the first such adoption pays the
+            # cost on the dedicated import thread (no event loop block, no
+            # concurrent-import race) and sessions that never need it skip
+            # the load entirely.
+            dashboard_import = await async_import_module("esphome.components.dashboard_import")
+            await run_in_executor(
+                dashboard_import.import_config,
+                path,
+                name,
+                friendly_name,
+                project_name,
+                package_import_url,
+                network,
+                encryption,
+            )
+        else:
+            content = generate_adoption_yaml(
+                name,
+                friendly_name,
+                project_name,
+                package_import_url,
+                network_provided=network != const.CONF_WIFI,
+                api_encryption=bool(encryption),
+            )
+
+            def _write_exclusive() -> None:
+                # Exclusive-create, matching ``import_config``'s
+                # FileExistsError contract for a concurrent writer.
+                with path.open("x", encoding="utf-8") as f:
+                    f.write(content)
+
+            await run_in_executor(_write_exclusive)
     except FileExistsError as exc:
         msg = f"Configuration {configuration} already exists"
         raise CommandError(ErrorCode.INVALID_ARGS, msg) from exc

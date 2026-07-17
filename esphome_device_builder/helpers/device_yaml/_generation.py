@@ -152,42 +152,48 @@ def _has_native_wifi(
 # ---------------------------------------------------------------------------
 
 
-def generate_package_device_yaml(
+def generate_adoption_yaml(
     name: str,
-    friendly_name: str,
-    board: BoardCatalogEntry,
-    ssid: str,
-    psk: str,
+    friendly_name: str | None,
+    package_key: str,
+    package_import_url: str,
     *,
+    network_provided: bool = False,
+    ssid: str = "",
+    psk: str = "",
     wifi_secrets_available: bool = True,
+    api_encryption: bool = True,
 ) -> str:
     """
-    Generate the adoption-shape YAML for a ``package_import_url`` board.
+    Generate the adoption-shape YAML referencing a remote package.
 
-    ``packages:`` + local ``esphome:`` overrides + a fresh API key; a
-    ``wifi:`` block lands only when the board doesn't provide its own
-    network (the package carries every other block).
+    One shape for both consumers — ``devices/import`` (adopt) and a
+    ``package_import_url`` board create: ``substitutions`` + ``packages:``
+    + ``esphome:`` overrides + a fresh API key, with a ``wifi:`` block
+    only when the package doesn't provide the network. The name rides
+    through ``substitutions`` because vendor packages may reference
+    ``${name}`` internally.
     """
-    lines: list[str] = [*_board_header_lines(board)]
-    lines.append("packages:")
-    package_key = board.package_name or board.id
-    lines.append(
-        f"  {_safe_yaml_scalar(package_key)}: {_safe_yaml_scalar(board.package_import_url)}"
-    )
-    lines.append("")
-    # esphome's adoption template routes the name through a
-    # ``substitutions:`` block for packages that reference ``${name}``
-    # internally; none of ours do, so the direct values read cleaner.
-    lines.append("esphome:")
+    lines: list[str] = ["substitutions:"]
     lines.append(f"  name: {name}")
-    lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
+    if friendly_name:
+        lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
+    lines.append("")
+    lines.append("packages:")
+    lines.append(f"  {_safe_yaml_scalar(package_key)}: {_safe_yaml_scalar(package_import_url)}")
+    lines.append("")
+    lines.append("esphome:")
+    lines.append("  name: ${name}")
     lines.append("  name_add_mac_suffix: false")
+    if friendly_name:
+        lines.append("  friendly_name: ${friendly_name}")
     lines.append("")
-    lines.append("api:")
-    lines.append("  encryption:")
-    lines.append(f'    key: "{generate_api_encryption_key()}"')
-    lines.append("")
-    if not board_provides_network(board) and (bool(ssid) or wifi_secrets_available):
+    if api_encryption:
+        lines.append("api:")
+        lines.append("  encryption:")
+        lines.append(f'    key: "{generate_api_encryption_key()}"')
+        lines.append("")
+    if not network_provided and (bool(ssid) or wifi_secrets_available):
         lines.append("wifi:")
         lines.extend(_wifi_credentials_lines(ssid, psk))
         lines.append("")

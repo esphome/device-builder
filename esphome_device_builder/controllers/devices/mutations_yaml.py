@@ -9,9 +9,10 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     NETWORK_PROVIDER_COMPONENT_IDS,
+    board_provides_network,
+    generate_adoption_yaml,
     generate_device_yaml,
     generate_minimal_stub_yaml,
-    generate_package_device_yaml,
 )
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
@@ -35,10 +36,11 @@ _LOGGER = logging.getLogger(__name__)
 # driven board-id derivation since the stub's hard-coded
 # ``board: esp32dev`` would otherwise pin metadata to whatever
 # catalog entry happens to share that PIO board).
-# ``"package"`` -> :func:`generate_package_device_yaml` (a thin
-# ``packages: github://...`` reference; validity depends on a live
-# upstream fetch, so the caller validates with the adopt contract —
-# short budget, unavailability tolerated — not the strict template one).
+# ``"package"`` -> :func:`generate_adoption_yaml` (a thin
+# ``packages: github://...`` reference, the same shape ``devices/import``
+# writes; validity depends on a live upstream fetch, so the caller
+# validates with the adopt contract — short budget, unavailability
+# tolerated — not the strict template one).
 CreateYamlSource = Literal["user", "template", "stub", "package"]
 
 
@@ -67,19 +69,22 @@ async def yaml_content_for_create(
     if file_content:
         return file_content, "user"
     if board and board.package_import_url:
-        # Remote-package board (bluetooth-proxies import): the device is a
-        # thin ``packages:`` reference to the upstream config, so it tracks
-        # upstream updates on every compile instead of vendoring the blocks.
-        # The Wi-Fi opt-in doesn't apply here: a package with an onboard
-        # network pins that network upstream (ESPHome rejects wifi beside
-        # ethernet), so credentials only land when the package needs them.
+        # Remote-package board (bluetooth-proxies import): the device is
+        # exactly what ``devices/import`` would have written for it — a thin
+        # ``packages:`` reference tracking upstream on every compile — except
+        # the wizard supplies a good name up front instead of the factory's
+        # mac-suffixed broadcast. The Wi-Fi opt-in doesn't apply: a package
+        # with an onboard network pins that network upstream (ESPHome rejects
+        # wifi beside ethernet), so credentials only land when needed.
         return (
-            generate_package_device_yaml(
+            generate_adoption_yaml(
                 name,
                 friendly,
-                board,
-                ssid,
-                psk,
+                board.package_name or board.id,
+                board.package_import_url,
+                network_provided=board_provides_network(board),
+                ssid=ssid,
+                psk=psk,
                 wifi_secrets_available=wifi_secrets_available,
             ),
             "package",
