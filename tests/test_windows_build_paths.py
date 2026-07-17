@@ -514,3 +514,9 @@ def test_ci_matrix_covers_every_toolchain_param() -> None:
         for entry in workflow["jobs"]["windows-maxpath"]["strategy"]["matrix"]["include"]
     }
     assert set(module._TOOLCHAINS) <= suites
+
+
+def test_default_idf_cache_without_platformdirs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No platformdirs (base install without the esphome extra) means no migration source."""
+    monkeypatch.setitem(sys.modules, "platformdirs", None)
+    assert wbp._default_idf_cache() is None
