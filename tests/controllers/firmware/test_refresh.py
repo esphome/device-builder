@@ -671,9 +671,7 @@ async def test_burst_requests_and_rearms_until_deadline() -> None:
     controller = _reprobe_controller(_device())  # default state UNKNOWN
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe_burst(
-        controller, "kitchen.yaml", deadline=loop.time() + 1000
-    )
+    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() + 1000)
 
     controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
     assert "kitchen.yaml" in controller._reprobe_timers  # re-armed
@@ -685,9 +683,7 @@ async def test_burst_probes_despite_stale_online_reading() -> None:
     controller = _reprobe_controller(_device(state=DeviceState.ONLINE))
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe_burst(
-        controller, "kitchen.yaml", deadline=loop.time() + 1000
-    )
+    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() + 1000)
 
     controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
     assert "kitchen.yaml" in controller._reprobe_timers  # re-armed, not aborted
@@ -699,7 +695,7 @@ async def test_burst_stops_at_deadline() -> None:
     controller = _reprobe_controller(_device())
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe_burst(controller, "kitchen.yaml", deadline=loop.time() - 1)
+    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() - 1)
 
     controller._state_monitor.api_info.request_reprobe.assert_called_once_with("kitchen")
     assert controller._reprobe_timers == {}  # deadline passed, not re-armed
@@ -710,9 +706,7 @@ async def test_burst_unknown_configuration_is_noop() -> None:
     controller = _reprobe_controller(None)
     loop = asyncio.get_running_loop()
 
-    firmware_sync._fire_version_reprobe_burst(
-        controller, "kitchen.yaml", deadline=loop.time() + 1000
-    )
+    firmware_sync._fire_version_reprobe(controller, "kitchen.yaml", deadline=loop.time() + 1000)
 
     controller._state_monitor.api_info.request_reprobe.assert_not_called()
     assert controller._reprobe_timers == {}

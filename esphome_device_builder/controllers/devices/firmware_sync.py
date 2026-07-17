@@ -211,18 +211,16 @@ def schedule_version_reprobe(controller: DevicesController, configuration: str) 
         existing.cancel()
     device = controller._scanner.get_by_configuration(configuration)
     loop = asyncio.get_running_loop()
-    if device is None or not device.uses_deep_sleep:
-        controller._reprobe_timers[configuration] = loop.call_later(
-            _POST_FLASH_VERSION_REPROBE_DELAY, _fire_version_reprobe, controller, configuration
-        )
-        return
-    deadline = loop.time() + _DEEP_SLEEP_REPROBE_WINDOW
+    if device is not None and device.uses_deep_sleep:
+        # A deep-sleep device is only awake briefly; the deadline bounds the
+        # re-arming burst across the reboot + awake window.
+        delay = _DEEP_SLEEP_REPROBE_FIRST_DELAY
+        deadline = loop.time() + _DEEP_SLEEP_REPROBE_WINDOW
+    else:
+        delay = _POST_FLASH_VERSION_REPROBE_DELAY
+        deadline = None
     controller._reprobe_timers[configuration] = loop.call_later(
-        _DEEP_SLEEP_REPROBE_FIRST_DELAY,
-        _fire_version_reprobe_burst,
-        controller,
-        configuration,
-        deadline,
+        delay, _fire_version_reprobe, controller, configuration, deadline
     )
 
 
@@ -243,46 +241,32 @@ async def migrate_metadata_then_scan(
     await controller._scanner.scan()
 
 
-def _fire_version_reprobe(controller: DevicesController, configuration: str) -> None:
+def _fire_version_reprobe(
+    controller: DevicesController, configuration: str, deadline: float | None = None
+) -> None:
     """
     Timer callback: ask the monitor to verify the device's running version.
 
-    A no-op if the device vanished in the interim. The request still
-    honours the monitor's ``priority_for != MDNS`` guard, so a device
-    already seen over mDNS by now is skipped rather than probed.
-    """
-    controller._reprobe_timers.pop(configuration, None)
-    device = controller._scanner.get_by_configuration(configuration)
-    if device is not None:
-        controller._state_monitor.api_info.request_reprobe(device.name)
-
-
-def _fire_version_reprobe_burst(
-    controller: DevicesController, configuration: str, deadline: float
-) -> None:
-    """
-    Deep-sleep re-probe tick: probe, then re-arm until *deadline* passes.
-
-    Same probe as ``_fire_version_reprobe``, repeated across the reboot +
-    awake window because a deep-sleep device is only awake briefly. Does
-    not short-circuit on the device's ONLINE state: right after a flash
-    that reading is the stale pre-reboot one, so aborting on it would
-    skip the whole window. The monitor's ``priority_for != MDNS`` guard
-    in ``request_reprobe`` already skips a device seen fresh over mDNS.
+    A no-op if the device vanished. ``request_reprobe`` honours the
+    monitor's ``priority_for != MDNS`` guard, so a device already seen
+    fresh over mDNS is skipped. When *deadline* is set (a deep-sleep
+    device's brief awake window), re-arm every
+    ``_DEEP_SLEEP_REPROBE_INTERVAL`` until it passes, since one probe
+    would miss the window. It deliberately does not short-circuit on the
+    device's ONLINE state, which right after a flash is the stale
+    pre-reboot reading.
     """
     controller._reprobe_timers.pop(configuration, None)
     device = controller._scanner.get_by_configuration(configuration)
     if device is None:
         return
     controller._state_monitor.api_info.request_reprobe(device.name)
+    if deadline is None:
+        return
     loop = asyncio.get_running_loop()
     if loop.time() + _DEEP_SLEEP_REPROBE_INTERVAL <= deadline:
         controller._reprobe_timers[configuration] = loop.call_later(
-            _DEEP_SLEEP_REPROBE_INTERVAL,
-            _fire_version_reprobe_burst,
-            controller,
-            configuration,
-            deadline,
+            _DEEP_SLEEP_REPROBE_INTERVAL, _fire_version_reprobe, controller, configuration, deadline
         )
 
 
