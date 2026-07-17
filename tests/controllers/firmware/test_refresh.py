@@ -705,6 +705,19 @@ async def test_burst_stops_at_deadline() -> None:
     assert controller._reprobe_timers == {}  # deadline passed, not re-armed
 
 
+async def test_burst_unknown_configuration_is_noop() -> None:
+    """The device vanished mid-burst → nothing to probe and no re-arm."""
+    controller = _reprobe_controller(None)
+    loop = asyncio.get_running_loop()
+
+    firmware_sync._fire_version_reprobe_burst(
+        controller, "kitchen.yaml", deadline=loop.time() + 1000
+    )
+
+    controller._state_monitor.api_info.request_reprobe.assert_not_called()
+    assert controller._reprobe_timers == {}
+
+
 # ----------------------------------------------------------------------
 # Helpers: _read_compiled_esphome_version + DeviceScanner.get_by_configuration
 # ----------------------------------------------------------------------
