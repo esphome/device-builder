@@ -329,7 +329,7 @@ class PeerLinkClient:
         *,
         job_id: str,
         configuration_filename: str,
-        target: Literal["compile", "upload", "clean"],
+        target: Literal["compile", "clean"],
         bundle_bytes: bytes,
         device_name: str = "",
         device_friendly_name: str = "",

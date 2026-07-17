@@ -5080,7 +5080,7 @@ async def test_submit_job_rejects_duplicate_job_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Controller WS command (remote_build/submit_job)
+# Offloader peer-link client test helpers
 # ---------------------------------------------------------------------------
 
 
@@ -5093,7 +5093,8 @@ def _seed_open_peer_link_client(
     :class:`PeerLinkClient` with ``is_session_open=True`` and
     parks a ``done`` task on the handle so
     ``_lookup_open_peer_link_client`` finds it. Returns the
-    client object so the caller can monkeypatch ``submit_job``.
+    client object so the caller can monkeypatch
+    ``download_artifacts``.
     """
     client = _make_offloader_client(
         MagicMock(),

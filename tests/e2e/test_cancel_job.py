@@ -12,7 +12,8 @@ slipping past two unit suites that pass on the same drift.
 
 The chain:
 
-  offloader-side ``PeerLinkClient.cancel_job`` frame
+  offloader-side cancel translation (the remote runner's
+  ``_send_cancel_or_finalise``)
                        →  ``PeerLinkClient.cancel_job``
                        →  peer-link ``cancel_job`` frame
                           (real Noise AEAD)
