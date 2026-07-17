@@ -92,7 +92,12 @@ window.addEventListener("message", (ev: MessageEvent) => {
   if (!peer || ev.source !== peer) return;
   const data = ev.data as Partial<RequestMessage> | undefined;
   if (!data || data.type !== "esphome-stacktrace-decode:request") return;
-  if (data.nonce !== nonce) return;
+  // Fail closed when we were framed without a nonce, rather than letting the
+  // gate degrade to "" === "" and accept any request carrying an empty one.
+  // Defence in depth (ev.source already restricts this to whoever framed us),
+  // but an auth check that quietly becomes a no-op is worse than no check: it
+  // still reads like one.
+  if (!nonce || data.nonce !== nonce) return;
   // The embedder origin is now known; stop broadcasting and pin to it.
   if (targetOrigin === "*" && ev.origin && ev.origin !== "null") {
     targetOrigin = ev.origin;
@@ -138,7 +143,15 @@ function sendReady(): void {
   post({ type: "esphome-stacktrace-decode:ready", version: PROTOCOL_VERSION });
 }
 
-if (peer && nonce) {
+if (peer && !nonce) {
+  // Say so. Without this, a framed page missing its nonce just never answers,
+  // which the embedder cannot tell apart from the page being unreachable, so a
+  // wiring mistake reads as an outage and every crash silently stays raw.
+  console.error(
+    "Framed without a nonce, so no decode can be authorized. The embedder must " +
+      "frame this page as .../#nonce=<random>&origin=<its-origin>.",
+  );
+} else if (peer && nonce) {
   sendReady();
   let waited = 0;
   readyTimer = window.setInterval(() => {

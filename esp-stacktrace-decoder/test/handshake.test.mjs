@@ -201,6 +201,33 @@ try {
   if (!wasmLoaded) fail("the wasm was never fetched; the decode path is not wired");
   else console.log("PASS: wasm fetched, so the decode path is live");
 
+  // 4b. framed with no nonce at all: the gate must fail closed rather than
+  // degrade to "" === "" and accept an empty one, and it must say why instead
+  // of going quiet, which the embedder can't tell apart from an outage.
+  const bare = await browser.newPage();
+  const errors = [];
+  bare.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  await bare.goto(`${base}/embedder.html`);
+  await bare.evaluate((u) => window.__embed(u), `${base}/`); // no #nonce
+  await settle(500);
+  await bare.evaluate(() => {
+    window.__msgs.length = 0;
+    window.__send({
+      type: "esphome-stacktrace-decode:request",
+      nonce: "",
+      id: "z",
+      elf: new ArrayBuffer(8),
+      dump: "Backtrace: 0x400d1a2c:0x3ffb1f00",
+    });
+  });
+  await settle();
+  if ((await msgs(bare)).length) fail("an empty nonce was accepted by a page framed without one");
+  else console.log("PASS: empty nonce rejected; the gate fails closed");
+  if (!errors.some((e) => /nonce/i.test(e)))
+    fail("framed without a nonce, but said nothing; an outage looks identical");
+  else console.log("PASS: a missing nonce is reported rather than silently ignored");
+  await bare.close();
+
   // 5. THE claim: nothing left the browser. Every request the page made must be
   // our own origin; an ELF must never appear in one.
   const offOrigin = requests.filter((u) => !u.startsWith(base));
