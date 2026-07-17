@@ -28,7 +28,7 @@ _POST_FLASH_VERSION_REPROBE_DELAY = 60
 
 # A deep-sleep device is only awake briefly after the reboot, so the single
 # 60s probe above would miss it. Fire a tight burst across the reboot + awake
-# window instead, stopping as soon as the device is seen.
+# window instead; each tick is a no-op once the device is re-seen over mDNS.
 _DEEP_SLEEP_REPROBE_FIRST_DELAY = 5
 _DEEP_SLEEP_REPROBE_INTERVAL = 5
 _DEEP_SLEEP_REPROBE_WINDOW = 40
@@ -198,10 +198,10 @@ def schedule_version_reprobe(controller: DevicesController, configuration: str) 
     A normal device gets one probe ~60s after the flash, letting it
     reboot into the new image before we connect. A deep-sleep device
     (``Device.uses_deep_sleep``) is only awake briefly, so it gets a
-    tight burst across the reboot + awake window that stops once the
-    device is seen. Either way the re-probe confirms the
-    optimistically-pinned version (and catches a rollback) where mDNS
-    can't reach us. Re-arming for the same configuration cancels the
+    tight burst across the reboot + awake window (each tick a no-op once
+    the device is re-seen over mDNS). Either way the re-probe confirms
+    the optimistically-pinned version (and catches a rollback) where
+    mDNS can't reach us. Re-arming for the same configuration cancels the
     prior timer so a rapid re-flash doesn't stack probes; the handle is
     tracked on the controller so ``stop`` can cancel anything still
     pending.
