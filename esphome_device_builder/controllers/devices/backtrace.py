@@ -81,9 +81,8 @@ async def decode_backtrace(
         return _result(unavailable_reason=DecodeUnavailable.NO_BACKTRACE)
     target = await run_in_executor(_resolve_target, configuration, yaml_path)
 
-    # Bound once, so every answer below carries them: they are facts about the
-    # local build, true whether we decode it or a client we decline decodes the
-    # same ELF itself, and only this side knows them.
+    # Bound once, so every answer below carries them; they describe the local
+    # build, not the decode.
     def answer(reason: str = "", decoded: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return _result(
             decoded=decoded,
@@ -198,11 +197,7 @@ def _resolve_target(configuration: str, yaml_path: Path) -> _DecodeTarget:
 
 
 def _missing_artifacts_reason(storage: StorageJSON) -> str:
-    """Say whether the ELF is here without its build tree, or nothing is here.
-
-    The ELF is the only input a decoder needs, so its presence is the whole
-    distinction.
-    """
+    """Say whether the ELF is here without its build tree, or nothing is here."""
     elf = resolve_elf_path(storage)
     return DecodeUnavailable.ELF_ONLY if elf and elf.is_file() else DecodeUnavailable.NO_BUILD
 

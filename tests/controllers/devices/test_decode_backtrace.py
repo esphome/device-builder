@@ -221,6 +221,7 @@ async def test_decode_backtrace_esp_idf_with_only_an_elf_says_elf_only(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The remote-build shape: the ELF landed here, the build tree never did."""
     _yaml, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
@@ -236,6 +237,7 @@ async def test_decode_backtrace_esp_idf_with_only_an_elf_says_elf_only(
         overrides={"toolchain": "esp-idf"},
     )
     controller = make_controller(tmp_path)
+    _forbid_helper(monkeypatch)  # refuses before the spawn; guard that it stays that way
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
@@ -250,6 +252,7 @@ async def test_decode_backtrace_without_an_elf_is_still_no_build(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     seed_device: SeedDeviceFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No ELF means nothing can decode it, here or anywhere."""
     _yaml, build_path = await seed_device(tmp_path, "kitchen.yaml", with_build_dir=True)
@@ -264,6 +267,7 @@ async def test_decode_backtrace_without_an_elf_is_still_no_build(
         overrides={"toolchain": "esp-idf"},
     )
     controller = make_controller(tmp_path)
+    _forbid_helper(monkeypatch)
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
@@ -486,6 +490,7 @@ async def test_decode_backtrace_reports_staleness_when_declining_to_decode(
     device.runtime_state.deployed_config_hash = "5a94a12d"
     controller._scanner.get_by_configuration = lambda configuration: device
     monkeypatch.setattr(backtrace, "read_build_info_hash", lambda yaml_path: "f3e21d5a")
+    _forbid_helper(monkeypatch)
 
     result = await backtrace.decode_backtrace(controller, "kitchen.yaml", _CRASH_LINES)
 
