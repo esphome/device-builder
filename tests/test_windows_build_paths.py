@@ -195,8 +195,8 @@ def test_failed_idf_relocation_leaves_prefix_unset(
 
     def _interrupted(src: str, dst: str, *args: object, **kwargs: object) -> object:
         if "cache_idf" in str(src):
-            # A cross-volume copy that got partway then died: one of two files made it across,
-            # so the classifier must see the copy as incomplete, not take the empty-source out.
+            # A cross-volume copy that died partway: dst half-written, src left behind. The
+            # partial dst is what makes the next run exercise the rmtree(dst) discard branch.
             Path(dst).mkdir(parents=True, exist_ok=True)
             shutil.copy2(Path(src) / "tool.txt", Path(dst) / "tool.txt")
             msg = "interrupted"

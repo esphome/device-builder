@@ -102,10 +102,19 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     # empty/whitespace ESPHOME_ESP_IDF_PREFIX as unset — mirror that or an empty var would
     # silently fall back to the long + spaced machine-global cache this exists to avoid.
     prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")
-    override_idf = not (prev_idf and prev_idf.strip()) and _relocate_into(idf, _default_idf_cache())
+    user_set_idf = bool(prev_idf and prev_idf.strip())
+    override_idf = not user_set_idf and _relocate_into(idf, _default_idf_cache())
     if override_idf:
         saved["ESPHOME_ESP_IDF_PREFIX"] = prev_idf  # may be present-but-empty; kept verbatim
         os.environ["ESPHOME_ESP_IDF_PREFIX"] = str(idf)
+    elif not user_set_idf:
+        # Unrelocated, esphome falls back to its machine-global cache — the long + spaced path
+        # this exists to avoid — so name it before the compile fails cryptically.
+        _LOGGER.warning(
+            "ESP-IDF toolchain not relocated; native builds will use %s, where deep or spaced "
+            "paths may fail",
+            _default_idf_cache(),
+        )
     _LOGGER.info(
         "Windows build data at %s (pio %s, idf %s)",
         root,
@@ -154,6 +163,9 @@ def _default_idf_cache() -> Path | None:
     try:
         import platformdirs  # noqa: PLC0415
     except ImportError:
+        # Distinguishes migration-skipped-because-unavailable from a genuinely absent cache;
+        # the relocation marker written this run means a later install won't re-migrate.
+        _LOGGER.debug("platformdirs unavailable; no machine-global IDF cache to migrate")
         return None
     return Path(platformdirs.user_cache_dir("esphome", appauthor=False)) / "idf"
 
