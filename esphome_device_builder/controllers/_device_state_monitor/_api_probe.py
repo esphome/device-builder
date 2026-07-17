@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any
 from ...helpers.device_yaml import DEFAULT_API_PORT
 from ...helpers.json import JSONDecodeError, dumps, loads
 from ...helpers.subprocess import run_subprocess_capture
-from ...models import ReachabilitySource
 from ._sweep_source import SweepSource
 
 if TYPE_CHECKING:
@@ -111,17 +110,16 @@ def apply_worker_info(monitor: DeviceStateMonitor, name: str, info: dict[str, An
 
     Judged on the ``apply_*`` returns, not a post-apply Device re-read —
     apply dedupes and fans out across same-named devices. An
-    identity-carrying payload also stamps ``deployed_identity_live``
-    (even when nothing was newly written — a confirming re-probe is
-    evidence too), but never under mDNS ownership: a claim can land
-    mid-probe, and a stamp made there would never see the
-    transition-to-mdns clear.
+    identity-carrying payload also stamps ``deployed_identity_live``,
+    even when nothing was newly written — a confirming re-probe is
+    evidence too. The monitor itself refuses the stamp under mDNS
+    ownership.
     """
-    filled_mac = monitor.apply_mac_address(name, info.get("mac_address", ""))
-    filled_version = monitor.apply_version(name, info.get("esphome_version", ""))
-    if (info.get("mac_address") or info.get("esphome_version")) and monitor.priority_for(
-        name
-    ) != ReachabilitySource.MDNS:
+    mac = info.get("mac_address", "")
+    version = info.get("esphome_version", "")
+    filled_mac = monitor.apply_mac_address(name, mac)
+    filled_version = monitor.apply_version(name, version)
+    if mac or version:
         monitor.apply_deployed_identity_live(name, live=True)
     return filled_mac or filled_version
 

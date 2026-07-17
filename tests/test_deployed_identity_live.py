@@ -19,8 +19,11 @@ from .conftest import (
 )
 
 
-def _device(**overrides: Any) -> Any:
-    base: dict[str, Any] = {"api_enabled": False, "loaded_integrations": ["mqtt", "wifi"]}
+def _device(*, api: bool = False, **overrides: Any) -> Any:
+    base: dict[str, Any] = {
+        "api_enabled": api,
+        "loaded_integrations": ["api", "wifi"] if api else ["mqtt", "wifi"],
+    }
     base.update(overrides)
     return make_device(**base)
 
@@ -88,18 +91,33 @@ def test_apply_deployed_identity_live_unwired_is_a_noop() -> None:
     assert device.runtime_state.deployed_identity_live is False
 
 
+# ─── Ownership guard on the stamp ─────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("api", "owner", "expected"),
+    [
+        pytest.param(True, "ping", True, id="api_ping_owned_stamps"),
+        pytest.param(True, "mdns", False, id="api_mdns_owned_refused"),
+        pytest.param(False, "mdns", True, id="non_api_mdns_owned_stamps"),
+    ],
+)
+def test_stamp_honours_mdns_ownership(api: bool, owner: str, expected: bool) -> None:
+    """live=True is refused only while mDNS owns an api device; every source shares the guard."""
+    device = _device(api=api)
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.apply("kitchen", DeviceState.ONLINE, owner, claim=True)
+
+    assert monitor.apply_deployed_identity_live("kitchen", live=True) is expected
+    assert device.runtime_state.deployed_identity_live is expected
+
+
 # ─── Ledger transition clear ──────────────────────────────────────
-
-
-def _api_device(**overrides: Any) -> Any:
-    base: dict[str, Any] = {"api_enabled": True, "loaded_integrations": ["api", "wifi"]}
-    base.update(overrides)
-    return make_device(**base)
 
 
 def test_mdns_claim_on_api_device_clears_the_flag() -> None:
     """MDNS taking ownership hands identity freshness to the announce lifecycle."""
-    device = _api_device(deployed_identity_live=True)
+    device = _device(api=True, deployed_identity_live=True)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
 
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
@@ -113,7 +131,7 @@ def test_mdns_claim_on_api_device_clears_the_flag() -> None:
 @pytest.mark.parametrize("source", ["ping", "mqtt"])
 def test_non_mdns_claim_leaves_the_flag(source: str) -> None:
     """Only a transition INTO mdns ownership clears."""
-    device = _api_device(deployed_identity_live=True)
+    device = _device(api=True, deployed_identity_live=True)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
 
     monitor.apply("kitchen", DeviceState.ONLINE, source, claim=True)
@@ -124,7 +142,7 @@ def test_non_mdns_claim_leaves_the_flag(source: str) -> None:
 
 def test_forget_leaves_the_flag() -> None:
     """Dropping the ledger entry (transition to UNKNOWN) never clears."""
-    device = _api_device(deployed_identity_live=True)
+    device = _device(api=True, deployed_identity_live=True)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.apply("kitchen", DeviceState.ONLINE, "ping", claim=True)
 
@@ -147,7 +165,7 @@ def test_mdns_claim_on_non_api_device_leaves_the_flag() -> None:
 
 def test_mdns_claim_with_flag_already_false_stays_quiet() -> None:
     """The clear dedupes through the Device field like every apply."""
-    device = _api_device()
+    device = _device(api=True)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
 
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
@@ -157,7 +175,7 @@ def test_mdns_claim_with_flag_already_false_stays_quiet() -> None:
 
 def test_mdns_claim_clears_without_on_source_change_wired() -> None:
     """The clear rides the transition itself, not the owner notification."""
-    device = _api_device(deployed_identity_live=True)
+    device = _device(api=True, deployed_identity_live=True)
     calls: list[tuple[str, bool]] = []
     monitor = DeviceStateMonitor(
         get_devices=lambda: [device],

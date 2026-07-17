@@ -294,16 +294,11 @@ class DeviceStateMonitor(TaskControllerBase):
         """Notify the owner when *name*'s authoritative source actually flips."""
         if old == new:
             return
-        # mDNS taking ownership of an api device supersedes any Native-API
-        # identity stamp: the announce lifecycle (verify-before-demote
-        # ``Removed``) vouches for freshness from here, so a powered-off
-        # device blanks instead of a stale flag resurfacing its identity.
-        # api-scoped because a non-api mdns claim is a bare A-record
-        # resolve — reachability only — and clearing there would strand a
-        # post-flash stamp on firmware with no identity TXT to re-stamp it.
-        if ReachabilitySource(new) is ReachabilitySource.MDNS and any(
-            device.api_enabled for device in self._get_devices_by_name(name)
-        ):
+        # Callers update the ledger before emitting, so the predicate is
+        # true exactly on transitions INTO api-device mDNS ownership —
+        # the moment the announce lifecycle takes over vouching for the
+        # identity (see _mdns_owns_api_identity).
+        if self._mdns_owns_api_identity(name):
             self.apply_deployed_identity_live(name, live=False)
         if self._on_source_change is not None:
             self._on_source_change(name, ReachabilitySource(new))
@@ -517,13 +512,41 @@ class DeviceStateMonitor(TaskControllerBase):
         return True
 
     def apply_deployed_identity_live(self, name: str, *, live: bool) -> bool:
-        """Record whether fresh first-party evidence backs *name*'s identity; True iff forwarded."""
+        """
+        Record whether fresh first-party evidence backs *name*'s identity; True iff forwarded.
+
+        A ``live=True`` stamp is refused while mDNS owns an api device,
+        so every evidence source (Native API dial, post-flash sync)
+        stamps unconditionally without racing a mid-probe mdns claim —
+        a stamp made under ownership would never see the
+        transition-into-mdns clear in :meth:`_emit_source_change`.
+        """
         if self._on_deployed_identity_live_change is None:
+            return False
+        if live and self._mdns_owns_api_identity(name):
             return False
         if not self._any_matching_device_differs(name, "deployed_identity_live", live):
             return False
         self._on_deployed_identity_live_change(name, live=live)
         return True
+
+    def _mdns_owns_api_identity(self, name: str) -> bool:
+        """
+        Report whether mDNS owns *name* while the bucket has an api device.
+
+        The one condition under which ``deployed_identity_live`` must
+        stay down: the announce lifecycle (verify-before-demote
+        ``Removed``) vouches for an api device's identity while mDNS
+        owns it, so a powered-off device blanks instead of a stale
+        flag resurfacing its identity. Deliberately false for non-api
+        buckets — their mdns ownership is a bare A-record resolve,
+        reachability only, and suppressing their stamps would strand a
+        post-flash stamp on firmware with no identity TXT to re-stamp
+        it.
+        """
+        return self.priority_for(name) is ReachabilitySource.MDNS and any(
+            device.api_enabled for device in self._get_devices_by_name(name)
+        )
 
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:
         """

@@ -502,10 +502,9 @@ against legacy behaviour before assuming the simpler version suffices.
   the only signal of a rollback / failed boot where the announce never
   arrives. The forced probe still honours `_is_due`'s `priority_for !=
   MDNS` guard, so a device already seen over mDNS is skipped. The sync
-  also stamps `deployed_identity_live` — always for a non-api device,
-  and for an api device only when mDNS doesn't own it (under ownership
-  the announce vouches, and a stamp there would never see the
-  transition-to-mdns clear).
+  also stamps `deployed_identity_live`; the monitor's apply refuses the
+  stamp for an mdns-owned api device (the announce vouches there, and a
+  stamp under ownership would never see the transition-to-mdns clear).
 - **Two mDNS paths with different OFFLINE semantics:**
   - **Browser callback** (`_on_service_state_change`) — passively
     subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
@@ -565,9 +564,10 @@ against legacy behaviour before assuming the simpler version suffices.
     never demoted at all. The api side of the same flag is owned by the
     Native-API paths instead: `apply_worker_info` stamps it on any
     identity-carrying `device_info` payload (API-info probe, reviver
-    dial) unless mDNS owns the device, and the monitor clears it when
-    mDNS takes ownership of an api device, handing blanking to the
-    announce lifecycle.
+    dial). The ownership rule lives once, in the monitor
+    (`_mdns_owns_api_identity`): `live=True` is refused while mDNS owns
+    an api device, and the flag clears when mDNS takes ownership,
+    handing blanking to the announce lifecycle.
   - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
     API devices the ping sweep is about to ICMP). Exists because the
     zeroconf browser never re-asks: after its startup queries it only
