@@ -59,18 +59,21 @@ npm test           # build + headless Puppeteer check of the postMessage contrac
 `npm test` runs the postMessage handshake in headless Chromium (ready frame,
 re-announcement, nonce + source rejection, malformed-payload error, firmware
 acceptance). Web Serial flashing itself needs real hardware and is not covered.
-CI runs the same via `.github/workflows/flasher-ci.yml`.
+CI runs the same via `.github/workflows/pages-ci.yml`.
 
 Open the dev URL directly to use the manual file-picker mode (flash a factory
 `.bin` without a dashboard), or drive it from the dashboard for the postMessage flow.
 
 ## Deploy (GitHub Pages)
 
-`.github/workflows/flasher-pages.yml` builds `flasher/` and publishes `flasher/dist`
-to GitHub Pages on pushes to `main` that touch `flasher/**`.
+`.github/workflows/pages.yml` builds this page and publishes it to GitHub Pages on
+pushes to `main` that touch `flasher/**`. It shares the site with
+`esp-stacktrace-decoder/`, and Pages replaces the whole site on every deploy, so
+that one workflow composes both into a single artifact rather than each uploading
+its own.
 
 1. Repo **Settings -> Pages -> Build and deployment -> Source = GitHub Actions**.
-2. The site serves at `https://esphome.github.io/device-builder/`.
+2. This page serves at `https://esphome.github.io/device-builder/flasher/`.
 
 Assets use relative paths, so the `/device-builder/` project-page subpath needs no
 extra config. Pages sets no `Cross-Origin-Opener-Policy`, so the `window.opener`

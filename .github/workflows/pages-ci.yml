@@ -1,0 +1,40 @@
+name: Static pages CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - flasher/**
+      - esp-stacktrace-decoder/**
+      - .github/workflows/pages-ci.yml
+  pull_request:
+    paths:
+      - flasher/**
+      - esp-stacktrace-decoder/**
+      - .github/workflows/pages-ci.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Both pages ship to the same site; a failure in one should not hide the
+      # state of the other.
+      fail-fast: false
+      matrix:
+        page: [flasher, esp-stacktrace-decoder]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.page }}/package-lock.json
+      - run: npm ci
+        working-directory: ${{ matrix.page }}
+      - run: npm run typecheck
+        working-directory: ${{ matrix.page }}
+      - run: npm test
+        working-directory: ${{ matrix.page }}

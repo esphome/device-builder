@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      The firmware handed to this page must never leave the browser, and that is
+      enforced here rather than asserted in a README.
+
+      connect-src 'self' is the whole point: the only fetch the page may make is
+      the wasm beside it (wasm-bindgen's init() resolves it with
+      `new URL('..._bg.wasm', import.meta.url)`), and every other destination is
+      refused by the browser. default-src 'none' closes the side doors an
+      exfiltration would otherwise use, image beacons especially. So even a
+      compromised bundle cannot ship an ELF anywhere; the guarantee does not rest
+      on anyone having read the code.
+
+      'wasm-unsafe-eval' is what lets the wasm compile at all; it grants no
+      network reach. No styles or third-party references on purpose: this page
+      renders inside a hidden iframe and needs no UI, which keeps the CSP
+      minimal and the page auditable at a glance.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; form-action 'none'; base-uri 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ESPHome Device Builder stack trace decoder</title>
+  </head>
+  <body>
+    <h1>ESPHome Device Builder stack trace decoder</h1>
+    <p>
+      This page decodes ESP crash backtraces for the ESPHome Device Builder
+      dashboard. The dashboard embeds it in a hidden frame and hands it a
+      firmware ELF and a crash dump; it answers with the decoded frames.
+    </p>
+    <p>
+      Your firmware is never uploaded. It is decoded in this browser tab, by
+      WebAssembly, and this page is served with a Content-Security-Policy that
+      permits no network requests other than loading its own code. There is
+      nothing here to use on its own; open
+      <a href="https://esphome.github.io/esp-stacktrace-decoder/"
+        >the standalone decoder</a
+      >
+      if you want to decode a trace by hand.
+    </p>
+    <script type="module" src="./decoder.js"></script>
+  </body>
+</html>

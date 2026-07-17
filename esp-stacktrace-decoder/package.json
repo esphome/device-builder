@@ -1,0 +1,18 @@
+{
+  "name": "esphome-device-builder-stacktrace-decoder",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Hosted ESP crash backtrace decoder for ESPHome Device Builder. Decodes in the browser via esp-stacktrace-decoder's wasm; the firmware never leaves the tab.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --serve",
+    "typecheck": "tsc --noEmit",
+    "test": "node build.mjs && node test/csp.test.mjs && node test/handshake.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "puppeteer": "^24.0.0",
+    "typescript": "^5.7.0"
+  }
+}

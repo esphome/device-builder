@@ -1,0 +1,111 @@
+name: Deploy static pages
+
+# One site, two pages. Pages replaces the whole site on every deploy, so both
+# have to be built and composed into a single artifact here; a second workflow
+# uploading its own artifact would silently take the other one down.
+#
+#   /flasher/                  Web Serial flashing (development target only;
+#                              production is web.esphome.io)
+#   /esp-stacktrace-decoder/   crash backtrace decoding for the dashboard
+on:
+  push:
+    branches: [main]
+    paths:
+      - flasher/**
+      - esp-stacktrace-decoder/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            flasher/package-lock.json
+            esp-stacktrace-decoder/package-lock.json
+
+      - run: npm ci
+        working-directory: flasher
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true" # deploy only builds; no browser needed
+      - run: npm run typecheck
+        working-directory: flasher
+      - run: npm run build
+        working-directory: flasher
+
+      - run: npm ci
+        working-directory: esp-stacktrace-decoder
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true" # deploy only builds; no browser needed
+      - run: npm run typecheck
+        working-directory: esp-stacktrace-decoder
+      - run: npm run build
+        working-directory: esp-stacktrace-decoder
+
+      - name: Compose the site
+        run: |
+          mkdir -p _site/flasher _site/esp-stacktrace-decoder
+          cp -r flasher/dist/. _site/flasher/
+          cp -r esp-stacktrace-decoder/dist/. _site/esp-stacktrace-decoder/
+          cat > _site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <title>ESPHome Device Builder pages</title>
+            </head>
+            <body>
+              <h1>ESPHome Device Builder pages</h1>
+              <p>
+                Helper pages for the ESPHome Device Builder dashboard. Neither is
+                useful on its own; the dashboard drives both.
+              </p>
+              <ul>
+                <li>
+                  <a href="./esp-stacktrace-decoder/">esp-stacktrace-decoder</a>: decodes
+                  ESP crash backtraces in your browser.
+                </li>
+                <li>
+                  <a href="./flasher/">flasher</a>: development target for Web Serial
+                  flashing. The production flasher is
+                  <a href="https://web.esphome.io/">web.esphome.io</a>.
+                </li>
+              </ul>
+            </body>
+          </html>
+          HTML
+      # Both pages must survive the compose; a missing one would only show up as
+      # a 404 for whoever hits it next.
+      - name: Check the composed site
+        run: |
+          test -f _site/flasher/index.html
+          test -f _site/flasher/flasher.js
+          test -f _site/esp-stacktrace-decoder/index.html
+          test -f _site/esp-stacktrace-decoder/decoder.js
+          test -f _site/esp-stacktrace-decoder/esp_stacktrace_decoder_rs_bg.wasm
+          grep -q "connect-src 'self'" _site/esp-stacktrace-decoder/index.html
+          echo "composed site looks right"
+
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
+        with:
+          path: _site
+      - id: deploy
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0
