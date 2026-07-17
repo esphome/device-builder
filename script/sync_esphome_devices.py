@@ -97,8 +97,6 @@ _LOGGER = logging.getLogger("sync_esphome_devices")
 
 _DEFINITIONS_DIR = _REPO_ROOT / "esphome_device_builder" / "definitions"
 _BOARDS_DIR = _DEFINITIONS_DIR / "boards"
-_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
-_COMPONENTS_BODIES_DIR = _DEFINITIONS_DIR / "components"
 _CACHE_ROOT = _REPO_ROOT / ".cache"
 _DEVICES_CLONE_DIR = _CACHE_ROOT / "esphome-devices"
 _DEVICES_REPO_URL = "https://github.com/esphome/devices.esphome.io.git"
