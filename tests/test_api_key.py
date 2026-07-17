@@ -199,7 +199,8 @@ def test_load_device_yaml_merges_packages(tmp_path: Path) -> None:
     ``loaded_integrations=[]`` because the unmerged config still
     had those keys nested under ``packages:`` instead of at the
     top level. We delegate to ESPHome's own ``resolve_packages``
-    (the same the compiler's ``validate_config`` runs) so the
+    (the wrapper over the ``do_packages_pass`` + ``merge_packages``
+    the compiler's ``validate_config`` chains itself) so the
     dashboard sees what the compiler sees.
     """
     (tmp_path / "common.yaml").write_text(

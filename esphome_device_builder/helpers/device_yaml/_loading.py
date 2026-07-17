@@ -438,8 +438,10 @@ def load_device_yaml(path: Path) -> dict | None:
     if not isinstance(config, dict):
         return None
     # ``packages:`` is a separate pass in the ESPHome pipeline
-    # (``resolve_packages`` in ``esphome.config.validate_config``):
-    # packages need to be loaded and merged so blocks they contribute
+    # (``do_packages_pass`` + ``merge_packages`` in
+    # ``esphome.config.validate_config``, wrapped for external callers
+    # as ``esphome.components.packages.resolve_packages``): packages
+    # need to be loaded and merged so blocks they contribute
     # (api / wifi / target-platform / …) become top-level keys. Without
     # this step a config that puts those blocks behind ``packages:``
     # comes back from ``yaml_util.load_yaml`` with everything still
