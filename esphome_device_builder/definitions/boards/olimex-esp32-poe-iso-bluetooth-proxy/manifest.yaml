@@ -1,0 +1,71 @@
+id: olimex-esp32-poe-iso-bluetooth-proxy
+name: Olimex ESP32-POE-ISO Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build.
+manufacturer: OLIMEX
+esphome:
+  platform: esp32
+  board: esp32-poe-iso
+  variant: esp32
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- poe
+images:
+- https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/images/thumbs/310x230/ESP32-POE-ISO-1.jpg
+product_url: https://www.olimex.com/Products/IoT/ESP32/ESP32-POE-ISO/open-source-hardware
+docs_url: https://esphome.io/components/bluetooth_proxy
+featured: true
+pins:
+- gpio: 12
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO17
+        mode: CLK_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
+    power_pin:
+      value:
+        number: GPIO12
+        ignore_strapping_warning: true
+      locked: true
+source:
+  type: bluetooth-proxies
+  remote_id: olimex/olimex-esp32-poe-iso
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/olimex/olimex-esp32-poe-iso.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: 26115f2784c1c975a6aacaa90acdecc8c7b7ec17f0fb27b40698c308d083df50

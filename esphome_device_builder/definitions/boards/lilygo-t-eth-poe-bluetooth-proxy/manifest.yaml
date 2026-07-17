@@ -1,0 +1,59 @@
+id: lilygo-t-eth-poe-bluetooth-proxy
+name: LilyGO T-ETH-POE Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build.
+manufacturer: LilyGO
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/lilygo/lilygo-t-eth-poe.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- poe
+docs_url: https://esphome.io/components/bluetooth_proxy
+pins:
+- gpio: 17
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO17
+        mode: CLK_OUT
+      locked: true
+    phy_addr:
+      value: 0
+      locked: true
+source:
+  type: bluetooth-proxies
+  remote_id: lilygo/lilygo-t-eth-poe
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/lilygo/lilygo-t-eth-poe.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: ecdd36702f1c17e55b42b0a84ac99998d527da6b7c20f9efb19a5b5c778fbaab

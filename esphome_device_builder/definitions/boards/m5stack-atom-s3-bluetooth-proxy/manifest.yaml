@@ -1,0 +1,27 @@
+id: m5stack-atom-s3-bluetooth-proxy
+name: M5Stack AtomS3 Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build.
+manufacturer: M5Stack
+esphome:
+  platform: esp32
+  board: m5stack-atoms3
+  variant: esp32s3
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/m5stack/m5stack-atom-s3.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- compact
+- usb-c
+docs_url: https://esphome.io/components/bluetooth_proxy
+source:
+  type: bluetooth-proxies
+  remote_id: m5stack/m5stack-atom-s3
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/m5stack/m5stack-atom-s3.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: f3d64fe91b876000df299e0b35a0694e78ee6b9901e587f511ee3d4e7c9ce679

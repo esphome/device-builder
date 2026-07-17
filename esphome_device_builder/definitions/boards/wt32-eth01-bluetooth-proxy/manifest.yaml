@@ -1,0 +1,63 @@
+id: wt32-eth01-bluetooth-proxy
+name: WT32-ETH01 Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build.
+manufacturer: Wireless-Tag
+esphome:
+  platform: esp32
+  board: wt32-eth01
+  variant: esp32
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/wt32/wt32-eth01.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+docs_url: https://esphome.io/components/bluetooth_proxy
+pins:
+- gpio: 0
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 16
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: LAN8720
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO16
+      locked: true
+source:
+  type: bluetooth-proxies
+  remote_id: wt32/wt32-eth01
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/wt32/wt32-eth01.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: 9c1bfb84dabfef372e66ad6955b2e484222d0797901a4ab8164efce798b4fd80

@@ -1,0 +1,24 @@
+id: esp32-generic-s3-bluetooth-proxy
+name: Generic ESP32-S3 Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/esp32-generic/esp32-generic-s3.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+docs_url: https://esphome.io/components/bluetooth_proxy
+is_generic: true
+source:
+  type: bluetooth-proxies
+  remote_id: esp32-generic/esp32-generic-s3
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/esp32-generic/esp32-generic-s3.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: d962dd01e420261790f38319d3fc3d2036ffb32849c664450e09fc0107d6628a

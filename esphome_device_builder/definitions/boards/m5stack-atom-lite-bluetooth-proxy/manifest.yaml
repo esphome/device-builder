@@ -1,0 +1,29 @@
+id: m5stack-atom-lite-bluetooth-proxy
+name: M5Stack ATOM Lite Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build.
+manufacturer: M5Stack
+esphome:
+  platform: esp32
+  board: m5stack-atom
+  variant: esp32
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/m5stack/m5stack-atom-lite.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+tags:
+- compact
+- usb-c
+images:
+- https://static-cdn.m5stack.com/resource/docs/products/core/atom_lite/atom_lite_01.webp
+docs_url: https://esphome.io/components/bluetooth_proxy
+source:
+  type: bluetooth-proxies
+  remote_id: m5stack/m5stack-atom-lite
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/m5stack/m5stack-atom-lite.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: 4462d27b8b55b86f3b54ba69ee75f54530ce5d31e4accdee1cd8fadc47a280d8

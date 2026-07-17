@@ -1,0 +1,74 @@
+id: seeed-esp32-poe-bluetooth-proxy
+name: Seeed Studio XIAO W5500 v1.2+ Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build. Only XIAO W5500 Ethernet Adapters produced after November 1, 2025 (v1.2 or later) are supported.
+manufacturer: Seeed Studio
+esphome:
+  platform: esp32
+  board: seeed_xiao_esp32_s3_plus
+  variant: esp32s3
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/seeed/seeed-esp32-poe.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+tags:
+- compact
+- poe
+- usb-c
+images:
+- https://files.seeedstudio.com/wiki/xiao_w5500_poe/0.jpg
+- https://files.seeedstudio.com/wiki/xiao_w5500_poe/2.jpg
+- https://files.seeedstudio.com/wiki/xiao_w5500_poe/3.jpg
+product_url: https://www.seeedstudio.com/XIAO-W5500-Ethernet-Adapter-p-6472.html
+docs_url: https://esphome.io/components/bluetooth_proxy
+featured: true
+pins:
+- gpio: 2
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 7
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 8
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 9
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 10
+  available: false
+  occupied_by: Ethernet INT
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO7
+      locked: true
+    mosi_pin:
+      value: GPIO9
+      locked: true
+    miso_pin:
+      value: GPIO8
+      locked: true
+    cs_pin:
+      value: GPIO2
+      locked: true
+    interrupt_pin:
+      value: GPIO10
+      locked: true
+source:
+  type: bluetooth-proxies
+  remote_id: seeed/seeed-esp32-poe
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/seeed/seeed-esp32-poe.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: 5b90ecfd0fb80aff9b34858b2a65014101a17e374422b6afbfcc48aa8b7e6ece

@@ -1,0 +1,67 @@
+id: gl-s10-bluetooth-proxy
+name: GL.iNet GL-S10 v2 Bluetooth Proxy
+description: Known, tested Home Assistant Bluetooth proxy — imported from the official esphome/bluetooth-proxies
+  repo. New devices reference the upstream config as a remote package, picking up its updates on every
+  build. The upstream config targets the v2.x hardware revision (IP101 Ethernet PHY); v1.0 units use a
+  LAN8720 and need the ethernet block adjusted by hand.
+manufacturer: GL.iNet
+esphome:
+  platform: esp32
+  board: esp32dev
+  variant: esp32
+  framework: esp-idf
+package_name: esphome.bluetooth-proxy
+package_import_url: github://esphome/bluetooth-proxies/gl-inet/gl-s10.yaml@main
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/GL-iNet-GL-S10/image1.jpg
+product_url: https://blakadder.com/gl-s10/
+docs_url: https://esphome.io/components/bluetooth_proxy
+pins:
+- gpio: 0
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 5
+  available: false
+  occupied_by: Ethernet Power
+- gpio: 18
+  available: false
+  occupied_by: Ethernet MDIO
+- gpio: 23
+  available: false
+  occupied_by: Ethernet MDC
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: IP101
+      locked: true
+    mdc_pin:
+      value: GPIO23
+      locked: true
+    mdio_pin:
+      value: GPIO18
+      locked: true
+    clk:
+      value:
+        pin: GPIO0
+        mode: CLK_EXT_IN
+      locked: true
+    phy_addr:
+      value: 1
+      locked: true
+    power_pin:
+      value: GPIO5
+      locked: true
+source:
+  type: bluetooth-proxies
+  remote_id: gl-inet/gl-s10
+  upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/gl-inet/gl-s10.yaml
+  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  content_hash: 2184182583b2a50592c0d2e0d1e21e6a480fd70d3d14b913287cc9e9d4653d5f
