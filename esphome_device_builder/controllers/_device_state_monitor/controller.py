@@ -294,14 +294,17 @@ class DeviceStateMonitor(TaskControllerBase):
         """Notify the owner when *name*'s authoritative source actually flips."""
         if old == new:
             return
+        if self._on_source_change is not None:
+            self._on_source_change(name, ReachabilitySource(new))
         # Callers update the ledger before emitting, so the predicate is
         # true exactly on transitions INTO api-device mDNS ownership —
         # the moment the announce lifecycle takes over vouching for the
-        # identity (see _mdns_owns_api_identity).
+        # identity (see _mdns_owns_api_identity). Cleared after the
+        # source notification so no DEVICE_UPDATED frame ever shows the
+        # flag down before active_source says mdns — every frame holds
+        # the frontend gate through one disjunct or the other.
         if self._mdns_owns_api_identity(name):
             self.apply_deployed_identity_live(name, live=False)
-        if self._on_source_change is not None:
-            self._on_source_change(name, ReachabilitySource(new))
 
     def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
