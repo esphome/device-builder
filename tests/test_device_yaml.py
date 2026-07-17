@@ -56,7 +56,6 @@ from esphome_device_builder.models import (
     DeviceRuntimeState,
     DeviceState,
     Esp32Variant,
-    FeaturedComponent,
     Platform,
     ReachabilitySource,
 )
@@ -2768,16 +2767,14 @@ async def test_nested_list_field_presets_render_as_yaml_lists(
 
 
 def _make_package_board(*, ethernet: bool) -> BoardCatalogEntry:
-    """Minimal remote-package board; *ethernet* adds the network-provider featured entry."""
+    """Minimal remote-package board; *ethernet* claims the wired network via connectivity."""
     board = _make_esp32_board()
     board.package_import_url = (
         "github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main"
     )
     board.package_name = "esphome.bluetooth-proxy"
     if ethernet:
-        board.featured_components = [
-            FeaturedComponent(id="onboard_ethernet", component_id="ethernet")
-        ]
+        board.hardware.connectivity = [Connectivity.ETHERNET]
     return board
 
 
@@ -3141,6 +3138,7 @@ def _board(
     return SimpleNamespace(
         featured_components=[SimpleNamespace(component_id=c) for c in (featured or [])],
         default_components=[SimpleNamespace(id=c) for c in (default or [])],
+        package_import_url="",
         hardware=SimpleNamespace(
             connectivity=[SimpleNamespace(value=c) for c in (connectivity or [])]
         ),

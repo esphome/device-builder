@@ -43,29 +43,6 @@ pins:
 - gpio: 10
   available: false
   occupied_by: Ethernet INT
-featured_components:
-- id: onboard_ethernet
-  component_id: ethernet
-  name: Onboard Ethernet
-  fields:
-    type:
-      value: W5500
-      locked: true
-    clk_pin:
-      value: GPIO7
-      locked: true
-    mosi_pin:
-      value: GPIO9
-      locked: true
-    miso_pin:
-      value: GPIO8
-      locked: true
-    cs_pin:
-      value: GPIO2
-      locked: true
-    interrupt_pin:
-      value: GPIO10
-      locked: true
 source:
   type: bluetooth-proxies
   remote_id: seeed/seeed-esp32-poe

@@ -322,6 +322,10 @@ def _resolve_full_config(data: dict[str, Any]) -> bool:
     override = data.get("full_config")
     if isinstance(override, bool):
         return override
+    # A remote-package board's completeness lives in the upstream package,
+    # not in its featured components — never derive True for it.
+    if data.get("package_import_url"):
+        return False
     source = data.get("source")
     return isinstance(source, dict) and source.get("type") in IMPORT_SOURCE_TYPES
 

@@ -8,8 +8,8 @@ import string
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
-from ...models.boards import RP2_CANONICAL_PLATFORM
-from ..yaml import _safe_yaml_scalar, merge_component_yaml
+from ...models.boards import RP2_CANONICAL_PLATFORM, Connectivity
+from ..yaml import _safe_yaml_scalar, generate_api_encryption_key, merge_component_yaml
 
 if TYPE_CHECKING:
     from ...models import BoardCatalogEntry, ComponentCatalogEntry
@@ -96,13 +96,18 @@ def board_provides_network(board: BoardCatalogEntry) -> bool:
     Whether *board* supplies its own network (onboard ``ethernet:``, …).
 
     True when a featured component (or a bare default-component id) names a
-    provider in :data:`NETWORK_PROVIDER_COMPONENT_IDS`. A no-``ssid`` create
-    on such a board is wired by default — the generator drops the ``wifi:``
-    block — so the wizard skips the Wi-Fi step rather than asking.
+    provider in :data:`NETWORK_PROVIDER_COMPONENT_IDS`, or when a
+    remote-package board's ``connectivity`` claims ethernet (the provider
+    block ships inside the upstream package, so nothing local names it).
+    A no-``ssid`` create on such a board is wired by default — the
+    generator drops the ``wifi:`` block — so the wizard skips the Wi-Fi
+    step rather than asking.
     """
     if any(fc.component_id in NETWORK_PROVIDER_COMPONENT_IDS for fc in board.featured_components):
         return True
-    return any(dc.id in NETWORK_PROVIDER_COMPONENT_IDS for dc in board.default_components)
+    if any(dc.id in NETWORK_PROVIDER_COMPONENT_IDS for dc in board.default_components):
+        return True
+    return bool(board.package_import_url) and Connectivity.ETHERNET in board.hardware.connectivity
 
 
 def board_has_native_wifi(board: BoardCatalogEntry) -> bool:
@@ -167,37 +172,29 @@ def generate_package_device_yaml(
     ``wifi:`` block (bare credentials or ``!secret`` refs) is added only
     when the board doesn't provide its own network.
     """
-    lines: list[str] = []
-    board_label = f"{board.name} ({board.manufacturer})" if board.manufacturer else board.name
-    lines.append(f"# Board: {board_label}")
-    lines.append(f"# Definition: definitions/boards/{board.id}/manifest.yaml")
-    lines.append("")
+    lines: list[str] = [*_board_header_lines(board)]
     lines.append("substitutions:")
     lines.append(f"  name: {name}")
     lines.append(f"  friendly_name: {_safe_yaml_scalar(friendly_name)}")
     lines.append("")
     lines.append("packages:")
     package_key = board.package_name or board.id
-    lines.append(f"  {_safe_yaml_scalar(package_key)}: {board.package_import_url}")
+    lines.append(
+        f"  {_safe_yaml_scalar(package_key)}: {_safe_yaml_scalar(board.package_import_url)}"
+    )
     lines.append("")
     lines.append("esphome:")
     lines.append("  name: ${name}")
     lines.append("  friendly_name: ${friendly_name}")
     lines.append("  name_add_mac_suffix: false")
     lines.append("")
-    api_key = base64.b64encode(secrets.token_bytes(32)).decode()
     lines.append("api:")
     lines.append("  encryption:")
-    lines.append(f'    key: "{api_key}"')
+    lines.append(f'    key: "{generate_api_encryption_key()}"')
     lines.append("")
     if not board_provides_network(board) and (bool(ssid) or wifi_secrets_available):
         lines.append("wifi:")
-        if ssid:
-            lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
-            lines.append(f"  password: {_safe_yaml_scalar(psk)}")
-        else:
-            lines.append("  ssid: !secret wifi_ssid")
-            lines.append("  password: !secret wifi_password")
+        lines.extend(_wifi_credentials_lines(ssid, psk))
         lines.append("")
     return "\n".join(lines)
 
@@ -225,15 +222,8 @@ def generate_device_yaml(
     block is dropped and *ssid* / *psk* are ignored.
     """
     esphome_cfg = board.esphome
-    lines: list[str] = []
-
     # Board reference comment so users can find the source manifest
-    board_label = board.name
-    if board.manufacturer:
-        board_label = f"{board.name} ({board.manufacturer})"
-    lines.append(f"# Board: {board_label}")
-    lines.append(f"# Definition: definitions/boards/{board.id}/manifest.yaml")
-    lines.append("")
+    lines: list[str] = [*_board_header_lines(board)]
 
     # ESPHome core. ``name`` arrives already slug-safe (see
     # ``mutations_create``), but ``friendly_name`` is raw user
@@ -335,18 +325,28 @@ def _wifi_block_lines(ssid: str, psk: str, ap_name: str, platform: str) -> list[
     With *ssid* set, emits explicit credentials; otherwise ``!secret``
     references. *ap_name* / *platform* drive the recovery AP.
     """
-    lines = ["wifi:"]
-    if ssid:
-        # An unquoted SSID like 'Home #2' truncates at the # comment
-        # marker; a password starting with an indicator char (*, !, &)
-        # fails to parse. Route raw user input through scalar-safe quoting.
-        lines.append(f"  ssid: {_safe_yaml_scalar(ssid)}")
-        lines.append(f"  password: {_safe_yaml_scalar(psk)}")
-    else:
-        lines.append("  ssid: !secret wifi_ssid")
-        lines.append("  password: !secret wifi_password")
+    lines = ["wifi:", *_wifi_credentials_lines(ssid, psk)]
     lines.extend(_fallback_recovery_lines(ap_name, platform))
     return lines
+
+
+def _board_header_lines(board: BoardCatalogEntry) -> list[str]:
+    """Build the board-reference comment pair pointing back at the source manifest."""
+    label = f"{board.name} ({board.manufacturer})" if board.manufacturer else board.name
+    return [f"# Board: {label}", f"# Definition: definitions/boards/{board.id}/manifest.yaml", ""]
+
+
+def _wifi_credentials_lines(ssid: str, psk: str) -> list[str]:
+    """
+    Build the ssid/password pair — inline with *ssid* set, else ``!secret`` refs.
+
+    An unquoted SSID like ``Home #2`` truncates at the ``#`` comment
+    marker; a password starting with an indicator char (``*``, ``!``, ``&``)
+    fails to parse. Raw user input routes through scalar-safe quoting.
+    """
+    if ssid:
+        return [f"  ssid: {_safe_yaml_scalar(ssid)}", f"  password: {_safe_yaml_scalar(psk)}"]
+    return ["  ssid: !secret wifi_ssid", "  password: !secret wifi_password"]
 
 
 def _infer_native_wifi(board: BoardCatalogEntry) -> bool:

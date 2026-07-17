@@ -11,9 +11,12 @@ sync ignores. Each base config becomes one imported board carrying a
 adoption shape), so the device tracks upstream updates on every compile
 instead of vendoring the config's blocks.
 
-The one block still mined out of the upstream YAML is ``ethernet:`` — its
-featured entry marks the board as providing its own network (the create
-wizard then skips Wi-Fi) and feeds the pin-occupancy map.
+The one block still mined out of the upstream YAML is ``ethernet:`` — it
+stamps ``ethernet`` into ``hardware.connectivity`` (which marks the board
+as providing its own network, so the create wizard skips Wi-Fi) and feeds
+the pin-occupancy map. No featured entry is emitted: an addable
+"Onboard Ethernet" card would vendor the pinout locally and opt the
+device out of the upstream package's ethernet updates.
 
 Imported manifests carry a ``source:`` block with
 ``type: bluetooth-proxies``. Hand-curated manifests and other import
@@ -34,7 +37,7 @@ import argparse
 import logging
 import shutil
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -180,15 +183,6 @@ class _ProxySource:
     config: dict[str, Any]
 
 
-@dataclass
-class _SyncReport:
-    """Aggregate result of a sync run."""
-
-    imported: list[str] = field(default_factory=list)
-    skipped: list[tuple[str, str]] = field(default_factory=list)
-    removed: list[str] = field(default_factory=list)
-
-
 def main() -> int:
     """Entry point: clone the upstream repo, sync, and print a report."""
     args = _parse_args()
@@ -213,39 +207,34 @@ def main() -> int:
         return 1
     revision = get_repo_revision(repo)
 
-    report = _SyncReport()
+    imported: list[str] = []
+    skipped: list[tuple[str, str]] = []
+    removed: list[str] = []
     active_remote_ids: set[str] = set()
     for src in _iter_configs(repo):
         if args.device and args.device not in (src.remote_id, src.stem):
             continue
         record, skip_reason = _make_record(src, revision)
         if skip_reason is not None:
-            report.skipped.append((src.remote_id, skip_reason))
+            skipped.append((src.remote_id, skip_reason))
             continue
-        if not args.dry_run and (
-            emit_manifest(
-                record,
-                source_type=BLUETOOTH_PROXY_IMPORT_SOURCE_TYPE,
-                boards_dir=_BOARDS_DIR,
-            )
-            is None
-        ):
-            report.skipped.append((src.remote_id, "slug collides with a board we don't own"))
+        if not args.dry_run and emit_manifest(record, boards_dir=_BOARDS_DIR) is None:
+            skipped.append((src.remote_id, "slug collides with a board we don't own"))
             continue
         active_remote_ids.add(src.remote_id)
-        report.imported.append(record["id"])
+        imported.append(record["id"])
 
     if not args.dry_run and args.device is None:
-        report.removed = prune_removed(
+        removed = prune_removed(
             active_remote_ids,
             source_type=BLUETOOTH_PROXY_IMPORT_SOURCE_TYPE,
             boards_dir=_BOARDS_DIR,
         )
 
-    print(f"Imported: {len(report.imported)}")
-    print(f"Skipped:  {len(report.skipped)}")
-    print(f"Removed:  {len(report.removed)}")
-    for remote_id, reason in report.skipped:
+    print(f"Imported: {len(imported)}")
+    print(f"Skipped:  {len(skipped)}")
+    print(f"Removed:  {len(removed)}")
+    for remote_id, reason in skipped:
         print(f"  - {remote_id}: {reason}")
     return 0
 
@@ -309,9 +298,12 @@ def _make_record(src: _ProxySource, revision: str) -> tuple[dict[str, Any] | Non
         f"github://esphome/bluetooth-proxies/{src.remote_id}.yaml@{_PROXIES_REPO_BRANCH}"
     )
 
-    # The ethernet block is the one piece mined out of the upstream YAML —
-    # its featured entry marks the board as network-providing (the wizard
-    # skips Wi-Fi) and declares the occupied pins.
+    # The ethernet block is the one piece mined out of the upstream YAML:
+    # the ``ethernet`` connectivity claim is what marks the board as
+    # network-providing (the wizard skips Wi-Fi) and the pins map shows
+    # the occupied GPIOs. Deliberately NOT a featured entry — an addable
+    # "Onboard Ethernet" card would vendor the pinout locally, opting the
+    # device out of the upstream package's ethernet updates.
     eth_entry, occupancy = extract_ethernet(src.config)
     connectivity = list(connectivity_for("esp32", variant) or [])
     if eth_entry is not None and "ethernet" not in connectivity:
@@ -323,8 +315,6 @@ def _make_record(src: _ProxySource, revision: str) -> tuple[dict[str, Any] | Non
     pins = build_pins(occupancy)
     if pins:
         record["pins"] = pins
-    if eth_entry is not None:
-        record["featured_components"] = [eth_entry]
     record["source"] = {
         "type": BLUETOOTH_PROXY_IMPORT_SOURCE_TYPE,
         "remote_id": src.remote_id,

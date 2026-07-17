@@ -34,31 +34,6 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
-featured_components:
-- id: onboard_ethernet
-  component_id: ethernet
-  name: Onboard Ethernet
-  fields:
-    type:
-      value: IP101
-      locked: true
-    mdc_pin:
-      value: GPIO23
-      locked: true
-    mdio_pin:
-      value: GPIO18
-      locked: true
-    clk:
-      value:
-        pin: GPIO0
-        mode: CLK_EXT_IN
-      locked: true
-    phy_addr:
-      value: 1
-      locked: true
-    power_pin:
-      value: GPIO5
-      locked: true
 source:
   type: bluetooth-proxies
   remote_id: gl-inet/gl-s10

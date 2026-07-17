@@ -36,33 +36,6 @@ pins:
 - gpio: 23
   available: false
   occupied_by: Ethernet MDC
-featured_components:
-- id: onboard_ethernet
-  component_id: ethernet
-  name: Onboard Ethernet
-  fields:
-    type:
-      value: LAN8720
-      locked: true
-    mdc_pin:
-      value: GPIO23
-      locked: true
-    mdio_pin:
-      value: GPIO18
-      locked: true
-    clk:
-      value:
-        pin: GPIO17
-        mode: CLK_OUT
-      locked: true
-    phy_addr:
-      value: 0
-      locked: true
-    power_pin:
-      value:
-        number: GPIO12
-        ignore_strapping_warning: true
-      locked: true
 source:
   type: bluetooth-proxies
   remote_id: olimex/olimex-esp32-poe-iso

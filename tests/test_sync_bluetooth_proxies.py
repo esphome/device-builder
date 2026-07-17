@@ -113,10 +113,10 @@ def test_make_record_olimex_full_shape(tmp_path: Path) -> None:
     )
     assert record["featured"] is True
     assert record["hardware"]["connectivity"] == ["wifi", "bluetooth", "ethernet"]
-    (eth,) = record["featured_components"]
-    assert eth["component_id"] == "ethernet"
-    assert eth["fields"]["type"] == {"value": "LAN8720", "locked": True}
-    assert eth["fields"]["clk"] == {"value": {"pin": "GPIO17", "mode": "CLK_OUT"}, "locked": True}
+    # No featured entry: an addable ethernet card would vendor the pinout
+    # locally and opt the device out of upstream updates. The connectivity
+    # claim plus the pins map carry the wired signal instead.
+    assert "featured_components" not in record
     assert {p["gpio"] for p in record["pins"]} == {12, 17, 18, 23}
     assert record["source"] == {
         "type": "bluetooth-proxies",

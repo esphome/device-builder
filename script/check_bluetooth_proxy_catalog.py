@@ -44,7 +44,7 @@ _EXPECTED_OK: list[dict[str, Any]] = [
             "github://esphome/bluetooth-proxies/olimex/olimex-esp32-poe-iso.yaml@main"
         ),
         "featured_flag": True,
-        "ethernet": {"type": "LAN8720", "clk": {"pin": "GPIO17", "mode": "CLK_OUT"}},
+        "ethernet_pins": {12, 17, 18, 23},
     },
     {
         "remote_id": "seeed/seeed-esp32-poe",
@@ -55,7 +55,7 @@ _EXPECTED_OK: list[dict[str, Any]] = [
             "github://esphome/bluetooth-proxies/seeed/seeed-esp32-poe.yaml@main"
         ),
         "featured_flag": True,
-        "ethernet": {"type": "W5500", "cs_pin": "GPIO2"},
+        "ethernet_pins": {2, 7, 8, 9, 10},
     },
     {
         "remote_id": "gl-inet/gl-s10",
@@ -63,7 +63,7 @@ _EXPECTED_OK: list[dict[str, Any]] = [
         "board": "esp32dev",
         "variant": "esp32",
         "package_import_url": "github://esphome/bluetooth-proxies/gl-inet/gl-s10.yaml@main",
-        "ethernet": {"type": "IP101"},
+        "ethernet_pins": {0, 5, 18, 23},
         "description_contains": "v2.x hardware revision",
     },
     {
@@ -75,15 +75,9 @@ _EXPECTED_OK: list[dict[str, Any]] = [
             "github://esphome/bluetooth-proxies/esp32-generic/esp32-generic.yaml@main"
         ),
         "is_generic": True,
-        "ethernet": None,
+        "ethernet_pins": None,
     },
 ]
-
-
-def _preset_value(fields: dict[str, Any], key: str) -> Any:
-    """Unwrap a featured-component field preset to its bare value."""
-    raw = fields.get(key)
-    return raw.get("value") if isinstance(raw, dict) and "value" in raw else raw
 
 
 def _check_ok(record: dict[str, Any], spec: dict[str, Any]) -> list[str]:
@@ -111,19 +105,26 @@ def _check_ok(record: dict[str, Any], spec: dict[str, Any]) -> list[str]:
 
 
 def _check_ethernet(record: dict[str, Any], spec: dict[str, Any]) -> list[str]:
-    """Match the mined ``onboard_ethernet`` entry (or its required absence)."""
+    """Match the mined ethernet signal: connectivity claim plus pin occupancy."""
     remote_id = spec["remote_id"]
-    entries = record.get("featured_components") or []
-    eth = next((fc for fc in entries if fc.get("component_id") == "ethernet"), None)
-    if spec["ethernet"] is None:
-        return [f"{remote_id}: unexpected ethernet entry"] if eth is not None else []
-    if eth is None:
-        return [f"{remote_id}: missing onboard_ethernet entry"]
-    return [
-        f"{remote_id}.ethernet.{key}: expected {value!r}, got {_preset_value(eth['fields'], key)!r}"
-        for key, value in spec["ethernet"].items()
-        if _preset_value(eth["fields"], key) != value
-    ]
+    connectivity = (record.get("hardware") or {}).get("connectivity") or []
+    pins = {pin["gpio"] for pin in record.get("pins") or []}
+    errors: list[str] = []
+    if record.get("featured_components"):
+        # A featured entry would surface as an addable card that vendors the
+        # pinout locally, defeating the remote-package shape.
+        errors.append(f"{remote_id}: unexpected featured_components on a package board")
+    if spec["ethernet_pins"] is None:
+        if "ethernet" in connectivity or pins:
+            errors.append(f"{remote_id}: unexpected ethernet signal on a Wi-Fi board")
+        return errors
+    if "ethernet" not in connectivity:
+        errors.append(f"{remote_id}: connectivity missing ethernet")
+    if pins != spec["ethernet_pins"]:
+        errors.append(
+            f"{remote_id}.pins: expected {sorted(spec['ethernet_pins'])}, got {sorted(pins)}"
+        )
+    return errors
 
 
 def main() -> int:

@@ -46,6 +46,16 @@ def test_resolve_full_config_derives_from_source_and_honours_override() -> None:
     # Default: derived from source.type — every known import source qualifies.
     assert _resolve_full_config({"source": {"type": "esphome-devices"}}) is True
     assert _resolve_full_config({"source": {"type": "bluetooth-proxies"}}) is True
+    # A remote-package board never derives True — its completeness lives upstream.
+    assert (
+        _resolve_full_config(
+            {
+                "source": {"type": "bluetooth-proxies"},
+                "package_import_url": "github://x/y.yaml@main",
+            }
+        )
+        is False
+    )
     assert _resolve_full_config({}) is False
     assert _resolve_full_config({"source": {"type": "other"}}) is False
     # Manifest override wins in both directions.

@@ -318,6 +318,7 @@ async def test_yaml_content_for_create_refuses_no_wifi_on_wifi_only_board(
         hardware=SimpleNamespace(connectivity=[SimpleNamespace(value="wifi")]),
         featured_components=[],
         default_components=[],
+        package_import_url="",
     )
     assert not (tmp_path / "secrets.yaml").exists()
     with pytest.raises(CommandError) as excinfo:
