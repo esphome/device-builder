@@ -8,12 +8,14 @@ idempotence / env restore / fallback get fast-matrix coverage without a Windows 
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from esphome_device_builder.helpers import windows_build_paths as wbp
 from esphome_device_builder.helpers.windows_build_paths import windows_short_build_paths
@@ -113,38 +115,33 @@ def test_skips_relocation_when_user_set_data_dir(
     assert os.environ["ESPHOME_DATA_DIR"] == str(tmp_path / "chosen")
 
 
-def test_respects_user_set_platformio_core_dir(
-    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("env_var", "source_name", "subdir"),
+    [
+        pytest.param("PLATFORMIO_CORE_DIR", "home_platformio", "pio", id="pio"),
+        pytest.param("ESPHOME_ESP_IDF_PREFIX", "cache_idf", "idf", id="idf"),
+    ],
+)
+def test_respects_user_set_toolchain_var(
+    tmp_path: Path,
+    fake_windows: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    source_name: str,
+    subdir: str,
 ) -> None:
-    """A user-set PLATFORMIO_CORE_DIR is left alone (data still relocates); toolchain untouched."""
-    chosen = tmp_path / "chosen_pio"
-    home_pio = tmp_path / "home_platformio"
-    home_pio.mkdir()  # would be swept if we relocated; must stay put
-    monkeypatch.setenv("PLATFORMIO_CORE_DIR", str(chosen))
+    """A user-set toolchain var is left alone (data still relocates); the install stays put."""
+    chosen = tmp_path / "chosen"
+    source = tmp_path / source_name
+    source.mkdir()  # would be swept if we relocated; must stay put
+    monkeypatch.setenv(env_var, str(chosen))
     root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # data dir still relocated
-        assert os.environ["PLATFORMIO_CORE_DIR"] == str(chosen)  # user choice respected
-        assert not (root / "pio").exists()  # we did not create/override the toolchain dir
-    assert os.environ["PLATFORMIO_CORE_DIR"] == str(chosen)
-    assert home_pio.is_dir()  # user's toolchain left untouched
-
-
-def test_respects_user_set_esp_idf_prefix(
-    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A user-set ESPHOME_ESP_IDF_PREFIX is left alone (data still relocates)."""
-    chosen = tmp_path / "chosen_idf"
-    cache_idf = tmp_path / "cache_idf"
-    cache_idf.mkdir()  # would be swept if we relocated; must stay put
-    monkeypatch.setenv("ESPHOME_ESP_IDF_PREFIX", str(chosen))
-    root = fake_windows / "esphb" / _ID8
-    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
-        assert os.environ["ESPHOME_DATA_DIR"] == str(root)
-        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(chosen)
-        assert not (root / "idf").exists()
-    assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(chosen)
-    assert cache_idf.is_dir()
+        assert os.environ[env_var] == str(chosen)  # user choice respected
+        assert not (root / subdir).exists()  # we did not create/override the toolchain dir
+    assert os.environ[env_var] == str(chosen)
+    assert source.is_dir()  # user's install left untouched
 
 
 def test_platformio_dir_defaults_under_home() -> None:
@@ -215,15 +212,19 @@ def test_failed_idf_relocation_leaves_prefix_unset(
     """An interrupted IDF-cache move leaves ESPHOME_ESP_IDF_PREFIX at the default, not corrupt."""
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
-    (tmp_path / "cache_idf").mkdir()
+    cache_idf = tmp_path / "cache_idf"
+    cache_idf.mkdir()
+    (cache_idf / "tool.txt").write_text("idf-toolchain", encoding="utf-8")
+    (cache_idf / "other.txt").write_text("more", encoding="utf-8")
 
     real_move = wbp.shutil.move
 
     def _interrupted(src: str, dst: str, *args: object, **kwargs: object) -> object:
         if "cache_idf" in str(src):
-            # A cross-volume copy that got partway then died: dst half-written, src left behind.
+            # A cross-volume copy that got partway then died: one of two files made it across,
+            # so the classifier must see the copy as incomplete, not take the empty-source out.
             Path(dst).mkdir(parents=True, exist_ok=True)
-            (Path(dst) / "half.txt").write_text("partial", encoding="utf-8")
+            shutil.copy2(Path(src) / "tool.txt", Path(dst) / "tool.txt")
             msg = "interrupted"
             raise OSError(msg)
         return real_move(src, dst, *args, **kwargs)
@@ -234,6 +235,35 @@ def test_failed_idf_relocation_leaves_prefix_unset(
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # build data still relocated
         assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ  # corrupt toolchain not adopted
     assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ
+    assert (cache_idf / "other.txt").is_file()  # source stayed authoritative
+
+
+def test_size_mismatched_copy_not_adopted(tmp_path: Path) -> None:
+    """A same-name file that differs in size marks the copy incomplete."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    src.mkdir()
+    dst.mkdir()
+    (src / "tool.txt").write_text("full-content", encoding="utf-8")
+    (dst / "tool.txt").write_text("part", encoding="utf-8")
+    assert not wbp._copy_completed(src, dst)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="chmod 0 does not deny reads on Windows")
+def test_unreadable_source_subtree_fails_closed(tmp_path: Path) -> None:
+    """An unwalkable source subtree classifies the copy incomplete, never silently skipped."""
+    src = tmp_path / "src"
+    dst = tmp_path / "dst"
+    (src / "sub").mkdir(parents=True)
+    dst.mkdir()
+    (src / "top.txt").write_text("x", encoding="utf-8")
+    (dst / "top.txt").write_text("x", encoding="utf-8")  # everything visible matches...
+    (src / "sub" / "hidden.txt").write_text("y", encoding="utf-8")  # ...this never copied
+    (src / "sub").chmod(0)
+    try:
+        assert not wbp._copy_completed(src, dst)
+    finally:
+        (src / "sub").chmod(0o755)
 
 
 def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path) -> None:
@@ -518,3 +548,23 @@ def test_root_creation_failure_falls_back_to_noop(
     with windows_short_build_paths(config_dir):
         assert "ESPHOME_DATA_DIR" not in os.environ
     assert "ESPHOME_DATA_DIR" not in os.environ
+
+
+def test_ci_matrix_covers_every_toolchain_param() -> None:
+    """A _TOOLCHAINS param without a windows-real-compile matrix suite would silently never run."""
+    repo = Path(__file__).parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "windows_short_paths_e2e",
+        repo / "tests" / "e2e" / "slow" / "windows" / "test_windows_short_paths.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    workflow = yaml.safe_load(
+        (repo / ".github" / "workflows" / "windows-real-compile.yml").read_text(encoding="utf-8")
+    )
+    suites = {
+        entry["suite"]
+        for entry in workflow["jobs"]["windows-maxpath"]["strategy"]["matrix"]["include"]
+    }
+    assert set(module._TOOLCHAINS) <= suites

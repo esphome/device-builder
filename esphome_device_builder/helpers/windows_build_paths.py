@@ -86,22 +86,23 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     pio = root / "pio"
     idf = root / "idf"
 
+    saved: dict[str, str | None] = {"ESPHOME_DATA_DIR": None}  # absent on entry (guarded above)
     os.environ["ESPHOME_DATA_DIR"] = str(root)
     # Relocate each toolchain unless the user deliberately set its env var (leave their choice
     # and their existing install untouched), or a corrupt partial copy can't be made clean.
-    user_set_pio = "PLATFORMIO_CORE_DIR" in os.environ
-    override_pio = not user_set_pio and _relocate_into(pio, _platformio_dir())
+    override_pio = "PLATFORMIO_CORE_DIR" not in os.environ and _relocate_into(
+        pio, _platformio_dir()
+    )
     if override_pio:
+        saved["PLATFORMIO_CORE_DIR"] = None  # only overridden when absent
         os.environ["PLATFORMIO_CORE_DIR"] = str(pio)
     # Unlike ESPHOME_DATA_DIR (bare presence wins in CORE.data_dir), esphome treats an
     # empty/whitespace ESPHOME_ESP_IDF_PREFIX as unset — mirror that or an empty var would
     # silently fall back to the long + spaced machine-global cache this exists to avoid.
-    user_set_idf = bool(os.environ.get("ESPHOME_ESP_IDF_PREFIX", "").strip())
-    prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")  # may be present-but-empty; kept verbatim
-    idf_cache = _default_idf_cache()
-    idf_sources = (idf_cache,) if idf_cache is not None else ()
-    override_idf = not user_set_idf and _relocate_into(idf, *idf_sources)
+    prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")
+    override_idf = not (prev_idf and prev_idf.strip()) and _relocate_into(idf, _default_idf_cache())
     if override_idf:
+        saved["ESPHOME_ESP_IDF_PREFIX"] = prev_idf  # may be present-but-empty; kept verbatim
         os.environ["ESPHOME_ESP_IDF_PREFIX"] = str(idf)
     _LOGGER.info(
         "Windows build data at %s (pio %s, idf %s)",
@@ -112,7 +113,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     try:
         yield
     finally:
-        _restore_env(override_pio=override_pio, override_idf=override_idf, prev_idf=prev_idf)
+        _restore_env(saved)
 
 
 # ---------------------------------------------------------------------------
@@ -135,23 +136,13 @@ def _platformio_dir() -> Path:
     return Path.home() / ".platformio"
 
 
-def _restore_env(*, override_pio: bool, override_idf: bool, prev_idf: str | None) -> None:
-    """
-    Undo the relocation's env overrides on exit.
-
-    ESPHOME_DATA_DIR / PLATFORMIO_CORE_DIR were unset on entry (guarded before overriding), so
-    popping restores them. The IDF prefix may have been present-but-empty (esphome treats that as
-    unset, so it was still overridden) — the original value goes back verbatim.
-    """
-    os.environ.pop("ESPHOME_DATA_DIR", None)
-    if override_pio:
-        os.environ.pop("PLATFORMIO_CORE_DIR", None)
-    if not override_idf:
-        return
-    if prev_idf is None:
-        os.environ.pop("ESPHOME_ESP_IDF_PREFIX", None)
-    else:
-        os.environ["ESPHOME_ESP_IDF_PREFIX"] = prev_idf
+def _restore_env(saved: dict[str, str | None]) -> None:
+    """Put each overridden env var back exactly as found (``None`` means absent)."""
+    for var, prev in saved.items():
+        if prev is None:
+            os.environ.pop(var, None)
+        else:
+            os.environ[var] = prev
 
 
 def _default_idf_cache() -> Path | None:
@@ -165,7 +156,7 @@ def _default_idf_cache() -> Path | None:
     return Path(platformdirs.user_cache_dir("esphome", appauthor=False)) / "idf"
 
 
-def _relocate_into(dst: Path, *sources: Path) -> bool:
+def _relocate_into(dst: Path, *sources: Path | None) -> bool:
     """
     Move the first existing of *sources* into *dst* once; return whether *dst* is trusted.
 
@@ -183,7 +174,7 @@ def _relocate_into(dst: Path, *sources: Path) -> bool:
     marker = dst / _RELOCATED_MARKER
     if marker.is_file():
         return True  # already relocated; trust dst, ignore any stale leftover at the source
-    src = next((s for s in sources if s.is_dir()), None)
+    src = next((s for s in sources if s is not None and s.is_dir()), None)
     if src is not None:
         # Source still present, so the move never completed. A partial dst from an interrupted
         # cross-volume copy would nest the retry, so discard it before re-moving.
@@ -214,7 +205,7 @@ def _relocate_into(dst: Path, *sources: Path) -> bool:
                     )
             else:
                 _LOGGER.warning("Could not move %s to %s; it will be rebuilt", src, dst)
-        if src.is_dir() and not adopted_dst:
+        if not adopted_dst and src.is_dir():
             _LOGGER.warning("%s not relocated; source remains at %s", dst, src)
             return False
     # No source left here: none existed, the move just completed, or a prior run moved it and only
@@ -232,25 +223,28 @@ def _copy_completed(src: Path, dst: Path) -> bool:
     """
     Whether every file still under *src* has an identical-size counterpart under *dst*.
 
-    Classifies a failed ``shutil.move``: a copy-phase death leaves the source complete and the
-    copy missing files (``False``, source is authoritative); a delete-phase death leaves only
-    already-copied leftovers under the source (``True``, the copy is complete). A source with no
-    files left is ambiguous — nothing distinguishes the phases — so it stays ``False`` and the
-    caller falls back fail-closed.
+    A source with no files left is ambiguous — nothing distinguishes the move's phases — so it
+    stays ``False`` and the caller falls back fail-closed.
     """
     if not dst.is_dir():
         return False
     matched_file = False
     try:
-        for current, _dirs, files in os.walk(src):
-            rel = Path(current).relative_to(src)
+        # onerror: os.walk silently skips unreadable subtrees by default, which would classify
+        # a copy missing that subtree as complete — re-raise so uncertainty stays fail-closed.
+        for current, _dirs, files in os.walk(src, onerror=_raise_walk_error):
+            dst_dir = dst / Path(current).relative_to(src)
             for name in files:
-                copied = dst / rel / name
-                if not copied.is_file():
-                    return False
-                if copied.stat().st_size != (Path(current) / name).stat().st_size:
+                copied = dst_dir / name
+                src_size = (Path(current) / name).stat().st_size
+                if not copied.is_file() or copied.stat().st_size != src_size:
                     return False
                 matched_file = True
     except OSError:
         return False
     return matched_file
+
+
+def _raise_walk_error(err: OSError) -> None:
+    """Surface an ``os.walk`` traversal error instead of the default silent skip."""
+    raise err

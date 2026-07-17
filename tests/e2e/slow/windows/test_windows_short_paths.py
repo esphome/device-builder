@@ -14,7 +14,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import textwrap
 from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
@@ -38,7 +37,7 @@ _PROFILE = "First Last"
 
 
 class _Toolchain(NamedTuple):
-    yaml_line: str  # extra esp32-level option selecting the toolchain ("" = default)
+    option: str  # esp32-level option selecting the toolchain ("" = default)
     env_var: str  # the install-dir env var the relocation must set
     root_subdir: str  # the relocated install dir under the root
     build_subdir: str  # artifact dir under build/<name>/ proving the compile landed
@@ -48,13 +47,13 @@ class _Toolchain(NamedTuple):
 # can't express a hyphen — keep them underscore-only.
 _TOOLCHAINS = {
     "native_idf": _Toolchain(
-        yaml_line="",
+        option="",
         env_var="ESPHOME_ESP_IDF_PREFIX",
         root_subdir="idf",
         build_subdir="build",
     ),
     "platformio": _Toolchain(
-        yaml_line="  toolchain: platformio\n",
+        option="toolchain: platformio",
         env_var="PLATFORMIO_CORE_DIR",
         root_subdir="pio",
         build_subdir=".pioenvs",
@@ -63,30 +62,23 @@ _TOOLCHAINS = {
 
 
 def _config_yaml(toolchain: _Toolchain) -> str:
-    return (
-        textwrap.dedent(
-            f"""\
-            esphome:
-              name: {_NAME}
-            esp32:
-              board: esp32dev
-              framework:
-                type: esp-idf
-            """
-        )
-        + toolchain.yaml_line
-        + textwrap.dedent(
-            """\
-            logger:
-            wifi:
-              ssid: "probe-ssid"
-              password: "probe-password"
-            api:
-              encryption:
-                key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
-            """
-        )
-    )
+    lines = [
+        "esphome:",
+        f"  name: {_NAME}",
+        "esp32:",
+        "  board: esp32dev",
+        "  framework:",
+        "    type: esp-idf",
+        *([f"  {toolchain.option}"] if toolchain.option else []),
+        "logger:",
+        "wifi:",
+        '  ssid: "probe-ssid"',
+        '  password: "probe-password"',
+        "api:",
+        "  encryption:",
+        '    key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="',
+    ]
+    return "\n".join(lines) + "\n"
 
 
 class _Relocated(NamedTuple):
@@ -98,7 +90,7 @@ class _Relocated(NamedTuple):
     env: dict[str, str]
 
 
-@pytest.fixture(scope="module", params=sorted(_TOOLCHAINS), ids=sorted(_TOOLCHAINS))
+@pytest.fixture(scope="module", params=sorted(_TOOLCHAINS))
 def relocated_compile(
     request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory
 ) -> Iterator[_Relocated]:
@@ -110,11 +102,10 @@ def relocated_compile(
     config.write_text(_config_yaml(tc), encoding="utf-8")
     assert " " in str(config_dir)  # the case the relocation must neutralize
 
-    prev = {
-        name: os.environ.pop(name, None)
-        for name in ("ESPHOME_DATA_DIR", "PLATFORMIO_CORE_DIR", "ESPHOME_ESP_IDF_PREFIX")
-    }
-    try:
+    # Module-scoped, so the function-scoped ``monkeypatch`` fixture can't be injected.
+    with pytest.MonkeyPatch.context() as mp:
+        for name in ("ESPHOME_DATA_DIR", "PLATFORMIO_CORE_DIR", "ESPHOME_ESP_IDF_PREFIX"):
+            mp.delenv(name, raising=False)
         with windows_short_build_paths(config_dir):
             root = Path(os.environ["ESPHOME_DATA_DIR"])
             toolchain_dir = Path(os.environ[tc.env_var])
@@ -137,12 +128,6 @@ def relocated_compile(
                 tc=tc,
                 env=env,
             )
-    finally:
-        for name, value in prev.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
 
 
 def test_compile_lands_under_relocated_root(relocated_compile: _Relocated) -> None:
