@@ -93,6 +93,7 @@ featured_components:
   - zwave_usb_uart
   fields:
     id: zw_proxy
+    uart_id: uch_1
 featured_bundles:
 - id: zwave_proxy_setup
   name: Z-Wave Proxy (full setup)
