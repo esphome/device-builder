@@ -14,7 +14,8 @@ from typing import Any
 import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_REPO_ROOT))
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
