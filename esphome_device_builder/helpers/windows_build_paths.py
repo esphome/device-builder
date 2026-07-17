@@ -2,16 +2,20 @@ r"""
 Relocate Windows build data to one short, space-free root (dodges MAX_PATH + spaces).
 
 Native Windows ESP-IDF builds fail two ways from a normal config path: the 260-char ``MAX_PATH``
-limit on the deep build tree, and a pioarduino whitespace guard / gcc ``-fdebug-prefix-map``
-truncation when the path contains a space (common: ``C:\Users\First Last\...``).
+limit on the deep build tree and toolchain install (the native ESP-IDF toolchain nests ~209 chars
+below its install dir), and spaces in the path (common: ``C:\Users\First Last\...``) — ESP-IDF
+refuses spaced install paths, and pioarduino has its own whitespace guard / gcc
+``-fdebug-prefix-map`` truncation.
 
 :func:`windows_short_build_paths` points the build tree at ``C:\esphb\<id8>`` for the ``with``
-block by setting ``ESPHOME_DATA_DIR`` = that root and ``PLATFORMIO_CORE_DIR`` = ``<root>\pio`` in
-the process env (so ``CORE.data_dir`` and every compile subprocess resolve there). Per-dashboard
+block by setting ``ESPHOME_DATA_DIR`` = that root, ``PLATFORMIO_CORE_DIR`` = ``<root>\pio`` and
+``ESPHOME_ESP_IDF_PREFIX`` = ``<root>\idf`` in the process env (so ``CORE.data_dir`` and every
+compile subprocess resolve there, whichever toolchain the config selects). Per-dashboard
 roots nest under one ``C:\esphb`` parent rather than scattering ``C:\esphb-*`` across the drive
 root. Existing data is moved in once (best-effort) so warm caches survive: from the legacy flat
-``C:\esphb-<id8>`` of the first relocation release, else from ``<config>/.esphome`` +
-``~/.platformio``. Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long
+``C:\esphb-<id8>`` of the first relocation release, else from ``<config>/.esphome``,
+``~/.platformio`` and esphome's machine-global IDF cache. Real dirs (no junction), so CMake's
+REALPATH can't reintroduce the spaced/long
 path. The tree is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by
 hand to reclaim space. No-op off Windows (including a Linux Docker container on Windows -- the
 gate is ``os.name == "nt"``), and skipped if the user already set ``ESPHOME_DATA_DIR`` (a
@@ -47,7 +51,7 @@ _RELOCATED_MARKER = ".device-builder-relocated.json"
 
 @contextmanager
 def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
-    """Point ESPHOME_DATA_DIR + PLATFORMIO_CORE_DIR at a short space-free root for the block."""
+    """Point the build-data + toolchain env vars at a short space-free root for the block."""
     if not _is_windows() or "ESPHOME_DATA_DIR" in os.environ:
         yield
         return
@@ -78,23 +82,37 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         yield
         return
     pio = root / "pio"
+    idf = root / "idf"
 
     os.environ["ESPHOME_DATA_DIR"] = str(root)
-    # Relocate the toolchain unless the user deliberately set PLATFORMIO_CORE_DIR (leave their
-    # choice and their ~/.platformio untouched), or a corrupt partial copy can't be made clean.
+    # Relocate each toolchain unless the user deliberately set its env var (leave their choice
+    # and their existing install untouched), or a corrupt partial copy can't be made clean.
     user_set_pio = "PLATFORMIO_CORE_DIR" in os.environ
     override_pio = not user_set_pio and _relocate_into(pio, _platformio_dir())
     if override_pio:
         os.environ["PLATFORMIO_CORE_DIR"] = str(pio)
-    _LOGGER.info("Windows build data at %s (core %s)", root, pio if override_pio else "default")
+    user_set_idf = "ESPHOME_ESP_IDF_PREFIX" in os.environ
+    idf_cache = _default_idf_cache()
+    idf_sources = (idf_cache,) if idf_cache is not None else ()
+    override_idf = not user_set_idf and _relocate_into(idf, *idf_sources)
+    if override_idf:
+        os.environ["ESPHOME_ESP_IDF_PREFIX"] = str(idf)
+    _LOGGER.info(
+        "Windows build data at %s (pio %s, idf %s)",
+        root,
+        pio if override_pio else "default",
+        idf if override_idf else "default",
+    )
     try:
         yield
     finally:
-        # Both vars were unset on entry (ESPHOME_DATA_DIR guarded above; PLATFORMIO_CORE_DIR only
-        # overridden when it was absent), so popping is the right restore.
+        # All three vars were unset on entry (ESPHOME_DATA_DIR guarded above; the toolchain vars
+        # only overridden when absent), so popping is the right restore.
         os.environ.pop("ESPHOME_DATA_DIR", None)
         if override_pio:
             os.environ.pop("PLATFORMIO_CORE_DIR", None)
+        if override_idf:
+            os.environ.pop("ESPHOME_ESP_IDF_PREFIX", None)
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +133,17 @@ def _is_windows() -> bool:
 def _platformio_dir() -> Path:
     """Default toolchain dir to migrate from (a seam; tests avoid the real ~/.platformio)."""
     return Path.home() / ".platformio"
+
+
+def _default_idf_cache() -> Path | None:
+    """Esphome's machine-global native-IDF install dir to migrate from (a seam for tests)."""
+    # platformdirs ships with the esphome extra, not this package; without it there is no
+    # existing install to migrate, but the relocated dir is still created and pointed at.
+    try:
+        import platformdirs  # noqa: PLC0415
+    except ImportError:
+        return None
+    return Path(platformdirs.user_cache_dir("esphome", appauthor=False)) / "idf"
 
 
 def _relocate_into(dst: Path, *sources: Path) -> bool:

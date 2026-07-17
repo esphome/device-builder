@@ -66,6 +66,7 @@ def test_compiled_tree_survives_migration_from_original_dir(
         # ~/.platformio (the un-relocated state a never-updated user is in).
         monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
         monkeypatch.delenv("PLATFORMIO_CORE_DIR", raising=False)
+        monkeypatch.delenv("ESPHOME_ESP_IDF_PREFIX", raising=False)
         _compile(config, compose_subprocess_env(job), "original compile")
         assert (old_esphome / "build" / _NAME).is_dir()
         assert home_pio.is_dir()

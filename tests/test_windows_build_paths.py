@@ -49,22 +49,27 @@ def fake_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(wbp, "_LEGACY_ROOT_BASE", root_base)
     monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: _ID)
     monkeypatch.setattr(wbp, "_platformio_dir", lambda: tmp_path / "home_platformio")
+    monkeypatch.setattr(wbp, "_default_idf_cache", lambda: tmp_path / "cache_idf")
     monkeypatch.delenv("ESPHOME_DATA_DIR", raising=False)
     monkeypatch.delenv("PLATFORMIO_CORE_DIR", raising=False)
+    monkeypatch.delenv("ESPHOME_ESP_IDF_PREFIX", raising=False)
     return root_base
 
 
 def test_relocates_env_to_short_root_and_restores(tmp_path: Path, fake_windows: Path) -> None:
-    """Inside the block both env vars point at the short root; both are cleared on exit."""
+    """Inside the block all three env vars point at the short root; all are cleared on exit."""
     config_dir = tmp_path / "First Last" / "esphome"
     root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)
         assert os.environ["PLATFORMIO_CORE_DIR"] == str(root / "pio")
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
         assert root.is_dir()
         assert (root / "pio").is_dir()
+        assert (root / "idf").is_dir()
     assert "ESPHOME_DATA_DIR" not in os.environ
     assert "PLATFORMIO_CORE_DIR" not in os.environ
+    assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ
 
 
 def test_root_uses_first_8_chars_of_dashboard_id(tmp_path: Path, fake_windows: Path) -> None:
@@ -125,26 +130,67 @@ def test_respects_user_set_platformio_core_dir(
     assert home_pio.is_dir()  # user's toolchain left untouched
 
 
+def test_respects_user_set_esp_idf_prefix(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A user-set ESPHOME_ESP_IDF_PREFIX is left alone (data still relocates)."""
+    chosen = tmp_path / "chosen_idf"
+    cache_idf = tmp_path / "cache_idf"
+    cache_idf.mkdir()  # would be swept if we relocated; must stay put
+    monkeypatch.setenv("ESPHOME_ESP_IDF_PREFIX", str(chosen))
+    root = fake_windows / "esphb" / _ID8
+    with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
+        assert os.environ["ESPHOME_DATA_DIR"] == str(root)
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(chosen)
+        assert not (root / "idf").exists()
+    assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(chosen)
+    assert cache_idf.is_dir()
+
+
 def test_platformio_dir_defaults_under_home() -> None:
     """The toolchain-source seam points at ~/.platformio by default."""
     assert wbp._platformio_dir() == Path.home() / ".platformio"
 
 
+def test_default_idf_cache_under_user_cache_dir() -> None:
+    """The idf-source seam points at esphome's machine-global cache dir."""
+    import platformdirs  # noqa: PLC0415
+
+    cache = wbp._default_idf_cache()
+    assert cache == Path(platformdirs.user_cache_dir("esphome", appauthor=False)) / "idf"
+
+
+def test_missing_platformdirs_still_relocates_idf(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No migration source (platformdirs absent) still creates and points at the idf dir."""
+    monkeypatch.setattr(wbp, "_default_idf_cache", lambda: None)
+    root = fake_windows / "esphb" / _ID8
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
+        assert (root / "idf").is_dir()
+
+
 def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path) -> None:
-    """Existing ``<config>/.esphome`` and ``~/.platformio`` are moved into the root once."""
+    """Existing ``.esphome``, ``~/.platformio`` and the IDF cache are moved into the root once."""
     config_dir = tmp_path / "First Last" / "esphome"
     (config_dir / ".esphome").mkdir(parents=True)
     (config_dir / ".esphome" / "marker.txt").write_text("data", encoding="utf-8")
     home_pio = tmp_path / "home_platformio"
     home_pio.mkdir()
     (home_pio / "tool.txt").write_text("toolchain", encoding="utf-8")
+    cache_idf = tmp_path / "cache_idf"
+    cache_idf.mkdir()
+    (cache_idf / "idf.txt").write_text("idf-toolchain", encoding="utf-8")
 
     root = fake_windows / "esphb" / _ID8
     with windows_short_build_paths(config_dir):
         assert (root / "marker.txt").read_text(encoding="utf-8") == "data"
         assert (root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"
+        assert (root / "idf" / "idf.txt").read_text(encoding="utf-8") == "idf-toolchain"
     assert not (config_dir / ".esphome").exists()
     assert not home_pio.exists()
+    assert not cache_idf.exists()
 
 
 def test_migrates_from_legacy_flat_root(tmp_path: Path, fake_windows: Path) -> None:
