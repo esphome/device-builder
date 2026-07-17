@@ -17,8 +17,7 @@ root. Existing data is moved in once (best-effort) so warm caches survive: from 
 ``~/.platformio`` and esphome's machine-global IDF cache. Sweeping the IDF cache in trades
 upstream's all-projects sharing for the space-free guarantee: the multi-GB install becomes
 per-dashboard, and a cache later repopulated by CLI use is not re-merged (the completion marker
-short-circuits). Real dirs (no junction), so CMake's
-REALPATH can't reintroduce the spaced/long
+short-circuits). Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long
 path. The tree is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by
 hand to reclaim space. No-op off Windows (including a Linux Docker container on Windows -- the
 gate is ``os.name == "nt"``), and skipped if the user already set ``ESPHOME_DATA_DIR`` (a
