@@ -180,7 +180,10 @@ async def sync_deployed_state_after_flash(
         # First-party evidence: the flash this dashboard just performed
         # backs the pinned identity even where no ``_http._tcp`` TXT can
         # reach us — the mDNS-dark case the trace-gated sweep clear
-        # deliberately never demotes.
+        # deliberately never demotes. In an mDNS-live deployment the
+        # stamp lasts only until the sweep's verify: a device whose
+        # ``_http._tcp`` provably carries no identity keys (old
+        # web_server firmware) is re-cleared there.
         controller._state_monitor.apply_http_identity_live(device.name, live=True)
 
 

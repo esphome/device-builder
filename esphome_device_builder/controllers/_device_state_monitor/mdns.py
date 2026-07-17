@@ -68,18 +68,22 @@ _MDNS_CLOSE_TIMEOUT = 1.0
 # circuit and actually goes on the wire (see ``refresh_mdns``).
 _MDNS_REFRESH_PADDING_SECONDS = 1.0
 
-# The identity TXT keys, in ``_apply_identity_txt``'s applier order.
-# The ``http_identity_live`` flag keys on their presence: a contentless
-# ``_http._tcp`` service (an api+web_server device, or old web_server
-# firmware) must never vouch for the identity trio, or a flag-True
-# device with an identity-less cached TXT would verify-resolve every
-# sweep forever.
-_IDENTITY_TXT_KEYS = ("version", "config_hash", "mac")
+# Identity TXT key → monitor applier, the single source for both the
+# apply loop and the presence check. The ``http_identity_live`` flag
+# keys on their presence: a contentless ``_http._tcp`` service (an
+# api+web_server device, or old web_server firmware) must never vouch
+# for the identity trio, or a flag-True device with an identity-less
+# cached TXT would verify-resolve every sweep forever.
+_IDENTITY_TXT_APPLIERS: tuple[tuple[str, Callable[[DeviceStateMonitor, str, str], bool]], ...] = (
+    ("version", lambda monitor, name, value: monitor.apply_version(name, value)),
+    ("config_hash", lambda monitor, name, value: monitor.apply_config_hash(name, value)),
+    ("mac", lambda monitor, name, value: monitor.apply_mac_address(name, value)),
+)
 
 
 def _has_identity_keys(props: Mapping[str, str | None]) -> bool:
     """Whether *props* carries any identity TXT key with a value."""
-    return any(props.get(key) for key in _IDENTITY_TXT_KEYS)
+    return any(props.get(key) for key, _apply in _IDENTITY_TXT_APPLIERS)
 
 
 class MdnsSource:
@@ -377,7 +381,9 @@ class MdnsSource:
         Same record buckets as :meth:`get_mdns_cache_info`; keep the
         two in lockstep. Sweep-side verify resolves gate on it: an
         mDNS-dark deployment leaves no trace, and a wire miss there
-        proves nothing.
+        proves nothing. *service_type* narrows only the
+        service-instance buckets — cached A/AAAA records count as a
+        multicast trace for any service type.
         """
         if self._zeroconf is None:
             return False
@@ -568,10 +574,9 @@ class MdnsSource:
     def _apply_identity_txt(self, device_name: str, props: Mapping[str, str | None]) -> None:
         """Apply the version / config_hash / mac identity TXT keys, tolerating absence."""
         monitor = self._monitor
-        appliers = (monitor.apply_version, monitor.apply_config_hash, monitor.apply_mac_address)
-        for key, apply in zip(_IDENTITY_TXT_KEYS, appliers, strict=True):
+        for key, apply in _IDENTITY_TXT_APPLIERS:
             if value := props.get(key):
-                apply(device_name, value)
+                apply(monitor, device_name, value)
 
     def _on_http_service_state_change(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
