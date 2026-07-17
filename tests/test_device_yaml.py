@@ -18,6 +18,7 @@ import yaml
 from esphome import yaml_util
 from esphome.const import ALLOWED_NAME_CHARS
 
+from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
@@ -2732,6 +2733,34 @@ def test_every_board_body_generates_creatable_platform_block() -> None:
         elif not block.get("board"):
             offenders.append(f"{entry.id}: {platform} block missing board")
     assert not offenders, "boards generate invalid create YAML:\n" + "\n".join(offenders)
+
+
+async def test_nested_list_field_presets_render_as_yaml_lists() -> None:
+    """Nested-list field presets survive default resolution into parseable YAML.
+
+    ``seeed-xiao-w5500-zwave-proxy`` is the first board presetting
+    list-of-mapping fields (``usb_host.devices``, ``usb_uart.channels``,
+    ``mdns.services``); pins that the generation path renders them intact.
+    """
+    board = load_board_body_from_disk("seeed-xiao-w5500-zwave-proxy")
+    assert board is not None
+    catalog = ComponentCatalog()
+    catalog.load()
+    defaults = await catalog.resolve_default_components(board)
+    config = yaml.safe_load(
+        generate_device_yaml("zw", "Zw", board, ssid="", psk="", defaults=defaults)
+    )
+    assert config["usb_host"]["devices"] == [{"id": "device_0", "vid": 0x303A, "pid": 0x4001}]
+    assert config["usb_uart"]["channels"] == [
+        {"id": "uch_1", "baud_rate": 115200, "buffer_size": 4096}
+    ]
+    assert config["zwave_proxy"] == {"id": "zw_proxy", "uart_id": "uch_1"}
+    assert config["mdns"]["services"] == [
+        {"service": "_zwave", "protocol": "_tcp", "port": 6053, "txt": {"protocol": "esphome"}}
+    ]
+    assert config["ethernet"]["type"] == "W5500"
+    assert config["esp32"]["flash_size"] == "16MB"
+    assert "wifi" not in config
 
 
 # ---------------------------------------------------------------------------
