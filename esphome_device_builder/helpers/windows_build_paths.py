@@ -103,7 +103,8 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     # silently fall back to the long + spaced machine-global cache this exists to avoid.
     prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")
     user_set_idf = bool(prev_idf and prev_idf.strip())
-    override_idf = not user_set_idf and _relocate_into(idf, _default_idf_cache())
+    idf_cache = _default_idf_cache()
+    override_idf = not user_set_idf and _relocate_into(idf, idf_cache)
     if override_idf:
         saved["ESPHOME_ESP_IDF_PREFIX"] = prev_idf  # may be present-but-empty; kept verbatim
         os.environ["ESPHOME_ESP_IDF_PREFIX"] = str(idf)
@@ -113,7 +114,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         _LOGGER.warning(
             "ESP-IDF toolchain not relocated; native builds will use %s, where deep or spaced "
             "paths may fail",
-            _default_idf_cache(),
+            idf_cache or "esphome's default cache location",
         )
     _LOGGER.info(
         "Windows build data at %s (pio %s, idf %s)",
