@@ -69,3 +69,12 @@ def test_duplicate_floor_fails_loud(tmp_path: Path) -> None:
     path.write_text(_PYPROJECT + _PYPROJECT)
     with pytest.raises(SystemExit, match="exactly one"):
         bump_floor("2026.7.0", path)
+
+
+@pytest.mark.parametrize("version", ["2026.7.0", "2026.8.0b1", "2026.6.0"])
+def test_summary_is_one_line(
+    pyproject: Path, capsys: pytest.CaptureFixture[str], version: str
+) -> None:
+    """The workflow captures stdout as a single-line GITHUB_OUTPUT value; every path prints one."""
+    bump_floor(version, pyproject)
+    assert len(capsys.readouterr().out.strip().splitlines()) == 1
