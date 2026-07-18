@@ -17,7 +17,7 @@ import warnings
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import esphome.config_validation as cv
 import pytest
@@ -829,12 +829,14 @@ async def test_create_device_write_race_surfaces_already_exists(
 ) -> None:
     """A file appearing between the pre-check and the exclusive write maps to ALREADY_EXISTS."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
-    fake = MagicMock()
-    fake.exists.return_value = False  # pre-check passes
-    fake.open.side_effect = FileExistsError  # the exclusive write loses the race
-    ctrl._db.settings.rel_path = lambda _filename: fake
 
-    with pytest.raises(CommandError) as excinfo:
+    with (
+        patch(
+            "esphome_device_builder.controllers.devices.helpers.atomic_write_exclusive",
+            side_effect=FileExistsError("kitchen.yaml"),  # the exclusive write loses the race
+        ),
+        pytest.raises(CommandError) as excinfo,
+    ):
         await ctrl.create_device(name="kitchen", file_content=VALID_FILE_CONTENT)
 
     assert excinfo.value.code == ErrorCode.ALREADY_EXISTS

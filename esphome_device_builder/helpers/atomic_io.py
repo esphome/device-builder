@@ -17,6 +17,7 @@ import contextlib
 import os
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 # Windows raises ``PermissionError`` (WinError 5) on both sides of a
@@ -50,6 +51,51 @@ def atomic_write(
     """
     if make_parents:
         path.parent.mkdir(parents=True, exist_ok=True)
+    _staged_write(path, data, mode=mode, publish=_replace_with_retry)
+
+
+def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> None:
+    """
+    Write *data* to *path* atomically; ``FileExistsError`` when it exists.
+
+    Stages like :func:`atomic_write`, then publishes with an exclusive
+    primitive — ``os.link`` on POSIX, ``os.rename`` on Windows — both
+    of which refuse an existing target. The target only ever appears
+    fully written (a crash mid-write leaves no partial file) and a
+    concurrent creator loses cleanly with ``FileExistsError``.
+    """
+    _staged_write(path, data, mode=mode, publish=_publish_exclusive)
+
+
+def read_bytes_with_retry(path: Path) -> bytes:
+    """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            return path.read_bytes()
+        except PermissionError:
+            # POSIX never hits this transiently, so a PermissionError there is
+            # real; re-raise. On Windows, back off and retry the open.
+            if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
+                raise
+            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
+    raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover
+
+
+def _staged_write(
+    path: Path,
+    data: bytes,
+    *,
+    mode: int | None,
+    publish: Callable[[Path, Path], None],
+) -> None:
+    """
+    Stage *data* in a sibling tempfile, then hand it to *publish*.
+
+    *publish* moves or links the staged file onto *path*; the staged
+    tempfile is cleaned up afterwards either way (a suppressed no-op
+    when the publish consumed it). Readers of *path* only ever see a
+    fully written file.
+    """
     fd, tmp_str = tempfile.mkstemp(
         prefix=path.name + ".",
         suffix=".tmp",
@@ -70,28 +116,23 @@ def atomic_write(
             if mode is not None:
                 tmp_path.chmod(mode)
             fh.write(data)
-        _replace_with_retry(tmp_path, path)
-    except Exception:
-        # Suppress all OSError on cleanup so the original write
-        # failure isn't masked by a secondary unlink permission
-        # error.
+        publish(tmp_path, path)
+    finally:
+        # Suppress all OSError on cleanup so a write failure isn't
+        # masked by a secondary unlink permission error.
         with contextlib.suppress(OSError):
             tmp_path.unlink()
-        raise
 
 
-def read_bytes_with_retry(path: Path) -> bytes:
-    """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
-    for attempt in range(_REPLACE_RETRIES):
-        try:
-            return path.read_bytes()
-        except PermissionError:
-            # POSIX never hits this transiently, so a PermissionError there is
-            # real; re-raise. On Windows, back off and retry the open.
-            if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
-                raise
-            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
-    raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover
+def _publish_exclusive(src: Path, dst: Path) -> None:
+    """Exclusive publish: refuses an existing *dst* with ``FileExistsError``."""
+    if _IS_WINDOWS:
+        # ``Path.rename`` on Windows refuses an existing destination.
+        src.rename(dst)
+    else:
+        # ``os.link`` is the POSIX exclusive primitive; the staged
+        # source is unlinked by the caller's cleanup.
+        os.link(src, dst)
 
 
 def _replace_with_retry(src: Path, dst: Path) -> None:

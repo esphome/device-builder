@@ -9,7 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.helpers.atomic_io import atomic_write, read_bytes_with_retry
+from esphome_device_builder.helpers.atomic_io import (
+    atomic_write,
+    atomic_write_exclusive,
+    read_bytes_with_retry,
+)
 
 
 def test_atomic_write_cleans_up_tempfile_on_error(
@@ -236,3 +240,70 @@ def test_read_bytes_with_retry_does_not_retry_on_posix(
         read_bytes_with_retry(tmp_path / "demo.bin")
 
     assert calls["n"] == 1  # no retry on POSIX
+
+
+def test_atomic_write_exclusive_creates_fresh_file(tmp_path: Path) -> None:
+    """A fresh target gets the full payload, 0o644, and no staging litter."""
+    target = tmp_path / "kitchen.yaml"
+
+    atomic_write_exclusive(target, b"esphome:\n")
+
+    assert target.read_bytes() == b"esphome:\n"
+    if sys.platform != "win32":
+        assert stat.S_IMODE(target.stat().st_mode) == 0o644
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_atomic_write_exclusive_refuses_existing_target(tmp_path: Path) -> None:
+    """An existing target raises FileExistsError, keeps its bytes, leaves no litter."""
+    target = tmp_path / "kitchen.yaml"
+    target.write_bytes(b"original")
+
+    with pytest.raises(FileExistsError):
+        atomic_write_exclusive(target, b"clobber")
+
+    assert target.read_bytes() == b"original"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_atomic_write_exclusive_failed_publish_leaves_no_partial_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A publish failure surfaces, and neither a partial target nor staging litter remains."""
+    target = tmp_path / "kitchen.yaml"
+
+    def _fail(src: object, dst: object) -> None:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.link", _fail)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.rename", _fail)
+
+    with pytest.raises(OSError, match="No space left"):
+        atomic_write_exclusive(target, b"esphome:\n")
+
+    assert not target.exists()
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_atomic_write_exclusive_concurrent_creator_loses_cleanly(tmp_path: Path) -> None:
+    """A target appearing after staging (the TOCTOU window) still raises FileExistsError."""
+    target = tmp_path / "kitchen.yaml"
+    real_link = os.link
+    real_rename = os.rename
+
+    def _racing_link(src: object, dst: object, **kwargs: object) -> None:
+        target.write_bytes(b"raced")
+        real_link(src, dst, **kwargs)  # type: ignore[arg-type]
+
+    def _racing_rename(src: object, dst: object, **kwargs: object) -> None:
+        target.write_bytes(b"raced")
+        real_rename(src, dst, **kwargs)  # type: ignore[arg-type]
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("esphome_device_builder.helpers.atomic_io.os.link", _racing_link)
+        mp.setattr("esphome_device_builder.helpers.atomic_io.os.rename", _racing_rename)
+        with pytest.raises(FileExistsError):
+            atomic_write_exclusive(target, b"clobber")
+
+    assert target.read_bytes() == b"raced"
+    assert list(tmp_path.glob("*.tmp")) == []

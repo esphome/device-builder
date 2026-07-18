@@ -12,6 +12,7 @@ from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
@@ -55,17 +56,16 @@ async def write_new_file_exclusive(
     path: Path, content: str, *, on_exists: Callable[[BaseException], NoReturn]
 ) -> None:
     """
-    Exclusive-create (``open("x")``) *content* at *path* off the event loop.
+    Exclusive-create *content* at *path* off the event loop; staged, atomic.
 
-    The ``x`` mode refuses to clobber an existing file with no TOCTOU
-    window; a check-then-write or staged-move shape would reopen the
-    race. A ``FileExistsError`` is delegated to *on_exists*, which
-    raises the caller's typed error.
+    The exclusive publish refuses to clobber an existing file with no
+    TOCTOU window, and the staging means a crash mid-write leaves no
+    partial target. A ``FileExistsError`` is delegated to *on_exists*,
+    which raises the caller's typed error.
     """
 
     def _write() -> None:
-        with path.open("x", encoding="utf-8") as f:
-            f.write(content)
+        atomic_write_exclusive(path, content.encode("utf-8"))
 
     try:
         await run_in_executor(_write)

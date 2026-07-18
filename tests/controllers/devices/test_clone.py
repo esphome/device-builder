@@ -550,29 +550,24 @@ async def test_clone_device_handles_filesystem_race_on_target_filename(
 ) -> None:
     """A race that creates the target file between gather + commit raises ``INVALID_ARGS``.
 
-    The exclusive-create ``open(..., "x")`` is the actual race
-    defence — even if the gather pass found ``new_path`` missing,
-    a concurrent caller (another ``devices/clone`` request, the
-    user dropping a file via the editor) could create it before our
-    commit. The mode raises ``FileExistsError`` and we translate it
-    into the same ``INVALID_ARGS`` the preflight produces so the
-    frontend renders one consistent message.
+    The exclusive publish is the actual race defence — even if the
+    gather pass found ``new_path`` missing, a concurrent caller
+    (another ``devices/clone`` request, the user dropping a file via
+    the editor) could create it before our commit. It raises
+    ``FileExistsError`` and we translate it into the same
+    ``INVALID_ARGS`` the preflight produces so the frontend renders
+    one consistent message.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
 
-    # Patch ``Path.open`` so the clone command's
-    # ``with new_path.open("x", ...)`` raises ``FileExistsError``
-    # without needing real cross-process scheduling.
-    real_open = Path.open
-
-    def _raising_open(self, mode="r", *args, **kwargs):  # type: ignore[no-untyped-def]
-        if "x" in mode and str(self).endswith("bedroom-bulb.yaml"):
-            raise FileExistsError(str(self))
-        return real_open(self, mode, *args, **kwargs)
-
+    # Patch the staged writer to lose the race without needing real
+    # cross-process scheduling.
     with (
-        patch.object(Path, "open", _raising_open),
+        patch(
+            "esphome_device_builder.controllers.devices.helpers.atomic_write_exclusive",
+            side_effect=FileExistsError("bedroom-bulb.yaml"),
+        ),
         pytest.raises(CommandError) as excinfo,
     ):
         await ctrl.clone_device(configuration="kitchen.yaml", new_name="bedroom-bulb")
