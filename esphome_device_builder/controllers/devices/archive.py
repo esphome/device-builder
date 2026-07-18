@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
@@ -22,11 +23,27 @@ from ...models import ErrorCode
 from .helpers import _validate_archive_configuration, require_file_exists
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable, Iterator, Sequence
 
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@contextmanager
+def _translate_archive_fs_errors(configuration: str, *, archived: bool = False) -> Iterator[None]:
+    """
+    Map ``FileExistsError`` to INVALID_ARGS and ``FileNotFoundError`` to NOT_FOUND.
+
+    *archived* selects the "Archived file" not-found prefix.
+    """
+    try:
+        yield
+    except FileExistsError as exc:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+    except FileNotFoundError as exc:
+        prefix = "Archived file" if archived else "File"
+        raise CommandError(ErrorCode.NOT_FOUND, f"{prefix} not found: {configuration}") from exc
 
 
 async def archive_single(controller: DevicesController, configuration: str) -> None:
@@ -64,14 +81,8 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
     # concurrent editor save to the same config can't interleave with the
     # archive's removal commit (same serialisation as ``_persist_yaml_mutation``).
     async with controller._yaml_write_lock(configuration):
-        try:
+        with _translate_archive_fs_errors(configuration):
             await run_in_executor(_archive_sync)
-        except FileExistsError as exc:
-            raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
-        except FileNotFoundError as exc:
-            # A concurrent delete can win between the pre-check and the
-            # move; keep the not_found surface stable.
-            raise CommandError(ErrorCode.NOT_FOUND, f"File not found: {configuration}") from exc
         # Drop volatile fields across both stores: live mDNS state and
         # build-dir caches in the data_dir store, plus ``mac_address``
         # in the shared sidecar (intrinsic to the physical board, but
@@ -101,15 +112,8 @@ async def unarchive_single(controller: DevicesController, configuration: str) ->
             raise FileExistsError(msg)
         shutil.move(str(archive_path), str(target))
 
-    try:
+    with _translate_archive_fs_errors(configuration, archived=True):
         await run_in_executor(_unarchive_sync)
-    except FileExistsError as exc:
-        raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
-    except FileNotFoundError as exc:
-        # A concurrent delete can win between the pre-check and the move.
-        raise CommandError(
-            ErrorCode.NOT_FOUND, f"Archived file not found: {configuration}"
-        ) from exc
 
 
 def list_archived_sync(controller: DevicesController) -> list[dict[str, Any]]:
@@ -165,13 +169,8 @@ async def delete_archived_single(controller: DevicesController, configuration: s
         unlink_compiled_config(configuration)
         return True
 
-    try:
+    with _translate_archive_fs_errors(configuration, archived=True):
         sidecars_purged = await run_in_executor(_delete_all)
-    except FileNotFoundError as exc:
-        # A concurrent delete can win between the pre-check and the unlink.
-        raise CommandError(
-            ErrorCode.NOT_FOUND, f"Archived file not found: {configuration}"
-        ) from exc
     if sidecars_purged:
         # Drop the per-device metadata entry (both the store +
         # shared identity sidecar) on the event loop side and
