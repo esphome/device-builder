@@ -164,3 +164,18 @@ def test_parse_bullets_skips_wrapped_sub_bullet_continuation() -> None:
     # The parent trailing paragraph (back at the parent indent) is still kept.
     assert "This trailing note stays with scroll_mode." in fields["scroll_mode"]
     assert fields["scroll_speed"].startswith("Set scroll speed")
+
+
+# A field continuation carrying a top-level (indent-0) non-field bullet: it must
+# not establish a skip context that swallows the field's own indented prose.
+_TOP_LEVEL_BULLET_BODY = """\
+- **mode** (*Optional*): Pick a mode.
+- a plain top-level bullet that is not a config var
+  This indented prose still belongs to mode.
+"""
+
+
+def test_parse_bullets_top_level_bullet_does_not_swallow_parent_prose() -> None:
+    """An indent-0 non-field bullet doesn't skip the field's own continuation."""
+    fields = _parse_config_var_bullets(_TOP_LEVEL_BULLET_BODY)
+    assert "This indented prose still belongs to mode." in fields["mode"]

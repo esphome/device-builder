@@ -2022,8 +2022,11 @@ def _parse_config_var_bullets(  # noqa: C901
             continue
         # Sub-bullets describe sub-fields — skip, and remember their indent so
         # their wrapped continuation lines (indented deeper) are skipped too.
+        # Only a genuinely nested (indented) bullet owns following prose; a
+        # top-level bullet must not swallow the field's own continuation.
         if stripped.startswith(("- ", "* ", "+ ")):
-            sub_indent = len(line) - len(line.lstrip())
+            indent = len(line) - len(line.lstrip())
+            sub_indent = indent if indent > 0 else None
             continue
         if sub_indent is not None:
             if len(line) - len(line.lstrip()) > sub_indent:
