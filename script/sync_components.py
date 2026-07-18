@@ -1354,6 +1354,10 @@ def build_catalog(
     # domains are unbounded YAML lists, so every platform entry is repeatable.
     _mark_platform_domains_multi_conf(out)
 
+    # Final pass over every description (schema- and MDX-derived alike): strip
+    # leaked fenced-code examples and dangling ``One of:`` list-introducers.
+    _tidy_all_descriptions(out)
+
     return out
 
 
@@ -2316,6 +2320,82 @@ def _clean_description_text(text: str) -> str:
             text = text[:1].upper() + text[1:] if text else text
             break
     return text
+
+
+_CODE_LANG = (
+    r"(?:yaml|yml|json|jsonc|c\+\+|cpp|c|python|py|bash|sh|shell|ini|toml|text|html|xml|cbp)"
+)
+# A fenced code example: ```lang ... ``` or ``lang ... ``, optionally introduced by
+# "Example:" / "e.g.". Only triple-fenced or language-tagged spans match, so inline
+# ``code`` (double-backtick, no language) is preserved.
+_CODE_FENCE_RE = re.compile(
+    r"\s*(?:for example|examples?|e\.g\.|see)?\s*:?\s*"
+    r"(?:`{3,}\s*[a-z0-9+#]*\b.*?`{3,}|``\s*" + _CODE_LANG + r"\b.*?``)",
+    re.IGNORECASE | re.DOTALL,
+)
+# A trailing, unterminated fence whose body lived on excluded sub-lines.
+_CODE_FENCE_TAIL_RE = re.compile(
+    r"\s*(?:for example|examples?|e\.g\.)?\s*:?\s*"
+    r"(?:`{3,}\s*[a-z0-9+#]*|``\s*" + _CODE_LANG + r"\b)[^`]*$",
+    re.IGNORECASE,
+)
+# A trailing sentence that is just a list-introducer ending in ``:`` (its options
+# are sub-bullets the field extractor drops), or a bare "... one of." with no values.
+_LIST_INTRO_COLON_RE = re.compile(
+    r"(?:(?<=[.!?])\s+|^)"
+    r"(?:can be|must be|one of|any of|choose from|possible values?|valid values?|either|select from)\b"
+    r"[^.!?]{0,45}:\s*$",
+    re.IGNORECASE,
+)
+_BARE_ONE_OF_RE = re.compile(r"(?:(?<=[.!?])\s+|^)[^.!?]*\bone of\s*\.?\s*$", re.IGNORECASE)
+
+
+def _tidy_description(text: str) -> str:
+    """
+    Strip leaked fenced-code examples and dangling list-introducers.
+
+    Returns *text* unchanged when neither is present, so a real sentence
+    that happens to end in ``:`` keeps its colon.
+    """
+    if not text:
+        return text
+    tidied = _CODE_FENCE_RE.sub("", text)
+    tidied = _CODE_FENCE_TAIL_RE.sub("", tidied)
+    changed = tidied != text
+    prev: str | None = None
+    while prev != tidied:
+        prev = tidied
+        stripped = _LIST_INTRO_COLON_RE.sub("", tidied)
+        stripped = _BARE_ONE_OF_RE.sub("", stripped)
+        if stripped != tidied:
+            changed = True
+        tidied = stripped.rstrip()
+    if not changed:
+        return text
+    tidied = re.sub(r"\s+([.,;:])", r"\1", tidied)
+    tidied = re.sub(r"([.!?])(?:\s*[.!?])+", r"\1", tidied)
+    tidied = re.sub(r"\s{2,}", " ", tidied).strip().rstrip(",;:-").strip()
+    if tidied and tidied[-1] not in ".!?":
+        tidied += "."
+    return tidied or text
+
+
+def _tidy_all_descriptions(node: object) -> int:
+    """Run ``_tidy_description`` over every ``description`` in the catalog tree."""
+    count = 0
+    if isinstance(node, dict):
+        desc = node.get("description")
+        if isinstance(desc, str):
+            tidied = _tidy_description(desc)
+            if tidied != desc:
+                node["description"] = tidied
+                count += 1
+        for value in node.values():
+            count += _tidy_all_descriptions(value)
+    elif isinstance(node, list):
+        for item in node:
+            count += _tidy_all_descriptions(item)
+    return count
 
 
 def load_image_map() -> dict[str, str]:
