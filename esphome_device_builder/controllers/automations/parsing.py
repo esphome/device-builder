@@ -177,67 +177,34 @@ def _parse_device_level(root: Any) -> list[ParsedAutomation]:
     return out
 
 
-def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
-    """Parse top-level ``script:`` list blocks."""
-    if not isinstance(root, dict):
-        return []
-    scripts = root.get("script")
-    if not isinstance(scripts, list):
-        return []
+def _parse_automation_list(
+    items: list[Any],
+    *,
+    describe: Callable[[dict[str, Any], int], tuple[AutomationLocation, str] | None],
+    params_of: Callable[[dict[str, Any]], dict[str, Any]],
+) -> list[ParsedAutomation]:
+    """
+    Parse one top-level list block of trigger-less automations.
+
+    *describe* returns the item's ``(location, label)`` or ``None`` to
+    skip it; *params_of* collects the item's params for the tree build.
+    """
     out: list[ParsedAutomation] = []
-    for idx, item in enumerate(scripts):
+    for idx, item in enumerate(items):
         if not isinstance(item, dict):
             continue
-        script_id = item.get("id") or f"script_{idx}"
-        from_line, to_line = _item_range(scripts, idx)
+        described = describe(item, idx)
+        if described is None:
+            continue
+        location, label = described
+        from_line, to_line = _item_range(items, idx)
         tree, error, unsupported = _safe_tree(
-            partial(
-                _block_tree,
-                _collect_block_params(item, action_list_keys={"then"}),
-                item.get("then"),
-            ),
+            partial(_block_tree, params_of(item), item.get("then")),
             trigger_id=None,
         )
         out.append(
             ParsedAutomation(
-                location=ScriptLocation(id=str(script_id)),
-                label=f"Script: {script_id}",
-                automation=tree,
-                from_line=from_line,
-                to_line=to_line,
-                raw_yaml=_dump_slice([item]),
-                error=error,
-                unsupported=unsupported,
-            )
-        )
-    return out
-
-
-def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
-    """Parse top-level ``interval:`` list blocks."""
-    if not isinstance(root, dict):
-        return []
-    intervals = root.get("interval")
-    if not isinstance(intervals, list):
-        return []
-    out: list[ParsedAutomation] = []
-    for idx, item in enumerate(intervals):
-        if not isinstance(item, dict):
-            continue
-        from_line, to_line = _item_range(intervals, idx)
-        every = item.get("interval")
-        label = f"Interval: every {every}" if every else f"Interval #{idx + 1}"
-        tree, error, unsupported = _safe_tree(
-            partial(
-                _block_tree,
-                _collect_block_params(item, action_list_keys={"then"}),
-                item.get("then"),
-            ),
-            trigger_id=None,
-        )
-        out.append(
-            ParsedAutomation(
-                location=IntervalLocation(index=idx),
+                location=location,
                 label=label,
                 automation=tree,
                 from_line=from_line,
@@ -248,6 +215,45 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
             )
         )
     return out
+
+
+def _parse_top_level_scripts(root: Any) -> list[ParsedAutomation]:
+    """Parse top-level ``script:`` list blocks."""
+    if not isinstance(root, dict):
+        return []
+    scripts = root.get("script")
+    if not isinstance(scripts, list):
+        return []
+
+    def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str]:
+        script_id = item.get("id") or f"script_{idx}"
+        return ScriptLocation(id=str(script_id)), f"Script: {script_id}"
+
+    return _parse_automation_list(
+        scripts,
+        describe=_describe,
+        params_of=partial(_collect_block_params, action_list_keys={"then"}),
+    )
+
+
+def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
+    """Parse top-level ``interval:`` list blocks."""
+    if not isinstance(root, dict):
+        return []
+    intervals = root.get("interval")
+    if not isinstance(intervals, list):
+        return []
+
+    def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str]:
+        every = item.get("interval")
+        label = f"Interval: every {every}" if every else f"Interval #{idx + 1}"
+        return IntervalLocation(index=idx), label
+
+    return _parse_automation_list(
+        intervals,
+        describe=_describe,
+        params_of=partial(_collect_block_params, action_list_keys={"then"}),
+    )
 
 
 def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
@@ -268,31 +274,15 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
     actions = api_block.get("actions")
     if not isinstance(actions, list):
         return []
-    out: list[ParsedAutomation] = []
-    for idx, item in enumerate(actions):
-        if not isinstance(item, dict):
-            continue
+
+    def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str] | None:
+        del idx
         action_name = item.get("action") or item.get("service")
         if not action_name:
-            continue
-        from_line, to_line = _item_range(actions, idx)
-        tree, error, unsupported = _safe_tree(
-            partial(_block_tree, _collect_api_action_params(item), item.get("then")),
-            trigger_id=None,
-        )
-        out.append(
-            ParsedAutomation(
-                location=ApiActionLocation(action_name=str(action_name)),
-                label=f"API: {action_name}",
-                automation=tree,
-                from_line=from_line,
-                to_line=to_line,
-                raw_yaml=_dump_slice([item]),
-                error=error,
-                unsupported=unsupported,
-            )
-        )
-    return out
+            return None
+        return ApiActionLocation(action_name=str(action_name)), f"API: {action_name}"
+
+    return _parse_automation_list(actions, describe=_describe, params_of=_collect_api_action_params)
 
 
 def singleton_component_id(section: dict, domain: str) -> str:
