@@ -438,11 +438,10 @@ def _check_ack(
     reject_label: str,
     reason_remap: Mapping[ResetBuildEnvRejectReason, str] | None = None,
 ) -> bool:
-    """Fail *job* locally on a rejected ack; True iff accepted.
+    """
+    Fail *job* locally on a rejected ack; True iff accepted.
 
-    *reason_remap* keys are typed against the documented reject
-    reasons so a caller typo fails mypy; the wire value is still an
-    untrusted ``str``, so an unknown reason passes through unmapped.
+    A wire reason missing from *reason_remap* passes through unmapped.
     """
     if ack["accepted"]:
         return True
