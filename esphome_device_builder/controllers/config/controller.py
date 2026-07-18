@@ -19,7 +19,7 @@ from ...helpers.secrets_state import (
     write_secret,
     write_wifi_secrets,
 )
-from ...helpers.storage import ShutdownCallback
+from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
 from ...helpers.storage_path import resolve_storage_path
 from ...models import ErrorCode, UserPreferences
 from ._preferences_store import PreferencesStore
@@ -51,8 +51,7 @@ class ConfigController:
 
     async def stop(self) -> None:
         """Flush the preferences store on shutdown."""
-        for callback in self._shutdown_callbacks:
-            await callback()
+        await drain_shutdown_callbacks(self._shutdown_callbacks)
 
     @api_command("config/version")
     async def get_version(self, **kwargs: Any) -> dict:
