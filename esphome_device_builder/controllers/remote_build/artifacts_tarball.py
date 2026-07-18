@@ -495,9 +495,9 @@ def _build_images_response(
     resolution and ``firmware.uf2`` for libretiny/RP2040
     ltchiptool flashing, neither of which is in
     ``idedata.extra.flash_images``) are ignored. The size cap
-    in :func:`_check_member_size` already gates total payload,
-    so we don't need a "no leftovers" check to reject a
-    bloated tarball.
+    in :func:`helpers.tarball_read.check_member_size` already
+    gates total payload, so we don't need a "no leftovers"
+    check to reject a bloated tarball.
     """
     images: list[dict[str, Any]] = []
     firmware_bytes = image_bytes_by_name.pop("firmware.bin", None)
