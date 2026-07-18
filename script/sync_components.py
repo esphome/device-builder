@@ -1785,7 +1785,10 @@ def _is_truncated_prefix(existing: str, full: str) -> bool:
     """Whether *existing* is a mid-sentence (no terminal .!?:) leading slice of *full*."""
     # A trailing ``:`` is a list-introducer ("One of:") whose options live in MDX
     # sub-bullets the extractor skips, so joining yields garbage — leave it.
-    head = " ".join(existing.split())
+    # Schema ``docs`` keep markdown (`` `code` ``, ``[links]``) that the MDX
+    # ``full`` text has already flattened, so flatten the head too — else a
+    # truncated head carrying any markup never matches its fuller MDX text.
+    head = " ".join(_clean_description_text(existing).split())
     whole = " ".join(full.split())
     return (
         bool(head) and len(whole) > len(head) and whole.startswith(head) and head[-1] not in ".!?:"

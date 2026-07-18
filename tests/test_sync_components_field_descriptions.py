@@ -56,6 +56,22 @@ def test_truncated_prefix_false_when_not_a_prefix_or_not_longer() -> None:
     assert not _is_truncated_prefix("", "anything at all")
 
 
+# ``safe_mode.disabled`` as shipped: the schema truncates at "automatically" and
+# keeps markdown (`` `true` ``, ``[Ota](...)``); the MDX text is flattened plain.
+_SAFE_MODE_DISABLED_SCHEMA = (
+    "Set to `true` to disable safe_mode. [Ota](https://esphome.io/components/ota/) automatically"
+)
+_SAFE_MODE_DISABLED_MDX = (
+    "Set to true to disable safe_mode. Ota automatically sets up safe mode; "
+    "this allows disabling it if/when it is not wanted."
+)
+
+
+def test_truncated_prefix_matches_markdown_head() -> None:
+    """A truncated schema head with markup matches its flattened MDX text."""
+    assert _is_truncated_prefix(_SAFE_MODE_DISABLED_SCHEMA, _SAFE_MODE_DISABLED_MDX)
+
+
 def test_apply_field_descriptions_replaces_truncated_head() -> None:
     """The fuller MDX text supersedes a truncated schema description."""
     entries = [{"key": "level", "description": "The global log level. Any log message"}]
@@ -66,6 +82,13 @@ def test_apply_field_descriptions_replaces_truncated_head() -> None:
     assert entries[0]["description"] == full
     # The backfill stamps the configuration-variables fragment when unset.
     assert entries[0]["help_link"] == "https://esphome.io/components/logger#configuration-variables"
+
+
+def test_apply_field_descriptions_replaces_markdown_truncated_head() -> None:
+    """A markdown-bearing truncated schema head is superseded by the MDX text."""
+    entries = [{"key": "disabled", "description": _SAFE_MODE_DISABLED_SCHEMA}]
+    _apply_field_descriptions(entries, {"disabled": _SAFE_MODE_DISABLED_MDX}, docs_url="")
+    assert entries[0]["description"] == _SAFE_MODE_DISABLED_MDX
 
 
 def test_apply_field_descriptions_keeps_complete_description() -> None:
