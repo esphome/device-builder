@@ -21,6 +21,7 @@ from esphome_device_builder.helpers.device_yaml import (
     get_api_encryption_key,
     get_api_port,
     get_resolved_api_encryption_key,
+    has_top_level_block,
     load_device_yaml,
 )
 from esphome_device_builder.models import Device
@@ -121,6 +122,19 @@ def test_config_has_top_level_block() -> None:
     assert config_has_top_level_block({"mqtt": {"broker": "x"}}, "mqtt") is True
     assert config_has_top_level_block({"esphome": {}}, "api") is False
     assert config_has_top_level_block(None, "api") is False
+
+
+def test_has_top_level_block_resolved_config_wins() -> None:
+    """Resolved config is authoritative whenever available; raw text is ignored."""
+    assert has_top_level_block({"mqtt": None}, "", "mqtt") is True
+    # The resolved view saying "absent" wins even when raw text declares it.
+    assert has_top_level_block({"esphome": {}}, "mqtt:\n  broker: x\n", "mqtt") is False
+
+
+def test_has_top_level_block_raw_text_fallback_on_failed_resolution() -> None:
+    """Raw text is consulted only when resolution failed (``None``)."""
+    assert has_top_level_block(None, "mqtt:\n  broker: x\n", "mqtt") is True
+    assert has_top_level_block(None, "esphome:\n  name: kitchen\n", "mqtt") is False
 
 
 # ---------------------------------------------------------------------------
