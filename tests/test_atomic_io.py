@@ -307,3 +307,51 @@ def test_atomic_write_exclusive_concurrent_creator_loses_cleanly(tmp_path: Path)
 
     assert target.read_bytes() == b"raced"
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_atomic_write_exclusive_retries_windows_scanner_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient Windows ``PermissionError`` on the exclusive publish is retried."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", True)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.time.sleep", lambda _s: None)
+    target = tmp_path / "kitchen.yaml"
+
+    real_rename = os.rename
+    calls = {"n": 0}
+
+    def _flaky(src: object, dst: object, **kwargs: object) -> None:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError(5, "Access is denied")
+        real_rename(src, dst, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("os.rename", _flaky)
+    atomic_write_exclusive(target, b"esphome:\n")
+
+    assert calls["n"] == 3  # failed twice, succeeded on the third
+    assert target.read_bytes() == b"esphome:\n"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_atomic_write_exclusive_windows_existing_target_fails_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``FileExistsError`` on the Windows publish surfaces immediately, no retry."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", True)
+    target = tmp_path / "kitchen.yaml"
+    target.write_bytes(b"original")
+
+    calls = {"n": 0}
+
+    def _refuse(src: object, dst: object, **kwargs: object) -> None:
+        calls["n"] += 1
+        raise FileExistsError(str(dst))
+
+    monkeypatch.setattr("os.rename", _refuse)
+    with pytest.raises(FileExistsError):
+        atomic_write_exclusive(target, b"clobber")
+
+    assert calls["n"] == 1  # no retry on an existing destination
+    assert target.read_bytes() == b"original"
+    assert list(tmp_path.glob("*.tmp")) == []

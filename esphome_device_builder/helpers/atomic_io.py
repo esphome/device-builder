@@ -126,13 +126,24 @@ def _staged_write(
 
 def _publish_exclusive(src: Path, dst: Path) -> None:
     """Exclusive publish: refuses an existing *dst* with ``FileExistsError``."""
-    if _IS_WINDOWS:
-        # ``Path.rename`` on Windows refuses an existing destination.
-        src.rename(dst)
-    else:
+    if not _IS_WINDOWS:
         # ``os.link`` is the POSIX exclusive primitive; the staged
         # source is unlinked by the caller's cleanup.
         os.link(src, dst)
+        return
+    # ``Path.rename`` on Windows refuses an existing destination
+    # (``FileExistsError``, surfaced immediately); a transient
+    # ``PermissionError`` is an AV / indexer holding the staged file
+    # and gets the same retry policy as ``_replace_with_retry``.
+    for attempt in range(_REPLACE_RETRIES):
+        try:
+            src.rename(dst)
+        except PermissionError:
+            if attempt == _REPLACE_RETRIES - 1:
+                raise
+            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
+        else:
+            return
 
 
 def _replace_with_retry(src: Path, dst: Path) -> None:
