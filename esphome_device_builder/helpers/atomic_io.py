@@ -14,6 +14,7 @@ Blocking I/O — call from ``run_in_executor``, not the loop.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import tempfile
 import time
@@ -30,6 +31,9 @@ from pathlib import Path
 # before we give up — far cheaper than losing a metadata / preferences write
 # or failing a concurrent read.
 _IS_WINDOWS = os.name == "nt"
+# ``os.link`` failures that mean "this filesystem can't hard-link"
+# (SMB / FAT / some FUSE mounts) rather than a real error.
+_HARDLINK_UNSUPPORTED_ERRNOS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.ENOSYS})
 _REPLACE_RETRIES = 15
 _REPLACE_RETRY_BACKOFF_S = 0.05
 _REPLACE_RETRY_BACKOFF_CAP_S = 0.5
@@ -120,7 +124,20 @@ def _publish_exclusive(src: Path, dst: Path) -> None:
     if not _IS_WINDOWS:
         # ``os.link`` is the POSIX exclusive primitive; the staged
         # source is unlinked by the caller's cleanup.
-        os.link(src, dst)
+        try:
+            os.link(src, dst)
+        except FileExistsError:
+            raise
+        except OSError as err:
+            if err.errno not in _HARDLINK_UNSUPPORTED_ERRNOS:
+                raise
+        else:
+            return
+        # Hardlink-less filesystem: keep the exclusive-open reach the
+        # pre-staged write had, at the cost of unstaged bytes on this
+        # one exotic mount class.
+        with dst.open("xb") as f:
+            f.write(src.read_bytes())
         return
     # ``Path.rename`` on Windows refuses an existing destination
     # (``FileExistsError``, surfaced immediately, not a

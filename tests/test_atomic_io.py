@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import stat
 import sys
@@ -353,5 +354,41 @@ def test_atomic_write_exclusive_windows_existing_target_fails_fast(
         atomic_write_exclusive(target, b"clobber")
 
     assert calls["n"] == 1  # no retry on an existing destination
+    assert target.read_bytes() == b"original"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX hardlink fallback")
+def test_atomic_write_exclusive_falls_back_on_hardlink_less_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A link-unsupported errno degrades to the exclusive-open write."""
+    target = tmp_path / "kitchen.yaml"
+
+    def _no_links(src: object, dst: object, **kwargs: object) -> None:
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.link", _no_links)
+    atomic_write_exclusive(target, b"esphome:\n")
+
+    assert target.read_bytes() == b"esphome:\n"
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX hardlink fallback")
+def test_atomic_write_exclusive_fallback_still_refuses_existing_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The fallback keeps exclusivity: an existing target raises FileExistsError."""
+    target = tmp_path / "kitchen.yaml"
+    target.write_bytes(b"original")
+
+    def _no_links(src: object, dst: object, **kwargs: object) -> None:
+        raise OSError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.os.link", _no_links)
+    with pytest.raises(FileExistsError):
+        atomic_write_exclusive(target, b"clobber")
+
     assert target.read_bytes() == b"original"
     assert list(tmp_path.glob("*.tmp")) == []
