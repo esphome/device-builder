@@ -33,10 +33,9 @@ _LOGGER = logging.getLogger(__name__)
 @contextmanager
 def _translate_archive_fs_errors(configuration: str, *, archived: bool = False) -> Iterator[None]:
     """
-    Map filesystem races onto the wire contract.
+    Map ``FileExistsError`` to INVALID_ARGS and ``FileNotFoundError`` to NOT_FOUND.
 
-    A concurrent delete can win between an archive op's pre-check and
-    its move / unlink; keep the not_found surface stable.
+    *archived* selects the "Archived file" not-found prefix.
     """
     try:
         yield
