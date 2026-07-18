@@ -2335,11 +2335,12 @@ _CODE_LANG = (
 # The whitespace runs are atomic (``(?>\s*)``) so a run before an unterminated
 # fence can't be re-partitioned into exponentially many ways (ReDoS guard).
 _CODE_FENCE_INTRO = r"(?>\s*)(?:for example|examples?|e\.g\.)?(?>\s*):?(?>\s*)"
-# A fenced code example: ```...``` (any body) or ``lang ... ``. Only triple-fenced
-# or language-tagged spans match, so inline ``code`` (double-backtick, no language)
-# is preserved.
+# A fenced code example: ```...``` (any body) or ``lang <body> ``. Only triple-fenced
+# or language-tagged spans match. The ``\s+`` after the language token requires a real
+# body, so inline ``code`` (double-backtick, no language) and an inline format-name
+# reference like ``json`` are both preserved.
 _CODE_FENCE_RE = re.compile(
-    _CODE_FENCE_INTRO + r"(?:`{3,}.*?`{3,}|``\s*" + _CODE_LANG + r"\b.*?``)",
+    _CODE_FENCE_INTRO + r"(?:`{3,}.*?`{3,}|``\s*" + _CODE_LANG + r"\s+.*?``)",
     re.IGNORECASE | re.DOTALL,
 )
 # A trailing, unterminated fence whose body lived on excluded sub-lines.

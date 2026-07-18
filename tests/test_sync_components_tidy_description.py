@@ -121,6 +121,9 @@ def test_trims_dangling_list_introducer(text: str, expected: str) -> None:
     [
         # inline double-backtick code is not a fenced block
         "Invert the logical level. ``true`` swaps high/low so an active-low button reads active.",
+        # inline double-backtick whose content is exactly a language name is still inline code
+        "The ``json`` key holds it.",
+        "Set the ``c`` register bit.",
         # "one of" inside a real sentence, not a dangling introducer
         "Pick one of the modes.",
         "This is one of the required fields.",
