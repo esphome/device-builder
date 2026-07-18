@@ -69,6 +69,7 @@ async def write_new_file_exclusive(
         await run_in_executor(_write)
     except FileExistsError as exc:
         on_exists(exc)
+        raise
 
 
 def raise_device_not_found(
