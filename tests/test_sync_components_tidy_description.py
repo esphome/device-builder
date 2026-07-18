@@ -62,13 +62,13 @@ def test_strips_untagged_triple_fence_with_brace_body() -> None:
 
 
 def test_no_catastrophic_backtracking_on_whitespace_run_and_open_fence() -> None:
-    """A long whitespace run before an unterminated fence tidies quickly (ReDoS guard)."""
-    payload = "State." + " " * 4000 + "```"
+    """A huge whitespace run before an unterminated fence tidies in linear time."""
+    payload = "State." + " " * 50000 + "```"
     start = time.perf_counter()
     out = _tidy_description(payload)
     elapsed = time.perf_counter() - start
-    assert elapsed < 1.0  # exponential backtracking would take minutes here
-    assert out.startswith("State.")
+    assert elapsed < 1.0  # exponential/quadratic scanning would take many seconds here
+    assert out == "State."
 
 
 def test_strips_cpp_fence_keeps_surrounding_prose() -> None:

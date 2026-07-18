@@ -2377,9 +2377,16 @@ def _tidy_description(text: str) -> str:
     """
     if not text:
         return text
-    tidied = _CODE_FENCE_RE.sub("", text)
+    # Collapse whitespace runs first. Real descriptions are already single-spaced
+    # (``clean_docs`` / the MDX parser normalize), so this is a no-op on them; it
+    # also bounds the fence regexes to linear time on a pathological long whitespace
+    # run (a multi-line unterminated fence under ``re.DOTALL``), which the atomic
+    # groups alone leave quadratic. A clean description is still returned verbatim
+    # via the ``changed`` guard below.
+    working = _MULTI_SPACE_RE.sub(" ", text)
+    tidied = _CODE_FENCE_RE.sub("", working)
     tidied = _CODE_FENCE_TAIL_RE.sub("", tidied)
-    changed = tidied != text
+    changed = tidied != working
     prev: str | None = None
     while prev != tidied:
         prev = tidied
