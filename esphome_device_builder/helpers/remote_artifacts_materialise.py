@@ -240,8 +240,7 @@ def _read_member_required(
 
     *total_so_far* threads the cumulative-size accounting from the
     caller so successive metadata reads can't each fit under the
-    :data:`FIRMWARE_MAX_TOTAL_BYTES` cap individually while
-    collectively breaching it.
+    global tarball cap individually while collectively breaching it.
     """
     try:
         member = tar.getmember(name)

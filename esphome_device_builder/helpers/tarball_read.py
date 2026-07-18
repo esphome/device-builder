@@ -13,12 +13,9 @@ def check_member_size(
     member: tarfile.TarInfo, *, total_so_far: int, error_cls: type[Exception]
 ) -> None:
     """
-    Reject a tarball member whose declared size would blow the cap.
+    Reject a member whose declared size breaches the cap, alone or cumulatively.
 
-    Combines a per-member check with a cumulative check against
-    ``total_so_far``. Decompression-bomb guard: a hostile stream that
-    declares a multi-GiB member (or N just-under-cap members) bails
-    here before ``extractfile`` reads a single byte.
+    Decompression-bomb guard; runs before ``extractfile`` reads a byte.
     """
     if member.size > FIRMWARE_MAX_TOTAL_BYTES:
         msg = (
@@ -55,8 +52,9 @@ def read_member(
     stream = tar.extractfile(member)
     if stream is None:
         raise error_cls(f"tarball member {member.name!r} unreadable")
-    payload = stream.read()
-    return payload, total_so_far + len(payload)
+    with stream:
+        payload = stream.read()
+    return payload, total_so_far + member.size
 
 
 def parse_json_object(payload: bytes, *, label: str, error_cls: type[Exception]) -> dict[str, Any]:
