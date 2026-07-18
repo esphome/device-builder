@@ -64,6 +64,12 @@ def frame_schema(required: dict[str, Any]) -> vol.Schema:
     return vol.Schema(cooked, extra=vol.ALLOW_EXTRA, required=True)
 
 
+def safe_job_id(frame: dict[str, Any]) -> str:
+    """Best-effort ``job_id`` from a frame that failed its schema gate."""
+    job_id = frame.get("job_id")
+    return job_id if isinstance(job_id, str) else ""
+
+
 def is_valid_frame(schema: vol.Schema, frame: dict[str, Any]) -> bool:
     """Return ``True`` iff *frame* passes *schema*; swallow ``vol.Invalid``.
 

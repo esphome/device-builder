@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from ...helpers.peer_link_frames import frame_schema, is_valid_frame
+from ...helpers.peer_link_frames import frame_schema, is_valid_frame, safe_job_id
 from ...models import JobType, ResetBuildEnvAckFrameData, ResetBuildEnvFrameData
 from .peer_link import TerminateReason
 
@@ -39,10 +39,9 @@ async def handle_reset_build_env(
             session.dashboard_id,
             frame,
         )
-        raw_job_id = frame.get("job_id")
         await _send_ack(
             session,
-            job_id=raw_job_id if isinstance(raw_job_id, str) else "",
+            job_id=safe_job_id(frame),
             accepted=False,
             reason=_REASON_INVALID_FRAME,
         )

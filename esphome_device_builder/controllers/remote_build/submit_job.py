@@ -70,7 +70,7 @@ from ...helpers.peer_link_bundle import (
     BundleAssemblerErrorCode,
     decode_chunk,
 )
-from ...helpers.peer_link_frames import frame_schema, is_valid_frame
+from ...helpers.peer_link_frames import frame_schema, is_valid_frame, safe_job_id
 from ...helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 from ...helpers.version_compat import coerce_pep440_version
 from ...models import (
@@ -406,10 +406,9 @@ class SubmitJobReceiver:
         # method operates on after the gate.
         raw = cast(dict[str, Any], frame)
         if not is_valid_frame(_SUBMIT_JOB_HEADER_SCHEMA, raw):
-            job_id = raw.get("job_id") if isinstance(raw.get("job_id"), str) else ""
             await self._reject(
                 session,
-                job_id=cast(str, job_id),
+                job_id=safe_job_id(raw),
                 reason=_REASON_INVALID_HEADER,
                 terminate_session=True,
             )
@@ -483,10 +482,9 @@ class SubmitJobReceiver:
         # and terminate.
         chunk_dict = cast(dict[str, Any], frame)
         if not is_valid_frame(_SUBMIT_JOB_CHUNK_SCHEMA, chunk_dict):
-            job_id = chunk_dict.get("job_id") if isinstance(chunk_dict.get("job_id"), str) else ""
             await self._reject(
                 session,
-                job_id=cast(str, job_id),
+                job_id=safe_job_id(chunk_dict),
                 reason=_REASON_INVALID_CHUNK,
                 drop_inflight=True,
                 terminate_session=True,
