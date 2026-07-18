@@ -11,13 +11,14 @@ from esphome.core.config import FRIENDLY_NAME_MAX_LEN
 from esphome.helpers import friendly_name_slugify, sort_ip_addresses
 
 from ...helpers.api import CommandError
+from ...helpers.async_ import run_in_executor
 from ...helpers.hostname import is_local_hostname, normalize_hostname
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
 from .constants import _CONCEALED_SECRET_RE
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from ...models import ComponentCatalogEntry, ConfigEntry
     from .._device_state_monitor import DeviceStateMonitor
@@ -43,10 +44,31 @@ __all__ = [
     "raise_device_not_found",
     "require_file_exists",
     "slugify_hostname",
+    "write_new_file_exclusive",
 ]
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def write_new_file_exclusive(
+    path: Path, content: str, *, on_exists: Callable[[BaseException], NoReturn]
+) -> None:
+    """
+    Exclusive-create (``open("x")``) *content* at *path* off the event loop.
+
+    A ``FileExistsError`` is delegated to *on_exists*, which raises the
+    caller's typed error.
+    """
+
+    def _write() -> None:
+        with path.open("x", encoding="utf-8") as f:
+            f.write(content)
+
+    try:
+        await run_in_executor(_write)
+    except FileExistsError as exc:
+        on_exists(exc)
 
 
 def raise_device_not_found(

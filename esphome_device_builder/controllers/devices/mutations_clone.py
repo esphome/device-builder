@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
@@ -20,6 +20,7 @@ from .helpers import (
     clean_friendly_name,
     friendly_name_slugify,
     raise_device_name_exists,
+    write_new_file_exclusive,
 )
 
 if TYPE_CHECKING:
@@ -141,18 +142,14 @@ async def clone_device(  # noqa: C901
     carry_board_id = source_meta.get("board_id") if source_meta else None
     carry_user_set = source_meta.get("board_id_user_set") if source_meta else None
 
-    def _commit() -> None:
-        with new_path.open("x", encoding="utf-8") as f:
-            f.write(new_content)
-
-    try:
-        await run_in_executor(_commit)
-    except FileExistsError as exc:
+    def _raise_name_exists(exc: BaseException) -> NoReturn:
         # Race: another caller created the file between our
         # gather pass and the ``open(... "x")``. Surface as the
         # same INVALID_ARGS the preflight produces so the
         # frontend renders a single message.
         raise_device_name_exists(new_filename, from_exc=exc)
+
+    await write_new_file_exclusive(new_path, new_content, on_exists=_raise_name_exists)
     if carry_board_id and carry_user_set is True:
         await controller._persist_device_metadata_async(
             new_filename, board_id=carry_board_id, board_id_user_set=True
