@@ -765,7 +765,7 @@ def test_materialise_rejects_oversized_member(
 ) -> None:
     """A member declaring more bytes than the cap is rejected as a decompression-bomb defence."""
     monkeypatch.setattr(
-        "esphome_device_builder.helpers.remote_artifacts_materialise.FIRMWARE_MAX_TOTAL_BYTES",
+        "esphome_device_builder.helpers.tarball_read.FIRMWARE_MAX_TOTAL_BYTES",
         16,
     )
     tarball = _synthetic_tarball()
@@ -926,7 +926,7 @@ def test_materialise_rejects_cumulative_member_size(
 ) -> None:
     """Two extract-side members whose sum breaches the cap raise on the second."""
     monkeypatch.setattr(
-        "esphome_device_builder.helpers.remote_artifacts_materialise.FIRMWARE_MAX_TOTAL_BYTES",
+        "esphome_device_builder.helpers.tarball_read.FIRMWARE_MAX_TOTAL_BYTES",
         500,
     )
     # storage / idedata read via _read_member_required (single-member
@@ -952,7 +952,7 @@ def test_materialise_rejects_cumulative_metadata_size(
     breach on the second read.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.helpers.remote_artifacts_materialise.FIRMWARE_MAX_TOTAL_BYTES",
+        "esphome_device_builder.helpers.tarball_read.FIRMWARE_MAX_TOTAL_BYTES",
         500,
     )
     bloated = b"x" * 300

@@ -39,14 +39,13 @@ from ..controllers.remote_build.artifacts_tarball import (
 )
 from .cross_os_path import receiver_pure_path_cls
 from .json import dumps_indent
-from .json import loads as json_loads
-from .peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from .storage_path import (
     resolve_compiled_config_path,
     resolve_data_dir,
     resolve_idedata_path,
     resolve_storage_path,
 )
+from .tarball_read import check_member_size, parse_json_object, read_member
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -231,13 +230,7 @@ def _read_member_optional(
         member = tar.getmember(name)
     except KeyError:
         return None, total_so_far
-    if not member.isfile():
-        raise MaterialiseError(f"tarball member {name!r} is not a regular file")
-    _check_member_size(member, total_so_far=total_so_far)
-    payload = tar.extractfile(member)
-    if payload is None:
-        raise MaterialiseError(f"tarball member {name!r} unreadable")
-    return payload.read(), total_so_far + member.size
+    return read_member(tar, member, total_so_far=total_so_far, error_cls=MaterialiseError)
 
 
 def _read_member_required(
@@ -245,41 +238,15 @@ def _read_member_required(
 ) -> tuple[bytes, int]:
     """Read *name* or raise. Returns ``(payload, running total)``.
 
-    Caps the declared member size against
-    :data:`FIRMWARE_MAX_TOTAL_BYTES` before reading so a hostile
-    peer can't expand a tiny gzipped tarball into multi-GiB
-    memory by inflating a metadata-member header. *total_so_far*
-    threads the running cumulative-size accounting from the
-    caller; the cap is checked against
-    ``total_so_far + member.size`` so successive metadata reads
-    can't each fit under the cap individually while collectively
-    breaching it.
+    *total_so_far* threads the cumulative-size accounting from the
+    caller so successive metadata reads can't each fit under the
+    global tarball cap individually while collectively breaching it.
     """
     try:
         member = tar.getmember(name)
     except KeyError as err:
         raise MaterialiseError(f"tarball missing required member: {name!r}") from err
-    if not member.isfile():
-        raise MaterialiseError(f"tarball member {name!r} is not a regular file")
-    _check_member_size(member, total_so_far=total_so_far)
-    payload = tar.extractfile(member)
-    if payload is None:  # ``isfile()`` already gates this; defence
-        raise MaterialiseError(f"tarball member {name!r} unreadable")
-    return payload.read(), total_so_far + member.size
-
-
-def _check_member_size(member: tarfile.TarInfo, *, total_so_far: int) -> None:
-    """Reject tar members whose declared size would breach the global cap."""
-    if member.size > FIRMWARE_MAX_TOTAL_BYTES:
-        raise MaterialiseError(
-            f"tarball member {member.name!r} declares size {member.size} "
-            f"exceeding FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
-        )
-    if total_so_far + member.size > FIRMWARE_MAX_TOTAL_BYTES:
-        raise MaterialiseError(
-            f"tarball cumulative size {total_so_far + member.size} "
-            f"exceeds FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
-        )
+    return read_member(tar, member, total_so_far=total_so_far, error_cls=MaterialiseError)
 
 
 def _safe_extract_excluding(
@@ -302,7 +269,7 @@ def _safe_extract_excluding(
     for member in tar.getmembers():
         if member.name in exclude:
             continue
-        _check_member_size(member, total_so_far=total_bytes)
+        check_member_size(member, total_so_far=total_bytes, error_cls=MaterialiseError)
         total_bytes += member.size
         member_path = (dest / member.name).resolve()
         try:
@@ -318,13 +285,7 @@ def _safe_extract_excluding(
 
 def _parse_storage_json(payload: bytes) -> dict[str, Any]:
     """Parse the shipped storage.json into a dict for the pre-extract lookups."""
-    try:
-        parsed = json_loads(payload)
-    except ValueError as err:
-        raise MaterialiseError(f"tarball storage.json is not valid JSON: {err}") from err
-    if not isinstance(parsed, dict):
-        raise MaterialiseError("tarball storage.json is not a JSON object")
-    return parsed
+    return parse_json_object(payload, label="tarball storage.json", error_cls=MaterialiseError)
 
 
 def _stage_offloader_storage(
@@ -381,13 +342,7 @@ def _stage_offloader_idedata(
 
 def _parse_idedata_dict(payload: bytes) -> dict[str, Any]:
     """Parse the shipped idedata.json or raise MaterialiseError."""
-    try:
-        data = json_loads(payload)
-    except ValueError as err:
-        raise MaterialiseError(f"tarball idedata.json is not valid JSON: {err}") from err
-    if not isinstance(data, dict):
-        raise MaterialiseError("tarball idedata.json is not a JSON object")
-    return data
+    return parse_json_object(payload, label="tarball idedata.json", error_cls=MaterialiseError)
 
 
 def _remap_idedata_build_paths(
