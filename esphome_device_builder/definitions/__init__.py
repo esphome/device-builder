@@ -469,12 +469,13 @@ def load_board_body_from_disk(board_id: str) -> BoardCatalogEntry | None:
         _LOGGER.warning("Refusing board body for traversal-shaped id: %r", board_id)
         return None
     path = _BOARDS_BODIES_DIR / f"{board_id}.json"
-    return _load_json_artifact(
+    body: BoardCatalogEntry | None = _load_json_artifact(
         path,
         default=None,
         transform=BoardCatalogEntry.from_dict,
         error_msg=f"Failed to load board body {path}",
     )
+    return body
 
 
 def load_featured_components_index() -> dict[str, list[FeaturedComponent]]:
