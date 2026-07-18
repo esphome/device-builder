@@ -42,7 +42,7 @@ async def test_config_only_rename_rewrites_name_and_renames_file(
     assert read_yaml_scalar(new_content, ("esphome", "name")) == "livingroom"
     # Untouched siblings survive the rewrite.
     assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Kitchen Light"
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
 
 
 async def test_config_only_rename_migrates_sidecar_metadata(
@@ -121,7 +121,7 @@ async def test_config_only_rename_survives_storage_migration_failure(
     assert result == {"configuration": "livingroom.yaml", "job": None}
     assert not (tmp_path / "kitchen.yaml").exists()
     assert (tmp_path / "livingroom.yaml").exists()
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
 
 
 async def test_config_only_rename_rejects_invalid_rewrite(

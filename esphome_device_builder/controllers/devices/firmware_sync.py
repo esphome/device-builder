@@ -218,6 +218,10 @@ async def migrate_metadata_then_scan(
             old_configuration,
             new_configuration,
         )
+    # The renamed YAML was written before the migration (at queue time on
+    # the OTA path), so a poll scan has usually already indexed it
+    # label-less; force a reload so the migrated sidecar reaches RAM (#2151).
+    await controller._scanner.reload(new_configuration)
     await controller._scanner.scan()
 
 

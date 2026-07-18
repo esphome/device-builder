@@ -150,7 +150,7 @@ async def test_rename_underscore_name_to_hyphen_in_place(
     new_content = config.read_text(encoding="utf-8")
     assert read_yaml_scalar(new_content, ("esphome", "name")) == "test-1"
     assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Test_1"
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("reload", "test-1.yaml"), ("scan",)]
 
 
 async def test_rename_in_place_with_redundant_path_segments(

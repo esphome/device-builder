@@ -16,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from esphome_device_builder.controllers._device_scanner import DeviceScanner
 from esphome_device_builder.controllers.config import (
     get_device_metadata,
     rename_device_metadata,
@@ -160,7 +161,7 @@ async def test_completed_rename_migrates_metadata_then_scans(
     moved = await controller._shared_sidecar.get("livingroom.yaml")
     assert moved.get("labels") == ["a"]
     assert moved.get("comment") == "downstairs"
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
 
 
 async def test_completed_rename_normalizes_new_name_with_extension(
@@ -213,7 +214,42 @@ async def test_completed_rename_scans_even_when_migration_fails(
     firmware_sync.on_job_completed(controller, Event(EventType.JOB_COMPLETED, {"job": job}))
 
     await scheduled[0]
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
+
+
+async def test_migrate_reloads_a_device_the_mtime_cache_would_skip(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A renamed YAML already indexed label-less picks up the migrated labels (#2151)."""
+    controller = make_controller(tmp_path)
+    controller._db.boards = None
+    scanner = DeviceScanner(
+        tmp_path,
+        get_metadata=controller._resolve_device_metadata,
+        on_change=lambda _kind, _device, _previous: None,
+    )
+    controller._scanner = scanner
+
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    await controller._shared_sidecar.update("kitchen.yaml", labels=["tag-bedroom"])
+    await scanner.scan()
+
+    # The OTA chain writes the renamed YAML at queue time; a poll scan
+    # indexes it with no labels while the chain compiles and flashes.
+    (tmp_path / "livingroom.yaml").write_text("esphome:\n  name: livingroom\n", encoding="utf-8")
+    await scanner.scan()
+    mid_chain = scanner.get_by_configuration("livingroom.yaml")
+    assert mid_chain is not None
+    assert list(mid_chain.labels) == []
+
+    # Tail completion: the old YAML is swapped out, then the migration runs.
+    (tmp_path / "kitchen.yaml").unlink()
+    await firmware_sync.migrate_metadata_then_scan(controller, "kitchen.yaml", "livingroom.yaml")
+
+    assert scanner.get_by_configuration("kitchen.yaml") is None
+    renamed = scanner.get_by_configuration("livingroom.yaml")
+    assert renamed is not None
+    assert list(renamed.labels) == ["tag-bedroom"]
 
 
 async def test_completed_rename_without_new_name_falls_back_to_scan(

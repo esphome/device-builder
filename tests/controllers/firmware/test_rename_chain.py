@@ -11,11 +11,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_scanner import DeviceScanner
+from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
+from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.firmware import persistence, rename_flow
 from esphome_device_builder.controllers.firmware.cli import build_command
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     ErrorCode,
+    EventType,
     FirmwareJob,
     JobSource,
     JobStatus,
@@ -199,6 +204,59 @@ async def test_chain_success_flashes_old_address_and_swaps_files(
     assert not (tmp_path / ".esphome" / "build" / "kitchen").exists()
     assert (tmp_path / "livingroom.yaml").exists()
     assert len(captured["job_completed"]) == 2
+
+
+async def test_chain_success_carries_labels_to_the_renamed_device(
+    tmp_path: Path, firmware_controller_factory: FirmwareControllerFactory
+) -> None:
+    """A mid-chain scan of the queue-time YAML doesn't strand the renamed device label-less."""
+    controller = firmware_controller_factory(with_queue=True, with_real_bus=True)
+    wire_real_queue(controller)
+    background = wire_background_tasks(controller)
+    record_argv_esphome(controller.state, tmp_path / "argv.jsonl")
+    _seed_kitchen(tmp_path)
+
+    # Real devices-side slice: the JOB_COMPLETED listener, the metadata
+    # stores, and a real scanner with its mtime cache.
+    devices = DevicesController.__new__(DevicesController)
+    devices._db = controller._db
+    devices._db.boards = None
+    devices._build_size = MagicMock()
+    devices._metadata_store = DeviceMetadataStore(
+        config_dir=tmp_path,
+        data_dir=tmp_path,
+        shutdown_register=lambda _callback: None,
+    )
+    devices._shared_sidecar = SharedSidecarClient(tmp_path)
+    scanner = DeviceScanner(
+        tmp_path,
+        get_metadata=devices._resolve_device_metadata,
+        on_change=lambda _kind, _device, _previous: None,
+    )
+    devices._scanner = scanner
+    controller._db.bus.add_listener(EventType.JOB_COMPLETED, devices._on_firmware_job_completed)
+
+    await devices._shared_sidecar.update("kitchen.yaml", labels=["tag-bedroom"])
+    await scanner.scan()
+
+    head = await controller.rename(configuration="kitchen.yaml", new_name="livingroom")
+    tail = _tail_of(controller, head)
+    # ``begin_rename`` wrote livingroom.yaml at queue time; the periodic
+    # poll scan indexes it label-less while the chain compiles + flashes.
+    await scanner.scan()
+    mid_chain = scanner.get_by_configuration("livingroom.yaml")
+    assert mid_chain is not None
+    assert list(mid_chain.labels) == []
+
+    await run_until_terminal(controller)
+    await asyncio.gather(*background)
+
+    assert head.status is JobStatus.COMPLETED
+    assert tail.status is JobStatus.COMPLETED
+    assert scanner.get_by_configuration("kitchen.yaml") is None
+    renamed = scanner.get_by_configuration("livingroom.yaml")
+    assert renamed is not None
+    assert list(renamed.labels) == ["tag-bedroom"]
 
 
 async def test_compile_failure_cancels_tail_and_reverts(

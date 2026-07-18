@@ -393,9 +393,22 @@ def wire_real_queue(controller: FirmwareController) -> None:
     controller.state.cancel_events = {}
 
 
-def wire_background_tasks(controller: FirmwareController) -> None:
-    """Run work scheduled via ``create_background_task`` (e.g. the rename revert) for real."""
-    controller._db.create_background_task = asyncio.create_task
+def wire_background_tasks(controller: FirmwareController) -> list[asyncio.Task[Any]]:
+    """
+    Run work scheduled via ``create_background_task`` (e.g. the rename revert) for real.
+
+    Returns the spawned tasks so a test can ``gather`` them before asserting
+    on their side effects.
+    """
+    tasks: list[asyncio.Task[Any]] = []
+
+    def _spawn(coro: Any) -> asyncio.Task[Any]:
+        task = asyncio.get_running_loop().create_task(coro)
+        tasks.append(task)
+        return task
+
+    controller._db.create_background_task = _spawn
+    return tasks
 
 
 def upload_of(controller: FirmwareController, compile_job: FirmwareJob) -> FirmwareJob:
