@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
@@ -51,6 +53,22 @@ def test_strips_unterminated_trailing_fence() -> None:
         "Any command sent to the Modbus Select immediately updates the reported "
         "state. Defaults to false."
     )
+
+
+def test_strips_untagged_triple_fence_with_brace_body() -> None:
+    """A plain ```{...}``` fence with no language tag (body starts with `{`) is removed."""
+    text = 'The payload shape. Example: ```{ "state": "open" }``` See the notes.'
+    assert _tidy_description(text) == "The payload shape. See the notes."
+
+
+def test_no_catastrophic_backtracking_on_whitespace_run_and_open_fence() -> None:
+    """A long whitespace run before an unterminated fence tidies quickly (ReDoS guard)."""
+    payload = "State." + " " * 4000 + "```"
+    start = time.perf_counter()
+    out = _tidy_description(payload)
+    elapsed = time.perf_counter() - start
+    assert elapsed < 1.0  # exponential backtracking would take minutes here
+    assert out.startswith("State.")
 
 
 def test_strips_cpp_fence_keeps_surrounding_prose() -> None:
@@ -120,6 +138,13 @@ def test_trims_dangling_list_introducer(text: str, expected: str) -> None:
 def test_leaves_legitimate_descriptions_unchanged(text: str) -> None:
     """Inline code, real ``one of`` sentences, and legit trailing colons are preserved."""
     assert _tidy_description(text) == text
+
+
+def test_preserves_ellipsis_when_a_fence_is_stripped() -> None:
+    """A legitimate ``...`` survives the terminal-punctuation collapse after a strip."""
+    assert _tidy_description("Loading state... ```yaml x: 1``` then done.") == (
+        "Loading state... then done."
+    )
 
 
 def test_empty_and_none_safe() -> None:

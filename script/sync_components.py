@@ -1356,7 +1356,8 @@ def build_catalog(
 
     # Final pass over every description (schema- and MDX-derived alike): strip
     # leaked fenced-code examples and dangling ``One of:`` list-introducers.
-    _tidy_all_descriptions(out)
+    tidied = _tidy_all_descriptions(out)
+    _LOGGER.info("Tidied %d description(s): stripped code fences / dangling introducers", tidied)
 
     return out
 
@@ -2331,17 +2332,19 @@ _CODE_LANG = (
     r"(?:yaml|yml|json|jsonc|c\+\+|cpp|c|python|py|bash|sh|shell|ini|toml|text|html|xml|cbp)"
 )
 # Optional prose that introduces a code example, shared by both fence patterns.
-_CODE_FENCE_INTRO = r"\s*(?:for example|examples?|e\.g\.)?\s*:?\s*"
-# A fenced code example: ```lang ... ``` or ``lang ... ``. Only triple-fenced or
-# language-tagged spans match, so inline ``code`` (double-backtick, no language)
+# The whitespace runs are atomic (``(?>\s*)``) so a run before an unterminated
+# fence can't be re-partitioned into exponentially many ways (ReDoS guard).
+_CODE_FENCE_INTRO = r"(?>\s*)(?:for example|examples?|e\.g\.)?(?>\s*):?(?>\s*)"
+# A fenced code example: ```...``` (any body) or ``lang ... ``. Only triple-fenced
+# or language-tagged spans match, so inline ``code`` (double-backtick, no language)
 # is preserved.
 _CODE_FENCE_RE = re.compile(
-    _CODE_FENCE_INTRO + r"(?:`{3,}\s*[a-z0-9+#]*\b.*?`{3,}|``\s*" + _CODE_LANG + r"\b.*?``)",
+    _CODE_FENCE_INTRO + r"(?:`{3,}.*?`{3,}|``\s*" + _CODE_LANG + r"\b.*?``)",
     re.IGNORECASE | re.DOTALL,
 )
 # A trailing, unterminated fence whose body lived on excluded sub-lines.
 _CODE_FENCE_TAIL_RE = re.compile(
-    _CODE_FENCE_INTRO + r"(?:`{3,}\s*[a-z0-9+#]*|``\s*" + _CODE_LANG + r"\b)[^`]*$",
+    _CODE_FENCE_INTRO + r"(?:`{3,}|``\s*" + _CODE_LANG + r"\b)[^`]*$",
     re.IGNORECASE,
 )
 # A trailing sentence that is just a list-introducer ending in ``:`` (its options
@@ -2357,6 +2360,12 @@ _BARE_ONE_OF_RE = re.compile(r"(?:(?<=[.!?])\s+|^)[^.!?]*\bone of\s*\.?\s*$", re
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.,;:])")
 _REPEATED_TERMINATOR_RE = re.compile(r"([.!?])(?:\s*[.!?])+")
 _MULTI_SPACE_RE = re.compile(r"\s{2,}")
+
+
+def _collapse_terminators(match: re.Match[str]) -> str:
+    """Collapse a run of sentence terminators to one, but keep a literal ``...``."""
+    run = match.group(0)
+    return run if run == "..." else match.group(1)
 
 
 def _tidy_description(text: str) -> str:
@@ -2382,7 +2391,7 @@ def _tidy_description(text: str) -> str:
     if not changed:
         return text
     tidied = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", tidied)
-    tidied = _REPEATED_TERMINATOR_RE.sub(r"\1", tidied)
+    tidied = _REPEATED_TERMINATOR_RE.sub(_collapse_terminators, tidied)
     tidied = _MULTI_SPACE_RE.sub(" ", tidied).strip().rstrip(",;:-").strip()
     tidied = _ensure_terminal_period(tidied)
     return tidied or text
