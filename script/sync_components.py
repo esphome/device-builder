@@ -1991,9 +1991,7 @@ def _parse_config_var_bullets(  # noqa: C901
         if current_key is None:
             return
         joined = " ".join(p for p in current_parts if p)
-        cleaned = _clean_description_text(joined).rstrip(" .,:")
-        if cleaned and cleaned[-1] not in ".!?":
-            cleaned += "."
+        cleaned = _ensure_terminal_period(_clean_description_text(joined).rstrip(" .,:"))
         if cleaned:
             descriptions[current_key] = cleaned
 
@@ -2322,21 +2320,28 @@ def _clean_description_text(text: str) -> str:
     return text
 
 
+def _ensure_terminal_period(text: str) -> str:
+    """Append ``.`` unless *text* already ends in sentence-terminating punctuation."""
+    if text and text[-1] not in ".!?":
+        return text + "."
+    return text
+
+
 _CODE_LANG = (
     r"(?:yaml|yml|json|jsonc|c\+\+|cpp|c|python|py|bash|sh|shell|ini|toml|text|html|xml|cbp)"
 )
-# A fenced code example: ```lang ... ``` or ``lang ... ``, optionally introduced by
-# "Example:" / "e.g.". Only triple-fenced or language-tagged spans match, so inline
-# ``code`` (double-backtick, no language) is preserved.
+# Optional prose that introduces a code example, shared by both fence patterns.
+_CODE_FENCE_INTRO = r"\s*(?:for example|examples?|e\.g\.)?\s*:?\s*"
+# A fenced code example: ```lang ... ``` or ``lang ... ``. Only triple-fenced or
+# language-tagged spans match, so inline ``code`` (double-backtick, no language)
+# is preserved.
 _CODE_FENCE_RE = re.compile(
-    r"\s*(?:for example|examples?|e\.g\.|see)?\s*:?\s*"
-    r"(?:`{3,}\s*[a-z0-9+#]*\b.*?`{3,}|``\s*" + _CODE_LANG + r"\b.*?``)",
+    _CODE_FENCE_INTRO + r"(?:`{3,}\s*[a-z0-9+#]*\b.*?`{3,}|``\s*" + _CODE_LANG + r"\b.*?``)",
     re.IGNORECASE | re.DOTALL,
 )
 # A trailing, unterminated fence whose body lived on excluded sub-lines.
 _CODE_FENCE_TAIL_RE = re.compile(
-    r"\s*(?:for example|examples?|e\.g\.)?\s*:?\s*"
-    r"(?:`{3,}\s*[a-z0-9+#]*|``\s*" + _CODE_LANG + r"\b)[^`]*$",
+    _CODE_FENCE_INTRO + r"(?:`{3,}\s*[a-z0-9+#]*|``\s*" + _CODE_LANG + r"\b)[^`]*$",
     re.IGNORECASE,
 )
 # A trailing sentence that is just a list-introducer ending in ``:`` (its options
@@ -2375,8 +2380,7 @@ def _tidy_description(text: str) -> str:
     tidied = re.sub(r"\s+([.,;:])", r"\1", tidied)
     tidied = re.sub(r"([.!?])(?:\s*[.!?])+", r"\1", tidied)
     tidied = re.sub(r"\s{2,}", " ", tidied).strip().rstrip(",;:-").strip()
-    if tidied and tidied[-1] not in ".!?":
-        tidied += "."
+    tidied = _ensure_terminal_period(tidied)
     return tidied or text
 
 
