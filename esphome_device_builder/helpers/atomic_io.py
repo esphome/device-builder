@@ -69,16 +69,7 @@ def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> Non
 
 def read_bytes_with_retry(path: Path) -> bytes:
     """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
-    for attempt in range(_REPLACE_RETRIES):
-        try:
-            return path.read_bytes()
-        except PermissionError:
-            # POSIX never hits this transiently, so a PermissionError there is
-            # real; re-raise. On Windows, back off and retry the open.
-            if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
-                raise
-            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
-    raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover
+    return _retry_windows_permission(path.read_bytes)
 
 
 def _staged_write(
@@ -132,30 +123,29 @@ def _publish_exclusive(src: Path, dst: Path) -> None:
         os.link(src, dst)
         return
     # ``Path.rename`` on Windows refuses an existing destination
-    # (``FileExistsError``, surfaced immediately); a transient
-    # ``PermissionError`` is an AV / indexer holding the staged file
-    # and gets the same retry policy as ``_replace_with_retry``.
-    for attempt in range(_REPLACE_RETRIES):
-        try:
-            src.rename(dst)
-        except PermissionError:
-            if attempt == _REPLACE_RETRIES - 1:
-                raise
-            time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
-        else:
-            return
+    # (``FileExistsError``, surfaced immediately, not a
+    # ``PermissionError``); a transient hold by an AV / indexer gets
+    # the shared retry policy.
+    _retry_windows_permission(lambda: src.rename(dst))
 
 
 def _replace_with_retry(src: Path, dst: Path) -> None:
     """``Path.replace`` *src* onto *dst*, retried on a Windows handle race."""
+    _retry_windows_permission(lambda: src.replace(dst))
+
+
+def _retry_windows_permission[T](op: Callable[[], T]) -> T:
+    """
+    Run *op*, retrying a transient Windows ``PermissionError`` with backoff.
+
+    POSIX never hits the transient class, so a ``PermissionError``
+    there is real and surfaces without a retry.
+    """
     for attempt in range(_REPLACE_RETRIES):
         try:
-            src.replace(dst)
+            return op()
         except PermissionError:
-            # POSIX rename can't hit this transiently, so a PermissionError
-            # there is real; re-raise. On Windows, back off and retry.
             if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
                 raise
             time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
-        else:
-            return
+    raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover
