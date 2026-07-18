@@ -1970,13 +1970,17 @@ def _parse_config_var_bullets(  # noqa: C901
     """Parse a flat ``- **name** (...): ...`` bullet list into a field map.
 
     One description per top-level bullet, joining indented continuation
-    prose, excluding nested sub-bullets, and stopping at block-quotes /
-    sub-headings. With *first_paragraph_only*, a blank line after the
-    first prose ends the field (drops trailing ``**Important:**`` notes).
+    prose, excluding nested sub-bullets (and their wrapped continuation
+    lines), and stopping at block-quotes / sub-headings. With
+    *first_paragraph_only*, a blank line after the first prose ends the
+    field (drops trailing ``**Important:**`` notes).
     """
     descriptions: dict[str, str] = {}
     current_key: str | None = None
     current_parts: list[str] = []
+    # Indent of the sub-bullet we're skipping, so its deeper-indented wrapped
+    # continuation lines are skipped too; None when not inside one.
+    sub_indent: int | None = None
 
     def commit() -> None:
         nonlocal current_key
@@ -1996,6 +2000,7 @@ def _parse_config_var_bullets(  # noqa: C901
             commit()
             current_key = m.group("name")
             current_parts = [m.group("desc").strip()] if m.group("desc").strip() else []
+            sub_indent = None
             continue
         if current_key is None:
             continue
@@ -2006,16 +2011,25 @@ def _parse_config_var_bullets(  # noqa: C901
                 commit()
                 current_key = None
                 current_parts = []
+                sub_indent = None
             continue
         # Block-quotes / GitHub alerts and sub-headings end the field.
         if stripped.startswith((">", "#")):
             commit()
             current_key = None
             current_parts = []
+            sub_indent = None
             continue
-        # Sub-bullets describe sub-fields — skip.
+        # Sub-bullets describe sub-fields — skip, and remember their indent so
+        # their wrapped continuation lines (indented deeper) are skipped too.
         if stripped.startswith(("- ", "* ", "+ ")):
+            sub_indent = len(line) - len(line.lstrip())
             continue
+        if sub_indent is not None:
+            if len(line) - len(line.lstrip()) > sub_indent:
+                continue
+            # Back at the parent indent — a trailing paragraph, not sub-bullet prose.
+            sub_indent = None
         current_parts.append(stripped)
 
     commit()
