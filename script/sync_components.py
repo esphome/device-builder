@@ -2353,6 +2353,10 @@ _LIST_INTRO_COLON_RE = re.compile(
     re.IGNORECASE,
 )
 _BARE_ONE_OF_RE = re.compile(r"(?:(?<=[.!?])\s+|^)[^.!?]*\bone of\s*\.?\s*$", re.IGNORECASE)
+# Tail clean-up after a fence/introducer removal leaves stray spacing/punctuation.
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.,;:])")
+_REPEATED_TERMINATOR_RE = re.compile(r"([.!?])(?:\s*[.!?])+")
+_MULTI_SPACE_RE = re.compile(r"\s{2,}")
 
 
 def _tidy_description(text: str) -> str:
@@ -2377,9 +2381,9 @@ def _tidy_description(text: str) -> str:
         tidied = stripped.rstrip()
     if not changed:
         return text
-    tidied = re.sub(r"\s+([.,;:])", r"\1", tidied)
-    tidied = re.sub(r"([.!?])(?:\s*[.!?])+", r"\1", tidied)
-    tidied = re.sub(r"\s{2,}", " ", tidied).strip().rstrip(",;:-").strip()
+    tidied = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", tidied)
+    tidied = _REPEATED_TERMINATOR_RE.sub(r"\1", tidied)
+    tidied = _MULTI_SPACE_RE.sub(" ", tidied).strip().rstrip(",;:-").strip()
     tidied = _ensure_terminal_period(tidied)
     return tidied or text
 
