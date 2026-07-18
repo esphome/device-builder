@@ -215,6 +215,18 @@ def config_has_top_level_block(config: dict | None, key: str) -> bool:
     return isinstance(config, dict) and key in config
 
 
+def has_top_level_block(resolved_config: dict | None, yaml_content: str, key: str) -> bool:
+    """
+    Detect a top-level *key* block: resolved config wins, raw text fills in.
+
+    The raw-text fallback applies only when resolution failed
+    (``resolved_config is None``), keeping the flag stable mid-edit.
+    """
+    if resolved_config is not None:
+        return config_has_top_level_block(resolved_config, key)
+    return yaml_has_top_level_block(yaml_content, key)
+
+
 def extract_directly_referenced_integrations(
     config: dict | None,
 ) -> list[str]:

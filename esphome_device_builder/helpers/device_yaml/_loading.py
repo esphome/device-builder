@@ -30,6 +30,7 @@ from ._parsing import (
     extract_logger_baud_rate,
     extract_ota_partition_access,
     get_api_encryption_block,
+    has_top_level_block,
     parse_esphome_meta,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
@@ -318,16 +319,8 @@ def load_device_from_storage(
         # wins, raw-text fills in mid-edit, and we don't have a
         # ``loaded_integrations`` entry that maps cleanly to "uses
         # mqtt for dashboard discovery" the way ``"api"`` does.
-        uses_mqtt=(
-            config_has_top_level_block(resolved_config, "mqtt")
-            if resolved_config is not None
-            else yaml_has_top_level_block(yaml_content, "mqtt")
-        ),
-        uses_deep_sleep=(
-            config_has_top_level_block(resolved_config, "deep_sleep")
-            if resolved_config is not None
-            else yaml_has_top_level_block(yaml_content, "deep_sleep")
-        ),
+        uses_mqtt=has_top_level_block(resolved_config, yaml_content, "mqtt"),
+        uses_deep_sleep=has_top_level_block(resolved_config, yaml_content, "deep_sleep"),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
         mac_address=mac_address,
