@@ -31,7 +31,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from esphome.const import __version__ as _offloader_esphome_version
 
@@ -53,6 +53,7 @@ from ...models import (
     OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
     ResetBuildEnvAckFrameData,
+    ResetBuildEnvRejectReason,
     SubmitJobAckFrameData,
 )
 from ..remote_build.peer_link_client import (
@@ -435,14 +436,19 @@ def _check_ack(
     ack: SubmitJobAckFrameData | ResetBuildEnvAckFrameData,
     *,
     reject_label: str,
-    reason_remap: Mapping[str, str] | None = None,
+    reason_remap: Mapping[ResetBuildEnvRejectReason, str] | None = None,
 ) -> bool:
-    """Fail *job* locally on a rejected ack; True iff accepted."""
+    """Fail *job* locally on a rejected ack; True iff accepted.
+
+    *reason_remap* keys are typed against the documented reject
+    reasons so a caller typo fails mypy; the wire value is still an
+    untrusted ``str``, so an unknown reason passes through unmapped.
+    """
     if ack["accepted"]:
         return True
     reason = ack.get("reason", "no reason given")
     if reason_remap:
-        reason = reason_remap.get(reason, reason)
+        reason = cast("Mapping[str, str]", reason_remap).get(reason, reason)
     _fail_locally(controller, job, reason=f"{reject_label}: {reason}")
     return False
 
