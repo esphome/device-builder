@@ -442,12 +442,9 @@ class DeviceStateMonitor(TaskControllerBase):
 
     def apply_version(self, name: str, version: str) -> bool:
         """Record a firmware version observation; True iff forwarded."""
-        if not version or self._on_version_change is None:
+        if not version or (forward := self._on_version_change) is None:
             return False
-        if not self._any_matching_device_differs(name, "deployed_version", version):
-            return False
-        self._on_version_change(name, version)
-        return True
+        return self._apply_observation(name, "deployed_version", version, forward, name, version)
 
     def apply_api_encryption(self, name: str, encryption: str) -> bool:
         """
@@ -473,12 +470,11 @@ class DeviceStateMonitor(TaskControllerBase):
         last-known truthy value and trip the "reinstall to apply"
         prompt.
         """
-        if self._on_api_encryption_change is None:
+        if (forward := self._on_api_encryption_change) is None:
             return False
-        if not self._any_matching_device_differs(name, "api_encryption_active", encryption):
-            return False
-        self._on_api_encryption_change(name, encryption)
-        return True
+        return self._apply_observation(
+            name, "api_encryption_active", encryption, forward, name, encryption
+        )
 
     def apply_config_hash(self, name: str, config_hash: str) -> bool:
         """
@@ -487,12 +483,11 @@ class DeviceStateMonitor(TaskControllerBase):
         Empty strings dropped so pre-#16145 firmware (no
         ``config_hash`` TXT) doesn't churn the callback.
         """
-        if not config_hash or self._on_config_hash_change is None:
+        if not config_hash or (forward := self._on_config_hash_change) is None:
             return False
-        if not self._any_matching_device_differs(name, "deployed_config_hash", config_hash):
-            return False
-        self._on_config_hash_change(name, config_hash)
-        return True
+        return self._apply_observation(
+            name, "deployed_config_hash", config_hash, forward, name, config_hash
+        )
 
     def apply_mac_address(self, name: str, mac: str) -> bool:
         """
@@ -504,15 +499,12 @@ class DeviceStateMonitor(TaskControllerBase):
         inputs are dropped so a broadcast that omits the ``mac``
         TXT (older firmware) doesn't blank an already-known value.
         """
-        if self._on_mac_address_change is None:
+        if (forward := self._on_mac_address_change) is None:
             return False
         normalized = _normalize_mac(mac)
         if not normalized:
             return False
-        if not self._any_matching_device_differs(name, "mac_address", normalized):
-            return False
-        self._on_mac_address_change(name, normalized)
-        return True
+        return self._apply_observation(name, "mac_address", normalized, forward, name, normalized)
 
     def apply_deployed_identity_live(self, name: str, *, live: bool) -> bool:
         """
@@ -524,14 +516,13 @@ class DeviceStateMonitor(TaskControllerBase):
         a stamp made under ownership would never see the
         transition-into-mdns clear in :meth:`_emit_source_change`.
         """
-        if self._on_deployed_identity_live_change is None:
+        if (forward := self._on_deployed_identity_live_change) is None:
             return False
         if live and self._mdns_owns_api_identity(name):
             return False
-        if not self._any_matching_device_differs(name, "deployed_identity_live", live):
-            return False
-        self._on_deployed_identity_live_change(name, live=live)
-        return True
+        return self._apply_observation(
+            name, "deployed_identity_live", live, forward, name, live=live
+        )
 
     def _mdns_owns_api_identity(self, name: str) -> bool:
         """
@@ -550,6 +541,25 @@ class DeviceStateMonitor(TaskControllerBase):
         return self.priority_for(name) is ReachabilitySource.MDNS and any(
             device.api_enabled for device in self._get_devices_by_name(name)
         )
+
+    def _apply_observation[**P](
+        self,
+        name: str,
+        attr: str,
+        value: Any,
+        forward: Callable[P, None],
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> bool:
+        """Differ-gate an observation; invoke *forward* and return True iff it changed anything.
+
+        Takes the callback and its arguments separately so the
+        steady-state dedupe path allocates no wrapper.
+        """
+        if not self._any_matching_device_differs(name, attr, value):
+            return False
+        forward(*args, **kwargs)
+        return True
 
     def _any_matching_device_differs(self, name: str, attr: str, value: Any) -> bool:
         """
