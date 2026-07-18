@@ -16,6 +16,7 @@ import pytest
 
 from esphome_device_builder.helpers.build_artifacts import (
     _firmware_offset_for_platform,
+    iter_flash_images,
     load_build_artifacts,
 )
 
@@ -202,3 +203,26 @@ def test_load_build_artifacts_handles_non_dict_extra(tmp_path: Path) -> None:
 def test_firmware_offset_for_platform(platform: str, expected_offset: str) -> None:
     """ESP32 family → ``0x10000``; everything else → ``0x0``."""
     assert _firmware_offset_for_platform(platform) == expected_offset
+
+
+@pytest.mark.parametrize(
+    "idedata",
+    [
+        {},
+        {"extra": None},
+        {"extra": []},
+        {"extra": "x"},
+        {"extra": {}},
+        {"extra": {"flash_images": None}},
+    ],
+    ids=["no-extra", "null-extra", "list-extra", "scalar-extra", "empty-extra", "null-list"],
+)
+def test_iter_flash_images_tolerates_malformed_extra(idedata: dict) -> None:
+    """Non-dict ``extra`` and missing / null lists yield nothing."""
+    assert list(iter_flash_images(idedata)) == []
+
+
+def test_iter_flash_images_yields_entries_verbatim() -> None:
+    """Entries come back raw and in declared order; validation is the caller's."""
+    entries = [{"path": "a.bin", "offset": "0x0"}, "malformed", {"path": "b.bin"}]
+    assert list(iter_flash_images({"extra": {"flash_images": entries}})) == entries

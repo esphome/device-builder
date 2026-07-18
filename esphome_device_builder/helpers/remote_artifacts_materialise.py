@@ -37,6 +37,7 @@ from ..controllers.remote_build.artifacts_tarball import (
     STORAGE_MEMBER_NAME,
     VALIDATED_YAML_MEMBER_NAME,
 )
+from .build_artifacts import iter_flash_images
 from .cross_os_path import receiver_pure_path_cls
 from .json import dumps_indent
 from .storage_path import (
@@ -359,9 +360,7 @@ def _remap_idedata_build_paths(
 
     if (prog := _remap(data.get("prog_path"))) is not None:
         data["prog_path"] = prog
-    extra = data.get("extra")
-    flash_images = extra.get("flash_images") if isinstance(extra, dict) else None
-    for image in flash_images or []:
+    for image in iter_flash_images(data):
         if not isinstance(image, dict):
             continue
         if (remapped := _remap(image.get("path"))) is not None:

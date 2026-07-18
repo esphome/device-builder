@@ -61,7 +61,7 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...constants import TOOLCHAIN_ESP_IDF
-from ...helpers.build_artifacts import _firmware_offset_for_platform
+from ...helpers.build_artifacts import _firmware_offset_for_platform, iter_flash_images
 from ...helpers.cross_os_path import cross_os_basename
 from ...helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from ...helpers.storage_path import (
@@ -505,16 +505,7 @@ def _build_images_response(
         msg = "artifacts tarball missing firmware.bin"
         raise UnpackArtifactsError(msg)
     images.append(_image_entry("firmware.bin", firmware_offset, firmware_bytes))
-    # Guard the chained ``.get`` — a non-dict ``extra`` field
-    # (``null`` / list / scalar) on a corrupt-but-parseable
-    # idedata would otherwise blow up on the second ``.get``
-    # with ``AttributeError`` and bypass the
-    # :class:`UnpackArtifactsError` mapping. Mirror the
-    # :func:`helpers.build_artifacts.load_build_artifacts`
-    # stance: treat non-dict as "no extras."
-    extra = idedata.get("extra")
-    extras_list = extra.get("flash_images") or [] if isinstance(extra, dict) else []
-    for entry in extras_list:
+    for entry in iter_flash_images(idedata):
         basename, offset = _flash_image_basename_offset(entry)
         image_bytes = image_bytes_by_name.pop(basename, None)
         if image_bytes is None:
@@ -562,10 +553,9 @@ def _rewrite_idedata_paths(idedata: dict[str, Any]) -> dict[str, Any]:
     extra = idedata.get("extra")
     if not isinstance(extra, dict):
         return idedata
-    flash_images = extra.get("flash_images") or []
     rewritten = [
         {**entry, "path": cross_os_basename(entry["path"])}
-        for entry in flash_images
+        for entry in iter_flash_images(idedata)
         if isinstance(entry, dict) and isinstance(entry.get("path"), str)
     ]
     return {**idedata, "extra": {**extra, "flash_images": rewritten}}

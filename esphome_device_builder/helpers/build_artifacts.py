@@ -49,8 +49,10 @@ canonical "firmware image" path which is the same value
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
@@ -112,6 +114,19 @@ class BuildArtifacts:
 
     flash_images: list[FlashArtifact]
     idedata_bytes: bytes
+
+
+def iter_flash_images(idedata: dict[str, Any]) -> Iterator[Any]:
+    """
+    Yield raw ``idedata.extra.flash_images`` entries.
+
+    A non-dict ``extra`` (null / list / scalar on corrupt-but-parseable
+    idedata) and a missing / null list both yield nothing. Entries are
+    yielded unvalidated; each caller owns its malformed-entry policy.
+    """
+    extra = idedata.get("extra")
+    if isinstance(extra, dict):
+        yield from extra.get("flash_images") or []
 
 
 def load_build_artifacts(configuration: str) -> BuildArtifacts:
@@ -202,9 +217,7 @@ def load_build_artifacts(configuration: str) -> BuildArtifacts:
     # the StorageJSON sidecar and pick the offset.
     firmware_offset = _firmware_offset_for_platform(storage.target_platform)
     flash_images: list[FlashArtifact] = [FlashArtifact(path=firmware_bin, offset=firmware_offset)]
-    extra = idedata.get("extra")
-    raw_flash_images = extra.get("flash_images", []) if isinstance(extra, dict) else []
-    for entry in raw_flash_images:
+    for entry in iter_flash_images(idedata):
         # Defensive isinstance gate — a corrupt-but-parseable
         # ``flash_images`` entry (string / null / nested array)
         # would otherwise blow up on ``.get("path")`` with
