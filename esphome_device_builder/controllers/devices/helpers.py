@@ -57,8 +57,10 @@ async def write_new_file_exclusive(
     """
     Exclusive-create (``open("x")``) *content* at *path* off the event loop.
 
-    A ``FileExistsError`` is delegated to *on_exists*, which raises the
-    caller's typed error.
+    The ``x`` mode refuses to clobber an existing file with no TOCTOU
+    window; a check-then-write or staged-move shape would reopen the
+    race. A ``FileExistsError`` is delegated to *on_exists*, which
+    raises the caller's typed error.
     """
 
     def _write() -> None:
