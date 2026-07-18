@@ -35,7 +35,7 @@ from ...helpers.secrets_state import (
     wifi_secrets_defined,
     write_wifi_secrets,
 )
-from ...helpers.storage import ShutdownCallback
+from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
 from ...models import (
     OTA_PORT,
     AddComponentResponse,
@@ -286,8 +286,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
-        for callback in self._shutdown_callbacks:
-            await callback()
+        await drain_shutdown_callbacks(self._shutdown_callbacks)
 
     async def poll(self) -> None:
         """Poll for file changes; a no-op once stopped (don't re-arm during shutdown)."""

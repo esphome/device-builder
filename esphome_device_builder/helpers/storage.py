@@ -56,7 +56,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from contextlib import suppress
 from pathlib import Path
 
@@ -69,6 +69,12 @@ _LOGGER = logging.getLogger(__name__)
 # ``Callable[[Callable[[], Awaitable[None]]], None]`` inline.
 type ShutdownCallback = Callable[[], Awaitable[None]]
 type ShutdownRegister = Callable[[ShutdownCallback], None]
+
+
+async def drain_shutdown_callbacks(callbacks: Iterable[ShutdownCallback]) -> None:
+    """Await each registered store shutdown callback in registration order."""
+    for callback in callbacks:
+        await callback()
 
 
 class Store[T]:

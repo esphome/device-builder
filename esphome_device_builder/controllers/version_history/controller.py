@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from contextlib import ExitStack
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,8 +24,6 @@ from ...models import ErrorCode, EventType
 from .git_repo import GIT_COMMIT_ERRORS, GitIndexLockBusyError, GitRepo
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from ...device_builder import DeviceBuilder
     from ...helpers.event_bus import Event
     from ...models import DeviceEventData
@@ -71,7 +70,9 @@ class VersionHistoryController:
         self._db = device_builder
         self._repo = GitRepo(config_dir=device_builder.settings.config_dir)
         self._lock = asyncio.Lock()
-        self._unsubs: list[Callable[[], None]] = []
+        # ``EventBus.add_listener`` unsubscribes accumulate here;
+        # ``_teardown`` closes the stack (reusable across re-enable).
+        self._listeners = ExitStack()
         # configuration → pending commit message; last write wins.
         self._pending: dict[str, str] = {}
         self._flush_task: asyncio.Task[None] | None = None
@@ -139,7 +140,7 @@ class VersionHistoryController:
         # (which ride DEVICE_UPDATED) never reach us. Dashboard mutations have
         # already committed by the debounced flush, so those become no-ops.
         for event_type in _EXTERNAL_MESSAGE:
-            self._unsubs.append(self._db.bus.add_listener(event_type, self._on_disk_change))
+            self._listeners.callback(self._db.bus.add_listener(event_type, self._on_disk_change))
 
     async def set_auto_commit(self, *, enabled: bool) -> None:
         """
@@ -180,9 +181,7 @@ class VersionHistoryController:
         the queue is the only thing they treat differently (flush vs drop),
         so it stays with the callers.
         """
-        for unsub in self._unsubs:
-            unsub()
-        self._unsubs.clear()
+        self._listeners.close()
         task = self._flush_task
         self._flush_task = None
         if task is not None:

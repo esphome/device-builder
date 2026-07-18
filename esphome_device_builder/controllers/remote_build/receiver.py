@@ -27,7 +27,7 @@ from esphome.const import __version__ as _installed_esphome_version
 from ...helpers.api import api_command
 from ...helpers.async_ import drain_tasks, run_in_executor
 from ...helpers.event_bus import Event
-from ...helpers.storage import Store
+from ...helpers.storage import Store, drain_shutdown_callbacks
 from ...models import (
     TERMINAL_JOB_EVENTS,
     EventType,
@@ -148,8 +148,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         # in-flight pair_status long-polls on a still-alive bus
         # see the cancellation (matters for the soft-reload path).
         self._clear_pending_peers_on_window_close()
-        for callback in self._shutdown_callbacks:
-            await callback()
+        await drain_shutdown_callbacks(self._shutdown_callbacks)
         self.state.approved_peers.clear()
 
     async def _load_settings_async(self) -> RemoteBuildSettings:

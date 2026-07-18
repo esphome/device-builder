@@ -32,7 +32,7 @@ from ...helpers.build_scheduler import BuildSchedulerInputs
 from ...helpers.dashboard_identity import get_or_create_identities
 from ...helpers.event_bus import Event
 from ...helpers.peer_link_resolver import make_peer_link_resolver
-from ...helpers.storage import Store
+from ...helpers.storage import Store, drain_shutdown_callbacks
 from ...models import (
     EventType,
     FirmwareJob,
@@ -155,8 +155,7 @@ class OffloaderController(_RemoteBuildBase):
         # on its heartbeat to time out.
         await drain_tasks(h.task for h in state.peer_link_clients.values())
         state.peer_link_clients.clear()
-        for callback in self._shutdown_callbacks:
-            await callback()
+        await drain_shutdown_callbacks(self._shutdown_callbacks)
         state.pairings.clear()
         state.peer_queue_status.clear()
         state.offloader_remote_jobs.clear()
