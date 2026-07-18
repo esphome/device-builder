@@ -56,20 +56,20 @@ import logging
 import tarfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from esphome.storage_json import StorageJSON
 
 from ...constants import TOOLCHAIN_ESP_IDF
 from ...helpers.build_artifacts import _firmware_offset_for_platform
 from ...helpers.cross_os_path import cross_os_basename
-from ...helpers.json import loads as json_loads
 from ...helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
 from ...helpers.storage_path import (
     resolve_compiled_config_path,
     resolve_idedata_path,
     resolve_storage_path,
 )
+from ...helpers.tarball_read import parse_json_object, read_member
 from .artifact_platforms import build_files_for_platform
 
 if TYPE_CHECKING:
@@ -443,11 +443,13 @@ def _walk_artifacts_members(
     basename_origin: dict[str, str] = {}
     total_bytes = 0
     for member in tar:
-        _check_member_size(member, total_so_far=total_bytes)
-        payload = _read_tarball_member(tar, member)
-        total_bytes += len(payload)
+        payload, total_bytes = read_member(
+            tar, member, total_so_far=total_bytes, error_cls=UnpackArtifactsError
+        )
         if member.name == IDEDATA_MEMBER_NAME:
-            idedata = _parse_idedata(payload)
+            idedata = parse_json_object(
+                payload, label="idedata.json", error_cls=UnpackArtifactsError
+            )
             continue
         if member.name in _METADATA_MEMBERS:
             # storage.json + platformio.ini are materialiser-only.
@@ -474,65 +476,6 @@ def _relative_or_raise(path: Path, base: Path, *, configuration: str) -> str:
             f"build_path {base}; can't include in tarball"
         )
         raise RuntimeError(msg) from err
-
-
-def _check_member_size(member: tarfile.TarInfo, *, total_so_far: int) -> None:
-    """
-    Reject a tarball member whose decompressed size would blow the cap.
-
-    Combines a per-member check (``member.size`` exceeds the
-    cap on its own) with a cumulative check
-    (``member.size + total_so_far`` would push the running
-    total past the cap). The receiver-side packer
-    (:func:`pack_build_artifacts`) enforces the same ceiling
-    on the way out, so a well-formed tarball never trips
-    this gate; a peer-controlled / malformed stream that
-    declares a multi-GiB member in the tar header bails
-    here before :meth:`tarfile.TarFile.extractfile` reads
-    a single byte.
-    """
-    if member.size > FIRMWARE_MAX_TOTAL_BYTES:
-        msg = (
-            f"tarball member {member.name!r} declares size {member.size} "
-            f"exceeding FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
-        )
-        raise UnpackArtifactsError(msg)
-    if total_so_far + member.size > FIRMWARE_MAX_TOTAL_BYTES:
-        msg = (
-            f"tarball cumulative size {total_so_far + member.size} "
-            f"exceeds FIRMWARE_MAX_TOTAL_BYTES {FIRMWARE_MAX_TOTAL_BYTES}"
-        )
-        raise UnpackArtifactsError(msg)
-
-
-def _read_tarball_member(tar: tarfile.TarFile, member: tarfile.TarInfo) -> bytes:
-    """Read *member*'s bytes.
-
-    Raises :class:`UnpackArtifactsError` on directory entries
-    or any other non-regular tarball member type. Stdlib
-    ``tarfile`` guarantees ``extractfile()`` returns a
-    readable stream iff ``isfile()`` returns ``True`` —
-    ``extractfile`` only returns ``None`` for link / device /
-    FIFO members, every one of which ``isfile()`` already
-    rejects.
-    """
-    if not member.isfile():
-        msg = f"unexpected non-file tarball entry: {member.name!r}"
-        raise UnpackArtifactsError(msg)
-    return cast(io.BufferedReader, tar.extractfile(member)).read()
-
-
-def _parse_idedata(payload: bytes) -> dict[str, Any]:
-    """Parse *payload* as ``idedata.json``; raise on non-dict / invalid JSON."""
-    try:
-        parsed = json_loads(payload)
-    except ValueError as exc:
-        msg = f"idedata.json is not valid JSON: {exc}"
-        raise UnpackArtifactsError(msg) from exc
-    if not isinstance(parsed, dict):
-        msg = "idedata.json is not a JSON object"
-        raise UnpackArtifactsError(msg)
-    return parsed
 
 
 def _build_images_response(
