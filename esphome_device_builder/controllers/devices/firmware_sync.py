@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from esphome.storage_json import StorageJSON
 
+from ...helpers.async_ import run_in_executor
 from ...helpers.config_hash import compute_yaml_config_hash
 from ...helpers.event_bus import Event
 from ...helpers.remote_build_layout import (
@@ -137,7 +138,8 @@ async def persist_expected_config_hash(controller: DevicesController, configurat
     malformed ``build_info.json`` so an upstream ESPHome
     shape change surfaces visibly.
     """
-    yaml_path = controller._db.settings.rel_path(configuration)
+    # ``rel_path`` resolves symlinks (blocking ``os.path.abspath``) — executor.
+    yaml_path = await run_in_executor(controller._db.settings.rel_path, configuration)
     new_hash = await compute_yaml_config_hash(yaml_path)
     if not new_hash:
         _LOGGER.warning(
@@ -220,7 +222,7 @@ async def migrate_metadata_then_scan(
         )
     # The renamed YAML was written before the migration (at queue time on
     # the OTA path), so a poll scan has usually already indexed it
-    # label-less; force a reload so the migrated sidecar reaches RAM (#2151).
+    # label-less; force a reload so the migrated sidecar reaches RAM.
     await controller._scanner.reload(new_configuration)
     await controller._scanner.scan()
 
