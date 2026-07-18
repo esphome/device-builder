@@ -21,6 +21,7 @@ See any existing manifest for the schema.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from functools import cache
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -406,6 +407,33 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
     return BoardCatalogResponse(boards=boards)
 
 
+def _load_json_artifact[T](
+    path: Path,
+    *,
+    default: T,
+    transform: Callable[[Any], T],
+    error_msg: str,
+    missing_msg: str | None = None,
+) -> T:
+    """
+    Read + parse a generated JSON artifact; *default* on missing / malformed.
+
+    Never raises — a broken artifact must not take dashboard startup
+    down. *transform* runs inside the guard, so a payload with an
+    unexpected shape also lands on *error_msg* + *default*. A missing
+    file warns only when *missing_msg* is given.
+    """
+    if not path.exists():
+        if missing_msg is not None:
+            _LOGGER.warning(missing_msg)
+        return default
+    try:
+        return transform(orjson.loads(path.read_bytes()))
+    except Exception:
+        _LOGGER.exception(error_msg)
+        return default
+
+
 def load_board_index() -> list[BoardCatalogIndex]:
     """Load the slim board index from ``definitions/boards.index.json``.
 
@@ -413,21 +441,20 @@ def load_board_index() -> list[BoardCatalogIndex]:
     missing or fails to decode — never raises, so a malformed
     artefact can't take dashboard startup down with it.
     """
-    if not _BOARDS_INDEX_JSON.exists():
-        _LOGGER.warning(
+    empty: list[BoardCatalogIndex] = []
+    return _load_json_artifact(
+        _BOARDS_INDEX_JSON,
+        default=empty,
+        transform=lambda payload: [BoardCatalogIndex.from_dict(e) for e in payload["boards"]],
+        missing_msg=(
             "boards.index.json missing — board catalog will be empty. "
-            "Run script/sync_boards.py to generate the artefact.",
-        )
-        return []
-    try:
-        payload = orjson.loads(_BOARDS_INDEX_JSON.read_bytes())
-        return [BoardCatalogIndex.from_dict(entry) for entry in payload["boards"]]
-    except Exception:
-        _LOGGER.exception(
+            "Run script/sync_boards.py to generate the artefact."
+        ),
+        error_msg=(
             "Failed to load boards.index.json — board catalog will be empty. "
-            "Run script/sync_boards.py to regenerate the artefact.",
-        )
-        return []
+            "Run script/sync_boards.py to regenerate the artefact."
+        ),
+    )
 
 
 def load_board_body_from_disk(board_id: str) -> BoardCatalogEntry | None:
@@ -442,13 +469,12 @@ def load_board_body_from_disk(board_id: str) -> BoardCatalogEntry | None:
         _LOGGER.warning("Refusing board body for traversal-shaped id: %r", board_id)
         return None
     path = _BOARDS_BODIES_DIR / f"{board_id}.json"
-    if not path.exists():
-        return None
-    try:
-        return BoardCatalogEntry.from_dict(orjson.loads(path.read_bytes()))
-    except Exception:
-        _LOGGER.exception("Failed to load board body %s", path)
-        return None
+    return _load_json_artifact(
+        path,
+        default=None,
+        transform=BoardCatalogEntry.from_dict,
+        error_msg=f"Failed to load board body {path}",
+    )
 
 
 def load_featured_components_index() -> dict[str, list[FeaturedComponent]]:
@@ -460,23 +486,22 @@ def load_featured_components_index() -> dict[str, list[FeaturedComponent]]:
     empty map; the registry just has no featured components for any
     board in that degenerate case.
     """
-    if not _FEATURED_COMPONENTS_INDEX_JSON.exists():
-        _LOGGER.warning(
+    empty: dict[str, list[FeaturedComponent]] = {}
+    return _load_json_artifact(
+        _FEATURED_COMPONENTS_INDEX_JSON,
+        default=empty,
+        transform=lambda payload: {
+            board_id: [FeaturedComponent.from_dict(fc) for fc in entries]
+            for board_id, entries in payload.items()
+        },
+        missing_msg=(
             "featured_components.index.json missing — featured components will be empty. "
-            "Run script/sync_boards.py to generate the artefact.",
-        )
-        return {}
-    try:
-        payload = orjson.loads(_FEATURED_COMPONENTS_INDEX_JSON.read_bytes())
-    except Exception:
-        _LOGGER.exception(
+            "Run script/sync_boards.py to generate the artefact."
+        ),
+        error_msg=(
             "Failed to load featured_components.index.json — featured components will be empty."
-        )
-        return {}
-    return {
-        board_id: [FeaturedComponent.from_dict(fc) for fc in entries]
-        for board_id, entries in payload.items()
-    }
+        ),
+    )
 
 
 def load_pin_registry_modes_index() -> dict[str, list[str]]:
@@ -487,33 +512,35 @@ def load_pin_registry_modes_index() -> dict[str, list[str]]:
     artefact yields an empty map; the frontend then shows every mode flag (the
     pre-scoping behaviour).
     """
-    if not _PIN_REGISTRY_MODES_INDEX_JSON.exists():
-        _LOGGER.warning(
+
+    def _reshape(payload: Any) -> dict[str, list[str]]:
+        if not isinstance(payload, dict):
+            _LOGGER.warning(
+                "pin_registry_modes.index.json is not a mapping — ignoring; pin Mode "
+                "flags won't be scoped."
+            )
+            return {}
+        # Tolerate a malformed artefact: drop any entry whose value isn't a list,
+        # keep only string flags, so a partial / hand-mangled file degrades to
+        # "show every flag" rather than crashing startup.
+        return {
+            str(key): [str(m) for m in modes if isinstance(m, str)]
+            for key, modes in payload.items()
+            if isinstance(modes, list)
+        }
+
+    return _load_json_artifact(
+        _PIN_REGISTRY_MODES_INDEX_JSON,
+        default={},
+        transform=_reshape,
+        missing_msg=(
             "pin_registry_modes.index.json missing — pin Mode flags won't be "
-            "scoped per registry. Run script/sync_components.py to generate it.",
-        )
-        return {}
-    try:
-        payload = orjson.loads(_PIN_REGISTRY_MODES_INDEX_JSON.read_bytes())
-    except Exception:
-        _LOGGER.exception(
+            "scoped per registry. Run script/sync_components.py to generate it."
+        ),
+        error_msg=(
             "Failed to load pin_registry_modes.index.json — pin Mode flags won't be scoped."
-        )
-        return {}
-    if not isinstance(payload, dict):
-        _LOGGER.warning(
-            "pin_registry_modes.index.json is not a mapping — ignoring; pin Mode "
-            "flags won't be scoped."
-        )
-        return {}
-    # Tolerate a malformed artefact: drop any entry whose value isn't a list,
-    # keep only string flags, so a partial / hand-mangled file degrades to
-    # "show every flag" rather than crashing startup.
-    return {
-        str(key): [str(m) for m in modes if isinstance(m, str)]
-        for key, modes in payload.items()
-        if isinstance(modes, list)
-    }
+        ),
+    )
 
 
 class PlatformCapabilities(NamedTuple):
@@ -533,6 +560,9 @@ class PlatformCapabilities(NamedTuple):
     component_names: list[str]
 
 
+_EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [])
+
+
 @cache
 def load_platform_capabilities_index() -> PlatformCapabilities:
     """Load the static platform metadata the main process uses instead of esphome.
@@ -548,21 +578,23 @@ def load_platform_capabilities_index() -> PlatformCapabilities:
 
 def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
     """Parse a platform-capabilities index at *path*; empty on missing / malformed."""
-    empty = PlatformCapabilities([], [], [], [], {}, [])
-    if not path.exists():
-        _LOGGER.warning(
+    return _load_json_artifact(
+        path,
+        default=_EMPTY_PLATFORM_CAPABILITIES,
+        transform=_platform_capabilities_from_payload,
+        missing_msg=(
             "platform_capabilities.index.json missing — download routing + wifi "
-            "inference degraded. Run script/sync_components.py to generate it.",
-        )
-        return empty
-    try:
-        payload = orjson.loads(path.read_bytes())
-    except Exception:
-        _LOGGER.exception("Failed to load platform_capabilities.index.json — degraded.")
-        return empty
+            "inference degraded. Run script/sync_components.py to generate it."
+        ),
+        error_msg="Failed to load platform_capabilities.index.json — degraded.",
+    )
+
+
+def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
+    """Coerce a parsed index payload; empty on a non-mapping."""
     if not isinstance(payload, dict):
         _LOGGER.warning("platform_capabilities.index.json is not a mapping — ignoring.")
-        return empty
+        return _EMPTY_PLATFORM_CAPABILITIES
 
     def _str_list(key: str) -> list[str]:
         value = payload.get(key)
