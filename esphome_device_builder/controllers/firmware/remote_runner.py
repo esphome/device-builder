@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 from esphome.const import __version__ as _offloader_esphome_version
@@ -51,6 +52,8 @@ from ...models import (
     OffloaderJobOutputData,
     OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
+    ResetBuildEnvAckFrameData,
+    SubmitJobAckFrameData,
 )
 from ..remote_build.peer_link_client import (
     DownloadArtifactsError,
@@ -77,6 +80,18 @@ _LOGGER = logging.getLogger(__name__)
 # case string per :class:`JobStateChangedFrameData`'s
 # ``Literal`` union.
 _TERMINAL_WIRE_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
+
+# Errors any peer-link client request can raise before or at dispatch.
+_PEER_LINK_REQUEST_ERRORS = (
+    PeerLinkNoSessionError,
+    DuplicateRequestError,
+    SubmitJobSessionLostError,
+)
+# Ack-carrying requests (submit_job / reset_build_env) add the bounded
+# ack timeout; download_artifacts has no ack timeout and instead
+# surfaces receiver-reported failures as DownloadArtifactsError.
+_PEER_LINK_ACKED_REQUEST_ERRORS = (*_PEER_LINK_REQUEST_ERRORS, SubmitJobTimeoutError)
+_PEER_LINK_DOWNLOAD_ERRORS = (*_PEER_LINK_REQUEST_ERRORS, DownloadArtifactsError)
 
 
 class RemoteServerLostError(Exception):
@@ -385,19 +400,10 @@ async def _submit_job_to_receiver(
             # what this offloader would have built locally.
             target_esphome_version=_offloader_esphome_version,
         )
-    except (
-        PeerLinkNoSessionError,
-        DuplicateRequestError,
-        SubmitJobTimeoutError,
-        SubmitJobSessionLostError,
-    ) as exc:
+    except _PEER_LINK_ACKED_REQUEST_ERRORS as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
         return False
-    if not ack["accepted"]:
-        reason = ack.get("reason", "no reason given")
-        _fail_locally(controller, job, reason=f"receiver rejected job: {reason}")
-        return False
-    return True
+    return _check_ack(controller, job, ack, reject_label="receiver rejected job")
 
 
 async def _send_reset_to_receiver(
@@ -409,21 +415,36 @@ async def _send_reset_to_receiver(
     """Send ``reset_build_env`` and return ``True`` on accepted ack, ``False`` otherwise."""
     try:
         ack = await client.reset_build_env(job_id=job.job_id)
-    except (
-        PeerLinkNoSessionError,
-        DuplicateRequestError,
-        SubmitJobTimeoutError,
-        SubmitJobSessionLostError,
-    ) as exc:
+    except _PEER_LINK_ACKED_REQUEST_ERRORS as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
         return False
-    if not ack["accepted"]:
-        reason = ack.get("reason", "no reason given")
-        if reason == "busy":
-            reason = "the build server is busy with another job; retry when its queue is empty"
-        _fail_locally(controller, job, reason=f"receiver rejected reset: {reason}")
-        return False
-    return True
+    return _check_ack(
+        controller,
+        job,
+        ack,
+        reject_label="receiver rejected reset",
+        reason_remap={
+            "busy": "the build server is busy with another job; retry when its queue is empty"
+        },
+    )
+
+
+def _check_ack(
+    controller: FirmwareController,
+    job: FirmwareJob,
+    ack: SubmitJobAckFrameData | ResetBuildEnvAckFrameData,
+    *,
+    reject_label: str,
+    reason_remap: Mapping[str, str] | None = None,
+) -> bool:
+    """Fail *job* locally on a rejected ack; True iff accepted."""
+    if ack["accepted"]:
+        return True
+    reason = ack.get("reason", "no reason given")
+    if reason_remap:
+        reason = reason_remap.get(reason, reason)
+    _fail_locally(controller, job, reason=f"{reject_label}: {reason}")
+    return False
 
 
 async def _finalise_after_receiver_completed(
@@ -623,12 +644,7 @@ async def _fetch_and_materialise(
     )
     try:
         packed = await client.download_artifacts(job_id=job.job_id)
-    except (
-        PeerLinkNoSessionError,
-        DuplicateRequestError,
-        SubmitJobSessionLostError,
-        DownloadArtifactsError,
-    ) as exc:
+    except _PEER_LINK_DOWNLOAD_ERRORS as exc:
         _fail_locally(
             controller,
             job,

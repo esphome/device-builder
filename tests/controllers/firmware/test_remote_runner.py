@@ -714,6 +714,24 @@ async def test_remote_compile_rejected_ack_fires_job_failed(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
+async def test_remote_compile_rejected_ack_without_reason_uses_fallback(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """A rejected ack carrying no ``reason`` field fails with the fallback text."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    client = _make_client(accepted=False)
+    _wire_remote_build(controller, client=client)
+    job = _make_remote_job()
+
+    await remote_runner.run_remote_job(controller, job)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None and "no reason given" in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
 async def test_remote_compile_receiver_unreachable_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
