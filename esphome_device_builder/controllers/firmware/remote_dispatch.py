@@ -161,13 +161,7 @@ def _dispatch_to_server(controller: FirmwareController, job: FirmwareJob, pin_sh
         # can't strand the compile (the next pass picks a live server).
         controller.state.remote_dispatch.wake.set()
         return
-    job.apply_build_source(
-        JobBuildSource.for_server(
-            pin_sha256=pairing.pin_sha256,
-            label=pairing.label,
-            esphome_version=pairing.esphome_version,
-        )
-    )
+    job.apply_build_source(JobBuildSource.for_pairing(pairing))
     # ``create_background_task`` is eager: ``_drive_remote`` runs its
     # ``begin_run`` prologue (stamps RUNNING, fires JOB_STARTED) synchronously
     # before ``start()`` records the in-flight entry. That's safe — no

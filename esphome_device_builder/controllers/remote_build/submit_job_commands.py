@@ -95,11 +95,7 @@ async def reset_peer_build_env(controller: OffloaderController, *, pin_sha256: s
     job = firmware._create_job(
         "",
         JobType.RESET_BUILD_ENV,
-        build_source=JobBuildSource.for_server(
-            pin_sha256=clean_pin,
-            label=pairing.label,
-            esphome_version=pairing.esphome_version,
-        ),
+        build_source=JobBuildSource.for_pairing(pairing),
     )
     # supersede=False: reset jobs share the empty configuration key; the
     # default supersede would cancel an unrelated reset targeting another

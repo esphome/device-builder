@@ -26,6 +26,7 @@ from esphome_device_builder.models.firmware import (
     JobStatus,
     JobType,
 )
+from esphome_device_builder.models.remote_build import StoredPairing
 
 
 def _make_job(**overrides: Any) -> FirmwareJob:
@@ -309,6 +310,25 @@ def test_for_server_bundles_a_remote_source() -> None:
     assert build_source.source_pin_sha256 == "a" * 64
     assert build_source.source_label == "desktop"
     assert build_source.source_esphome_version == "2026.5.0"
+
+
+def test_for_pairing_matches_for_server_field_for_field() -> None:
+    """``for_pairing`` projects exactly the fields ``for_server`` takes."""
+    pairing = StoredPairing(
+        receiver_hostname="r",
+        receiver_port=6055,
+        pin_sha256="a" * 64,
+        static_x25519_pub=b"\x01" * 32,
+        label="desktop",
+        paired_at=1.0,
+        esphome_version="2026.5.0",
+    )
+
+    assert JobBuildSource.for_pairing(pairing) == JobBuildSource.for_server(
+        pin_sha256=pairing.pin_sha256,
+        label=pairing.label,
+        esphome_version=pairing.esphome_version,
+    )
 
 
 def test_apply_build_source_stamps_the_job() -> None:

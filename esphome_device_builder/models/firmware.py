@@ -5,9 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import NamedTuple, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, TypedDict
 
 from .common import DashboardModel, EventType
+
+if TYPE_CHECKING:
+    from .remote_build import StoredPairing
 
 
 def _now_iso() -> str:
@@ -126,6 +129,15 @@ class JobBuildSource:
             source_pin_sha256=pin_sha256,
             source_label=label,
             source_esphome_version=esphome_version,
+        )
+
+    @classmethod
+    def for_pairing(cls, pairing: StoredPairing) -> JobBuildSource:
+        """Bundle a REMOTE source bound to the server behind *pairing*."""
+        return cls.for_server(
+            pin_sha256=pairing.pin_sha256,
+            label=pairing.label,
+            esphome_version=pairing.esphome_version,
         )
 
 

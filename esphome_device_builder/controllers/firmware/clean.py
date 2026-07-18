@@ -54,11 +54,7 @@ async def _fan_out_clean_to_connected_peers(
         remote_job = controller._create_job(
             configuration,
             JobType.CLEAN,
-            build_source=JobBuildSource.for_server(
-                pin_sha256=pairing.pin_sha256,
-                label=pairing.label,
-                esphome_version=pairing.esphome_version,
-            ),
+            build_source=JobBuildSource.for_pairing(pairing),
         )
         # ``supersede=False``: the fan-out batch is N+1 jobs sharing
         # one ``configuration``; default supersede would leave only
