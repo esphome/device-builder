@@ -55,6 +55,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_rename_content,
     rewrite_yaml_scalar,
     upsert_yaml_leaf_under_top_block,
+    write_user_yaml,
 )
 from esphome_device_builder.helpers.yaml.component import _list_item_indent
 from esphome_device_builder.helpers.yaml.scalar import (
@@ -2142,3 +2143,9 @@ def test_load_yaml_fast_then_esphome_raises_on_broken_include(tmp_path: Path) ->
     path.write_text("<<: !include does_not_exist.yaml\n")
     with pytest.raises(EsphomeError):
         load_yaml_fast_then_esphome(path)
+
+
+def test_write_user_yaml_wraps_oserror_as_esphome_error(tmp_path: Path) -> None:
+    """A failed write surfaces as ``EsphomeError``, matching ``esphome.helpers.write_file``."""
+    with pytest.raises(EsphomeError, match="Could not write file"):
+        write_user_yaml(tmp_path / "missing" / "x.yaml", "a: 1\n")

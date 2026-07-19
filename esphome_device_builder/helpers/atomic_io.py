@@ -1,12 +1,13 @@
 """
 Atomic filesystem writes for dashboard-internal artefacts.
 
-For cert / key / token / metadata-sidecar files. User-editable
-YAML still goes through :func:`esphome.helpers.write_file`.
+For cert / key / token / metadata-sidecar files, plus the
+mode-preserving rewrite of user-editable YAML.
 
 Why not the upstream helper here: ``write_file``'s ``private``
 flag is binary (0o644 vs 0o600), and we need arbitrary modes for
-caller-controlled-mode shapes (cert / key + future token stores).
+caller-controlled-mode shapes (cert / key + future token stores)
+and for keeping an operator-set mode across a rewrite.
 
 Blocking I/O — call from ``run_in_executor``, not the loop.
 """
@@ -57,6 +58,21 @@ def atomic_write(
     if make_parents:
         path.parent.mkdir(parents=True, exist_ok=True)
     _staged_write(path, data, mode=mode, publish=_replace_with_retry)
+
+
+def atomic_write_preserving_mode(path: Path, data: bytes, *, default_mode: int = 0o644) -> None:
+    """
+    Atomically write *data*, keeping an existing *path*'s permission bits.
+
+    A rewrite must not reset an operator-tightened mode (e.g. a 0600
+    ``secrets.yaml``) back to world-readable; a missing (or unstatable)
+    *path* gets *default_mode*.
+    """
+    try:
+        mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        mode = default_mode
+    atomic_write(path, data, mode=mode)
 
 
 def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> None:

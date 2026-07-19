@@ -26,6 +26,8 @@ Coverage targets:
 
 from __future__ import annotations
 
+import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -395,6 +397,23 @@ async def test_update_config_accepts_valid_secrets_yaml(
     await controller.update_config(configuration="secrets.yaml", content=content)
 
     assert (tmp_path / "secrets.yaml").read_text(encoding="utf-8") == content
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+async def test_update_config_secrets_save_preserves_operator_mode(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A whole-file secrets.yaml save keeps an operator-tightened mode."""
+    controller = make_controller(tmp_path)
+    _stub_regenerate(controller)
+    target = tmp_path / "secrets.yaml"
+    target.write_text("wifi_ssid: home\n", encoding="utf-8")
+    target.chmod(0o600)
+
+    await controller.update_config(configuration="secrets.yaml", content="wifi_ssid: new\n")
+
+    assert target.read_text(encoding="utf-8") == "wifi_ssid: new\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
 async def test_update_config_accepts_comment_only_secrets_yaml(

@@ -13,6 +13,7 @@ import pytest
 from esphome_device_builder.helpers.atomic_io import (
     atomic_write,
     atomic_write_exclusive,
+    atomic_write_preserving_mode,
     read_bytes_with_retry,
 )
 
@@ -51,6 +52,27 @@ def test_atomic_write_applies_mode(tmp_path: Path) -> None:
     atomic_write(target, b"payload", mode=0o600)
     assert stat.S_IMODE(target.stat().st_mode) == 0o600
     assert target.read_bytes() == b"payload"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+@pytest.mark.parametrize("mode", [pytest.param(0o600, id="0600"), pytest.param(0o640, id="0640")])
+def test_atomic_write_preserving_mode_keeps_existing_mode(tmp_path: Path, mode: int) -> None:
+    """A rewrite keeps the target's current permission bits."""
+    target = tmp_path / "secrets.yaml"
+    target.write_text("a: 1\n")
+    target.chmod(mode)
+    atomic_write_preserving_mode(target, b"b: 2\n")
+    assert target.read_bytes() == b"b: 2\n"
+    assert stat.S_IMODE(target.stat().st_mode) == mode
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+def test_atomic_write_preserving_mode_new_file_gets_default(tmp_path: Path) -> None:
+    """A missing target is created with ``default_mode``."""
+    target = tmp_path / "secrets.yaml"
+    atomic_write_preserving_mode(target, b"a: 1\n")
+    assert target.read_bytes() == b"a: 1\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644
 
 
 def test_atomic_write_overwrites_existing(tmp_path: Path) -> None:

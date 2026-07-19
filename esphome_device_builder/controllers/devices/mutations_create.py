@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NoReturn
 
-from esphome.helpers import write_file as atomic_write_file
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
@@ -13,6 +12,7 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode, WizardResponse
 from ..editor import IMPORT_VALIDATE_TIMEOUT
 from .helpers import (
@@ -178,7 +178,7 @@ async def create_device(  # noqa: C901, PLR0912
     if overwriting:
         # Atomic in-place rewrite (stage + move) so a crash can't leave a
         # half-written config; the user explicitly confirmed the overwrite.
-        await run_in_executor(atomic_write_file, config_path, yaml_content)
+        await run_in_executor(write_user_yaml, config_path, yaml_content)
     else:
         await write_new_file_exclusive(config_path, yaml_content, on_exists=_raise_already_exists)
 

@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from esphome.core import CORE
-from esphome.helpers import write_file as atomic_write_file
 from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import is_secrets_file
@@ -36,6 +35,7 @@ from ...helpers.secrets_state import (
     write_wifi_secrets,
 )
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
+from ...helpers.yaml import write_user_yaml
 from ...models import (
     OTA_PORT,
     AddComponentResponse,
@@ -999,9 +999,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         Use this for any user-editable YAML write so a mid-write
         crash can't leave the file empty or half-written;
         ``Path.write_text`` truncates before writing and isn't
-        safe for those paths.
+        safe for those paths. An existing file's mode survives the
+        rewrite (an operator-tightened ``secrets.yaml`` stays 0600).
         """
-        await run_in_executor(atomic_write_file, path, content)
+        await run_in_executor(write_user_yaml, path, content)
 
     async def _persist_yaml_mutation(
         self, configuration: str, content: str, *, message: str | None = None
