@@ -18,13 +18,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from esphome.core import EsphomeError
-from esphome.helpers import write_file as atomic_write_file
 
 from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
-from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar
+from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar, write_user_yaml
 from ...models import ErrorCode, ImportBundleResponse
 from .helpers import _validate_archive_configuration
 from .mutations_create import init_device_storage
@@ -200,7 +199,7 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
                 kept.append(rel)
                 continue
             dest.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_file(dest, src.read_bytes())
+            write_user_yaml(dest, src.read_bytes())
             written.append(rel)
 
         # A new device gets a fresh sidecar; overwriting a live one keeps

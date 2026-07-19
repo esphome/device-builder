@@ -13,6 +13,8 @@ from __future__ import annotations
 import asyncio
 import gzip
 import io
+import stat
+import sys
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -871,6 +873,23 @@ async def test_create_device_overwrite_preserves_metadata(
     assert post.get("comment") == "my note"
     assert post.get("board_id") == "esp32-pick"
     assert ctrl._scanner.calls == [("scan",)]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+async def test_create_device_overwrite_preserves_operator_mode(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A confirmed overwrite keeps the existing YAML's tightened mode."""
+    target = tmp_path / "kitchen.yaml"
+    target.write_text("esphome:\n  name: kitchen\n", "utf-8")
+    target.chmod(0o600)
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    new_content = "esphome:\n  name: kitchen\n  friendly_name: New\n"
+
+    await ctrl.create_device(name="kitchen", file_content=new_content, overwrite=True)
+
+    assert target.read_text("utf-8") == new_content
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
 async def test_create_device_with_board_id_overwrites_archived_board_id(

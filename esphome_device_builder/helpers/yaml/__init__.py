@@ -7,6 +7,9 @@ from typing import Any
 
 import yaml
 from esphome import yaml_util
+from esphome.core import EsphomeError
+
+from ..atomic_io import atomic_write_preserving_mode
 
 # Prefer the libyaml-backed C loader when PyYAML was built against
 # libyaml. On the M5 MacBook Pro, parsing the full board catalog
@@ -90,3 +93,18 @@ def load_yaml_fast_then_esphome(path: Path) -> Any:
             return yaml.load(f, Loader=FastestSafeLoader)  # noqa: S506
     except yaml.YAMLError:
         return yaml_util.load_yaml(path)
+
+
+def write_user_yaml(path: Path, content: str | bytes) -> None:
+    """
+    Atomically write user-editable YAML, keeping an existing *path*'s mode.
+
+    An operator-tightened mode (e.g. a 0600 ``secrets.yaml``) survives the
+    rewrite instead of being reset to 0644; a new file gets 0644. ``OSError``
+    is wrapped as ``EsphomeError``, matching ``esphome.helpers.write_file``.
+    """
+    data = content.encode() if isinstance(content, str) else content
+    try:
+        atomic_write_preserving_mode(path, data)
+    except OSError as err:
+        raise EsphomeError(f"Could not write file at {path}") from err

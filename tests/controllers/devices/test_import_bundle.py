@@ -7,6 +7,8 @@ import base64
 import gzip
 import io
 import json
+import stat
+import sys
 import tarfile
 from pathlib import Path
 
@@ -156,6 +158,25 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
     assert result.written == ["kitchen.yaml"]
     assert result.kept == ["common/wifi.yaml"]
     assert ctrl._scanner.calls == [("scan",)]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
+async def test_import_bundle_overwrite_preserves_operator_mode(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A confirmed bundle overwrite keeps the target's tightened mode."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    target = tmp_path / "kitchen.yaml"
+    target.write_text("OLD\n", "utf-8")
+    target.chmod(0o600)
+    bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
+
+    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=["kitchen.yaml"])
+
+    assert result.status == "imported"
+    assert target.read_text("utf-8") == MAIN_YAML
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")

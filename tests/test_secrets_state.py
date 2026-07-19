@@ -8,6 +8,9 @@ merge / line-based write helpers, and the secret-key rules.
 from __future__ import annotations
 
 import asyncio
+import stat
+import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -445,6 +448,59 @@ def test_write_wifi_secrets_preserves_other_keys_and_comments(tmp_path: Path) ->
 def test_write_wifi_secrets_escapes_double_quotes(tmp_path: Path) -> None:
     write_wifi_secrets(tmp_path, 'Net"x', "p")
     assert r'wifi_ssid: "Net\"x"' in _secrets(tmp_path).read_text("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# mode preservation — an operator-tightened secrets.yaml stays tight
+# ---------------------------------------------------------------------------
+
+
+def _merge_incoming(config_dir: Path) -> None:
+    src = config_dir / "incoming.yaml"
+    src.write_text("new_key: v\n", "utf-8")
+    merge_secrets_file(src, config_dir / "secrets.yaml")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+@pytest.mark.parametrize(
+    ("content", "mutate"),
+    [
+        pytest.param(
+            "api_key: v1\n",
+            lambda d: write_secret(d, "api_key", "v2"),
+            id="write_secret",
+        ),
+        pytest.param(
+            "api_key: v1\n",
+            lambda d: write_wifi_secrets(d, "MyAP", "pw"),
+            id="write_wifi_secrets",
+        ),
+        pytest.param(
+            f"wifi_ssid: {PLACEHOLDER_WIFI_SSID}\n",
+            migrate_placeholder_wifi_secrets,
+            id="migrate_placeholder",
+        ),
+        pytest.param(
+            "existing: v\n",
+            _merge_incoming,
+            id="merge_secrets_file",
+        ),
+    ],
+)
+def test_secrets_rewrites_preserve_operator_mode(
+    tmp_path: Path, content: str, mutate: Callable[[Path], object]
+) -> None:
+    secrets = _secrets(tmp_path)
+    secrets.write_text(content, "utf-8")
+    secrets.chmod(0o600)
+    mutate(tmp_path)
+    assert stat.S_IMODE(secrets.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
+def test_write_secret_creates_missing_file_with_default_mode(tmp_path: Path) -> None:
+    write_secret(tmp_path, "api_key", "v")
+    assert stat.S_IMODE(_secrets(tmp_path).stat().st_mode) == 0o644
 
 
 # ---------------------------------------------------------------------------
