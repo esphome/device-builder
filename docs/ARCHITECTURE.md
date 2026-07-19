@@ -200,9 +200,13 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   upload lane (network, up to `MAX_CONCURRENT_UPLOADS` = 3 flashes at
   once), and a single-slot thread upload lane. The lanes run in parallel
   so a slow network flash doesn't block the next device's compile
-  (#3702), and slow OTAs don't block fast ones behind them
-  (esphome discussion #3781). The upload cap bounds the combined memory
-  of concurrent esphome subprocess trees; each lane spawns
+  (#3702), and OTAs don't serialize behind each other (esphome
+  discussion #3781). The concurrency exists for deep-sleep wake
+  delivery: when several deep-sleep devices wake at once, each queued
+  update must land inside its device's wake window — with one serial
+  upload slot, the flashes behind a slow OTA missed their window, the
+  devices went back to sleep, and their updates failed. The upload cap
+  bounds the combined memory of concurrent esphome subprocess trees; each lane spawns
   `Lane.max_concurrency` workers off one FIFO queue, and running
   subprocesses live in the job-keyed `FirmwareState.processes` registry
   so cancel signals exactly one job. **OpenThread flashes serialize**:

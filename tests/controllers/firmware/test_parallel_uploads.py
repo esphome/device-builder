@@ -2,10 +2,11 @@
 
 Drives the real lane workers (via ``_run_queue``) against parking
 subprocesses, mirroring ``test_lane_concurrency_e2e``. Pins the
-esphome discussion #3781 shape: up to ``MAX_CONCURRENT_UPLOADS``
-network flashes overlap so a slow OTA doesn't block fast ones, while
-flashes of OpenThread devices — one shared mesh / border router —
-stay one-at-a-time on their own lane.
+deep-sleep wake-delivery shape (esphome discussion #3781): several
+woken devices' queued updates flash concurrently — up to
+``MAX_CONCURRENT_UPLOADS`` — instead of missing their wake windows
+behind one slow OTA, while flashes of OpenThread devices — one shared
+mesh / border router — stay one-at-a-time on their own lane.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from esphome_device_builder.controllers.firmware import controller as controller
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.constants import MAX_CONCURRENT_UPLOADS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
+from tests.controllers.firmware.conftest import (
+    run_until_terminal,
+)
 from tests.controllers.firmware.conftest import (
     wire_devices as _wire_devices,
 )
@@ -178,6 +182,71 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
         runner.cancel()
         with suppress(asyncio.CancelledError):
             await runner
+
+
+# Each upload sleeps a per-device staggered duration, then exits 0 —
+# a burst of woken deep-sleep devices whose OTAs take different times.
+_STAGGERED_UPLOAD = (
+    "import os, sys, time\n"
+    "cfg = os.path.basename(next(a for a in sys.argv if a.endswith('.yaml')))\n"
+    "delays = {'u1.yaml': 0.2, 'u2.yaml': 0.05, 'u3.yaml': 0.35,"
+    " 'u4.yaml': 0.1, 'u5.yaml': 0.05, 'u6.yaml': 0.15}\n"
+    "print('INFO uploading', flush=True)\n"
+    "time.sleep(delays[cfg])\n"
+)
+
+
+async def test_six_uploads_drain_three_at_a_time(
+    firmware_controller_factory: FirmwareControllerFactory, tmp_path: Any
+) -> None:
+    """A 6-upload burst drains 3-at-a-time: overflow starts only as slots free.
+
+    The deep-sleep wake shape: six devices wake at once, each flash
+    finishing at its own staggered time. The lane must never exceed
+    3 concurrent flashes, the first 3 must all start before anything
+    finishes, and the k-th overflow upload starts only after k
+    earlier flashes completed (FIFO refill). All 6 land COMPLETED.
+    """
+    controller = firmware_controller_factory(with_queue=True)
+    _wire_real_queue(controller)
+    _wire_devices(controller)
+    controller.state.esphome_cmd = [sys.executable, "-c", _STAGGERED_UPLOAD]
+    names = [f"u{i}.yaml" for i in range(1, 7)]
+    _seed_yamls(tmp_path, *names)
+
+    sequence: list[tuple[EventType, str]] = []
+    max_active = 0
+    bus = controller._db.bus
+    real_fire = bus.fire
+
+    def _record(event_type: EventType, data: dict) -> None:
+        nonlocal max_active
+        max_active = max(max_active, len(controller.state.upload_lane.active))
+        job = data.get("job") if isinstance(data, dict) else None
+        if job is not None:
+            sequence.append((event_type, job.configuration))
+        real_fire(event_type, data)
+
+    bus.fire = _record
+
+    jobs = [await controller.upload(configuration=name, port="OTA") for name in names]
+    await run_until_terminal(controller)
+
+    assert all(job.status is JobStatus.COMPLETED for job in jobs)
+    assert max_active == MAX_CONCURRENT_UPLOADS
+
+    completions_before_start: dict[str, int] = {}
+    done = 0
+    for event_type, configuration in sequence:
+        if event_type is EventType.JOB_STARTED:
+            completions_before_start[configuration] = done
+        elif event_type is EventType.JOB_COMPLETED:
+            done += 1
+    # The first wave fills every slot before anything finishes...
+    assert [completions_before_start[name] for name in names[:3]] == [0, 0, 0]
+    # ...and each overflow upload waits for enough earlier flashes to land.
+    for k, name in enumerate(names[3:], start=1):
+        assert completions_before_start[name] >= k
 
 
 # ---------------------------------------------------------------------------

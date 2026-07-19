@@ -330,7 +330,10 @@ against legacy behaviour before assuming the simpler version suffices.
   `MAX_CONCURRENT_UPLOADS` = 3 flashes at once — the cap bounds
   subprocess-tree memory), and a single-slot thread upload lane, all
   running concurrently, so a slow upload doesn't block the next compile
-  (#3702) or the next flash (esphome discussion #3781).
+  (#3702) or the next flash. Upload concurrency exists for deep-sleep
+  wake delivery (esphome discussion #3781): several deep-sleep devices
+  waking at once must each get their queued update inside the wake
+  window, or they sleep again and the updates fail.
   `FirmwareState.compile_lane` / `upload_lane` / `thread_upload_lane`
   (`controllers/firmware/_state.py`); each lane spawns
   `Lane.max_concurrency` workers off one FIFO queue, jobs occupying a
