@@ -121,17 +121,12 @@ class _Outcome:
 
 def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
     """Decode, extract to a temp dir, then plan or place the files (blocking)."""
-    try:
-        from esphome.bundle import (  # noqa: PLC0415
-            MANIFEST_FILENAME,
-            extract_bundle,
-            read_bundle_manifest,
-        )
-    except ImportError as exc:  # pragma: no cover - pinned esphome ships bundle
-        raise CommandError(
-            ErrorCode.UNAVAILABLE,
-            "This ESPHome version doesn't support config bundles.",
-        ) from exc
+    # Lazy: keeps esphome.bundle off cold import.
+    from esphome.bundle import (  # noqa: PLC0415
+        MANIFEST_FILENAME,
+        extract_bundle,
+        read_bundle_manifest,
+    )
 
     bundle_bytes = _decode_bundle(file_content_b64)
     overwrite_set = set(overwrite or [])
