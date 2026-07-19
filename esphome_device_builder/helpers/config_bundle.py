@@ -36,7 +36,7 @@ Errors:
 * :class:`BundleBuildError` — esphome bundle exited non-zero
   (typically schema-invalid YAML, missing include, malformed
   secret) or timed out; :attr:`BundleBuildError.output`
-  carries the stdout/stderr tail.
+  carries the captured stdout/stderr unless streamed.
 * :class:`OSError` from the spawn itself (e.g. ``esphome``
   not on PATH) propagates.
 """
@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 
@@ -66,17 +65,13 @@ _LOGGER = logging.getLogger(__name__)
 # subprocess from pinning the job forever.
 _BUNDLE_BUILD_TIMEOUT_SECONDS = 300.0
 
-# Retained-output bound for the BundleBuildError diagnostic;
-# each entry is one line/CR chunk from the subprocess.
-_OUTPUT_TAIL_CHUNKS = 200
-
 
 class BundleBuildError(RuntimeError):
     """``esphome bundle`` subprocess failed or timed out.
 
-    Carries the captured stdout/stderr tail in :attr:`output`
-    so the caller can surface the validator's diagnostic
-    verbatim to the user.
+    :attr:`output` carries the captured stdout/stderr for a
+    non-streaming caller; with *on_output* the callback owns
+    retention and :attr:`output` is empty.
     """
 
     def __init__(self, message: str, *, output: str) -> None:
@@ -112,13 +107,6 @@ async def build_yaml_bundle(
     # hops so the dashboard's other tasks keep moving on slow
     # disks.
     cmd, output_path = await run_in_executor(_prepare_build_bundle, yaml_path)
-    tail: deque[str] = deque(maxlen=_OUTPUT_TAIL_CHUNKS)
-
-    def _collect(chunk: str) -> None:
-        tail.append(chunk)
-        if on_output is not None:
-            on_output(chunk)
-
     try:
         result = await run_subprocess_capture(
             *cmd,
@@ -127,17 +115,16 @@ async def build_yaml_bundle(
             "-o",
             str(output_path),
             timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS,
-            on_line=_collect,
+            on_line=on_output,
         )
+        output = result.stdout.decode("utf-8", errors="replace").strip()
         if result.timed_out:
             raise BundleBuildError(
                 f"esphome bundle timed out after {_BUNDLE_BUILD_TIMEOUT_SECONDS:.0f}s",
-                output="".join(tail).strip(),
+                output=output,
             )
         if result.returncode != 0:
-            raise BundleBuildError(
-                f"esphome bundle exited {result.returncode}", output="".join(tail).strip()
-            )
+            raise BundleBuildError(f"esphome bundle exited {result.returncode}", output=output)
         return await run_in_executor(output_path.read_bytes)
     finally:
         await run_in_executor(_unlink_quietly, output_path)
@@ -148,7 +135,7 @@ def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:
 
     Bundles every upfront blocking syscall into one executor
     hop. Raises :class:`FileNotFoundError` if *yaml_path*
-    doesn't exist; the WS layer maps that to NOT_FOUND.
+    doesn't exist.
     """
     if not yaml_path.is_file():
         msg = f"YAML not found: {yaml_path}"

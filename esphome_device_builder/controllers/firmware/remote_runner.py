@@ -338,8 +338,9 @@ async def _build_bundle_or_fail(
         _fail_locally(controller, job, reason=f"configuration not found: {job.configuration}")
         return None
     except BundleBuildError as exc:
-        _ingest_notice_line(job, controller.bus, f"bundle failed: {exc}")
-        _fail_locally(controller, job, reason=f"bundle failed: {exc}")
+        reason = f"bundle failed: {exc}"
+        _ingest_notice_line(job, controller.bus, reason)
+        _fail_locally(controller, job, reason=reason)
         return None
     if bundle_bytes is None:
         lifecycle.cancel_if_requested(controller, job)

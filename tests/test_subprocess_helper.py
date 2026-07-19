@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 import esphome_device_builder
 from esphome_device_builder.helpers import subprocess as subprocess_helper
 
@@ -108,6 +110,40 @@ async def test_run_subprocess_capture_timeout_returns_partial_output() -> None:
     )
     assert result.timed_out is True
     assert b"EARLY" in result.stdout
+
+
+async def test_run_subprocess_capture_on_line_streams_and_stdout_empty() -> None:
+    """``on_line`` receives each chunk; the result's stdout stays empty."""
+    lines: list[str] = []
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "print('a'); print('b')",
+        timeout=10,
+        on_line=lines.append,
+    )
+    assert result.returncode == 0
+    assert result.stdout == b""
+    assert [line.rstrip("\r\n") for line in lines] == ["a", "b"]
+
+
+async def test_run_subprocess_capture_on_line_exception_kills_child() -> None:
+    """An exception escaping *on_line* propagates and the child is killed."""
+
+    def _boom(line: str) -> None:
+        raise RuntimeError("listener boom")
+
+    with pytest.raises(RuntimeError, match="listener boom"):
+        await subprocess_helper.run_subprocess_capture(
+            sys.executable,
+            "-c",
+            "import time; print('hello', flush=True); time.sleep(30)",
+            timeout=30,
+            on_line=_boom,
+        )
+    # Let the child watcher reap the SIGKILL'd process before the
+    # test loop closes, or its transport __del__ warns at teardown.
+    await asyncio.sleep(0.1)
 
 
 async def test_run_subprocess_capture_timeout_with_stdin_pending() -> None:

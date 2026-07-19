@@ -134,6 +134,7 @@ async def run_subprocess_capture(
     if stdin_data is not None:
         writer = asyncio.get_running_loop().create_task(_write_stdin(proc, stdin_data))
     buf = bytearray()
+    timed_out = False
     try:
         async with asyncio.timeout(timeout):
             assert proc.stdout is not None
@@ -142,19 +143,21 @@ async def run_subprocess_capture(
             if writer is not None:
                 await writer
     except TimeoutError:
-        kill_quietly(proc)
-        if writer is not None:
-            writer.cancel()
+        timed_out = True
+    finally:
+        # The single kill site: timeout, cancellation, or an *on_line*
+        # callback raising all land here with the child still running.
+        # Sync only, so a propagating CancelledError is never swallowed
+        # or stalled.
+        if proc.returncode is None:
+            kill_quietly(proc)
+            if writer is not None:
+                writer.cancel()
+    if timed_out:
         await proc.wait()
         if writer is not None:
             await asyncio.gather(writer, return_exceptions=True)
-        return CapturedSubprocess(returncode=proc.returncode, stdout=bytes(buf), timed_out=True)
-    except asyncio.CancelledError:
-        kill_quietly(proc)
-        if writer is not None:
-            writer.cancel()
-        raise
-    return CapturedSubprocess(returncode=proc.returncode, stdout=bytes(buf), timed_out=False)
+    return CapturedSubprocess(returncode=proc.returncode, stdout=bytes(buf), timed_out=timed_out)
 
 
 async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterator[str]:
@@ -215,9 +218,9 @@ async def _consume_stdout(
 ) -> None:
     """Drain *stdout* into *buf*, or per line to *on_line* when set.
 
-    Mutates the caller-owned *buf* rather than returning bytes so a
-    timeout cancelling this coroutine still leaves the partial
-    output readable.
+    Capture mode mutates the caller-owned *buf* rather than returning
+    bytes so a timeout cancelling this coroutine still leaves the
+    partial output readable; streaming mode never touches *buf*.
     """
     if on_line is None:
         while data := await stdout.read(_STREAM_READ_SIZE):

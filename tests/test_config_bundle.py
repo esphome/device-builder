@@ -98,7 +98,7 @@ async def test_build_yaml_bundle_missing_yaml_raises_file_not_found(
 async def test_build_yaml_bundle_subprocess_failure_raises_bundle_build_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Non-zero exit raises :class:`BundleBuildError` carrying the output tail."""
+    """Non-zero exit raises :class:`BundleBuildError` carrying the captured output."""
     yaml_path = _write_yaml(tmp_path)
     _install_fake_esphome(
         monkeypatch,
@@ -106,11 +106,9 @@ async def test_build_yaml_bundle_subprocess_failure_raises_bundle_build_error(
         "print('INVALID_YAML: unexpected token')\nsys.exit(1)\n",
     )
 
-    chunks: list[str] = []
     with pytest.raises(BundleBuildError, match="exited 1") as exc_info:
-        await build_yaml_bundle(yaml_path, on_output=chunks.append)
+        await build_yaml_bundle(yaml_path)
     assert "INVALID_YAML" in exc_info.value.output
-    assert "INVALID_YAML: unexpected token" in [chunk.rstrip("\r\n") for chunk in chunks]
 
 
 async def test_build_yaml_bundle_captures_stderr(
@@ -193,8 +191,6 @@ async def test_build_yaml_bundle_timeout_raises_bundle_build_error(
     )
     monkeypatch.setattr(config_bundle, "_BUNDLE_BUILD_TIMEOUT_SECONDS", 0.5)
 
-    chunks: list[str] = []
     with pytest.raises(BundleBuildError, match="timed out") as exc_info:
-        await build_yaml_bundle(yaml_path, on_output=chunks.append)
+        await build_yaml_bundle(yaml_path)
     assert "EARLY DIAGNOSTIC" in exc_info.value.output
-    assert "EARLY DIAGNOSTIC" in [chunk.rstrip("\r\n") for chunk in chunks]

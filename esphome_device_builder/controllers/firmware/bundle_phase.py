@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import drain_tasks, run_in_executor
 from ...helpers.config_bundle import build_yaml_bundle
 from .helpers import _ingest_notice_line, _ingest_output_line
 
 if TYPE_CHECKING:
+    from ...helpers.event_bus import EventBus
     from ...models.firmware import FirmwareJob
     from .controller import FirmwareController
 
@@ -30,19 +31,15 @@ async def run_bundle_phase(
     yaml_path = await run_in_executor(controller._db.settings.rel_path, job.configuration)
     bus = controller.bus
     _ingest_notice_line(job, bus, "building configuration bundle for remote build")
-    loop = asyncio.get_running_loop()
-    bundle_task = loop.create_task(
+    bundle_task = asyncio.create_task(
         build_yaml_bundle(yaml_path, on_output=lambda line: _ingest_output_line(job, bus, line))
     )
-    cancel_wait = loop.create_task(cancel_event.wait())
-    heartbeat = loop.create_task(_run_heartbeat(controller, job))
+    cancel_wait = asyncio.create_task(cancel_event.wait())
+    heartbeat = asyncio.create_task(_run_heartbeat(job, bus))
     try:
         await asyncio.wait({bundle_task, cancel_wait}, return_when=asyncio.FIRST_COMPLETED)
     finally:
-        heartbeat.cancel()
-        cancel_wait.cancel()
-        bundle_task.cancel()
-        await asyncio.gather(bundle_task, heartbeat, cancel_wait, return_exceptions=True)
+        await drain_tasks((bundle_task, heartbeat, cancel_wait))
     # Cancel wins even when the bundle finished in the same tick.
     if cancel_event.is_set():
         return None
@@ -53,11 +50,11 @@ async def run_bundle_phase(
     return bundle_bytes
 
 
-async def _run_heartbeat(controller: FirmwareController, job: FirmwareJob) -> None:
+async def _run_heartbeat(job: FirmwareJob, bus: EventBus) -> None:
     """Tick a synthetic still-building notice into the job log every interval."""
     loop = asyncio.get_running_loop()
     started = loop.time()
     while True:
         await asyncio.sleep(_HEARTBEAT_INTERVAL_SECONDS)
         elapsed = round(loop.time() - started)
-        _ingest_notice_line(job, controller.bus, f"still building bundle ({elapsed}s elapsed)")
+        _ingest_notice_line(job, bus, f"still building bundle ({elapsed}s elapsed)")

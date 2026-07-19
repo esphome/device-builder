@@ -10,7 +10,7 @@ import pytest
 from esphome_device_builder.controllers.firmware import bundle_phase
 from esphome_device_builder.models import EventType
 
-from .conftest import _capture_local_events, _make_remote_job
+from .conftest import capture_local_events, make_remote_job
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -22,7 +22,7 @@ async def test_run_bundle_phase_streams_output_and_notices(
 ) -> None:
     """Bundle output lands in ``job.output`` live, framed by phase notices."""
     controller = firmware_controller_factory()
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
 
     async def _fake_bundle(yaml_path: Any, *, on_output: Any = None) -> bytes:
         assert on_output is not None
@@ -30,7 +30,7 @@ async def test_run_bundle_phase_streams_output_and_notices(
         return b"FAKEBUNDLE"
 
     monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _fake_bundle)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     result = await bundle_phase.run_bundle_phase(controller, job, asyncio.Event())
 
@@ -49,7 +49,7 @@ async def test_run_bundle_phase_cancel_event_cancels_bundle(
 ) -> None:
     """A set cancel event wins the race and the bundle task is cancelled."""
     controller = firmware_controller_factory()
-    _capture_local_events(controller)
+    capture_local_events(controller)
     bundle_cancelled = asyncio.Event()
 
     async def _hang_bundle(yaml_path: Any, *, on_output: Any = None) -> bytes:
@@ -58,10 +58,9 @@ async def test_run_bundle_phase_cancel_event_cancels_bundle(
         except asyncio.CancelledError:
             bundle_cancelled.set()
             raise
-        raise AssertionError("unreachable")
 
     monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _hang_bundle)
-    job = _make_remote_job()
+    job = make_remote_job()
     cancel_event = asyncio.Event()
     cancel_event.set()
 
@@ -77,13 +76,13 @@ async def test_run_bundle_phase_cancel_wins_even_when_bundle_completes(
 ) -> None:
     """A cancel landing in the same tick as bundle completion still cancels."""
     controller = firmware_controller_factory()
-    _capture_local_events(controller)
+    capture_local_events(controller)
 
     async def _instant_bundle(yaml_path: Any, *, on_output: Any = None) -> bytes:
         return b"FAKEBUNDLE"
 
     monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _instant_bundle)
-    job = _make_remote_job()
+    job = make_remote_job()
     cancel_event = asyncio.Event()
     cancel_event.set()
 
@@ -97,7 +96,7 @@ async def test_run_bundle_phase_heartbeat_ticks_while_bundle_runs(
 ) -> None:
     """A silent bundle still produces still-building notices in the job log."""
     controller = firmware_controller_factory()
-    _capture_local_events(controller)
+    capture_local_events(controller)
     monkeypatch.setattr(bundle_phase, "_HEARTBEAT_INTERVAL_SECONDS", 0.01)
     release = asyncio.Event()
 
@@ -106,7 +105,7 @@ async def test_run_bundle_phase_heartbeat_ticks_while_bundle_runs(
         return b"FAKEBUNDLE"
 
     monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _slow_bundle)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     task = asyncio.get_running_loop().create_task(
         bundle_phase.run_bundle_phase(controller, job, asyncio.Event())

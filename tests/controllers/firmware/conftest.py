@@ -581,22 +581,22 @@ def stub_offloader(controller: Any, snapshot: BuildSchedulerInputs) -> MagicMock
     return offloader
 
 
-_PIN = "a" * 64
+REMOTE_PIN = "a" * 64
 
 
-def _make_remote_job(*, job_id: str = "remote-1") -> FirmwareJob:
+def make_remote_job(*, job_id: str = "remote-1") -> FirmwareJob:
     """Build a REMOTE-source COMPILE job matching the peer-link test wiring."""
     return FirmwareJob(
         job_id=job_id,
         configuration="kitchen.yaml",
         job_type=JobType.COMPILE,
         source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
+        source_pin_sha256=REMOTE_PIN,
         source_label="desktop",
     )
 
 
-def _capture_local_events(
+def capture_local_events(
     controller: Any,
 ) -> dict[EventType, list[dict[str, Any]]]:
     """Subscribe a real ``EventBus`` to the local ``JOB_*`` events.
