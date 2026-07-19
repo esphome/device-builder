@@ -6494,7 +6494,7 @@ def _psram_config_entries() -> list[dict]:
 
 
 def _psram_static_fields(config_schema: Any) -> dict[str, dict[str, Any]]:
-    """Per-field map from a static psram schema, or empty if it isn't extractable."""
+    """Per-field map from psram's static ``CONFIG_SCHEMA``."""
     fields: dict[str, dict[str, Any]] = {}
 
     def visit(key: Any, name: str, validator: Any, path: tuple[str, ...]) -> None:

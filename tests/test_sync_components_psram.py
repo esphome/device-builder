@@ -1,10 +1,10 @@
 """
 Tests for psram's synthesized structured editor.
 
-psram's ``CONFIG_SCHEMA`` is a per-variant callable the schema bundle dumps
-empty; ``_psram_config_entries`` recovers the fields by capturing the built
-``vol.Schema`` for every ESP32 variant and unioning the keys / options /
-defaults. Pins that union so the editor can't silently regress to YAML-only.
+The schema bundle dumps psram empty; ``_psram_config_entries`` recovers the
+fields from the static ``CONFIG_SCHEMA``, whose variant enums expose their
+``{value: [variants]}`` maps via ``SCHEMA_EXTRACT``. Pins that union so the
+editor can't silently regress to YAML-only.
 """
 
 from __future__ import annotations

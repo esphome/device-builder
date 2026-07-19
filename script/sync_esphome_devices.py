@@ -44,6 +44,10 @@ from typing import Any
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
+# Up here so a missing esphome fails at startup, not mid-run on the
+# first page with a ``substitutions:`` block.
+from esphome.components.substitutions import do_substitution_pass  # noqa: E402
+
 from esphome_device_builder.constants import (  # noqa: E402
     BOARD_PIN_KEYS,
     BUS_CATEGORIES,
@@ -424,13 +428,11 @@ def _resolve_page_substitutions(parsed: dict[str, Any], folder: str) -> dict[str
     Resolve the page's own ``substitutions:`` block over the config tree.
 
     Unresolved references stay literal; a failed pass returns *parsed*
-    unchanged. A missing esphome propagates.
+    unchanged.
     """
     subs = parsed.get("substitutions")
     if not isinstance(subs, dict) or not subs:
         return parsed
-    from esphome.components.substitutions import do_substitution_pass
-
     try:
         resolved = do_substitution_pass(OrderedDict(parsed))
     except Exception as err:
