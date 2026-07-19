@@ -71,8 +71,11 @@ async def test_build_yaml_bundle_streams_output_to_callback(
 
     chunks: list[str] = []
     await build_yaml_bundle(yaml_path, on_output=chunks.append)
-    assert "INFO Reading configuration...\n" in chunks
-    assert "INFO Bundling 3 files\n" in chunks
+    # Windows children emit \r\n; the terminator is preserved either way.
+    assert all(chunk.endswith("\n") for chunk in chunks)
+    stripped = [chunk.rstrip("\r\n") for chunk in chunks]
+    assert "INFO Reading configuration..." in stripped
+    assert "INFO Bundling 3 files" in stripped
 
 
 async def test_build_yaml_bundle_missing_yaml_raises_file_not_found(
@@ -98,7 +101,7 @@ async def test_build_yaml_bundle_subprocess_failure_raises_bundle_build_error(
     with pytest.raises(BundleBuildError, match="exited 1") as exc_info:
         await build_yaml_bundle(yaml_path, on_output=chunks.append)
     assert "INVALID_YAML" in exc_info.value.output
-    assert "INVALID_YAML: unexpected token\n" in chunks
+    assert "INVALID_YAML: unexpected token" in [chunk.rstrip("\r\n") for chunk in chunks]
 
 
 async def test_build_yaml_bundle_captures_stderr(
@@ -160,4 +163,4 @@ async def test_build_yaml_bundle_timeout_raises_bundle_build_error(
     with pytest.raises(BundleBuildError, match="timed out") as exc_info:
         await build_yaml_bundle(yaml_path, on_output=chunks.append)
     assert "EARLY DIAGNOSTIC" in exc_info.value.output
-    assert "EARLY DIAGNOSTIC\n" in chunks
+    assert "EARLY DIAGNOSTIC" in [chunk.rstrip("\r\n") for chunk in chunks]
