@@ -99,25 +99,12 @@ def derive_light_platforms_from_dir(
 
 @cache
 def derive_light_platforms_by_schema() -> dict[str, frozenset[str]]:
-    """
-    Map each abstract light schema to the platform ids that use it.
+    """Map each abstract light schema to the platform ids that use it."""
+    import esphome
 
-    Empty when esphome isn't importable; an empty applies_to is
-    rendered as "no restriction" on the frontend.
-    """
-    try:
-        import esphome
-    except ImportError:
-        _LOG.warning("esphome not importable; light effects applies_to will be unrestricted")
-        return {}
     components_dir = Path(esphome.__file__).resolve().parent / "components"
     if not components_dir.is_dir():
-        _LOG.warning(
-            "esphome components directory missing at %s; "
-            "light effects applies_to will be unrestricted",
-            components_dir,
-        )
-        return {}
+        raise FileNotFoundError(f"esphome components directory missing at {components_dir}")
     return derive_light_platforms_from_dir(components_dir)
 
 

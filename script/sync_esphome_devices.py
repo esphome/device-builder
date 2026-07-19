@@ -428,11 +428,8 @@ def _resolve_page_substitutions(parsed: dict[str, Any], folder: str) -> dict[str
     subs = parsed.get("substitutions")
     if not isinstance(subs, dict) or not subs:
         return parsed
-    try:
-        from esphome.components.substitutions import do_substitution_pass
-    except ImportError:
-        _LOGGER.debug("esphome unavailable; skipping substitution pass (%s)", folder)
-        return parsed
+    from esphome.components.substitutions import do_substitution_pass
+
     try:
         resolved = do_substitution_pass(OrderedDict(parsed))
     except Exception as err:

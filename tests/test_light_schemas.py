@@ -161,9 +161,8 @@ def test_derive_light_platforms_from_dir_picks_up_fastled_transitively(
     )
 
 
-def test_derive_light_platforms_by_schema_falls_back_to_empty_when_esphome_missing(
+def test_derive_light_platforms_by_schema_propagates_when_esphome_missing(
     monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     # The cache survives across tests; clear it so this run sees the
     # forced ImportError instead of a cached real-esphome result.
@@ -176,10 +175,8 @@ def test_derive_light_platforms_by_schema_falls_back_to_empty_when_esphome_missi
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    with caplog.at_level(logging.WARNING, logger="script._light_schemas"):
-        out = derive_light_platforms_by_schema()
-    assert out == {}
-    assert any("esphome not importable" in r.message for r in caplog.records)
+    with pytest.raises(ImportError):
+        derive_light_platforms_by_schema()
     derive_light_platforms_by_schema.cache_clear()
 
 

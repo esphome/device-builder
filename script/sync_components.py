@@ -52,7 +52,7 @@ import zipfile
 from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass, field
 from enum import StrEnum
-from functools import cache, partial
+from functools import cache
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal, NamedTuple
@@ -6380,14 +6380,11 @@ def _logger_uart_platform_options() -> dict[str, list[dict[str, str]]]:
 
     A custom ``uart_selection`` validator gates the set, so the schema bundle
     can't carry it; introspected from ``UART_SELECTION_*`` and keyed via the
-    shared ``variant_to_key`` so lookups hit. Empty when esphome's logger
-    isn't importable; other failures propagate to fail the build loudly.
+    shared ``variant_to_key`` so lookups hit. Failures propagate to fail the
+    sync loudly.
     """
-    try:
-        from esphome.components import logger as _logger
-    except ImportError:
-        _LOGGER.warning("esphome logger not importable — hardware_uart combobox skipped")
-        return {}
+    from esphome.components import logger as _logger
+
     out: dict[str, list[dict[str, str]]] = {}
 
     def add(raw_key: str, values: list[str]) -> None:
@@ -6426,14 +6423,10 @@ def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
     """
     Ethernet's per-platform ``type`` choices from the live module constants.
 
-    The schema bundle ships a flat union; empty when esphome's ethernet
-    isn't importable.
+    The schema bundle ships a flat union.
     """
-    try:
-        from esphome.components import ethernet as _ethernet
-    except ImportError:
-        _LOGGER.warning("esphome ethernet not importable — type platform split skipped")
-        return {}
+    from esphome.components import ethernet as _ethernet
+
     rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
     # Everything except the RP2-only chips.
     esp32 = set(_ethernet.ETHERNET_TYPES) - (rp2 - set(_ethernet.SPI_ETHERNET_TYPES))
@@ -6491,17 +6484,12 @@ def _psram_config_entries() -> list[dict]:
     """
     Synthesize psram's structured editor from its ``CONFIG_SCHEMA``.
 
-    Prefers the static schema, where a variant enum exposes its
-    ``{value: [variants]}`` map via ``SCHEMA_EXTRACT``; falls back to the older
-    ``get_config_schema`` callable that builds a different schema per ESP32
-    variant. Empty when esphome isn't importable.
+    A variant enum exposes its ``{value: [variants]}`` map via
+    ``SCHEMA_EXTRACT``.
     """
-    try:
-        from esphome.components import psram as _psram
-    except ImportError:
-        _LOGGER.warning("esphome psram not importable — structured editor skipped")
-        return []
-    fields = _psram_static_fields(_psram.CONFIG_SCHEMA) or _psram_callable_fields(_psram)
+    from esphome.components import psram as _psram
+
+    fields = _psram_static_fields(_psram.CONFIG_SCHEMA)
     return _sort_entries([_psram_entry(name, field) for name, field in fields.items()])
 
 
@@ -6520,9 +6508,7 @@ def _psram_static_fields(config_schema: Any) -> dict[str, dict[str, Any]]:
             field["options"][value] = [v.lower() for v in variants]
 
     _walk_schema_keys(config_schema, visit)
-    # Empty unless this was the static form: the old callable schema isn't
-    # walkable, so it yields no options and the caller falls back to it.
-    return fields if any(field["options"] for field in fields.values()) else {}
+    return fields
 
 
 def _variant_enum_map(validator: Any) -> dict[str, list[str]]:
@@ -6539,53 +6525,9 @@ def _variant_enum_map(validator: Any) -> dict[str, list[str]]:
     return {}
 
 
-def _psram_callable_fields(_psram: Any) -> dict[str, dict[str, Any]]:
-    """Per-field map from the older per-variant ``get_config_schema`` callable.
-
-    Feed each variant in and capture the built ``vol.Schema`` (a one-shot subclass
-    whose ``__call__`` returns itself), unioning options / defaults across variants.
-    """
-
-    class _Capture(vol.Schema):
-        def __call__(self, data: Any) -> Any:
-            return self
-
-    fields: dict[str, dict[str, Any]] = {}
-    original_schema = _psram.cv.Schema
-    _psram.cv.Schema = _Capture
-    try:
-        for variant, modes in _psram.SPIRAM_MODES.items():
-            record = partial(_record_psram_field, fields, variant)
-            with _esp32_variant_context(variant):
-                _walk_schema_keys(_psram.get_config_schema({"mode": modes[0]}), record)
-    finally:
-        _psram.cv.Schema = original_schema
-    return fields
-
-
 def _psram_field(fields: dict[str, dict[str, Any]], key: Any, name: str) -> dict[str, Any]:
     """Get or create the per-key accumulator (default, is-bool, options)."""
     return fields.setdefault(name, {"default": _psram_default(key), "bool": False, "options": {}})
-
-
-def _record_psram_field(
-    fields: dict[str, dict[str, Any]],
-    variant: str,
-    key: Any,
-    name: str,
-    validator: Any,
-    path: tuple[str, ...],
-) -> None:
-    """Fold one captured schema key into *fields*, tagging each option's *variant*."""
-    if len(path) != 1 or name == "id":
-        return
-    field = _psram_field(fields, key, name)
-    if getattr(validator, "__name__", "") == "boolean":
-        field["bool"] = True
-    for option in _psram_one_of_options(validator):
-        variants = field["options"].setdefault(option, [])
-        if (low := variant.lower()) not in variants:
-            variants.append(low)
 
 
 def _psram_default(key: Any) -> Any:
@@ -6595,25 +6537,6 @@ def _psram_default(key: Any) -> Any:
         return None
     value = default() if callable(default) else default
     return None if value is vol.UNDEFINED else value
-
-
-def _psram_one_of_options(validator: Any) -> list[str | int]:
-    """
-    Read a ``cv.one_of`` validator's accepted values out of its closure.
-
-    Depends on ``cv.one_of``'s closure layout; the unioned-options tests pin
-    it, so an upstream refactor breaks CI rather than silently dropping the
-    options (the select would degrade to a free-text field).
-    """
-    for cell in getattr(validator, "__closure__", None) or ():
-        value = cell.cell_contents
-        if (
-            isinstance(value, (tuple, list))
-            and value
-            and all(isinstance(item, (str, int)) for item in value)
-        ):
-            return list(value)
-    return []
 
 
 def _psram_entry(name: str, field: dict[str, Any]) -> dict:
