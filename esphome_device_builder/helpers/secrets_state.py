@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from esphome import yaml_util
+from esphome.const import PLACEHOLDER_WIFI_PASSWORD, PLACEHOLDER_WIFI_SSID
 from esphome.core import EsphomeError
 from esphome.helpers import write_file as atomic_write_file
 from ruamel.yaml import YAML
@@ -45,19 +46,6 @@ async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *arg
     """
     async with lock:
         return await run_in_executor(fn, *args)
-
-
-# Bootstrap placeholder strings. Upstream now exports these from
-# ``esphome.const``; fall back to local literals on older releases
-# that predate the promotion.
-try:
-    from esphome.const import (
-        PLACEHOLDER_WIFI_PASSWORD,
-        PLACEHOLDER_WIFI_SSID,
-    )
-except ImportError:
-    PLACEHOLDER_WIFI_SSID = "REPLACE_WITH_YOUR_WIFI_NETWORK"
-    PLACEHOLDER_WIFI_PASSWORD = "REPLACE_WITH_YOUR_WIFI_PASSWORD"  # noqa: S105
 
 
 def read_secrets_yaml(config_dir: Path) -> dict | None:
