@@ -99,9 +99,8 @@ def write_user_yaml(path: Path, content: str | bytes) -> None:
     """
     Atomically write user-editable YAML, keeping an existing *path*'s mode.
 
-    An operator-tightened mode (e.g. a 0600 ``secrets.yaml``) survives the
-    rewrite instead of being reset to 0644; a new file gets 0644. ``OSError``
-    is wrapped as ``EsphomeError``, matching ``esphome.helpers.write_file``.
+    A new file gets 0644. ``OSError`` is wrapped as ``EsphomeError``,
+    matching ``esphome.helpers.write_file``.
     """
     data = content.encode() if isinstance(content, str) else content
     try:

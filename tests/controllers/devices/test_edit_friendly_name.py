@@ -661,16 +661,9 @@ async def test_edit_friendly_name_routes_through_atomic_write_helper(
 ) -> None:
     """Source YAML survives a mid-write crash inside the atomic helper.
 
-    The controller writes through ``write_user_yaml``, which stages
-    the new bytes in a sibling tempfile and ``os.replace``s into
-    place. ``Path.write_text`` would truncate the destination first,
-    so a crash mid-write would leave a partial / corrupt YAML. Pin
-    that the controller uses the atomic helper by patching
-    ``os.replace`` to raise during the rename — the destination must
-    come back unchanged and no tempfile shrapnel can be left behind.
-    A regression that swapped back to a non-atomic path would skip
-    ``os.replace`` entirely and we'd catch it as "the patched replace
-    was never called and the file got modified anyway."
+    ``os.replace`` is patched to raise mid-rename: the destination must
+    come back unchanged, with no tempfile shrapnel, and the patched
+    replace must have been called (a non-atomic path would skip it).
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     (tmp_path / "kitchen.yaml").write_text(SOURCE_YAML, "utf-8")
