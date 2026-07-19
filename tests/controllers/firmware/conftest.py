@@ -443,7 +443,7 @@ def wire_devices(controller: FirmwareController) -> None:
 
 
 def seed_yamls(tmp_path: Path, *names: str) -> None:
-    """Write a minimal valid ESPHome YAML per *names* into *tmp_path*."""
+    """Write a minimal ESPHome YAML stub per *names* into *tmp_path*."""
     for name in names:
         stem = name.removesuffix(".yaml")
         (tmp_path / name).write_text(f"esphome:\n  name: {stem}\n", encoding="utf-8")

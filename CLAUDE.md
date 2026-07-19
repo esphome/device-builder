@@ -342,8 +342,8 @@ against legacy behaviour before assuming the simpler version suffices.
   (`terminate_job_process`) signals exactly one job. `lane_for(job)`
   routes a network flash of an OpenThread device to the thread lane
   (Thread devices share one mesh/border router — concurrent OTAs starve
-  it) via `state.is_thread_configuration`, wired at `start()` before job
-  restore to `DevicesController.is_thread_device` (`"openthread" in
+  it) via `state.is_thread_configuration`, wired at controller
+  construction to `DevicesController.is_thread_device` (`"openthread" in
   loaded_integrations`; unknown/never-compiled → normal upload lane).
   Everything not a network flash runs on the compile lane.
   `firmware/install` enqueues a COMPILE job + a dependent

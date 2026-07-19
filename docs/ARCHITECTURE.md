@@ -206,7 +206,8 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   update must land inside its device's wake window — with one serial
   upload slot, the flashes behind a slow OTA missed their window, the
   devices went back to sleep, and their updates failed. The upload cap
-  bounds the combined memory of concurrent esphome subprocess trees; each lane spawns
+  bounds the combined memory of concurrent esphome subprocess trees
+  (peak concurrency is the cap plus one thread flash); each lane spawns
   `Lane.max_concurrency` workers off one FIFO queue, and running
   subprocesses live in the job-keyed `FirmwareState.processes` registry
   so cancel signals exactly one job. **OpenThread flashes serialize**:
@@ -218,8 +219,8 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   networks serialize against each other too, because mesh membership
   isn't data the dashboard has.
   A device never compiled yet routes to the normal upload lane — the
-  lookup is wired into `FirmwareState.is_thread_configuration` at
-  `start()`, before job restore, so restored flashes route the same way.
+  lookup is wired into `FirmwareState.is_thread_configuration` when the
+  controller constructs its state, so restored flashes route the same way.
   `install` splits into a COMPILE job + a dependent local UPLOAD job
   (`depends_on`): the upload is held until the compile succeeds, then
   runs on its upload lane; a cancelled/failed compile cascades to cancel

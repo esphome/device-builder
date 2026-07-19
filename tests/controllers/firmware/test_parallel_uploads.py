@@ -301,3 +301,12 @@ def test_is_thread_configuration_defaults_false_without_devices(
 ) -> None:
     controller = firmware_controller_factory()
     assert controller._is_thread_configuration("anything.yaml") is False
+
+
+def test_is_thread_configuration_delegates_to_devices(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    controller = firmware_controller_factory()
+    controller._db.devices = MagicMock(is_thread_device=lambda c: c == "mesh.yaml")
+    assert controller._is_thread_configuration("mesh.yaml") is True
+    assert controller._is_thread_configuration("kitchen.yaml") is False
