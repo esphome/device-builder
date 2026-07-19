@@ -6427,17 +6427,12 @@ def _ethernet_type_platform_options() -> dict[str, list[dict[str, str]]]:
     Ethernet's per-platform ``type`` choices from the live module constants.
 
     The schema bundle ships a flat union; empty when esphome's ethernet
-    isn't importable or predates the split.
+    isn't importable.
     """
     try:
         from esphome.components import ethernet as _ethernet
     except ImportError:
         _LOGGER.warning("esphome ethernet not importable — type platform split skipped")
-        return {}
-    if not hasattr(_ethernet, "RP2_ETHERNET_TYPES"):
-        # Catalog syncs always run on 2026.7+; this only keeps test runs
-        # under an older interpreter (CI stable leg) from crashing.
-        _LOGGER.debug("installed esphome predates RP2_ETHERNET_TYPES — ethernet split skipped")
         return {}
     rp2 = set(_ethernet.RP2_ETHERNET_TYPES)
     # Everything except the RP2-only chips.

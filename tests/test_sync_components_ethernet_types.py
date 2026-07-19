@@ -34,9 +34,6 @@ def _values(options: list[dict]) -> list[str]:
 def test_options_derive_from_live_ethernet_module() -> None:
     ethernet = pytest.importorskip("esphome.components.ethernet")
     options = sync_components._ethernet_type_platform_options()
-    if not hasattr(ethernet, "RP2_ETHERNET_TYPES"):
-        assert options == {}
-        return
     assert _values(options["rp2040"]) == sorted(ethernet.RP2_ETHERNET_TYPES)
     esp32 = set(_values(options["esp32"]))
     assert esp32.isdisjoint(set(ethernet.RP2_ETHERNET_TYPES) - set(ethernet.SPI_ETHERNET_TYPES))
