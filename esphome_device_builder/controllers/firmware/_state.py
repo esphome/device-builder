@@ -14,8 +14,9 @@ from .constants import MAX_CONCURRENT_UPLOADS
 class Lane:
     """One work lane: its FIFO queue + the jobs occupying its slots now.
 
-    Lanes run concurrently — a compile lane (CPU) and an upload lane
-    (network) — so a slow network flash doesn't block the next compile.
+    Lanes run concurrently — a compile lane (CPU), an upload lane
+    (network), and a serialized OpenThread upload lane — so a slow
+    network flash doesn't block the next compile or flash.
     ``max_concurrency`` workers drain the queue; ``active`` holds the
     jobs currently running on the lane, keyed by ``job_id``.
     """
@@ -118,10 +119,9 @@ class FirmwareState:
     upload_lane: Lane = field(default_factory=lambda: Lane(max_concurrency=MAX_CONCURRENT_UPLOADS))
     thread_upload_lane: Lane = field(default_factory=Lane)
 
-    # Injected by the controller at ``start()`` (before job restore):
-    # sync RAM lookup for "does this configuration's device load
-    # ``openthread``". Default False routes every flash to the normal
-    # upload lane.
+    # Injected by the controller at construction: sync RAM lookup for
+    # "does this configuration's device load ``openthread``". Default
+    # False routes every flash to the normal upload lane.
     is_thread_configuration: Callable[[str], bool] = field(default=lambda _configuration: False)
 
     # Subprocesses spawned for running jobs, keyed by ``job_id`` — what

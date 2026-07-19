@@ -15,21 +15,14 @@ import asyncio
 import sys
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
-from esphome_device_builder.controllers.firmware import controller as controller_module
+from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
 from esphome_device_builder.controllers.firmware.constants import MAX_CONCURRENT_UPLOADS
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
-from tests.controllers.firmware.conftest import (
-    run_until_terminal,
-)
-from tests.controllers.firmware.conftest import (
-    wire_devices as _wire_devices,
-)
-from tests.controllers.firmware.conftest import (
-    wire_real_queue as _wire_real_queue,
-)
+from tests.controllers.firmware.conftest import run_until_terminal, seed_yamls, wire_real_queue
+from tests.controllers.firmware.conftest import wire_devices as _wire_devices
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -55,12 +48,6 @@ def _watch_started(controller: Any) -> dict[str, asyncio.Event]:
     return started
 
 
-def _seed_yamls(tmp_path: Any, *names: str) -> None:
-    for name in names:
-        stem = name.removesuffix(".yaml")
-        (tmp_path / name).write_text(f"esphome:\n  name: {stem}\n", encoding="utf-8")
-
-
 async def _wait_started(started: dict[str, asyncio.Event], *configurations: str) -> None:
     async with asyncio.timeout(10):
         for configuration in configurations:
@@ -72,11 +59,11 @@ async def test_three_uploads_overlap_and_fourth_queues(
 ) -> None:
     """Three flashes occupy the upload lane at once; the fourth waits for a slot."""
     controller = firmware_controller_factory(with_queue=True)
-    _wire_real_queue(controller)
+    wire_real_queue(controller)
     _wire_devices(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", _PARK_UPLOAD]
     names = ["u1.yaml", "u2.yaml", "u3.yaml", "u4.yaml"]
-    _seed_yamls(tmp_path, *names)
+    seed_yamls(tmp_path, *names)
     started = _watch_started(controller)
 
     jobs = [await controller.upload(configuration=name, port="OTA") for name in names]
@@ -111,12 +98,11 @@ async def test_thread_uploads_serialize_beside_concurrent_normal_uploads(
 ) -> None:
     """Two thread-device flashes take the thread lane one at a time; a normal flash overlaps."""
     controller = firmware_controller_factory(with_queue=True)
-    _wire_real_queue(controller)
+    wire_real_queue(controller)
     _wire_devices(controller)
-    controller._db.devices.thread_configurations = {"mesh1.yaml", "mesh2.yaml"}
-    controller.state.is_thread_configuration = controller._is_thread_configuration
+    controller.state.is_thread_configuration = lambda c: c in {"mesh1.yaml", "mesh2.yaml"}
     controller.state.esphome_cmd = [sys.executable, "-c", _PARK_UPLOAD]
-    _seed_yamls(tmp_path, "mesh1.yaml", "mesh2.yaml", "alpha.yaml")
+    seed_yamls(tmp_path, "mesh1.yaml", "mesh2.yaml", "alpha.yaml")
     started = _watch_started(controller)
 
     mesh1 = await controller.upload(configuration="mesh1.yaml", port="OTA")
@@ -151,11 +137,11 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
 ) -> None:
     """Cancelling one running upload signals only its own subprocess."""
     controller = firmware_controller_factory(with_queue=True)
-    _wire_real_queue(controller)
+    wire_real_queue(controller)
     _wire_devices(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", _PARK_UPLOAD]
     names = ["u1.yaml", "u2.yaml", "u3.yaml"]
-    _seed_yamls(tmp_path, *names)
+    seed_yamls(tmp_path, *names)
     started = _watch_started(controller)
 
     jobs = [await controller.upload(configuration=name, port="OTA") for name in names]
@@ -208,11 +194,11 @@ async def test_six_uploads_drain_three_at_a_time(
     earlier flashes completed (FIFO refill). All 6 land COMPLETED.
     """
     controller = firmware_controller_factory(with_queue=True)
-    _wire_real_queue(controller)
+    wire_real_queue(controller)
     _wire_devices(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", _STAGGERED_UPLOAD]
     names = [f"u{i}.yaml" for i in range(1, 7)]
-    _seed_yamls(tmp_path, *names)
+    seed_yamls(tmp_path, *names)
 
     sequence: list[tuple[EventType, str]] = []
     max_active = 0
@@ -304,26 +290,10 @@ def test_upload_lane_concurrency_defaults() -> None:
     assert state.thread_upload_lane in state.lanes()
 
 
-async def test_start_wires_thread_lookup_before_job_restore(
-    firmware_controller_factory: FirmwareControllerFactory,
-    monkeypatch: Any,
-) -> None:
-    """Restored flashes must already route through the devices lookup."""
-    controller = firmware_controller_factory()
-    monkeypatch.setattr(controller_module, "_find_esphome_cmd", lambda: ["esphome"])
-    monkeypatch.setattr(
-        controller_module, "_verify_esphome_importable", AsyncMock(return_value=(True, "ok"))
-    )
-    seen: list[Any] = []
-
-    async def _load_jobs() -> None:
-        seen.append(controller.state.is_thread_configuration)
-
-    monkeypatch.setattr(controller, "_load_jobs", _load_jobs)
-
-    await controller.start()
-
-    assert seen == [controller._is_thread_configuration]
+def test_controller_wires_thread_lookup_at_construction() -> None:
+    """Every route — including restore — sees the devices lookup, not the default."""
+    controller = FirmwareController(MagicMock())
+    assert controller.state.is_thread_configuration == controller._is_thread_configuration
 
 
 def test_is_thread_configuration_defaults_false_without_devices(

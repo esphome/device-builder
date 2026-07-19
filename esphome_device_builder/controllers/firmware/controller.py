@@ -72,18 +72,19 @@ _LOGGER = logging.getLogger(__name__)
 
 class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     """
-    Manage firmware build jobs with a persistent two-lane queue.
+    Manage firmware build jobs with a persistent three-lane queue.
 
-    A compile lane (CPU) and an upload lane (network) each run one job at a
-    time but run concurrently, so a slow upload doesn't block the next
-    compile. Jobs are persisted to disk so they survive page refreshes and
-    server restarts. Progress is broadcast via the event bus to all
-    connected clients.
+    A compile lane (CPU, one job at a time), an upload lane (network, up
+    to ``MAX_CONCURRENT_UPLOADS`` flashes at once), and a single-slot
+    OpenThread upload lane run concurrently, so a slow upload doesn't
+    block the next compile or flash. Jobs are persisted to disk so they
+    survive page refreshes and server restarts. Progress is broadcast via
+    the event bus to all connected clients.
     """
 
     def __init__(self, device_builder: DeviceBuilder) -> None:
         self._db = device_builder
-        self.state = FirmwareState()
+        self.state = FirmwareState(is_thread_configuration=self._is_thread_configuration)
         # Short-lived capability tokens for the HTTP artifact-download route.
         self.download_tokens = download_mod.DownloadTokens()
         self._runner_task: asyncio.Task | None = None
@@ -213,9 +214,6 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 "(e.g. ``pip install -e '.[esphome]'`` from the project root).",
                 detail,
             )
-        # Before ``_load_jobs`` so restored flashes route to the right
-        # upload lane; the devices controller has already scanned.
-        self.state.is_thread_configuration = self._is_thread_configuration
         await self._load_jobs()
         self._runner_task = self._db.create_background_task(self._run_queue())
 

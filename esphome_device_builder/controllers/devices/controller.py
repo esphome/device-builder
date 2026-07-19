@@ -362,7 +362,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def is_thread_device(self, configuration: str) -> bool:
         """Whether *configuration*'s device loads ``openthread`` (per its last compile)."""
-        device = self._scanner.get_by_configuration(configuration)
+        device = self.get_by_configuration(configuration)
         return device is not None and "openthread" in device.loaded_integrations
 
     def set_queued_update(self, configuration: str) -> bool:
