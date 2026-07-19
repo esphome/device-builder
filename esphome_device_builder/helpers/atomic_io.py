@@ -67,7 +67,10 @@ def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> Non
     primitive — ``os.link`` on POSIX, ``os.rename`` on Windows — both
     of which refuse an existing target. The target only ever appears
     fully written (a crash mid-write leaves no partial file) and a
-    concurrent creator loses cleanly with ``FileExistsError``.
+    concurrent creator loses cleanly with ``FileExistsError``. On a
+    hardlink-less POSIX filesystem (SMB / FAT) the publish degrades to
+    a direct exclusive write: still no-clobber, but a crash mid-write
+    can leave a partial target on that one mount class.
     """
     _staged_write(path, data, mode=mode, publish=_publish_exclusive)
 

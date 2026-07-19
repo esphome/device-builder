@@ -60,8 +60,10 @@ async def write_new_file_exclusive(
 
     The exclusive publish refuses to clobber an existing file with no
     TOCTOU window, and the staging means a crash mid-write leaves no
-    partial target. A ``FileExistsError`` is delegated to *on_exists*,
-    which raises the caller's typed error.
+    partial target (except on a hardlink-less mount, where
+    :func:`helpers.atomic_io.atomic_write_exclusive` degrades to a
+    direct exclusive write). A ``FileExistsError`` is delegated to
+    *on_exists*, which raises the caller's typed error.
     """
 
     def _write() -> None:
