@@ -607,7 +607,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _is_thread_configuration(self, configuration: str) -> bool:
         devices = self._db.devices
         if devices is None:
-            _LOGGER.debug("Devices controller unavailable; routing %s as non-thread", configuration)
+            _LOGGER.warning(
+                "Devices controller unavailable; %s flashes without thread serialization",
+                configuration,
+            )
             return False
         return devices.is_thread_device(configuration)
 

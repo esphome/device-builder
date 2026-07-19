@@ -298,9 +298,16 @@ def test_controller_wires_thread_lookup_at_construction() -> None:
 
 def test_is_thread_configuration_defaults_false_without_devices(
     firmware_controller_factory: FirmwareControllerFactory,
+    caplog: Any,
 ) -> None:
+    """A missing devices controller degrades loudly, not silently."""
     controller = firmware_controller_factory()
     assert controller._is_thread_configuration("anything.yaml") is False
+    assert any(
+        "without thread serialization" in record.message
+        for record in caplog.records
+        if record.levelname == "WARNING"
+    )
 
 
 def test_is_thread_configuration_delegates_to_devices(
