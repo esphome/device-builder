@@ -59,15 +59,15 @@ async def _wait_started(started: dict[str, asyncio.Event], *configurations: str)
             await started.setdefault(configuration, asyncio.Event()).wait()
 
 
-async def test_three_uploads_overlap_and_fourth_queues(
+async def test_uploads_fill_the_lane_and_the_overflow_queues(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Any
 ) -> None:
-    """Three flashes occupy the upload lane at once; the fourth waits for a slot."""
+    """Flashes fill every upload slot at once; the overflow waits for a slot."""
     controller = firmware_controller_factory(with_queue=True)
     wire_real_queue(controller)
     _wire_devices(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", _PARK_UPLOAD]
-    names = ["u1.yaml", "u2.yaml", "u3.yaml", "u4.yaml"]
+    names = [f"u{i}.yaml" for i in range(1, MAX_CONCURRENT_UPLOADS + 2)]
     seed_yamls(tmp_path, *names)
     started = _watch_started(controller)
 
@@ -80,17 +80,17 @@ async def test_three_uploads_overlap_and_fourth_queues(
         lane = controller.state.upload_lane
         assert len(lane.active) == MAX_CONCURRENT_UPLOADS
         assert all(j.status is JobStatus.RUNNING for j in jobs[:MAX_CONCURRENT_UPLOADS])
-        assert jobs[3].status is JobStatus.QUEUED
+        assert jobs[-1].status is JobStatus.QUEUED
         assert lane.queue.qsize() == 1
         status = controller.lane_status(lane)
         assert status.running is True
         assert status.idle is False
 
-        # Freeing one slot lets the fourth in.
+        # Freeing one slot lets the overflow flash in.
         controller.state.cancel_requested.add(jobs[0].job_id)
         await controller._terminate_job_process(jobs[0])
-        await _wait_started(started, names[3])
-        assert jobs[3].status is JobStatus.RUNNING
+        await _wait_started(started, names[-1])
+        assert jobs[-1].status is JobStatus.RUNNING
         assert jobs[0].status is JobStatus.CANCELLED
     finally:
         runner.cancel()
@@ -175,34 +175,36 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
             await runner
 
 
-# Each upload sleeps a per-device staggered duration, then exits 0 —
-# a burst of woken deep-sleep devices whose OTAs take different times.
+# Each upload sleeps a per-device staggered duration (indexed by the
+# uN.yaml number), then exits 0 — a burst of woken deep-sleep devices
+# whose OTAs take different times.
+_STAGGER_DELAYS = [0.2, 0.05, 0.35, 0.1, 0.05, 0.15, 0.25, 0.1, 0.3, 0.05]
 _STAGGERED_UPLOAD = (
     "import os, sys, time\n"
     "cfg = os.path.basename(next(a for a in sys.argv if a.endswith('.yaml')))\n"
-    "delays = {'u1.yaml': 0.2, 'u2.yaml': 0.05, 'u3.yaml': 0.35,"
-    " 'u4.yaml': 0.1, 'u5.yaml': 0.05, 'u6.yaml': 0.15}\n"
+    f"delays = {_STAGGER_DELAYS!r}\n"
     "print('INFO uploading', flush=True)\n"
-    "time.sleep(delays[cfg])\n"
+    "time.sleep(delays[int(cfg[1:-5]) - 1])\n"
 )
 
 
-async def test_six_uploads_drain_three_at_a_time(
+async def test_upload_burst_drains_cap_at_a_time(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Any
 ) -> None:
-    """A 6-upload burst drains 3-at-a-time: overflow starts only as slots free.
+    """A burst of twice the cap drains cap-at-a-time: overflow starts only as slots free.
 
-    The deep-sleep wake shape: six devices wake at once, each flash
+    The deep-sleep wake shape: the devices wake at once, each flash
     finishing at its own staggered time. The lane must never exceed
-    3 concurrent flashes, the first 3 must all start before anything
-    finishes, and the k-th overflow upload starts only after k
-    earlier flashes completed (FIFO refill). All 6 land COMPLETED.
+    the cap, the first wave must all start before anything finishes,
+    and the k-th overflow upload starts only after k earlier flashes
+    completed (FIFO refill). Every burst member lands COMPLETED.
     """
     controller = firmware_controller_factory(with_queue=True)
     wire_real_queue(controller)
     _wire_devices(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", _STAGGERED_UPLOAD]
-    names = [f"u{i}.yaml" for i in range(1, 7)]
+    assert len(_STAGGER_DELAYS) >= MAX_CONCURRENT_UPLOADS * 2
+    names = [f"u{i}.yaml" for i in range(1, MAX_CONCURRENT_UPLOADS * 2 + 1)]
     seed_yamls(tmp_path, *names)
 
     sequence: list[tuple[EventType, str]] = []
@@ -234,9 +236,10 @@ async def test_six_uploads_drain_three_at_a_time(
         elif event_type is EventType.JOB_COMPLETED:
             done += 1
     # The first wave fills every slot before anything finishes...
-    assert [completions_before_start[name] for name in names[:3]] == [0, 0, 0]
+    first_wave = names[:MAX_CONCURRENT_UPLOADS]
+    assert [completions_before_start[name] for name in first_wave] == [0] * len(first_wave)
     # ...and each overflow upload waits for enough earlier flashes to land.
-    for k, name in enumerate(names[3:], start=1):
+    for k, name in enumerate(names[MAX_CONCURRENT_UPLOADS:], start=1):
         assert completions_before_start[name] >= k
 
 
