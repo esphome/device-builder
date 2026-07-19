@@ -214,6 +214,9 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   over the mesh starve each other, so `lane_for` routes a network flash
   whose device loads `openthread` (per `DevicesController.is_thread_device`,
   reading the last compile's `loaded_integrations`) to the thread lane.
+  That slot is deliberately global, not per-mesh: two independent Thread
+  networks serialize against each other too, because mesh membership
+  isn't data the dashboard has.
   A device never compiled yet routes to the normal upload lane — the
   lookup is wired into `FirmwareState.is_thread_configuration` at
   `start()`, before job restore, so restored flashes route the same way.

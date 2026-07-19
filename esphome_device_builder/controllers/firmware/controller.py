@@ -606,7 +606,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     def _is_thread_configuration(self, configuration: str) -> bool:
         devices = self._db.devices
-        return devices is not None and devices.is_thread_device(configuration)
+        if devices is None:
+            _LOGGER.debug("Devices controller unavailable; routing %s as non-thread", configuration)
+            return False
+        return devices.is_thread_device(configuration)
 
     async def _terminate_job_process(self, job: FirmwareJob) -> None:
         await lifecycle.terminate_job_process(self, job)

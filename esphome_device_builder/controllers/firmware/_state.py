@@ -114,7 +114,9 @@ class FirmwareState:
     # maps a job to; each lane spawns ``max_concurrency`` worker tasks.
     # All survive restarts via the on-disk persistence layer. The thread
     # lane stays single-slot: OpenThread devices share one mesh / border
-    # router, and concurrent OTAs over the mesh starve each other.
+    # router, and concurrent OTAs over the mesh starve each other. The
+    # slot is deliberately global, not per-mesh — keying on mesh identity
+    # needs membership data the dashboard doesn't have.
     compile_lane: Lane = field(default_factory=Lane)
     upload_lane: Lane = field(default_factory=lambda: Lane(max_concurrency=MAX_CONCURRENT_UPLOADS))
     thread_upload_lane: Lane = field(default_factory=Lane)
