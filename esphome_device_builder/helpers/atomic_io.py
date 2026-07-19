@@ -16,6 +16,7 @@ from __future__ import annotations
 import contextlib
 import errno
 import os
+import stat
 import tempfile
 import time
 from collections.abc import Callable
@@ -135,9 +136,11 @@ def _publish_exclusive(src: Path, dst: Path) -> None:
             return
         # Hardlink-less filesystem: keep the exclusive-open reach the
         # pre-staged write had, at the cost of unstaged bytes on this
-        # one exotic mount class.
+        # one exotic mount class. Mirror the staged file's mode; a
+        # fresh ``open("xb")`` would otherwise take the umask default.
         with dst.open("xb") as f:
             f.write(src.read_bytes())
+        dst.chmod(stat.S_IMODE(src.stat().st_mode))
         return
     # ``Path.rename`` on Windows refuses an existing destination
     # (``FileExistsError``, surfaced immediately, not a

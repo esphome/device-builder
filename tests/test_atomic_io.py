@@ -372,6 +372,7 @@ def test_atomic_write_exclusive_falls_back_on_hardlink_less_filesystem(
     atomic_write_exclusive(target, b"esphome:\n")
 
     assert target.read_bytes() == b"esphome:\n"
+    assert stat.S_IMODE(target.stat().st_mode) == 0o644
     assert list(tmp_path.glob("*.tmp")) == []
 
 
