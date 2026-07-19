@@ -2,7 +2,7 @@
 
 The POSIX path (``test_firmware_stop.py``) relies on process groups
 and ``killpg`` — primitives that don't exist on Windows. This module
-covers the Windows-specific branch in ``_terminate_current_process``:
+covers the Windows-specific branch in ``_terminate_job_process``:
 ``taskkill`` walks the kernel's parent-PID tree and force-kills the
 whole subtree in one shot.
 """
@@ -22,7 +22,7 @@ from esphome_device_builder.helpers.subprocess import create_subprocess_exec
 from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
 
 # Only the integration test below — which spawns a real subprocess
-# and exercises ``_terminate_current_process``'s Windows branch end
+# and exercises ``_terminate_job_process``'s Windows branch end
 # to end — needs the Windows-only guard. The unit tests for
 # ``_terminate_subtree_windows`` patch out ``create_subprocess_exec``
 # entirely, so they're cross-platform-safe and contribute Windows-
@@ -38,7 +38,7 @@ def controller(
     bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> FirmwareController:
     """Stand up a FirmwareController shell — only the bits termination touches."""
-    return bare_firmware_controller_factory(current_job=MagicMock(job_id="test-job"))
+    return bare_firmware_controller_factory()
 
 
 @windows_only
@@ -53,10 +53,11 @@ async def test_terminate_kills_subprocess_via_taskkill(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    controller.state.compile_lane.current_process = proc  # type: ignore[attr-defined]
+    job = MagicMock(job_id="test-job")
+    controller.state.processes[job.job_id] = proc  # type: ignore[assignment]
 
     try:
-        await controller._terminate_current_process(controller.state.compile_lane)
+        await controller._terminate_job_process(job)
         # taskkill /F /T schedules termination synchronously; the
         # subprocess should exit within seconds.
         await asyncio.wait_for(proc.wait(), timeout=5.0)

@@ -31,7 +31,6 @@ import pytest
 from esphome.const import __version__ as _esphome_version
 
 from esphome_device_builder.controllers.firmware import remote_runner
-from esphome_device_builder.controllers.firmware._state import Lane
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
@@ -259,7 +258,7 @@ def _request_remote_cancel(controller: Any, job: FirmwareJob) -> None:
     through the helper (rather than calling ``controller.cancel``
     directly) keeps the test focused on the runner under test
     without bringing in the cancel handler's QUEUED-job and
-    ``_terminate_current_process`` branches that don't apply
+    ``_terminate_job_process`` branches that don't apply
     on the remote path.
     """
     controller.state.cancel_requested.add(job.job_id)
@@ -1373,7 +1372,7 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     A cancel landed before the runner registered its event still fires the wire cancel.
 
     The race the event-driven design opened up: between
-    ``_execute_job`` setting ``_current_job = job`` and the
+    ``_execute_job`` claiming the lane slot and the
     runner registering its ``cancel_event`` on the
     controller, the WS cancel handler may run. It would
     happily ``_cancel_requested.add(job_id)`` and then find
@@ -1446,20 +1445,20 @@ async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     _wire_remote_build(controller, client=client)
     job = _make_remote_job()
 
-    # The WS cancel handler refuses non-existent jobs and the
-    # ``_current_job`` mismatch is a hard error — wire both so
+    # The WS cancel handler refuses non-existent jobs and a
+    # missing lane slot is a hard error — wire both so
     # the handler's ``RUNNING`` branch runs.
     controller.state.jobs[job.job_id] = job
     job.status = JobStatus.RUNNING
-    controller.state.compile_lane.current_job = job
+    controller.state.compile_lane.active[job.job_id] = job
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
 
     # Drive through the real handler — the cancel-event
     # signal is its only job for the REMOTE path (the
-    # ``_terminate_current_process`` call is a no-op because
-    # ``_current_process`` is None).
+    # ``_terminate_job_process`` call is a no-op because
+    # no subprocess is registered).
     await controller.cancel(job_id=job.job_id)
     await _wait_for_wire_cancel(client)
     client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
@@ -1544,7 +1543,7 @@ def _wire_upload_subprocess(
     runner doesn't reach into the (absent in unit tests)
     devices controller's address cache. The runner's
     ``_tracked_subprocess`` is the real method — it
-    registers the spawn with ``_current_process`` so the
+    registers the spawn in ``state.processes`` so the
     cancel-during-upload tests can SIGTERM the chain.
     """
     quoted_stdout = repr(stdout)
@@ -1786,9 +1785,9 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     User Stop during the ``esphome upload`` subprocess finalises as CANCELLED.
 
     The runner's ``_tracked_subprocess`` registers the
-    upload spawn with ``controller.state.compile_lane.current_process``, and
+    upload spawn in ``controller.state.processes``, and
     ``FirmwareController.cancel``'s
-    ``_terminate_current_process`` lands SIGTERM on the
+    ``_terminate_job_process`` lands SIGTERM on the
     spawned tree. The subprocess exits non-zero (terminated
     by signal); the runner's post-spawn cancel-check
     routes through ``_finalize_cancelled`` rather than the
@@ -1817,11 +1816,12 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
         "sys.stdout.flush(); time.sleep(30)",
     ]
 
-    async def _terminate(lane: Lane) -> None:
-        assert lane.current_process is not None  # type narrowing
-        lane.current_process.terminate()
+    async def _terminate(target: FirmwareJob) -> None:
+        proc = controller.state.processes.get(target.job_id)
+        assert proc is not None  # type narrowing
+        proc.terminate()
 
-    controller._terminate_current_process = _terminate  # type: ignore[method-assign]
+    controller._terminate_job_process = _terminate  # type: ignore[method-assign]
     job = _make_remote_install_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
@@ -1829,11 +1829,11 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     _fire_state(controller, job_id=job.job_id, status="completed")
 
     # Wait until the subprocess is up.
-    while controller.state.compile_lane.current_process is None:
+    while job.job_id not in controller.state.processes:
         await asyncio.sleep(0.01)
 
     _request_remote_cancel(controller, job)
-    await controller._terminate_current_process(controller.state.compile_lane)
+    await controller._terminate_job_process(job)
     await asyncio.wait_for(runner, timeout=5.0)
 
     assert job.status == JobStatus.CANCELLED
@@ -1846,7 +1846,7 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    Cancel landing during the staging executor hops fires ``_terminate_current_process`` post-spawn.
+    Cancel landing during the staging executor hops fires ``_terminate_job_process`` post-spawn.
 
     The runner has two cancel-check sites for this path:
 
@@ -1864,7 +1864,7 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
     ``firmware_path.write_bytes`` (via ``Path.write_bytes``)
     to flip ``_cancel_requested`` as a side effect — so by
     the time the spawn returns, the in-context check sees
-    the flag and fires ``_terminate_current_process``.
+    the flag and fires ``_terminate_job_process``.
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
@@ -1874,10 +1874,10 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
 
     terminate_calls: list[None] = []
 
-    async def _terminate(_lane: Lane) -> None:
+    async def _terminate(_job: FirmwareJob) -> None:
         terminate_calls.append(None)
 
-    controller._terminate_current_process = _terminate  # type: ignore[method-assign]
+    controller._terminate_job_process = _terminate  # type: ignore[method-assign]
     # Subprocess emits one line + exits 0 — the
     # cancel-aware finalise routes through CANCELLED
     # regardless of the exit.
@@ -1896,9 +1896,9 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
     await remote_runner._fetch_and_run_local_upload(controller=controller, job=job, client=client)
 
     # The post-spawn check inside ``_run_upload_subprocess``
-    # called ``_terminate_current_process``.
+    # called ``_terminate_job_process``.
     assert terminate_calls, (
-        "expected _terminate_current_process to fire from the in-context-manager cancel check"
+        "expected _terminate_job_process to fire from the in-context-manager cancel check"
     )
     assert job.status == JobStatus.CANCELLED
     assert len(captured[EventType.JOB_CANCELLED]) == 1

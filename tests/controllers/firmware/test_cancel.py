@@ -14,7 +14,7 @@ The handler routes by job status:
   ``FAILED``-on-non-zero-exit.
 - Already terminal → reject with ``CommandError(INVALID_ARGS)``.
 - Unknown ``job_id`` → reject with ``CommandError(NOT_FOUND)``.
-- ``RUNNING`` but state out of sync (no ``_current_job`` or wrong
+- ``RUNNING`` but state out of sync (no lane slot or wrong
   id) → ``RuntimeError``. Defensive guard against a queue that
   thinks a job is running but the runner has moved on. Stays as
   ``RuntimeError`` (server bug, not user input) so the WS
@@ -143,17 +143,17 @@ async def test_cancel_queued_job_prunes_history_before_persisting(
     assert order == ["prune", "persist"]
 
 
-async def test_cancel_queued_does_not_touch_terminate_current_process(
+async def test_cancel_queued_does_not_touch_terminate_job_process(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
     """The QUEUED branch never reaches the subprocess terminator.
 
-    Belt-and-braces: ``_terminate_current_process`` walks
-    ``self.state.compile_lane.current_process`` and signals it. For a queued job
-    there is no subprocess (and ``_current_process`` is ``None``),
+    Belt-and-braces: ``_terminate_job_process`` looks up the job in
+    ``state.processes`` and signals it. For a queued job
+    there is no subprocess (no registry entry),
     so calling it here is at best a no-op; at worst a future
     refactor of the terminator that doesn't gracefully handle the
-    null case crashes the cancel.
+    missing case crashes the cancel.
     """
     job = _job("j-q", status=JobStatus.QUEUED)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
@@ -161,7 +161,7 @@ async def test_cancel_queued_does_not_touch_terminate_current_process(
 
     await controller.cancel(job_id="j-q")
 
-    controller._terminate_current_process.assert_not_called()
+    controller._terminate_job_process.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +182,12 @@ async def test_cancel_running_job_records_intent_and_terminates(
     """
     job = _job("j-r", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
-    controller.state.compile_lane.current_job = job
+    controller.state.compile_lane.active[job.job_id] = job
 
     await controller.cancel(job_id="j-r")
 
     assert "j-r" in controller.state.cancel_requested
-    controller._terminate_current_process.assert_awaited_once()
+    controller._terminate_job_process.assert_awaited_once()
 
 
 async def test_cancel_running_job_does_not_fire_event_directly(
@@ -204,7 +204,7 @@ async def test_cancel_running_job_does_not_fire_event_directly(
     """
     job = _job("j-r", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
-    controller.state.compile_lane.current_job = job
+    controller.state.compile_lane.active[job.job_id] = job
     captured = capture_firmware_events(controller, EventType.JOB_CANCELLED)
 
     await controller.cancel(job_id="j-r")
@@ -214,10 +214,10 @@ async def test_cancel_running_job_does_not_fire_event_directly(
     assert job.status == JobStatus.RUNNING
 
 
-async def test_cancel_running_job_with_no_current_job_raises_runtime_error(
+async def test_cancel_running_job_with_no_lane_slot_raises_runtime_error(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """RUNNING in ``_jobs`` but ``_current_job`` is None → state out of sync.
+    """RUNNING in ``_jobs`` but on no lane → state out of sync.
 
     Defensive: if we ever see a ``RUNNING`` status with no active
     subprocess, terminating "the current process" would either
@@ -227,17 +227,17 @@ async def test_cancel_running_job_with_no_current_job_raises_runtime_error(
     """
     job = _job("j-r", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
-    # ``_current_job`` left as ``None`` — out of sync.
+    # No lane ``active`` entry — out of sync.
 
     with pytest.raises(RuntimeError, match="state out of sync"):
         await controller.cancel(job_id="j-r")
-    controller._terminate_current_process.assert_not_called()
+    controller._terminate_job_process.assert_not_called()
 
 
-async def test_cancel_running_job_with_mismatched_current_job_raises(
+async def test_cancel_running_job_with_mismatched_lane_slot_raises(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """RUNNING ``job_id`` doesn't match ``_current_job.job_id`` → out of sync.
+    """RUNNING ``job_id`` isn't in any lane's ``active`` → out of sync.
 
     Same hazard as the no-current-job case: signalling the wrong
     process would terminate a different running job. Refuse the
@@ -246,11 +246,11 @@ async def test_cancel_running_job_with_mismatched_current_job_raises(
     job = _job("j-r", status=JobStatus.RUNNING)
     other = _job("j-other", status=JobStatus.RUNNING)
     controller = firmware_controller_factory(job, other, with_settings=False, with_terminate=True)
-    controller.state.compile_lane.current_job = other  # somebody else is running
+    controller.state.compile_lane.active[other.job_id] = other  # somebody else is running
 
     with pytest.raises(RuntimeError, match="state out of sync"):
         await controller.cancel(job_id="j-r")
-    controller._terminate_current_process.assert_not_called()
+    controller._terminate_job_process.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -284,5 +284,5 @@ async def test_cancel_terminal_job_raises_invalid_args(
         await controller.cancel(job_id="j-t")
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert f"Cannot cancel a {status.value} job" in exc.value.message
-    controller._terminate_current_process.assert_not_called()
+    controller._terminate_job_process.assert_not_called()
     assert captured == []

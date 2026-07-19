@@ -120,8 +120,7 @@ def firmware_controller_factory(
       enqueue a rejected request crash visibly.
 
     - ``with_terminate=False`` (default): when set ``True``,
-      install ``_current_job`` / ``_current_process`` /
-      ``_cancel_requested`` / ``_terminate_current_process``.
+      install ``_cancel_requested`` / ``_terminate_job_process``.
       Only ``cancel`` reaches into these.
 
     - ``with_real_persistence=False`` (default): ``_persist_jobs``
@@ -195,16 +194,6 @@ def firmware_controller_factory(
         # binding doesn't treat the lambda as an unbound method.
         controller._db.create_background_task = lambda coro: coro.close()
 
-        # ``_finalize_terminal`` releases the runner slot before
-        # firing — so ``_current_job`` / ``_current_process`` need
-        # to exist on every stub (default ``None``, matching
-        # production's ``__init__``) even on test paths that
-        # don't drive the runner. Without this, cancel-queued /
-        # supersede tests that fire JOB_CANCELLED through the
-        # helper crash on ``AttributeError``.
-        controller.state.compile_lane.current_job = None
-        controller.state.compile_lane.current_process = None
-
         if with_queue:
             # ``put_nowait`` / ``qsize`` are sync on a real Queue; keep them
             # sync here (the enqueue path uses ``put_nowait``) while ``get``
@@ -217,7 +206,7 @@ def firmware_controller_factory(
         if with_terminate:
             controller.state.cancel_requested = set()
             controller.state.cancel_events = {}
-            controller._terminate_current_process = AsyncMock()
+            controller._terminate_job_process = AsyncMock()
 
         return controller
 
@@ -234,7 +223,6 @@ def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
     def _make(
         *,
         esphome_cmd: list[str] | None = None,
-        current_job: object | None = None,
         with_mock_db: bool = False,
     ) -> FirmwareController:
         controller = FirmwareController.__new__(FirmwareController)
@@ -242,8 +230,6 @@ def bare_firmware_controller_factory() -> BareFirmwareControllerFactory:
         controller.download_tokens = DownloadTokens()
         if esphome_cmd is not None:
             controller.state.esphome_cmd = esphome_cmd
-        if current_job is not None:
-            controller.state.compile_lane.current_job = current_job
         if with_mock_db:
             controller._db = MagicMock()
             controller._db.devices = None
@@ -387,8 +373,6 @@ def wire_real_queue(controller: FirmwareController) -> None:
         return
 
     controller._supersede_active_jobs = _supersede  # type: ignore[assignment]
-    controller.state.compile_lane.current_job = None
-    controller.state.compile_lane.current_process = None
     controller.state.cancel_requested = set()
     controller.state.cancel_events = {}
 

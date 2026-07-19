@@ -42,7 +42,7 @@ async def _clean_provisioned_venvs(controller: FirmwareController) -> None:
 
 
 async def run_lane(controller: FirmwareController, lane: Lane) -> None:
-    """Background loop: process one job at a time on *lane* (concurrent with the other lane)."""
+    """Background loop: one lane worker, processing one job at a time off *lane*'s queue."""
     while True:
         job = await lane.queue.get()
         try:
@@ -82,9 +82,9 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
     controller: FirmwareController, job: FirmwareJob, lane: Lane
 ) -> None:
     """Execute a single firmware job on *lane*."""
-    # Claim the lane slot before JOB_STARTED fires — the receiver's
-    # ``compile_queue_status`` reads ``current_job`` reactively on that event.
-    lane.current_job = job
+    # Claim a lane slot before JOB_STARTED fires — the receiver's
+    # ``compile_queue_status`` reads ``active`` reactively on that event.
+    lane.active[job.job_id] = job
     _LOGGER.info(
         "Starting job %s: %s %s",
         job.job_id,
@@ -107,7 +107,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
 
         # Pre-flight: verify chip type for serial uploads
         if job.job_type in (JobType.UPLOAD, JobType.INSTALL):
-            await controller._verify_chip(job, lane)
+            await controller._verify_chip(job)
 
         # A rename tail runs as a plain ``esphome upload`` of the *renamed*
         # YAML; ``job.configuration`` stays the old filename (rename lock,
@@ -158,13 +158,13 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
                     return
 
         async with controller._tracked_subprocess(
-            lane,
+            job,
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             env=env,
             # Put the whole esphome → platformio → gcc tree in its
-            # own process group so ``_terminate_current_process``
+            # own process group so ``_terminate_job_process``
             # can signal the entire chain, not just the python
             # parent. Without this, killing the parent leaves the
             # compiler children orphaned and the build keeps
@@ -175,11 +175,11 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             # Honour a cancel that landed in the gap between
             # ``_verify_chip`` finishing and ``create_subprocess_exec``
             # returning — without this, an early Stop click during
-            # the brief async window where ``_current_process`` was
-            # ``None`` lets the install run to completion before the
+            # the brief async window where no subprocess was
+            # registered lets the install run to completion before the
             # post-``proc.wait()`` cancel check sees the flag.
             if job.job_id in controller.state.cancel_requested:
-                await controller._terminate_current_process(lane)
+                await controller._terminate_job_process(job)
 
             assert proc.stdout is not None  # type narrowing
 
@@ -274,8 +274,7 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
         # dispatch driver so both paths guarantee terminality identically.
         lifecycle.finalize_unexpected_error(controller, job, exc)
     finally:
-        lane.current_job = None
-        lane.current_process = None
+        lane.active.pop(job.job_id, None)
         await lifecycle.end_run(controller, job)
 
 
@@ -328,7 +327,7 @@ async def execute_remote_job(controller: FirmwareController, job: FirmwareJob) -
 
 @asynccontextmanager
 async def tracked_subprocess(
-    controller: FirmwareController, lane: Lane, *args: Any, **kwargs: Any
+    controller: FirmwareController, job: FirmwareJob, *args: Any, **kwargs: Any
 ) -> AsyncIterator[asyncio.subprocess.Process]:
     """
     Spawn a subprocess that's visible to ``firmware/cancel``.
@@ -336,19 +335,19 @@ async def tracked_subprocess(
     Required for every ``create_subprocess_exec`` call in the
     runner path — both the main install/upload spawn in
     ``_execute_job`` and pre-flight probes like
-    ``_verify_chip``. Setting ``_current_process`` is what lets
-    a concurrent ``firmware/cancel`` actually land SIGTERM on
-    the running spawn; a direct ``create_subprocess_exec`` call
-    without this registration silently regresses the
-    issue-#136 fix — the cancel handler walks
-    ``_current_process``, no-ops on ``None``, the user clicks
+    ``_verify_chip``. Registering in ``state.processes`` is what
+    lets a concurrent ``firmware/cancel`` actually land SIGTERM
+    on the running spawn; a direct ``create_subprocess_exec``
+    call without this registration silently regresses the
+    issue-#136 fix — the cancel handler looks up the job's
+    process, no-ops on a missing entry, the user clicks
     Stop, nothing visible happens, and the orphaned subprocess
     runs to completion in the background.
 
     Two cleanup contracts on exit:
 
     - Normal exit / non-cancellation exception: restore the
-      prior ``_current_process`` value so nested usage (a
+      prior registration so nested usage (a
       future spawn site that itself wraps another) doesn't
       accidentally null out an outer registration.
     - ``asyncio.CancelledError`` (runner-task shutdown):
@@ -369,14 +368,15 @@ async def tracked_subprocess(
     # traceback in the streamed job output instead.
     kwargs.setdefault("stdin", asyncio.subprocess.DEVNULL)
     proc = await create_subprocess_exec(*args, **kwargs)
-    prev = lane.current_process
-    lane.current_process = proc
+    processes = controller.state.processes
+    prev = processes.get(job.job_id)
+    processes[job.job_id] = proc
     try:
         yield proc
     except asyncio.CancelledError:
         # Runner-shutdown cancellation: the runner task itself
         # was cancelled (vs. a user-driven ``firmware/cancel``,
-        # which calls ``_terminate_current_process`` from the
+        # which calls ``_terminate_job_process`` from the
         # cancel handler directly). Reuse the same group-aware
         # termination helper here so SIGTERM walks the whole
         # process group (esphome → platformio → gcc / esptool).
@@ -384,7 +384,10 @@ async def tracked_subprocess(
         # parent — on POSIX with ``start_new_session=True``
         # that orphans the child tree and the build keeps
         # running until the children finish on their own.
-        await controller._terminate_current_process(lane)
+        await controller._terminate_job_process(job)
         raise
     finally:
-        lane.current_process = prev
+        if prev is None:
+            processes.pop(job.job_id, None)
+        else:
+            processes[job.job_id] = prev

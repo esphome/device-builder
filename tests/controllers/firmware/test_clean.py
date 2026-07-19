@@ -273,7 +273,7 @@ async def test_clean_supersedes_other_active_clean_on_same_configuration(
     controller = firmware_controller_factory(with_queue=True, with_terminate=True)
     first = await controller.clean(configuration="kitchen.yaml")
     first.status = JobStatus.RUNNING
-    controller.state.compile_lane.current_job = first
+    controller.state.compile_lane.active[first.job_id] = first
 
     second = await controller.clean(configuration="kitchen.yaml")
 

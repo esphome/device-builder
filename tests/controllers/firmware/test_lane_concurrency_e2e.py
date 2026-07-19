@@ -92,15 +92,14 @@ async def test_parked_upload_does_not_block_a_compile(
         # upload is still RUNNING on the other lane — they overlapped.
         assert compile_job.status == JobStatus.COMPLETED
         assert upload.status == JobStatus.RUNNING
-        assert controller.state.upload_lane.current_job is not None
-        assert controller.state.upload_lane.current_job.job_id == upload.job_id
+        assert upload.job_id in controller.state.upload_lane.active
         # The compile lane freed itself the instant the compile finished,
         # ready for the next device rather than waiting on the upload.
-        assert controller.state.compile_lane.current_job is None
+        assert not controller.state.compile_lane.active
 
         # Release the parked upload and let it unwind cleanly.
         controller.state.cancel_requested.add(upload.job_id)
-        await controller._terminate_current_process(controller.state.upload_lane)
+        await controller._terminate_job_process(upload)
         async with asyncio.timeout(10):
             await upload_terminal.wait()
         assert upload.status == JobStatus.CANCELLED

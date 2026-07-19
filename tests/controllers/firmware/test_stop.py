@@ -6,7 +6,7 @@ the build keeps running until they finish on their own — exactly the
 "hit Stop, build kept going" symptom from production.
 
 Drives the regression by spawning a tiny shell script that itself
-spawns a long-running grandchild, calling our ``_terminate_current_process``,
+spawns a long-running grandchild, calling our ``_terminate_job_process``,
 and asserting both pids are gone shortly after.
 """
 
@@ -138,7 +138,7 @@ def test_signal_process_group_returns_false_on_permission_error(
 
 
 # ---------------------------------------------------------------------------
-# _terminate_current_process — full integration
+# _terminate_job_process — full integration
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ def controller(
     bare_firmware_controller_factory: BareFirmwareControllerFactory,
 ) -> FirmwareController:
     """Stand up a FirmwareController shell — only the bits termination touches."""
-    return bare_firmware_controller_factory(current_job=MagicMock(job_id="test-job"))
+    return bare_firmware_controller_factory()
 
 
 async def test_terminate_kills_grandchild_via_process_group(
@@ -198,7 +198,8 @@ async def test_terminate_kills_grandchild_via_process_group(
         stderr=asyncio.subprocess.STDOUT,
         start_new_session=True,
     )
-    controller.state.compile_lane.current_process = proc  # type: ignore[attr-defined]
+    job = MagicMock(job_id="test-job")
+    controller.state.processes[job.job_id] = proc  # type: ignore[assignment]
 
     try:
         # Read the two pid lines from stdout so we know what to verify.
@@ -223,7 +224,7 @@ async def test_terminate_kills_grandchild_via_process_group(
         # Hit Stop. Both pids must die — SIGTERM is ignored, so the
         # controller's grace window expires and SIGKILL escalates to
         # the whole process group.
-        await controller._terminate_current_process(controller.state.compile_lane)
+        await controller._terminate_job_process(job)
         await proc.wait()
 
         assert await _wait_dead(parent_pid), f"parent pid {parent_pid} still alive after stop"

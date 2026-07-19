@@ -12,7 +12,6 @@ from .constants import _PREREQUISITE_FAILED_ERROR, _TARGET_OFFLINE_DEFERRED_ERRO
 from .helpers import _fire_job_lifecycle, _target_is_offline, _trim_job_output
 
 if TYPE_CHECKING:
-    from ._state import Lane
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,9 +56,9 @@ async def begin_run(controller: FirmwareController, job: FirmwareJob) -> None:
     """Stamp *job* RUNNING, fire ``JOB_STARTED``, and persist — the shared run prologue.
 
     Both execution paths call this: the lane runner (after claiming its lane
-    slot, since the receiver's ``compile_queue_status`` reads ``current_job``
-    on ``JOB_STARTED``) and the off-lane dispatch pool. Keeping the prologue
-    here means a new field / gate is added once, not mirrored by hand.
+    slot, since the receiver's ``compile_queue_status`` reads the lane's
+    ``active`` on ``JOB_STARTED``) and the off-lane dispatch pool. Keeping the
+    prologue here means a new field / gate is added once, not mirrored by hand.
     """
     job.mark_running()
     _fire_job_lifecycle(job, controller._db.bus, EventType.JOB_STARTED)
@@ -70,7 +69,7 @@ async def end_run(controller: FirmwareController, job: FirmwareJob) -> None:
     """Terminal bookkeeping (trim + prune) then persist — the shared ``finally`` tail.
 
     The trim/prune is a no-op while the job is still active. Caller releases its
-    own slot (lane ``current_job`` / pool entry) first.
+    own slot (lane ``active`` entry / pool entry) first.
     """
     if job.is_terminal:
         _trim_job_output(job)
@@ -95,12 +94,10 @@ def finalize_unexpected_error(
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:
-    """Clear whichever lane was running *job*."""
-    for lane in (controller.state.compile_lane, controller.state.upload_lane):
-        if lane.current_job is job:
-            lane.current_job = None
-            lane.current_process = None
-            return
+    """Clear *job*'s lane slot and subprocess registration, if any."""
+    controller.state.processes.pop(job.job_id, None)
+    for lane in controller.state.lanes():
+        lane.active.pop(job.job_id, None)
 
 
 def release_dependents(controller: FirmwareController, job: FirmwareJob) -> bool:
@@ -170,23 +167,20 @@ def raise_if_cancelled(controller: FirmwareController, job: FirmwareJob, phase: 
         raise ValueError(msg)
 
 
-async def terminate_current_process(controller: FirmwareController, lane: Lane) -> None:
-    """Signal *lane*'s running subprocess + children; escalate if it lingers.
+async def terminate_job_process(controller: FirmwareController, job: FirmwareJob) -> None:
+    """Signal *job*'s running subprocess + children; escalate if it lingers.
 
     Walks the whole process group via
     :func:`terminate_subtree_with_grace` so SIGTERM reaches
     esphome → platformio → gcc / esptool on POSIX, ``taskkill /F
     /T`` on Windows. The runner loop is what actually finalises
-    the job on exit — this helper only nudges the process. Lane-scoped
+    the job on exit — this helper only nudges the process. Job-scoped
     so cancelling an upload never signals a concurrent compile.
     """
-    proc = lane.current_process
+    proc = controller.state.processes.get(job.job_id)
     if proc is None:
         return
-    await terminate_subtree_with_grace(
-        proc,
-        job_label=f"job {lane.current_job.job_id}" if lane.current_job else "job ?",
-    )
+    await terminate_subtree_with_grace(proc, job_label=f"job {job.job_id}")
 
 
 def _defer_install_if_target_offline(controller: FirmwareController, job: FirmwareJob) -> None:

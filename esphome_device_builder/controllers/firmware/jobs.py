@@ -18,16 +18,12 @@ from . import lifecycle, rename_flow
 from .helpers import _fire_job_lifecycle
 
 if TYPE_CHECKING:
-    from ._state import Lane
     from .controller import FirmwareController
 
 
-def _running_lane(controller: FirmwareController, job_id: str) -> Lane | None:
-    """Return the lane currently running *job_id*, or None if neither lane is."""
-    for lane in (controller.state.compile_lane, controller.state.upload_lane):
-        if lane.current_job is not None and lane.current_job.job_id == job_id:
-            return lane
-    return None
+def _job_is_on_a_lane(controller: FirmwareController, job_id: str) -> bool:
+    """Whether *job_id* currently occupies a lane slot."""
+    return any(job_id in lane.active for lane in controller.state.lanes())
 
 
 async def get_jobs(
@@ -152,13 +148,12 @@ async def cancel(controller: FirmwareController, *, job_id: str) -> None:
             # ``cancel_job``.
             controller.state.request_cancel(job_id)
             return
-        lane = _running_lane(controller, job_id)
-        if lane is None:
+        if not _job_is_on_a_lane(controller, job_id):
             msg = "Running job is not the active subprocess (state out of sync)"
             raise RuntimeError(msg)
         controller.state.request_cancel(job_id)
-        # Lane-scoped so cancelling an upload doesn't signal a concurrent compile.
-        await controller._terminate_current_process(lane)
+        # Job-scoped so cancelling an upload doesn't signal a concurrent compile.
+        await controller._terminate_job_process(job)
         return
 
     msg = f"Cannot cancel a {job.status.value} job"

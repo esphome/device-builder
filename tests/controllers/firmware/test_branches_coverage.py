@@ -14,7 +14,7 @@ Surfaces touched here:
   for an unknown job id, ``follow_jobs`` early-returns when
   ``client`` is None.
 - **Runner internals**: queue runner skips a CANCELLED job
-  without spawning a subprocess, ``_terminate_current_process``
+  without spawning a subprocess, ``_terminate_job_process``
   is a no-op when no process is bound.
 - **Command building**: ``_build_command`` for ``RENAME`` appends
   ``new_name`` as a positional arg.
@@ -252,24 +252,22 @@ async def test_run_queue_cancels_sibling_lane_when_one_raises(
     assert sibling_cancelled.is_set()
 
 
-async def test_terminate_current_process_no_op_when_no_process(
+async def test_terminate_job_process_no_op_when_no_process(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
-    """``_terminate_current_process`` returns cleanly when no process is bound.
+    """``_terminate_job_process`` returns cleanly when no process is bound.
 
-    The cancel handler always calls ``_terminate_current_process``
+    The cancel handler always calls ``_terminate_job_process``
     after flipping the status — but the QUEUED-cancel path runs
-    before the runner has spawned anything, so the controller's
-    ``_current_process`` is still ``None``. Pin the early return
+    before the runner has spawned anything, so ``state.processes``
+    has no entry for the job. Pin the early return
     so a regression that fell through to ``terminate_subtree_*``
     against ``None`` would surface as a hard error here.
     """
     controller = firmware_controller_factory()
-    controller.state.compile_lane.current_process = None
-    controller.state.compile_lane.current_job = None
 
     # Should return without raising; no process to terminate.
-    await controller._terminate_current_process(controller.state.compile_lane)
+    await controller._terminate_job_process(MagicMock(job_id="no-proc"))
 
 
 # ---------------------------------------------------------------------------

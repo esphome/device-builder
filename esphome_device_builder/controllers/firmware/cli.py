@@ -20,7 +20,6 @@ from .constants import _OTA_ADDRESS_CACHE_JOB_TYPES, ESPHOME_SUBPROCESS_ENV
 from .helpers import _find_esptool_cmd
 
 if TYPE_CHECKING:
-    from ._state import Lane
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
@@ -112,7 +111,7 @@ def build_cache_args(controller: FirmwareController, job: FirmwareJob) -> list[s
     return controller._db.devices.get_ota_address_cache_args(job.configuration, port)
 
 
-async def verify_chip(controller: FirmwareController, job: FirmwareJob, lane: Lane) -> None:
+async def verify_chip(controller: FirmwareController, job: FirmwareJob) -> None:
     """
     Run ``esptool chip-id`` against *job*'s port and raise on mismatch.
 
@@ -136,7 +135,7 @@ async def verify_chip(controller: FirmwareController, job: FirmwareJob, lane: La
     expected_platform = storage.target_platform.lower()
 
     async with controller._tracked_subprocess(
-        lane,
+        job,
         *_find_esptool_cmd(),
         "--port",
         job.port,

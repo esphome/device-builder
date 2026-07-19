@@ -367,7 +367,7 @@ async def test_compile_lane_completion_wakes_dispatcher_when_pending(
     pool.wake.clear()
 
     async def _noop_execute(job: FirmwareJob, lane: Any) -> None:
-        lane.current_job = None  # mirror execute_job's finally clearing the slot
+        lane.active.pop(job.job_id, None)  # mirror execute_job's finally clearing the slot
 
     monkeypatch.setattr(controller, "_execute_job", _noop_execute)
     lane_job = FirmwareJob(

@@ -11,16 +11,17 @@ from ...models import FirmwareJob, JobSource, JobStatus, JobType
 
 @dataclass
 class Lane:
-    """One serial work lane: its FIFO queue + the job/subprocess on it now.
+    """One work lane: its FIFO queue + the jobs occupying its slots now.
 
-    Two lanes run concurrently — a compile lane (CPU) and an upload lane
+    Lanes run concurrently — a compile lane (CPU) and an upload lane
     (network) — so a slow network flash doesn't block the next compile.
-    Within a lane work stays serialized (``current_job`` is the single slot).
+    ``max_concurrency`` workers drain the queue; ``active`` holds the
+    jobs currently running on the lane, keyed by ``job_id``.
     """
 
+    max_concurrency: int = 1
     queue: asyncio.Queue[FirmwareJob] = field(default_factory=asyncio.Queue)
-    current_job: FirmwareJob | None = None
-    current_process: asyncio.subprocess.Process | None = None
+    active: dict[str, FirmwareJob] = field(default_factory=dict)
 
 
 @dataclass
@@ -107,11 +108,16 @@ class FirmwareState:
     # picks first. ``cli`` reads it to build the subprocess argv.
     esphome_cmd: list[str] = field(default_factory=list)
 
-    # The two concurrent lanes. Producers enqueue onto the lane a job's
-    # type maps to (``_lane_for``); each lane has its own consumer task.
-    # Both survive restarts via the on-disk persistence layer.
+    # The concurrent lanes. Producers enqueue onto the lane a job's
+    # type maps to (``lane_for``); each lane spawns ``max_concurrency``
+    # worker tasks. All survive restarts via the on-disk persistence layer.
     compile_lane: Lane = field(default_factory=Lane)
     upload_lane: Lane = field(default_factory=Lane)
+
+    # Subprocesses spawned for running jobs, keyed by ``job_id`` — what
+    # ``firmware/cancel`` signals. Job-keyed rather than per-lane so an
+    # off-lane spawn (the remote-install local flash) is cancellable too.
+    processes: dict[str, asyncio.subprocess.Process] = field(default_factory=dict)
 
     # Active + recent jobs keyed by ``job_id``. ``persistence``
     # reads / writes on every state transition; ``clean``,
@@ -140,6 +146,10 @@ class FirmwareState:
 
     # Remote build-server pool (see :class:`RemoteDispatchState`).
     remote_dispatch: RemoteDispatchState = field(default_factory=RemoteDispatchState)
+
+    def lanes(self) -> tuple[Lane, ...]:
+        """Every lane, for slot scans and worker spawn."""
+        return (self.compile_lane, self.upload_lane)
 
     def lane_for(self, job: FirmwareJob) -> Lane:
         """Return *job*'s lane: network flashes (UPLOAD, rename tail) upload, else compile."""

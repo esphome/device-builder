@@ -28,7 +28,7 @@ module:
 The orchestration helper ``terminate_subtree_with_grace`` ties those
 together: SIGTERM the group → wait the grace window → SIGKILL the
 group on POSIX; ``taskkill`` with a single-shot kill fallback on
-Windows. That's the shape ``FirmwareController._terminate_current_process``
+Windows. That's the shape ``FirmwareController._terminate_job_process``
 needs.
 
 POSIX vs Windows asymmetry is deliberate: the POSIX path has a

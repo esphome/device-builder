@@ -12,7 +12,7 @@ the user-visible contract is:
 - Submit two compiles for *different* configurations: both
   stay ``QUEUED`` (supersede is per-configuration).
 - A running job for the same configuration gets cancelled
-  the same way (the runner's ``_terminate_current_process``
+  the same way (the runner's ``_terminate_job_process``
   fires).
 - The ``exclude_job_id`` guard keeps the new submission from
   cancelling itself — without it, ``_supersede_active_jobs``
@@ -114,12 +114,12 @@ async def test_resubmit_cancels_running_predecessor(
     The same supersede policy applies whether the predecessor
     is queued or running. For a running job, ``cancel`` records
     intent in ``_cancel_requested`` and calls
-    ``_terminate_current_process`` (which signals the
+    ``_terminate_job_process`` (which signals the
     subprocess); the runner's ``finally`` finalises with
     status ``CANCELLED`` on the next turn.
 
     This test simulates the runner being mid-build by mutating
-    ``_jobs[id].status`` directly + setting ``_current_job``,
+    ``_jobs[id].status`` directly + claiming the lane slot,
     same approach as the persistence test (no public API for
     "make the runner mid-build" without a real ``esphome``).
     """
@@ -132,16 +132,16 @@ async def test_resubmit_cancels_running_predecessor(
     # justified seam as ``test_persistence.py``'s RUNNING-carryover
     # test).
     first.status = JobStatus.RUNNING
-    controller.state.compile_lane.current_job = first
+    controller.state.compile_lane.active[first.job_id] = first
 
     second = await controller.compile(configuration="kitchen.yaml")
 
     # Cancel intent recorded for the predecessor — the runner's
     # ``finally`` would convert this into terminal CANCELLED on
-    # the next turn (not exercised here; ``_terminate_current_process``
+    # the next turn (not exercised here; ``_terminate_job_process``
     # is the AsyncMock from ``with_terminate=True``).
     assert first.job_id in controller.state.cancel_requested
-    controller._terminate_current_process.assert_awaited()
+    controller._terminate_job_process.assert_awaited()
     # Second submission queued normally.
     jobs = {j.job_id: j for j in await controller.get_jobs()}
     assert jobs[second.job_id].status == JobStatus.QUEUED

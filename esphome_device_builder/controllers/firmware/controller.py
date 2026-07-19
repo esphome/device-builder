@@ -181,7 +181,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         runner's ``queue.get``, so a scheduler reading only ``running``
         would misclassify a loaded lane as accepting more work.
         """
-        running = lane.current_job is not None
+        running = bool(lane.active)
         queue_depth = lane.queue.qsize()
         idle = not running and queue_depth == 0
         return QueueStatus(idle=idle, running=running, queue_depth=queue_depth)
@@ -508,19 +508,21 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     # ------------------------------------------------------------------
 
     async def _run_queue(self) -> None:
-        """Run both lane consumers + the remote-dispatch loop; drain all on any exit.
+        """Run every lane worker + the remote-dispatch loop; drain all on any exit.
 
-        On shutdown-cancel or one task raising, cancel and await all three
+        Each lane gets ``max_concurrency`` workers sharing its queue. On
+        shutdown-cancel or one task raising, cancel and await them all
         before the error propagates — else a sibling is left orphaned
         mid-flight (subprocess not terminated, job not finalised). The
         remote-dispatch loop never returns on its own; cancelling it
         detaches its bus listeners.
         """
         queue_tasks = [
-            create_eager_task(runner.run_lane(self, self.state.compile_lane)),
-            create_eager_task(runner.run_lane(self, self.state.upload_lane)),
-            create_eager_task(remote_dispatch.run_dispatch_loop(self)),
+            create_eager_task(runner.run_lane(self, lane))
+            for lane in self.state.lanes()
+            for _ in range(lane.max_concurrency)
         ]
+        queue_tasks.append(create_eager_task(remote_dispatch.run_dispatch_loop(self)))
         try:
             await asyncio.gather(*queue_tasks)
         finally:
@@ -589,9 +591,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
         await runner.execute_remote_job(self, job)
 
     def _tracked_subprocess(
-        self, lane: Lane, *args: Any, **kwargs: Any
+        self, job: FirmwareJob, *args: Any, **kwargs: Any
     ) -> AbstractAsyncContextManager[asyncio.subprocess.Process]:
-        return runner.tracked_subprocess(self, lane, *args, **kwargs)
+        return runner.tracked_subprocess(self, job, *args, **kwargs)
 
     def _finalize_terminal(
         self, job: FirmwareJob, status: JobStatus, *, error: str | None = None
@@ -601,11 +603,11 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
     def _finalize_cancelled(self, job: FirmwareJob) -> None:
         lifecycle.finalize_cancelled(self, job)
 
-    async def _terminate_current_process(self, lane: Lane) -> None:
-        await lifecycle.terminate_current_process(self, lane)
+    async def _terminate_job_process(self, job: FirmwareJob) -> None:
+        await lifecycle.terminate_job_process(self, job)
 
-    async def _verify_chip(self, job: FirmwareJob, lane: Lane) -> None:
-        await cli.verify_chip(self, job, lane)
+    async def _verify_chip(self, job: FirmwareJob) -> None:
+        await cli.verify_chip(self, job)
 
     def _compose_subprocess_env(self, job: FirmwareJob) -> dict[str, str]:
         return cli.compose_subprocess_env(job)
