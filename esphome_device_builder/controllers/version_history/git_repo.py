@@ -34,6 +34,7 @@ from pathlib import Path
 
 import esphome_device_builder
 from esphome_device_builder.constants import is_secrets_file
+from esphome_device_builder.helpers.atomic_io import atomic_write
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -295,7 +296,9 @@ class GitRepo:
         self._ensure_local_excludes()
         gitignore = self.config_dir / ".gitignore"
         if not gitignore.exists():
-            gitignore.write_text(_DEFAULT_GITIGNORE, encoding="utf-8")
+            # ``mode=0o644``: mkstemp stages at 0o600, which would
+            # silently tighten a user-visible config-dir file.
+            atomic_write(gitignore, _DEFAULT_GITIGNORE.encode("utf-8"), mode=0o644)
         # ``.gitignore`` always exists here (just written or pre-existing),
         # so the seed is never empty.
         self._run(["add", "--", *self._seed_paths()], check=False)

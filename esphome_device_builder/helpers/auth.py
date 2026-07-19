@@ -18,6 +18,7 @@ from pathlib import Path
 from aiohttp import web
 
 from ..constants import HA_SUPERVISOR_IP
+from .atomic_io import atomic_write
 from .json import JSONDecodeError, dumps, loads
 
 _LOGGER = logging.getLogger(__name__)
@@ -183,10 +184,7 @@ class SessionStore:
 
     def _persist(self) -> None:
         data = {"sessions": [asdict(s) for s in self._sessions.values()]}
-        tmp = self._path.with_suffix(self._path.suffix + ".tmp")
-        tmp.write_bytes(dumps(data))
-        tmp.chmod(0o600)
-        tmp.replace(self._path)
+        atomic_write(self._path, dumps(data), mode=0o600)
 
 
 # ---------------------------------------------------------------------------

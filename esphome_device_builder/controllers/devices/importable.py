@@ -11,6 +11,7 @@ from esphome.storage_json import ignored_devices_storage_path
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
+from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import generate_adoption_yaml
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
@@ -91,10 +92,9 @@ async def import_device(
             )
 
             def _write_exclusive() -> None:
-                # Exclusive-create, matching ``import_config``'s
+                # Staged exclusive-create, matching ``import_config``'s
                 # FileExistsError contract for a concurrent writer.
-                with path.open("x", encoding="utf-8") as f:
-                    f.write(content)
+                atomic_write_exclusive(path, content.encode("utf-8"))
 
             await run_in_executor(_write_exclusive)
     except FileExistsError as exc:
