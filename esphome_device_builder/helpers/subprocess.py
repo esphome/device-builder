@@ -88,9 +88,8 @@ async def run_subprocess_capture(
 
     Shared shape between every "run a command to completion and
     inspect its exit code + output" caller (currently
-    :func:`controllers.firmware.helpers._verify_esphome_importable`,
-    :func:`helpers.config_bundle.build_yaml_bundle`, and the
-    Native-API info worker in
+    :func:`controllers.firmware.helpers._verify_esphome_importable`
+    and the Native-API info worker in
     :class:`controllers._device_state_monitor.api_info.ApiInfoSource`).
 
     *stdin_data*, when given, is written to the child's stdin (stdin is
@@ -99,10 +98,11 @@ async def run_subprocess_capture(
     stderr so stdout carries only the child's real output (e.g. a clean
     JSON payload).
 
-    Timeout handling: :func:`asyncio.wait_for` raises
-    :class:`TimeoutError`; we :func:`kill_quietly` the process,
+    Timeout handling: on expiry we :func:`kill_quietly` the process,
     await its ``wait()`` so the OS resources release, and return
-    a :class:`CapturedSubprocess` with ``timed_out=True``. Caller
+    a :class:`CapturedSubprocess` with ``timed_out=True`` carrying
+    whatever stdout arrived before the kill — the partial output is
+    the only diagnostic a hung subprocess leaves behind. Caller
     inspects ``timed_out`` rather than handling a raised
     exception, which keeps the common shape "one return, check
     flags" instead of try/except at every call site.
@@ -110,10 +110,9 @@ async def run_subprocess_capture(
     No retry, no streaming — callers that need either pattern
     use :func:`create_subprocess_exec` directly.
 
-    Cancellation-safe: if the awaiting task is cancelled while
-    ``proc.communicate()`` is in flight, ``kill_quietly`` fires
-    SIGKILL and the :class:`CancelledError` re-raises
-    immediately. The dead subprocess is reaped by asyncio's
+    Cancellation-safe: if the awaiting task is cancelled mid-read,
+    ``kill_quietly`` fires SIGKILL and the :class:`CancelledError`
+    re-raises immediately. The dead subprocess is reaped by asyncio's
     child watcher in the background — we deliberately don't
     ``await proc.wait()`` here because that would either swallow
     the second cancellation (violating
@@ -127,16 +126,34 @@ async def run_subprocess_capture(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.DEVNULL,
     )
+    # A dedicated writer task preserves ``communicate()``'s deadlock
+    # avoidance: the child may not drain stdin until its stdout is read.
+    writer: asyncio.Task[None] | None = None
+    if stdin_data is not None:
+        writer = asyncio.get_running_loop().create_task(_write_stdin(proc, stdin_data))
+    buf = bytearray()
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(stdin_data), timeout=timeout)
+        async with asyncio.timeout(timeout):
+            assert proc.stdout is not None
+            while data := await proc.stdout.read(_STREAM_READ_SIZE):
+                buf += data
+            await proc.wait()
+            if writer is not None:
+                await writer
     except TimeoutError:
         kill_quietly(proc)
+        if writer is not None:
+            writer.cancel()
         await proc.wait()
-        return CapturedSubprocess(returncode=proc.returncode, stdout=b"", timed_out=True)
+        if writer is not None:
+            await asyncio.gather(writer, return_exceptions=True)
+        return CapturedSubprocess(returncode=proc.returncode, stdout=bytes(buf), timed_out=True)
     except asyncio.CancelledError:
         kill_quietly(proc)
+        if writer is not None:
+            writer.cancel()
         raise
-    return CapturedSubprocess(returncode=proc.returncode, stdout=stdout, timed_out=False)
+    return CapturedSubprocess(returncode=proc.returncode, stdout=bytes(buf), timed_out=False)
 
 
 async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterator[str]:
@@ -190,3 +207,15 @@ async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterato
             chunk = buf[:end]
             buf = buf[end:]
             yield chunk.decode("utf-8", errors="replace")
+
+
+async def _write_stdin(proc: asyncio.subprocess.Process, data: bytes) -> None:
+    """Write *data* to *proc*'s stdin and close it, tolerating an early-exiting child."""
+    assert proc.stdin is not None
+    try:
+        proc.stdin.write(data)
+        await proc.stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        return
+    finally:
+        proc.stdin.close()

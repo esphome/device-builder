@@ -98,6 +98,18 @@ async def test_run_subprocess_capture_merges_stderr_by_default() -> None:
     assert b"out" in result.stdout
 
 
+async def test_run_subprocess_capture_timeout_returns_partial_output() -> None:
+    """A timed-out child's pre-timeout stdout survives as the diagnostic."""
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "import time; print('EARLY', flush=True); time.sleep(30)",
+        timeout=0.5,
+    )
+    assert result.timed_out is True
+    assert b"EARLY" in result.stdout
+
+
 def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
     """Guard against regressions: no callsite should bypass the helper.
 
