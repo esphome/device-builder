@@ -33,7 +33,9 @@ _JOBS_KEY = "_firmware_jobs"
 # their combined memory on small hosts. esphome 2026.8.0 lazy-loads
 # codegen and config validation out of the upload subprocess
 # (esphome/esphome#17684), cutting per-flash RAM by roughly a third,
-# so that release line and later earn two more slots. OpenThread
+# so that release line and later earn two more slots. The gate trusts
+# every 2026.8 build to carry that change; a dev/beta snapshot from
+# before it merged briefly overclaims. OpenThread
 # flashes don't count against the cap — they serialize on their own
 # single-slot lane — so peak concurrency is this plus one thread flash.
 _UPLOAD_SLOTS = 3
