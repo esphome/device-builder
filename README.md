@@ -519,6 +519,65 @@ or `exact_required` — the last refuses to build rather than
 falling back to a local compile when no version-compatible
 receiver is paired.
 
+## Version history
+
+The dashboard keeps a local, git-backed history of your device
+configs. Every change to a YAML in the config directory is committed
+automatically shortly after it lands on disk, whether the edit came
+from the dashboard, an external editor, a script, or an AI agent
+working in the directory. The history powers viewing, diffing, and
+restoring earlier versions of a config, including bringing back a
+deleted one. Today those are exposed as the `version_history/*`
+commands in [docs/API.md](docs/API.md); a recovery UI in the
+dashboard is planned. Recording starts now precisely so that when
+that UI ships, your history is already there.
+
+**Why it's on by default.** A history only helps if it already
+exists the moment you need it, and that moment is always right
+after the bad edit or the accidental delete, never before. Making
+it opt-in would protect exactly the people who least need it: those
+who already knew the feature existed. For everyone else, the first
+bad edit would also be the moment they learn there was no history.
+So it stays on, quietly, like a backup should.
+
+**What it does on disk:**
+
+- If the config directory is not already a git repository, one is
+  created for it, with a `.gitignore` that keeps `secrets.yaml` out
+  of history.
+- If the directory already is a git work tree (or sits inside one,
+  as `/config/esphome` commonly does), it is adopted rather than
+  re-initialised. Automatic commits are scoped to exactly the files
+  that changed, so your own staged work is never swept into one,
+  and your `.gitignore` is never modified. Device Builder's own
+  machine state (sidecars, keys, pairing files) is kept out of
+  history via the repo-local `.git/info/exclude`.
+- Your secrets file is never committed.
+- Commits are authored as
+  `ESPHome Device Builder <device-builder@esphome.io>`, with hooks
+  and commit signing skipped (`--no-verify`,
+  `-c commit.gpgsign=false`). This is deliberate: these commits
+  happen unattended in the background, and an unattended commit
+  must never hang on a signing passphrase prompt or trip an
+  interactive hook. The identity is passed per invocation; your
+  global and per-repo git configuration is never written to.
+- If `git` isn't installed, the feature quietly stays off.
+
+**Turning it off.** Settings → enable **Expert mode** → turn off
+**Save version history**. (Programmatically: the
+`version_history_enabled` preference via `config/set_preferences`.)
+Turning it off stops new commits and creates no repository; an
+existing history stays readable and restorable. If your config
+directory lives in a git repository you manage yourself (your own
+identity, signing, hooks, branch protection) and you don't want
+automatic commits alongside yours, this toggle is for you.
+
+> **Policy note.** The default has been discussed and decided:
+> version history ships on. New issues asking to flip the default,
+> or relitigating the commit identity / signing / hook behaviour
+> described above, will be closed with a pointer to this section.
+> Bug reports about the feature misbehaving are always welcome.
+
 ## Roadmap
 
 - ✅ Standalone backend with WS-first API, persistent compile queue, mDNS device discovery
