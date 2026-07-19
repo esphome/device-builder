@@ -423,7 +423,8 @@ def _resolve_page_substitutions(parsed: dict[str, Any], folder: str) -> dict[str
     """
     Resolve the page's own ``substitutions:`` block over the config tree.
 
-    Unresolved references stay literal; any failure returns *parsed* unchanged.
+    Unresolved references stay literal; a failed pass returns *parsed*
+    unchanged. A missing esphome propagates.
     """
     subs = parsed.get("substitutions")
     if not isinstance(subs, dict) or not subs:
