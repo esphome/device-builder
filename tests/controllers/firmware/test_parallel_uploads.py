@@ -1,4 +1,4 @@
-"""Parallel-upload lanes: 3 concurrent normal flashes, OpenThread serialized.
+"""Parallel-upload lanes: concurrent normal flashes up to the cap, OpenThread serialized.
 
 Drives the real lane workers (via ``_run_queue``) against parking
 subprocesses, mirroring ``test_lane_concurrency_e2e``. Pins the
@@ -17,9 +17,14 @@ from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware._state import FirmwareState
-from esphome_device_builder.controllers.firmware.constants import MAX_CONCURRENT_UPLOADS
+from esphome_device_builder.controllers.firmware.constants import (
+    MAX_CONCURRENT_UPLOADS,
+    max_concurrent_uploads,
+)
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import run_until_terminal, seed_yamls, wire_real_queue
 from tests.controllers.firmware.conftest import wire_devices as _wire_devices
@@ -288,6 +293,21 @@ def test_upload_lane_concurrency_defaults() -> None:
     assert state.thread_upload_lane.max_concurrency == 1
     assert state.compile_lane.max_concurrency == 1
     assert state.thread_upload_lane in state.lanes()
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        pytest.param("2026.7.0", 3, id="pre_lean_release"),
+        pytest.param("2026.8.0", 5, id="lean_release"),
+        pytest.param("2026.8.0-dev", 5, id="lean_dev"),
+        pytest.param("2027.1.0", 5, id="later_release"),
+        pytest.param("", 3, id="unknown_version"),
+    ],
+)
+def test_max_concurrent_uploads_version_gate(version: str, expected: int) -> None:
+    """Esphome 2026.8+ runs the lazy-import upload subprocess, earning 5 slots."""
+    assert max_concurrent_uploads(version) == expected
 
 
 def test_controller_wires_thread_lookup_at_construction() -> None:

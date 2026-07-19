@@ -327,8 +327,10 @@ against legacy behaviour before assuming the simpler version suffices.
   rationale in `docs/ARCHITECTURE.md` "Event bus → Typing event payloads".
 - **Persistent firmware queue — three concurrent lanes.** A CPU/compile
   lane (one job at a time), a network/upload lane (up to
-  `MAX_CONCURRENT_UPLOADS` = 3 flashes at once — the cap bounds
-  subprocess-tree memory), and a single-slot thread upload lane, all
+  `MAX_CONCURRENT_UPLOADS` flashes at once — 3, or 5 with esphome
+  2026.8+ whose upload subprocess is slimmer (esphome/esphome#17684);
+  the cap bounds subprocess-tree memory), and a single-slot thread
+  upload lane, all
   running concurrently, so a slow upload doesn't block the next compile
   (#3702) or the next flash. Upload concurrency exists for deep-sleep
   wake delivery (esphome discussion #3781): several deep-sleep devices

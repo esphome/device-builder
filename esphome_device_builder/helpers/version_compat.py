@@ -155,6 +155,17 @@ def versions_match_exactly(local: str, peer: str) -> bool:
     return local == peer
 
 
+_RELEASE_LINE_RE = re.compile(r"^v?(\d+)\.(\d+)")
+
+
+def release_line_at_least(version: str, minimum: tuple[int, int]) -> bool:
+    """Whether *version*'s ``YYYY.MM`` release line is at or past *minimum*; unparseable is no."""
+    match = _RELEASE_LINE_RE.match(version)
+    if match is None:
+        return False
+    return (int(match[1]), int(match[2])) >= minimum
+
+
 def _release_key(version: str) -> str:
     """Year + month prefix used for cross-release comparison."""
     parts = version.split(".")

@@ -11,9 +11,31 @@ from esphome_device_builder.helpers.version_compat import (
     is_release_version,
     major_versions_match,
     pinnable_version_key,
+    release_line_at_least,
     version_satisfies_policy,
     versions_match_exactly,
 )
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        pytest.param("2026.8.0", True, id="exact_release"),
+        pytest.param("2026.8.0-dev", True, id="dev"),
+        pytest.param("2026.8.0b1", True, id="beta"),
+        pytest.param("2026.9.1", True, id="later_month"),
+        pytest.param("2027.1.0", True, id="later_year"),
+        pytest.param("v2026.8.0", True, id="leading_v"),
+        pytest.param("2026.7.5", False, id="earlier_month"),
+        pytest.param("2025.12.0", False, id="earlier_year"),
+        pytest.param("", False, id="empty"),
+        pytest.param("garbage", False, id="unparseable"),
+        pytest.param("2026", False, id="year_only"),
+    ],
+)
+def test_release_line_at_least(version: str, expected: bool) -> None:
+    """The ``YYYY.MM`` line compare tolerates pre/dev suffixes; unparseable is a no."""
+    assert release_line_at_least(version, (2026, 8)) is expected
 
 
 @pytest.mark.parametrize(

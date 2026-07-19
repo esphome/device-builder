@@ -19,6 +19,9 @@ from __future__ import annotations
 
 import re
 
+from esphome.const import __version__ as _installed_esphome_version
+
+from ...helpers.version_compat import release_line_at_least
 from ...models import JobType
 
 # Metadata key under which the firmware queue persists itself in
@@ -27,10 +30,25 @@ _JOBS_KEY = "_firmware_jobs"
 
 # Upload-lane worker count — how many normal network flashes run at
 # once. Each flash is a full esphome subprocess tree; the cap bounds
-# their combined memory on small hosts. OpenThread flashes don't count
-# against it — they serialize on their own single-slot lane — so peak
-# concurrency is this plus one thread flash.
-MAX_CONCURRENT_UPLOADS = 3
+# their combined memory on small hosts. esphome 2026.8.0 lazy-loads
+# codegen and config validation out of the upload subprocess
+# (esphome/esphome#17684), cutting per-flash RAM by roughly a third,
+# so that release line and later earn two more slots. OpenThread
+# flashes don't count against the cap — they serialize on their own
+# single-slot lane — so peak concurrency is this plus one thread flash.
+_UPLOAD_SLOTS = 3
+_UPLOAD_SLOTS_LEAN_SUBPROCESS = 5
+_LEAN_UPLOAD_RELEASE = (2026, 8)
+
+
+def max_concurrent_uploads(esphome_version: str) -> int:
+    """Upload-lane slot count for *esphome_version*: 5 on 2026.8+, else 3."""
+    if release_line_at_least(esphome_version, _LEAN_UPLOAD_RELEASE):
+        return _UPLOAD_SLOTS_LEAN_SUBPROCESS
+    return _UPLOAD_SLOTS
+
+
+MAX_CONCURRENT_UPLOADS = max_concurrent_uploads(_installed_esphome_version)
 
 # Output patterns that indicate failure even when the subprocess
 # exit code is 0. Bare ``No module named`` is intentionally absent:
