@@ -196,12 +196,27 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
                                      └──── persisted to disk ─────────────┘
 ```
 
-- Two concurrent lanes — a compile lane (CPU) and an upload lane (network).
-  Each runs one job at a time, but the lanes run in parallel so a slow
-  network flash doesn't block the next device's compile (#3702). `install`
-  splits into a COMPILE job + a dependent local UPLOAD job (`depends_on`):
-  the upload is held until the compile succeeds, then runs on the upload
-  lane; a cancelled/failed compile cascades to cancel the held upload.
+- Three concurrent lanes — a compile lane (CPU, one job at a time), an
+  upload lane (network, up to `MAX_CONCURRENT_UPLOADS` = 3 flashes at
+  once), and a single-slot thread upload lane. The lanes run in parallel
+  so a slow network flash doesn't block the next device's compile
+  (#3702), and slow OTAs don't block fast ones behind them
+  (esphome discussion #3781). The upload cap bounds the combined memory
+  of concurrent esphome subprocess trees; each lane spawns
+  `Lane.max_concurrency` workers off one FIFO queue, and running
+  subprocesses live in the job-keyed `FirmwareState.processes` registry
+  so cancel signals exactly one job. **OpenThread flashes serialize**:
+  Thread devices share one mesh / border router, and concurrent OTAs
+  over the mesh starve each other, so `lane_for` routes a network flash
+  whose device loads `openthread` (per `DevicesController.is_thread_device`,
+  reading the last compile's `loaded_integrations`) to the thread lane.
+  A device never compiled yet routes to the normal upload lane — the
+  lookup is wired into `FirmwareState.is_thread_configuration` at
+  `start()`, before job restore, so restored flashes route the same way.
+  `install` splits into a COMPILE job + a dependent local UPLOAD job
+  (`depends_on`): the upload is held until the compile succeeds, then
+  runs on its upload lane; a cancelled/failed compile cascades to cancel
+  the held upload.
 - **Rename is the same chain shape** (#1812): `devices/rename` rewrites
   `esphome.name` dashboard-side (`helpers.yaml.rewrite_rename_content`),
   writes `<new>.yaml` up-front, and queues a COMPILE of it (remote-eligible
@@ -217,8 +232,8 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   cancelling the tail cascades *up* to its compile. A persisted RENAME
   with no `depends_on` (pre-decomposition) still runs the fused
   `esphome rename` CLI on the compile lane.
-- Plus a **remote build-server pool** — a third consumer (`run_dispatch_loop`)
-  gathered alongside the two lanes. Compiles eligible for a paired server
+- Plus a **remote build-server pool** — one more consumer (`run_dispatch_loop`)
+  gathered alongside the lane workers. Compiles eligible for a paired server
   hold here (off the single compile lane) and run concurrently, one per
   connected server. See "Remote build-server pool" below.
 - Output buffered in `FirmwareJob.output` — survives disconnect

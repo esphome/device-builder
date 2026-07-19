@@ -325,12 +325,25 @@ against legacy behaviour before assuming the simpler version suffices.
   emitter and walks `models.*` to assert coverage. New events ship with a
   TypedDict from day one and a row in `_PAYLOAD_FACTORIES`. Full
   rationale in `docs/ARCHITECTURE.md` "Event bus → Typing event payloads".
-- **Persistent firmware queue — two concurrent lanes.** A CPU/compile lane
-  and a network/upload lane each run one job at a time, but run
-  concurrently, so a slow upload doesn't block the next compile (#3702).
-  `FirmwareState.compile_lane` / `upload_lane` (`controllers/firmware/
-  _state.py`); `lane_for(job)` routes UPLOAD to the upload lane, everything
-  else to compile. `firmware/install` enqueues a COMPILE job + a dependent
+- **Persistent firmware queue — three concurrent lanes.** A CPU/compile
+  lane (one job at a time), a network/upload lane (up to
+  `MAX_CONCURRENT_UPLOADS` = 3 flashes at once — the cap bounds
+  subprocess-tree memory), and a single-slot thread upload lane, all
+  running concurrently, so a slow upload doesn't block the next compile
+  (#3702) or the next flash (esphome discussion #3781).
+  `FirmwareState.compile_lane` / `upload_lane` / `thread_upload_lane`
+  (`controllers/firmware/_state.py`); each lane spawns
+  `Lane.max_concurrency` workers off one FIFO queue, jobs occupying a
+  lane sit in `Lane.active` (job-id keyed), and running subprocesses live
+  in the job-keyed `FirmwareState.processes` registry so cancel
+  (`terminate_job_process`) signals exactly one job. `lane_for(job)`
+  routes a network flash of an OpenThread device to the thread lane
+  (Thread devices share one mesh/border router — concurrent OTAs starve
+  it) via `state.is_thread_configuration`, wired at `start()` before job
+  restore to `DevicesController.is_thread_device` (`"openthread" in
+  loaded_integrations`; unknown/never-compiled → normal upload lane).
+  Everything not a network flash runs on the compile lane.
+  `firmware/install` enqueues a COMPILE job + a dependent
   local UPLOAD job (`FirmwareJob.depends_on`); the upload is held off its
   lane until the compile succeeds (`lifecycle.release_dependents`), and a
   cancelled/failed compile cascades to cancel the held upload (so a

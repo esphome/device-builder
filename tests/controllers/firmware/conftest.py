@@ -416,6 +416,7 @@ class StubDevices:
     """
 
     devices: list[Any] = field(default_factory=list)
+    thread_configurations: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         """Build the configuration-keyed index, mirroring production's O(1) lookup."""
@@ -426,6 +427,9 @@ class StubDevices:
 
     def get_ota_address_cache_args(self, _configuration: str, _port: str) -> list[str]:
         return []
+
+    def is_thread_device(self, configuration: str) -> bool:
+        return configuration in self.thread_configurations
 
     def get_devices(self) -> list[Any]:
         return self.devices

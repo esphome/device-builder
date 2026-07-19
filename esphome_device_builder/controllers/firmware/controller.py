@@ -213,6 +213,9 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
                 "(e.g. ``pip install -e '.[esphome]'`` from the project root).",
                 detail,
             )
+        # Before ``_load_jobs`` so restored flashes route to the right
+        # upload lane; the devices controller has already scanned.
+        self.state.is_thread_configuration = self._is_thread_configuration
         await self._load_jobs()
         self._runner_task = self._db.create_background_task(self._run_queue())
 
@@ -602,6 +605,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     def _finalize_cancelled(self, job: FirmwareJob) -> None:
         lifecycle.finalize_cancelled(self, job)
+
+    def _is_thread_configuration(self, configuration: str) -> bool:
+        devices = self._db.devices
+        return devices is not None and devices.is_thread_device(configuration)
 
     async def _terminate_job_process(self, job: FirmwareJob) -> None:
         await lifecycle.terminate_job_process(self, job)

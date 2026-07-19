@@ -25,6 +25,12 @@ from ...models import JobType
 # ``.device-builder.json``.
 _JOBS_KEY = "_firmware_jobs"
 
+# Upload-lane worker count — how many network flashes run at once.
+# Each flash is a full esphome subprocess tree; the cap bounds their
+# combined memory on small hosts. OpenThread flashes don't count
+# against it — they serialize on their own single-slot lane.
+MAX_CONCURRENT_UPLOADS = 3
+
 # Output patterns that indicate failure even when the subprocess
 # exit code is 0. Bare ``No module named`` is intentionally absent:
 # PlatformIO's ``[nanopb]`` extra-script emits it harmlessly (#918);

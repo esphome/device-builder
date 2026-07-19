@@ -360,6 +360,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             return []
         return self.get_address_cache_args(configuration)
 
+    def is_thread_device(self, configuration: str) -> bool:
+        """Whether *configuration*'s device loads ``openthread`` (per its last compile)."""
+        device = self._scanner.get_by_configuration(configuration)
+        return device is not None and "openthread" in device.loaded_integrations
+
     def set_queued_update(self, configuration: str) -> bool:
         """Arm *configuration*'s queued update; True when the flag flipped."""
         return self._set_queued_update(configuration, is_queued=True)
