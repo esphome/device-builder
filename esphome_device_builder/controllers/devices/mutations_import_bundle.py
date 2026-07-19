@@ -122,7 +122,7 @@ class _Outcome:
 
 def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
     """Decode, extract to a temp dir, then plan or place the files (blocking)."""
-    # Lazy: keeps esphome.bundle (and its yaml_util pull) off cold import.
+    # Lazy: keeps esphome.bundle off cold import.
     from esphome.bundle import (  # noqa: PLC0415
         MANIFEST_FILENAME,
         extract_bundle,
