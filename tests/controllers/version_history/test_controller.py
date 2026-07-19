@@ -240,11 +240,12 @@ async def test_set_auto_commit_noop_when_value_unchanged(tmp_path: Path) -> None
     """Setting the current value again is a no-op: listeners and repo stay put."""
     controller = _make_controller(tmp_path)
     await controller.start()
-    unsubs_before = list(controller._unsubs)
+    bus = controller._db.bus
+    listener_count_before = sum(len(bus._listeners.get(et, ())) for et in EventType)
 
     await controller.set_auto_commit(enabled=True)  # already enabled
 
-    assert controller._unsubs == unsubs_before
+    assert sum(len(bus._listeners.get(et, ())) for et in EventType) == listener_count_before
     (tmp_path / "kitchen.yaml").write_text("v1\n", encoding="utf-8")
     assert await controller.record_configuration("kitchen.yaml", "Create kitchen.yaml")
     await controller.stop()
@@ -605,7 +606,6 @@ async def test_stop_detaches_listeners_and_flushes_pending(
 
     await controller.stop()
 
-    assert controller._unsubs == []
     # The queued edit was flushed on shutdown rather than lost.
     assert await controller.list_versions(configuration="kitchen.yaml")
     # A post-stop event must not reach the (now detached) listener.
