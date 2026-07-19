@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from esphome.const import __version__ as _esphome_version
 
-from esphome_device_builder.controllers.firmware import remote_runner
+from esphome_device_builder.controllers.firmware import bundle_phase, remote_runner
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
@@ -166,7 +166,7 @@ def patch_bundle(monkeypatch: pytest.MonkeyPatch) -> Any:
     need an actual esphome install + a real YAML).
     """
     mock = AsyncMock(return_value=b"FAKEBUNDLE")
-    monkeypatch.setattr(remote_runner, "build_yaml_bundle", mock)
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", mock)
     return mock
 
 
@@ -381,7 +381,11 @@ async def test_remote_compile_translates_output_and_completes(
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.COMPLETED
-    assert [d["line"] for d in captured[EventType.JOB_OUTPUT]] == [
+    # The bundle phase frames the receiver's lines with its own notices.
+    lines = [d["line"] for d in captured[EventType.JOB_OUTPUT]]
+    assert lines[0] == "*** building configuration bundle for remote build ***\n"
+    assert "bundle ready" in lines[1]
+    assert lines[2:] == [
         "Reading configuration\n",
         "Compile finished\n",
     ]
@@ -605,7 +609,8 @@ async def test_remote_compile_ignores_events_for_other_jobs(
     _fire_output(controller, job_id="someone-else", line="other job output\n")
     _fire_state(controller, job_id="someone-else", status="completed")
     await asyncio.sleep(0)
-    assert captured[EventType.JOB_OUTPUT] == []
+    # Only the bundle phase's own notices — no stray line leaked in.
+    assert all(d["line"].startswith("***") for d in captured[EventType.JOB_OUTPUT])
     assert captured[EventType.JOB_COMPLETED] == []
     assert not runner.done()
 
@@ -913,9 +918,7 @@ async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
     # not on disk). Combined, the runner's failure path should
     # route through the cancel-aware branch.
     _request_remote_cancel(controller, job)
-    monkeypatch.setattr(
-        remote_runner, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError)
-    )
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError))
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -937,9 +940,7 @@ async def test_remote_compile_bundle_file_missing_fires_job_failed(
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
-    monkeypatch.setattr(
-        remote_runner, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError)
-    )
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError))
     job = _make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
@@ -953,21 +954,50 @@ async def test_remote_compile_bundle_build_error_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``BundleBuildError.output`` surfaces in ``job.error`` for the user."""
+    """``BundleBuildError`` fails the job; the log closes with a bundle-failed notice."""
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
     _wire_remote_build(controller)
     bundle_error = BundleBuildError(
         "bundle subprocess failed", output="ERROR: syntax in kitchen.yaml"
     )
-    monkeypatch.setattr(remote_runner, "build_yaml_bundle", AsyncMock(side_effect=bundle_error))
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", AsyncMock(side_effect=bundle_error))
     job = _make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
-    assert job.error is not None and "syntax in kitchen.yaml" in job.error
+    assert job.error is not None and "bundle subprocess failed" in job.error
+    assert job.output[-1] == "*** bundle failed: bundle subprocess failed ***\n"
     assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_compile_stop_during_bundle_cancels_promptly(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Stop click mid-bundle cancels the bundle task instead of waiting it out."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = _capture_local_events(controller)
+    _wire_remote_build(controller)
+    bundle_started = asyncio.Event()
+
+    async def _hang_bundle(yaml_path: Any, *, on_output: Any = None) -> bytes:
+        bundle_started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _hang_bundle)
+    job = _make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await asyncio.wait_for(bundle_started.wait(), timeout=2.0)
+    _request_remote_cancel(controller, job)
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert captured[EventType.JOB_FAILED] == []
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
 # ---------------------------------------------------------------------------

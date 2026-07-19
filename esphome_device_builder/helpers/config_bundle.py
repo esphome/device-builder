@@ -2,9 +2,10 @@
 Build a self-contained ESPHome bundle from a YAML on disk.
 
 Wraps the ``esphome bundle <yaml> -o <tarball>`` CLI for the
-offloader-side ``submit_job`` flow (issue #106): the WS
-handler hands a YAML path, this module returns the gzipped-
-tar bytes ready for chunking onto the peer-link.
+offloader-side ``submit_job`` flow (issue #106): the remote
+runner hands a YAML path, this module returns the gzipped-
+tar bytes ready for chunking onto the peer-link, streaming
+the subprocess output to an optional per-line callback.
 
 Subprocess rather than in-process
 :class:`esphome.bundle.ConfigBundleCreator` so the bundle
@@ -31,47 +32,51 @@ build:
 Errors:
 
 * :class:`FileNotFoundError` from missing YAML — propagated;
-  the WS layer maps to ``CommandError(NOT_FOUND)``.
+  the caller fails the job as configuration-not-found.
 * :class:`BundleBuildError` — esphome bundle exited non-zero
   (typically schema-invalid YAML, missing include, malformed
-  secret); the message carries stdout/stderr verbatim. The
-  WS layer maps to ``CommandError(INVALID_ARGS)`` so the
-  user sees the validator's diagnostic.
+  secret) or timed out; :attr:`BundleBuildError.output`
+  carries the stdout/stderr tail.
 * :class:`OSError` from the spawn itself (e.g. ``esphome``
-  not on PATH) propagates; the WS dispatcher's outer
-  ``except Exception`` surfaces it as ``INTERNAL_ERROR``.
+  not on PATH) propagates.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
+from collections import deque
+from collections.abc import Callable
 from pathlib import Path
 
 from ..controllers.firmware.helpers import _find_esphome_cmd
 from .async_ import run_in_executor
-from .subprocess import run_subprocess_capture
+from .subprocess import create_subprocess_exec, iter_lines_with_progress, kill_quietly
 
 _LOGGER = logging.getLogger(__name__)
 
 # Bound for the ``esphome bundle`` subprocess. Bundle build
 # is dominated by ``read_config`` (parses every include,
-# resolves every component schema) + tar packing; a typical
-# ~50-file config completes in <2s, an exotic image-heavy
-# include tree can hit ~10s. 60s gives generous headroom for
-# a slow disk / contended CPU without letting a wedged
-# subprocess pin the offloader's submit handler forever.
-# Mismatch with the receiver-side
-# :data:`_SUBMIT_JOB_ACK_TIMEOUT_SECONDS` (also 60s) is
-# coincidental — these bound different stages of the flow.
-_BUNDLE_BUILD_TIMEOUT_SECONDS = 60.0
+# resolves every component schema, may fetch remote packages)
+# + tar packing; a typical ~50-file config completes in <2s,
+# but heavy include trees with slow validation legitimately
+# run for minutes (the 60s original stranded a real user's
+# remote builds). The output streams into the job log, so a
+# long wait is visible; the bound only stops a truly wedged
+# subprocess from pinning the job forever.
+_BUNDLE_BUILD_TIMEOUT_SECONDS = 300.0
+
+# Retained-output bound for the BundleBuildError diagnostic;
+# each entry is one line/CR chunk from the subprocess.
+_OUTPUT_TAIL_CHUNKS = 200
 
 
 class BundleBuildError(RuntimeError):
-    """``esphome bundle`` subprocess exited non-zero.
+    """``esphome bundle`` subprocess failed or timed out.
 
-    Carries the captured stdout/stderr in :attr:`output` so
-    the WS layer can surface the validator's diagnostic
+    Carries the captured stdout/stderr tail in :attr:`output`
+    so the caller can surface the validator's diagnostic
     verbatim to the user.
     """
 
@@ -80,20 +85,23 @@ class BundleBuildError(RuntimeError):
         self.output = output
 
 
-async def build_yaml_bundle(yaml_path: Path) -> bytes:
+async def build_yaml_bundle(
+    yaml_path: Path, *, on_output: Callable[[str], None] | None = None
+) -> bytes:
     """Build a gzipped-tar bundle for *yaml_path* and return its raw bytes.
 
     Spawns ``esphome bundle <yaml_path> -o <tmp.tar.gz>``,
+    streams each output chunk to *on_output* as it arrives,
     awaits completion, reads the resulting bytes back, and
     deletes the temp file. The temp file lives in the
     platform's default tmp dir (typically ``/tmp/`` or
     ``$TMPDIR``); the dashboard never writes user-visible
     files outside ``config_dir``.
 
-    Cancellation-safe: the temp file is unlinked in a
-    ``finally`` regardless of how the function exits
-    (including ``CancelledError`` from the WS handler being
-    cancelled mid-build).
+    Cancellation-safe: the subprocess is killed and the temp
+    file is unlinked in a ``finally`` regardless of how the
+    function exits (including ``CancelledError`` from the
+    caller being cancelled mid-build).
     """
     # Every filesystem syscall here (``is_file`` → ``os.stat``,
     # ``_find_esphome_cmd`` → ``Path.exists`` → ``os.stat``,
@@ -106,25 +114,47 @@ async def build_yaml_bundle(yaml_path: Path) -> bytes:
     # disks.
     cmd, output_path = await run_in_executor(_prepare_build_bundle, yaml_path)
     try:
-        result = await run_subprocess_capture(
-            *cmd,
-            "bundle",
-            str(yaml_path),
-            "-o",
-            str(output_path),
-            timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS,
+        returncode, output, timed_out = await _stream_bundle_subprocess(
+            [*cmd, "bundle", str(yaml_path), "-o", str(output_path)], on_output
         )
-        if result.timed_out:
+        if timed_out:
             raise BundleBuildError(
                 f"esphome bundle timed out after {_BUNDLE_BUILD_TIMEOUT_SECONDS:.0f}s",
-                output="",
+                output=output.strip(),
             )
-        if result.returncode != 0:
-            output = result.stdout.decode("utf-8", errors="replace").strip()
-            raise BundleBuildError(f"esphome bundle exited {result.returncode}", output=output)
+        if returncode != 0:
+            raise BundleBuildError(f"esphome bundle exited {returncode}", output=output.strip())
         return await run_in_executor(output_path.read_bytes)
     finally:
         await run_in_executor(_unlink_quietly, output_path)
+
+
+async def _stream_bundle_subprocess(
+    args: list[str], on_output: Callable[[str], None] | None
+) -> tuple[int | None, str, bool]:
+    """Run the bundle subprocess; return ``(returncode, output tail, timed_out)``."""
+    proc = await create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    tail: deque[str] = deque(maxlen=_OUTPUT_TAIL_CHUNKS)
+    try:
+        async with asyncio.timeout(_BUNDLE_BUILD_TIMEOUT_SECONDS):
+            assert proc.stdout is not None
+            async for chunk in iter_lines_with_progress(proc.stdout):
+                tail.append(chunk)
+                if on_output is not None:
+                    on_output(chunk)
+            returncode = await proc.wait()
+    except TimeoutError:
+        kill_quietly(proc)
+        await proc.wait()
+        return proc.returncode, "".join(tail), True
+    except asyncio.CancelledError:
+        kill_quietly(proc)
+        raise
+    return returncode, "".join(tail), False
 
 
 def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:
