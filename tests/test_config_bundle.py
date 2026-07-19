@@ -10,6 +10,7 @@ missing-yaml pre-check) is exercised against a real subprocess.
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -24,13 +25,20 @@ from esphome_device_builder.helpers.config_bundle import (
 _SCRIPT_PRELUDE = "import sys, time\nout = sys.argv[sys.argv.index('-o') + 1]\n"
 
 
-def _install_fake_esphome(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, body: str) -> Path:
+def _install_fake_esphome(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    body: str,
+    *,
+    patch_output_path: bool = True,
+) -> Path:
     """Point ``_find_esphome_cmd`` at a stand-in script; return the reserved output path."""
     script = tmp_path / "fake_esphome.py"
     script.write_text(_SCRIPT_PRELUDE + body, encoding="utf-8")
     monkeypatch.setattr(config_bundle, "_find_esphome_cmd", lambda: [sys.executable, str(script)])
     output_path = tmp_path / "bundle-out.tar.gz"
-    monkeypatch.setattr(config_bundle, "_allocate_temp_bundle_path", lambda: output_path)
+    if patch_output_path:
+        monkeypatch.setattr(config_bundle, "_allocate_temp_bundle_path", lambda: output_path)
     return output_path
 
 
@@ -51,6 +59,7 @@ async def test_build_yaml_bundle_returns_subprocess_output(
         "assert sys.argv[1] == 'bundle'\n"
         f"assert sys.argv[2] == {str(yaml_path)!r}\n"
         "open(out, 'wb').write(b'GZIPPED-TAR-BYTES')\n",
+        patch_output_path=False,
     )
 
     assert await build_yaml_bundle(yaml_path) == b"GZIPPED-TAR-BYTES"
@@ -145,6 +154,31 @@ async def test_build_yaml_bundle_cleans_temp_file_on_success(
 
     await build_yaml_bundle(yaml_path)
     assert not output_path.exists()
+
+
+async def test_build_yaml_bundle_cancel_kills_subprocess(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cancelling the build kills the bundle subprocess and propagates the cancel."""
+    yaml_path = _write_yaml(tmp_path)
+    _install_fake_esphome(
+        monkeypatch,
+        tmp_path,
+        "print('started', flush=True)\ntime.sleep(30)\n",
+    )
+
+    chunks: list[str] = []
+    task = asyncio.get_running_loop().create_task(
+        build_yaml_bundle(yaml_path, on_output=chunks.append)
+    )
+    while not chunks:
+        await asyncio.sleep(0.01)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert task.cancelled()
+    # Let the child watcher reap the SIGKILL'd process before the
+    # test loop closes, or its transport __del__ warns at teardown.
+    await asyncio.sleep(0.1)
 
 
 async def test_build_yaml_bundle_timeout_raises_bundle_build_error(

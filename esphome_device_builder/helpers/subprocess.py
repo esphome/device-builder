@@ -13,7 +13,7 @@ the same pattern in ``esphome.dashboard.util.subprocess``.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -83,20 +83,25 @@ async def run_subprocess_capture(
     timeout: float,
     stdin_data: bytes | None = None,
     merge_stderr: bool = True,
+    on_line: Callable[[str], None] | None = None,
 ) -> CapturedSubprocess:
     """Spawn *args*, await completion (or *timeout*), capture stdout.
 
     Shared shape between every "run a command to completion and
     inspect its exit code + output" caller (currently
-    :func:`controllers.firmware.helpers._verify_esphome_importable`
-    and the Native-API info worker in
+    :func:`controllers.firmware.helpers._verify_esphome_importable`,
+    :func:`helpers.config_bundle.build_yaml_bundle`, and the
+    Native-API info worker in
     :class:`controllers._device_state_monitor.api_info.ApiInfoSource`).
 
     *stdin_data*, when given, is written to the child's stdin (stdin is
     opened as a pipe only then). *merge_stderr* (default) redirects
     stderr onto stdout for a unified stream; pass ``False`` to discard
     stderr so stdout carries only the child's real output (e.g. a clean
-    JSON payload).
+    JSON payload). *on_line*, when given, streams each output chunk
+    (split via :func:`iter_lines_with_progress`, terminators kept) to
+    the callback as it arrives instead of capturing — ``stdout`` on the
+    result is then empty; the callback owns retention.
 
     Timeout handling: on expiry we :func:`kill_quietly` the process,
     await its ``wait()`` so the OS resources release, and return
@@ -106,9 +111,6 @@ async def run_subprocess_capture(
     inspects ``timed_out`` rather than handling a raised
     exception, which keeps the common shape "one return, check
     flags" instead of try/except at every call site.
-
-    No retry, no streaming — callers that need either pattern
-    use :func:`create_subprocess_exec` directly.
 
     Cancellation-safe: if the awaiting task is cancelled mid-read,
     ``kill_quietly`` fires SIGKILL and the :class:`CancelledError`
@@ -135,8 +137,7 @@ async def run_subprocess_capture(
     try:
         async with asyncio.timeout(timeout):
             assert proc.stdout is not None
-            while data := await proc.stdout.read(_STREAM_READ_SIZE):
-                buf += data
+            await _consume_stdout(proc.stdout, on_line, buf)
             await proc.wait()
             if writer is not None:
                 await writer
@@ -207,6 +208,23 @@ async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterato
             chunk = buf[:end]
             buf = buf[end:]
             yield chunk.decode("utf-8", errors="replace")
+
+
+async def _consume_stdout(
+    stdout: asyncio.StreamReader, on_line: Callable[[str], None] | None, buf: bytearray
+) -> None:
+    """Drain *stdout* into *buf*, or per line to *on_line* when set.
+
+    Mutates the caller-owned *buf* rather than returning bytes so a
+    timeout cancelling this coroutine still leaves the partial
+    output readable.
+    """
+    if on_line is None:
+        while data := await stdout.read(_STREAM_READ_SIZE):
+            buf += data
+        return
+    async for chunk in iter_lines_with_progress(stdout):
+        on_line(chunk)
 
 
 async def _write_stdin(proc: asyncio.subprocess.Process, data: bytes) -> None:

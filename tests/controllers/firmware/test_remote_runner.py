@@ -39,7 +39,6 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.config_bundle import BundleBuildError
-from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.remote_artifacts_materialise import MaterialiseError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -51,22 +50,10 @@ from esphome_device_builder.models import (
     JobType,
 )
 
+from .conftest import _PIN, _capture_local_events, _make_remote_job
+
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
-
-
-_PIN = "a" * 64
-
-
-def _make_remote_job(*, job_id: str = "remote-1") -> FirmwareJob:
-    return FirmwareJob(
-        job_id=job_id,
-        configuration="kitchen.yaml",
-        job_type=JobType.COMPILE,
-        source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
-        source_label="desktop",
-    )
 
 
 def _wire_remote_build(
@@ -168,36 +155,6 @@ def patch_bundle(monkeypatch: pytest.MonkeyPatch) -> Any:
     mock = AsyncMock(return_value=b"FAKEBUNDLE")
     monkeypatch.setattr(bundle_phase, "build_yaml_bundle", mock)
     return mock
-
-
-def _capture_local_events(
-    controller: Any,
-) -> dict[EventType, list[dict[str, Any]]]:
-    """Subscribe a real ``EventBus`` to the local ``JOB_*`` events.
-
-    Returns a captured-events dict the assertion side can index
-    by event type. The fixture installs the bus on
-    ``controller._db.bus`` so the runner's fires land here.
-    """
-    bus = EventBus()
-    captured: dict[EventType, list[dict[str, Any]]] = {
-        EventType.JOB_OUTPUT: [],
-        EventType.JOB_PROGRESS: [],
-        EventType.JOB_COMPLETED: [],
-        EventType.JOB_FAILED: [],
-        EventType.JOB_CANCELLED: [],
-    }
-
-    def _make_listener(key: EventType) -> Any:
-        def _listen(event: Any) -> None:
-            captured[key].append(event.data)
-
-        return _listen
-
-    for et in captured:
-        bus.add_listener(et, _make_listener(et))
-    controller._db.bus = bus
-    return captured
 
 
 def _fire_state(
@@ -1417,9 +1374,9 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     ``_cancel_requested`` and self-fires the event if the
     cancel already arrived. This test pins that path by
     flipping ``_cancel_requested`` before the runner
-    starts, then asserting the runner still translates the
-    cancel onto the wire (instead of hanging on its newly-
-    created event).
+    starts, then asserting the runner honours the cancel
+    during the bundle phase (instead of hanging on its
+    newly-created event).
     """
     controller = firmware_controller_factory(with_terminate=True)
     captured = _capture_local_events(controller)
@@ -1434,19 +1391,15 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     controller.state.cancel_requested.add(job.job_id)
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
-    # The runner's bundle build + submit will still complete
-    # (the cancel-aware ``_fail_locally`` short-circuit only
-    # kicks in when one of those branches raises). The
-    # registration's self-fire is what keeps the happy
-    # dispatch path from hanging on the cancel event.
-    await _wait_for_wire_cancel(client)
-    client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
-
-    _fire_state(controller, job_id=job.job_id, status="cancelled")
+    # The registration's self-fire hands the already-set event to the
+    # bundle phase, which aborts before any wire traffic — nothing is
+    # submitted, so there's no receiver-side job to cancel.
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.CANCELLED
     assert len(captured[EventType.JOB_CANCELLED]) == 1
+    client.submit_job.assert_not_awaited()
+    client.cancel_job.assert_not_awaited()
 
 
 async def test_firmware_cancel_handler_wakes_remote_runner_via_event(

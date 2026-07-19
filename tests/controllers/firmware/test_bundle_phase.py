@@ -8,28 +8,12 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from esphome_device_builder.controllers.firmware import bundle_phase
-from esphome_device_builder.models import (
-    EventType,
-    FirmwareJob,
-    JobSource,
-    JobType,
-)
+from esphome_device_builder.models import EventType
 
-from .test_remote_runner import _capture_local_events
+from .conftest import _capture_local_events, _make_remote_job
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
-
-
-def _make_remote_job() -> FirmwareJob:
-    return FirmwareJob(
-        job_id="remote-1",
-        configuration="kitchen.yaml",
-        job_type=JobType.COMPILE,
-        source=JobSource.REMOTE,
-        source_pin_sha256="a" * 64,
-        source_label="desktop",
-    )
 
 
 async def test_run_bundle_phase_streams_output_and_notices(
@@ -85,6 +69,26 @@ async def test_run_bundle_phase_cancel_event_cancels_bundle(
 
     assert result is None
     assert bundle_cancelled.is_set()
+
+
+async def test_run_bundle_phase_cancel_wins_even_when_bundle_completes(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancel landing in the same tick as bundle completion still cancels."""
+    controller = firmware_controller_factory()
+    _capture_local_events(controller)
+
+    async def _instant_bundle(yaml_path: Any, *, on_output: Any = None) -> bytes:
+        return b"FAKEBUNDLE"
+
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _instant_bundle)
+    job = _make_remote_job()
+    cancel_event = asyncio.Event()
+    cancel_event.set()
+
+    assert await bundle_phase.run_bundle_phase(controller, job, cancel_event) is None
+    assert not any("bundle ready" in line for line in job.output)
 
 
 async def test_run_bundle_phase_heartbeat_ticks_while_bundle_runs(

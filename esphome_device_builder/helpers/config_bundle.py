@@ -2,10 +2,10 @@
 Build a self-contained ESPHome bundle from a YAML on disk.
 
 Wraps the ``esphome bundle <yaml> -o <tarball>`` CLI for the
-offloader-side ``submit_job`` flow (issue #106): the remote
-runner hands a YAML path, this module returns the gzipped-
-tar bytes ready for chunking onto the peer-link, streaming
-the subprocess output to an optional per-line callback.
+offloader-side ``submit_job`` flow: the remote runner hands a
+YAML path, this module returns the gzipped-tar bytes ready
+for chunking onto the peer-link, streaming the subprocess
+output to an optional per-line callback.
 
 Subprocess rather than in-process
 :class:`esphome.bundle.ConfigBundleCreator` so the bundle
@@ -43,7 +43,6 @@ Errors:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import tempfile
 from collections import deque
@@ -52,7 +51,7 @@ from pathlib import Path
 
 from ..controllers.firmware.helpers import _find_esphome_cmd
 from .async_ import run_in_executor
-from .subprocess import create_subprocess_exec, iter_lines_with_progress, kill_quietly
+from .subprocess import run_subprocess_capture
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -113,48 +112,35 @@ async def build_yaml_bundle(
     # hops so the dashboard's other tasks keep moving on slow
     # disks.
     cmd, output_path = await run_in_executor(_prepare_build_bundle, yaml_path)
+    tail: deque[str] = deque(maxlen=_OUTPUT_TAIL_CHUNKS)
+
+    def _collect(chunk: str) -> None:
+        tail.append(chunk)
+        if on_output is not None:
+            on_output(chunk)
+
     try:
-        returncode, output, timed_out = await _stream_bundle_subprocess(
-            [*cmd, "bundle", str(yaml_path), "-o", str(output_path)], on_output
+        result = await run_subprocess_capture(
+            *cmd,
+            "bundle",
+            str(yaml_path),
+            "-o",
+            str(output_path),
+            timeout=_BUNDLE_BUILD_TIMEOUT_SECONDS,
+            on_line=_collect,
         )
-        if timed_out:
+        if result.timed_out:
             raise BundleBuildError(
                 f"esphome bundle timed out after {_BUNDLE_BUILD_TIMEOUT_SECONDS:.0f}s",
-                output=output.strip(),
+                output="".join(tail).strip(),
             )
-        if returncode != 0:
-            raise BundleBuildError(f"esphome bundle exited {returncode}", output=output.strip())
+        if result.returncode != 0:
+            raise BundleBuildError(
+                f"esphome bundle exited {result.returncode}", output="".join(tail).strip()
+            )
         return await run_in_executor(output_path.read_bytes)
     finally:
         await run_in_executor(_unlink_quietly, output_path)
-
-
-async def _stream_bundle_subprocess(
-    args: list[str], on_output: Callable[[str], None] | None
-) -> tuple[int | None, str, bool]:
-    """Run the bundle subprocess; return ``(returncode, output tail, timed_out)``."""
-    proc = await create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    )
-    tail: deque[str] = deque(maxlen=_OUTPUT_TAIL_CHUNKS)
-    try:
-        async with asyncio.timeout(_BUNDLE_BUILD_TIMEOUT_SECONDS):
-            assert proc.stdout is not None
-            async for chunk in iter_lines_with_progress(proc.stdout):
-                tail.append(chunk)
-                if on_output is not None:
-                    on_output(chunk)
-            returncode = await proc.wait()
-    except TimeoutError:
-        kill_quietly(proc)
-        await proc.wait()
-        return proc.returncode, "".join(tail), True
-    except asyncio.CancelledError:
-        kill_quietly(proc)
-        raise
-    return returncode, "".join(tail), False
 
 
 def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:

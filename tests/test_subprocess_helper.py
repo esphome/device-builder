@@ -110,6 +110,51 @@ async def test_run_subprocess_capture_timeout_returns_partial_output() -> None:
     assert b"EARLY" in result.stdout
 
 
+async def test_run_subprocess_capture_timeout_with_stdin_pending() -> None:
+    """Timeout with a stdin writer in flight still returns cleanly."""
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "import time; time.sleep(30)",
+        timeout=0.5,
+        stdin_data=b"unread",
+    )
+    assert result.timed_out is True
+
+
+async def test_run_subprocess_capture_cancel_kills_child() -> None:
+    """Cancelling the awaiting task kills the child and propagates the cancel."""
+    task = asyncio.get_running_loop().create_task(
+        subprocess_helper.run_subprocess_capture(
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+            timeout=60,
+            stdin_data=b"unread",
+        )
+    )
+    await asyncio.sleep(0.3)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    assert task.cancelled()
+    # Let the child watcher reap the SIGKILL'd process before the
+    # test loop closes, or its transport __del__ warns at teardown.
+    await asyncio.sleep(0.1)
+
+
+async def test_run_subprocess_capture_tolerates_child_ignoring_stdin() -> None:
+    """A child exiting without draining a large stdin doesn't raise."""
+    result = await subprocess_helper.run_subprocess_capture(
+        sys.executable,
+        "-c",
+        "pass",
+        timeout=10,
+        stdin_data=b"x" * (8 * 1024 * 1024),
+    )
+    assert result.timed_out is False
+    assert result.returncode == 0
+
+
 def test_no_call_site_uses_asyncio_create_subprocess_exec_directly() -> None:
     """Guard against regressions: no callsite should bypass the helper.
 

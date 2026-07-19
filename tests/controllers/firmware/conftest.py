@@ -45,6 +45,7 @@ from esphome_device_builder.models import (
     DeviceState,
     EventType,
     FirmwareJob,
+    JobSource,
     JobType,
     PeerQueueStatusSnapshotEntry,
     PeerStatus,
@@ -578,3 +579,48 @@ def stub_offloader(controller: Any, snapshot: BuildSchedulerInputs) -> MagicMock
     offloader.get_pairing.side_effect = _get_pairing
     controller._db.remote_build_offloader = offloader
     return offloader
+
+
+_PIN = "a" * 64
+
+
+def _make_remote_job(*, job_id: str = "remote-1") -> FirmwareJob:
+    """Build a REMOTE-source COMPILE job matching the peer-link test wiring."""
+    return FirmwareJob(
+        job_id=job_id,
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        source=JobSource.REMOTE,
+        source_pin_sha256=_PIN,
+        source_label="desktop",
+    )
+
+
+def _capture_local_events(
+    controller: Any,
+) -> dict[EventType, list[dict[str, Any]]]:
+    """Subscribe a real ``EventBus`` to the local ``JOB_*`` events.
+
+    Returns a captured-events dict the assertion side can index
+    by event type. The helper installs the bus on
+    ``controller._db.bus`` so the runner's fires land here.
+    """
+    bus = EventBus()
+    captured: dict[EventType, list[dict[str, Any]]] = {
+        EventType.JOB_OUTPUT: [],
+        EventType.JOB_PROGRESS: [],
+        EventType.JOB_COMPLETED: [],
+        EventType.JOB_FAILED: [],
+        EventType.JOB_CANCELLED: [],
+    }
+
+    def _make_listener(key: EventType) -> Any:
+        def _listen(event: Any) -> None:
+            captured[key].append(event.data)
+
+        return _listen
+
+    for et in captured:
+        bus.add_listener(et, _make_listener(et))
+    controller._db.bus = bus
+    return captured

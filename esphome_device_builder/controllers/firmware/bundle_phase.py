@@ -41,10 +41,10 @@ async def run_bundle_phase(
     finally:
         heartbeat.cancel()
         cancel_wait.cancel()
-        if not bundle_task.done():
-            bundle_task.cancel()
+        bundle_task.cancel()
         await asyncio.gather(bundle_task, heartbeat, cancel_wait, return_exceptions=True)
-    if bundle_task.cancelled():
+    # Cancel wins even when the bundle finished in the same tick.
+    if cancel_event.is_set():
         return None
     bundle_bytes = bundle_task.result()
     _ingest_notice_line(
