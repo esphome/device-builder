@@ -291,6 +291,38 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
     assert devices[("switch.gpio", "relay_one")]["is_entity_container"] is False
 
 
+async def test_get_available_flags_explicit_ids(tmp_path: Path) -> None:
+    """``has_explicit_id`` is true only for a declared ``id:``, never a synthesized one."""
+    config = tmp_path / "device.yaml"
+    config.write_text(
+        "esphome:\n  name: d\n"
+        "logger:\n  baud_rate: 115200\n"
+        "wifi:\n  ssid: home\n  id: my_wifi\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: relay_one\n"
+        "    pin: GPIO5\n"
+        "  - platform: gpio\n"
+        "    pin: GPIO6\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n      id: kitchen_temp\n"
+        "    humidity:\n      name: Kit Hum\n",
+        encoding="utf-8",
+    )
+    controller = _make_controller(tmp_path)
+    result = await controller.get_available(configuration="device.yaml")
+    devices = {(d["component_id"], d["id"]): d for d in result["devices"]}
+    assert devices[("logger", "logger")]["has_explicit_id"] is False
+    assert devices[("wifi", "my_wifi")]["has_explicit_id"] is True
+    assert devices[("switch.gpio", "relay_one")]["has_explicit_id"] is True
+    assert devices[("switch.gpio", "switch_1")]["has_explicit_id"] is False
+    assert devices[("sensor.aht10", "aht20")]["has_explicit_id"] is True
+    assert devices[("sensor", "kitchen_temp")]["has_explicit_id"] is True
+    assert devices[("sensor", "aht20_humidity")]["has_explicit_id"] is False
+
+
 async def test_get_available_stamps_catalog_title(tmp_path: Path) -> None:
     """Every instance's ``title`` is the catalog lookup of its ``component_id``."""
     config = tmp_path / "device.yaml"
