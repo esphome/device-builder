@@ -1055,5 +1055,5 @@
 {"description":"Imported from devices.esphome.io — see linked docs for community notes.","docs_url":"https://devices.esphome.io/devices/Zemismart-Switch-TB22/","esphome":{"board":"esp01_1m","platform":"esp8266"},"id":"zemismart_switch_tb22","images":["https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Switch-TB22/zemismart-tb23.jpg","https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Switch-TB22/board-front.jpeg","https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zemismart-Switch-TB22/board-back.jpeg"],"manufacturer":"","name":"Zemismart Switch TB21 TB22 TB23"},
 {"description":"Imported from devices.esphome.io — see linked docs for community notes.","docs_url":"https://devices.esphome.io/devices/Zentec-Smart-Plug/","esphome":{"board":"esp01_1m","platform":"esp8266"},"id":"zentec_smart_plug","images":["https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zentec-Smart-Plug/zentec-outside.jpg","https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/Zentec-Smart-Plug/zentec-inside.jpg"],"manufacturer":"","name":"Zentec Smart Plug","tags":["relay","compact"]}
 ],
-"esphome_version":"2026.7.0"
+"esphome_version":"2026.7.1"
 }

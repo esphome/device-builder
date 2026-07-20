@@ -623,7 +623,7 @@
 {"accepts_condition_list":false,"description":"This condition checks if the remote peer is *online*.","docs_url":"https://esphome.io/automations/actions","domain":"wireguard","id":"wireguard.peer_online","name":"Wireguard → Peer Online"},
 {"accepts_condition_list":true,"description":"","docs_url":"https://esphome.io/automations/actions","domain":"core","id":"xor","name":"Xor"}
 ],
-"esphome_schema_version":"2026.7.0",
+"esphome_schema_version":"2026.7.1",
 "filters":[
 {"applies_to":["binary_sensor"],"id":"autorepeat","name":"Binary Sensor → Autorepeat","templatable":false,"value_type":null},
 {"applies_to":["binary_sensor"],"id":"delayed_off","name":"Binary Sensor → Delayed Off","templatable":true,"value_type":"time_period"},
