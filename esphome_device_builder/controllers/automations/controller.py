@@ -418,7 +418,7 @@ def _component_instance(
         name=str(section["name"]) if "name" in section else None,
         is_entity_container=is_container,
         parent_id=parent_id,
-        has_explicit_id=bool(section.get("id")),
+        has_explicit_id=parsing.declares_id(section),
     )
 
 
