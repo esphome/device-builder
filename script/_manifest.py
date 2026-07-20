@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from esphome_device_builder.helpers.yaml import FastestSafeLoader
 
 
 class ManifestError(Exception):
@@ -21,7 +26,7 @@ def load_manifest_dict(path: Path) -> dict[str, Any]:
     unchanged so callers can tell "can't read" apart from "bad content".
     """
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        data = yaml.load(path.read_text(encoding="utf-8"), Loader=FastestSafeLoader)  # noqa: S506
     except yaml.YAMLError as exc:
         raise ManifestError(f"invalid YAML: {exc}") from exc
     if not isinstance(data, dict):

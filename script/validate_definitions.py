@@ -221,7 +221,7 @@ def validate_board(
     # intersection check for these; the rest of featured-component
     # validation (component_id present, fields key match,
     # GPIO declared) still runs.
-    errors.extend(_validate_pins_from(board_id, data, pins, all_boards))
+    errors.extend(_validate_pins_from(board_id, data, all_boards))
 
     is_imported = isinstance(data.get("source"), dict) and bool(data["source"].get("type"))
 
@@ -239,15 +239,18 @@ def validate_board(
 def _validate_pins_from(
     board_id: str,
     data: dict,
-    pins: list,
     all_boards: dict[str, dict] | None,
 ) -> list[str]:
-    """``pins_from`` must name an existing same-chip board with a pin table."""
+    """``pins_from`` must name an existing same-chip board with a pin table.
+
+    The mutual exclusivity with ``pins`` also forbids donor chains: a board
+    named by ``pins_from`` necessarily carries its own table.
+    """
     donor_id = data.get("pins_from")
     if donor_id is None:
         return []
     errors: list[str] = []
-    if pins:
+    if data.get("pins"):
         errors.append(f"{board_id}: pins_from and pins are mutually exclusive")
     if all_boards is None:
         return errors

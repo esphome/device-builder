@@ -18,32 +18,32 @@ def _board(pins_from: str | None = None, pins: list | None = None, variant: str 
 
 def test_valid_reference_is_quiet() -> None:
     donors = {"donor": _board(pins=[_PIN])}
-    assert vd._validate_pins_from("b", _board(pins_from="donor"), [], donors) == []
+    assert vd._validate_pins_from("b", _board(pins_from="donor"), donors) == []
 
 
 def test_unknown_donor_id_fails() -> None:
-    assert vd._validate_pins_from("b", _board(pins_from="ghost"), [], {}) == [
+    assert vd._validate_pins_from("b", _board(pins_from="ghost"), {}) == [
         "b: pins_from 'ghost' is not a known board"
     ]
 
 
 def test_pinless_donor_fails() -> None:
     donors = {"donor": _board()}
-    errors = vd._validate_pins_from("b", _board(pins_from="donor"), [], donors)
+    errors = vd._validate_pins_from("b", _board(pins_from="donor"), donors)
     assert errors == ["b: pins_from 'donor' has no pin table"]
 
 
 def test_cross_chip_donor_fails() -> None:
     donors = {"donor": _board(pins=[_PIN], variant="esp32s3")}
-    errors = vd._validate_pins_from("b", _board(pins_from="donor"), [], donors)
+    errors = vd._validate_pins_from("b", _board(pins_from="donor"), donors)
     assert errors == ["b: pins_from 'donor' is a different chip"]
 
 
 def test_pins_from_with_own_pins_fails() -> None:
     donors = {"donor": _board(pins=[_PIN])}
-    errors = vd._validate_pins_from("b", _board(pins_from="donor", pins=[_PIN]), [_PIN], donors)
+    errors = vd._validate_pins_from("b", _board(pins_from="donor", pins=[_PIN]), donors)
     assert errors == ["b: pins_from and pins are mutually exclusive"]
 
 
 def test_absent_key_is_quiet() -> None:
-    assert vd._validate_pins_from("b", _board(), [], {}) == []
+    assert vd._validate_pins_from("b", _board(), {}) == []

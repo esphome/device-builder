@@ -56,7 +56,6 @@ from pathlib import Path
 from typing import Any
 
 import orjson
-import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
@@ -70,6 +69,7 @@ from _catalog_split import (  # noqa: E402
     swap_split_catalog_in,
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
+from _manifest import ManifestError, load_manifest_dict  # noqa: E402
 
 from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
@@ -669,6 +669,8 @@ def _backfill_donor_pins(
     if pins_from is None:
         pins_from = _manifest_pins_from()
     by_id = {board.id: board for board in boards}
+    # Chip compatibility of an explicit donor is validate_definitions'
+    # job; this stage only refuses to overwrite an existing table.
     for board_id, donor_id in pins_from.items():
         board = by_id.get(board_id)
         donor = by_id.get(donor_id)
@@ -694,8 +696,11 @@ def _manifest_pins_from() -> dict[str, str]:
     """``{board_id: donor_id}`` for every manifest carrying ``pins_from``."""
     out: dict[str, str] = {}
     for manifest in sorted((_DEFINITIONS_DIR / "boards").glob("*/manifest.yaml")):
-        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
-        donor = data.get("pins_from") if isinstance(data, dict) else None
+        try:
+            data = load_manifest_dict(manifest)
+        except ManifestError:
+            continue
+        donor = data.get("pins_from")
         if isinstance(donor, str):
             out[str(data["id"])] = donor
     return out
