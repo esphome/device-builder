@@ -292,7 +292,7 @@ async def test_get_available_lists_configured_component_instances(tmp_path: Path
 
 
 async def test_get_available_devices_follow_document_order(tmp_path: Path) -> None:
-    """``devices`` ships in YAML document order, stable across restarts (#2213)."""
+    """``devices`` ships in YAML document order, stable across restarts."""
     config = tmp_path / "device.yaml"
     config.write_text(
         "esphome:\n  name: d\n"

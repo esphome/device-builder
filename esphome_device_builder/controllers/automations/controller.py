@@ -314,9 +314,8 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
 
     if isinstance(data.get("script"), list):
         scripts = _scope_scripts(data["script"])
-    # Iterate in document order: ``devices`` ships to the frontend in this
-    # order, and a ``set()`` here reshuffled it every restart (hash
-    # randomization), so the by-target picker's groups moved around.
+    # ``devices`` ships to the frontend in this order; keep document-order
+    # iteration (a ``set()`` wrap hash-shuffles it per process).
     for domain in data:
         section = data.get(domain)
         if isinstance(section, list):
