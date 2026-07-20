@@ -30,6 +30,13 @@ inputs:
       false — there the wheels only matter on a venv miss, and
       restoring ~80 MB of them on every hit is pure tax.
     default: "true"
+  uv-version:
+    description: |
+      The uv version setup-uv installs. Pinned: resolving "latest"
+      fetches astral's manifest from raw.githubusercontent.com, and
+      that fetch failing reds the job before checkout. Bump manually;
+      keep the benchmarks job's standalone setup-uv in sync.
+    default: "0.11.29"
 
 outputs:
   python-version:
@@ -43,9 +50,14 @@ runs:
       id: uv
       uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
       with:
+        version: ${{ inputs.uv-version }}
         python-version: ${{ inputs.python-version }}
         enable-cache: ${{ inputs.enable-cache }}
-        cache-python: true
+        # Interpreter caching is owned below instead: setup-uv's own
+        # cache-python shares the wheel cache's dependency-file key
+        # (a pyproject edit re-downloads Python) and is a silent
+        # no-op when enable-cache is false.
+        cache-python: false
         # The default prune (``uv cache prune --ci``) strips every
         # registry-downloaded wheel before saving, so each run
         # re-downloads all wheels. Keep them; size stays bounded
@@ -55,6 +67,25 @@ runs:
         # touching deps, so the post-step cache save would
         # otherwise abort the job.
         ignore-nothing-to-cache: true
+
+    - name: Compute interpreter cache key
+      if: runner.os != 'Windows'
+      id: python-key
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: echo "key=managed-python-${RUNNER_OS}-${RUNNER_ARCH}-py${PYTHON_VERSION}-w$(date -u +%G%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache managed Python
+      if: runner.os != 'Windows'
+      # Keyed on os/arch/version/ISO-week only — never on dependency
+      # files. The week stamp is how a new astral patch release gets
+      # picked up: while the cached interpreter satisfies the
+      # requested version, the install below is a no-op.
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ${{ env.UV_PYTHON_INSTALL_DIR }}
+        key: ${{ steps.python-key.outputs.key }}
 
     - name: Install managed Python
       if: runner.os != 'Windows'
