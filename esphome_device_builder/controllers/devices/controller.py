@@ -234,6 +234,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             get_devices=self._get_devices,
             on_state_change=lambda n, s: self._state_monitor.apply(n, s, "mqtt"),
             on_ip_change=self._state_monitor.apply_ip,
+            presence=self._db.subscriber_presence,
         )
 
     @property

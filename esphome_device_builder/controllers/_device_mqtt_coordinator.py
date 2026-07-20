@@ -25,6 +25,7 @@ from ..helpers.device_yaml import (
     _resolve_substitutions,
     load_device_yaml,
 )
+from ..helpers.subscriber_presence import SubscriberPresence
 from ..helpers.yaml import FastestSafeLoader, load_yaml_fast_then_esphome
 from ..models import Device
 from ._device_mqtt_monitor import (
@@ -58,11 +59,13 @@ class DeviceMqttCoordinator:
         get_devices: Callable[[], list[Device]],
         on_state_change: StateCallback,
         on_ip_change: IPCallback,
+        presence: SubscriberPresence | None = None,
     ) -> None:
         self._config_dir = config_dir
         self._get_devices = get_devices
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
+        self._presence = presence
         self._monitors: dict[tuple[str, int, str | None], DeviceMqttMonitor] = {}
         # Positive-only slow-path cache keyed on ``(yaml_mtime,
         # secrets_mtime)``. Package / ``!include`` edits on a
@@ -86,7 +89,7 @@ class DeviceMqttCoordinator:
         if not DeviceMqttMonitor.is_available():
             if any(d.uses_mqtt for d in self._get_devices()):
                 _LOGGER.warning(
-                    "aiomqtt not installed — MQTT device discovery disabled despite "
+                    "paho-mqtt not installed — MQTT device discovery disabled despite "
                     "devices declaring mqtt: blocks"
                 )
             return
@@ -103,9 +106,13 @@ class DeviceMqttCoordinator:
         for broker in brokers:
             if broker.key in self._monitors:
                 continue
-            monitor = DeviceMqttMonitor(broker, self._on_state_change, self._on_ip_change)
+            monitor = DeviceMqttMonitor(
+                broker, self._on_state_change, self._on_ip_change, presence=self._presence
+            )
             self._monitors[broker.key] = monitor
             await monitor.start()
+
+        self._assign_publishers()
 
     async def stop(self) -> None:
         """Stop every active monitor and clear state."""
@@ -116,6 +123,21 @@ class DeviceMqttCoordinator:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _assign_publishers(self) -> None:
+        """
+        Designate one discover broadcaster per (host, port).
+
+        Same-broker monitors under other logins subscribe but stay
+        silent — the fleet answers every broadcast, so N logins must
+        not mean N× the traffic. Anonymous first, then lowest
+        username, so the pick is stable across reconciles.
+        """
+        publishers: dict[tuple[str, int], tuple[str, int, str | None]] = {}
+        for key in sorted(self._monitors, key=lambda k: (k[2] is not None, k[2] or "")):
+            publishers.setdefault(key[:2], key)
+        for key, monitor in self._monitors.items():
+            monitor.publisher = publishers[key[:2]] == key
 
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
         secrets_map = _load_secrets(self._config_dir)

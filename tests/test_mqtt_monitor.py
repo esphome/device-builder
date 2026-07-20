@@ -36,6 +36,7 @@ from esphome_device_builder.controllers._device_mqtt_monitor import (
 )
 from esphome_device_builder.controllers._device_state_monitor import DeviceStateMonitor
 from esphome_device_builder.helpers.device_yaml import device_uses_mqtt
+from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device, DeviceState
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,8 @@ class _RecordingMonitor:
 
     def __init__(self, broker: MqttBrokerConfig, *_args: object, **_kwargs: object) -> None:
         self.broker = broker
+        self.presence = _kwargs.get("presence")
+        self.publisher = True
         self.started = False
         self.stopped = False
         self.__class__.instances.append(self)
@@ -288,6 +291,69 @@ async def test_coordinator_starts_a_session_per_login_on_one_broker(
     assert coord.active_brokers == 2
     warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
     assert warnings == []
+
+
+async def test_coordinator_designates_one_publisher_per_broker(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    """Two logins on one broker → one broadcaster; distinct brokers each broadcast."""
+    devices = [
+        _write_device(
+            tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n  username: alpha\n  password: a\n"
+        ),
+        _write_device(
+            tmp_path, "beta", "mqtt:\n  broker: 192.168.0.1\n  username: beta\n  password: b\n"
+        ),
+        _write_device(tmp_path, "gamma", "mqtt:\n  broker: 192.168.0.2\n"),
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    assert coord.active_brokers == 3
+    by_login = {(m.broker.host, m.broker.username): m for m in stub_monitor.instances}
+    assert by_login[("192.168.0.1", "alpha")].publisher is True
+    assert by_login[("192.168.0.1", "beta")].publisher is False
+    assert by_login[("192.168.0.2", None)].publisher is True
+
+
+async def test_coordinator_promotes_publisher_when_broadcaster_drops(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    """Losing the designated broadcaster promotes a surviving same-broker login."""
+    alpha = _write_device(
+        tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n  username: alpha\n  password: a\n"
+    )
+    beta = _write_device(
+        tmp_path, "beta", "mqtt:\n  broker: 192.168.0.1\n  username: beta\n  password: b\n"
+    )
+    devices = [alpha, beta]
+    coord = _make_coordinator(tmp_path, devices)
+    await coord.reconcile()
+
+    devices.remove(alpha)
+    (tmp_path / "alpha.yaml").unlink()
+    await coord.reconcile()
+
+    survivors = [m for m in stub_monitor.instances if not m.stopped]
+    assert [(m.broker.username, m.publisher) for m in survivors] == [("beta", True)]
+
+
+async def test_coordinator_passes_presence_to_monitors(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    devices = [_write_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n")]
+    presence = SubscriberPresence()
+    coord = DeviceMqttCoordinator(
+        config_dir=tmp_path,
+        get_devices=lambda: devices,
+        on_state_change=lambda *_args: None,
+        on_ip_change=lambda *_args: None,
+        presence=presence,
+    )
+    await coord.reconcile()
+    assert [m.presence for m in stub_monitor.instances] == [presence]
 
 
 async def test_coordinator_warns_once_on_same_login_different_password(
@@ -1398,6 +1464,138 @@ async def test_ping_loop_marks_stale_devices_offline_and_republishes(
     assert retain is False
 
 
+class _CountingClient:
+    def __init__(self) -> None:
+        self.publishes: list[tuple[str, Any, bool]] = []
+
+    def publish(self, topic: str, payload: Any = None, retain: bool = False) -> None:
+        self.publishes.append((topic, payload, retain))
+
+
+async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no dashboard subscriber the loop parks: no broadcasts, no OFFLINE flips.
+
+    The regression this pins: an ungated loop broadcast
+    ``esphome/discover`` every 2s forever, and every MQTT device
+    answers each broadcast — a 24/7 fleet-wide storm
+    (esphome/esphome#17715). While idle, silence also is not
+    evidence — a stale ``_last_seen`` must not age out.
+    """
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
+
+    state_calls: list[tuple[str, DeviceState]] = []
+    presence = SubscriberPresence()
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda n, s: state_calls.append((n, s)),
+        on_ip_change=lambda *_: None,
+        presence=presence,
+    )
+    fake = _CountingClient()
+
+    loop = asyncio.get_running_loop()
+    monitor._last_seen["ghost"] = loop.time() - 1.0
+
+    ping_task = asyncio.create_task(monitor._ping_loop(fake))
+    try:
+        # Several would-be intervals pass; the parked loop stays silent.
+        await asyncio.sleep(0.3)
+        assert fake.publishes == []
+        assert state_calls == []
+        assert "ghost" in monitor._last_seen
+    finally:
+        ping_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await ping_task
+
+
+async def test_ping_loop_resume_publishes_immediately_and_rebases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A subscriber arriving wakes the loop: instant broadcast, stale entries rebased.
+
+    The rebase pin matters: without it every device idle longer than
+    ``_OFFLINE_TIMEOUT`` would mass-flip OFFLINE on the first
+    post-resume sweep, before it had any chance to answer.
+    """
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 10.0)
+
+    state_calls: list[tuple[str, DeviceState]] = []
+    presence = SubscriberPresence()
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda n, s: state_calls.append((n, s)),
+        on_ip_change=lambda *_: None,
+        presence=presence,
+    )
+    fake = _CountingClient()
+
+    loop = asyncio.get_running_loop()
+    stale_stamp = loop.time() - 100.0
+    monitor._last_seen["sleeper"] = stale_stamp
+
+    ping_task = asyncio.create_task(monitor._ping_loop(fake))
+    try:
+        await asyncio.sleep(0.1)
+        assert fake.publishes == []
+
+        with presence.subscriber():
+            for _ in range(100):
+                if fake.publishes:
+                    break
+                await asyncio.sleep(0.01)
+            assert fake.publishes, "no broadcast after a subscriber arrived"
+            assert monitor._last_seen["sleeper"] > stale_stamp
+            assert state_calls == []
+    finally:
+        ping_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await ping_task
+
+
+async def test_ping_loop_non_publisher_stays_silent_but_still_ages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``publisher=False`` monitor never broadcasts yet still sweeps stale entries.
+
+    Responses to the designated broadcaster fan out to every
+    ``esphome/discover/#`` subscriber, so the silent monitor's
+    offline aging stays valid.
+    """
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
+
+    offline_seen = asyncio.Event()
+
+    def on_state(name: str, state: DeviceState) -> None:
+        if state == DeviceState.OFFLINE:
+            offline_seen.set()
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=on_state,
+        on_ip_change=lambda *_: None,
+    )
+    monitor.publisher = False
+    fake = _CountingClient()
+
+    loop = asyncio.get_running_loop()
+    monitor._last_seen["ghost"] = loop.time() - 1.0
+
+    ping_task = asyncio.create_task(monitor._ping_loop(fake))
+    try:
+        await asyncio.wait_for(offline_seen.wait(), timeout=2.0)
+        assert fake.publishes == []
+    finally:
+        ping_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await ping_task
+
+
 # ---------------------------------------------------------------------------
 # DeviceMqttMonitor._run — reconnect-on-error loop
 # ---------------------------------------------------------------------------
@@ -1457,7 +1655,8 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # 
     Drive the full body without a real broker by stubbing
     ``paho_mqtt.Client`` and the inner ``_listen`` / ``_ping_loop``
     coroutines. Pin: ``connect`` / ``loop_start`` / ``subscribe``
-    / ``publish`` are called in order, the inner tasks fire, and
+    are called in order with no connect-time publish (broadcasts
+    belong to the gated ping loop), the inner tasks fire, and
     teardown runs ``loop_stop`` + ``disconnect`` even on cancel.
     """
     monitor = DeviceMqttMonitor(
@@ -1530,22 +1729,18 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # 
 
     op_names = [c[0] for c in calls]
     # Ordered: init → username/pw → connect → loop_start → subscribe
-    # → publish → loop_stop → disconnect.
+    # → loop_stop → disconnect. No publish here — the ping loop owns
+    # every broadcast so the subscriber gate can hold them all.
     assert op_names == [
         "init",
         "username_pw_set",
         "connect",
         "loop_start",
         "subscribe",
-        "publish",
         "loop_stop",
         "disconnect",
     ]
-    # Subscribe goes against the discover wildcard; publish kicks
-    # the broker for an immediate announce.
     assert ("subscribe", ("esphome/discover/#",)) in calls
-    publishes = [c for c in calls if c[0] == "publish"]
-    assert publishes == [("publish", ("esphome/discover", None, False))]
 
 
 async def test_connect_and_listen_raises_on_broker_rejection(
