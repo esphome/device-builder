@@ -427,6 +427,27 @@ jobs:
           restore-keys: |
             e2e-espidf-${{ runner.os }}-
 
+      - name: Cache ccache objects
+        # Same rolling shape as the toolchain cache above: restored from
+        # the newest prior entry on every run, saved fresh each run, so
+        # repeat compiles hit across runs. Small (~0.1-0.3 GB) next to
+        # the toolchain entry.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/esphome-ccache
+          key: e2e-espidf-ccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            e2e-espidf-ccache-${{ runner.os }}-
+
+      - name: Install ccache
+        # esphome's native-IDF build enables ccache whenever the binary is
+        # on PATH (``espidf/framework.py``'s ``_ccache_env``) and respects
+        # a pre-set CCACHE_DIR, so the run step below points it at the
+        # dedicated cached dir instead of the default inside the prefix.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends ccache
+
       - name: Run native ESP-IDF e2e
         # A cold native-IDF compile installs the IDF toolchain then runs
         # ninja; the test's own ``@pytest.mark.timeout(900)`` caps it.
@@ -435,7 +456,14 @@ jobs:
         timeout-minutes: 25
         env:
           ESPHOME_ESP_IDF_PREFIX: ~/.cache/esphome-idf
-        run: uv run --no-sync pytest -q tests/e2e/slow/esp32 --durations=10 --timeout=900 --no-cov
+        # CCACHE_DIR is set in the shell, not step env: ccache does not
+        # expanduser a ``~`` (only ESPHOME_ESP_IDF_PREFIX gets that
+        # treatment, from esphome itself).
+        run: CCACHE_DIR="$HOME/.cache/esphome-ccache" uv run --no-sync pytest -q tests/e2e/slow/esp32 --durations=10 --timeout=900 --no-cov
+
+      - name: Print ccache statistics
+        if: always()
+        run: CCACHE_DIR="$HOME/.cache/esphome-ccache" ccache -s
 
   e2e-boards:
     name: E2E board create validation (esphome stable)
