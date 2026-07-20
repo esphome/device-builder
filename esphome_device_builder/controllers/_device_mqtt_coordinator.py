@@ -108,14 +108,18 @@ class DeviceMqttCoordinator:
             if broker.key in self._monitors:
                 continue
             monitor = DeviceMqttMonitor(
-                broker, self._on_state_change, self._on_ip_change, presence=self._presence
+                broker,
+                self._on_state_change,
+                self._on_ip_change,
+                presence=self._presence,
+                on_connection_change=self._assign_publishers,
             )
             self._monitors[broker.key] = monitor
             new_monitors.append(monitor)
 
-        # Election runs only on topology change, and before start() so a
-        # new monitor never connects while still wearing the default
-        # publisher flag.
+        # Election runs on topology change (before start(), so a new
+        # monitor never connects wearing the default publisher flag)
+        # and again on every connection change via the callback above.
         if new_monitors or existing_keys - wanted_keys:
             self._assign_publishers()
         for monitor in new_monitors:
@@ -137,14 +141,22 @@ class DeviceMqttCoordinator:
 
         Same-broker monitors under other logins subscribe but stay
         silent — the fleet answers every broadcast, so N logins must
-        not mean N× the traffic. Anonymous first, then lowest
-        username, so the pick is stable across reconciles.
+        not mean N× the traffic. Connected sessions win over down ones
+        (a login stuck in reconnect must not silence the broker), the
+        incumbent wins over healthy siblings (no churn), then
+        anonymous-first / lowest-username keeps the pick stable.
         """
+
+        def order(key: tuple[str, int, str | None]) -> tuple[bool, bool, bool, str]:
+            monitor = self._monitors[key]
+            incumbent = monitor.is_publisher
+            return (not monitor.connected, not incumbent, key[2] is not None, key[2] or "")
+
         publishers: dict[tuple[str, int], tuple[str, int, str | None]] = {}
-        for key in sorted(self._monitors, key=lambda k: (k[2] is not None, k[2] or "")):
+        for key in sorted(self._monitors, key=order):
             publishers.setdefault(key[:2], key)
         for key, monitor in self._monitors.items():
-            monitor.publisher = publishers[key[:2]] == key
+            monitor.set_publisher(value=publishers[key[:2]] == key)
 
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
         secrets_map = _load_secrets(self._config_dir)

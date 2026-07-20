@@ -66,9 +66,15 @@ class SubscriberPresence:
         """
         await self._has_subscriber.wait()
 
-    def add_subscriber_callback(self, callback: Callable[[], None]) -> None:
-        """Register *callback* to fire synchronously on every count 0→1 transition."""
+    def add_subscriber_callback(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """
+        Register *callback* to fire synchronously on every count 0→1 transition.
+
+        Returns an unsubscribe callable for consumers with a shorter
+        lifetime than the gate (per-broker MQTT monitors).
+        """
         self._subscriber_callbacks.append(callback)
+        return lambda: self._subscriber_callbacks.remove(callback)
 
     async def wait_for_no_subscribers(self) -> None:
         """Suspend until the count drops to 0 (mirror of :meth:`wait_for_subscriber`)."""

@@ -192,10 +192,15 @@ class _RecordingMonitor:
     def __init__(self, broker: MqttBrokerConfig, *_args: object, **_kwargs: object) -> None:
         self.broker = broker
         self.presence = _kwargs.get("presence")
-        self.publisher = True
+        self.on_connection_change = _kwargs.get("on_connection_change")
+        self.is_publisher = True
+        self.connected = False
         self.started = False
         self.stopped = False
         self.__class__.instances.append(self)
+
+    def set_publisher(self, *, value: bool) -> None:
+        self.is_publisher = value
 
     @staticmethod
     def is_available() -> bool:
@@ -317,9 +322,9 @@ async def test_coordinator_designates_one_publisher_per_broker(
     await coord.reconcile()
     assert coord.active_brokers == 3
     by_login = {(m.broker.host, m.broker.username): m for m in stub_monitor.instances}
-    assert by_login[("192.168.0.1", "alpha")].publisher is True
-    assert by_login[("192.168.0.1", "beta")].publisher is False
-    assert by_login[("192.168.0.2", None)].publisher is True
+    assert by_login[("192.168.0.1", "alpha")].is_publisher is True
+    assert by_login[("192.168.0.1", "beta")].is_publisher is False
+    assert by_login[("192.168.0.2", None)].is_publisher is True
 
 
 async def test_coordinator_promotes_publisher_when_broadcaster_drops(
@@ -342,7 +347,53 @@ async def test_coordinator_promotes_publisher_when_broadcaster_drops(
     await coord.reconcile()
 
     survivors = [m for m in stub_monitor.instances if not m.stopped]
-    assert [(m.broker.username, m.publisher) for m in survivors] == [("beta", True)]
+    assert [(m.broker.username, m.is_publisher) for m in survivors] == [("beta", True)]
+
+
+async def test_election_prefers_connected_login_over_down_incumbent(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    """A login stuck in reconnect loses the broadcaster role to a healthy sibling.
+
+    Without the health input, a down elected login silences discovery
+    for the whole broker while connected siblings stay mute, and the
+    fleet ages OFFLINE — the very symptom the gate fixes.
+    """
+    devices = [
+        _write_device(
+            tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n  username: alpha\n  password: a\n"
+        ),
+        _write_device(
+            tmp_path, "beta", "mqtt:\n  broker: 192.168.0.1\n  username: beta\n  password: b\n"
+        ),
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    by_user = {m.broker.username: m for m in stub_monitor.instances}
+    assert by_user["alpha"].is_publisher is True
+
+    # beta's session connects; alpha never does. The connection-change
+    # callback (wired to _assign_publishers) must hand beta the role.
+    beta_cb = by_user["beta"].on_connection_change
+    assert beta_cb is not None
+    by_user["beta"].connected = True
+    beta_cb()
+    assert by_user["beta"].is_publisher is True
+    assert by_user["alpha"].is_publisher is False
+
+    # alpha coming up later must NOT steal the role back — the healthy
+    # incumbent is sticky, so the broadcaster doesn't churn.
+    by_user["alpha"].connected = True
+    by_user["alpha"].on_connection_change()
+    assert by_user["beta"].is_publisher is True
+    assert by_user["alpha"].is_publisher is False
+
+    # beta dropping hands the role to the connected alpha.
+    by_user["beta"].connected = False
+    beta_cb()
+    assert by_user["alpha"].is_publisher is True
+    assert by_user["beta"].is_publisher is False
 
 
 async def test_coordinator_passes_presence_to_monitors(
@@ -1547,38 +1598,95 @@ async def test_ping_loop_resume_publishes_immediately_and_rebases(
             assert state_calls == []
 
 
-async def test_ping_loop_non_publisher_stays_silent_but_still_ages(
+async def test_ping_loop_non_publisher_is_a_pure_listener(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A ``publisher=False`` monitor never broadcasts yet still sweeps stale entries.
+    """A non-broadcaster monitor neither publishes nor ages entries offline.
 
-    Responses to the designated broadcaster fan out to every
-    ``esphome/discover/#`` subscriber, so the silent monitor's
-    offline aging stays valid.
+    Aging belongs to the broadcaster: when the elected login is down
+    and nobody polls, a silent sibling judging the fleet by that
+    silence would mass-flip every device OFFLINE.
     """
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
 
-    offline_seen = asyncio.Event()
-
-    def on_state(name: str, state: DeviceState) -> None:
-        if state == DeviceState.OFFLINE:
-            offline_seen.set()
-
+    state_calls: list[tuple[str, DeviceState]] = []
     monitor = DeviceMqttMonitor(
         broker=MqttBrokerConfig(host="x"),
-        on_state_change=on_state,
+        on_state_change=lambda n, s: state_calls.append((n, s)),
         on_ip_change=lambda *_: None,
     )
-    monitor.publisher = False
+    monitor.is_publisher = False
     fake = _CountingClient()
 
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
     async with _running_ping_loop(monitor, fake):
-        await asyncio.wait_for(offline_seen.wait(), timeout=2.0)
+        await asyncio.sleep(0.3)
         assert fake.publishes == []
+        assert state_calls == []
+        assert "ghost" in monitor._last_seen
+
+
+async def test_promotion_rebases_last_seen() -> None:
+    """set_publisher(False→True) rebases stamps aged during the no-broadcaster gap."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    monitor.is_publisher = False
+    loop = asyncio.get_running_loop()
+    stale_stamp = loop.time() - 100.0
+    monitor._last_seen["sleeper"] = stale_stamp
+
+    monitor.set_publisher(value=True)
+    assert monitor._last_seen["sleeper"] > stale_stamp
+
+    # Re-granting an already-held role must not touch the ledger.
+    monitor._last_seen["sleeper"] = stale_stamp
+    monitor.set_publisher(value=True)
+    assert monitor._last_seen["sleeper"] == stale_stamp
+
+
+async def test_ping_loop_subscriber_return_cuts_interval_sleep_short(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A dashboard reopening mid-interval triggers a broadcast without the full wait.
+
+    At the 30s production interval a tab reopened right after a
+    broadcast would otherwise see stale state for the rest of the
+    interval; the presence 0→1 callback wakes the sleep.
+    """
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 30.0)
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 65.0)
+
+    presence = SubscriberPresence()
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+        presence=presence,
+    )
+    fake = _CountingClient()
+
+    async with _running_ping_loop(monitor, fake):
+        with presence.subscriber():
+            for _ in range(100):
+                if fake.publishes:
+                    break
+                await asyncio.sleep(0.01)
+            assert len(fake.publishes) == 1
+        # Tab closed mid-interval, then reopened — the wake callback
+        # must abort the 30s sleep and broadcast promptly.
+        await asyncio.sleep(0.05)
+        with presence.subscriber():
+            for _ in range(100):
+                if len(fake.publishes) >= 2:
+                    break
+                await asyncio.sleep(0.01)
+            assert len(fake.publishes) >= 2
 
 
 # ---------------------------------------------------------------------------
