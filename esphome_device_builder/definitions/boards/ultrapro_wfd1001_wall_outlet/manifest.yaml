@@ -65,5 +65,5 @@ source:
   type: esphome-devices
   remote_id: UltraPro-WFD1001-Wall-Outlet
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UltraPro-WFD1001-Wall-Outlet/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 58068c935455713d0330090fa58cf172de18698ea25480715e60947d63d3a9a2

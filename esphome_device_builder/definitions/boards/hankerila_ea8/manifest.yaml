@@ -396,5 +396,5 @@ source:
   type: esphome-devices
   remote_id: Hankerila-EA8
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hankerila-EA8/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 0b4dcb3879db74a230c4c7d0ac5dd4395b81a8807eb9261a44b8f607e4800ca6

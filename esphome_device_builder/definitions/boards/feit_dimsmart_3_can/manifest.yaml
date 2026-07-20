@@ -79,5 +79,5 @@ source:
   type: esphome-devices
   remote_id: Feit-DIMSMART-3-CAN
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Feit-DIMSMART-3-CAN/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: f82a0a82b4cbea4a5e0f5fd2af95bbcfe27a22ffa00dfd56fa32852be790a9ae

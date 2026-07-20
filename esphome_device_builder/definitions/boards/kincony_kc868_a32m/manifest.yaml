@@ -650,5 +650,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-KC868-A32M
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-A32M/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: fc5c9d79a08b416e06efa59a531909156be187ae4eac01722566724e6f6b04ae

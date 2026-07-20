@@ -74,5 +74,5 @@ source:
   type: esphome-devices
   remote_id: Status-Wifi-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Status-Wifi-Plug/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: ae1c6715a431e7084fdc18ef9449d3106127c7e12256481838806cf889361c9f

@@ -66,5 +66,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-Grid-Connect-Smart-Ceiling-Fan-DCF4002/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 22c9360ff95f368e52cc48076c9c2521b1fdd8cca6dfa3414c5071a123761024

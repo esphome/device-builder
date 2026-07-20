@@ -105,5 +105,5 @@ source:
   type: esphome-devices
   remote_id: Sinvitron-A19-900lm-RGBCW
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sinvitron-A19-900lm-RGBCW/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: f6ab06fa961f29a1fb6c1276dbcd43b5d8a01c19503141fea51bfda6d6358ccb

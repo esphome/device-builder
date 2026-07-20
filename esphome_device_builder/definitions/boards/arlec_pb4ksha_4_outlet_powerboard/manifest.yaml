@@ -66,5 +66,5 @@ source:
   type: esphome-devices
   remote_id: Arlec-PB4KSHA-4-outlet-powerboard
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Arlec-PB4KSHA-4-outlet-powerboard/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 07dd45cde5ec809035f372ff823eac6c250652f445064c4851f2143b5b61c17f

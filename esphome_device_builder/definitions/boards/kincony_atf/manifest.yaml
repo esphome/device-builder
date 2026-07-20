@@ -253,5 +253,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-ATF
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-ATF/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: f6bc388ee415414ef6b82828ea1ef8a445a2be0203bb71ee93fe8f578a66a5d2

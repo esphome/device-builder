@@ -143,5 +143,5 @@ source:
   type: esphome-devices
   remote_id: Lilygo-TDongle-S3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Lilygo-TDongle-S3/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 2578dd2c50849ccba6759f9d216a80a29345a34a55fc6e8aabfd65f14294a4cb
