@@ -354,12 +354,7 @@ async def test_election_prefers_connected_login_over_down_incumbent(
     tmp_path: Path,
     stub_monitor: type[_RecordingMonitor],
 ) -> None:
-    """A login stuck in reconnect loses the broadcaster role to a healthy sibling.
-
-    Without the health input, a down elected login silences discovery
-    for the whole broker while connected siblings stay mute, and the
-    fleet ages OFFLINE — the very symptom the gate fixes.
-    """
+    """A login stuck in reconnect loses the broadcaster role to a healthy sibling."""
     devices = [
         _write_device(
             tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n  username: alpha\n  password: a\n"
@@ -1502,12 +1497,17 @@ async def test_ping_loop_marks_stale_devices_offline_and_republishes(
     assert retain is False
 
 
+class _PublishInfo:
+    rc = 0
+
+
 class _CountingClient:
     def __init__(self) -> None:
         self.publishes: list[tuple[str, Any, bool]] = []
 
-    def publish(self, topic: str, payload: Any = None, retain: bool = False) -> None:
+    def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
         self.publishes.append((topic, payload, retain))
+        return _PublishInfo()
 
 
 @contextlib.asynccontextmanager
@@ -1526,14 +1526,7 @@ async def _running_ping_loop(
 async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """With no dashboard subscriber the loop parks: no broadcasts, no OFFLINE flips.
-
-    The regression this pins: an ungated loop broadcast
-    ``esphome/discover`` every 2s forever, and every MQTT device
-    answers each broadcast — a 24/7 fleet-wide storm
-    (esphome/esphome#17715). While idle, silence also is not
-    evidence — a stale ``_last_seen`` must not age out.
-    """
+    """With no dashboard subscriber the loop parks: no broadcasts, no OFFLINE flips."""
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
 
@@ -1561,12 +1554,7 @@ async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
 async def test_ping_loop_resume_publishes_immediately_and_rebases(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A subscriber arriving wakes the loop: instant broadcast, stale entries rebased.
-
-    The rebase pin matters: without it every device idle longer than
-    ``_OFFLINE_TIMEOUT`` would mass-flip OFFLINE on the first
-    post-resume sweep, before it had any chance to answer.
-    """
+    """A subscriber arriving wakes the loop: instant broadcast, stale entries rebased."""
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 10.0)
 
@@ -1601,12 +1589,7 @@ async def test_ping_loop_resume_publishes_immediately_and_rebases(
 async def test_ping_loop_non_publisher_is_a_pure_listener(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A non-broadcaster monitor neither publishes nor ages entries offline.
-
-    Aging belongs to the broadcaster: when the elected login is down
-    and nobody polls, a silent sibling judging the fleet by that
-    silence would mass-flip every device OFFLINE.
-    """
+    """A non-broadcaster monitor neither publishes nor ages entries offline."""
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
 
@@ -1653,12 +1636,7 @@ async def test_promotion_rebases_last_seen() -> None:
 async def test_ping_loop_subscriber_return_cuts_interval_sleep_short(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A dashboard reopening mid-interval triggers a broadcast without the full wait.
-
-    At the 30s production interval a tab reopened right after a
-    broadcast would otherwise see stale state for the rest of the
-    interval; the presence 0→1 callback wakes the sleep.
-    """
+    """A dashboard reopening mid-interval triggers a broadcast without the full wait."""
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 30.0)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 65.0)
 

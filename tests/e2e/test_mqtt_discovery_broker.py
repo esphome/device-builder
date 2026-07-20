@@ -1,8 +1,8 @@
 """
-End-to-end MQTT discovery against a real broker.
+End-to-end MQTT discovery over a real TCP broker.
 
-Six fake devices split across two broker logins, driven through the
-real coordinator/monitor stack: subscriber-gated broadcasts, one
+Six fake paho devices split across two broker logins, driven through
+the real coordinator/monitor stack: subscriber-gated broadcasts, one
 elected broadcaster per broker, online detection, and offline aging.
 """
 
@@ -10,30 +10,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import socket
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-pytest.importorskip("amqtt.broker")
-import paho.mqtt.client as paho
-from amqtt.broker import Broker
-from passlib.apps import custom_app_context
-
 from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
 from esphome_device_builder.controllers._device_mqtt_coordinator import DeviceMqttCoordinator
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device, DeviceState
+from tests.e2e._mini_mqtt_broker import MiniMqttBroker
+
+paho = pytest.importorskip("paho.mqtt.client")
 
 _LOGINS = {"alpha": "pwA", "beta": "pwB"}
-
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
 
 
 async def _wait_for(condition: Callable[[], bool], timeout: float, what: str) -> None:
@@ -94,23 +85,11 @@ async def test_six_devices_two_logins_single_broadcaster(
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.25)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 1.5)
 
-    port = _free_port()
-    passwd = tmp_path / "broker-passwd"
-    passwd.write_text(
-        "".join(f"{user}:{custom_app_context.hash(pw)}\n" for user, pw in _LOGINS.items())
-    )
     config_dir = tmp_path / "config"
     config_dir.mkdir()
 
-    broker = Broker(
-        {
-            "listeners": {"default": {"type": "tcp", "bind": f"127.0.0.1:{port}"}},
-            "sys_interval": 0,
-            "auth": {"allow-anonymous": True, "password-file": str(passwd)},
-            "topic-check": {"enabled": False},
-        }
-    )
-    await broker.start()
+    broker = MiniMqttBroker(users=_LOGINS)
+    port = await broker.start()
 
     devices: list[Device] = []
     fakes: list[_FakeMqttDevice] = []
@@ -178,4 +157,4 @@ async def test_six_devices_two_logins_single_broadcaster(
         for fake in fakes:
             fake.stop()
         probe.stop()
-        await broker.shutdown()
+        await broker.stop()

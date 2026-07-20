@@ -362,7 +362,11 @@ class DeviceMqttMonitor:
                 # post-resume broadcast.
                 self._rebase_last_seen()
             if self.is_publisher:
-                client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
+                info = client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
+                if info.rc != 0:
+                    # A silently dropped broadcast starves the aging
+                    # logic fleet-wide; leave a trace.
+                    _LOGGER.debug("discover broadcast failed (rc=%s)", info.rc)
             self._wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
