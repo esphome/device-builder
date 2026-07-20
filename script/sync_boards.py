@@ -698,7 +698,10 @@ def _manifest_pins_from() -> dict[str, str]:
     for manifest in sorted((_DEFINITIONS_DIR / "boards").glob("*/manifest.yaml")):
         try:
             data = load_manifest_dict(manifest)
-        except ManifestError:
+        except ManifestError as exc:
+            # validate_definitions is the hard gate; still say why a board's
+            # pins_from inheritance silently vanished from this sync run.
+            _LOGGER.warning("Skipping unreadable manifest %s: %s", manifest, exc)
             continue
         donor = data.get("pins_from")
         if isinstance(donor, str):

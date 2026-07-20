@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from esphome_device_builder.models import (
@@ -11,6 +13,7 @@ from esphome_device_builder.models import (
     BoardPin,
     Platform,
 )
+from script import sync_boards
 from script.sync_boards import _backfill_donor_pins
 
 pytestmark = pytest.mark.xdist_group("board_sync")
@@ -99,6 +102,20 @@ def test_pins_from_with_a_missing_or_empty_donor_leaves_the_board_empty() -> Non
     assert recipient.pins == []
     _backfill_donor_pins([recipient, hollow], pins_from={"recipient": "hollow"})
     assert recipient.pins == []
+
+
+def test_manifest_scan_warns_on_an_unreadable_manifest(tmp_path, monkeypatch, caplog) -> None:
+    good = tmp_path / "boards" / "good"
+    good.mkdir(parents=True)
+    (good / "manifest.yaml").write_text("id: good\npins_from: donor\n", encoding="utf-8")
+    bad = tmp_path / "boards" / "bad"
+    bad.mkdir()
+    (bad / "manifest.yaml").write_text("{ not valid yaml\n", encoding="utf-8")
+    monkeypatch.setattr(sync_boards, "_DEFINITIONS_DIR", tmp_path)
+    with caplog.at_level(logging.WARNING, logger="sync_boards"):
+        out = sync_boards._manifest_pins_from()
+    assert out == {"good": "donor"}
+    assert any("bad" in r.message and "Skipping" in r.message for r in caplog.records)
 
 
 def test_pins_from_never_overwrites_curated_pins() -> None:
