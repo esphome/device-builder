@@ -17,11 +17,10 @@ description: |
   fires), re-add the explicit step gated on
   ``runner.os != 'Windows'`` to dodge the same race.
 
-  Built for the 3.14 CI matrix where the tail-call interpreter
-  measurably shortens the suite; jobs that need stock CPython
-  (notably the CodSpeed benchmarks, where mimalloc + tail-call
-  dispatch would shift callgrind instruction counts) should stay
-  on ``actions/setup-python``.
+  The default Python setup for every job; jobs that need stock
+  CPython (notably the CodSpeed benchmarks, where mimalloc +
+  tail-call dispatch would shift callgrind instruction counts)
+  should stay on ``actions/setup-python``.
 
 inputs:
   python-version:
@@ -38,7 +37,7 @@ runs:
   steps:
     - name: Set up uv
       id: uv
-      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+      uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
       with:
         python-version: ${{ inputs.python-version }}
         enable-cache: true

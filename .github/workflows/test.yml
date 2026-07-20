@@ -35,36 +35,29 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+      - name: Set up uv and Python 3.13
+        id: python
+        uses: ./.github/actions/setup-uv-python
         with:
           python-version: "3.13"
 
-      - name: Set up uv
-        # uv replaces pip for the install step (an order of
-        # magnitude faster on cold boots, with its own wheel cache).
-        # ``actions/setup-python`` provides the interpreter — its
-        # Python isn't marked externally-managed, so ``uv pip
-        # install --system`` works on macos / windows runners that
-        # would otherwise refuse a brew-shipped Python under PEP 668.
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
-        with:
-          enable-cache: true
-
-      - name: Install package + dev tools
+      - name: Create venv + install package + dev tools
         # ``[esphome]`` is needed so the catalog smoke test below
         # can construct a ``ComponentCatalog`` against the same
-        # esphome version the dashboard ships with. ``--system``
-        # installs into the runner's Python instead of a venv —
-        # matches the existing pip-based CI shape so subsequent
-        # ``pre-commit`` / ``python script/...`` steps keep working
-        # without a ``uv run`` prefix. ``-c esphome-constraints.txt``
+        # esphome version the dashboard ships with. Managed Python
+        # isn't a system interpreter, so install into a ``.venv``
+        # and put its bin dir on PATH — subsequent ``pre-commit`` /
+        # ``python script/...`` steps keep working without a
+        # ``uv run`` prefix. ``-c esphome-constraints.txt``
         # pins esphome to the version the committed catalog was generated
         # against; the ``sync-boards`` pre-commit hook below re-stamps
         # boards.index.json from the installed esphome, so an unpinned
         # "latest" would red this job on every esphome release until the
         # catalog is re-synced. The sync workflows bump that pin.
-        run: uv pip install --system -c esphome-constraints.txt -e '.[esphome,test]'
+        run: |
+          uv venv
+          uv pip install -c esphome-constraints.txt -e '.[esphome,test]'
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Cache pre-commit hook envs
         # Keyed on the python version + ``.pre-commit-config.yaml``
@@ -76,7 +69,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.cache/pre-commit
-          key: pre-commit|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+          key: pre-commit|py${{ steps.python.outputs.python-version }}|${{ hashFiles('.pre-commit-config.yaml') }}
 
       - name: Run pre-commit (ruff lint + format, codespell, yaml/json checks)
         # On a cache hit the per-hook envs (ruff, codespell, …) are
@@ -513,7 +506,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
 

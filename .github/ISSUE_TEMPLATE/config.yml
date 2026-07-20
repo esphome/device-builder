@@ -4,7 +4,8 @@
 # escape hatch so reporters always pick one of the curated paths
 # below — most of which redirect them to a more appropriate venue
 # (esphome core repo, org-wide discussions, the project backlog,
-# Discord) before they end up filing here. The two real templates
+# the frontend repo for web.esphome.io, Discord) before they end up
+# filing here. The two real templates
 # (``bug_report.yml`` for dashboard bugs, ``device_status.yml`` for
 # online/offline/sync/detection reports) are reserved for actual issues.
 
@@ -31,6 +32,13 @@ contact_links:
       The dashboard is still in active development. Before filing,
       please check the project board — your idea or issue may
       already be on the roadmap or assigned to an upcoming release.
+
+  - name: 🌐 web.esphome.io issues (browser flashing, provisioning, logs)
+    url: https://github.com/esphome/device-builder-frontend/issues/new?template=web_bug_report.yml
+    about: |
+      Problems with the web.esphome.io site — flashing, Wi-Fi
+      provisioning, or log viewing from the browser — are filed
+      on the frontend repo.
 
   - name: 💬 Discord — Device Builder feedback channel
     url: https://discord.gg/Rf2jWGVjaK
