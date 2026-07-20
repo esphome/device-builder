@@ -654,6 +654,31 @@ def _backfill_esp32_variants(boards: list[BoardCatalogEntry]) -> None:
             cfg.variant = Esp32Variant(variant)
 
 
+def _backfill_donor_pins(boards: list[BoardCatalogEntry]) -> None:
+    """Fill a pin-less board from the unique same-chip ``is_generic`` donor.
+
+    Plain devkits (the bluetooth-proxy generics, imported devices on stock
+    modules) share their chip's generic board exactly; esphome's board pin
+    alias maps carry nothing for them, so the platform augments leave the
+    table empty and every pin field degrades to free text (#2219). Ambiguous
+    donors (several products on one module) stay empty.
+    """
+    donors: dict[tuple[str, str, str | None], list[BoardCatalogEntry]] = {}
+    for board in boards:
+        if board.is_generic and board.pins:
+            cfg = board.esphome
+            key = (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
+            donors.setdefault(key, []).append(board)
+    for board in boards:
+        if board.pins:
+            continue
+        cfg = board.esphome
+        key = (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
+        matched = donors.get(key, [])
+        if len(matched) == 1:
+            board.pins = list(matched[0].pins)
+
+
 def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Generate ESP32 entries for the boards manifests don't cover.
@@ -1193,6 +1218,7 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_engineering_sample(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
+    _backfill_donor_pins(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
     _stamp_featured_locked_pins(catalog.boards)
     _stamp_featured_requires(catalog.boards)
