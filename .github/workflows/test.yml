@@ -35,11 +35,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python 3.13
+      - name: Set up uv and Python 3.14
         id: python
         uses: ./.github/actions/setup-uv-python
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Create venv + install package + dev tools
         # ``[esphome]`` is needed so the catalog smoke test below
@@ -506,6 +506,8 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
       - name: Set up Python
+        # Stock CPython, held at 3.13: a version bump resets every
+        # CodSpeed baseline at once, so it moves deliberately and alone.
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
