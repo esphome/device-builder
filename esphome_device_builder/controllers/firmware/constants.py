@@ -38,13 +38,13 @@ _JOBS_KEY = "_firmware_jobs"
 # before it merged briefly overclaims. OpenThread
 # flashes don't count against the cap — they serialize on their own
 # single-slot lane — so peak concurrency is this plus one thread flash.
-_UPLOAD_SLOTS = 3
-_UPLOAD_SLOTS_LEAN_SUBPROCESS = 5
+_UPLOAD_SLOTS = 4
+_UPLOAD_SLOTS_LEAN_SUBPROCESS = 6
 _LEAN_UPLOAD_RELEASE = (2026, 8)
 
 
 def max_concurrent_uploads(esphome_version: str) -> int:
-    """Upload-lane slot count for *esphome_version*: 5 on 2026.8+, else 3."""
+    """Upload-lane slot count for *esphome_version*: 6 on 2026.8+, else 4."""
     if release_line_at_least(esphome_version, _LEAN_UPLOAD_RELEASE):
         return _UPLOAD_SLOTS_LEAN_SUBPROCESS
     return _UPLOAD_SLOTS
