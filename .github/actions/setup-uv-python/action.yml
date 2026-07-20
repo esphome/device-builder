@@ -1,21 +1,18 @@
 name: Set up uv and managed Python
 description: |
   Installs uv and configures it for astral's PGO/LTO/BOLT/mimalloc-built
-  CPython at the requested version. setup-uv only sets ``UV_PYTHON``;
-  the interpreter itself is fetched lazily on the first ``uv venv`` /
-  ``uv pip install`` the caller runs, which is enough for every job
-  the composite is used in today.
+  CPython at the requested version, then installs that interpreter
+  explicitly on Linux/macOS so its provenance never depends on cache
+  history (without the install, ``uv venv`` silently falls back to the
+  runner's stock hostedtoolcache CPython whenever the managed-python
+  cache misses).
 
-  The previous explicit ``uv python install`` step has been removed
-  because it flakes on Windows when the cached interpreter dir is
-  restored: ``uv`` then tries to recreate the minor-version reparse
-  point and trips ``os error 4394`` ("mismatch between the tag
-  specified in the request and the tag present in the reparse
-  point"). ``uv venv`` doesn't recreate the link and so doesn't
-  collide. If a future job restores a cached venv without ever
-  running ``uv venv`` / ``uv pip`` (so the lazy install never
-  fires), re-add the explicit step gated on
-  ``runner.os != 'Windows'`` to dodge the same race.
+  On Windows the explicit install stays off: over a restored cached
+  interpreter dir, ``uv python install`` recreates the minor-version
+  reparse point and trips ``os error 4394`` ("mismatch between the tag
+  specified in the request and the tag present in the reparse point").
+  ``uv venv`` doesn't recreate the link and so doesn't collide; Windows
+  jobs run the runner's stock CPython.
 
   The default Python setup for every job; jobs that need stock
   CPython (notably the CodSpeed benchmarks, where mimalloc +
@@ -26,6 +23,13 @@ inputs:
   python-version:
     description: The Python version uv should install and use.
     required: true
+  enable-cache:
+    description: |
+      Whether setup-uv caches the wheel cache dir. Callers that front
+      the install with a cached venv (restore-or-build-venv) pass
+      false — there the wheels only matter on a venv miss, and
+      restoring ~80 MB of them on every hit is pure tax.
+    default: "true"
 
 outputs:
   python-version:
@@ -40,9 +44,21 @@ runs:
       uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
       with:
         python-version: ${{ inputs.python-version }}
-        enable-cache: true
+        enable-cache: ${{ inputs.enable-cache }}
         cache-python: true
+        # The default prune (``uv cache prune --ci``) strips every
+        # registry-downloaded wheel before saving, so each run
+        # re-downloads all wheels. Keep them; size stays bounded
+        # because setup-uv only saves on key rotation.
+        prune-cache: false
         # Lint-only / codegen steps reuse this action without
         # touching deps, so the post-step cache save would
         # otherwise abort the job.
         ignore-nothing-to-cache: true
+
+    - name: Install managed Python
+      if: runner.os != 'Windows'
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+      run: uv python install "${PYTHON_VERSION}"

@@ -47,10 +47,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
-      - name: Set up uv and Python 3.13
+      - name: Set up uv and Python 3.14
         uses: ./.github/actions/setup-uv-python
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Create venv + install package (with esphome extra)
         # ``sync_boards.py`` introspects ESPHome's per-platform board

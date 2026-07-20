@@ -59,13 +59,13 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up uv and Python 3.13
+    - name: Set up uv and Python 3.14
       if: inputs.initial-release != 'true'
       # Resolves through the caller's workspace checkout — both call
       # sites check the repo out at the workspace root.
       uses: ./.github/actions/setup-uv-python
       with:
-        python-version: "3.13"
+        python-version: "3.14"
 
     - name: Generate release notes
       id: generate
