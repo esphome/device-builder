@@ -18,6 +18,7 @@ hardware:
 tags:
 - compact
 - usb-c
+pins_from: m5stack-atoms3
 docs_url: https://esphome.io/components/bluetooth_proxy
 source:
   type: bluetooth-proxies

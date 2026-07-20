@@ -56,6 +56,7 @@ from pathlib import Path
 from typing import Any
 
 import orjson
+import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
@@ -654,11 +655,25 @@ def _backfill_esp32_variants(boards: list[BoardCatalogEntry]) -> None:
             cfg.variant = Esp32Variant(variant)
 
 
-def _backfill_donor_pins(boards: list[BoardCatalogEntry]) -> None:
-    """Fill a pin-less board from the unique same-chip ``is_generic`` donor.
+def _backfill_donor_pins(
+    boards: list[BoardCatalogEntry],
+    pins_from: dict[str, str] | None = None,
+) -> None:
+    """Fill a pin-less board from its donor's pin table.
 
-    An absent or ambiguous donor leaves the table empty.
+    An explicit manifest ``pins_from`` names the donor by id (read from the
+    manifests when not injected); otherwise the unique same-chip
+    ``is_generic`` donor applies. An absent or ambiguous donor leaves the
+    table empty; validate_definitions is the loud gate for a bad reference.
     """
+    if pins_from is None:
+        pins_from = _manifest_pins_from()
+    by_id = {board.id: board for board in boards}
+    for board_id, donor_id in pins_from.items():
+        board = by_id.get(board_id)
+        donor = by_id.get(donor_id)
+        if board is not None and not board.pins and donor is not None and donor.pins:
+            board.pins = list(donor.pins)
 
     def _chip(cfg: BoardEsphomeConfig) -> tuple[str, str, str | None]:
         return (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
@@ -673,6 +688,17 @@ def _backfill_donor_pins(boards: list[BoardCatalogEntry]) -> None:
         matched = donors.get(_chip(board.esphome), [])
         if len(matched) == 1:
             board.pins = list(matched[0].pins)
+
+
+def _manifest_pins_from() -> dict[str, str]:
+    """``{board_id: donor_id}`` for every manifest carrying ``pins_from``."""
+    out: dict[str, str] = {}
+    for manifest in sorted((_DEFINITIONS_DIR / "boards").glob("*/manifest.yaml")):
+        data = yaml.safe_load(manifest.read_text(encoding="utf-8"))
+        donor = data.get("pins_from") if isinstance(data, dict) else None
+        if isinstance(donor, str):
+            out[str(data["id"])] = donor
+    return out
 
 
 def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:

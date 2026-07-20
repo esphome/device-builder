@@ -38,19 +38,24 @@ def test_pinless_board_inherits_the_generic_donor_table(
     assert boards[recipient].pins is not boards[donor].pins
 
 
-def test_atom_proxies_stay_empty(
+@pytest.mark.parametrize(
+    ("recipient", "donor"),
+    [
+        ("m5stack-atom-lite-bluetooth-proxy", "m5stack-atom-lite"),
+        ("m5stack-atom-s3-bluetooth-proxy", "m5stack-atoms3"),
+    ],
+)
+def test_pins_from_wires_the_atom_proxies(
     generated_board_catalog: BoardCatalogResponse,
+    recipient: str,
+    donor: str,
 ) -> None:
-    """
-    The atom proxies stay empty by donor absence, not the ambiguity guard.
-
-    No ``is_generic`` board carries their PIO board ids; a generic atom board
-    added later would flip these to inheriting, which must be an explicit
-    decision, not a silent one.
-    """
+    """``pins_from`` names the product board the automatic rule can't pick."""
     boards = {b.id: b for b in generated_board_catalog.boards}
-    assert boards["m5stack-atom-lite-bluetooth-proxy"].pins == []
-    assert boards["m5stack-atom-s3-bluetooth-proxy"].pins == []
+    assert boards[recipient].pins == boards[donor].pins
+    assert boards[recipient].pins is not boards[donor].pins
+    # The same-chip echo's restricted 6-pin table must not leak in.
+    assert boards[recipient].pins != boards["m5stack-atom-echo"].pins
 
 
 def _entry(board_id: str, *, pins: int = 0, is_generic: bool = False) -> BoardCatalogEntry:
@@ -73,8 +78,35 @@ def test_multiple_generic_donors_leave_the_board_empty() -> None:
         _entry("donor-b", pins=5, is_generic=True),
         recipient,
     ]
-    _backfill_donor_pins(boards)
+    _backfill_donor_pins(boards, pins_from={})
     assert recipient.pins == []
+
+
+def test_explicit_pins_from_beats_the_automatic_rule() -> None:
+    recipient = _entry("recipient")
+    generic = _entry("generic", pins=3, is_generic=True)
+    product = _entry("product", pins=5)
+    _backfill_donor_pins([generic, product, recipient], pins_from={"recipient": "product"})
+    assert recipient.pins == product.pins
+    assert recipient.pins is not product.pins
+
+
+def test_pins_from_with_a_missing_or_empty_donor_leaves_the_board_empty() -> None:
+    """Sync stays lenient; validate_definitions is the loud gate."""
+    recipient = _entry("recipient")
+    hollow = _entry("hollow")
+    _backfill_donor_pins([recipient, hollow], pins_from={"recipient": "ghost"})
+    assert recipient.pins == []
+    _backfill_donor_pins([recipient, hollow], pins_from={"recipient": "hollow"})
+    assert recipient.pins == []
+
+
+def test_pins_from_never_overwrites_curated_pins() -> None:
+    keeper = _entry("keeper", pins=2)
+    donor = _entry("donor", pins=5)
+    kept = list(keeper.pins)
+    _backfill_donor_pins([keeper, donor], pins_from={"keeper": "donor"})
+    assert keeper.pins == kept
 
 
 def test_curated_pins_are_never_overwritten(

@@ -20,6 +20,7 @@ tags:
 - usb-c
 images:
 - https://static-cdn.m5stack.com/resource/docs/products/core/atom_lite/atom_lite_01.webp
+pins_from: m5stack-atom-lite
 docs_url: https://esphome.io/components/bluetooth_proxy
 source:
   type: bluetooth-proxies

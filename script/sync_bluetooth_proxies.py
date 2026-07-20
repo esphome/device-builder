@@ -142,12 +142,14 @@ _IDENTITY: dict[str, dict[str, Any]] = {
         "images": [
             "https://static-cdn.m5stack.com/resource/docs/products/core/atom_lite/atom_lite_01.webp"
         ],
+        "pins_from": "m5stack-atom-lite",
     },
     "m5stack/m5stack-atom-s3": {
         "name": "M5Stack AtomS3 Bluetooth Proxy",
         "manufacturer": "M5Stack",
         "board": "m5stack-atoms3",
         "tags": ["compact", "usb-c"],
+        "pins_from": "m5stack-atoms3",
     },
     "wt32/wt32-eth01": {
         "name": "WT32-ETH01 Bluetooth Proxy",
@@ -358,7 +360,7 @@ def _describe(identity: dict[str, Any]) -> str:
 
 def _apply_identity_extras(record: dict[str, Any], identity: dict[str, Any]) -> None:
     """Copy the identity row's optional presentation fields onto *record*."""
-    for key in ("tags", "images", "product_url"):
+    for key in ("tags", "images", "product_url", "pins_from"):
         if key in identity:
             record[key] = identity[key]
     record["docs_url"] = _DOCS_URL

@@ -112,6 +112,10 @@
         "$ref": "#/$defs/pin"
       }
     },
+    "pins_from": {
+      "type": "string",
+      "description": "Board id whose pin table this board inherits at sync; mutually exclusive with pins."
+    },
     "docs_url": {
       "type": "string",
       "description": "Link to ESPHome documentation for this platform.",
