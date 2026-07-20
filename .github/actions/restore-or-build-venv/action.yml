@@ -48,7 +48,11 @@ runs:
         INSTALL_ARGS: ${{ inputs.install-args }}
         DEP_HASH: ${{ hashFiles('pyproject.toml', 'esphome-constraints.txt') }}
       run: |
-        full=$(uv run --no-project --python "${PYTHON_VERSION}" python -c 'import platform; print(platform.python_version())')
+        # Direct spawn: ``uv run`` would build an ephemeral env just
+        # to print the version (~9s on Windows, which copies the
+        # interpreter).
+        python_path=$(uv python find "${PYTHON_VERSION}")
+        full=$("${python_path}" -c 'import platform; print(platform.python_version())')
         # A constraints-pinned install already rotates through the
         # dep hash; only unpinned installs track the latest release.
         if [[ "${INSTALL_ARGS}" == *esphome-constraints.txt* ]]; then
