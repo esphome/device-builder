@@ -39,6 +39,10 @@ runs:
       uses: ./.github/actions/setup-uv-python
       with:
         python-version: ${{ inputs.python-version }}
+        # The venv cache fronts the install; wheels would only be
+        # touched on a (roughly weekly) venv miss, so restoring the
+        # wheel cache on every run costs more than it saves.
+        enable-cache: "false"
 
     - name: Compute venv cache key
       id: key
