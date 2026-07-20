@@ -50,8 +50,10 @@ runs:
       run: |
         full=$(uv run --no-project --python "${PYTHON_VERSION}" python -c 'import platform; print(platform.python_version())')
         esphome=$(curl -fsS --max-time 10 https://pypi.org/pypi/esphome/json | jq -r .info.version || echo unknown)
-        args_hash=$(printf '%s' "${INSTALL_ARGS}" | shasum -a 256 | cut -c1-12)
-        echo "key=venv-${RUNNER_OS}-${RUNNER_ARCH}-py${full}-${DEP_HASH}-args${args_hash}-esphome${esphome}-w$(date -u +%G%V)" >> "$GITHUB_OUTPUT"
+        # tr, not a checksum: shasum/sha256sum availability differs
+        # across the three runners' shells.
+        args_tag=$(printf '%s' "${INSTALL_ARGS}" | tr -c 'A-Za-z0-9' '-')
+        echo "key=venv-${RUNNER_OS}-${RUNNER_ARCH}-py${full}-${DEP_HASH}-${args_tag}-esphome${esphome}-w$(date -u +%G%V)" >> "$GITHUB_OUTPUT"
 
     - name: Restore venv
       id: restore
