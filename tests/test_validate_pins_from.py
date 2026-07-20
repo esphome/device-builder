@@ -45,5 +45,12 @@ def test_pins_from_with_own_pins_fails() -> None:
     assert errors == ["b: pins_from and pins are mutually exclusive"]
 
 
+def test_pins_from_with_an_empty_pins_key_fails() -> None:
+    """Presence of the key is the conflict, not its contents."""
+    donors = {"donor": _board(pins=[_PIN])}
+    errors = vd._validate_pins_from("b", _board(pins_from="donor", pins=[]), donors)
+    assert errors == ["b: pins_from and pins are mutually exclusive"]
+
+
 def test_absent_key_is_quiet() -> None:
     assert vd._validate_pins_from("b", _board(), {}) == []

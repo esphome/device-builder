@@ -250,7 +250,7 @@ def _validate_pins_from(
     if donor_id is None:
         return []
     errors: list[str] = []
-    if data.get("pins"):
+    if "pins" in data:
         errors.append(f"{board_id}: pins_from and pins are mutually exclusive")
     if all_boards is None:
         return errors

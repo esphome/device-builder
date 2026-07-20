@@ -702,7 +702,8 @@ def _manifest_pins_from() -> dict[str, str]:
             continue
         donor = data.get("pins_from")
         if isinstance(donor, str):
-            out[str(data["id"])] = donor
+            # Folder name is the canonical id (schema-enforced equal).
+            out[str(data.get("id") or manifest.parent.name)] = donor
     return out
 
 
