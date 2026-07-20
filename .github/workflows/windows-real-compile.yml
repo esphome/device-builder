@@ -62,7 +62,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Show installed esphome version
         run: uv pip show esphome

@@ -52,7 +52,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Put the venv on PATH
         run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"

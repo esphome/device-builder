@@ -181,7 +181,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: ${{ matrix.python-version }}
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Run pytest
         # ``uv run --no-sync`` uses the .venv created above as-is.
@@ -270,7 +270,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: ${{ matrix.python-version }}
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Install esphome (${{ matrix.channel }} channel)
         run: ${{ matrix.install }}
@@ -328,7 +328,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Install esphome (${{ matrix.channel }} channel)
         if: matrix.install != ''
@@ -364,7 +364,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
@@ -404,7 +404,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Install esphome (dev channel)
         run: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
@@ -454,7 +454,7 @@ jobs:
         uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-          install-args: -e .[esphome,test]
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
 
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'

@@ -1,16 +1,15 @@
 name: Set up Python and restore or build the venv
 description: |
-  setup-uv-python plus a cached ``.venv``. Installs float (unpinned
-  latest-stable esphome and transitive deps), so unlike a fully-pinned
-  requirements hash the key must bound staleness itself: it bakes in
-  the resolved interpreter version (a cached venv points at that
-  interpreter's absolute path), the dependency inputs, the install
-  args, the latest stable esphome on PyPI (a release rotates the key
-  immediately), and the ISO week (bounds transitive drift to 7 days,
-  matching GitHub's unused-entry eviction). A hit skips the install
-  entirely; a miss builds and saves before the caller can mutate the
-  venv, so channel jobs' beta/dev esphome upgrades are never captured
-  under the base key.
+  setup-uv-python plus a cached ``.venv``. esphome is pinned through
+  ``esphome-constraints.txt`` (the catalog sync bumps it), so a pin
+  bump rotates the key through the dependency-input hash; transitive
+  deps still float, bounded by the ISO-week component (matching
+  GitHub's 7-day unused-entry eviction). The key also bakes in the
+  resolved interpreter version (a cached venv points at that
+  interpreter's absolute path) and the install args. A hit skips the
+  install entirely; a miss builds and saves before the caller can
+  mutate the venv, so channel jobs' beta/dev esphome upgrades are
+  never captured under the base key.
 
 inputs:
   python-version:
@@ -57,17 +56,10 @@ runs:
         # interpreter).
         python_path=$(uv python find "${PYTHON_VERSION}")
         full=$("${python_path}" -c 'import platform; print(platform.python_version())')
-        # A constraints-pinned install already rotates through the
-        # dep hash; only unpinned installs track the latest release.
-        if [[ "${INSTALL_ARGS}" == *esphome-constraints.txt* ]]; then
-          esphome=pinned
-        else
-          esphome=$(curl -fsS --max-time 10 https://pypi.org/pypi/esphome/json | jq -r .info.version || echo unknown)
-        fi
         # tr, not a checksum: shasum/sha256sum availability differs
         # across the three runners' shells.
         args_tag=$(printf '%s' "${INSTALL_ARGS}" | tr -c 'A-Za-z0-9' '-')
-        echo "key=venv-${RUNNER_OS}-${RUNNER_ARCH}-py${full}-${DEP_HASH}-${args_tag}-esphome${esphome}-w$(date -u +%G%V)" >> "$GITHUB_OUTPUT"
+        echo "key=venv-${RUNNER_OS}-${RUNNER_ARCH}-py${full}-${DEP_HASH}-${args_tag}-w$(date -u +%G%V)" >> "$GITHUB_OUTPUT"
 
     - name: Restore venv
       id: restore
