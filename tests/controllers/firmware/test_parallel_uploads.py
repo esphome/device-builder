@@ -178,7 +178,7 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
 # Each upload sleeps a per-device staggered duration (indexed by the
 # uN.yaml number), then exits 0 — a burst of woken deep-sleep devices
 # whose OTAs take different times.
-_STAGGER_DELAYS = [0.2, 0.05, 0.35, 0.1, 0.05, 0.15, 0.25, 0.1, 0.3, 0.05, 0.2, 0.15]
+_STAGGER_DELAYS = [0.2, 0.05, 0.35, 0.1, 0.05, 0.15, 0.25, 0.1, 0.3, 0.05, 0.2, 0.15, 0.1, 0.25]
 _STAGGERED_UPLOAD = (
     "import os, sys, time\n"
     "cfg = os.path.basename(next(a for a in sys.argv if a.endswith('.yaml')))\n"
@@ -302,14 +302,14 @@ def test_upload_lane_concurrency_defaults() -> None:
     ("version", "expected"),
     [
         pytest.param("2026.7.0", 4, id="pre_lean_release"),
-        pytest.param("2026.8.0", 6, id="lean_release"),
-        pytest.param("2026.8.0-dev", 6, id="lean_dev"),
-        pytest.param("2027.1.0", 6, id="later_release"),
+        pytest.param("2026.8.0", 7, id="lean_release"),
+        pytest.param("2026.8.0-dev", 7, id="lean_dev"),
+        pytest.param("2027.1.0", 7, id="later_release"),
         pytest.param("", 4, id="unknown_version"),
     ],
 )
 def test_max_concurrent_uploads_version_gate(version: str, expected: int) -> None:
-    """Esphome 2026.8+ runs the lazy-import upload subprocess, earning 6 slots."""
+    """Esphome 2026.8+ runs the lazy-import upload subprocess, earning 7 slots."""
     assert max_concurrent_uploads(version) == expected
 
 
