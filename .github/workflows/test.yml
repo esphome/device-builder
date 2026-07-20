@@ -346,6 +346,32 @@ jobs:
           uv run --no-sync pytest -q -n auto tests/e2e --maxfail=5 --durations=10 --timeout=120 --no-cov
           --ignore=tests/e2e/slow
 
+  e2e-mqtt:
+    name: E2E MQTT discovery (mosquitto)
+    runs-on: ubuntu-latest
+    # The MQTT discovery e2e drives real paho clients against a real
+    # mosquitto broker; the test self-skips wherever the broker isn't
+    # installed, so this is the one job that installs it. Linux only —
+    # the broker path is platform-independent.
+    steps:
+      - name: Check out code from GitHub
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Install mosquitto
+        run: sudo apt-get update && sudo apt-get install -y mosquitto
+
+      - name: Run MQTT discovery e2e
+        timeout-minutes: 5
+        run: uv run --no-sync pytest -q tests/e2e/test_mqtt_discovery_broker.py --durations=10 --timeout=120 --no-cov
+
   e2e-libretiny:
     name: E2E LibreTiny (esphome stable)
     runs-on: ubuntu-latest

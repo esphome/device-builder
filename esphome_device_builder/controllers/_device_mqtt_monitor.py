@@ -277,8 +277,13 @@ class DeviceMqttMonitor:
         if self._broker.username:
             client.username_pw_set(self._broker.username, self._broker.password or "")
 
-        await run_in_executor(client.connect, self._broker.host, self._broker.port)
-        client.loop_start()
+        def _connect_and_spin_up() -> None:
+            client.connect(self._broker.host, self._broker.port)
+            # loop_start's socketpair setup does a blocking accept();
+            # keep it off the loop thread too.
+            client.loop_start()
+
+        await run_in_executor(_connect_and_spin_up)
         try:
             await asyncio.wait_for(connected.wait(), timeout=_CONNECT_TIMEOUT)
             if connect_failed:

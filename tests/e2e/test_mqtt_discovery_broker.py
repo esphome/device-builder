@@ -1,15 +1,20 @@
 """
-End-to-end MQTT discovery over a real TCP broker.
+End-to-end MQTT discovery against a real mosquitto broker.
 
 Six fake paho devices split across two broker logins, driven through
 the real coordinator/monitor stack: subscriber-gated broadcasts, one
 elected broadcaster per broker, online detection, and offline aging.
+Skips when the mosquitto binaries aren't installed; the dedicated
+linux CI job installs them.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
+import shutil
+import socket
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -20,11 +25,27 @@ from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_m
 from esphome_device_builder.controllers._device_mqtt_coordinator import DeviceMqttCoordinator
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device, DeviceState
-from tests.e2e._mini_mqtt_broker import MiniMqttBroker
 
 paho = pytest.importorskip("paho.mqtt.client")
 
+# brew puts the broker in sbin, which is often off PATH.
+_EXTRA_PATH = "/opt/homebrew/sbin:/usr/local/sbin:/usr/sbin"
+_MOSQUITTO = shutil.which("mosquitto", path=None) or shutil.which("mosquitto", path=_EXTRA_PATH)
+_MOSQUITTO_PASSWD = shutil.which("mosquitto_passwd") or shutil.which(
+    "mosquitto_passwd", path=_EXTRA_PATH
+)
+
+pytestmark = pytest.mark.skipif(
+    not (_MOSQUITTO and _MOSQUITTO_PASSWD), reason="mosquitto not installed"
+)
+
 _LOGINS = {"alpha": "pwA", "beta": "pwB"}
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 async def _wait_for(condition: Callable[[], bool], timeout: float, what: str) -> None:
@@ -33,6 +54,41 @@ async def _wait_for(condition: Callable[[], bool], timeout: float, what: str) ->
         if asyncio.get_running_loop().time() > deadline:
             pytest.fail(f"timed out waiting for {what}")
         await asyncio.sleep(0.05)
+
+
+async def _start_mosquitto(tmp_path: Path) -> tuple[asyncio.subprocess.Process, int]:
+    passwd = tmp_path / "mosquitto-passwd"
+    for index, (user, password) in enumerate(_LOGINS.items()):
+        create_flag = ["-c"] if index == 0 else []
+        proc = await asyncio.create_subprocess_exec(
+            str(_MOSQUITTO_PASSWD), *create_flag, "-b", str(passwd), user, password
+        )
+        assert await proc.wait() == 0
+
+    port = _free_port()
+    conf = tmp_path / "mosquitto.conf"
+    conf.write_text(f"listener {port} 127.0.0.1\nallow_anonymous true\npassword_file {passwd}\n")
+    broker = await asyncio.create_subprocess_exec(
+        str(_MOSQUITTO),
+        "-c",
+        str(conf),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+
+    deadline = asyncio.get_running_loop().time() + 10.0
+    while True:
+        try:
+            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        except OSError:
+            if asyncio.get_running_loop().time() > deadline:
+                broker.terminate()
+                pytest.fail("mosquitto did not start listening")
+            await asyncio.sleep(0.05)
+        else:
+            writer.close()
+            await writer.wait_closed()
+            return broker, port
 
 
 class _FakeMqttDevice:
@@ -85,11 +141,9 @@ async def test_six_devices_two_logins_single_broadcaster(
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.25)
     monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 1.5)
 
+    broker, port = await _start_mosquitto(tmp_path)
     config_dir = tmp_path / "config"
     config_dir.mkdir()
-
-    broker = MiniMqttBroker(users=_LOGINS)
-    port = await broker.start()
 
     devices: list[Device] = []
     fakes: list[_FakeMqttDevice] = []
@@ -157,4 +211,6 @@ async def test_six_devices_two_logins_single_broadcaster(
         for fake in fakes:
             fake.stop()
         probe.stop()
-        await broker.stop()
+        broker.terminate()
+        with contextlib.suppress(ProcessLookupError):
+            await broker.wait()
