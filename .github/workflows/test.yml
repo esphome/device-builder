@@ -35,29 +35,26 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python 3.14
+      - name: Set up Python 3.14 + cached venv
         id: python
-        uses: ./.github/actions/setup-uv-python
-        with:
-          python-version: "3.14"
-
-      - name: Create venv + install package + dev tools
         # ``[esphome]`` is needed so the catalog smoke test below
         # can construct a ``ComponentCatalog`` against the same
-        # esphome version the dashboard ships with. Managed Python
-        # isn't a system interpreter, so install into a ``.venv``
-        # and put its bin dir on PATH — subsequent ``pre-commit`` /
-        # ``python script/...`` steps keep working without a
-        # ``uv run`` prefix. ``-c esphome-constraints.txt``
+        # esphome version the dashboard ships with.
+        # ``-c esphome-constraints.txt``
         # pins esphome to the version the committed catalog was generated
         # against; the ``sync-boards`` pre-commit hook below re-stamps
         # boards.index.json from the installed esphome, so an unpinned
         # "latest" would red this job on every esphome release until the
         # catalog is re-synced. The sync workflows bump that pin.
-        run: |
-          uv venv
-          uv pip install -c esphome-constraints.txt -e '.[esphome,test]'
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+        uses: ./.github/actions/restore-or-build-venv
+        with:
+          python-version: "3.14"
+          install-args: -c esphome-constraints.txt -e .[esphome,test]
+
+      - name: Put the venv on PATH
+        # Subsequent ``pre-commit`` / ``python script/...`` steps then
+        # work without a ``uv run`` prefix.
+        run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Cache pre-commit hook envs
         # Keyed on the python version + ``.pre-commit-config.yaml``
@@ -173,24 +170,18 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }} + cached venv
         # Astral-managed Python (PGO + LTO + BOLT + mimalloc, plus
         # the PEP 744 tail-call interpreter on 3.14+) shortens the
         # suite end-to-end. The benchmarks job below stays on stock
         # CPython so CodSpeed's callgrind instruction counts remain
-        # comparable against the historical baseline.
-        uses: ./.github/actions/setup-uv-python
+        # comparable against the historical baseline. The venv is
+        # uv-discovered; pytest runs via ``uv run``, cross-platform
+        # without per-shell activate scripts.
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Create venv + install package + test deps
-        # Managed Python isn't a system interpreter; install into a
-        # uv-discovered ``.venv`` and invoke pytest via ``uv run``.
-        # Cross-platform: ``uv venv`` works the same on POSIX +
-        # Windows runners and avoids per-shell activate scripts.
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Run pytest
         # ``uv run --no-sync`` uses the .venv created above as-is.
@@ -272,15 +263,14 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python ${{ matrix.python-version }}
-        uses: ./.github/actions/setup-uv-python
+      - name: Set up Python ${{ matrix.python-version }} + cached venv
+        # The channel install below mutates the venv after the
+        # composite has already saved it, so the beta/dev esphome
+        # never lands in the shared base-key cache.
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Create venv + install package + test deps
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Install esphome (${{ matrix.channel }} channel)
         run: ${{ matrix.install }}
@@ -334,15 +324,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python 3.14
-        uses: ./.github/actions/setup-uv-python
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-
-      - name: Create venv + install package + test deps
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Install esphome (${{ matrix.channel }} channel)
         if: matrix.install != ''
@@ -374,15 +360,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python 3.14
-        uses: ./.github/actions/setup-uv-python
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-
-      - name: Create venv + install package + test deps
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'
@@ -418,15 +400,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python 3.14
-        uses: ./.github/actions/setup-uv-python
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-
-      - name: Create venv + install package + test deps
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Install esphome (dev channel)
         run: uv pip install --upgrade git+https://github.com/esphome/esphome.git@dev
@@ -472,15 +450,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Set up uv and Python 3.14
-        uses: ./.github/actions/setup-uv-python
+      - name: Set up Python 3.14 + cached venv
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-
-      - name: Create venv + install package + test deps
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Show installed esphome version
         run: uv pip show esphome | grep -E '^(Name|Version):'

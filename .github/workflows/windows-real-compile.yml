@@ -56,15 +56,13 @@ jobs:
       - name: Check out code from GitHub
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
-      - name: Set up uv and Python 3.14
-        uses: ./.github/actions/setup-uv-python
+      - name: Set up Python 3.14 + cached venv
+        # Same key as the Windows pytest matrix job, so the every-PR
+        # matrix keeps this workflow's cache warm between weekly runs.
+        uses: ./.github/actions/restore-or-build-venv
         with:
           python-version: "3.14"
-
-      - name: Create venv + install package + test deps
-        run: |
-          uv venv
-          uv pip install -e '.[esphome,test]'
+          install-args: -e .[esphome,test]
 
       - name: Show installed esphome version
         run: uv pip show esphome

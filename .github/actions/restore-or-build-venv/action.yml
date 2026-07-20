@@ -1,0 +1,81 @@
+name: Set up Python and restore or build the venv
+description: |
+  setup-uv-python plus a cached ``.venv``. Installs float (unpinned
+  latest-stable esphome and transitive deps), so unlike a fully-pinned
+  requirements hash the key must bound staleness itself: it bakes in
+  the resolved interpreter version (a cached venv points at that
+  interpreter's absolute path), the dependency inputs, the install
+  args, the latest stable esphome on PyPI (a release rotates the key
+  immediately), and the ISO week (bounds transitive drift to 7 days,
+  matching GitHub's unused-entry eviction). A hit skips the install
+  entirely; a miss builds and saves before the caller can mutate the
+  venv, so channel jobs' beta/dev esphome upgrades are never captured
+  under the base key.
+
+inputs:
+  python-version:
+    description: The Python version uv should install and use.
+    required: true
+  install-args:
+    description: |
+      Arguments for ``uv pip install`` on a cache miss, space-separated
+      with NO shell quoting (``-e .[esphome,test]``, not
+      ``-e '.[esphome,test]'``) — the run step word-splits them.
+    required: true
+
+outputs:
+  python-version:
+    description: The Python version uv reports as installed.
+    value: ${{ steps.python.outputs.python-version }}
+  cache-hit:
+    description: Whether the venv was restored from cache.
+    value: ${{ steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up uv and managed Python
+      id: python
+      uses: ./.github/actions/setup-uv-python
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Compute venv cache key
+      id: key
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        INSTALL_ARGS: ${{ inputs.install-args }}
+        DEP_HASH: ${{ hashFiles('pyproject.toml', 'esphome-constraints.txt') }}
+      run: |
+        full=$(uv run --no-project --python "${PYTHON_VERSION}" python -c 'import platform; print(platform.python_version())')
+        esphome=$(curl -fsS --max-time 10 https://pypi.org/pypi/esphome/json | jq -r .info.version || echo unknown)
+        args_hash=$(printf '%s' "${INSTALL_ARGS}" | shasum -a 256 | cut -c1-12)
+        echo "key=venv-${RUNNER_OS}-${RUNNER_ARCH}-py${full}-${DEP_HASH}-args${args_hash}-esphome${esphome}-w$(date -u +%G%V)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore venv
+      id: restore
+      # No restore-keys: a partial match would restore a wrong venv
+      # and the build step below would then be skipped.
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: .venv
+        key: ${{ steps.key.outputs.key }}
+
+    - name: Build venv
+      if: steps.restore.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        PYTHON_VERSION: ${{ inputs.python-version }}
+        INSTALL_ARGS: ${{ inputs.install-args }}
+      run: |
+        uv venv --python "${PYTHON_VERSION}"
+        # Word-splitting is deliberate; see the install-args contract.
+        uv pip install ${INSTALL_ARGS}
+
+    - name: Save venv
+      if: steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: .venv
+        key: ${{ steps.key.outputs.key }}
