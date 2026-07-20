@@ -59,16 +59,13 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up Python
+    - name: Set up uv and Python 3.13
       if: inputs.initial-release != 'true'
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+      # Resolves through the caller's workspace checkout — both call
+      # sites check the repo out at the workspace root.
+      uses: ./.github/actions/setup-uv-python
       with:
         python-version: "3.13"
-
-    - name: Install Python dependencies
-      if: inputs.initial-release != 'true'
-      shell: bash
-      run: pip install --no-cache-dir PyGithub PyYAML
 
     - name: Generate release notes
       id: generate
@@ -83,7 +80,9 @@ runs:
         COMMITISH: ${{ inputs.commitish }}
         FRONTEND_REPO: ${{ inputs.frontend-repo }}
         FRONTEND_DEP_NAME: ${{ inputs.frontend-dep-name }}
-      run: python "${{ github.action_path }}/generate_notes.py"
+      # ``--no-project`` keeps uv from syncing the workspace's own
+      # pyproject; the two deps ride an ephemeral cached env.
+      run: uv run --no-project --with PyGithub --with PyYAML python "${{ github.action_path }}/generate_notes.py"
 
     - name: Emit initial-release placeholder
       id: initial

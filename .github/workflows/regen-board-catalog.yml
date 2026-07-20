@@ -157,22 +157,21 @@ jobs:
           cp -a pr/esphome_device_builder/definitions/components \
             base/esphome_device_builder/definitions/components
 
-      - name: Set up Python
+      - name: Set up uv and Python 3.13
         if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        # Path goes through the trusted base checkout — the workspace
+        # root holds no repo, and pr/ is never executed.
+        uses: ./base/.github/actions/setup-uv-python
         with:
           python-version: "3.13"
 
-      - name: Set up uv
-        if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
-        with:
-          enable-cache: true
-
-      - name: Install package (base constraints)
+      - name: Create venv + install package (base constraints)
         if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'
         working-directory: base
-        run: uv pip install --system -c esphome-constraints.txt -e '.[esphome,test]'
+        run: |
+          uv venv
+          uv pip install -c esphome-constraints.txt -e '.[esphome,test]'
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Validate manifests
         if: steps.inspect.outputs.skip != 'true' && steps.loop.outputs.skip != 'true'

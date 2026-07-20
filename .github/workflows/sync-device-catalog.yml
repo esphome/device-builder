@@ -47,17 +47,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+      - name: Set up uv and Python 3.13
+        uses: ./.github/actions/setup-uv-python
         with:
           python-version: "3.13"
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990  # v8.3.2
-        with:
-          enable-cache: true
-
-      - name: Install package (with esphome extra)
+      - name: Create venv + install package (with esphome extra)
         # ``sync_boards.py`` introspects ESPHome's per-platform board
         # modules to regenerate board pins, so the esphome extra is
         # required; ``test`` carries jsonschema for validate_definitions.
@@ -67,7 +62,10 @@ jobs:
         # newer prerelease here would commit a stamp the Test job's pinned
         # lint can't match. The catalog advances to a new esphome as one
         # unit when the component sync bumps the pin on release.
-        run: uv pip install --system -c esphome-constraints.txt -e '.[esphome,test]'
+        run: |
+          uv venv
+          uv pip install -c esphome-constraints.txt -e '.[esphome,test]'
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Run sync_esphome_devices
         run: python script/sync_esphome_devices.py
