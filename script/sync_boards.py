@@ -663,18 +663,18 @@ def _backfill_donor_pins(boards: list[BoardCatalogEntry]) -> None:
     table empty and every pin field degrades to free text (#2219). Ambiguous
     donors (several products on one module) stay empty.
     """
+
+    def _chip(cfg: BoardEsphomeConfig) -> tuple[str, str, str | None]:
+        return (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
+
     donors: dict[tuple[str, str, str | None], list[BoardCatalogEntry]] = {}
     for board in boards:
         if board.is_generic and board.pins:
-            cfg = board.esphome
-            key = (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
-            donors.setdefault(key, []).append(board)
+            donors.setdefault(_chip(board.esphome), []).append(board)
     for board in boards:
         if board.pins:
             continue
-        cfg = board.esphome
-        key = (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
-        matched = donors.get(key, [])
+        matched = donors.get(_chip(board.esphome), [])
         if len(matched) == 1:
             board.pins = list(matched[0].pins)
 
@@ -1218,6 +1218,8 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_engineering_sample(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
+    # Last pin-FILLING pass — a filler inserted after it would find its
+    # empty-pin targets already claimed; the passes below only decorate.
     _backfill_donor_pins(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
     _stamp_featured_locked_pins(catalog.boards)
