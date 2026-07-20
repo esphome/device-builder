@@ -103,6 +103,7 @@ class DeviceMqttCoordinator:
             _LOGGER.info("Stopping MQTT monitor for %s:%s user %r", host, port, username)
             await self._monitors.pop(key).stop()
 
+        new_monitors: list[DeviceMqttMonitor] = []
         for broker in brokers:
             if broker.key in self._monitors:
                 continue
@@ -110,9 +111,15 @@ class DeviceMqttCoordinator:
                 broker, self._on_state_change, self._on_ip_change, presence=self._presence
             )
             self._monitors[broker.key] = monitor
-            await monitor.start()
+            new_monitors.append(monitor)
 
-        self._assign_publishers()
+        # Election runs only on topology change, and before start() so a
+        # new monitor never connects while still wearing the default
+        # publisher flag.
+        if new_monitors or existing_keys - wanted_keys:
+            self._assign_publishers()
+        for monitor in new_monitors:
+            await monitor.start()
 
     async def stop(self) -> None:
         """Stop every active monitor and clear state."""

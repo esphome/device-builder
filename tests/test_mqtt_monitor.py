@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest.mock import patch
@@ -234,12 +235,17 @@ def _write_device(config_dir: Path, name: str, mqtt_yaml: str | None) -> Device:
     )
 
 
-def _make_coordinator(config_dir: Path, devices: list[Device]) -> DeviceMqttCoordinator:
+def _make_coordinator(
+    config_dir: Path,
+    devices: list[Device],
+    presence: SubscriberPresence | None = None,
+) -> DeviceMqttCoordinator:
     return DeviceMqttCoordinator(
         config_dir=config_dir,
         get_devices=lambda: devices,
         on_state_change=lambda *_args: None,
         on_ip_change=lambda *_args: None,
+        presence=presence,
     )
 
 
@@ -345,13 +351,7 @@ async def test_coordinator_passes_presence_to_monitors(
 ) -> None:
     devices = [_write_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.0.1\n")]
     presence = SubscriberPresence()
-    coord = DeviceMqttCoordinator(
-        config_dir=tmp_path,
-        get_devices=lambda: devices,
-        on_state_change=lambda *_args: None,
-        on_ip_change=lambda *_args: None,
-        presence=presence,
-    )
+    coord = _make_coordinator(tmp_path, devices, presence=presence)
     await coord.reconcile()
     assert [m.presence for m in stub_monitor.instances] == [presence]
 
@@ -1432,28 +1432,15 @@ async def test_ping_loop_marks_stale_devices_offline_and_republishes(
         on_state_change=on_state,
         on_ip_change=lambda *_: None,
     )
-
-    class _FakeClient:
-        def __init__(self) -> None:
-            self.publishes: list[tuple[str, Any, bool]] = []
-
-        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> None:
-            self.publishes.append((topic, payload, retain))
-
-    fake = _FakeClient()
+    fake = _CountingClient()
 
     # Seed a stale entry that's already past the (patched) offline
     # timeout. The first tick should sweep it.
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
-    ping_task = asyncio.create_task(monitor._ping_loop(fake))
-    try:
+    async with _running_ping_loop(monitor, fake):
         await asyncio.wait_for(offline_seen.wait(), timeout=2.0)
-    finally:
-        ping_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await ping_task
 
     assert ("ghost", DeviceState.OFFLINE) in state_calls
     assert "ghost" not in monitor._last_seen
@@ -1470,6 +1457,19 @@ class _CountingClient:
 
     def publish(self, topic: str, payload: Any = None, retain: bool = False) -> None:
         self.publishes.append((topic, payload, retain))
+
+
+@contextlib.asynccontextmanager
+async def _running_ping_loop(
+    monitor: DeviceMqttMonitor, client: _CountingClient
+) -> AsyncIterator[None]:
+    task = asyncio.create_task(monitor._ping_loop(client))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
@@ -1499,17 +1499,12 @@ async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
-    ping_task = asyncio.create_task(monitor._ping_loop(fake))
-    try:
+    async with _running_ping_loop(monitor, fake):
         # Several would-be intervals pass; the parked loop stays silent.
         await asyncio.sleep(0.3)
         assert fake.publishes == []
         assert state_calls == []
         assert "ghost" in monitor._last_seen
-    finally:
-        ping_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await ping_task
 
 
 async def test_ping_loop_resume_publishes_immediately_and_rebases(
@@ -1538,8 +1533,7 @@ async def test_ping_loop_resume_publishes_immediately_and_rebases(
     stale_stamp = loop.time() - 100.0
     monitor._last_seen["sleeper"] = stale_stamp
 
-    ping_task = asyncio.create_task(monitor._ping_loop(fake))
-    try:
+    async with _running_ping_loop(monitor, fake):
         await asyncio.sleep(0.1)
         assert fake.publishes == []
 
@@ -1551,10 +1545,6 @@ async def test_ping_loop_resume_publishes_immediately_and_rebases(
             assert fake.publishes, "no broadcast after a subscriber arrived"
             assert monitor._last_seen["sleeper"] > stale_stamp
             assert state_calls == []
-    finally:
-        ping_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await ping_task
 
 
 async def test_ping_loop_non_publisher_stays_silent_but_still_ages(
@@ -1586,14 +1576,9 @@ async def test_ping_loop_non_publisher_stays_silent_but_still_ages(
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
-    ping_task = asyncio.create_task(monitor._ping_loop(fake))
-    try:
+    async with _running_ping_loop(monitor, fake):
         await asyncio.wait_for(offline_seen.wait(), timeout=2.0)
         assert fake.publishes == []
-    finally:
-        ping_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await ping_task
 
 
 # ---------------------------------------------------------------------------
