@@ -314,7 +314,10 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
 
     if isinstance(data.get("script"), list):
         scripts = _scope_scripts(data["script"])
-    for domain in set(data.keys()):
+    # Iterate in document order: ``devices`` ships to the frontend in this
+    # order, and a ``set()`` here reshuffled it every restart (hash
+    # randomization), so the by-target picker's groups moved around.
+    for domain in data:
         section = data.get(domain)
         if isinstance(section, list):
             domains.update(_qualified_domains(domain, section))
