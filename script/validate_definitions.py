@@ -169,7 +169,10 @@ def _validate_against_schema(data: dict, schema: dict | None, item_id: str) -> l
 
 
 def validate_board(
-    manifest: Path, components_index: dict | None = None, data: dict | None = None
+    manifest: Path,
+    components_index: dict | None = None,
+    data: dict | None = None,
+    all_boards: dict[str, dict] | None = None,
 ) -> list[str]:
     """
     Validate a board manifest. Returns list of error messages.
@@ -178,6 +181,8 @@ def validate_board(
     when provided, featured-component cross-references are validated against
     the live component catalog. *data* is the already-parsed manifest, to
     save a caller that parsed it for other checks the second read.
+    *all_boards* maps every board id to its parsed manifest; when provided,
+    ``pins_from`` cross-references are validated against it.
     """
     errors: list[str] = []
     board_id = manifest.parent.name
@@ -216,6 +221,8 @@ def validate_board(
     # intersection check for these; the rest of featured-component
     # validation (component_id present, fields key match,
     # GPIO declared) still runs.
+    errors.extend(_validate_pins_from(board_id, data, all_boards))
+
     is_imported = isinstance(data.get("source"), dict) and bool(data["source"].get("type"))
 
     # Featured components & bundles — cross-catalog validation against
@@ -226,6 +233,40 @@ def validate_board(
 
     errors.extend(_validate_image_paths(board_id, data))
 
+    return errors
+
+
+def _validate_pins_from(
+    board_id: str,
+    data: dict,
+    all_boards: dict[str, dict] | None,
+) -> list[str]:
+    """``pins_from`` must name an existing same-chip board with a pin table.
+
+    The mutual exclusivity with ``pins`` also forbids donor chains: a board
+    named by ``pins_from`` necessarily carries its own table.
+    """
+    donor_id = data.get("pins_from")
+    if donor_id is None:
+        return []
+    errors: list[str] = []
+    if "pins" in data:
+        errors.append(f"{board_id}: pins_from and pins are mutually exclusive")
+    if all_boards is None:
+        return errors
+    donor = all_boards.get(donor_id)
+    if donor is None:
+        errors.append(f"{board_id}: pins_from '{donor_id}' is not a known board")
+        return errors
+    if not donor.get("pins"):
+        errors.append(f"{board_id}: pins_from '{donor_id}' has no pin table")
+    ours = data.get("esphome") or {}
+    theirs = donor.get("esphome") or {}
+    if (ours.get("platform"), ours.get("variant")) != (
+        theirs.get("platform"),
+        theirs.get("variant"),
+    ):
+        errors.append(f"{board_id}: pins_from '{donor_id}' is a different chip")
     return errors
 
 
@@ -888,15 +929,18 @@ def main() -> int:
 
     components_index = _build_components_index()
 
-    # Validate boards
+    # Validate boards. Parse everything first so cross-board references
+    # (pins_from) can resolve against the full set.
     boards_dir = DEFINITIONS_DIR / "boards"
+    parsed: dict[Path, dict] = {}
     for manifest in sorted(boards_dir.glob("*/manifest.yaml")):
         try:
-            data = load_manifest_dict(manifest)
+            parsed[manifest] = load_manifest_dict(manifest)
         except ManifestError as exc:
             all_errors.append(f"{manifest.parent.name}: {exc}")
-            continue
-        all_errors.extend(validate_board(manifest, components_index, data))
+    all_boards = {manifest.parent.name: data for manifest, data in parsed.items()}
+    for manifest, data in parsed.items():
+        all_errors.extend(validate_board(manifest, components_index, data, all_boards))
         all_warnings.extend(collect_hardware_warnings(manifest.parent.name, data))
 
     # Validate components

@@ -405,6 +405,12 @@ def _ingest_output_line(job: FirmwareJob, bus: EventBus, line: str) -> None:
     _fire_job_progress(job, bus, progress)
 
 
+def _ingest_notice_line(job: FirmwareJob, bus: EventBus, text: str) -> None:
+    """Ingest a synthetic ``*** text ***`` line, separating it from an unterminated tail."""
+    prefix = "\n" if job.output and not job.output[-1].endswith(("\n", "\r")) else ""
+    _ingest_output_line(job, bus, f"{prefix}*** {text} ***\n")
+
+
 def _is_compile_start_line(line: str) -> bool:
     """
     Whether *line* proves compilation has begun.

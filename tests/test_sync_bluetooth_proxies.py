@@ -127,6 +127,20 @@ def test_make_record_olimex_full_shape(tmp_path: Path) -> None:
     }
 
 
+def test_make_record_emits_pins_from_from_the_identity_row(tmp_path: Path) -> None:
+    root = _write_repo(tmp_path)
+    (root / "m5stack").mkdir()
+    (root / "m5stack" / "m5stack-atom-lite.yaml").write_text(
+        _GENERIC_YAML.replace("esp32-bluetooth-proxy", "m5stack-atom-lite"),
+        encoding="utf-8",
+    )
+    sources = {s.remote_id: s for s in _iter_configs(root)}
+    record, skip = _make_record(sources["m5stack/m5stack-atom-lite"], "")
+    assert skip is None
+    assert record["pins_from"] == "m5stack-atom-lite"
+    assert "pins" not in record
+
+
 def test_make_record_wifi_generic(tmp_path: Path) -> None:
     """A Wi-Fi proxy record: no ethernet entry / pins, ``is_generic`` from the table."""
     sources = {s.remote_id: s for s in _iter_configs(_write_repo(tmp_path))}

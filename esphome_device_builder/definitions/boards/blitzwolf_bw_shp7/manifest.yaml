@@ -137,5 +137,5 @@ source:
   type: esphome-devices
   remote_id: BlitzWolf-BW-SHP7
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/BlitzWolf-BW-SHP7/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 289b89d9d62e75b6bd7d2e56471ed7145c6da65072f45bd54eace1dc621f06c0

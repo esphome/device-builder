@@ -314,7 +314,9 @@ def _scope_from_yaml(text: str) -> _ScopedYaml:
 
     if isinstance(data.get("script"), list):
         scripts = _scope_scripts(data["script"])
-    for domain in set(data.keys()):
+    # ``devices`` ships to the frontend in this order; keep document-order
+    # iteration (a ``set()`` wrap hash-shuffles it per process).
+    for domain in data:
         section = data.get(domain)
         if isinstance(section, list):
             domains.update(_qualified_domains(domain, section))
@@ -411,13 +413,14 @@ def _component_instance(
     is_container: bool = False,
     parent_id: str | None = None,
 ) -> AvailableComponentInstance:
-    """Build one ``AvailableComponentInstance``, carrying ``name:`` only when declared."""
+    """Build one instance; ``name`` and ``has_explicit_id`` reflect only declared keys."""
     return AvailableComponentInstance(
         component_id=component_id,
         id=id_,
         name=str(section["name"]) if "name" in section else None,
         is_entity_container=is_container,
         parent_id=parent_id,
+        has_explicit_id=parsing.declares_id(section),
     )
 
 

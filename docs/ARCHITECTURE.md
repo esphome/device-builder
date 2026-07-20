@@ -636,7 +636,7 @@ Install is **one user-visible flow**: the user clicks Install on a device card, 
 * **LOCAL** — runs the existing `esphome run` subprocess pipeline unchanged.
 * **REMOTE** — hops into `controllers/firmware/remote_runner.py`, which:
   1. Looks up the open `PeerLinkClient` against the pin in `job.source_pin_sha256`.
-  2. Builds the bundle via `helpers/config_bundle.build_yaml_bundle` (`helpers/config_bundle` is the single bundling path).
+  2. Builds the bundle via `helpers/config_bundle.build_yaml_bundle` (`helpers/config_bundle` is the single bundling path), streaming the `esphome bundle` output into the job log with phase-marker and heartbeat notices (`controllers/firmware/bundle_phase.py`) so slow validation is visible before `submit_job`; a Stop click cancels the bundle subprocess immediately.
   3. Dispatches a peer-link `submit_job` with `target="compile"`.
   4. Subscribes to `OFFLOADER_JOB_STATE_CHANGED` + `OFFLOADER_JOB_OUTPUT` filtered to its dispatch's `job_id`, updates the same `FirmwareJob`'s status / output / progress as wire events arrive, and fires the same `JOB_*` events on its lifecycle that the local path would.
   5. On `OFFLOADER_JOB_STATE_CHANGED{completed}` fires `download_artifacts` against the receiver, stages `firmware.bin` to a per-job tmpdir, and spawns a local `esphome upload --file <staged>` subprocess to flash the device.

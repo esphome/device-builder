@@ -81,5 +81,5 @@ source:
   type: esphome-devices
   remote_id: XtendLan-IP66-Dual
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/XtendLan-IP66-Dual/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 7fe0eb898bad0019b05055bc90ed3183722e014ed1331b3594c27233dd171bf0

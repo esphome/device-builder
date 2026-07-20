@@ -37,7 +37,7 @@ from esphome.const import __version__ as _offloader_esphome_version
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.config_bundle import BundleBuildError, build_yaml_bundle
+from ...helpers.config_bundle import BundleBuildError
 from ...helpers.remote_artifacts_materialise import (
     MaterialiseError,
     materialise_remote_artifacts,
@@ -64,8 +64,9 @@ from ..remote_build.peer_link_client import (
     SubmitJobTimeoutError,
 )
 from . import lifecycle
+from .bundle_phase import run_bundle_phase
 from .constants import ESPHOME_SUBPROCESS_ENV
-from .helpers import _fire_job_progress, _ingest_output_line
+from .helpers import _fire_job_progress, _ingest_notice_line, _ingest_output_line
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event, EventBus
@@ -301,7 +302,7 @@ async def _dispatch_and_drive(
         if not await _send_reset_to_receiver(controller=controller, job=job, client=client):
             return
     else:
-        bundle_bytes = await _build_bundle_or_fail(controller, job)
+        bundle_bytes = await _build_bundle_or_fail(controller, job, cancel_event)
         if bundle_bytes is None:
             return
         client = _open_peer_link_client_or_fail(controller, job)
@@ -327,16 +328,23 @@ async def _dispatch_and_drive(
     await _finalise_after_receiver_completed(controller=controller, job=job, client=client)
 
 
-async def _build_bundle_or_fail(controller: FirmwareController, job: FirmwareJob) -> bytes | None:
-    """Build the YAML bundle; ``None`` + ``_fail_locally`` on failure."""
-    yaml_path = await run_in_executor(controller._db.settings.rel_path, job.configuration)
+async def _build_bundle_or_fail(
+    controller: FirmwareController, job: FirmwareJob, cancel_event: asyncio.Event
+) -> bytes | None:
+    """Build the YAML bundle with live log output; ``None`` + finalise on failure/cancel."""
     try:
-        return await build_yaml_bundle(yaml_path)
+        bundle_bytes = await run_bundle_phase(controller, job, cancel_event)
     except FileNotFoundError:
         _fail_locally(controller, job, reason=f"configuration not found: {job.configuration}")
+        return None
     except BundleBuildError as exc:
-        _fail_locally(controller, job, reason=f"bundle failed: {exc.output or exc}")
-    return None
+        reason = f"bundle failed: {exc}"
+        _ingest_notice_line(job, controller.bus, reason)
+        _fail_locally(controller, job, reason=reason)
+        return None
+    if bundle_bytes is None:
+        lifecycle.cancel_if_requested(controller, job)
+    return bundle_bytes
 
 
 def _open_peer_link_client_or_fail(
@@ -575,21 +583,10 @@ async def _await_terminal(
                 # let the embedded ``text`` carry the specific
                 # cause, instead of falsely framing every close
                 # as a connection loss.
-                #
-                # Leading-newline avoidance: only insert a
-                # separator newline when the previous buffered
-                # output line doesn't already end with one. The
-                # receiver-side compile streams ``\n``-terminated
-                # lines, so the common case skips the prefix and
-                # the synthetic line lands flush against the
-                # last compile output rather than adding a blank
-                # line.
-                prefix = "" if job.output and job.output[-1].endswith(("\n", "\r")) else "\n"
-                _ingest_output_line(
+                _ingest_notice_line(
                     job,
                     controller.bus,
-                    f"{prefix}*** remote build session closed ({text}); "
-                    "the build was aborted ***\n",
+                    f"remote build session closed ({text}); the build was aborted",
                 )
                 _fail_locally(
                     controller,

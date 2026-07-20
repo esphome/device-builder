@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from esphome.const import __version__ as _esphome_version
 
-from esphome_device_builder.controllers.firmware import remote_runner
+from esphome_device_builder.controllers.firmware import bundle_phase, remote_runner
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsError,
     DownloadArtifactsResult,
@@ -39,7 +39,6 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.config_bundle import BundleBuildError
-from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.remote_artifacts_materialise import MaterialiseError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -51,22 +50,10 @@ from esphome_device_builder.models import (
     JobType,
 )
 
+from .conftest import REMOTE_PIN, capture_local_events, make_remote_job
+
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
-
-
-_PIN = "a" * 64
-
-
-def _make_remote_job(*, job_id: str = "remote-1") -> FirmwareJob:
-    return FirmwareJob(
-        job_id=job_id,
-        configuration="kitchen.yaml",
-        job_type=JobType.COMPILE,
-        source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
-        source_label="desktop",
-    )
 
 
 def _wire_remote_build(
@@ -166,38 +153,8 @@ def patch_bundle(monkeypatch: pytest.MonkeyPatch) -> Any:
     need an actual esphome install + a real YAML).
     """
     mock = AsyncMock(return_value=b"FAKEBUNDLE")
-    monkeypatch.setattr(remote_runner, "build_yaml_bundle", mock)
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", mock)
     return mock
-
-
-def _capture_local_events(
-    controller: Any,
-) -> dict[EventType, list[dict[str, Any]]]:
-    """Subscribe a real ``EventBus`` to the local ``JOB_*`` events.
-
-    Returns a captured-events dict the assertion side can index
-    by event type. The fixture installs the bus on
-    ``controller._db.bus`` so the runner's fires land here.
-    """
-    bus = EventBus()
-    captured: dict[EventType, list[dict[str, Any]]] = {
-        EventType.JOB_OUTPUT: [],
-        EventType.JOB_PROGRESS: [],
-        EventType.JOB_COMPLETED: [],
-        EventType.JOB_FAILED: [],
-        EventType.JOB_CANCELLED: [],
-    }
-
-    def _make_listener(key: EventType) -> Any:
-        def _listen(event: Any) -> None:
-            captured[key].append(event.data)
-
-        return _listen
-
-    for et in captured:
-        bus.add_listener(et, _make_listener(et))
-    controller._db.bus = bus
-    return captured
 
 
 def _fire_state(
@@ -205,7 +162,7 @@ def _fire_state(
     *,
     job_id: str,
     status: str,
-    pin: str = _PIN,
+    pin: str = REMOTE_PIN,
     error_message: str = "",
     failure_reason: JobFailureReason = JobFailureReason.NONE,
 ) -> None:
@@ -228,7 +185,7 @@ def _fire_output(
     *,
     job_id: str,
     line: str,
-    pin: str = _PIN,
+    pin: str = REMOTE_PIN,
     stream: str = "stdout",
 ) -> None:
     controller._db.bus.fire(
@@ -328,7 +285,7 @@ async def _wait_for_wire_cancel(client: Any, *, timeout: float = 1.0) -> None:
 def _fire_session_closed(
     controller: Any,
     *,
-    pin: str = _PIN,
+    pin: str = REMOTE_PIN,
     reason: str = "transport_error",
     error_detail: str = "",
 ) -> None:
@@ -364,10 +321,10 @@ async def test_remote_compile_translates_output_and_completes(
     regardless of which CPU compiled the bytes.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     # Yield until the runner is parked waiting on the terminal future.
@@ -381,7 +338,11 @@ async def test_remote_compile_translates_output_and_completes(
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.COMPLETED
-    assert [d["line"] for d in captured[EventType.JOB_OUTPUT]] == [
+    # The bundle phase frames the receiver's lines with its own notices.
+    lines = [d["line"] for d in captured[EventType.JOB_OUTPUT]]
+    assert lines[0] == "*** building configuration bundle for remote build ***\n"
+    assert "bundle ready" in lines[1]
+    assert lines[2:] == [
         "Reading configuration\n",
         "Compile finished\n",
     ]
@@ -420,7 +381,7 @@ async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_comple
     a failure.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
     job = FirmwareJob(
@@ -428,7 +389,7 @@ async def test_remote_clean_dispatches_with_clean_target_and_finalises_on_comple
         configuration="kitchen.yaml",
         job_type=JobType.CLEAN,
         source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
+        source_pin_sha256=REMOTE_PIN,
     )
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
@@ -474,7 +435,7 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
     parsing the YAML on the receiver) would surface here.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
 
@@ -488,7 +449,7 @@ async def test_remote_compile_plumbs_device_names_from_local_scanner(
     )
     controller._db.devices = devices_stub
 
-    job = _make_remote_job()
+    job = make_remote_job()
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
@@ -513,7 +474,7 @@ async def test_remote_compile_falls_through_when_no_device_matches(
 ) -> None:
     """``submit_job`` ships empty names when the local scanner has no entry for the YAML."""
     controller = firmware_controller_factory(with_terminate=True)
-    _capture_local_events(controller)
+    capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
 
@@ -527,7 +488,7 @@ async def test_remote_compile_falls_through_when_no_device_matches(
     )
     controller._db.devices = devices_stub
 
-    job = _make_remote_job()
+    job = make_remote_job()
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
     _fire_state(controller, job_id=job.job_id, status="completed")
@@ -559,9 +520,9 @@ async def test_remote_compile_progress_translates_to_local_progress_event(
     ones.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -593,9 +554,9 @@ async def test_remote_compile_ignores_events_for_other_jobs(
     terminal.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job(job_id="ours")
+    job = make_remote_job(job_id="ours")
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -605,7 +566,8 @@ async def test_remote_compile_ignores_events_for_other_jobs(
     _fire_output(controller, job_id="someone-else", line="other job output\n")
     _fire_state(controller, job_id="someone-else", status="completed")
     await asyncio.sleep(0)
-    assert captured[EventType.JOB_OUTPUT] == []
+    # Only the bundle phase's own notices — no stray line leaked in.
+    assert all(d["line"].startswith("***") for d in captured[EventType.JOB_OUTPUT])
     assert captured[EventType.JOB_COMPLETED] == []
     assert not runner.done()
 
@@ -626,9 +588,9 @@ async def test_remote_compile_failed_status_fires_job_failed(
 ) -> None:
     """A receiver ``failed`` terminal lands as local ``JOB_FAILED`` with the error text."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -651,9 +613,9 @@ async def test_remote_compile_provision_failure_raises_when_retryable(
 ) -> None:
     """A ``PROVISION`` terminal raises ProvisionUnavailableError in the pool."""
     controller = firmware_controller_factory(with_terminate=True)
-    _capture_local_events(controller)
+    capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(
         remote_runner.run_remote_job(controller, job, retry_on_server_loss=True)
@@ -676,9 +638,9 @@ async def test_remote_compile_provision_failure_fails_without_retry(
 ) -> None:
     """Off the dispatch pool (no retry), a provision failure just fails the job."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -701,10 +663,10 @@ async def test_remote_compile_rejected_ack_fires_job_failed(
 ) -> None:
     """``submit_job`` rejection (``accepted=False``) finalises locally with the reason."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client(accepted=False, reason="receiver queue full")
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -719,10 +681,10 @@ async def test_remote_compile_rejected_ack_without_reason_uses_fallback(
 ) -> None:
     """A rejected ack carrying no ``reason`` field fails with the fallback text."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client(accepted=False)
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -737,12 +699,12 @@ async def test_remote_compile_receiver_unreachable_fires_job_failed(
 ) -> None:
     """A missing peer-link client finalises the job as FAILED with the lookup error."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _wire_remote_build(
         controller,
         lookup_error=CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected"),
     )
-    job = _make_remote_job()
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -765,14 +727,14 @@ async def test_remote_compile_unsupported_job_type_fails_locally(
     path with the wrong target.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    _capture_local_events(controller)
+    capture_local_events(controller)
     _wire_remote_build(controller)
     job = FirmwareJob(
         job_id="x",
         configuration="kitchen.yaml",
         job_type=JobType.RENAME,
         source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
+        source_pin_sha256=REMOTE_PIN,
     )
 
     await remote_runner.run_remote_job(controller, job)
@@ -800,10 +762,10 @@ async def test_remote_compile_local_cancel_translates_to_wire_cancel_job(
     frame finalises the local job as CANCELLED.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -839,10 +801,10 @@ async def test_remote_compile_cancel_beats_receiver_completed(
     they explicitly asked to abort.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -875,9 +837,9 @@ async def test_remote_compile_receiver_initiated_cancel_finalises_as_cancelled(
     rather than misroute it as ``FAILED``.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -904,18 +866,16 @@ async def test_remote_compile_cancel_during_bundle_build_finalises_as_cancelled(
     ``_finalize_cancelled`` instead.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     # Cancel was already requested by the time we get to bundle
     # build — and the bundle build itself fails (configuration
     # not on disk). Combined, the runner's failure path should
     # route through the cancel-aware branch.
     _request_remote_cancel(controller, job)
-    monkeypatch.setattr(
-        remote_runner, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError)
-    )
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError))
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -935,12 +895,10 @@ async def test_remote_compile_bundle_file_missing_fires_job_failed(
 ) -> None:
     """``FileNotFoundError`` from the bundle subprocess surfaces in ``job.error``."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _wire_remote_build(controller)
-    monkeypatch.setattr(
-        remote_runner, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError)
-    )
-    job = _make_remote_job()
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", AsyncMock(side_effect=FileNotFoundError))
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -953,21 +911,49 @@ async def test_remote_compile_bundle_build_error_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``BundleBuildError.output`` surfaces in ``job.error`` for the user."""
+    """``BundleBuildError`` fails the job; the log closes with a bundle-failed notice."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _wire_remote_build(controller)
     bundle_error = BundleBuildError(
         "bundle subprocess failed", output="ERROR: syntax in kitchen.yaml"
     )
-    monkeypatch.setattr(remote_runner, "build_yaml_bundle", AsyncMock(side_effect=bundle_error))
-    job = _make_remote_job()
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", AsyncMock(side_effect=bundle_error))
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
     assert job.status == JobStatus.FAILED
-    assert job.error is not None and "syntax in kitchen.yaml" in job.error
+    assert job.error is not None and "bundle subprocess failed" in job.error
+    assert job.output[-1] == "*** bundle failed: bundle subprocess failed ***\n"
     assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_compile_stop_during_bundle_cancels_promptly(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A Stop click mid-bundle cancels the bundle task instead of waiting it out."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = capture_local_events(controller)
+    _wire_remote_build(controller)
+    bundle_started = asyncio.Event()
+
+    async def _hang_bundle(yaml_path: Any, *, on_output: Any = None) -> bytes:
+        bundle_started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(bundle_phase, "build_yaml_bundle", _hang_bundle)
+    job = make_remote_job()
+
+    runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
+    await asyncio.wait_for(bundle_started.wait(), timeout=2.0)
+    _request_remote_cancel(controller, job)
+    await asyncio.wait_for(runner, timeout=2.0)
+
+    assert job.status == JobStatus.CANCELLED
+    assert captured[EventType.JOB_FAILED] == []
+    assert len(captured[EventType.JOB_CANCELLED]) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -981,7 +967,7 @@ async def test_remote_compile_missing_source_pin_fires_job_failed(
 ) -> None:
     """A REMOTE job with empty ``source_pin_sha256`` fails before any wire work."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _wire_remote_build(controller)
     job = FirmwareJob(
         job_id="x",
@@ -1004,12 +990,12 @@ async def test_remote_compile_no_remote_build_controller_fires_job_failed(
 ) -> None:
     """A REMOTE job dispatched before the remote-build controller is initialised fails cleanly."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     # No remote_build attached — production sets this in
     # ``DeviceBuilder.__init__`` but ``None`` is the typed
     # default the runner has to handle.
     controller._db.remote_build_offloader = None
-    job = _make_remote_job()
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -1024,10 +1010,10 @@ async def test_remote_compile_submit_no_session_fires_job_failed(
 ) -> None:
     """``submit_job`` raising :class:`PeerLinkNoSessionError` surfaces in ``job.error``."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client(submit_error=PeerLinkNoSessionError("session not open"))
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     await remote_runner.run_remote_job(controller, job)
 
@@ -1055,10 +1041,10 @@ async def test_remote_compile_session_lost_mid_build_fires_job_failed(
     fails fast rather than wedging the firmware queue.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1103,10 +1089,10 @@ async def test_remote_compile_session_lost_raises_for_pool_retry(
 ) -> None:
     """A mid-build session loss raises for pool retry instead of finalising locally."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(
         remote_runner.run_remote_job(controller, job, retry_on_server_loss=True)
@@ -1138,10 +1124,10 @@ async def test_remote_compile_session_lost_synthetic_line_skips_leading_newline(
     "session closed" message.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1172,7 +1158,7 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
     spinning waiting for a frame.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     # First lookup (for submit) succeeds; second lookup (for
     # cancel) raises. Both flow through the same MagicMock so
     # the side_effect list-pattern covers the sequence.
@@ -1183,7 +1169,7 @@ async def test_remote_compile_cancel_translation_handles_missing_session(
         CommandError(ErrorCode.PRECONDITION_FAILED, "session not connected (mid-reconnect)"),
     ]
     controller._db.remote_build_offloader = remote_build
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(initial_client)
@@ -1201,10 +1187,10 @@ async def test_remote_compile_cancel_translation_handles_session_drop_on_send(
 ) -> None:
     """``cancel_job`` raising ``PeerLinkNoSessionError`` finalises CANCELLED locally."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client(cancel_error=PeerLinkNoSessionError("session gone"))
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1234,9 +1220,9 @@ async def test_remote_compile_runner_task_cancelled_finalises_as_cancelled(
     queue runner can unwind.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1273,9 +1259,9 @@ async def test_execute_job_routes_remote_source_through_remote_runner(
     method.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(controller._execute_job(job, controller.state.compile_lane))
     await _wait_until_dispatched(client)
@@ -1308,10 +1294,10 @@ async def test_submit_job_ack_echoes_caller_job_id(
     showing up as an unrelated runner-test failure.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    _capture_local_events(controller)
+    capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job(job_id="unique-echo-1234")
+    job = make_remote_job(job_id="unique-echo-1234")
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1343,9 +1329,9 @@ async def test_remote_compile_ignores_session_closed_for_other_pin(
     take each other's jobs down on every reconnect.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1387,15 +1373,15 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     ``_cancel_requested`` and self-fires the event if the
     cancel already arrived. This test pins that path by
     flipping ``_cancel_requested`` before the runner
-    starts, then asserting the runner still translates the
-    cancel onto the wire (instead of hanging on its newly-
-    created event).
+    starts, then asserting the runner honours the cancel
+    during the bundle phase (instead of hanging on its
+    newly-created event).
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     # Cancel landed BEFORE the runner registers its event —
     # ``_cancel_requested`` carries the flag, but no entry
@@ -1404,19 +1390,15 @@ async def test_remote_compile_cancel_before_runner_registers_event_still_fires(
     controller.state.cancel_requested.add(job.job_id)
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
-    # The runner's bundle build + submit will still complete
-    # (the cancel-aware ``_fail_locally`` short-circuit only
-    # kicks in when one of those branches raises). The
-    # registration's self-fire is what keeps the happy
-    # dispatch path from hanging on the cancel event.
-    await _wait_for_wire_cancel(client)
-    client.cancel_job.assert_awaited_once_with(job_id=job.job_id)
-
-    _fire_state(controller, job_id=job.job_id, status="cancelled")
+    # The registration's self-fire hands the already-set event to the
+    # bundle phase, which aborts before any wire traffic — nothing is
+    # submitted, so there's no receiver-side job to cancel.
     await asyncio.wait_for(runner, timeout=2.0)
 
     assert job.status == JobStatus.CANCELLED
     assert len(captured[EventType.JOB_CANCELLED]) == 1
+    client.submit_job.assert_not_awaited()
+    client.cancel_job.assert_not_awaited()
 
 
 async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
@@ -1440,10 +1422,10 @@ async def test_firmware_cancel_handler_wakes_remote_runner_via_event(
     code path.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     # The WS cancel handler refuses non-existent jobs and a
     # missing lane slot is a hard error — wire both so
@@ -1488,9 +1470,9 @@ async def test_remote_compile_cancel_after_remote_build_torn_down_finalises_loca
     clean CANCELLED event.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     _, client = _wire_remote_build(controller)
-    job = _make_remote_job()
+    job = make_remote_job()
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
     await _wait_until_dispatched(client)
@@ -1519,7 +1501,7 @@ def _make_remote_install_job(*, job_id: str = "remote-1", port: str = "OTA") -> 
         job_type=JobType.INSTALL,
         port=port,
         source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
+        source_pin_sha256=REMOTE_PIN,
         source_label="desktop",
     )
 
@@ -1589,7 +1571,7 @@ async def test_remote_install_resets_progress_between_compile_and_upload(
     advance the gauge from 0.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     _wire_remote_build(controller, client=client)
@@ -1633,7 +1615,7 @@ async def test_remote_install_completes_after_local_upload_succeeds(
     as ``COMPLETED`` and fires the local terminal event.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     _wire_remote_build(controller, client=client)
@@ -1660,7 +1642,7 @@ async def test_remote_install_local_upload_failure_fires_job_failed(
 ) -> None:
     """A non-zero ``esphome upload`` exit lands as JOB_FAILED with exit-code in error."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     _wire_remote_build(controller, client=client)
@@ -1684,7 +1666,7 @@ async def test_remote_install_download_artifacts_failure_fires_job_failed(
 ) -> None:
     """``download_artifacts`` failing surfaces in ``job.error`` with the receiver's reason."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(
         side_effect=DownloadArtifactsError("build dir wiped", reason="build_dir_missing")
@@ -1709,7 +1691,7 @@ async def test_remote_install_materialise_failure_fires_job_failed(
 ) -> None:
     """Materialise failure (malformed tarball, missing member) lands as JOB_FAILED."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     _wire_remote_build(controller, client=client)
@@ -1737,7 +1719,7 @@ async def test_remote_install_materialise_oserror_fires_job_failed(
 ) -> None:
     """An OSError from materialise (disk full / permissions) lands as JOB_FAILED."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
     monkeypatch.setattr(
@@ -1762,7 +1744,7 @@ async def test_fetch_and_run_local_upload_pre_spawn_cancel_finalises_locally(
 ) -> None:
     """Cancel landing after ``_fetch_and_materialise`` returns but before the spawn."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     job = _make_remote_install_job()
     controller.state.cancel_requested.add(job.job_id)
@@ -1794,7 +1776,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     FAILED branch the non-zero exit would normally trigger.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     _wire_remote_build(controller, client=client)
@@ -1867,7 +1849,7 @@ async def test_run_upload_subprocess_cancel_landing_between_pre_check_and_spawn_
     the flag and fires ``_terminate_job_process``.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     job = _make_remote_install_job()
@@ -1916,7 +1898,7 @@ async def test_fetch_and_materialise_cancel_post_staging_finalises_locally(
     ``False`` so the caller skips the spawn.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     job = _make_remote_install_job()
     controller.state.cancel_requested.add(job.job_id)
@@ -1949,7 +1931,7 @@ async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
     silently breaking the UPLOAD path.
     """
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
     _wire_remote_build(controller, client=client)
@@ -1960,7 +1942,7 @@ async def test_remote_upload_runs_the_same_local_flash_chain_as_install(
         job_type=JobType.UPLOAD,
         port="192.168.1.50",
         source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
+        source_pin_sha256=REMOTE_PIN,
     )
 
     runner = asyncio.create_task(remote_runner.run_remote_job(controller, job))
@@ -1979,7 +1961,7 @@ def _make_reset_job(*, job_id: str = "reset-1") -> FirmwareJob:
         configuration="",
         job_type=JobType.RESET_BUILD_ENV,
         source=JobSource.REMOTE,
-        source_pin_sha256=_PIN,
+        source_pin_sha256=REMOTE_PIN,
         source_label="desktop",
     )
 
@@ -2001,7 +1983,7 @@ async def test_remote_reset_dispatches_frame_and_finalises_on_completed(
 ) -> None:
     """A REMOTE reset sends one bundle-less frame, streams output, finalises COMPLETED."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
     job = _make_reset_job()
@@ -2030,7 +2012,7 @@ async def test_remote_reset_busy_reject_fails_with_retry_message(
 ) -> None:
     """A ``busy`` reject finalises FAILED with the retry-when-idle message."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client(accepted=False, reason="busy")
     _wire_remote_build(controller, client=client)
     job = _make_reset_job()
@@ -2049,7 +2031,7 @@ async def test_remote_reset_duplicate_request_fires_job_failed(
 ) -> None:
     """``reset_build_env`` refusing a duplicate ``job_id`` surfaces in ``job.error``."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client(
         submit_error=DuplicateRequestError("reset_build_env: request already registered")
     )
@@ -2068,7 +2050,7 @@ async def test_remote_reset_session_lost_mid_reset_fires_job_failed(
 ) -> None:
     """A peer-link close mid-reset fails the mirror; the receiver's wipe continues."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
     job = _make_reset_job()
@@ -2089,7 +2071,7 @@ async def test_remote_reset_cancel_round_trip(
 ) -> None:
     """A local Stop sends ``cancel_job``; the receiver's ``cancelled`` finalises the mirror."""
     controller = firmware_controller_factory(with_terminate=True)
-    captured = _capture_local_events(controller)
+    captured = capture_local_events(controller)
     client = _make_client()
     _wire_remote_build(controller, client=client)
     job = _make_reset_job()

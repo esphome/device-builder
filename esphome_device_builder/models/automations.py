@@ -472,6 +472,9 @@ class AvailableComponentInstance(DashboardModel):
     title: str | None = None
     is_entity_container: bool = False
     parent_id: str | None = None
+    # True only when the YAML declares ``id:``; a synthesized round-trip
+    # identity must not be written into reference params.
+    has_explicit_id: bool = False
 
 
 @dataclass

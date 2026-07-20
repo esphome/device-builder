@@ -290,6 +290,11 @@ def singleton_component_id(section: dict, domain: str) -> str:
     return str(section.get("id") or domain)
 
 
+def declares_id(instance: dict) -> bool:
+    """Whether :func:`instance_id` would return the declared ``id:`` rather than a synthetic."""
+    return bool(instance.get("id"))
+
+
 class ComponentTarget(NamedTuple):
     """
     Where a *component_id* resolves in the YAML.

@@ -87,5 +87,5 @@ source:
   type: esphome-devices
   remote_id: DETA-Mechanism-Switch-6014HA
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/DETA-Mechanism-Switch-6014HA/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 048d06082c151b03e594459c341b819c964c1c617e552bafa2be182674c01bff

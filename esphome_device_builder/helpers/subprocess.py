@@ -13,7 +13,7 @@ the same pattern in ``esphome.dashboard.util.subprocess``.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -83,6 +83,7 @@ async def run_subprocess_capture(
     timeout: float,
     stdin_data: bytes | None = None,
     merge_stderr: bool = True,
+    on_line: Callable[[str], None] | None = None,
 ) -> CapturedSubprocess:
     """Spawn *args*, await completion (or *timeout*), capture stdout.
 
@@ -97,23 +98,23 @@ async def run_subprocess_capture(
     opened as a pipe only then). *merge_stderr* (default) redirects
     stderr onto stdout for a unified stream; pass ``False`` to discard
     stderr so stdout carries only the child's real output (e.g. a clean
-    JSON payload).
+    JSON payload). *on_line*, when given, streams each output chunk
+    (split via :func:`iter_lines_with_progress`, terminators kept) to
+    the callback as it arrives instead of capturing — ``stdout`` on the
+    result is then empty; the callback owns retention.
 
-    Timeout handling: :func:`asyncio.wait_for` raises
-    :class:`TimeoutError`; we :func:`kill_quietly` the process,
+    Timeout handling: on expiry we :func:`kill_quietly` the process,
     await its ``wait()`` so the OS resources release, and return
-    a :class:`CapturedSubprocess` with ``timed_out=True``. Caller
+    a :class:`CapturedSubprocess` with ``timed_out=True`` carrying
+    whatever stdout arrived before the kill — the partial output is
+    the only diagnostic a hung subprocess leaves behind. Caller
     inspects ``timed_out`` rather than handling a raised
     exception, which keeps the common shape "one return, check
     flags" instead of try/except at every call site.
 
-    No retry, no streaming — callers that need either pattern
-    use :func:`create_subprocess_exec` directly.
-
-    Cancellation-safe: if the awaiting task is cancelled while
-    ``proc.communicate()`` is in flight, ``kill_quietly`` fires
-    SIGKILL and the :class:`CancelledError` re-raises
-    immediately. The dead subprocess is reaped by asyncio's
+    Cancellation-safe: if the awaiting task is cancelled mid-read,
+    ``kill_quietly`` fires SIGKILL and the :class:`CancelledError`
+    re-raises immediately. The dead subprocess is reaped by asyncio's
     child watcher in the background — we deliberately don't
     ``await proc.wait()`` here because that would either swallow
     the second cancellation (violating
@@ -127,16 +128,36 @@ async def run_subprocess_capture(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT if merge_stderr else asyncio.subprocess.DEVNULL,
     )
+    # A dedicated writer task preserves ``communicate()``'s deadlock
+    # avoidance: the child may not drain stdin until its stdout is read.
+    writer: asyncio.Task[None] | None = None
+    if stdin_data is not None:
+        writer = asyncio.get_running_loop().create_task(_write_stdin(proc, stdin_data))
+    buf = bytearray()
+    timed_out = False
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(stdin_data), timeout=timeout)
+        async with asyncio.timeout(timeout):
+            assert proc.stdout is not None
+            await _consume_stdout(proc.stdout, on_line, buf)
+            await proc.wait()
+            if writer is not None:
+                await writer
     except TimeoutError:
-        kill_quietly(proc)
+        timed_out = True
+    finally:
+        # The single kill site: timeout, cancellation, or an *on_line*
+        # callback raising all land here with the child still running.
+        # Sync only, so a propagating CancelledError is never swallowed
+        # or stalled.
+        if proc.returncode is None:
+            kill_quietly(proc)
+            if writer is not None:
+                writer.cancel()
+    if timed_out:
         await proc.wait()
-        return CapturedSubprocess(returncode=proc.returncode, stdout=b"", timed_out=True)
-    except asyncio.CancelledError:
-        kill_quietly(proc)
-        raise
-    return CapturedSubprocess(returncode=proc.returncode, stdout=stdout, timed_out=False)
+        if writer is not None:
+            await asyncio.gather(writer, return_exceptions=True)
+    return CapturedSubprocess(returncode=proc.returncode, stdout=bytes(buf), timed_out=timed_out)
 
 
 async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterator[str]:
@@ -190,3 +211,32 @@ async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterato
             chunk = buf[:end]
             buf = buf[end:]
             yield chunk.decode("utf-8", errors="replace")
+
+
+async def _consume_stdout(
+    stdout: asyncio.StreamReader, on_line: Callable[[str], None] | None, buf: bytearray
+) -> None:
+    """Drain *stdout* into *buf*, or per line to *on_line* when set.
+
+    Capture mode mutates the caller-owned *buf* rather than returning
+    bytes so a timeout cancelling this coroutine still leaves the
+    partial output readable; streaming mode never touches *buf*.
+    """
+    if on_line is None:
+        while data := await stdout.read(_STREAM_READ_SIZE):
+            buf += data
+        return
+    async for chunk in iter_lines_with_progress(stdout):
+        on_line(chunk)
+
+
+async def _write_stdin(proc: asyncio.subprocess.Process, data: bytes) -> None:
+    """Write *data* to *proc*'s stdin and close it, tolerating an early-exiting child."""
+    assert proc.stdin is not None
+    try:
+        proc.stdin.write(data)
+        await proc.stdin.drain()
+    except (BrokenPipeError, ConnectionResetError):
+        return
+    finally:
+        proc.stdin.close()

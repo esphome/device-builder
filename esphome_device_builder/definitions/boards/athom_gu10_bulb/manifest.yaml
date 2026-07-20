@@ -89,5 +89,5 @@ source:
   type: esphome-devices
   remote_id: Athom-GU10-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-GU10-Bulb/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 3463543b649eca9bd234a82d7b2b53d0e33a268024f7dc1da1a167d5590591fb

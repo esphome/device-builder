@@ -55,6 +55,7 @@ from script.sync_boards import (
     _NRF52_PLATFORM,
     _augment_rmii_data_pins,
     _augment_rp2040_onboard_ethernet_pins,
+    _backfill_donor_pins,
     _backfill_esp32_engineering_sample,
     _backfill_esp32_variants,
     _backfill_libretiny_mcu,
@@ -112,6 +113,13 @@ def test_split_artefacts_match_manifests() -> None:
     _backfill_rp2040_mcu(from_yaml.boards)
     _backfill_libretiny_mcu(from_yaml.boards)
     _augment_rp2040_onboard_ethernet_pins(from_yaml.boards)
+    # In emission the platform augments fill esp8266 product boards before the
+    # donor pass ever sees them; the replay skips those augments, so capture
+    # which boards they would have owned before the donor pass claims them.
+    esp8266_empty = {
+        b.id for b in from_yaml.boards if b.esphome.platform.value == "esp8266" and not b.pins
+    }
+    _backfill_donor_pins(from_yaml.boards)
     _augment_rmii_data_pins(from_yaml.boards)
     _stamp_featured_locked_pins(from_yaml.boards)
     _stamp_featured_requires(from_yaml.boards)
@@ -142,7 +150,7 @@ def test_split_artefacts_match_manifests() -> None:
         # esphome_filled manifests ship no pins; esp8266 product manifests ship
         # empty pins filled at sync. Either way pins are esphome-derived and
         # version-dependent here — curated esp8266 pins stay compared.
-        if platform in esphome_filled or (platform == "esp8266" and not board.pins):
+        if platform in esphome_filled or board.id in esp8266_empty:
             expected.pop("pins", None)
             actual.pop("pins", None)
         # Images are vendor-controlled URLs; a manifest image edit shouldn't fail

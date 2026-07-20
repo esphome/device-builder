@@ -69,6 +69,7 @@ from _catalog_split import (  # noqa: E402
     swap_split_catalog_in,
 )
 from _esphome_version import assert_installed_esphome  # noqa: E402
+from _manifest import ManifestError, load_manifest_dict  # noqa: E402
 
 from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
@@ -654,6 +655,61 @@ def _backfill_esp32_variants(boards: list[BoardCatalogEntry]) -> None:
             cfg.variant = Esp32Variant(variant)
 
 
+def _backfill_donor_pins(
+    boards: list[BoardCatalogEntry],
+    pins_from: dict[str, str] | None = None,
+) -> None:
+    """Fill a pin-less board from its donor's pin table.
+
+    An explicit manifest ``pins_from`` names the donor by id (read from the
+    manifests when not injected); otherwise the unique same-chip
+    ``is_generic`` donor applies. An absent or ambiguous donor leaves the
+    table empty; validate_definitions is the loud gate for a bad reference.
+    """
+    if pins_from is None:
+        pins_from = _manifest_pins_from()
+    by_id = {board.id: board for board in boards}
+    # Chip compatibility of an explicit donor is validate_definitions'
+    # job; this stage only refuses to overwrite an existing table.
+    for board_id, donor_id in pins_from.items():
+        board = by_id.get(board_id)
+        donor = by_id.get(donor_id)
+        if board is not None and not board.pins and donor is not None and donor.pins:
+            board.pins = list(donor.pins)
+
+    def _chip(cfg: BoardEsphomeConfig) -> tuple[str, str, str | None]:
+        return (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
+
+    donors: dict[tuple[str, str, str | None], list[BoardCatalogEntry]] = {}
+    for board in boards:
+        if board.is_generic and board.pins:
+            donors.setdefault(_chip(board.esphome), []).append(board)
+    for board in boards:
+        if board.pins:
+            continue
+        matched = donors.get(_chip(board.esphome), [])
+        if len(matched) == 1:
+            board.pins = list(matched[0].pins)
+
+
+def _manifest_pins_from() -> dict[str, str]:
+    """``{board_id: donor_id}`` for every manifest carrying ``pins_from``."""
+    out: dict[str, str] = {}
+    for manifest in sorted((_DEFINITIONS_DIR / "boards").glob("*/manifest.yaml")):
+        try:
+            data = load_manifest_dict(manifest)
+        except ManifestError as exc:
+            # validate_definitions is the hard gate; still say why a board's
+            # pins_from inheritance silently vanished from this sync run.
+            _LOGGER.warning("Skipping unreadable manifest %s: %s", manifest, exc)
+            continue
+        donor = data.get("pins_from")
+        if isinstance(donor, str):
+            # Folder name is the canonical id (schema-enforced equal).
+            out[str(data.get("id") or manifest.parent.name)] = donor
+    return out
+
+
 def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
     """
     Generate ESP32 entries for the boards manifests don't cover.
@@ -1193,6 +1249,9 @@ def build_catalog() -> BoardCatalogResponse:
     _backfill_esp32_engineering_sample(catalog.boards)
     _augment_esp8266_boards(catalog.boards)
     _augment_nrf52_boards(catalog.boards)
+    # Last pin-FILLING pass — a filler inserted after it would find its
+    # empty-pin targets already claimed; the passes below only decorate.
+    _backfill_donor_pins(catalog.boards)
     _augment_rmii_data_pins(catalog.boards)
     _stamp_featured_locked_pins(catalog.boards)
     _stamp_featured_requires(catalog.boards)

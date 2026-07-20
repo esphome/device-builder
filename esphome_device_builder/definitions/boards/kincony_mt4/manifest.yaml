@@ -1,0 +1,191 @@
+id: kincony_mt4
+name: KinCony-MT4 (ESP32-S3 4CH DC motor driver board)
+description: Imported from devices.esphome.io — see linked docs for community notes.
+esphome:
+  platform: esp32
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  framework: esp-idf
+hardware:
+  connectivity:
+  - wifi
+  - bluetooth
+  - ethernet
+images:
+- https://raw.githubusercontent.com/esphome/devices.esphome.io/main/src/docs/devices/KinCony-MT4/MT4-1.jpg
+pins:
+- gpio: 1
+  available: false
+  occupied_by: Ethernet RESET
+- gpio: 2
+  available: false
+  occupied_by: Ethernet INT
+- gpio: 9
+  available: false
+  occupied_by: motor1_pwm
+- gpio: 10
+  available: false
+  occupied_by: motor2_in2
+- gpio: 11
+  available: false
+  occupied_by: motor2_in1
+- gpio: 12
+  available: false
+  occupied_by: motor2_pwm
+- gpio: 13
+  available: false
+  occupied_by: motor3_in1
+- gpio: 14
+  available: false
+  occupied_by: motor3_pwm
+- gpio: 21
+  available: false
+  occupied_by: motor4_pwm
+- gpio: 39
+  available: false
+  occupied_by: motor1_in1
+- gpio: 41
+  available: false
+  occupied_by: Ethernet CS
+- gpio: 42
+  available: false
+  occupied_by: Ethernet CLK
+- gpio: 43
+  available: false
+  occupied_by: Ethernet MOSI
+- gpio: 44
+  available: false
+  occupied_by: Ethernet MISO
+- gpio: 45
+  available: false
+  occupied_by: motor4_in2
+- gpio: 46
+  available: false
+  occupied_by: motor1_in2
+- gpio: 47
+  available: false
+  occupied_by: motor3_in2
+- gpio: 48
+  available: false
+  occupied_by: motor4_in1
+docs_url: https://devices.esphome.io/devices/KinCony-MT4/
+featured_components:
+- id: onboard_ethernet
+  component_id: ethernet
+  name: Onboard Ethernet
+  fields:
+    type:
+      value: W5500
+      locked: true
+    clk_pin:
+      value: GPIO42
+      locked: true
+    mosi_pin:
+      value: GPIO43
+      locked: true
+    miso_pin:
+      value: GPIO44
+      locked: true
+    cs_pin:
+      value: GPIO41
+      locked: true
+    interrupt_pin:
+      value: GPIO2
+      locked: true
+    reset_pin:
+      value: GPIO1
+      locked: true
+- id: motor1_in1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 39
+      locked: true
+    id: motor1_in1
+- id: motor1_in2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 46
+      locked: true
+    id: motor1_in2
+- id: motor1_pwm
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 9
+      locked: true
+    frequency: 1000Hz
+    id: motor1_pwm
+- id: motor2_in1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 11
+      locked: true
+    id: motor2_in1
+- id: motor2_in2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 10
+      locked: true
+    id: motor2_in2
+- id: motor2_pwm
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 12
+      locked: true
+    frequency: 1000Hz
+    id: motor2_pwm
+- id: motor3_in1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 13
+      locked: true
+    id: motor3_in1
+- id: motor3_in2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 47
+      locked: true
+    id: motor3_in2
+- id: motor3_pwm
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 14
+      locked: true
+    frequency: 1000Hz
+    id: motor3_pwm
+- id: motor4_in1
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 48
+      locked: true
+    id: motor4_in1
+- id: motor4_in2
+  component_id: output.gpio
+  fields:
+    pin:
+      value: 45
+      locked: true
+    id: motor4_in2
+- id: motor4_pwm
+  component_id: output.ledc
+  fields:
+    pin:
+      value: 21
+      locked: true
+    frequency: 1000Hz
+    id: motor4_pwm
+source:
+  type: esphome-devices
+  remote_id: KinCony-MT4
+  upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-MT4/index.md
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  content_hash: 62268a22b17fd01026af370344dbdd00c9387fc484a6296d799e12465d06ad93

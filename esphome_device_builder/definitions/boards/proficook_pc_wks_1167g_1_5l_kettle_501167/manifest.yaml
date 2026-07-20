@@ -98,5 +98,5 @@ source:
   type: esphome-devices
   remote_id: ProfiCook-PC-WKS-1167G-1.5L-Kettle-501167
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ProfiCook-PC-WKS-1167G-1.5L-Kettle-501167/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 65bbff79e0d48ed63d91252949ea2165874ac346e44530a3eafc455c49ed4932

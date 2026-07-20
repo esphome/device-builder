@@ -204,5 +204,5 @@ source:
   type: esphome-devices
   remote_id: Hiking-DDS238-1-W1
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hiking-DDS238-1-W1/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 05383452651508651f2f89f5293ad0198d6bcb0bd36551d6f580aac2f6ccf165

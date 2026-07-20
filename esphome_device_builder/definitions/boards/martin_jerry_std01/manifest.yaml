@@ -57,5 +57,5 @@ source:
   type: esphome-devices
   remote_id: Martin-Jerry-STD01
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Martin-Jerry-STD01/index.md
-  upstream_revision: a3fac0e48920548cbdce5fc00cb8b05571b4d83e
+  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
   content_hash: 03427f2a4ac47981006e8a2ad678af193a8a2c0dbe7f26ad2a409194945d650f
