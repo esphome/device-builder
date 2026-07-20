@@ -1,10 +1,17 @@
-"""Donor pin inheritance for pin-less boards (#2219)."""
+"""Donor pin inheritance for pin-less boards."""
 
 from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.models import BoardCatalogResponse
+from esphome_device_builder.models import (
+    BoardCatalogEntry,
+    BoardCatalogResponse,
+    BoardEsphomeConfig,
+    BoardPin,
+    Platform,
+)
+from script.sync_boards import _backfill_donor_pins
 
 pytestmark = pytest.mark.xdist_group("board_sync")
 
@@ -31,13 +38,43 @@ def test_pinless_board_inherits_the_generic_donor_table(
     assert boards[recipient].pins is not boards[donor].pins
 
 
-def test_ambiguous_donors_stay_empty(
+def test_atom_proxies_stay_empty(
     generated_board_catalog: BoardCatalogResponse,
 ) -> None:
-    """The atom module's products expose 6-34 pins; no single right donor."""
+    """
+    The atom proxies stay empty by donor absence, not the ambiguity guard.
+
+    No ``is_generic`` board carries their PIO board ids; a generic atom board
+    added later would flip these to inheriting, which must be an explicit
+    decision, not a silent one.
+    """
     boards = {b.id: b for b in generated_board_catalog.boards}
     assert boards["m5stack-atom-lite-bluetooth-proxy"].pins == []
     assert boards["m5stack-atom-s3-bluetooth-proxy"].pins == []
+
+
+def _entry(board_id: str, *, pins: int = 0, is_generic: bool = False) -> BoardCatalogEntry:
+    return BoardCatalogEntry(
+        id=board_id,
+        name=board_id,
+        description="",
+        manufacturer="",
+        esphome=BoardEsphomeConfig(platform=Platform.ESP32, board="esp32dev"),
+        pins=[BoardPin(gpio=n, label=f"GPIO{n}") for n in range(pins)],
+        is_generic=is_generic,
+    )
+
+
+def test_multiple_generic_donors_leave_the_board_empty() -> None:
+    """The ambiguity guard itself: two same-chip generics, no inheritance."""
+    recipient = _entry("recipient")
+    boards = [
+        _entry("donor-a", pins=3, is_generic=True),
+        _entry("donor-b", pins=5, is_generic=True),
+        recipient,
+    ]
+    _backfill_donor_pins(boards)
+    assert recipient.pins == []
 
 
 def test_curated_pins_are_never_overwritten(

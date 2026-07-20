@@ -657,11 +657,7 @@ def _backfill_esp32_variants(boards: list[BoardCatalogEntry]) -> None:
 def _backfill_donor_pins(boards: list[BoardCatalogEntry]) -> None:
     """Fill a pin-less board from the unique same-chip ``is_generic`` donor.
 
-    Plain devkits (the bluetooth-proxy generics, imported devices on stock
-    modules) share their chip's generic board exactly; esphome's board pin
-    alias maps carry nothing for them, so the platform augments leave the
-    table empty and every pin field degrades to free text (#2219). Ambiguous
-    donors (several products on one module) stay empty.
+    An absent or ambiguous donor leaves the table empty.
     """
 
     def _chip(cfg: BoardEsphomeConfig) -> tuple[str, str, str | None]:
