@@ -349,10 +349,10 @@ jobs:
   e2e-mqtt:
     name: E2E MQTT discovery (mosquitto)
     runs-on: ubuntu-latest
-    # The MQTT discovery e2e drives real paho clients against a real
-    # mosquitto broker; the test self-skips wherever the broker isn't
-    # installed, so this is the one job that installs it. Linux only —
-    # the broker path is platform-independent.
+    # The MQTT discovery e2e (tests/e2e/slow/mqtt/) drives real paho
+    # clients against a real mosquitto broker; the test self-skips
+    # wherever the broker isn't installed, so this is the one job that
+    # installs it. Linux only — the broker path is platform-independent.
     steps:
       - name: Check out code from GitHub
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -370,7 +370,7 @@ jobs:
 
       - name: Run MQTT discovery e2e
         timeout-minutes: 5
-        run: uv run --no-sync pytest -q tests/e2e/test_mqtt_discovery_broker.py --durations=10 --timeout=120 --no-cov
+        run: uv run --no-sync pytest -q tests/e2e/slow/mqtt --durations=10 --timeout=120 --no-cov
 
   e2e-libretiny:
     name: E2E LibreTiny (esphome stable)

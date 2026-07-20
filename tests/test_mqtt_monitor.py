@@ -1612,6 +1612,63 @@ async def test_ping_loop_non_publisher_is_a_pure_listener(
         assert "ghost" in monitor._last_seen
 
 
+async def test_ping_loop_logs_failed_broadcast(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A non-zero publish rc leaves a DEBUG trace instead of vanishing."""
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
+
+    class _FailingClient(_CountingClient):
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            super().publish(topic, payload, retain=retain)
+            info = _PublishInfo()
+            info.rc = 4
+            return info
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    fake = _FailingClient()
+    with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers._device_mqtt_monitor"):
+        async with _running_ping_loop(monitor, fake):
+            for _ in range(100):
+                if fake.publishes:
+                    break
+                await asyncio.sleep(0.01)
+    assert any("discover broadcast failed" in rec.message for rec in caplog.records)
+
+
+async def test_stop_unsubscribes_presence_wake_callback() -> None:
+    """stop() detaches the wake callback so a dropped monitor can't leak into the gate."""
+    presence = SubscriberPresence()
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+        presence=presence,
+    )
+    assert len(presence._subscriber_callbacks) == 1
+    await monitor.stop()
+    assert presence._subscriber_callbacks == []
+
+
+async def test_set_connected_fires_connection_change_on_transitions_only() -> None:
+    """_set_connected notifies once per edge, not per call."""
+    calls: list[bool] = []
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+        on_connection_change=lambda: calls.append(True),
+    )
+    monitor._set_connected(value=True)
+    monitor._set_connected(value=True)
+    monitor._set_connected(value=False)
+    assert calls == [True, True]
+
+
 async def test_promotion_rebases_last_seen() -> None:
     """set_publisher(False→True) rebases stamps aged during the no-broadcaster gap."""
     monitor = DeviceMqttMonitor(

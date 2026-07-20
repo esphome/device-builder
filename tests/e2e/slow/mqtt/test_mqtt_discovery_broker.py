@@ -5,7 +5,7 @@ Six fake paho devices split across two broker logins, driven through
 the real coordinator/monitor stack: subscriber-gated broadcasts, one
 elected broadcaster per broker, online detection, and offline aging.
 Skips when the mosquitto binaries aren't installed; the dedicated
-linux CI job installs them.
+linux ``e2e-mqtt`` CI job installs them.
 """
 
 from __future__ import annotations
