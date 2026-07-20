@@ -7,7 +7,7 @@ import logging
 import pytest
 
 from esphome_device_builder.models import BoardCatalogResponse, PinFeature
-from script.sync_boards import _derive_nrf52_pins, build_catalog
+from script.sync_boards import _derive_nrf52_pins
 
 pytestmark = pytest.mark.xdist_group("board_sync")
 
@@ -52,12 +52,13 @@ def test_nrf52_does_not_steal_rp2040_itsybitsy(
     assert by_id["adafruit_itsybitsy_nrf52840"].esphome.platform.value == "nrf52"
 
 
-def test_nrf52_id_clash_logs_warning(caplog) -> None:
+def test_nrf52_id_clash_logs_warning(
+    generated_board_catalog_with_warnings: tuple[BoardCatalogResponse, list[logging.LogRecord]],
+) -> None:
     # The drop must not be silent: a cross-platform id clash warns so the nightly
     # catalog gate can see it.
-    with caplog.at_level(logging.WARNING, logger="sync_boards"):
-        build_catalog()
+    _, records = generated_board_catalog_with_warnings
     assert any(
-        "adafruit_itsybitsy" in r.message and "shares a catalog id" in r.message
-        for r in caplog.records
+        "adafruit_itsybitsy" in r.getMessage() and "shares a catalog id" in r.getMessage()
+        for r in records
     )

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import sys
 import tempfile as _tempfile
@@ -509,9 +510,11 @@ def session_board_catalog() -> BoardCatalog:
 
 
 @pytest.fixture(scope="session")
-def generated_board_catalog() -> BoardCatalogResponse:
-    """``script.sync_boards.build_catalog()`` run once per xdist worker.
+def generated_board_catalog_with_warnings() -> tuple[BoardCatalogResponse, list[logging.LogRecord]]:
+    """Run ``script.sync_boards.build_catalog()`` once per xdist worker.
 
+    Returns the catalog plus the WARNING records its ``sync_boards`` logger
+    emitted during that one build.
     Generation imports ESPHome's per-platform board modules and walks ~80
     manifests; the board-pin test modules pin to one worker via
     ``xdist_group("board_sync")`` so this runs a single time per suite.
@@ -522,7 +525,31 @@ def generated_board_catalog() -> BoardCatalogResponse:
     # suite during collection even when no test wants this fixture.
     from script.sync_boards import build_catalog  # noqa: PLC0415
 
-    return build_catalog()
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    handler = _Collect(level=logging.WARNING)
+    logger = logging.getLogger("sync_boards")
+    previous_level = logger.level
+    logger.setLevel(logging.WARNING)
+    logger.addHandler(handler)
+    try:
+        catalog = build_catalog()
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+    return catalog, records
+
+
+@pytest.fixture(scope="session")
+def generated_board_catalog(
+    generated_board_catalog_with_warnings: tuple[BoardCatalogResponse, list[logging.LogRecord]],
+) -> BoardCatalogResponse:
+    """Return the catalog half of ``generated_board_catalog_with_warnings``."""
+    return generated_board_catalog_with_warnings[0]
 
 
 @pytest.fixture(scope="session")
