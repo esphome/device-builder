@@ -157,15 +157,16 @@ def _spawn_dashboard(
 
 # Holds the loop running mid-``AppRunner.setup`` with our SIGTERM trap active —
 # the pre-serving startup window. We run ``run_app(handle_signals=False)`` so the
-# trap is our handler the whole way; the blocking sleep inside ``setup`` makes a
-# signal land here deterministically so CI exercises the window every run.
+# trap is our handler the whole way; the blocking sleep inside ``setup`` is
+# widened just enough that a signal sent 0.3s after CRACK_OPEN always lands
+# inside it, even with a slow runner's readline-to-delivery latency.
 _CRACK_SITECUSTOMIZE = """
 import time as _t
 from aiohttp import web_runner as _wr
 _orig = _wr.AppRunner.setup
 async def _slow(self):
     print("CRACK_OPEN", flush=True)
-    _t.sleep(2.0)
+    _t.sleep(1.2)
     return await _orig(self)
 _wr.AppRunner.setup = _slow
 """
@@ -291,45 +292,43 @@ def test_sigterm_during_startup_exits_zero(tmp_path: Path) -> None:
 
 
 @posix_only
-@pytest.mark.timeout(120)
-def test_sigterm_in_startup_crack_exits_zero(tmp_path: Path) -> None:
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("iteration", range(3))
+def test_sigterm_in_startup_crack_exits_zero(tmp_path: Path, iteration: int) -> None:
     """A SIGTERM landing while the loop is mid-startup exits 0, not hang or 143."""
     # The window (loop running, our trap active, pre-serving) is timing-
     # dependent in the wild; the shim's blocking sleep inside setup widens it so
     # CI hits it deterministically. The transcript surfaces the child traceback
-    # on failure. Looped a few times to also shake out the signal-context
-    # reentrancy that only bites when the stop lands mid-log-write.
-    env = _crack_env(tmp_path)
-    for i in range(3):
-        config_dir = tmp_path / f"crack{i}"
-        config_dir.mkdir()
-        proc, _ = _spawn_dashboard(config_dir, env=env)
-        captured = _wait_for_crack(proc)
-        time.sleep(0.3)  # land the signal mid the shim's 2s widening sleep
+    # on failure. Parametrized to a few instances to also shake out the
+    # signal-context reentrancy that only bites when the stop lands
+    # mid-log-write; xdist spreads them across workers.
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    proc, _ = _spawn_dashboard(config_dir, env=_crack_env(tmp_path))
+    captured = _wait_for_crack(proc)
+    time.sleep(0.3)  # land the signal mid the shim's widening sleep
+    try:
+        proc.send_signal(signal.SIGTERM)
         try:
-            proc.send_signal(signal.SIGTERM)
-            try:
-                out, _ = proc.communicate(timeout=30)
-                captured.append(out)
-                returncode: int | None = proc.returncode
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                out, _ = proc.communicate()
-                captured.append(out)
-                returncode = None
-        finally:
-            if proc.poll() is None:
-                proc.kill()
-                proc.communicate()
-        transcript = "".join(captured)
-        assert returncode is not None, (
-            f"iteration {i}: dashboard did not exit within 30s of SIGTERM\n"
-            f"--- child transcript ---\n{transcript}"
-        )
-        assert returncode == 0, (
-            f"iteration {i}: expected clean exit 0, got {returncode}\n"
-            f"--- child transcript ---\n{transcript}"
-        )
+            out, _ = proc.communicate(timeout=30)
+            captured.append(out)
+            returncode: int | None = proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            out, _ = proc.communicate()
+            captured.append(out)
+            returncode = None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.communicate()
+    transcript = "".join(captured)
+    assert returncode is not None, (
+        f"dashboard did not exit within 30s of SIGTERM\n--- child transcript ---\n{transcript}"
+    )
+    assert returncode == 0, (
+        f"expected clean exit 0, got {returncode}\n--- child transcript ---\n{transcript}"
+    )
 
 
 @posix_only
