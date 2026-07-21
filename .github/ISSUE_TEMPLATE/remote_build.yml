@@ -1,0 +1,156 @@
+name: 🔗 Remote build pairing or offload problem
+description: Two dashboards can't discover each other, pair, stay connected, or run builds for each other.
+title: "[Remote build] "
+type: "Question"
+labels: ["remote-build"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Thanks for helping us improve the dashboard! 🙏
+
+
+        Use this template when **two dashboards** won't work together for
+        remote builds: the build server doesn't show up in discovery, pairing
+        fails or times out, an established pairing keeps dropping offline, or
+        builds fail after pairing.
+
+
+        **Please read first; most of these come down to the machines and the
+        network, not the dashboard.**
+
+
+        - **Windows blocks it by default.** Windows Firewall stops inbound
+        connections to the peer-link port (6055) and usually Python's mDNS
+        replies too, so nothing can discover or pair to a Windows build
+        server until you add an inbound allow rule for TCP 6055.
+
+        - **The Home Assistant add-on ships with the build server listener
+        off.** Turn on "Enable remote build" under Settings → Build server
+        before other dashboards can pair to it.
+
+        - **The pairing address must stay reachable.** Pair against a
+        reserved IP, a stable DNS name, or rely on working mDNS between the
+        two machines; a DHCP address that changes later takes the pairing
+        offline.
+
+        - **On Windows, use the desktop app.** A plain pip install is a rough
+        base for a build server; the [desktop app](https://desktop.esphome.io)
+        bundles its own Python runtime, installs and updates ESPHome and its
+        dependencies automatically, and keeps builds under a short `C:\esphb`
+        path so deep ESP-IDF build trees stay inside the 260-character path
+        limit.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What's failing?
+      description: |
+        What you're trying to do and where it stops: not discovered, pairing
+        error, pairing shows offline, builds fail after pairing. Name which
+        machine should run the builds (the build server) and which one sends
+        builds to it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: panels
+    attributes:
+      label: Build server panel screenshots from both dashboards (required)
+      description: |
+        On each dashboard open Settings → Build server and screenshot the
+        panel, including the pairing address or the "Listener offline" badge.
+        Paste both images directly into this box.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: pairing-entry
+    attributes:
+      label: How was the pairing address entered?
+      multiple: false
+      options:
+        - Picked from the discovered list
+        - Typed a .local name manually
+        - Typed an IP address manually
+        - Typed a DNS name manually
+        - Never got that far
+    validations:
+      required: true
+
+  - type: input
+    id: pairing-address
+    attributes:
+      label: Pairing address used
+      description: >
+        The host and port you paired (or tried to pair) with, and whether
+        that address is static, DHCP-reserved, or plain DHCP.
+      placeholder: 'e.g. "192.168.1.250:6055, DHCP reservation" or "builder.local:6055"'
+    validations:
+      required: false
+
+  - type: textarea
+    id: pair-error
+    attributes:
+      label: Exact error shown
+      description: The error text from the pair dialog or the pairing row, if any.
+    validations:
+      required: false
+
+  - type: textarea
+    id: sides
+    attributes:
+      label: Both sides
+      description: |
+        For each of the two dashboards: version, how it's installed (pip,
+        desktop app, container, HA add-on), and the OS it runs on.
+      placeholder: |
+        Build server: 1.6.8, desktop app, Windows 11
+        Sending side: 1.6.8, HA add-on, HA OS on Yellow
+    validations:
+      required: true
+
+  - type: textarea
+    id: network
+    attributes:
+      label: Network setup
+      description: |
+        Are the two machines on the same subnet/VLAN? Any firewalls between
+        them (including Windows Firewall)? Docker bridge or host network?
+        Anything relevant to whether TCP 6055 and mDNS can flow between them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reachability
+    attributes:
+      label: Reachability check
+      description: |
+        From the sending machine, test the build server's peer-link port and
+        paste the output; write "couldn't run it" if you have no shell there.
+
+        - macOS / Linux: `nc -vz <build server> 6055`
+        - Windows: `Test-NetConnection <build server> -Port 6055`
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Dashboard version
+      description: Output of `esphome-device-builder --version`, or the release tag you installed from.
+      placeholder: "e.g. 1.6.8"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs from both sides
+      description: |
+        Server log lines covering the pairing or build attempt from both
+        dashboards. Run with `--log-level debug` for more detail.
+      render: shell
+    validations:
+      required: true
