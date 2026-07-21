@@ -42,6 +42,7 @@ class PresenceGatedLoop[WorkT]:
         # subscriber arriving mid-idle doesn't wait out the interval.
         self._wake = asyncio.Event()
         self._running = False
+        self._error_logged = False
         self._unsub_wake: Callable[[], None] | None = None
         if presence is not None:
             self._unsub_wake = presence.add_subscriber_callback(self._wake.set)
@@ -80,10 +81,17 @@ class PresenceGatedLoop[WorkT]:
                     if not self._continue_on_error:
                         raise
                     # A failure must not kill the loop for the process
-                    # lifetime; log it and try again next interval.
-                    _LOGGER.exception("%s failed; continuing", self._label)
+                    # lifetime. Traceback once per failure streak, DEBUG
+                    # on repeats — re-armed by the next successful tick —
+                    # so a short interval can't flood the log.
+                    if self._error_logged:
+                        _LOGGER.debug("%s still failing; continuing", self._label, exc_info=True)
+                    else:
+                        _LOGGER.exception("%s failed; continuing", self._label)
+                        self._error_logged = True
                     await self._idle()
                     continue
+                self._error_logged = False
                 await self._idle()
                 self._after_idle(result)
         finally:

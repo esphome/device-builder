@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 
 import pytest
@@ -123,6 +124,26 @@ async def test_continue_on_error_logs_and_keeps_looping(
     async with _running(loop):
         await loop.wait_for_ticks(2)
     assert "test loop failed; continuing" in caplog.text
+
+
+async def test_crash_continue_collapses_repeat_logs_until_recovery(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failure streak logs one traceback; a successful tick re-arms the loud log."""
+    loop = _RecordingLoop(None)
+    loop.work_error = RuntimeError("boom")
+    with caplog.at_level(logging.DEBUG):
+        async with _running(loop):
+            await loop.wait_for_ticks(2)
+            loop.work_error = None
+            await loop.wait_for_ticks(3)
+            loop.work_error = RuntimeError("boom again")
+            await loop.wait_for_ticks(4)
+    messages = [(r.levelno, r.message) for r in caplog.records if "continuing" in r.message]
+    errors = [m for level, m in messages if level == logging.ERROR]
+    debugs = [m for level, m in messages if level == logging.DEBUG]
+    assert len(errors) == 2
+    assert debugs, "repeat failure in a streak must collapse to DEBUG"
 
 
 async def test_propagate_on_error_kills_the_loop() -> None:
