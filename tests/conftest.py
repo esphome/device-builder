@@ -20,6 +20,7 @@ import asyncio
 import json
 import logging
 import re
+import ssl
 import sys
 import tempfile as _tempfile
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
@@ -30,7 +31,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from blockbuster import blockbuster_ctx
+from blockbuster import BlockBusterFunction, blockbuster_ctx
 from esphome.core import CORE
 
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
@@ -129,11 +130,31 @@ def blockbuster() -> Iterator[BlockBuster | None]:
     # ``Path.mkdir`` for setup, ``tmp_path.write_text``, etc.) and
     # third-party library internals are intentionally exempt — we're
     # auditing the dashboard's request paths, not pytest itself.
+    # Stock blockbuster patches only ``SSLSocket`` read/write; the
+    # ``SSLContext`` loaders below do hidden blocking I/O too (cert /
+    # keystore reads, CPU-bound parsing — the set HA's block_async_io
+    # wraps), and without them a loop-thread TLS-context build passes
+    # CI silently.
+    ssl_context_functions = [
+        BlockBusterFunction(ssl.SSLContext, func_name, scanned_modules="esphome_device_builder")
+        for func_name in (
+            "load_default_certs",
+            "load_verify_locations",
+            "load_cert_chain",
+            "set_default_verify_paths",
+        )
+    ]
     with blockbuster_ctx("esphome_device_builder") as bb:
         for fn in bb.functions.values():
             for filename, func_name in _STARTUP_BLOCKING_OK:
                 fn.can_block_in(filename, func_name)
-        yield bb
+        for ssl_fn in ssl_context_functions:
+            ssl_fn.activate()
+        try:
+            yield bb
+        finally:
+            for ssl_fn in ssl_context_functions:
+                ssl_fn.deactivate()
 
 
 # ---------------------------------------------------------------------------
