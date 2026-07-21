@@ -22,7 +22,8 @@ import logging
 import re
 import sys
 import tempfile as _tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
@@ -412,6 +413,21 @@ async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
     """
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+
+
+@asynccontextmanager
+async def running_task(coro: Coroutine[Any, Any, Any]) -> AsyncIterator[asyncio.Task[Any]]:
+    """Run *coro* as a background task, cancelling and draining it on exit.
+
+    Yields the :class:`asyncio.Task` so the body can await or inspect
+    it; teardown routes through :func:`cancel_and_drain`, never
+    ``suppress(CancelledError)``.
+    """
+    task = asyncio.create_task(coro)
+    try:
+        yield task
+    finally:
+        await cancel_and_drain(task)
 
 
 async def wait_until(

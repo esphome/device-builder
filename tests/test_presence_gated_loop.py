@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
-from collections.abc import AsyncIterator
 
 import pytest
 
 from esphome_device_builder.helpers.presence_gated_loop import PresenceGatedLoop
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
+
+from .conftest import running_task
 
 
 class _RecordingLoop(PresenceGatedLoop[None]):
@@ -41,17 +41,6 @@ class _RecordingLoop(PresenceGatedLoop[None]):
             raise self.work_error
 
 
-@contextlib.asynccontextmanager
-async def _running(loop: PresenceGatedLoop) -> AsyncIterator[asyncio.Task[None]]:
-    task = asyncio.create_task(loop.run())
-    try:
-        yield task
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-
 async def test_base_demands_work() -> None:
     """The bare base has no ``_work``."""
     with pytest.raises(NotImplementedError):
@@ -61,7 +50,7 @@ async def test_base_demands_work() -> None:
 async def test_runs_unconditionally_without_presence() -> None:
     """presence=None means no gate: ticks flow with no subscriber anywhere."""
     loop = _RecordingLoop(None)
-    async with _running(loop):
+    async with running_task(loop.run()):
         await loop.wait_for_ticks(2)
     assert loop.resumes == 0
 
@@ -70,7 +59,7 @@ async def test_parks_until_first_subscriber_then_resumes() -> None:
     """The loop parks with no work done, and a real park fires ``_on_resume``."""
     presence = SubscriberPresence()
     loop = _RecordingLoop(presence)
-    async with _running(loop):
+    async with running_task(loop.run()):
         for _ in range(10):
             await asyncio.sleep(0)
         assert loop.ticks == 0
@@ -84,7 +73,7 @@ async def test_no_resume_hook_when_gate_already_open() -> None:
     presence = SubscriberPresence()
     loop = _RecordingLoop(presence)
     with presence.subscriber():
-        async with _running(loop):
+        async with running_task(loop.run()):
             await loop.wait_for_ticks(3)
     assert loop.resumes == 0
 
@@ -94,7 +83,7 @@ async def test_subscriber_return_cuts_idle_short() -> None:
     presence = SubscriberPresence()
     loop = _RecordingLoop(presence)
     loop._interval = 60
-    async with _running(loop):
+    async with running_task(loop.run()):
         with presence.subscriber():
             await loop.wait_for_ticks(1)
         with presence.subscriber():
@@ -112,7 +101,7 @@ async def test_wake_mid_work_short_circuits_following_idle() -> None:
 
     loop = _SelfWaking(None)
     loop._interval = 60
-    async with _running(loop):
+    async with running_task(loop.run()):
         await loop.wait_for_ticks(2)
 
 
@@ -121,7 +110,7 @@ async def test_continue_on_error_logs_and_keeps_looping(
 ) -> None:
     loop = _RecordingLoop(None)
     loop.work_error = RuntimeError("boom")
-    async with _running(loop):
+    async with running_task(loop.run()):
         await loop.wait_for_ticks(2)
     assert "test loop failed; continuing" in caplog.text
 
@@ -133,7 +122,7 @@ async def test_crash_continue_collapses_repeat_logs_until_recovery(
     loop = _RecordingLoop(None)
     loop.work_error = RuntimeError("boom")
     with caplog.at_level(logging.DEBUG, logger=PresenceGatedLoop.__module__):
-        async with _running(loop):
+        async with running_task(loop.run()):
             await loop.wait_for_ticks(2)
             loop.work_error = None
             await loop.wait_for_ticks(3)
@@ -178,7 +167,7 @@ async def test_cancellation_is_never_swallowed() -> None:
 async def test_run_refuses_concurrent_reentry() -> None:
     """A second concurrent ``run()`` raises instead of silently double-ticking."""
     loop = _RecordingLoop(None)
-    async with _running(loop):
+    async with running_task(loop.run()):
         await loop.wait_for_ticks(1)
         with pytest.raises(RuntimeError, match="already running"):
             await loop.run()
@@ -187,9 +176,9 @@ async def test_run_refuses_concurrent_reentry() -> None:
 async def test_run_is_rerunnable_after_cancellation() -> None:
     """Sequential re-runs work — the MQTT loop re-runs per broker session."""
     loop = _RecordingLoop(None)
-    async with _running(loop):
+    async with running_task(loop.run()):
         await loop.wait_for_ticks(1)
-    async with _running(loop):
+    async with running_task(loop.run()):
         await loop.wait_for_ticks(2)
 
 
@@ -218,7 +207,7 @@ async def test_after_idle_gets_the_result_and_skips_crashed_ticks() -> None:
                 done.set()
 
     loop = _Flaky()
-    async with _running(loop):
+    async with running_task(loop.run()):
         async with asyncio.timeout(1):
             await done.wait()
     assert seen[:2] == [1, 3]

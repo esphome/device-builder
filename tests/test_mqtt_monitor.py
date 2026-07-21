@@ -11,9 +11,8 @@ Covers the parts that don't require a live broker:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest.mock import patch
@@ -39,6 +38,8 @@ from esphome_device_builder.controllers._device_state_monitor import DeviceState
 from esphome_device_builder.helpers.device_yaml import device_uses_mqtt
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device, DeviceState
+
+from .conftest import running_task
 
 # ---------------------------------------------------------------------------
 # YAML detection
@@ -1085,13 +1086,8 @@ async def test_listen_drops_retained_discover_messages() -> None:
     await queue.put(_RetainedMessage())
     await queue.put(_FreshMessage())
 
-    listen_task = asyncio.create_task(monitor._listen(queue))
-    try:
+    async with running_task(monitor._listen(queue)):
         await asyncio.wait_for(fresh_seen.wait(), timeout=1.0)
-    finally:
-        listen_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await listen_task
 
     # Only the fresh message produced a callback — the retained one was dropped.
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
@@ -1133,13 +1129,8 @@ async def test_listen_skips_empty_payload() -> None:
     await queue.put(_EmptyPayloadMessage())
     await queue.put(_FreshMessage())
 
-    listen_task = asyncio.create_task(monitor._listen(queue))
-    try:
+    async with running_task(monitor._listen(queue)):
         await asyncio.wait_for(fresh_seen.wait(), timeout=1.0)
-    finally:
-        listen_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await listen_task
 
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
 
@@ -1179,13 +1170,8 @@ async def test_listen_drops_non_json_payload(caplog: pytest.LogCaptureFixture) -
     await queue.put(_FreshMessage())
 
     with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers._device_mqtt_monitor"):
-        listen_task = asyncio.create_task(monitor._listen(queue))
-        try:
+        async with running_task(monitor._listen(queue)):
             await asyncio.wait_for(fresh_seen.wait(), timeout=1.0)
-        finally:
-            listen_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await listen_task
 
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
     # Pin the log emission too — without this, a regression that
@@ -1245,13 +1231,8 @@ async def test_listen_skips_payload_with_missing_or_invalid_name() -> None:
     await queue.put(_NumericNameMessage())
     await queue.put(_FreshMessage())
 
-    listen_task = asyncio.create_task(monitor._listen(queue))
-    try:
+    async with running_task(monitor._listen(queue)):
         await asyncio.wait_for(fresh_seen.wait(), timeout=1.0)
-    finally:
-        listen_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await listen_task
 
     # Only the well-formed message fired the callback.
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
@@ -1281,13 +1262,8 @@ async def test_listen_processes_fresh_discover_messages() -> None:
     queue: asyncio.Queue = asyncio.Queue()
     await queue.put(_FreshMessage())
 
-    listen_task = asyncio.create_task(monitor._listen(queue))
-    try:
+    async with running_task(monitor._listen(queue)):
         await asyncio.wait_for(seen.wait(), timeout=1.0)
-    finally:
-        listen_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await listen_task
 
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
     assert ip_calls == [("kitchen", "10.0.0.5")]
@@ -1344,13 +1320,9 @@ async def test_running_reflects_task_state() -> None:
     # Stand-in for the listener task — never resolves so the
     # monitor stays in the "running" state until we cancel it.
     parked = asyncio.Event()
-    monitor._task = asyncio.create_task(parked.wait())
-    try:
+    async with running_task(parked.wait()) as task:
+        monitor._task = task
         assert monitor.running is True
-    finally:
-        monitor._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await monitor._task
 
     # A done task no longer counts as running.
     assert monitor.running is False
@@ -1394,15 +1366,10 @@ async def test_start_is_idempotent_when_already_running() -> None:
         on_ip_change=lambda *_: None,
     )
     parked = asyncio.Event()
-    monitor._task = asyncio.create_task(parked.wait())
-    original_task = monitor._task
-    try:
+    async with running_task(parked.wait()) as task:
+        monitor._task = task
         await monitor.start()
-        assert monitor._task is original_task  # no replacement
-    finally:
-        monitor._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await monitor._task
+        assert monitor._task is task  # no replacement
 
 
 async def test_stop_cancels_task_and_clears_last_seen() -> None:
@@ -1485,7 +1452,7 @@ async def test_ping_loop_marks_stale_devices_offline_and_republishes(
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
-    async with _running_ping_loop(monitor, fake):
+    async with running_task(monitor._ping_loop(fake)):
         await asyncio.wait_for(offline_seen.wait(), timeout=2.0)
 
     assert ("ghost", DeviceState.OFFLINE) in state_calls
@@ -1510,19 +1477,6 @@ class _CountingClient:
         return _PublishInfo()
 
 
-@contextlib.asynccontextmanager
-async def _running_ping_loop(
-    monitor: DeviceMqttMonitor, client: _CountingClient
-) -> AsyncIterator[None]:
-    task = asyncio.create_task(monitor._ping_loop(client))
-    try:
-        yield
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
-
-
 async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1543,7 +1497,7 @@ async def test_ping_loop_idle_publishes_nothing_and_freezes_aging(
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
-    async with _running_ping_loop(monitor, fake):
+    async with running_task(monitor._ping_loop(fake)):
         # Several would-be intervals pass; the parked loop stays silent.
         await asyncio.sleep(0.3)
         assert fake.publishes == []
@@ -1572,7 +1526,7 @@ async def test_ping_loop_resume_publishes_immediately_and_rebases(
     stale_stamp = loop.time() - 100.0
     monitor._last_seen["sleeper"] = stale_stamp
 
-    async with _running_ping_loop(monitor, fake):
+    async with running_task(monitor._ping_loop(fake)):
         await asyncio.sleep(0.1)
         assert fake.publishes == []
 
@@ -1605,7 +1559,7 @@ async def test_ping_loop_non_publisher_is_a_pure_listener(
     loop = asyncio.get_running_loop()
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
-    async with _running_ping_loop(monitor, fake):
+    async with running_task(monitor._ping_loop(fake)):
         await asyncio.sleep(0.3)
         assert fake.publishes == []
         assert state_calls == []
@@ -1637,7 +1591,7 @@ async def test_ping_loop_failed_broadcast_pauses_aging_and_warns_once(
     monitor._last_seen["ghost"] = loop.time() - 1.0
 
     with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers._device_mqtt_monitor"):
-        async with _running_ping_loop(monitor, fake):
+        async with running_task(monitor._ping_loop(fake)):
             for _ in range(100):
                 if len(fake.publishes) >= 3:
                     break
@@ -1736,7 +1690,7 @@ async def test_ping_loop_subscriber_return_cuts_interval_sleep_short(
     )
     fake = _CountingClient()
 
-    async with _running_ping_loop(monitor, fake):
+    async with running_task(monitor._ping_loop(fake)):
         with presence.subscriber():
             for _ in range(100):
                 if fake.publishes:
@@ -1895,14 +1849,9 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(
     monkeypatch.setattr(monitor, "_listen", _fake_listen)
     monkeypatch.setattr(monitor, "_ping_loop", _fake_ping)
 
-    task = asyncio.create_task(monitor._connect_and_listen("test-id"))
-    try:
+    async with running_task(monitor._connect_and_listen("test-id")):
         await asyncio.wait_for(listen_started.wait(), timeout=2.0)
         await asyncio.wait_for(ping_started.wait(), timeout=2.0)
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
 
     op_names = [c[0] for c in calls]
     # Ordered: init → username/pw → connect → loop_start (whose CONNACK
@@ -2123,16 +2072,11 @@ async def test_idle_monitor_still_applies_spontaneous_announcements() -> None:
             },
         )()
     )
-    listen_task = asyncio.create_task(monitor._listen(queue))
-    try:
+    async with running_task(monitor._listen(queue)):
         for _ in range(100):
             if state_calls:
                 break
             await asyncio.sleep(0.01)
-    finally:
-        listen_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await listen_task
 
     assert state_calls == [("kitchen", DeviceState.ONLINE)]
     assert "kitchen" in monitor._last_seen
@@ -2219,18 +2163,13 @@ async def test_reconnect_refires_subscribe_via_on_connect(
 
     monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
 
-    task = asyncio.create_task(monitor._connect_and_listen("test-id"))
-    try:
+    async with running_task(monitor._connect_and_listen("test-id")):
         await asyncio.wait_for(subscribed.wait(), timeout=2.0)
         assert subscribes == ["esphome/discover/#"]
         # paho's auto-reconnect re-fires on_connect from its thread;
         # the callback alone must re-establish the subscription.
         instances[0].on_connect(instances[0], None, None, 0)
         assert subscribes == ["esphome/discover/#", "esphome/discover/#"]
-    finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
 
 
 async def test_connect_and_listen_raises_on_broker_rejection(
@@ -2309,13 +2248,8 @@ async def test_run_reconnects_on_connect_and_listen_failure(
 
     monkeypatch.setattr(monitor, "_connect_and_listen", _fake_connect)
 
-    run_task = asyncio.create_task(monitor._run())
-    try:
+    async with running_task(monitor._run()):
         await asyncio.wait_for(second_call.wait(), timeout=2.0)
-    finally:
-        run_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await run_task
 
     assert call_count >= 2
     # First-attempt error cleared last_seen — pin the contract
@@ -2362,13 +2296,8 @@ async def test_run_collapses_repeat_unreachable_errors_to_debug(
 
     caplog.set_level("DEBUG", logger=monitor_module.__name__)
 
-    run_task = asyncio.create_task(monitor._run())
-    try:
+    async with running_task(monitor._run()):
         await asyncio.wait_for(third_call.wait(), timeout=2.0)
-    finally:
-        run_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await run_task
 
     unreachable = [
         r
@@ -2438,16 +2367,11 @@ async def test_run_resets_log_gate_after_successful_connect(
 
     caplog.set_level("DEBUG", logger=monitor_module.__name__)
 
-    run_task = asyncio.create_task(monitor._run())
-    try:
+    async with running_task(monitor._run()):
         await asyncio.wait_for(third_failure.wait(), timeout=2.0)
         # Give the loop one extra tick to log the third failure
         # before we tear it down.
         await asyncio.sleep(0.05)
-    finally:
-        run_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await run_task
 
     warnings = [
         r
@@ -2517,14 +2441,9 @@ async def test_run_loud_logs_unexpected_after_expected_failure(
 
     caplog.set_level("DEBUG", logger=monitor_module.__name__)
 
-    run_task = asyncio.create_task(monitor._run())
-    try:
+    async with running_task(monitor._run()):
         await asyncio.wait_for(second_call.wait(), timeout=2.0)
         await asyncio.sleep(0.05)
-    finally:
-        run_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await run_task
 
     errors = [
         r
@@ -2578,13 +2497,8 @@ async def test_run_collapses_repeat_unexpected_errors_to_debug(
 
     caplog.set_level("DEBUG", logger=monitor_module.__name__)
 
-    run_task = asyncio.create_task(monitor._run())
-    try:
+    async with running_task(monitor._run()):
         await asyncio.wait_for(third_call.wait(), timeout=2.0)
-    finally:
-        run_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await run_task
 
     errors = [
         r
