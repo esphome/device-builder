@@ -30,7 +30,10 @@ class PresenceGatedLoop:
     _interval: float = 60
     # True logs a crashing ``_work`` and keeps looping (process-lifetime
     # loops); False propagates so the owning supervisor tears down
-    # (per-session loops).
+    # (per-session loops). Under True, ``_idle`` after a crashed
+    # ``_work`` still sees the prior tick's instance state — an
+    # ``_idle`` override reading per-tick state written by ``_work``
+    # is safe only under False.
     _continue_on_error: bool = True
 
     def __init__(self, presence: SubscriberPresence | None) -> None:

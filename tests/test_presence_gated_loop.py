@@ -51,6 +51,12 @@ async def _running(loop: PresenceGatedLoop) -> AsyncIterator[asyncio.Task[None]]
             await task
 
 
+async def test_base_demands_work() -> None:
+    """The bare base has no ``_work``."""
+    with pytest.raises(NotImplementedError):
+        await PresenceGatedLoop(None)._work()
+
+
 async def test_runs_unconditionally_without_presence() -> None:
     """presence=None means no gate: ticks flow with no subscriber anywhere."""
     loop = _RecordingLoop(None)
