@@ -190,16 +190,17 @@ nODERLHpQGYe8XgP17e1hlbmvRUz3m87aC8/
 """
 
 
-def _tls_mqtt_yaml(**extra_lines: str) -> str:
+def _tls_mqtt_yaml(*, skip_cn: bool = False) -> str:
     """Build an ``mqtt:`` block carrying the test CA as an inline block scalar."""
     lines = ["mqtt:", "  broker: broker.example", "  port: 8883", "  certificate_authority: |"]
     lines.append(textwrap.indent(_TEST_CA_PEM, "    ").rstrip("\n"))
-    lines.extend(f"  {key}: {value}" for key, value in extra_lines.items())
+    if skip_cn:
+        lines.append("  skip_cert_cn_check: true")
     return "\n".join(lines) + "\n"
 
 
 def test_parse_mqtt_block_reads_tls_fields() -> None:
-    config = parse_mqtt_block(_tls_mqtt_yaml(skip_cert_cn_check="true"))
+    config = parse_mqtt_block(_tls_mqtt_yaml(skip_cn=True))
     assert isinstance(config, MqttBrokerConfig)
     assert config.port == 8883
     assert config.certificate_authority is not None
@@ -411,27 +412,18 @@ async def test_coordinator_rewarns_client_cert_after_recovery(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Dropping the client cert clears the gate; re-adding it warns again."""
-    client_cert_yaml = (
-        "esphome:\n  name: alpha\n\n"
+    client_cert_block = (
         "mqtt:\n  broker: b.example\n  client_certificate: c\n  client_certificate_key: k\n"
     )
-    devices = [
-        _write_device(
-            tmp_path,
-            "alpha",
-            "mqtt:\n  broker: b.example\n  client_certificate: c\n  client_certificate_key: k\n",
-        )
-    ]
+    devices = [_write_device(tmp_path, "alpha", client_cert_block)]
     coord = _make_coordinator(tmp_path, devices)
     target = "esphome_device_builder.controllers._device_mqtt_coordinator"
     with caplog.at_level("DEBUG", logger=target):
         await coord.reconcile()
-        (tmp_path / "alpha.yaml").write_text(
-            "esphome:\n  name: alpha\n\nmqtt:\n  broker: b.example\n"
-        )
+        _write_device(tmp_path, "alpha", "mqtt:\n  broker: b.example\n")
         await coord.reconcile()
         assert coord.active_brokers == 1
-        (tmp_path / "alpha.yaml").write_text(client_cert_yaml)
+        _write_device(tmp_path, "alpha", client_cert_block)
         await coord.reconcile()
     warnings = [
         r

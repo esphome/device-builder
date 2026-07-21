@@ -20,7 +20,7 @@ import secrets
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 try:
     import paho.mqtt.client as paho_mqtt
@@ -118,8 +118,14 @@ class _SessionSignals:
         self.suback_pending.set()
 
 
-# Broker-session identity: (host, port, username, ca_digest, skip_cert_cn_check).
-BrokerKey = tuple[str, int, str | None, str | None, bool]
+class BrokerKey(NamedTuple):
+    """Broker-session identity; the CA digest folds TLS config into dedup."""
+
+    host: str
+    port: int
+    username: str | None
+    ca_digest: str | None
+    skip_cn: bool
 
 
 @dataclass(frozen=True)
@@ -146,7 +152,7 @@ class MqttBrokerConfig:
         """
         ca = self.certificate_authority
         ca_digest = hashlib.sha256(ca.encode()).hexdigest()[:16] if ca else None
-        return (self.host, self.port, self.username, ca_digest, self.skip_cert_cn_check)
+        return BrokerKey(self.host, self.port, self.username, ca_digest, self.skip_cert_cn_check)
 
 
 class DeviceMqttMonitor:

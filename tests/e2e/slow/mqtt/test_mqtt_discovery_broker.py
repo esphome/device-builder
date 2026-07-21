@@ -11,12 +11,7 @@ linux ``e2e-mqtt`` CI job installs them.
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import json
-import shutil
-import socket
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -26,50 +21,19 @@ from esphome_device_builder.helpers.subscriber_presence import SubscriberPresenc
 from esphome_device_builder.models import Device, DeviceState
 
 from ....conftest import wait_until
-
-paho = pytest.importorskip("paho.mqtt.client")
-
-# brew puts the broker in sbin, which is often off PATH.
-_EXTRA_PATH = "/opt/homebrew/sbin:/usr/local/sbin:/usr/sbin"
-_MOSQUITTO = shutil.which("mosquitto", path=None) or shutil.which("mosquitto", path=_EXTRA_PATH)
-_MOSQUITTO_PASSWD = shutil.which("mosquitto_passwd") or shutil.which(
-    "mosquitto_passwd", path=_EXTRA_PATH
+from .conftest import (
+    MOSQUITTO_PASSWD,
+    BroadcastProbe,
+    FakeMqttDevice,
+    free_port,
+    requires_mosquitto,
+    restart_mosquitto,
+    stop_broker,
 )
 
-pytestmark = pytest.mark.skipif(
-    not (_MOSQUITTO and _MOSQUITTO_PASSWD), reason="mosquitto not installed"
-)
+pytestmark = requires_mosquitto
 
 _LOGINS = {"alpha": "pwA", "beta": "pwB"}
-
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
-
-
-async def _restart_mosquitto(tmp_path: Path, port: int) -> asyncio.subprocess.Process:
-    broker = await asyncio.create_subprocess_exec(
-        str(_MOSQUITTO),
-        "-c",
-        str(tmp_path / "mosquitto.conf"),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-    deadline = asyncio.get_running_loop().time() + 10.0
-    while True:
-        try:
-            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
-        except OSError:
-            if asyncio.get_running_loop().time() > deadline:
-                broker.terminate()
-                pytest.fail("mosquitto did not come back after restart")
-            await asyncio.sleep(0.05)
-        else:
-            writer.close()
-            await writer.wait_closed()
-            return broker
 
 
 async def _start_mosquitto(tmp_path: Path) -> tuple[asyncio.subprocess.Process, int]:
@@ -77,57 +41,14 @@ async def _start_mosquitto(tmp_path: Path) -> tuple[asyncio.subprocess.Process, 
     for index, (user, password) in enumerate(_LOGINS.items()):
         create_flag = ["-c"] if index == 0 else []
         proc = await asyncio.create_subprocess_exec(
-            str(_MOSQUITTO_PASSWD), *create_flag, "-b", str(passwd), user, password
+            str(MOSQUITTO_PASSWD), *create_flag, "-b", str(passwd), user, password
         )
         assert await proc.wait() == 0
 
-    port = _free_port()
+    port = free_port()
     conf = tmp_path / "mosquitto.conf"
     conf.write_text(f"listener {port} 127.0.0.1\nallow_anonymous true\npassword_file {passwd}\n")
-    return await _restart_mosquitto(tmp_path, port), port
-
-
-class _FakeMqttDevice:
-    """Threaded paho client that answers each discover broadcast."""
-
-    def __init__(self, name: str, ip: str, port: int, username: str, password: str) -> None:
-        self.name = name
-        self.answering = True
-        self._payload = json.dumps({"name": name, "ip": ip})
-        self._client = paho.Client(client_id=f"fake-{name}")
-        self._client.username_pw_set(username, password)
-        self._client.on_connect = lambda c, _u, _f, _rc: c.subscribe("esphome/discover")
-        self._client.on_message = self._on_message
-        self._client.connect_async("127.0.0.1", port)
-        self._client.loop_start()
-
-    def _on_message(self, client: Any, _userdata: Any, _msg: Any) -> None:
-        if self.answering:
-            client.publish(f"esphome/discover/{self.name}", self._payload)
-
-    def stop(self) -> None:
-        self._client.loop_stop()
-        self._client.disconnect()
-
-
-class _BroadcastProbe:
-    """Anonymous client counting ``esphome/discover`` broadcasts."""
-
-    def __init__(self, port: int) -> None:
-        self._seen: list[float] = []
-        self._client = paho.Client(client_id="probe")
-        self._client.on_connect = lambda c, _u, _f, _rc: c.subscribe("esphome/discover")
-        self._client.on_message = lambda _c, _u, _m: self._seen.append(0.0)
-        self._client.connect_async("127.0.0.1", port)
-        self._client.loop_start()
-
-    @property
-    def count(self) -> int:
-        return len(self._seen)
-
-    def stop(self) -> None:
-        self._client.loop_stop()
-        self._client.disconnect()
+    return await restart_mosquitto(tmp_path, port), port
 
 
 @pytest.mark.timeout(60)
@@ -149,7 +70,7 @@ async def test_broker_restart_resubscribes_and_recovers(
     config_dir.mkdir()
 
     devices: list[Device] = []
-    fakes: list[_FakeMqttDevice] = []
+    fakes: list[FakeMqttDevice] = []
     for i in (1, 2):
         name = f"dev{i}"
         (config_dir / f"{name}.yaml").write_text(
@@ -160,7 +81,7 @@ async def test_broker_restart_resubscribes_and_recovers(
         devices.append(
             Device(name=name, friendly_name=name, configuration=f"{name}.yaml", uses_mqtt=True)
         )
-        fakes.append(_FakeMqttDevice(name, f"10.0.1.{i}", port, "alpha", _LOGINS["alpha"]))
+        fakes.append(FakeMqttDevice(name, f"10.0.1.{i}", port, "alpha", _LOGINS["alpha"]))
 
     events: list[tuple[str, DeviceState]] = []
     presence = SubscriberPresence()
@@ -182,13 +103,11 @@ async def test_broker_restart_resubscribes_and_recovers(
                 interval=0.05,
             )
 
-            broker.terminate()
-            with contextlib.suppress(ProcessLookupError):
-                await broker.wait()
+            await stop_broker(broker)
             await asyncio.sleep(1.0)
 
             # Same port so paho's auto-reconnect finds the new broker.
-            broker = await _restart_mosquitto(tmp_path, port)
+            broker = await restart_mosquitto(tmp_path, port)
 
             events.clear()
             await wait_until(
@@ -204,9 +123,7 @@ async def test_broker_restart_resubscribes_and_recovers(
         await coord.stop()
         for fake in fakes:
             fake.stop()
-        broker.terminate()
-        with contextlib.suppress(ProcessLookupError):
-            await broker.wait()
+        await stop_broker(broker)
 
 
 @pytest.mark.timeout(60)
@@ -221,7 +138,7 @@ async def test_six_devices_two_logins_single_broadcaster(
     config_dir.mkdir()
 
     devices: list[Device] = []
-    fakes: list[_FakeMqttDevice] = []
+    fakes: list[FakeMqttDevice] = []
     for i in range(1, 7):
         name = f"dev{i}"
         user = "alpha" if i <= 3 else "beta"
@@ -233,8 +150,8 @@ async def test_six_devices_two_logins_single_broadcaster(
         devices.append(
             Device(name=name, friendly_name=name, configuration=f"{name}.yaml", uses_mqtt=True)
         )
-        fakes.append(_FakeMqttDevice(name, f"10.0.0.{i}", port, user, _LOGINS[user]))
-    probe = _BroadcastProbe(port)
+        fakes.append(FakeMqttDevice(name, f"10.0.0.{i}", port, user, _LOGINS[user]))
+    probe = BroadcastProbe(port)
 
     states: dict[str, DeviceState] = {}
     ips: dict[str, str] = {}
@@ -294,6 +211,4 @@ async def test_six_devices_two_logins_single_broadcaster(
         for fake in fakes:
             fake.stop()
         probe.stop()
-        broker.terminate()
-        with contextlib.suppress(ProcessLookupError):
-            await broker.wait()
+        await stop_broker(broker)
