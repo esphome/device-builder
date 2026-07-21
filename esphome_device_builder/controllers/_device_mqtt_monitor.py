@@ -566,7 +566,11 @@ class _DiscoverPingLoop(PresenceGatedLoop[bool]):
     async def run_session(self, client: PublishClient) -> None:
         """Run this loop for one broker session's *client*."""
         self._client = client
-        await self.run()
+        try:
+            await self.run()
+        finally:
+            # Don't pin the dead session's client until the next connect.
+            self._client = None
 
     def _on_resume(self) -> None:
         # Rebase so the resumed timeout window starts now — otherwise

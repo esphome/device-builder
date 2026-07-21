@@ -41,6 +41,7 @@ class PresenceGatedLoop[WorkT]:
         # transition is multiplexed into the same event so a
         # subscriber arriving mid-idle doesn't wait out the interval.
         self._wake = asyncio.Event()
+        self._running = False
         self._unsub_wake: Callable[[], None] | None = None
         if presence is not None:
             self._unsub_wake = presence.add_subscriber_callback(self._wake.set)
@@ -56,28 +57,37 @@ class PresenceGatedLoop[WorkT]:
             self._unsub_wake = None
 
     async def run(self) -> None:
-        await asyncio.sleep(self._bootstrap_delay)
-        if not await self._prepare():
-            return
-        # Strict pause when wired to a SubscriberPresence gate: only
-        # work while at least one dashboard client is subscribed.
-        while True:
-            if self._presence is not None and not self._presence.has_subscribers():
-                await self._presence.wait_for_subscriber()
-                self._on_resume()
-            self._wake.clear()
-            try:
-                result = await self._work()
-            except Exception:
-                if not self._continue_on_error:
-                    raise
-                # A failure must not kill the loop for the process
-                # lifetime; log it and try again next interval.
-                _LOGGER.exception("%s failed; continuing", self._label)
+        # Sequential re-runs are fine (the MQTT loop re-runs per broker
+        # session); a concurrent second run would silently double-tick.
+        if self._running:
+            msg = f"{type(self).__name__} is already running"
+            raise RuntimeError(msg)
+        self._running = True
+        try:
+            await asyncio.sleep(self._bootstrap_delay)
+            if not await self._prepare():
+                return
+            # Strict pause when wired to a SubscriberPresence gate: only
+            # work while at least one dashboard client is subscribed.
+            while True:
+                if self._presence is not None and not self._presence.has_subscribers():
+                    await self._presence.wait_for_subscriber()
+                    self._on_resume()
+                self._wake.clear()
+                try:
+                    result = await self._work()
+                except Exception:
+                    if not self._continue_on_error:
+                        raise
+                    # A failure must not kill the loop for the process
+                    # lifetime; log it and try again next interval.
+                    _LOGGER.exception("%s failed; continuing", self._label)
+                    await self._idle()
+                    continue
                 await self._idle()
-                continue
-            await self._idle()
-            self._after_idle(result)
+                self._after_idle(result)
+        finally:
+            self._running = False
 
     async def _prepare(self) -> bool:
         """One-shot gate after the bootstrap sleep; False disables the loop."""

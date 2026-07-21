@@ -154,6 +154,24 @@ async def test_cancellation_is_never_swallowed() -> None:
         await task
 
 
+async def test_run_refuses_concurrent_reentry() -> None:
+    """A second concurrent ``run()`` raises instead of silently double-ticking."""
+    loop = _RecordingLoop(None)
+    async with _running(loop):
+        await loop.wait_for_ticks(1)
+        with pytest.raises(RuntimeError, match="already running"):
+            await loop.run()
+
+
+async def test_run_is_rerunnable_after_cancellation() -> None:
+    """Sequential re-runs work — the MQTT loop re-runs per broker session."""
+    loop = _RecordingLoop(None)
+    async with _running(loop):
+        await loop.wait_for_ticks(1)
+    async with _running(loop):
+        await loop.wait_for_ticks(2)
+
+
 async def test_after_idle_gets_the_result_and_skips_crashed_ticks() -> None:
     """``_after_idle`` sees each completed tick's ``_work`` result; crashed ticks skip it."""
     seen: list[int] = []
