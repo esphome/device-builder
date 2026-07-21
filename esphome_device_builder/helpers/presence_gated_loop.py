@@ -30,10 +30,7 @@ class PresenceGatedLoop:
     _interval: float = 60
     # True logs a crashing ``_work`` and keeps looping (process-lifetime
     # loops); False propagates so the owning supervisor tears down
-    # (per-session loops). Under True, ``_idle`` after a crashed
-    # ``_work`` still sees the prior tick's instance state — an
-    # ``_idle`` override reading per-tick state written by ``_work``
-    # is safe only under False.
+    # (per-session loops).
     _continue_on_error: bool = True
 
     def __init__(self, presence: SubscriberPresence | None) -> None:
@@ -89,5 +86,12 @@ class PresenceGatedLoop:
         raise NotImplementedError
 
     async def _idle(self) -> None:
+        """
+        Wait out the interval, or bail early on a wake.
+
+        An override reading per-tick state written by ``_work`` is safe
+        only under ``_continue_on_error = False`` — a logged-and-continued
+        crash reaches idle with the prior tick's state.
+        """
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
