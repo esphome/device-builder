@@ -246,6 +246,21 @@ async def test_background_poll_skips_when_no_subscribers(
         await db.stop()
 
 
+async def test_stop_detaches_background_poll_wake_callback(
+    make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
+) -> None:
+    """stop() removes the poll loop's wake callback so restarts can't accumulate them."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    try:
+        await db.start()
+        assert db._bg_poll is not None
+        wake = db._bg_poll._wake.set
+        assert wake in db.subscriber_presence._subscriber_callbacks
+    finally:
+        await db.stop()
+    assert wake not in db.subscriber_presence._subscriber_callbacks
+
+
 # ---------------------------------------------------------------------------
 # stop()
 # ---------------------------------------------------------------------------

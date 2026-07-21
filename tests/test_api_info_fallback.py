@@ -553,8 +553,9 @@ class _FakePresence:
     def __init__(self) -> None:
         self.callbacks: list[Any] = []
 
-    def add_subscriber_callback(self, callback: Any) -> None:
+    def add_subscriber_callback(self, callback: Any) -> Any:
         self.callbacks.append(callback)
+        return lambda: self.callbacks.remove(callback)
 
     def has_subscribers(self) -> bool:
         return False

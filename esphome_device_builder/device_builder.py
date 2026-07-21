@@ -266,6 +266,7 @@ class DeviceBuilder:
         # Background tasks
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
+        self._bg_poll: _BackgroundPollLoop | None = None
 
         # Latches the one-time network teardown so it can run early (in the
         # aiohttp ``on_shutdown`` hook) and stop() doesn't repeat it.
@@ -474,7 +475,8 @@ class DeviceBuilder:
             self.command_handlers["auth"] = self.command_handlers["auth/login"]
 
         # Start background polling
-        self._bg_task = create_eager_task(_BackgroundPollLoop(self).run())
+        self._bg_poll = _BackgroundPollLoop(self)
+        self._bg_task = create_eager_task(self._bg_poll.run())
 
         _LOGGER.info(
             "Device Builder ready — config dir: %s, %d commands registered",
@@ -509,6 +511,8 @@ class DeviceBuilder:
             return
         if self._bg_task:
             await drain_tasks((self._bg_task,), log_exceptions=True)
+        if self._bg_poll is not None:
+            self._bg_poll.unsubscribe()
         await drain_tasks(self._background_tasks)
         # Tear down the remote-build listener (if it was bound)
         # before the controller it depends on. Order matters less
