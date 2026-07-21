@@ -10,7 +10,12 @@ from esphome import const
 from esphome.const import CONF_PACKAGES
 
 from ...models.boards import RP2_PLATFORM_ALIASES
-from ..yaml import _split_value_and_comment, _strip_yaml_quotes, parse_substitution_ref
+from ..yaml import (
+    _split_value_and_comment,
+    _strip_yaml_quotes,
+    parse_substitution_ref,
+    rewrite_fallback_ap_ssid,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -373,6 +378,23 @@ def resolved_device_name(yaml_content: str, configuration: str) -> str:
     if parsed and parse_substitution_ref(parsed) is None:
         return parsed
     return configuration_stem(configuration)
+
+
+def retarget_fallback_ap_ssid(old_yaml: str, new_yaml: str) -> str:
+    """
+    Follow the device identity into *new_yaml*'s generated fallback-AP ssid.
+
+    Both labels resolve through :func:`parse_esphome_meta` (friendly name
+    first, then name) so substitution-driven identities compare correctly;
+    a customized ssid or an indirection is left untouched.
+    """
+    return rewrite_fallback_ap_ssid(new_yaml, device_ap_label(old_yaml), device_ap_label(new_yaml))
+
+
+def device_ap_label(yaml_content: str) -> str | None:
+    """Return the label the generator derives the fallback-AP SSID from."""
+    meta = parse_esphome_meta(yaml_content)
+    return meta.friendly_name or meta.name
 
 
 def extract_esphome_meta_from_config(

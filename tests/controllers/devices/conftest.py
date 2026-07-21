@@ -762,3 +762,15 @@ def attach_reloading_scanner(
     scanner = ReloadingScanner(config_dir, devices)
     controller._scanner = scanner
     return scanner
+
+
+def wifi_ap_block(ssid: str) -> str:
+    """Return a ``wifi:`` block carrying the generator's fallback-AP recovery shape."""
+    return (
+        "wifi:\n"
+        "  ssid: !secret wifi_ssid\n"
+        "  password: !secret wifi_password\n\n"
+        "  ap:\n"
+        f"    ssid: {ssid}\n"
+        '    password: "abc123def456"\n'
+    )

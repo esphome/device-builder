@@ -42,6 +42,8 @@ except AttributeError:  # pragma: no cover
 # intentional re-exports (PEP 484) so external callers'
 # ``from .helpers.yaml import X`` keeps working unchanged across
 # the split arc.
+from .ap_ssid import fallback_ap_ssid as fallback_ap_ssid
+from .ap_ssid import rewrite_fallback_ap_ssid as rewrite_fallback_ap_ssid
 from .api_encryption import generate_api_encryption_key as generate_api_encryption_key
 from .api_encryption import rewrite_api_encryption_key as rewrite_api_encryption_key
 from .component import _mapping_body_to_list_item as _mapping_body_to_list_item

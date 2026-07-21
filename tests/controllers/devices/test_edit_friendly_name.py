@@ -29,7 +29,7 @@ from esphome_device_builder.controllers._device_scanner import DeviceFileMetadat
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import ErrorCode
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, wifi_ap_block
 
 SOURCE_YAML = """\
 esphome:
@@ -126,6 +126,46 @@ async def test_edit_friendly_name_redirects_through_substitution(
     assert "  friendly_name: Pump Watcher\n" in new_yaml
     assert "  friendly_name: ${friendly_name}\n" in new_yaml
     assert "AC Float Monitor" not in new_yaml
+
+
+async def test_edit_friendly_name_retargets_generated_fallback_ap_ssid(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The generated fallback-AP ssid follows the friendly-name edit (#2245)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = SOURCE_YAML + "\n" + wifi_ap_block("Kitchen Lamp Fallback Hotspot")
+    (tmp_path / "kitchen.yaml").write_text(yaml_text, "utf-8")
+
+    await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml",
+        new_friendly_name="Reading Lamp",
+    )
+
+    new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
+    assert "    ssid: Reading Lamp Fallback Hotspot\n" in new_yaml
+    assert "Kitchen Lamp Fallback Hotspot" not in new_yaml
+
+
+async def test_edit_friendly_name_retargets_name_labelled_ap_ssid_on_insert(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Inserting a first friendly name retargets an ssid derived from the device name."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = "esphome:\n  name: kitchen\n\nesp32:\n  variant: ESP32\n\n" + wifi_ap_block(
+        "kitchen Fallback Hotspot"
+    )
+    (tmp_path / "kitchen.yaml").write_text(yaml_text, "utf-8")
+
+    await ctrl.edit_friendly_name(
+        configuration="kitchen.yaml",
+        new_friendly_name="Reading Lamp",
+    )
+
+    new_yaml = (tmp_path / "kitchen.yaml").read_text("utf-8")
+    assert "  friendly_name: Reading Lamp\n" in new_yaml
+    assert "    ssid: Reading Lamp Fallback Hotspot\n" in new_yaml
 
 
 async def test_edit_friendly_name_safely_quotes_yaml_specials(

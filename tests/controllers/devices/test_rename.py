@@ -27,7 +27,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, wifi_ap_block
 
 _YAML = """\
 esphome:
@@ -235,6 +235,38 @@ async def test_rename_queues_firmware_job(
     assert result["tail_job"]["job_type"] == JobType.RENAME
     # No file-level rename; the queued chain owns the rename + rollback.
     assert controller._scanner.calls == []
+
+
+async def test_rename_chain_content_retargets_name_labelled_ap_ssid(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The OTA chain compiles content whose fallback-AP ssid tracks the rename (#2245)."""
+    controller = make_controller(tmp_path, esphome_cmd=["esphome"])
+    yaml_text = "esphome:\n  name: kitchen\n\nesp32:\n  board: esp32dev\n\n" + wifi_ap_block(
+        "kitchen Fallback Hotspot"
+    )
+    (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
+    head = FirmwareJob(
+        job_id="abc123",
+        configuration="livingroom.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.QUEUED,
+    )
+    tail = FirmwareJob(
+        job_id="def456",
+        configuration="kitchen.yaml",
+        job_type=JobType.RENAME,
+        status=JobStatus.QUEUED,
+        new_name="livingroom",
+        depends_on="abc123",
+    )
+    controller._db.firmware = MagicMock()
+    controller._db.firmware.rename_chain = AsyncMock(return_value=(head, tail))
+
+    await controller.rename_device(configuration="kitchen.yaml", new_name="livingroom")
+
+    new_content = controller._db.firmware.rename_chain.await_args.kwargs["new_content"]
+    assert "    ssid: livingroom Fallback Hotspot\n" in new_content
 
 
 async def test_rename_missing_firmware_controller_raises(

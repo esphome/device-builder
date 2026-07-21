@@ -41,6 +41,7 @@ from esphome_device_builder.helpers.device_yaml import (
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
     _is_valid_esphome_name,
+    device_ap_label,
     extract_logger_baud_rate,
     extract_ota_partition_access,
 )
@@ -354,6 +355,28 @@ esphome:
     assert parse_esphome_meta(yaml_content, extra_substitutions=None) == parse_esphome_meta(
         yaml_content
     )
+
+
+@pytest.mark.parametrize(
+    ("yaml_content", "expected"),
+    [
+        pytest.param(
+            "esphome:\n  name: kitchen\n  friendly_name: Kitchen Lamp\n",
+            "Kitchen Lamp",
+            id="friendly_wins",
+        ),
+        pytest.param("esphome:\n  name: kitchen\n", "kitchen", id="name_fallback"),
+        pytest.param(
+            "substitutions:\n  room: Bedroom\nesphome:\n  name: kitchen\n"
+            "  friendly_name: ${room}\n",
+            "Bedroom",
+            id="substitution_resolves",
+        ),
+        pytest.param("wifi:\n  ssid: x\n", None, id="no_identity"),
+    ],
+)
+def test_device_ap_label(yaml_content: str, expected: str | None) -> None:
+    assert device_ap_label(yaml_content) == expected
 
 
 # ----------------------------------------------------------------------

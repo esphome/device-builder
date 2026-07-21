@@ -49,6 +49,17 @@ wifi:
   password: !secret wifi_password
 """
 
+AP_SOURCE_YAML = (
+    SOURCE_YAML
+    + """
+  ap:
+    ssid: Kitchen Lamp Fallback Hotspot
+    password: "abc123def456"
+
+captive_portal:
+"""
+)
+
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_clone_device_writes_new_yaml_and_swaps_name_friendly_key(
@@ -105,6 +116,55 @@ async def test_clone_device_uses_explicit_friendly_name_when_provided(
 
     new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
     assert "friendly_name: Bedroom Reading Lamp\n" in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_retargets_generated_fallback_ap_ssid(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The generated fallback-AP ssid follows the clone's identity (#2245)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    (tmp_path / "kitchen.yaml").write_text(AP_SOURCE_YAML, "utf-8")
+
+    await ctrl.clone_device(
+        configuration="kitchen.yaml",
+        new_name="bedroom-bulb",
+        new_friendly_name="Bedroom Bulb",
+    )
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    assert "    ssid: Bedroom Bulb Fallback Hotspot\n" in new_yaml
+    assert "Kitchen Lamp Fallback Hotspot" not in new_yaml
+    # The AP password stays shared with the source.
+    assert '    password: "abc123def456"\n' in new_yaml
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_clone_device_retargets_ap_ssid_from_substitution_friendly(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A substitution-driven friendly name still resolves for the old-label match."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    source = AP_SOURCE_YAML.replace(
+        "esphome:\n  name: kitchen\n  friendly_name: Kitchen Lamp\n",
+        "substitutions:\n  label: Kitchen Lamp\n\n"
+        "esphome:\n  name: kitchen\n  friendly_name: ${label}\n",
+    )
+    (tmp_path / "kitchen.yaml").write_text(source, "utf-8")
+
+    await ctrl.clone_device(
+        configuration="kitchen.yaml",
+        new_name="bedroom-bulb",
+        new_friendly_name="Bedroom Bulb",
+    )
+
+    new_yaml = (tmp_path / "bedroom-bulb.yaml").read_text("utf-8")
+    # Friendly rewrite lands on the substitution definition; the ssid
+    # follows the resolved label on both sides.
+    assert "  label: Bedroom Bulb\n" in new_yaml
+    assert "    ssid: Bedroom Bulb Fallback Hotspot\n" in new_yaml
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

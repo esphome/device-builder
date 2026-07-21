@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_CANONICAL_PLATFORM, Connectivity
-from ..yaml import _safe_yaml_scalar, generate_api_encryption_key, merge_component_yaml
+from ..yaml import (
+    _safe_yaml_scalar,
+    fallback_ap_ssid,
+    generate_api_encryption_key,
+    merge_component_yaml,
+)
 
 if TYPE_CHECKING:
     from ...models import BoardCatalogEntry, ComponentCatalogEntry
@@ -35,9 +40,6 @@ _WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
 # Fallback-hotspot psk alphabet + length, mirroring esphome's wizard.
 _AP_PSK_ALPHABET = string.ascii_letters + string.digits
 _AP_PSK_LENGTH = 12
-
-# ESPHome's ``cv.ssid`` caps an AP ssid at 32 bytes.
-_AP_SSID_MAX_LEN = 32
 
 # Platforms supporting ``captive_portal:`` (esphome's ``cv.only_on``
 # allowlist). The fallback is emitted only here; a bare ``ap:`` without
@@ -537,20 +539,9 @@ def _fallback_recovery_lines(label: str, platform: str) -> list[str]:
     psk = "".join(secrets.choice(_AP_PSK_ALPHABET) for _ in range(_AP_PSK_LENGTH))
     return [
         "  ap:",
-        f"    ssid: {_safe_yaml_scalar(_fallback_ap_ssid(label))}",
+        f"    ssid: {_safe_yaml_scalar(fallback_ap_ssid(label))}",
         f'    password: "{psk}"',
         "",
         "captive_portal:",
         "",
     ]
-
-
-def _fallback_ap_ssid(label: str) -> str:
-    """AP ssid ``<label> Fallback Hotspot``; trims <label> so the marker survives the cap."""
-    base = label.strip() or "ESPHome"
-    suffix = " Fallback Hotspot"
-    # Trim the name, not the marker (esphome's wizard drops the whole
-    # marker here), so the recovery AP stays identifiable for long names.
-    if len(base) + len(suffix) > _AP_SSID_MAX_LEN:
-        base = base[: _AP_SSID_MAX_LEN - len(suffix)]
-    return f"{base}{suffix}"

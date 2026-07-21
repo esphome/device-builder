@@ -42,6 +42,7 @@ from esphome_device_builder.helpers.yaml import (
     _splice_into_domain_block,
     _splice_into_multi_conf_block,
     _strip_yaml_quotes,
+    fallback_ap_ssid,
     generate_api_encryption_key,
     generate_component_yaml,
     is_plain_literal_scalar,
@@ -51,6 +52,7 @@ from esphome_device_builder.helpers.yaml import (
     parse_substitution_ref,
     read_yaml_scalar,
     rewrite_api_encryption_key,
+    rewrite_fallback_ap_ssid,
     rewrite_name_or_substitution,
     rewrite_rename_content,
     rewrite_yaml_scalar,
@@ -265,6 +267,79 @@ def test_rewrite_rename_content_refuses_non_retargetable(yaml: str) -> None:
         rewrite_rename_content(yaml, "bedroom-bulb", remedy="Do the thing.")
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert excinfo.value.message.endswith("Do the thing.")
+
+
+# ---------------------------------------------------------------------------
+# rewrite_fallback_ap_ssid
+# ---------------------------------------------------------------------------
+
+_AP_YAML = """\
+esphome:
+  name: kitchen
+  friendly_name: Kitchen Lamp
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  ap:
+    ssid: Kitchen Lamp Fallback Hotspot
+    password: "abc123def456"
+
+captive_portal:
+"""
+
+
+def test_rewrite_fallback_ap_ssid_retargets_generated_value() -> None:
+    out = rewrite_fallback_ap_ssid(_AP_YAML, "Kitchen Lamp", "Bedroom Bulb")
+    assert "    ssid: Bedroom Bulb Fallback Hotspot\n" in out
+    assert "Kitchen Lamp Fallback Hotspot" not in out
+    # Siblings untouched.
+    assert '    password: "abc123def456"\n' in out
+    assert "  ssid: !secret wifi_ssid\n" in out
+
+
+def test_rewrite_fallback_ap_ssid_matches_quoted_value_and_requotes() -> None:
+    yaml_text = _AP_YAML.replace(
+        "ssid: Kitchen Lamp Fallback Hotspot", 'ssid: "Kitchen #2 Fallback Hotspot"'
+    )
+    out = rewrite_fallback_ap_ssid(yaml_text, "Kitchen #2", "Bedroom #3")
+    assert '    ssid: "Bedroom #3 Fallback Hotspot"\n' in out
+
+
+def test_rewrite_fallback_ap_ssid_matches_truncated_long_label() -> None:
+    """A label trimmed to the 32-byte cap at generation time still matches."""
+    label = "Very Long Device Name That Overflows"
+    generated = fallback_ap_ssid(label)
+    assert label not in generated
+    yaml_text = _AP_YAML.replace("Kitchen Lamp Fallback Hotspot", generated)
+    out = rewrite_fallback_ap_ssid(yaml_text, label, "Short")
+    assert "    ssid: Short Fallback Hotspot\n" in out
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        pytest.param("ssid: Kitchen Custom AP", id="customized"),
+        pytest.param("ssid: !secret ap_ssid", id="secret_tag"),
+        pytest.param("ssid: ${ap_ssid}", id="substitution"),
+        pytest.param("ssid: Kitchen Lamp ${suffix}", id="embedded_substitution"),
+    ],
+)
+def test_rewrite_fallback_ap_ssid_leaves_non_generated_values(current: str) -> None:
+    yaml_text = _AP_YAML.replace("ssid: Kitchen Lamp Fallback Hotspot", current)
+    assert rewrite_fallback_ap_ssid(yaml_text, "Kitchen Lamp", "Bedroom") == yaml_text
+
+
+def test_rewrite_fallback_ap_ssid_noop_without_ap_leaf() -> None:
+    yaml_text = "esphome:\n  name: kitchen\n\nwifi:\n  ssid: !secret wifi_ssid\n"
+    assert rewrite_fallback_ap_ssid(yaml_text, "kitchen", "bedroom") == yaml_text
+
+
+def test_rewrite_fallback_ap_ssid_noop_when_labels_missing_or_equal() -> None:
+    assert rewrite_fallback_ap_ssid(_AP_YAML, None, "Bedroom") == _AP_YAML
+    assert rewrite_fallback_ap_ssid(_AP_YAML, "Kitchen Lamp", None) == _AP_YAML
+    assert rewrite_fallback_ap_ssid(_AP_YAML, "Kitchen Lamp", "Kitchen Lamp") == _AP_YAML
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ from esphome_device_builder.helpers.yaml import read_yaml_scalar
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, wifi_ap_block
 
 _YAML = """\
 esphome:
@@ -43,6 +43,40 @@ async def test_config_only_rename_rewrites_name_and_renames_file(
     # Untouched siblings survive the rewrite.
     assert read_yaml_scalar(new_content, ("esphome", "friendly_name")) == "Kitchen Light"
     assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
+
+
+async def test_config_only_rename_retargets_name_labelled_ap_ssid(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Without a friendly name the generated fallback-AP ssid tracks the rename (#2245)."""
+    controller = make_controller(tmp_path)
+    yaml_text = "esphome:\n  name: kitchen\n\nesp32:\n  board: esp32dev\n\n" + wifi_ap_block(
+        "kitchen Fallback Hotspot"
+    )
+    (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+
+    new_content = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("wifi", "ap", "ssid")) == "livingroom Fallback Hotspot"
+
+
+async def test_config_only_rename_leaves_friendly_labelled_ap_ssid(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """With a friendly name the ssid is friendly-derived; rename doesn't touch it."""
+    controller = make_controller(tmp_path)
+    yaml_text = _YAML + "\n" + wifi_ap_block("Kitchen Light Fallback Hotspot")
+    (tmp_path / "kitchen.yaml").write_text(yaml_text, encoding="utf-8")
+
+    await controller.rename_device(
+        configuration="kitchen.yaml", new_name="livingroom", config_only=True
+    )
+
+    new_content = (tmp_path / "livingroom.yaml").read_text(encoding="utf-8")
+    assert read_yaml_scalar(new_content, ("wifi", "ap", "ssid")) == "Kitchen Light Fallback Hotspot"
 
 
 async def test_config_only_rename_migrates_sidecar_metadata(

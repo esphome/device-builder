@@ -15,6 +15,7 @@ from ...helpers.device_yaml import (
     configuration_filename,
     parse_esphome_meta,
     resolved_device_name,
+    retarget_fallback_ap_ssid,
 )
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
@@ -236,6 +237,9 @@ async def rename_device(
     # Single rewrite + refusal point: offline, in-place, and the OTA chain
     # all retarget the name the same way.
     new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
+    # Retarget a name-labelled fallback-AP ssid; a friendly-labelled
+    # one no-ops since its label is unchanged by a rename.
+    new_content = retarget_fallback_ap_ssid(content, new_content)
 
     # An in-place rename can't go through the OTA chain (same filename), so
     # it rewrites the name with no flash even when the caller wanted the OTA
@@ -404,6 +408,10 @@ async def edit_friendly_name(
         # (``esphome: !include ...``); the line-based walker
         # can't safely insert into either shape.
         raise CommandError(ErrorCode.INVALID_ARGS, str(exc)) from exc
+
+    # Retarget the generated fallback-AP ssid, which the leaf upsert
+    # doesn't reach.
+    new_content = retarget_fallback_ap_ssid(content, new_content)
 
     # Round-trip check: parse the rewritten YAML through the
     # same reader the scanner uses. Defends against the
