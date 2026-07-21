@@ -388,7 +388,7 @@ class DeviceMqttMonitor:
                 # mass-flips OFFLINE before it can answer the first
                 # post-resume broadcast.
                 self._rebase_last_seen()
-            broadcast_sent = self.is_publisher and self._broadcast(client)
+            broadcast_sent = self.is_publisher and await self._broadcast(client)
             self._wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
@@ -402,9 +402,15 @@ class DeviceMqttMonitor:
                 self._on_state_change(name, DeviceState.OFFLINE)
                 self._last_seen.pop(name, None)
 
-    def _broadcast(self, client: PublishClient) -> bool:
-        """Send one discover request; False pauses aging for the tick."""
-        info = client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
+    async def _broadcast(self, client: PublishClient) -> bool:
+        """
+        Send one discover request; False pauses aging for the tick.
+
+        Publishes from the executor — paho's enqueue shares a lock
+        with its network thread mid-send, so the loop must not wait
+        on it.
+        """
+        info = await run_in_executor(client.publish, _DISCOVER_PUBLISH_TOPIC)
         if info.rc == 0:
             if self._publish_error_logged:
                 # The failed stretch was a no-poll period — same rebase

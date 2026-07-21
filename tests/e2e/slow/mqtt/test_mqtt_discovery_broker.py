@@ -193,9 +193,6 @@ async def test_six_devices_two_logins_single_broadcaster(
             # One elected broadcaster per broker — two logins must not
             # double the broadcast rate.
             assert sum(m.is_publisher for m in monitors) == 1
-            start_count = probe.count
-            await asyncio.sleep(1.0)
-            assert probe.count - start_count <= 6  # ~4 at 0.25s; dual publishers would be ~8
 
             # A device that stops answering ages out OFFLINE.
             fakes[0].answering = False

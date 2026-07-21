@@ -1665,7 +1665,7 @@ async def test_broadcast_recovery_rebases_and_rearms_warning() -> None:
     stale_stamp = loop.time() - 100.0
     monitor._last_seen["sleeper"] = stale_stamp
 
-    assert monitor._broadcast(_CountingClient()) is True
+    assert await monitor._broadcast(_CountingClient()) is True
     assert monitor._last_seen["sleeper"] > stale_stamp
     assert monitor._publish_error_logged is False
 
