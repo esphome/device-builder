@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest.mock import patch
@@ -1805,7 +1805,51 @@ async def test_start_spawns_run_task_when_paho_available(
     assert monitor.running is False
 
 
-async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # noqa: C901
+class _FakePahoClient:
+    """Configurable paho stand-in; subclasses override only what varies."""
+
+    connack_rc = 0
+
+    def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
+        self.on_connect: Any = None
+        self.on_subscribe: Any = None
+        self.on_message: Any = None
+        self._record("init", (client_id, clean_session))
+
+    def _record(self, op: str, args: tuple[Any, ...]) -> None:
+        return None
+
+    def username_pw_set(self, username: str, password: str) -> None:
+        self._record("username_pw_set", (username, password))
+
+    def connect(self, host: str, port: int) -> None:
+        self._record("connect", (host, port))
+
+    def loop_start(self) -> None:
+        self._record("loop_start", ())
+        # Fire on_connect the way paho's network thread would; tests
+        # run it directly since the call reaches them via the executor.
+        self.on_connect(self, None, None, self.connack_rc)
+
+    def loop_stop(self) -> None:
+        self._record("loop_stop", ())
+
+    def subscribe(self, topic: str) -> tuple[int, int]:
+        self._record("subscribe", (topic,))
+        # Model a healthy broker: the SUBACK grants the subscription.
+        if self.on_subscribe is not None:
+            self.on_subscribe(self, None, 1, [0])
+        return (0, 1)
+
+    def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+        self._record("publish", (topic, payload, retain))
+        return _PublishInfo()
+
+    def disconnect(self) -> None:
+        self._record("disconnect", ())
+
+
+async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``_connect_and_listen`` wires paho callbacks, subscribes, and runs the inner tasks.
@@ -1815,7 +1859,7 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # 
     coroutines. Pin: ``connect`` / ``loop_start`` / ``subscribe``
     are called in order with no connect-time publish (broadcasts
     belong to the gated ping loop), the inner tasks fire, and
-    teardown runs ``loop_stop`` + ``disconnect`` even on cancel.
+    teardown runs ``disconnect`` + ``loop_stop`` even on cancel.
     """
     monitor = DeviceMqttMonitor(
         broker=MqttBrokerConfig(host="broker.local", port=1883, username="alice", password="x"),
@@ -1827,41 +1871,16 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # 
     listen_started = asyncio.Event()
     ping_started = asyncio.Event()
 
-    class _FakeClient:
-        def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
-            calls.append(("init", (client_id, clean_session)))
-            self.on_connect: Any = None
-            self.on_message: Any = None
-
-        def username_pw_set(self, username: str, password: str) -> None:
-            calls.append(("username_pw_set", (username, password)))
-
-        def connect(self, host: str, port: int) -> None:
-            calls.append(("connect", (host, port)))
+    class _FakeClient(_FakePahoClient):
+        def _record(self, op: str, args: tuple[Any, ...]) -> None:
+            calls.append((op, args))
 
         def loop_start(self) -> None:
-            calls.append(("loop_start", ()))
-            # Fire on_connect with rc=0 (success) on a thread-like
-            # callback. Production calls this from paho's network
-            # thread via call_soon_threadsafe; here we call it
-            # directly since we're already on the loop.
-            self.on_connect(self, None, None, 0)
-            # Fire one on_message so the inner queue-bridge
-            # closure (line 166) gets exercised.
+            super().loop_start()
+            # Fire one on_message so the queue-bridge closure gets
+            # exercised.
             fake_msg = type("M", (), {"topic": "x", "payload": b"", "retain": False})()
             self.on_message(self, None, fake_msg)
-
-        def loop_stop(self) -> None:
-            calls.append(("loop_stop", ()))
-
-        def subscribe(self, topic: str) -> None:
-            calls.append(("subscribe", (topic,)))
-
-        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> None:
-            calls.append(("publish", (topic, payload, retain)))
-
-        def disconnect(self) -> None:
-            calls.append(("disconnect", ()))
 
     monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
 
@@ -1886,19 +1905,332 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(  # 
             await task
 
     op_names = [c[0] for c in calls]
-    # Ordered: init → username/pw → connect → loop_start → subscribe
-    # → loop_stop → disconnect. No publish here — the ping loop owns
-    # every broadcast so the subscriber gate can hold them all.
+    # Ordered: init → username/pw → connect → loop_start (whose CONNACK
+    # callback subscribes) → disconnect → loop_stop. No publish here —
+    # the ping loop owns every broadcast so the subscriber gate can
+    # hold them all.
     assert op_names == [
         "init",
         "username_pw_set",
         "connect",
         "loop_start",
         "subscribe",
-        "loop_stop",
         "disconnect",
+        "loop_stop",
     ]
     assert ("subscribe", ("esphome/discover/#",)) in calls
+
+
+def _fail_rc(_topic: str) -> tuple[int, int]:
+    return (7, 1)
+
+
+def _fail_raise(_topic: str) -> tuple[int, int]:
+    raise RuntimeError("boom")
+
+
+@pytest.mark.parametrize(
+    ("subscribe_impl", "match"),
+    [
+        pytest.param(_fail_rc, "subscribe failed \\(rc=7\\)", id="nonzero_rc"),
+        pytest.param(_fail_raise, "subscribe raised", id="raises"),
+    ],
+)
+async def test_subscribe_failure_fails_the_session_loud(
+    monkeypatch: pytest.MonkeyPatch,
+    subscribe_impl: Callable[[str], tuple[int, int]],
+    match: str,
+) -> None:
+    """A failed or raising subscribe surfaces as ConnectionError, never a silent timeout."""
+
+    class _FakeClient(_FakePahoClient):
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            return subscribe_impl(topic)
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    with pytest.raises(ConnectionError, match=match):
+        await monitor._connect_and_listen("test-id")
+
+
+async def test_reconnect_subscribe_failure_tears_the_session_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed re-subscribe on paho's auto-reconnect rebuilds the session, not a dead list."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    session_running = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    instances: list[Any] = []
+
+    class _FakeClient(_FakePahoClient):
+        def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
+            super().__init__(client_id, clean_session)
+            self.subscribe_calls = 0
+            instances.append(self)
+
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            self.subscribe_calls += 1
+            return (0, 1) if self.subscribe_calls == 1 else (7, 2)
+
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            # The ping loop broadcasting proves the session TaskGroup
+            # is running, so the re-fired CONNACK below exercises the
+            # watcher path, not the initial handshake check.
+            loop.call_soon_threadsafe(session_running.set)
+            return _PublishInfo()
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    task = asyncio.create_task(monitor._connect_and_listen("test-id"))
+    await asyncio.wait_for(session_running.wait(), timeout=2.0)
+    # paho's auto-reconnect re-fires on_connect; this re-subscribe fails.
+    instances[0].on_connect(instances[0], None, None, 0)
+
+    with pytest.raises(ConnectionError, match="subscribe failed \\(rc=7\\)"):
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_acl_denied_subscription_tears_the_session_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A SUBACK 0x80 (broker ACL denial) fails the session instead of going dark."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    session_running = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    instances: list[Any] = []
+
+    class _FakeClient(_FakePahoClient):
+        def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
+            super().__init__(client_id, clean_session)
+            instances.append(self)
+
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            loop.call_soon_threadsafe(session_running.set)
+            return _PublishInfo()
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    task = asyncio.create_task(monitor._connect_and_listen("test-id"))
+    await asyncio.wait_for(session_running.wait(), timeout=2.0)
+    # The broker's SUBACK arrives after the handshake looked healthy.
+    instances[0].on_subscribe(instances[0], None, 1, [0x80])
+
+    with pytest.raises(ConnectionError, match="subscription denied"):
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_missing_suback_fails_the_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A broker that never SUBACKs fails the session instead of staying dark."""
+    monkeypatch.setattr(monitor_module, "_CONNECT_TIMEOUT", 0.2)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    class _FakeClient(_FakePahoClient):
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            return (0, 1)  # accepted, but no SUBACK ever arrives
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    with pytest.raises(ConnectionError, match="no SUBACK"):
+        await asyncio.wait_for(monitor._connect_and_listen("test-id"), timeout=2.0)
+
+
+async def test_missing_suback_on_reconnect_fails_the_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SUBACK guard re-arms per handshake — a silent reconnect SUBACK also fails."""
+    monkeypatch.setattr(monitor_module, "_CONNECT_TIMEOUT", 0.3)
+
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    session_running = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    instances: list[Any] = []
+
+    class _FakeClient(_FakePahoClient):
+        def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
+            super().__init__(client_id, clean_session)
+            self.subscribe_calls = 0
+            instances.append(self)
+
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            self.subscribe_calls += 1
+            if self.subscribe_calls == 1:
+                return super().subscribe(topic)  # healthy: SUBACK granted
+            return (0, 1)  # accepted, but the reconnect SUBACK never arrives
+
+        def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
+            loop.call_soon_threadsafe(session_running.set)
+            return _PublishInfo()
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    task = asyncio.create_task(monitor._connect_and_listen("test-id"))
+    await asyncio.wait_for(session_running.wait(), timeout=2.0)
+    # paho's auto-reconnect re-fires on_connect; this handshake's
+    # SUBACK is silently dropped.
+    instances[0].on_connect(instances[0], None, None, 0)
+
+    with pytest.raises(ConnectionError, match="no SUBACK"):
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_idle_monitor_still_applies_spontaneous_announcements() -> None:
+    """The listen path is not presence-gated — announcements apply while parked."""
+    presence = SubscriberPresence()
+    state_calls: list[tuple[str, DeviceState]] = []
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda n, s: state_calls.append((n, s)),
+        on_ip_change=lambda *_: None,
+        presence=presence,
+    )
+    assert not presence.has_subscribers()
+
+    queue: asyncio.Queue[Any] = asyncio.Queue()
+    await queue.put(
+        type(
+            "M",
+            (),
+            {
+                "topic": "esphome/discover/kitchen",
+                "payload": json.dumps({"name": "kitchen"}).encode(),
+                "retain": False,
+            },
+        )()
+    )
+    listen_task = asyncio.create_task(monitor._listen(queue))
+    try:
+        for _ in range(100):
+            if state_calls:
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        listen_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listen_task
+
+    assert state_calls == [("kitchen", DeviceState.ONLINE)]
+    assert "kitchen" in monitor._last_seen
+
+
+@pytest.mark.parametrize("failing_call", ["disconnect", "loop_stop"])
+async def test_teardown_failure_does_not_mask_the_session_error(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, failing_call: str
+) -> None:
+    """A raising teardown call is logged, its sibling still runs, and the session error surfaces."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    torn_down: list[str] = []
+
+    class _FakeClient(_FakePahoClient):
+        connack_rc = 4  # "bad username/password" — any non-zero rejects
+
+        def _record(self, op: str, args: tuple[Any, ...]) -> None:
+            if op in ("disconnect", "loop_stop"):
+                torn_down.append(op)
+
+        def disconnect(self) -> None:
+            super().disconnect()
+            if failing_call == "disconnect":
+                raise RuntimeError("boom")
+
+        def loop_stop(self) -> None:
+            super().loop_stop()
+            if failing_call == "loop_stop":
+                raise RuntimeError("boom")
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    with (
+        caplog.at_level("ERROR", logger="esphome_device_builder.controllers._device_mqtt_monitor"),
+        pytest.raises(ConnectionError, match="rc=4"),
+    ):
+        await monitor._connect_and_listen("test-id")
+    assert monitor.connected is False
+    # A raising disconnect must not skip the thread join, or the paho
+    # thread leaks every reconnect cycle.
+    assert torn_down == ["disconnect", "loop_stop"]
+    assert any("teardown failed" in rec.message for rec in caplog.records)
+
+
+def test_unwrap_session_error_keeps_mixed_groups() -> None:
+    """Only a lone expected connection error unwraps; anything else stays grouped."""
+    lone = ExceptionGroup("g", [ConnectionError("x")])
+    assert isinstance(monitor_module._unwrap_session_error(lone), ConnectionError)
+    paired = ExceptionGroup("g", [ConnectionError("x"), OSError("y")])
+    assert isinstance(monitor_module._unwrap_session_error(paired), ConnectionError)
+    mixed = ExceptionGroup("g", [ConnectionError("x"), ValueError("y")])
+    assert monitor_module._unwrap_session_error(mixed) is mixed
+
+
+async def test_reconnect_refires_subscribe_via_on_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every CONNACK resubscribes, so paho's auto-reconnect can't lose the topic."""
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local"),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+
+    subscribes: list[str] = []
+    subscribed = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    instances: list[Any] = []
+
+    class _FakeClient(_FakePahoClient):
+        def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
+            super().__init__(client_id, clean_session)
+            instances.append(self)
+
+        def subscribe(self, topic: str) -> tuple[int, int]:
+            subscribes.append(topic)
+            loop.call_soon_threadsafe(subscribed.set)
+            return (0, 1)
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    task = asyncio.create_task(monitor._connect_and_listen("test-id"))
+    try:
+        await asyncio.wait_for(subscribed.wait(), timeout=2.0)
+        assert subscribes == ["esphome/discover/#"]
+        # paho's auto-reconnect re-fires on_connect from its thread;
+        # the callback alone must re-establish the subscription.
+        instances[0].on_connect(instances[0], None, None, 0)
+        assert subscribes == ["esphome/discover/#", "esphome/discover/#"]
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 async def test_connect_and_listen_raises_on_broker_rejection(
@@ -1919,37 +2251,20 @@ async def test_connect_and_listen_raises_on_broker_rejection(
 
     teardown_calls: list[str] = []
 
-    class _FakeClient:
-        def __init__(self, client_id: str = "", clean_session: bool = True) -> None:
-            self.on_connect: Any = None
-            self.on_message: Any = None
+    class _FakeClient(_FakePahoClient):
+        connack_rc = 4  # "bad username/password" — any non-zero rejects
 
-        def connect(self, host: str, port: int) -> None:
-            return None
-
-        def loop_start(self) -> None:
-            # rc=4 == "bad username/password" — any non-zero rejects.
-            self.on_connect(self, None, None, 4)
-
-        def loop_stop(self) -> None:
-            teardown_calls.append("loop_stop")
-
-        def subscribe(self, topic: str) -> None:
-            return None
-
-        def publish(self, *_args: Any, **_kwargs: Any) -> None:
-            return None
-
-        def disconnect(self) -> None:
-            teardown_calls.append("disconnect")
+        def _record(self, op: str, args: tuple[Any, ...]) -> None:
+            if op in ("loop_stop", "disconnect"):
+                teardown_calls.append(op)
 
     monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
 
     with pytest.raises(ConnectionError, match="rc=4"):
         await monitor._connect_and_listen("test-id")
 
-    # Teardown ran even though we raised.
-    assert teardown_calls == ["loop_stop", "disconnect"]
+    # Teardown ran even though we raised, in paho's documented order.
+    assert teardown_calls == ["disconnect", "loop_stop"]
 
 
 async def test_run_reconnects_on_connect_and_listen_failure(

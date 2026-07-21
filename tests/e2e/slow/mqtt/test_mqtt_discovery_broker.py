@@ -56,6 +56,29 @@ async def _wait_for(condition: Callable[[], bool], timeout: float, what: str) ->
         await asyncio.sleep(0.05)
 
 
+async def _restart_mosquitto(tmp_path: Path, port: int) -> asyncio.subprocess.Process:
+    broker = await asyncio.create_subprocess_exec(
+        str(_MOSQUITTO),
+        "-c",
+        str(tmp_path / "mosquitto.conf"),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    deadline = asyncio.get_running_loop().time() + 10.0
+    while True:
+        try:
+            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        except OSError:
+            if asyncio.get_running_loop().time() > deadline:
+                broker.terminate()
+                pytest.fail("mosquitto did not come back after restart")
+            await asyncio.sleep(0.05)
+        else:
+            writer.close()
+            await writer.wait_closed()
+            return broker
+
+
 async def _start_mosquitto(tmp_path: Path) -> tuple[asyncio.subprocess.Process, int]:
     passwd = tmp_path / "mosquitto-passwd"
     for index, (user, password) in enumerate(_LOGINS.items()):
@@ -68,27 +91,7 @@ async def _start_mosquitto(tmp_path: Path) -> tuple[asyncio.subprocess.Process, 
     port = _free_port()
     conf = tmp_path / "mosquitto.conf"
     conf.write_text(f"listener {port} 127.0.0.1\nallow_anonymous true\npassword_file {passwd}\n")
-    broker = await asyncio.create_subprocess_exec(
-        str(_MOSQUITTO),
-        "-c",
-        str(conf),
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-
-    deadline = asyncio.get_running_loop().time() + 10.0
-    while True:
-        try:
-            _reader, writer = await asyncio.open_connection("127.0.0.1", port)
-        except OSError:
-            if asyncio.get_running_loop().time() > deadline:
-                broker.terminate()
-                pytest.fail("mosquitto did not start listening")
-            await asyncio.sleep(0.05)
-        else:
-            writer.close()
-            await writer.wait_closed()
-            return broker, port
+    return await _restart_mosquitto(tmp_path, port), port
 
 
 class _FakeMqttDevice:
@@ -132,6 +135,83 @@ class _BroadcastProbe:
     def stop(self) -> None:
         self._client.loop_stop()
         self._client.disconnect()
+
+
+@pytest.mark.timeout(60)
+async def test_broker_restart_resubscribes_and_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broker restart must not flip devices OFFLINE, and discovery must resume.
+
+    Pins the resubscribe-on-reconnect fix against real paho
+    auto-reconnect rather than a hand-fired callback.
+    """
+    monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.25)
+    # Generous timeout: the outage itself must not age anyone out; the
+    # aging behaviour is pinned by the other test.
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 30.0)
+
+    broker, port = await _start_mosquitto(tmp_path)
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+
+    devices: list[Device] = []
+    fakes: list[_FakeMqttDevice] = []
+    for i in (1, 2):
+        name = f"dev{i}"
+        (config_dir / f"{name}.yaml").write_text(
+            f"esphome:\n  name: {name}\n"
+            f"mqtt:\n  broker: 127.0.0.1\n  port: {port}\n"
+            f"  username: alpha\n  password: {_LOGINS['alpha']}\n"
+        )
+        devices.append(
+            Device(name=name, friendly_name=name, configuration=f"{name}.yaml", uses_mqtt=True)
+        )
+        fakes.append(_FakeMqttDevice(name, f"10.0.1.{i}", port, "alpha", _LOGINS["alpha"]))
+
+    events: list[tuple[str, DeviceState]] = []
+    presence = SubscriberPresence()
+    coord = DeviceMqttCoordinator(
+        config_dir=config_dir,
+        get_devices=lambda: devices,
+        on_state_change=lambda n, s: events.append((n, s)),
+        on_ip_change=lambda *_: None,
+        presence=presence,
+    )
+
+    try:
+        await coord.reconcile()
+        with presence.subscriber():
+            await _wait_for(
+                lambda: {n for n, s in events if s == DeviceState.ONLINE} == {"dev1", "dev2"},
+                10.0,
+                "both devices ONLINE",
+            )
+
+            broker.terminate()
+            with contextlib.suppress(ProcessLookupError):
+                await broker.wait()
+            await asyncio.sleep(1.0)
+
+            # Same port so paho's auto-reconnect finds the new broker.
+            broker = await _restart_mosquitto(tmp_path, port)
+
+            events.clear()
+            await _wait_for(
+                lambda: {n for n, s in events if s == DeviceState.ONLINE} == {"dev1", "dev2"},
+                20.0,
+                "devices rediscovered after broker restart",
+            )
+        assert not [e for e in events if e[1] == DeviceState.OFFLINE], (
+            "broker outage must not flip devices OFFLINE"
+        )
+    finally:
+        await coord.stop()
+        for fake in fakes:
+            fake.stop()
+        broker.terminate()
+        with contextlib.suppress(ProcessLookupError):
+            await broker.wait()
 
 
 @pytest.mark.timeout(60)

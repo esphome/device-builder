@@ -18,7 +18,7 @@ import contextlib
 import logging
 import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 try:
@@ -44,6 +44,10 @@ _OFFLINE_TIMEOUT = 65.0  # two missed broadcasts + slack before OFFLINE
 _RECONNECT_DELAY = 5.0  # delay before reconnecting after broker errors
 _CONNECT_TIMEOUT = 10.0  # seconds to wait for CONNACK before giving up
 _DEFAULT_PORT = 1883
+# One taxonomy for "quiet reconnect": ``_run``'s except clause and the
+# session TaskGroup unwrap must agree, or a concurrent group stops
+# collapsing and degrades to the loud unexpected path.
+_EXPECTED_SESSION_ERRORS = (TimeoutError, OSError, ConnectionError)
 
 # Callbacks ignore the return value — typed as ``object`` so callers can
 # pass through the bool ``applied`` flag returned by
@@ -58,6 +62,12 @@ class PublishInfo(Protocol):
     rc: int
 
 
+class SubscribeClient(Protocol):
+    """The slice of paho's ``Client`` the CONNACK callback drives."""
+
+    def subscribe(self, topic: str) -> tuple[int, int]: ...
+
+
 class PublishClient(Protocol):
     """The slice of paho's ``Client`` the broadcast loop drives."""
 
@@ -68,6 +78,42 @@ class PublishClient(Protocol):
         payload: bytes | None = None,
         retain: bool = False,  # noqa: FBT001, FBT002
     ) -> PublishInfo: ...
+
+
+@dataclass
+class _SessionSignals:
+    """
+    Per-session handshake state shared with paho's thread callbacks.
+
+    ``connack_processed`` means "verdict recorded" — it is set on
+    rejection too, so a refused connect fails fast instead of waiting
+    out the connect timeout. ``failed`` is set alongside any ``errors``
+    append; paho's auto-reconnect re-fires ``on_connect`` after the
+    initial handshake, and a failure there must tear the session down,
+    not land in a list nobody re-reads.
+    """
+
+    connack_processed: asyncio.Event = field(default_factory=asyncio.Event)
+    failed: asyncio.Event = field(default_factory=asyncio.Event)
+    subscribed: asyncio.Event = field(default_factory=asyncio.Event)
+    suback_pending: asyncio.Event = field(default_factory=asyncio.Event)
+    errors: list[str] = field(default_factory=list)
+    messages: asyncio.Queue[Any] = field(default_factory=asyncio.Queue)
+
+    def record_verdict(self) -> None:
+        """Run on the loop thread: flag any failure, then open the gate."""
+        if self.errors:
+            self.failed.set()
+        self.connack_processed.set()
+
+    def begin_suback_wait(self) -> None:
+        """Run on the loop thread: a (re)connect just re-issued the subscribe.
+
+        Scheduled before the SUBACK can arrive (same FIFO bounce), so
+        the cleared latch always precedes its set.
+        """
+        self.subscribed.clear()
+        self.suback_pending.set()
 
 
 @dataclass(frozen=True)
@@ -205,7 +251,7 @@ class DeviceMqttMonitor:
                 await self._connect_and_listen(client_id)
             except asyncio.CancelledError:
                 raise
-            except (TimeoutError, OSError, ConnectionError) as err:
+            except _EXPECTED_SESSION_ERRORS as err:
                 self._log_reconnect_failure(err, expected=True)
             except Exception as err:  # noqa: BLE001 — reconnect loop must outlive any unexpected error
                 self._log_reconnect_failure(err, expected=False)
@@ -274,29 +320,58 @@ class DeviceMqttMonitor:
         )
         self._unexpected_error_logged = True
 
-    async def _connect_and_listen(self, client_id: str) -> None:
+    def _create_session_client(self, client_id: str, signals: _SessionSignals) -> Any:
         assert paho_mqtt is not None  # type narrowing — checked in start()
         loop = asyncio.get_running_loop()
 
-        message_queue: asyncio.Queue[Any] = asyncio.Queue()
-        connected = asyncio.Event()
-        connect_failed: list[int] = []
+        def on_connect(
+            connected_client: SubscribeClient, _userdata: object, _flags: object, rc: int
+        ) -> None:
+            # Runs on paho's thread, which swallows callback raises —
+            # every path must record its error and reach the set in the
+            # finally, or the awaiting side times out with no cause.
+            try:
+                if rc != 0:
+                    signals.errors.append(f"broker rejected connection (rc={rc})")
+                    return
+                # Subscribe from paho's own thread: its auto-reconnect
+                # re-fires this callback, so the subscription survives a
+                # broker blip our session logic never sees.
+                loop.call_soon_threadsafe(signals.begin_suback_wait)
+                result, _mid = connected_client.subscribe(_DISCOVER_TOPIC)
+                if result != 0:
+                    signals.errors.append(f"subscribe failed (rc={result})")
+            except Exception as err:  # noqa: BLE001 — paho's thread would swallow the raise
+                signals.errors.append(f"subscribe raised: {err!r}")
+            finally:
+                loop.call_soon_threadsafe(signals.record_verdict)
 
-        def on_connect(_client: Any, _userdata: Any, _flags: Any, rc: int) -> None:
-            if rc == 0:
-                loop.call_soon_threadsafe(connected.set)
+        def on_subscribe(
+            _client: Any, _userdata: object, _mid: int, granted_qos: tuple[int, ...]
+        ) -> None:
+            # A broker ACL denies the subscription via SUBACK 0x80 —
+            # ``subscribe()``'s rc cannot see it, and without this the
+            # monitor sits connected with discovery permanently dark.
+            if any(qos == 0x80 for qos in granted_qos):
+                signals.errors.append(f"subscription denied (granted qos={list(granted_qos)})")
+                loop.call_soon_threadsafe(signals.record_verdict)
             else:
-                connect_failed.append(rc)
-                loop.call_soon_threadsafe(connected.set)
+                loop.call_soon_threadsafe(signals.subscribed.set)
 
         def on_message(_client: Any, _userdata: Any, msg: Any) -> None:
-            loop.call_soon_threadsafe(message_queue.put_nowait, msg)
+            loop.call_soon_threadsafe(signals.messages.put_nowait, msg)
 
         client = paho_mqtt.Client(client_id=client_id, clean_session=True)
         client.on_connect = on_connect
+        client.on_subscribe = on_subscribe
         client.on_message = on_message
         if self._broker.username:
             client.username_pw_set(self._broker.username, self._broker.password or "")
+        return client
+
+    async def _connect_and_listen(self, client_id: str) -> None:
+        signals = _SessionSignals()
+        client = self._create_session_client(client_id, signals)
 
         def _connect_and_spin_up() -> None:
             client.connect(self._broker.host, self._broker.port)
@@ -306,10 +381,9 @@ class DeviceMqttMonitor:
 
         await run_in_executor(_connect_and_spin_up)
         try:
-            await asyncio.wait_for(connected.wait(), timeout=_CONNECT_TIMEOUT)
-            if connect_failed:
-                msg = f"broker rejected connection (rc={connect_failed[0]})"
-                raise ConnectionError(msg)
+            await asyncio.wait_for(signals.connack_processed.wait(), timeout=_CONNECT_TIMEOUT)
+            if signals.errors:
+                raise ConnectionError(signals.errors[0])
 
             _LOGGER.info("MQTT connected to %s:%s", self._broker.host, self._broker.port)
             # Signal to ``_run`` that this iteration achieved a real
@@ -321,17 +395,58 @@ class DeviceMqttMonitor:
             # production.
             self._connected_this_session = True
             self._set_connected(value=True)
-            client.subscribe(_DISCOVER_TOPIC)
 
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(self._listen(message_queue))
-                tg.create_task(self._ping_loop(client))
+            async def raise_when_session_failed() -> None:
+                await signals.failed.wait()
+                raise ConnectionError(signals.errors[-1])
+
+            async def require_suback() -> None:
+                # A broker that accepts a SUBSCRIBE but never SUBACKs
+                # would leave discovery dark until the keepalive kills
+                # the connection; bound the wait — re-armed for every
+                # reconnect handshake, not just the first.
+                while True:
+                    await signals.suback_pending.wait()
+                    signals.suback_pending.clear()
+                    try:
+                        async with asyncio.timeout(_CONNECT_TIMEOUT):
+                            await signals.subscribed.wait()
+                    except TimeoutError:
+                        msg = "no SUBACK for the discovery subscription"
+                        raise ConnectionError(msg) from None
+
+            try:
+                async with asyncio.TaskGroup() as tg:
+                    tg.create_task(self._listen(signals.messages))
+                    tg.create_task(self._ping_loop(client))
+                    tg.create_task(raise_when_session_failed())
+                    tg.create_task(require_suback())
+            except BaseExceptionGroup as eg:
+                # The TaskGroup wraps even a lone connection error;
+                # unwrap so ``_run``'s expected/quiet reconnect path
+                # keeps its flat except contract.
+                raise _unwrap_session_error(eg) from None
         finally:
-            # Synchronous teardown — paho's loop_stop joins its thread,
-            # usually under a second, so no need for run_in_executor here.
-            client.loop_stop()
-            client.disconnect()
-            self._set_connected(value=False)
+            # loop_stop joins paho's thread and disconnect touches its
+            # socket — keep both off the loop, even during cancellation.
+            def _teardown() -> None:
+                # paho's documented order: disconnect while the network
+                # thread still runs, so the DISCONNECT packet actually
+                # goes out. The join must run even if disconnect raises,
+                # or the thread (and its socket) leaks every reconnect.
+                try:
+                    client.disconnect()
+                finally:
+                    client.loop_stop()
+
+            try:
+                await run_in_executor(_teardown)
+            except Exception:
+                _LOGGER.exception("MQTT client teardown failed")
+            finally:
+                # The await is a cancellation point; the flag must
+                # clear even when a second cancel lands there.
+                self._set_connected(value=False)
 
     async def _listen(self, queue: asyncio.Queue[Any]) -> None:
         """Push discovery responses into the state and IP callbacks."""
@@ -446,6 +561,16 @@ class DeviceMqttMonitor:
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _unwrap_session_error(eg: BaseExceptionGroup) -> BaseException:
+    """Return the first expected connection error inside *eg*, or *eg* itself."""
+    expected, rest = eg.split(_EXPECTED_SESSION_ERRORS)
+    if expected is not None and rest is None:
+        if len(expected.exceptions) > 1:
+            _LOGGER.debug("Collapsing concurrent session errors: %r", expected.exceptions)
+        return expected.exceptions[0]
+    return eg
 
 
 def _extract_ip(data: dict[str, Any]) -> str:
