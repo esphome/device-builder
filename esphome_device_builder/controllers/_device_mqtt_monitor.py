@@ -512,10 +512,11 @@ class DeviceMqttMonitor:
     def _sweep_stale(self) -> None:
         """Flip entries silent past ``_OFFLINE_TIMEOUT`` to OFFLINE."""
         now = asyncio.get_running_loop().time()
-        stale = [name for name, last in self._last_seen.items() if now - last > _OFFLINE_TIMEOUT]
-        for name in stale:
+        last_seen = self._last_seen
+        # Materialized so the pop below can't mutate the dict mid-iteration.
+        for name in [n for n, last in last_seen.items() if now - last > _OFFLINE_TIMEOUT]:
             self._on_state_change(name, DeviceState.OFFLINE)
-            self._last_seen.pop(name, None)
+            last_seen.pop(name, None)
 
     def _set_connected(self, *, value: bool) -> None:
         if self.connected == value:
