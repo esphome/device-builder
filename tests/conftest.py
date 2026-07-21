@@ -417,17 +417,24 @@ async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
 
 @asynccontextmanager
 async def running_task(coro: Coroutine[Any, Any, Any]) -> AsyncIterator[asyncio.Task[Any]]:
-    """Run *coro* as a background task, cancelling and draining it on exit.
+    """
+    Run *coro* as a background task, cancelling and draining it on exit.
 
     Yields the :class:`asyncio.Task` so the body can await or inspect
-    it; teardown routes through :func:`cancel_and_drain`, never
-    ``suppress(CancelledError)``.
+    it. On exit the task is cancelled and its ``CancelledError``
+    swallowed; any other exception it finished with is re-raised (when
+    the body itself didn't raise) so a crashed background task can't
+    pass silently.
     """
     task = asyncio.create_task(coro)
     try:
         yield task
     finally:
-        await cancel_and_drain(task)
+        task.cancel()
+        result = await asyncio.gather(task, return_exceptions=True)
+    exc = result[0]
+    if isinstance(exc, BaseException) and not isinstance(exc, asyncio.CancelledError):
+        raise exc
 
 
 async def wait_until(
