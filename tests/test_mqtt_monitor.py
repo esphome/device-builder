@@ -1612,11 +1612,12 @@ async def test_ping_loop_non_publisher_is_a_pure_listener(
         assert "ghost" in monitor._last_seen
 
 
-async def test_ping_loop_logs_failed_broadcast(
+async def test_ping_loop_failed_broadcast_pauses_aging_and_warns_once(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A non-zero publish rc leaves a DEBUG trace instead of vanishing."""
+    """A tick whose broadcast failed neither ages devices nor spams the log."""
     monkeypatch.setattr(monitor_module, "_PING_INTERVAL", 0.05)
+    monkeypatch.setattr(monitor_module, "_OFFLINE_TIMEOUT", 0.1)
 
     class _FailingClient(_CountingClient):
         def publish(self, topic: str, payload: Any = None, retain: bool = False) -> _PublishInfo:
@@ -1625,19 +1626,48 @@ async def test_ping_loop_logs_failed_broadcast(
             info.rc = 4
             return info
 
+    state_calls: list[tuple[str, DeviceState]] = []
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x"),
+        on_state_change=lambda n, s: state_calls.append((n, s)),
+        on_ip_change=lambda *_: None,
+    )
+    fake = _FailingClient()
+    loop = asyncio.get_running_loop()
+    monitor._last_seen["ghost"] = loop.time() - 1.0
+
+    with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers._device_mqtt_monitor"):
+        async with _running_ping_loop(monitor, fake):
+            for _ in range(100):
+                if len(fake.publishes) >= 3:
+                    break
+                await asyncio.sleep(0.01)
+
+    assert state_calls == []
+    assert "ghost" in monitor._last_seen
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "Discover broadcast" in warnings[0].getMessage()
+    assert any(
+        "still failing" in rec.message and rec.levelname == "DEBUG" for rec in caplog.records
+    )
+
+
+async def test_broadcast_recovery_rebases_and_rearms_warning() -> None:
+    """The first successful broadcast after a failed stretch rebases the ledger."""
     monitor = DeviceMqttMonitor(
         broker=MqttBrokerConfig(host="x"),
         on_state_change=lambda *_: None,
         on_ip_change=lambda *_: None,
     )
-    fake = _FailingClient()
-    with caplog.at_level("DEBUG", logger="esphome_device_builder.controllers._device_mqtt_monitor"):
-        async with _running_ping_loop(monitor, fake):
-            for _ in range(100):
-                if fake.publishes:
-                    break
-                await asyncio.sleep(0.01)
-    assert any("discover broadcast failed" in rec.message for rec in caplog.records)
+    monitor._publish_error_logged = True
+    loop = asyncio.get_running_loop()
+    stale_stamp = loop.time() - 100.0
+    monitor._last_seen["sleeper"] = stale_stamp
+
+    assert monitor._broadcast(_CountingClient()) is True
+    assert monitor._last_seen["sleeper"] > stale_stamp
+    assert monitor._publish_error_logged is False
 
 
 async def test_stop_unsubscribes_presence_wake_callback() -> None:

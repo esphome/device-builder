@@ -126,6 +126,9 @@ class DeviceMqttMonitor:
         # unexpected exception class.
         self._connect_error_logged = False
         self._unexpected_error_logged = False
+        # WARNING once per failure streak, DEBUG on repeats — re-armed
+        # by the next successful broadcast.
+        self._publish_error_logged = False
 
     @staticmethod
     def is_available() -> bool:
@@ -349,13 +352,14 @@ class DeviceMqttMonitor:
         Broadcast discover requests and sweep stale devices offline.
 
         Every MQTT device answers each ``esphome/discover`` publish, so
-        broadcasts run only while a dashboard client is subscribed
-        (esphome/esphome#17715), and only from the elected broadcaster.
-        While idle the loop parks with the offline aging frozen —
-        silence without polls is not evidence — and spontaneous
-        announcements keep flowing through ``_listen``. Aging belongs
-        to the broadcaster for the same reason: a silent sibling must
-        not judge a fleet nobody is polling.
+        broadcasts run only while a dashboard client is subscribed, and
+        only from the elected broadcaster. While idle the loop parks
+        with the offline aging frozen — silence without polls is not
+        evidence — and spontaneous announcements keep flowing through
+        ``_listen``. Aging belongs to the broadcaster for the same
+        reason: a silent sibling must not judge a fleet nobody is
+        polling, and a tick whose own broadcast failed to send judges
+        nobody either.
         """
         loop = asyncio.get_running_loop()
         while True:
@@ -366,16 +370,11 @@ class DeviceMqttMonitor:
                 # mass-flips OFFLINE before it can answer the first
                 # post-resume broadcast.
                 self._rebase_last_seen()
-            if self.is_publisher:
-                info = client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
-                if info.rc != 0:
-                    # A silently dropped broadcast starves the aging
-                    # logic fleet-wide; leave a trace.
-                    _LOGGER.debug("discover broadcast failed (rc=%s)", info.rc)
+            broadcast_sent = self.is_publisher and self._broadcast(client)
             self._wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), timeout=_PING_INTERVAL)
-            if not self.is_publisher:
+            if not broadcast_sent:
                 continue
             now = loop.time()
             stale = [
@@ -384,6 +383,28 @@ class DeviceMqttMonitor:
             for name in stale:
                 self._on_state_change(name, DeviceState.OFFLINE)
                 self._last_seen.pop(name, None)
+
+    def _broadcast(self, client: Any) -> bool:
+        """Send one discover request; False pauses aging for the tick."""
+        info = client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
+        if info.rc == 0:
+            if self._publish_error_logged:
+                # The failed stretch was a no-poll period — same rebase
+                # as resuming from idle.
+                self._rebase_last_seen()
+                self._publish_error_logged = False
+            return True
+        if self._publish_error_logged:
+            _LOGGER.debug("discover broadcast still failing (rc=%s)", info.rc)
+        else:
+            _LOGGER.warning(
+                "Discover broadcast to %s:%s failed (rc=%s) — device aging paused",
+                self._broker.host,
+                self._broker.port,
+                info.rc,
+            )
+            self._publish_error_logged = True
+        return False
 
     def _rebase_last_seen(self) -> None:
         now = asyncio.get_running_loop().time()
