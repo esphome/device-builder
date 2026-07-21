@@ -12,7 +12,7 @@ from esphome_device_builder.helpers.presence_gated_loop import PresenceGatedLoop
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 
 
-class _RecordingLoop(PresenceGatedLoop):
+class _RecordingLoop(PresenceGatedLoop[None]):
     _label = "test loop"
     _interval = 0.005
 
@@ -139,7 +139,7 @@ async def test_cancellation_is_never_swallowed() -> None:
     """CancelledError raised inside ``_work`` tears the loop down."""
     started = asyncio.Event()
 
-    class _Hanging(PresenceGatedLoop):
+    class _Hanging(PresenceGatedLoop[None]):
         _label = "hanging"
 
         async def _work(self) -> None:
@@ -152,6 +152,37 @@ async def test_cancellation_is_never_swallowed() -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+async def test_after_idle_gets_the_result_and_skips_crashed_ticks() -> None:
+    """``_after_idle`` sees each completed tick's ``_work`` result; crashed ticks skip it."""
+    seen: list[int] = []
+    done = asyncio.Event()
+
+    class _Flaky(PresenceGatedLoop[int]):
+        _label = "flaky"
+        _interval = 0.001
+
+        def __init__(self) -> None:
+            super().__init__(None)
+            self.ticks = 0
+
+        async def _work(self) -> int:
+            self.ticks += 1
+            if self.ticks == 2:
+                raise RuntimeError("boom")
+            return self.ticks
+
+        def _after_idle(self, result: int) -> None:
+            seen.append(result)
+            if len(seen) >= 2:
+                done.set()
+
+    loop = _Flaky()
+    async with _running(loop):
+        async with asyncio.timeout(1):
+            await done.wait()
+    assert seen[:2] == [1, 3]
 
 
 async def test_prepare_false_disables_the_loop() -> None:

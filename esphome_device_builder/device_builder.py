@@ -1149,7 +1149,7 @@ class DeviceBuilder:
         _LOGGER.info("Serving frontend from %s (dev_mode=%s)", frontend_dir, dev_mode)
 
 
-class _BackgroundPollLoop(PresenceGatedLoop):
+class _BackgroundPollLoop(PresenceGatedLoop[None]):
     """
     Poll ``DevicesController`` for filesystem drift the push paths can't see.
 

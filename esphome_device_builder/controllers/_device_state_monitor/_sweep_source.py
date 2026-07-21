@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
 
 
-class SweepSource(PresenceGatedLoop):
+class SweepSource(PresenceGatedLoop[None]):
     """Presence-gated fixed-interval sweep loop; subclasses supply ``_sweep``."""
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:

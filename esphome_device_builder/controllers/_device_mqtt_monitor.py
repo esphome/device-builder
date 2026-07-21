@@ -531,7 +531,7 @@ class DeviceMqttMonitor:
 # ---------------------------------------------------------------------------
 
 
-class _DiscoverPingLoop(PresenceGatedLoop):
+class _DiscoverPingLoop(PresenceGatedLoop[bool]):
     """
     Broadcast discover requests and sweep stale devices offline.
 
@@ -556,7 +556,6 @@ class _DiscoverPingLoop(PresenceGatedLoop):
         super().__init__(presence)
         self._monitor = monitor
         self._client: PublishClient | None = None
-        self._broadcast_sent = False
 
     @property
     def _interval(self) -> float:  # type: ignore[override]
@@ -575,14 +574,13 @@ class _DiscoverPingLoop(PresenceGatedLoop):
         # before it can answer the first post-resume broadcast.
         self._monitor._rebase_last_seen()
 
-    async def _work(self) -> None:
+    async def _work(self) -> bool:
         assert self._client is not None  # bound in run_session
         monitor = self._monitor
-        self._broadcast_sent = monitor.is_publisher and await monitor._broadcast(self._client)
+        return monitor.is_publisher and await monitor._broadcast(self._client)
 
-    async def _idle(self) -> None:
-        await super()._idle()
-        if self._broadcast_sent:
+    def _after_idle(self, broadcast_sent: bool) -> None:  # noqa: FBT001 — hook signature
+        if broadcast_sent:
             self._monitor._sweep_stale()
 
 

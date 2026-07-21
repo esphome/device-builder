@@ -14,12 +14,13 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class PresenceGatedLoop:
+class PresenceGatedLoop[WorkT]:
     """
     Presence-gated fixed-interval loop; subclasses supply ``_work``.
 
     Tick anatomy: gate → resume hook (real park only) → wake-clear →
-    work → idle.
+    work → idle → after-idle hook with that tick's ``_work`` result
+    (skipped when ``_work`` crashed, so the hook never sees stale state).
     """
 
     # Names the loop in the crash-continue log line.
@@ -66,14 +67,17 @@ class PresenceGatedLoop:
                 self._on_resume()
             self._wake.clear()
             try:
-                await self._work()
+                result = await self._work()
             except Exception:
                 if not self._continue_on_error:
                     raise
                 # A failure must not kill the loop for the process
                 # lifetime; log it and try again next interval.
                 _LOGGER.exception("%s failed; continuing", self._label)
+                await self._idle()
+                continue
             await self._idle()
+            self._after_idle(result)
 
     async def _prepare(self) -> bool:
         """One-shot gate after the bootstrap sleep; False disables the loop."""
@@ -82,16 +86,12 @@ class PresenceGatedLoop:
     def _on_resume(self) -> None:
         """Run when a real park ends (presence 0→1 while this loop waited)."""
 
-    async def _work(self) -> None:
+    async def _work(self) -> WorkT:
         raise NotImplementedError
 
     async def _idle(self) -> None:
-        """
-        Wait out the interval, or bail early on a wake.
-
-        An override reading per-tick state written by ``_work`` is safe
-        only under ``_continue_on_error = False`` — a logged-and-continued
-        crash reaches idle with the prior tick's state.
-        """
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
+
+    def _after_idle(self, result: WorkT) -> None:
+        """Run after each completed tick's idle with that tick's ``_work`` result."""
