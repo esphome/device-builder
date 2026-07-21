@@ -50,7 +50,6 @@ from esphome_device_builder.models import (
     JobType,
 )
 
-from ...conftest import wait_until
 from .conftest import REMOTE_PIN, capture_local_events, make_remote_job
 
 if TYPE_CHECKING:
@@ -68,10 +67,10 @@ def _wire_remote_build(
     Returns ``(remote_build, client)`` so the caller can both
     assert on the remote-build mock and reference the client
     for runner-state sync (``_wait_until_dispatched`` /
-    ``_wait_for_wire_cancel`` poll on the client's mock
-    counters). When *lookup_error* is passed the returned
-    client is ``None`` — there's nothing to dispatch to and
-    no submit-side sync to wait for.
+    ``_wait_for_wire_cancel`` await the client's ``*_dispatched``
+    events). When *lookup_error* is passed the returned client
+    is ``None`` — there's nothing to dispatch to and no
+    submit-side sync to wait for.
     """
     remote_build = MagicMock()
     if lookup_error is not None:
@@ -107,39 +106,45 @@ def _make_client(
     branches each lean on a different one of these.
     """
     client = MagicMock()
-    if submit_error is not None:
-        client.submit_job = AsyncMock(side_effect=submit_error)
-    else:
+    # Each verb sets its own event when awaited, giving the _wait_* helpers
+    # an awaitable dispatch signal instead of polling ``await_count``.
+    client.submit_job_dispatched = asyncio.Event()
+    client.cancel_job_dispatched = asyncio.Event()
+    client.reset_build_env_dispatched = asyncio.Event()
 
-        async def _echo_ack(**kwargs: Any) -> dict[str, Any]:
-            ack: dict[str, Any] = {"job_id": kwargs["job_id"], "accepted": accepted}
-            if reason is not None:
-                ack["reason"] = reason
-            return ack
+    def _ack(**kwargs: Any) -> dict[str, Any]:
+        ack: dict[str, Any] = {"job_id": kwargs["job_id"], "accepted": accepted}
+        if reason is not None:
+            ack["reason"] = reason
+        return ack
 
-        client.submit_job = AsyncMock(side_effect=_echo_ack)
-    if cancel_error is not None:
-        client.cancel_job = AsyncMock(side_effect=cancel_error)
-    else:
-        client.cancel_job = AsyncMock(return_value=cancel_return)
+    async def _submit_job(**kwargs: Any) -> dict[str, Any]:
+        client.submit_job_dispatched.set()
+        if submit_error is not None:
+            raise submit_error
+        return _ack(**kwargs)
+
+    async def _cancel_job(**kwargs: Any) -> bool:
+        client.cancel_job_dispatched.set()
+        if cancel_error is not None:
+            raise cancel_error
+        return cancel_return
+
+    async def _reset_build_env(**kwargs: Any) -> dict[str, Any]:
+        client.reset_build_env_dispatched.set()
+        if submit_error is not None:
+            raise submit_error
+        return _ack(**kwargs)
+
+    client.submit_job = AsyncMock(side_effect=_submit_job)
+    client.cancel_job = AsyncMock(side_effect=_cancel_job)
     # Default so COMPILE / UPLOAD / INSTALL tests don't have to
     # wire it per-test — the runner now goes through
     # ``_fetch_and_materialise`` for every non-CLEAN COMPLETED
     # job. Tests that want to inspect the call or simulate
     # failure override this assignment.
     client.download_artifacts = AsyncMock(return_value=_make_packed_artifacts())
-
-    async def _echo_reset_ack(**kwargs: Any) -> dict[str, Any]:
-        ack: dict[str, Any] = {"job_id": kwargs["job_id"], "accepted": accepted}
-        if reason is not None:
-            ack["reason"] = reason
-        return ack
-
-    client.reset_build_env = (
-        AsyncMock(side_effect=submit_error)
-        if submit_error is not None
-        else AsyncMock(side_effect=_echo_reset_ack)
-    )
+    client.reset_build_env = AsyncMock(side_effect=_reset_build_env)
     return client
 
 
@@ -225,50 +230,37 @@ def _request_remote_cancel(controller: Any, job: FirmwareJob) -> None:
         event.set()
 
 
+async def _await_dispatch(event: asyncio.Event, what: str, *, timeout: float = 1.0) -> None:
+    """Await *event*, failing with *what* if it doesn't fire within *timeout*."""
+    try:
+        await asyncio.wait_for(event.wait(), timeout)
+    except TimeoutError:
+        pytest.fail(f"timed out waiting for {what}")
+
+
 async def _wait_until_dispatched(client: Any, *, timeout: float = 1.0) -> None:
     """
     Yield until the runner has finished its dispatch phase.
 
-    Polls on :attr:`AsyncMock.await_count` for ``submit_job``
-    — the count increments only after the mock's awaited
-    coroutine has resolved, so this returns the instant the
-    runner moves past ``await client.submit_job(...)`` and
-    into ``_await_terminal``'s wait loop. Replaces fixed
-    ``for _ in range(N): await asyncio.sleep(0)`` constructs
-    that broke when residual coroutines from a prior test
-    left the loop in a different state than the runner
-    expected (the park-point depends on how many awaits the
-    runner has yielded through, and the number drifts across
-    refactors).
-
-    Raises :class:`AssertionError` on timeout so a runner
-    regression that never reaches the submit shows up as a
-    clear test failure rather than a hung pytest run.
+    The ``submit_job`` mock sets ``submit_job_dispatched`` when awaited,
+    so this returns the instant the runner moves past
+    ``await client.submit_job(...)`` into ``_await_terminal``'s wait.
+    Fails on timeout so a regression that never submits is a clean
+    failure, not a hung run.
     """
-    await wait_until(lambda: client.submit_job.await_count > 0, timeout, "submit_job dispatch")
+    await _await_dispatch(client.submit_job_dispatched, "submit_job dispatch", timeout=timeout)
 
 
 async def _wait_for_wire_cancel(client: Any, *, timeout: float = 1.0) -> None:
     """
     Yield until the runner has translated a local cancel into a wire ``cancel_job``.
 
-    The runner parks on
-    ``asyncio.wait({terminal, session_lost, cancel_wait},
-    return_when=FIRST_COMPLETED)`` — fully event-driven, no
-    poll cadence — so as soon as
-    ``FirmwareController.cancel`` (or the test's
-    ``_request_remote_cancel`` mirror) signals the cancel
-    event, the runner wakes and dispatches
-    ``client.cancel_job``. Polling on
-    :attr:`AsyncMock.await_count` returns the instant that
-    wire send lands.
-
-    Raises :class:`AssertionError` on timeout for the same
-    reason :func:`_wait_until_dispatched` does — a regression
-    that never sends the wire cancel should be a clean fail,
-    not a hang.
+    The runner parks on the terminal / session-lost / cancel wait; when
+    the cancel event signals, it wakes and dispatches ``client.cancel_job``,
+    whose mock sets ``cancel_job_dispatched``. Fails on timeout for the
+    same reason :func:`_wait_until_dispatched` does.
     """
-    await wait_until(lambda: client.cancel_job.await_count > 0, timeout, "wire cancel_job")
+    await _await_dispatch(client.cancel_job_dispatched, "wire cancel_job", timeout=timeout)
 
 
 def _fire_session_closed(
@@ -1957,8 +1949,8 @@ def _make_reset_job(*, job_id: str = "reset-1") -> FirmwareJob:
 
 async def _wait_until_reset_dispatched(client: Any, *, timeout: float = 1.0) -> None:
     """Yield until the runner moved past ``await client.reset_build_env(...)``."""
-    await wait_until(
-        lambda: client.reset_build_env.await_count > 0, timeout, "reset_build_env dispatch"
+    await _await_dispatch(
+        client.reset_build_env_dispatched, "reset_build_env dispatch", timeout=timeout
     )
 
 

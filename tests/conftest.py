@@ -243,23 +243,30 @@ class _CapturedEvents(list[dict]):
         super().append(item)
         self.received.set()
 
-    async def wait_for_status(self, status: str, *, timeout: float = 2.0) -> dict:
-        """Return the first captured event whose ``status`` matches *status*.
+    async def wait_for_match(
+        self, predicate: Callable[[dict], object], *, timeout: float = 2.0
+    ) -> dict:
+        """Return the first captured payload satisfying *predicate*, awaiting new ones.
 
-        The *timeout* bounds the total wait, not each loop iteration,
-        so a stream of non-matching events can't push the deadline
-        forward indefinitely.
+        Rescans the buffer on each wake, so a payload that already
+        landed is matched too. The *timeout* bounds the total wait, not
+        each loop iteration, so a stream of non-matching events can't
+        push the deadline forward indefinitely.
         """
 
         async def _poll() -> dict:
             while True:
                 for entry in self:
-                    if entry.get("status") == status:
+                    if predicate(entry):
                         return entry
                 self.received.clear()
                 await self.received.wait()
 
         return await asyncio.wait_for(_poll(), timeout=timeout)
+
+    async def wait_for_status(self, status: str, *, timeout: float = 2.0) -> dict:
+        """Return the first captured event whose ``status`` matches *status*."""
+        return await self.wait_for_match(lambda e: e.get("status") == status, timeout=timeout)
 
 
 def capture_events(bus: EventBus, event_type: EventType) -> _CapturedEvents:
