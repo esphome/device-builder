@@ -556,6 +556,9 @@ class _FakePresence:
     def add_subscriber_callback(self, callback: Any) -> None:
         self.callbacks.append(callback)
 
+    def has_subscribers(self) -> bool:
+        return False
+
     async def wait_for_subscriber(self) -> None:
         return None
 

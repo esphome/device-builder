@@ -56,7 +56,7 @@ _SYSTEMIC_FAILURE_WARN_THRESHOLD = 10
 class ApiInfoSource(ApiSweepSource):
     """Fill mac/version via the Native API when mDNS hasn't supplied them."""
 
-    _sweep_label = "API info"
+    _label = "API info sweep"
     # Give mDNS a head start so devices that announce normally fill
     # mac/version for free and never trigger a connection.
     _bootstrap_delay = 15

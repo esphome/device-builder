@@ -82,7 +82,7 @@ _VERIFIED_TTL = 21600.0  # seconds
 class ApiReviverSource(ApiSweepSource):
     """Identity-verified last-resort ONLINE revival from the persisted IP."""
 
-    _sweep_label = "API reviver"
+    _label = "API reviver sweep"
     # After ping's 10s bootstrap plus its privilege probe and first
     # sweep, so ``icmp_available`` is decided and the DNS-failure cache
     # the cohort gate reads is populated.

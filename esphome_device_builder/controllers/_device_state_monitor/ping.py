@@ -50,7 +50,7 @@ async def _can_use_icmp_lib_with_privilege() -> bool | None:
 class PingSource(SweepSource):
     """ICMP ping sweep: mDNS pre-resolve, target selection, and the ping pass."""
 
-    _sweep_label = "ICMP ping"
+    _label = "ICMP ping sweep"
     # The mDNS browser's head start so the common case (everything
     # announces) skips a redundant ping the browser would have flipped
     # ONLINE for free. 10s mirrors the upstream dashboard's
