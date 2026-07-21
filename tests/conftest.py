@@ -414,6 +414,26 @@ async def cancel_and_drain(task: asyncio.Task[Any]) -> None:
     await asyncio.gather(task, return_exceptions=True)
 
 
+async def wait_until(
+    condition: Callable[[], object],
+    timeout: float,
+    what: str,
+    *,
+    interval: float = 0,
+) -> None:
+    """Poll *condition* until truthy; pytest.fail naming *what* after *timeout*.
+
+    ``interval`` defaults to a bare loop yield; pass a coarser one
+    when the condition tracks real-world time (e.g. a live broker).
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not condition():
+        if loop.time() >= deadline:
+            pytest.fail(f"timed out waiting for {what}")
+        await asyncio.sleep(interval)
+
+
 # ---------------------------------------------------------------------------
 # submit_job test helpers
 #

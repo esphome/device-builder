@@ -50,6 +50,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 
+from ...conftest import wait_until
 from .conftest import REMOTE_PIN, capture_local_events, make_remote_job
 
 if TYPE_CHECKING:
@@ -244,13 +245,7 @@ async def _wait_until_dispatched(client: Any, *, timeout: float = 1.0) -> None:
     regression that never reaches the submit shows up as a
     clear test failure rather than a hung pytest run.
     """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while client.submit_job.await_count == 0:
-        if loop.time() >= deadline:
-            msg = f"submit_job not awaited within {timeout}s"
-            raise AssertionError(msg)
-        await asyncio.sleep(0)
+    await wait_until(lambda: client.submit_job.await_count > 0, timeout, "submit_job dispatch")
 
 
 async def _wait_for_wire_cancel(client: Any, *, timeout: float = 1.0) -> None:
@@ -265,21 +260,15 @@ async def _wait_for_wire_cancel(client: Any, *, timeout: float = 1.0) -> None:
     ``_request_remote_cancel`` mirror) signals the cancel
     event, the runner wakes and dispatches
     ``client.cancel_job``. Polling on
-    :attr:`AsyncMock.await_count` with a 50 ms granularity
-    returns the instant that wire send lands.
+    :attr:`AsyncMock.await_count` returns the instant that
+    wire send lands.
 
     Raises :class:`AssertionError` on timeout for the same
     reason :func:`_wait_until_dispatched` does — a regression
     that never sends the wire cancel should be a clean fail,
     not a hang.
     """
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while client.cancel_job.await_count == 0:
-        if loop.time() >= deadline:
-            msg = f"cancel_job not awaited within {timeout}s"
-            raise AssertionError(msg)
-        await asyncio.sleep(0.05)
+    await wait_until(lambda: client.cancel_job.await_count > 0, timeout, "wire cancel_job")
 
 
 def _fire_session_closed(
@@ -1968,13 +1957,9 @@ def _make_reset_job(*, job_id: str = "reset-1") -> FirmwareJob:
 
 async def _wait_until_reset_dispatched(client: Any, *, timeout: float = 1.0) -> None:
     """Yield until the runner moved past ``await client.reset_build_env(...)``."""
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while client.reset_build_env.await_count == 0:
-        if loop.time() >= deadline:
-            msg = f"reset_build_env not awaited within {timeout}s"
-            raise AssertionError(msg)
-        await asyncio.sleep(0)
+    await wait_until(
+        lambda: client.reset_build_env.await_count > 0, timeout, "reset_build_env dispatch"
+    )
 
 
 async def test_remote_reset_dispatches_frame_and_finalises_on_completed(

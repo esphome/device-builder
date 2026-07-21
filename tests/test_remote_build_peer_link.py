@@ -21,7 +21,7 @@ import asyncio
 import hashlib
 import json
 import secrets
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -109,6 +109,7 @@ from .conftest import (
     make_submit_job_frames,
     make_tar_bundle,
     reset_offloader_firmware_stub,
+    wait_until,
 )
 
 
@@ -119,27 +120,6 @@ def _make_controller(*, config_dir: Any = None) -> RemoteBuildController:
 def _seed_peer(controller: RemoteBuildController, peer: StoredPeer) -> None:
     """Insert *peer* into the controller's RAM-canonical APPROVED dict."""
     controller.receiver.state.approved_peers[peer.dashboard_id] = peer
-
-
-async def _wait_until(condition: Callable[[], bool], *, timeout: float = 10.0) -> None:
-    """Yield to the loop until *condition()* returns truthy or *timeout* elapses.
-
-    Raises :exc:`TimeoutError` (via :func:`asyncio.wait_for`) when
-    the condition stays false past *timeout* — surfaces a
-    deterministic failure in place of a silent
-    ``for _ in range(N): sleep(0)`` loop that would otherwise
-    fall through and let the next assertion produce a misleading
-    error message. Use for waits whose synchronisation source is
-    a piece of mutated state (registry dict membership, attribute
-    flip) rather than a callback we can wire an
-    :class:`asyncio.Event` into.
-    """
-
-    async def _spin() -> None:
-        while not condition():
-            await asyncio.sleep(0)
-
-    await asyncio.wait_for(_spin(), timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -1265,7 +1245,11 @@ async def test_e2e_peer_link_session_stays_open_after_intent_response(
         # registration happens just before. If the WS closed
         # instead, ``"alpha"`` would never land in the dict and
         # the wait would time out (deterministic failure).
-        await _wait_until(lambda: "alpha" in controller.receiver.state.peer_link_sessions)
+        await wait_until(
+            lambda: "alpha" in controller.receiver.state.peer_link_sessions,
+            10.0,
+            "alpha peer-link session registered",
+        )
         assert not ws.closed
     finally:
         await ws.close()
@@ -1364,13 +1348,21 @@ async def test_e2e_peer_link_session_unregistered_on_peer_close(
     _session, ws, _ = await _drive_peer_link_session_open(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
-    await _wait_until(lambda: "alpha" in controller.receiver.state.peer_link_sessions)
+    await wait_until(
+        lambda: "alpha" in controller.receiver.state.peer_link_sessions,
+        10.0,
+        "alpha peer-link session registered",
+    )
 
     await ws.close()
 
     # The receiver's session loop sees the close, exits, and
     # ``unregister_peer_link_session`` runs in its ``finally``.
-    await _wait_until(lambda: "alpha" not in controller.receiver.state.peer_link_sessions)
+    await wait_until(
+        lambda: "alpha" not in controller.receiver.state.peer_link_sessions,
+        10.0,
+        "alpha peer-link session unregistered",
+    )
 
 
 async def test_e2e_peer_link_session_drained_on_controller_stop(
@@ -1395,7 +1387,11 @@ async def test_e2e_peer_link_session_drained_on_controller_stop(
         client, dashboard_id="alpha", initiator_priv=initiator_priv
     )
     try:
-        await _wait_until(lambda: "alpha" in controller.receiver.state.peer_link_sessions)
+        await wait_until(
+            lambda: "alpha" in controller.receiver.state.peer_link_sessions,
+            10.0,
+            "alpha peer-link session registered",
+        )
 
         # ``stop()`` runs in the same loop; the test fixture
         # also calls ``stop()`` on teardown but we drive it

@@ -43,7 +43,7 @@ from esphome_device_builder.controllers._reachability_tracker import Reachabilit
 from esphome_device_builder.helpers.async_ import log_task_exit
 from esphome_device_builder.models import RUNTIME_STATE_FIELD_NAMES, Device, DeviceState
 
-from .conftest import RecordingMonitorCallbacks, stub_async_service_info
+from .conftest import RecordingMonitorCallbacks, stub_async_service_info, wait_until
 from .conftest import make_device as _device
 
 # The service-type strings the production code uses; pinned here so
@@ -182,13 +182,7 @@ async def _wait_for_ping_sweep(
     if until is None:
         await asyncio.sleep(0.05)
         return
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + 5.0
-    while not until():
-        if loop.time() >= deadline:
-            msg = "ping loop did not reach the expected state within 5s"
-            raise AssertionError(msg)
-        await asyncio.sleep(0.01)
+    await wait_until(until, 5.0, "the ping loop's expected state", interval=0.01)
 
 
 async def _stop_and_drain(monitor: DeviceStateMonitor) -> None:

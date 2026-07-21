@@ -15,7 +15,6 @@ import contextlib
 import json
 import shutil
 import socket
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +24,8 @@ from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_m
 from esphome_device_builder.controllers._device_mqtt_coordinator import DeviceMqttCoordinator
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device, DeviceState
+
+from ....conftest import wait_until
 
 paho = pytest.importorskip("paho.mqtt.client")
 
@@ -46,14 +47,6 @@ def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
-
-
-async def _wait_for(condition: Callable[[], bool], timeout: float, what: str) -> None:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while not condition():
-        if asyncio.get_running_loop().time() > deadline:
-            pytest.fail(f"timed out waiting for {what}")
-        await asyncio.sleep(0.05)
 
 
 async def _restart_mosquitto(tmp_path: Path, port: int) -> asyncio.subprocess.Process:
@@ -182,10 +175,11 @@ async def test_broker_restart_resubscribes_and_recovers(
     try:
         await coord.reconcile()
         with presence.subscriber():
-            await _wait_for(
+            await wait_until(
                 lambda: {n for n, s in events if s == DeviceState.ONLINE} == {"dev1", "dev2"},
                 10.0,
                 "both devices ONLINE",
+                interval=0.05,
             )
 
             broker.terminate()
@@ -197,10 +191,11 @@ async def test_broker_restart_resubscribes_and_recovers(
             broker = await _restart_mosquitto(tmp_path, port)
 
             events.clear()
-            await _wait_for(
+            await wait_until(
                 lambda: {n for n, s in events if s == DeviceState.ONLINE} == {"dev1", "dev2"},
                 20.0,
                 "devices rediscovered after broker restart",
+                interval=0.05,
             )
         assert not [e for e in events if e[1] == DeviceState.OFFLINE], (
             "broker outage must not flip devices OFFLINE"
@@ -256,7 +251,12 @@ async def test_six_devices_two_logins_single_broadcaster(
         await coord.reconcile()
         assert coord.active_brokers == 2
         monitors = list(coord._monitors.values())
-        await _wait_for(lambda: all(m.connected for m in monitors), 10.0, "both logins connected")
+        await wait_until(
+            lambda: all(m.connected for m in monitors),
+            10.0,
+            "both logins connected",
+            interval=0.05,
+        )
 
         # Idle: connected and subscribed, but not a single broadcast.
         await asyncio.sleep(1.0)
@@ -264,10 +264,11 @@ async def test_six_devices_two_logins_single_broadcaster(
         assert states == {}
 
         with presence.subscriber():
-            await _wait_for(
+            await wait_until(
                 lambda: all(states.get(f"dev{i}") == DeviceState.ONLINE for i in range(1, 7)),
                 10.0,
                 "all six devices ONLINE",
+                interval=0.05,
             )
             assert ips["dev1"] == "10.0.0.1"
             # One elected broadcaster per broker — two logins must not
@@ -276,7 +277,12 @@ async def test_six_devices_two_logins_single_broadcaster(
 
             # A device that stops answering ages out OFFLINE.
             fakes[0].answering = False
-            await _wait_for(lambda: states.get("dev1") == DeviceState.OFFLINE, 10.0, "dev1 OFFLINE")
+            await wait_until(
+                lambda: states.get("dev1") == DeviceState.OFFLINE,
+                10.0,
+                "dev1 OFFLINE",
+                interval=0.05,
+            )
 
         # Dashboard gone: broadcasts stop again (allow one in-flight tick).
         await asyncio.sleep(0.5)

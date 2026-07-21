@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -33,6 +32,8 @@ from esphome_device_builder.controllers._device_state_monitor._state import Moni
 from esphome_device_builder.controllers._device_state_monitor.ping import PingSource
 from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
+
+from .conftest import wait_until
 
 
 def _build_monitor(presence: SubscriberPresence | None) -> DeviceStateMonitor:
@@ -78,16 +79,6 @@ def _instrument_loop(
     return counts
 
 
-async def _drive_until(condition: Callable[[], object], *, timeout: float = 0.5) -> None:
-    """Wait for *condition()* to become truthy or raise on timeout."""
-
-    async def _spin() -> None:
-        while not condition():
-            await asyncio.sleep(0)
-
-    await asyncio.wait_for(_spin(), timeout=timeout)
-
-
 async def test_ping_loop_runs_unconditionally_without_presence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -103,7 +94,7 @@ async def test_ping_loop_runs_unconditionally_without_presence(
 
     task = asyncio.create_task(monitor.ping.run())
     try:
-        await _drive_until(lambda: counts["sweeps"] >= 2)
+        await wait_until(lambda: counts["sweeps"] >= 2, 0.5, "two sweeps")
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -127,7 +118,7 @@ async def test_ping_loop_survives_a_raising_resolve_step(
 
     task = asyncio.create_task(monitor.ping.run())
     try:
-        await _drive_until(lambda: counts["sweeps"] >= 2)
+        await wait_until(lambda: counts["sweeps"] >= 2, 0.5, "two sweeps")
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -152,7 +143,7 @@ async def test_ping_loop_survives_a_raising_ping_sweep(
 
     task = asyncio.create_task(monitor.ping.run())
     try:
-        await _drive_until(lambda: counts["sweeps"] >= 2)
+        await wait_until(lambda: counts["sweeps"] >= 2, 0.5, "two sweeps")
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -206,7 +197,7 @@ async def test_ping_loop_parks_until_first_subscriber(
 
         # 0→1 transition must wake the loop within one scheduling tick.
         with presence.subscriber():
-            await _drive_until(lambda: counts["sweeps"] >= 1)
+            await wait_until(lambda: counts["sweeps"] >= 1, 0.5, "a sweep")
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -233,7 +224,7 @@ async def test_ping_loop_pauses_again_after_last_subscriber_leaves(
     try:
         # Cycle one subscriber in, drive at least one sweep, then out.
         with presence.subscriber():
-            await _drive_until(lambda: counts["sweeps"] >= 1)
+            await wait_until(lambda: counts["sweeps"] >= 1, 0.5, "a sweep")
         sweeps_at_disconnect = counts["sweeps"]
 
         # After disconnect, give the loop several ticks. The count
@@ -305,11 +296,11 @@ async def test_subscriber_arrival_mid_idle_bails_within_a_tick(
     task = asyncio.create_task(monitor.ping.run())
     try:
         with presence.subscriber():
-            await _drive_until(lambda: counts["sweeps"] >= 1)
+            await wait_until(lambda: counts["sweeps"] >= 1, 0.5, "a sweep")
         sweeps_after_a = counts["sweeps"]
 
         with presence.subscriber():
-            await _drive_until(lambda: counts["sweeps"] > sweeps_after_a)
+            await wait_until(lambda: counts["sweeps"] > sweeps_after_a, 0.5, "a fresh sweep")
     finally:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
