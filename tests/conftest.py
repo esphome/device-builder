@@ -421,7 +421,8 @@ async def wait_until(
     *,
     interval: float = 0,
 ) -> None:
-    """Poll *condition* until truthy; pytest.fail naming *what* after *timeout*.
+    """
+    Poll *condition* until truthy; pytest.fail naming *what* on timeout.
 
     ``interval`` defaults to a bare loop yield; pass a coarser one
     when the condition tracks real-world time (e.g. a live broker).
