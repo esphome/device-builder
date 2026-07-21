@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from esphome.const import __version__ as _installed_esphome_version
 
 from ...helpers.api import api_command
-from ...helpers.async_ import drain_tasks, run_in_executor
+from ...helpers.async_ import drain_tasks
 from ...helpers.event_bus import Event
 from ...helpers.storage import Store, drain_shutdown_callbacks
 from ...models import (
@@ -40,7 +40,7 @@ from ...models import (
     RemoteBuildSettingsView,
 )
 from ..config import (
-    effective_remote_build_settings,
+    load_effective_remote_build_settings,
 )
 from . import (
     cleanup_loop,
@@ -164,12 +164,7 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         toggle never renders enabled beside a "Listener offline"
         badge.
         """
-        settings = self._db.settings
-        return await run_in_executor(
-            lambda: effective_remote_build_settings(
-                settings.config_dir, on_ha_addon=settings.on_ha_addon
-            )
-        )
+        return await load_effective_remote_build_settings(self._db.settings)
 
     def _on_firmware_queue_transition(self, event: Event[Any]) -> None:
         """Bus listener: broadcast ``queue_status`` to paired offloaders."""

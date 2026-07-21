@@ -11,7 +11,7 @@ from aiohttp import web
 
 from .api.ws import init_ws_app
 from .constants import REMOTE_BUILD_PORT_SCAN_ATTEMPTS
-from .controllers.config import effective_remote_build_settings
+from .controllers.config import load_effective_remote_build_settings
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
 from .helpers.async_ import run_in_executor
 from .helpers.network_interfaces import (
@@ -120,11 +120,7 @@ class RemoteBuildLifecycle:
         if self._db.remote_build_receiver is None or self._db.loop is None:
             return
         settings = self._db.settings
-        rb_settings = await run_in_executor(
-            lambda: effective_remote_build_settings(
-                settings.config_dir, on_ha_addon=settings.on_ha_addon
-            )
-        )
+        rb_settings = await load_effective_remote_build_settings(settings)
         if not rb_settings.enabled:
             # ``--remote-build-only`` has no dashboard UI to flip the
             # persisted toggle back on, and a receiver with no listener
@@ -245,12 +241,7 @@ class RemoteBuildLifecycle:
         if self._db.loop is None:
             return self._runner is not None
         async with self._get_lock():
-            settings = self._db.settings
-            rb_settings = await run_in_executor(
-                lambda: effective_remote_build_settings(
-                    settings.config_dir, on_ha_addon=settings.on_ha_addon
-                )
-            )
+            rb_settings = await load_effective_remote_build_settings(self._db.settings)
             if rb_settings.enabled:
                 if self._runner is None:
                     await self.maybe_start()

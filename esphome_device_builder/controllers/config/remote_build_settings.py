@@ -6,10 +6,14 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from ...helpers.async_ import run_in_executor
 from ...models import RemoteBuildSettings
 from .metadata import _load_metadata, metadata_transaction
+
+if TYPE_CHECKING:
+    from .settings import DashboardSettings
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,10 +89,7 @@ def load_remote_build_settings(config_dir: Path) -> RemoteBuildSettings:
     :func:`effective_remote_build_settings` so the HA-addon
     default-off rule lives in one place.
     """
-    metadata = _load_metadata(config_dir)
-    if _REMOTE_BUILD_KEY not in metadata:
-        return RemoteBuildSettings()
-    return _settings_from_raw(metadata[_REMOTE_BUILD_KEY])
+    return _settings_from_metadata(_load_metadata(config_dir))
 
 
 def effective_remote_build_settings(config_dir: Path, *, on_ha_addon: bool) -> RemoteBuildSettings:
@@ -102,9 +103,19 @@ def effective_remote_build_settings(config_dir: Path, *, on_ha_addon: bool) -> R
     default. Keeps the settings surface and the bind site agreeing
     on the same effective state.
     """
-    if on_ha_addon and not has_remote_build_settings_persisted(config_dir):
+    metadata = _load_metadata(config_dir)
+    if on_ha_addon and not _has_persisted_block(metadata):
         return RemoteBuildSettings(enabled=False)
-    return load_remote_build_settings(config_dir)
+    return _settings_from_metadata(metadata)
+
+
+async def load_effective_remote_build_settings(settings: DashboardSettings) -> RemoteBuildSettings:
+    """Read the effective receiver settings off *settings*' deployment mode, on the executor."""
+    return await run_in_executor(
+        lambda: effective_remote_build_settings(
+            settings.config_dir, on_ha_addon=settings.on_ha_addon
+        )
+    )
 
 
 def has_remote_build_settings_persisted(config_dir: Path) -> bool:
@@ -129,7 +140,19 @@ def has_remote_build_settings_persisted(config_dir: Path) -> bool:
     HA-addon gate consistent with the fail-safe shape in
     :func:`_settings_from_raw`.
     """
-    return isinstance(_load_metadata(config_dir).get(_REMOTE_BUILD_KEY), dict)
+    return _has_persisted_block(_load_metadata(config_dir))
+
+
+def _has_persisted_block(metadata: dict[str, Any]) -> bool:
+    """Return ``True`` when ``_remote_build`` was written with the ``set_settings`` shape."""
+    return isinstance(metadata.get(_REMOTE_BUILD_KEY), dict)
+
+
+def _settings_from_metadata(metadata: dict[str, Any]) -> RemoteBuildSettings:
+    """Decode the ``_remote_build`` block from loaded metadata, defaults when absent."""
+    if _REMOTE_BUILD_KEY not in metadata:
+        return RemoteBuildSettings()
+    return _settings_from_raw(metadata[_REMOTE_BUILD_KEY])
 
 
 def _merge_settings_into_block(data: dict[str, Any], settings: RemoteBuildSettings) -> None:
