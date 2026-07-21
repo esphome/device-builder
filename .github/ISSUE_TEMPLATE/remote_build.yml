@@ -21,9 +21,10 @@ body:
 
 
         - **Windows blocks it by default.** Windows Firewall stops inbound
-        connections to the peer-link port (6055) and usually Python's mDNS
-        replies too, so nothing can discover or pair to a Windows build
-        server until you add an inbound allow rule for TCP 6055.
+        connections to the peer-link port (TCP 6055) and Python's mDNS
+        replies (UDP 5353), so a Windows build server can't be discovered or
+        paired to until both are allowed through, either as two inbound port
+        rules or by allowing the app itself.
 
         - **The Home Assistant add-on ships with the build server listener
         off.** Turn on "Enable remote build" under Settings → Build server
