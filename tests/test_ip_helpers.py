@@ -13,8 +13,8 @@ def test_is_unspecified_address() -> None:
     assert is_unspecified_address("0.0.0.0")
     assert is_unspecified_address("::")
     assert not is_unspecified_address("10.0.0.1")
-    # Unparseable input is not "unspecified" — the drop filter must
-    # keep it (zeroconf scoped forms), so this side stays False.
+    # Unparseable input is not "unspecified" — the drop filter only
+    # removes recognizable unspecified addresses, so this stays False.
     assert not is_unspecified_address("not-an-ip")
     assert not is_unspecified_address("")
 

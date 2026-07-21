@@ -542,6 +542,10 @@ class MdnsSource:
         announce never claims.
         """
         monitor = self._monitor
+        # Claimed before the apply-path unspecified-address filter, unlike
+        # the active-resolve path: a resolved service is liveness evidence
+        # on its own (already claimed even when addressless), and the
+        # browser's ``Removed`` lifecycle demotes — no permanent latch.
         monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``

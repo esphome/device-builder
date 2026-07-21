@@ -144,10 +144,8 @@ class DNSCache:
                 # honest — the runtime shape is documented as
                 # ``list[str]``, and ``except _RESOLVE_EXCEPTIONS`` is
                 # the only path that produces ``None``.
-                addresses = cast("list[str] | None", await async_resolve(hostname))
+                addresses = cast("list[str]", await async_resolve(hostname))
         except _RESOLVE_EXCEPTIONS:
-            return None
-        if addresses is None:
             return None
         # A sinkhole resolver answers with 0.0.0.0 / ::; an
         # all-unspecified reply is a failed lookup, not a result.

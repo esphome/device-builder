@@ -22,8 +22,8 @@ def drop_unspecified_addresses(addresses: Iterable[str]) -> list[str]:
     """
     Drop unspecified entries from *addresses*.
 
-    Entries that don't parse are kept — zeroconf hands out scoped
-    IPv6 forms this filter must not eat.
+    Entries that don't parse as an IP are kept unchanged — the
+    filter only removes recognizable unspecified addresses.
     """
     return [address for address in addresses if not is_unspecified_address(address)]
 
