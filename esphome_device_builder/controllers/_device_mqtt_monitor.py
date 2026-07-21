@@ -294,22 +294,23 @@ class DeviceMqttMonitor:
             self._connected_this_session = False
 
         if expected:
-            if self._connect_error_logged:
-                _LOGGER.debug(
-                    "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss",
-                    self._broker.host,
-                    self._broker.port,
-                    err,
-                    delay,
+            # A failed TLS handshake (wrong CA for this broker, CN
+            # mismatch, TLS against a plaintext listener) is a
+            # misconfiguration, not an outage — label it so the operator
+            # checks the YAML, not the network.
+            if isinstance(err, ssl.SSLError):
+                first = (
+                    "TLS handshake with MQTT broker %s:%s failed (%s) — check "
+                    "certificate_authority / skip_cert_cn_check — reconnecting in %ss"
                 )
+                repeat = "TLS handshake with MQTT broker %s:%s still failing (%s) — retrying in %ss"
             else:
-                _LOGGER.warning(
-                    "MQTT broker %s:%s unreachable (%s) — reconnecting in %ss",
-                    self._broker.host,
-                    self._broker.port,
-                    err,
-                    delay,
-                )
+                first = "MQTT broker %s:%s unreachable (%s) — reconnecting in %ss"
+                repeat = "MQTT broker %s:%s still unreachable (%s) — reconnecting in %ss"
+            if self._connect_error_logged:
+                _LOGGER.debug(repeat, self._broker.host, self._broker.port, err, delay)
+            else:
+                _LOGGER.warning(first, self._broker.host, self._broker.port, err, delay)
                 self._connect_error_logged = True
             return
 

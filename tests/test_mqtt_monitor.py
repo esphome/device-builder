@@ -2152,7 +2152,7 @@ async def test_run_treats_ssl_error_as_expected_reconnect(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A TLS handshake failure stays on the quiet unreachable path, no traceback."""
+    """A TLS handshake failure reconnects quietly under its own actionable label."""
     monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
     monitor = DeviceMqttMonitor(
         broker=MqttBrokerConfig(host="x", certificate_authority=_TEST_CA_PEM),
@@ -2175,8 +2175,11 @@ async def test_run_treats_ssl_error_as_expected_reconnect(
     with caplog.at_level("DEBUG", logger=target):
         async with running_task(monitor._run()):
             await asyncio.wait_for(third_attempt.wait(), timeout=2.0)
-    unreachable = [r for r in caplog.records if "unreachable" in r.getMessage()]
-    assert [r.levelname for r in unreachable][:2] == ["WARNING", "DEBUG"]
+    tls_records = [r for r in caplog.records if "TLS handshake" in r.getMessage()]
+    assert [r.levelname for r in tls_records][:2] == ["WARNING", "DEBUG"]
+    # The misconfiguration label, not "unreachable", and it points at the knobs.
+    assert "certificate_authority" in tls_records[0].getMessage()
+    assert not [r for r in caplog.records if "unreachable" in r.getMessage()]
     assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
 
