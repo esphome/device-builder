@@ -97,9 +97,9 @@ class DeviceMetadataBase(DeviceBuilderBase):
         store_md = self._metadata_store.get(filename)
         shared_md = self._shared_sidecar.get_sync(filename)
         ip = str(store_md.get("ip", ""))
-        if is_unspecified_address(ip):
-            # Self-heal a sidecar poisoned by a sinkhole resolver
-            # before the ingestion filters existed.
+        if ip and is_unspecified_address(ip):
+            # A persisted sidecar can hold a poisoned IP the runtime
+            # filters never saw.
             ip = ""
         expected_config_hash = read_build_info_hash(config_dir / filename) or str(
             store_md.get("expected_config_hash", "")

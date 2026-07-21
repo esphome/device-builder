@@ -92,6 +92,31 @@ async def test_non_api_device_marked_online_when_mdns_resolves() -> None:
     resolver.assert_awaited_once()
 
 
+async def test_all_unspecified_resolve_claims_nothing() -> None:
+    """A sinkhole answer of 0.0.0.0 / :: must not latch the device ONLINE."""
+    devices = [_device(loaded_integrations=["web_server"])]
+    monitor, _resolver = _make_monitor(devices, resolved={"kitchen.local": ["0.0.0.0", "::"]})
+
+    await shared.resolve_non_api_mdns_targets(monitor)
+
+    assert devices[0].runtime_state.state == DeviceState.UNKNOWN
+    assert devices[0].ip == ""
+
+
+async def test_resolve_with_mixed_junk_applies_only_real_address() -> None:
+    """Unspecified entries are dropped; the real address claims ONLINE."""
+    devices = [_device(loaded_integrations=["web_server"])]
+    monitor, _resolver = _make_monitor(
+        devices, resolved={"kitchen.local": ["0.0.0.0", "192.168.1.42"]}
+    )
+
+    await shared.resolve_non_api_mdns_targets(monitor)
+
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
+    assert devices[0].ip == "192.168.1.42"
+    assert devices[0].runtime_state.ip_addresses == ["192.168.1.42"]
+
+
 async def test_api_device_skipped() -> None:
     """API-loaded devices go through the browser path, not the resolve fallback.
 

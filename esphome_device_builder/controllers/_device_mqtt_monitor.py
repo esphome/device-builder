@@ -666,7 +666,7 @@ def _extract_ip(data: dict[str, Any]) -> str:
     """
     for key in ("ip", "ip0", "ip1", "ip2"):
         value = data.get(key)
-        if isinstance(value, str) and is_usable_ip(value):
+        if isinstance(value, str) and value and is_usable_ip(value):
             return value
     return ""
 

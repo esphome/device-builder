@@ -32,6 +32,7 @@ from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_SRV,
 
 from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
+from ...helpers.ip import drop_unspecified_addresses
 from ...models import DeviceState
 from .._reachability_tracker import MdnsCacheInfo
 from .helpers import (
@@ -272,8 +273,10 @@ class MdnsSource:
 
         Both IPv4 and IPv6 (scoped) entries are included — the
         OTA address-cache args need every IP we know so the
-        runtime can try them in turn. mDNS-only; non-``.local``
-        hostnames go through ``state.dns_cache.get_cached_addresses``.
+        runtime can try them in turn. Unspecified entries (a junk
+        ``0.0.0.0`` / ``::`` announce) are dropped. mDNS-only;
+        non-``.local`` hostnames go through
+        ``state.dns_cache.get_cached_addresses``.
         """
         if self._zeroconf is None:
             return None
@@ -285,7 +288,7 @@ class MdnsSource:
         if not info.load_from_cache(self._zeroconf.zeroconf):
             return None
         addresses = info.parsed_scoped_addresses(IPVersion.All)
-        return addresses or None
+        return drop_unspecified_addresses(addresses) or None
 
     def reconcile_from_cache(self, device_name: str) -> None:
         """

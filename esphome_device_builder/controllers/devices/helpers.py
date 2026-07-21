@@ -14,7 +14,6 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.hostname import is_local_hostname, normalize_hostname
-from ...helpers.ip import drop_unspecified_addresses, is_unspecified_address
 from ...helpers.yaml import read_yaml_scalar, rewrite_name_or_substitution
 from ...models import ConfigEntryType, Device, ErrorCode
 from .constants import _CONCEALED_SECRET_RE
@@ -458,11 +457,9 @@ def _build_address_cache_args(device: Device, monitor: DeviceStateMonitor | None
             else monitor.state.dns_cache.get_cached_addresses(address)
         )
         if cached:
-            # The zeroconf cache is read directly here, so a junk
-            # announce (0.0.0.0 / ::) bypasses the apply-path filter.
-            addresses = drop_unspecified_addresses(cached)
+            addresses = list(cached)
 
-    if not addresses and device.ip and not is_unspecified_address(device.ip):
+    if not addresses and device.ip:
         addresses = [device.ip]
 
     if not addresses:

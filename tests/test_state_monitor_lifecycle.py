@@ -1751,6 +1751,25 @@ def test_get_cached_addresses_returns_none_when_addresses_empty(
     assert monitor.mdns.get_cached_addresses("kitchen.local") is None
 
 
+def test_get_cached_addresses_drops_unspecified_entries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A junk 0.0.0.0 / :: announce in the zeroconf cache never reaches consumers."""
+    monitor, _callbacks = _make_monitor()
+    monitor.mdns._zeroconf = MagicMock()
+    monitor.mdns._zeroconf.zeroconf = MagicMock()
+
+    info = MagicMock()
+    info.load_from_cache.return_value = True
+    info.parsed_scoped_addresses.return_value = ["0.0.0.0", "10.0.0.1"]
+    monkeypatch.setattr(mdns_module, "AddressResolver", lambda _name: info)
+
+    assert monitor.mdns.get_cached_addresses("kitchen.local") == ["10.0.0.1"]
+
+    info.parsed_scoped_addresses.return_value = ["0.0.0.0", "::"]
+    assert monitor.mdns.get_cached_addresses("kitchen.local") is None
+
+
 async def test_start_uses_v6_fallback_when_only_v6_in_mdns_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

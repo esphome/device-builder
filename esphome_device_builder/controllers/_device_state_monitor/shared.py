@@ -13,6 +13,7 @@ from collections.abc import Set as AbstractSet
 from typing import TYPE_CHECKING
 
 from ...helpers.hostname import is_local_hostname
+from ...helpers.ip import drop_unspecified_addresses
 from ...models import Device, DeviceState, ReachabilitySource
 from .helpers import _ESPHOME_SERVICE_TYPE
 
@@ -115,9 +116,15 @@ def apply_resolved_addresses(
     accepts the ``BaseException | None`` union ``asyncio.gather(...,
     return_exceptions=True)`` produces.
     """
-    if isinstance(addresses, list) and addresses:
-        monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
-        monitor.apply_ip_addresses(name, addresses)
+    if not isinstance(addresses, list):
+        return
+    # Filter before the ONLINE claim — an all-unspecified answer must
+    # not latch the device ONLINE while the apply refuses the IPs.
+    usable = drop_unspecified_addresses(addresses)
+    if not usable:
+        return
+    monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+    monitor.apply_ip_addresses(name, usable)
 
 
 async def resolve_api_mdns_targets(monitor: DeviceStateMonitor) -> None:

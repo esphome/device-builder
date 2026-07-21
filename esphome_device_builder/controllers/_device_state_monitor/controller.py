@@ -406,8 +406,6 @@ class DeviceStateMonitor(TaskControllerBase):
         """
         if not addresses:
             raise ValueError("empty addresses; use clear_resolved_addresses")
-        # A sinkhole resolver / misbehaving announce can carry
-        # 0.0.0.0 or ::; an all-unspecified set is not an observation.
         usable = drop_unspecified_addresses(addresses)
         if not usable:
             return False
