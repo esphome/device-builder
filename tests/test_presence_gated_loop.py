@@ -132,7 +132,7 @@ async def test_crash_continue_collapses_repeat_logs_until_recovery(
     """A failure streak logs one traceback; a successful tick re-arms the loud log."""
     loop = _RecordingLoop(None)
     loop.work_error = RuntimeError("boom")
-    with caplog.at_level(logging.DEBUG):
+    with caplog.at_level(logging.DEBUG, logger=PresenceGatedLoop.__module__):
         async with _running(loop):
             await loop.wait_for_ticks(2)
             loop.work_error = None
