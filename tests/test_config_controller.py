@@ -59,6 +59,7 @@ from esphome_device_builder.controllers.config import (
     _save_metadata,
     clear_volatile_device_metadata,
     delete_label_cascade,
+    effective_remote_build_settings,
     get_device_ip,
     get_device_metadata,
     has_remote_build_settings_persisted,
@@ -468,11 +469,9 @@ def test_load_remote_build_settings_returns_defaults_on_missing(tmp_path: Path) 
     """Fresh config dir → ``RemoteBuildSettings()`` with ``enabled=True``.
 
     Default-on so fresh installs are discoverable + pairable
-    without an extra operator step. The HA-addon path overrides
-    this at the bind site via
-    :func:`has_remote_build_settings_persisted` rather than at
-    load time, so the load function returns the same shape
-    regardless of deployment mode.
+    without an extra operator step. The raw loader is
+    deployment-mode blind; the HA-addon default-off rule lives
+    in :func:`effective_remote_build_settings`.
     """
     assert load_remote_build_settings(tmp_path) == RemoteBuildSettings()
     assert load_remote_build_settings(tmp_path).enabled is True
@@ -602,6 +601,32 @@ def test_has_remote_build_settings_persisted_false_on_malformed_block(tmp_path: 
 
     (tmp_path / ".device-builder.json").write_bytes(b'{"_remote_build": "string"}')
     assert has_remote_build_settings_persisted(tmp_path) is False
+
+
+def test_effective_remote_build_settings_addon_fresh_install_disabled(tmp_path: Path) -> None:
+    """HA addon with no persisted block reads ``enabled=False``, matching the bind skip."""
+    assert effective_remote_build_settings(tmp_path, on_ha_addon=True).enabled is False
+
+
+def test_effective_remote_build_settings_addon_persisted_opt_in(tmp_path: Path) -> None:
+    """HA addon with a persisted block follows the persisted ``enabled`` value."""
+    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=True))
+    assert effective_remote_build_settings(tmp_path, on_ha_addon=True).enabled is True
+
+
+def test_effective_remote_build_settings_addon_persisted_explicit_disable(
+    tmp_path: Path,
+) -> None:
+    """HA addon with a persisted ``enabled=False`` stays disabled."""
+    save_remote_build_settings(tmp_path, RemoteBuildSettings(enabled=False))
+    assert effective_remote_build_settings(tmp_path, on_ha_addon=True).enabled is False
+
+
+def test_effective_remote_build_settings_non_addon_fresh_install_enabled(
+    tmp_path: Path,
+) -> None:
+    """Non-addon deployments keep the permissive default-on with nothing persisted."""
+    assert effective_remote_build_settings(tmp_path, on_ha_addon=False).enabled is True
 
 
 @pytest.mark.parametrize(

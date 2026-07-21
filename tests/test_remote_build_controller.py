@@ -1389,16 +1389,35 @@ def test_hosts_snapshot_empty_when_no_peers(tmp_path: Path) -> None:
 
 
 async def test_get_settings_defaults_when_unset(tmp_path: Path) -> None:
-    """A fresh dashboard with no metadata returns ``enabled=True``.
+    """A fresh non-addon dashboard with no metadata returns ``enabled=True``.
 
     Default-on for non-HA-addon deployments: a fresh sidecar
     deserialises to ``RemoteBuildSettings(enabled=True)`` and the
     bind site treats that as opt-in by default. The HA-addon path
-    overrides at the bind site (see
-    :func:`has_remote_build_settings_persisted`); the settings
-    surface returns the same shape regardless of deployment mode.
+    reads ``enabled=False`` instead (see
+    :func:`effective_remote_build_settings`), so the settings
+    surface always matches what the bind site did.
     """
     controller = _make_controller(config_dir=tmp_path)
+    settings = await controller.receiver.get_settings()
+    assert settings == RemoteBuildSettingsView(enabled=True)
+
+
+async def test_settings_load_reads_disabled_on_fresh_ha_addon(tmp_path: Path) -> None:
+    """A fresh HA addon loads ``enabled=False``, matching the skipped bind."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.receiver._db.settings.on_ha_addon = True
+    controller.receiver.state.settings = await controller.receiver._load_settings_async()
+    settings = await controller.receiver.get_settings()
+    assert settings == RemoteBuildSettingsView(enabled=False)
+
+
+async def test_settings_load_follows_persisted_opt_in_on_ha_addon(tmp_path: Path) -> None:
+    """After ``set_settings(enabled=True)`` an HA addon loads ``enabled=True``."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.receiver._db.settings.on_ha_addon = True
+    await controller.receiver.set_settings(enabled=True)
+    controller.receiver.state.settings = await controller.receiver._load_settings_async()
     settings = await controller.receiver.get_settings()
     assert settings == RemoteBuildSettingsView(enabled=True)
 

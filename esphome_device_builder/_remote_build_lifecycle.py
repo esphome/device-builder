@@ -11,10 +11,7 @@ from aiohttp import web
 
 from .api.ws import init_ws_app
 from .constants import REMOTE_BUILD_PORT_SCAN_ATTEMPTS
-from .controllers.config import (
-    has_remote_build_settings_persisted,
-    load_remote_build_settings,
-)
+from .controllers.config import effective_remote_build_settings
 from .controllers.remote_build.peer_link import PEER_LINK_PATH, make_peer_link_handler
 from .helpers.async_ import run_in_executor
 from .helpers.network_interfaces import (
@@ -103,23 +100,17 @@ class RemoteBuildLifecycle:
         keypair file.
 
         **HA addon: default-off but operator-overridable.** The
-        addon's docker container doesn't expose port 6055 to the
-        LAN by default, and the mDNS advertise is already skipped
-        on HA addon — so binding by default would produce a port
-        that's invisible to LAN peers. But some legacy-dashboard
-        users DID expose port 6052 (and historically other addon
-        ports) via the addon's ``ports:`` config, so a hard skip
-        would lock them out. The compromise: on HA addon, skip
-        the bind unless the operator has *explicitly persisted*
-        ``_remote_build`` in metadata via the Settings toggle.
-        ``has_remote_build_settings_persisted`` returns ``True``
-        the moment ``set_settings`` writes the block — even a
-        write that lands on the dataclass defaults still flips
-        the signal. This means: fresh addon install → no bind;
-        addon operator flips the toggle in Settings → bind
-        respects the persisted ``enabled`` field. The HA-addon
-        operator path stays open; the fresh-install default
-        stops burning a port nothing can reach.
+        addon runs host-network, so a default bind would silently
+        open a new LAN-reachable listener on every upgraded
+        install without any operator decision. Instead the addon
+        binds only once the operator has *explicitly persisted*
+        ``_remote_build`` in metadata via the Settings toggle —
+        ``effective_remote_build_settings`` reads a fresh addon
+        install as ``enabled=False``, and ``set_settings`` flips
+        the persisted signal the moment it writes the block, even
+        a write that lands on the dataclass defaults. Fresh addon
+        install → no bind; operator flips the toggle → bind
+        respects the persisted ``enabled`` field.
 
         Fail-soft: any exception during identity load or bind is
         caught and logged. The main dashboard keeps running; the
@@ -129,19 +120,11 @@ class RemoteBuildLifecycle:
         if self._db.remote_build_receiver is None or self._db.loop is None:
             return
         settings = self._db.settings
-        if settings.on_ha_addon:
-            persisted = await run_in_executor(
-                has_remote_build_settings_persisted, settings.config_dir
+        rb_settings = await run_in_executor(
+            lambda: effective_remote_build_settings(
+                settings.config_dir, on_ha_addon=settings.on_ha_addon
             )
-            if not persisted:
-                _LOGGER.debug(
-                    "Skipping remote-build peer-link site: running as HA addon "
-                    "without an explicit ``_remote_build`` block in metadata "
-                    "(addon container doesn't expose port 6055 to the LAN by "
-                    "default; flip the toggle in Settings to override)"
-                )
-                return
-        rb_settings = await run_in_executor(load_remote_build_settings, settings.config_dir)
+        )
         if not rb_settings.enabled:
             # ``--remote-build-only`` has no dashboard UI to flip the
             # persisted toggle back on, and a receiver with no listener
@@ -149,7 +132,8 @@ class RemoteBuildLifecycle:
             if not settings.remote_build_only:
                 _LOGGER.debug(
                     "Skipping remote-build peer-link site: disabled in settings "
-                    "(set ``remote_build/set_settings`` enabled=true to bind)"
+                    "(flip the Build server toggle in Settings, or send "
+                    "``remote_build/set_settings`` enabled=true, to bind)"
                 )
                 return
             _LOGGER.info(
@@ -261,8 +245,11 @@ class RemoteBuildLifecycle:
         if self._db.loop is None:
             return self._runner is not None
         async with self._get_lock():
+            settings = self._db.settings
             rb_settings = await run_in_executor(
-                load_remote_build_settings, self._db.settings.config_dir
+                lambda: effective_remote_build_settings(
+                    settings.config_dir, on_ha_addon=settings.on_ha_addon
+                )
             )
             if rb_settings.enabled:
                 if self._runner is None:
