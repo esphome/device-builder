@@ -132,7 +132,7 @@ async def test_edit_friendly_name_retargets_generated_fallback_ap_ssid(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """The generated fallback-AP ssid follows the friendly-name edit (#2245)."""
+    """The generated fallback-AP ssid follows the friendly-name edit."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = SOURCE_YAML + "\n" + wifi_ap_block("Kitchen Lamp Fallback Hotspot")
     (tmp_path / "kitchen.yaml").write_text(yaml_text, "utf-8")

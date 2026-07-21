@@ -48,7 +48,7 @@ async def test_config_only_rename_rewrites_name_and_renames_file(
 async def test_config_only_rename_retargets_name_labelled_ap_ssid(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Without a friendly name the generated fallback-AP ssid tracks the rename (#2245)."""
+    """Without a friendly name the generated fallback-AP ssid tracks the rename."""
     controller = make_controller(tmp_path)
     yaml_text = "esphome:\n  name: kitchen\n\nesp32:\n  board: esp32dev\n\n" + wifi_ap_block(
         "kitchen Fallback Hotspot"

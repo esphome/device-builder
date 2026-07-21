@@ -123,7 +123,7 @@ async def test_clone_device_retargets_generated_fallback_ap_ssid(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """The generated fallback-AP ssid follows the clone's identity (#2245)."""
+    """The generated fallback-AP ssid follows the clone's identity."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     (tmp_path / "kitchen.yaml").write_text(AP_SOURCE_YAML, "utf-8")
 

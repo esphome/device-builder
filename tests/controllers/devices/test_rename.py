@@ -240,7 +240,7 @@ async def test_rename_queues_firmware_job(
 async def test_rename_chain_content_retargets_name_labelled_ap_ssid(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """The OTA chain compiles content whose fallback-AP ssid tracks the rename (#2245)."""
+    """The OTA chain compiles content whose fallback-AP ssid tracks the rename."""
     controller = make_controller(tmp_path, esphome_cmd=["esphome"])
     yaml_text = "esphome:\n  name: kitchen\n\nesp32:\n  board: esp32dev\n\n" + wifi_ap_block(
         "kitchen Fallback Hotspot"
