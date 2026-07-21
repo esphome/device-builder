@@ -21,10 +21,7 @@ from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
-from ...helpers.device_yaml import (
-    board_requires_wifi,
-    configuration_stem,
-)
+from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
 from ...helpers.secrets_state import (
     SecretsContentError,
@@ -337,8 +334,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         Empty list when the device is unknown, has no OTA-capable
         integration loaded, or has no cached IP available.
         """
-        target_name = configuration_stem(configuration)
-        device = next((d for d in self._scanner.devices if d.name == target_name), None)
+        # Keyed on the YAML filename; the esphome name can differ from the stem.
+        device = self.get_by_configuration(configuration)
         if device is None:
             return []
         # The CLI only consults the address cache from upload paths

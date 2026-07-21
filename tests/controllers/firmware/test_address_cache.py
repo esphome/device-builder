@@ -16,6 +16,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices.helpers import _build_address_cache_args
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.models import Device, FirmwareJob, JobType
+from tests._recording_scanner import RecordingScanner
 from tests.conftest import make_device
 from tests.controllers.devices.conftest import RecordingStateMonitor
 
@@ -154,13 +155,13 @@ def test_multiple_cached_addresses_sorted() -> None:
 def _devices_controller_with(*devices: Device) -> Any:
     """Build a thin DevicesController shell with a stubbed scanner + monitor.
 
-    ``get_address_cache_args`` only reads the scanner's device list,
-    the state monitor's cached-addresses lookup, and the device's
-    ``loaded_integrations`` field — keep the rest of the controller
-    out of the test surface.
+    ``get_address_cache_args`` only reads the scanner's
+    configuration-keyed lookup, the state monitor's cached-addresses
+    lookup, and the device's ``loaded_integrations`` field — keep the
+    rest of the controller out of the test surface.
     """
     controller = DevicesController.__new__(DevicesController)
-    scanner = MagicMock()
+    scanner = RecordingScanner()
     scanner.devices = list(devices)
     controller._scanner = scanner
     controller._state_monitor = _monitor(["192.168.1.50"])
@@ -219,6 +220,23 @@ def test_get_address_cache_args_unknown_configuration_returns_empty() -> None:
     args = controller.get_address_cache_args("ghost.yaml")
 
     assert args == []
+
+
+def test_get_address_cache_args_filename_differs_from_device_name() -> None:
+    """A renamed YAML whose stem differs from ``esphome.name`` still gets cache args."""
+    controller = _devices_controller_with(
+        _device(
+            name="esphome-web-0ea4a4",
+            configuration="uw15.yaml",
+            address="esphome-web-0ea4a4.local",
+            ip="10.15.2.199",
+        )
+    )
+
+    assert controller.get_address_cache_args("uw15.yaml") == [
+        "--mdns-address-cache",
+        "esphome-web-0ea4a4.local=10.15.2.199",
+    ]
 
 
 def test_get_ota_address_cache_args_returns_cache_for_ota_port() -> None:
