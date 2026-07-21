@@ -61,7 +61,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, patch
@@ -88,6 +87,8 @@ from tests.controllers.firmware.conftest import (
 from tests.controllers.firmware.conftest import (
     wire_real_queue as _wire_real_queue,
 )
+
+from ...conftest import running_task
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -565,13 +566,8 @@ async def test_cancel_during_hanging_verify_chip_terminates_subprocess(
             await asyncio.sleep(0.01)
         await controller.cancel(job_id=job.job_id)
 
-    canceller = asyncio.create_task(_cancel_when_verify_starts())
-    try:
+    async with running_task(_cancel_when_verify_starts()):
         captured = await _run_until_terminal(controller, timeout=5.0)
-    finally:
-        canceller.cancel()
-        with suppress(asyncio.CancelledError):
-            await canceller
 
     assert job.status == JobStatus.CANCELLED
     assert captured["job_cancelled"]
@@ -941,13 +937,8 @@ async def test_cancel_compile_mid_build_does_not_run_upload(
         await build_spawned.wait()
         await controller.cancel(job_id=compile_job.job_id)
 
-    canceller = asyncio.create_task(_cancel_when_build_starts())
-    try:
+    async with running_task(_cancel_when_build_starts()):
         await _run_until_terminal(controller, timeout=5.0)
-    finally:
-        canceller.cancel()
-        with suppress(asyncio.CancelledError):
-            await canceller
 
     assert compile_job.status == JobStatus.CANCELLED
     assert upload_job.status == JobStatus.CANCELLED

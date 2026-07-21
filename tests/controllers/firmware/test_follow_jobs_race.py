@@ -12,12 +12,11 @@ awaited.
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
 from typing import Any
 
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType, StreamEvent
 
-from ...conftest import FakeWebSocketClient
+from ...conftest import FakeWebSocketClient, running_task
 from .conftest import FirmwareControllerFactory, make_follow_race_controller
 
 
@@ -50,32 +49,28 @@ async def test_follow_jobs_replays_snapshot_then_live_events_in_order(
     client = FakeWebSocketClient(yield_per_event=True)
     bus = controller._db.bus
 
-    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
-    # Yield once so the helper finishes its synchronous setup
-    # (listeners attached) and starts awaiting in send_initial.
-    await asyncio.sleep(0)
-
-    # Fire a JOB_QUEUED while the snapshot replay is in flight. The
-    # listener queues it; the helper drains it after the snapshot
-    # finishes.
-    new_job = FirmwareJob(
-        job_id="c",
-        configuration="c.yaml",
-        job_type=JobType.COMPILE,
-        status=JobStatus.QUEUED,
-        output=[],
-    )
-    bus.fire(EventType.JOB_QUEUED, {"job": new_job})
-
-    # Yield enough that the snapshot + the live event get drained.
-    for _ in range(20):
+    async with running_task(controller.follow_jobs(client=client, message_id="m1")):
+        # Yield once so the helper finishes its synchronous setup
+        # (listeners attached) and starts awaiting in send_initial.
         await asyncio.sleep(0)
-        if any(e == EventType.JOB_QUEUED for (_mid, e, _d) in client.events):
-            break
 
-    follow_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await follow_task
+        # Fire a JOB_QUEUED while the snapshot replay is in flight. The
+        # listener queues it; the helper drains it after the snapshot
+        # finishes.
+        new_job = FirmwareJob(
+            job_id="c",
+            configuration="c.yaml",
+            job_type=JobType.COMPILE,
+            status=JobStatus.QUEUED,
+            output=[],
+        )
+        bus.fire(EventType.JOB_QUEUED, {"job": new_job})
+
+        # Yield enough that the snapshot + the live event get drained.
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if any(e == EventType.JOB_QUEUED for (_mid, e, _d) in client.events):
+                break
 
     snapshot_events = client.events_for(StreamEvent.SNAPSHOT)
     queued_events = client.events_for(EventType.JOB_QUEUED)
@@ -133,32 +128,28 @@ async def test_follow_jobs_snapshot_does_not_duplicate_with_concurrent_mutation(
             if event == StreamEvent.SNAPSHOT and data["job_id"] == "a":
                 await block.wait()
 
-    follow_task = asyncio.create_task(controller.follow_jobs(client=GatedClient(), message_id="m1"))
-    # Yield until the helper has delivered snapshot[a] and is
-    # parked on ``block.wait()``.
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if received:
-            break
-    assert received[0][0] == StreamEvent.SNAPSHOT
-    assert received[0][1]["job_id"] == "a"
+    async with running_task(controller.follow_jobs(client=GatedClient(), message_id="m1")):
+        # Yield until the helper has delivered snapshot[a] and is
+        # parked on ``block.wait()``.
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if received:
+                break
+        assert received[0][0] == StreamEvent.SNAPSHOT
+        assert received[0][1]["job_id"] == "a"
 
-    # Mutate job_b AND fire the matching JOB_OUTPUT — the same
-    # interleaving the runner produces between snapshot iterations.
-    job_b.output.append("b-mid-snapshot\n")
-    bus.fire(EventType.JOB_OUTPUT, {"job_id": "b", "line": "b-mid-snapshot\n"})
+        # Mutate job_b AND fire the matching JOB_OUTPUT — the same
+        # interleaving the runner produces between snapshot iterations.
+        job_b.output.append("b-mid-snapshot\n")
+        bus.fire(EventType.JOB_OUTPUT, {"job_id": "b", "line": "b-mid-snapshot\n"})
 
-    # Release the helper and let it iterate to snapshot[b] then
-    # drain the queued live event.
-    block.set()
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if any(e == EventType.JOB_OUTPUT for (e, _d) in received):
-            break
-
-    follow_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await follow_task
+        # Release the helper and let it iterate to snapshot[b] then
+        # drain the queued live event.
+        block.set()
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if any(e == EventType.JOB_OUTPUT for (e, _d) in received):
+                break
 
     snapshots = {d["job_id"]: d for (e, d) in received if e == StreamEvent.SNAPSHOT}
     job_outputs = [d for (e, d) in received if e == EventType.JOB_OUTPUT]
@@ -184,15 +175,11 @@ async def test_follow_jobs_unsubscribes_on_cancellation(
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
-    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
-    await asyncio.sleep(0)
+    async with running_task(controller.follow_jobs(client=client, message_id="m1")):
+        await asyncio.sleep(0)
 
-    listener_count_before = sum(len(bus._listeners.get(et, ())) for et in EventType)
-    assert listener_count_before > 0
-
-    follow_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await follow_task
+        listener_count_before = sum(len(bus._listeners.get(et, ())) for et in EventType)
+        assert listener_count_before > 0
 
     listener_count_after = sum(len(bus._listeners.get(et, ())) for et in EventType)
     assert listener_count_after == 0
@@ -219,17 +206,13 @@ async def test_follow_jobs_forwards_job_progress_events(
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
-    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
-    await asyncio.sleep(0)
+    async with running_task(controller.follow_jobs(client=client, message_id="m1")):
+        await asyncio.sleep(0)
 
-    progress = {"job_id": "a", "stage": "compile", "percent": 42}
-    bus.fire(EventType.JOB_PROGRESS, progress)
+        progress = {"job_id": "a", "stage": "compile", "percent": 42}
+        bus.fire(EventType.JOB_PROGRESS, progress)
 
-    await _drain_until(client, lambda c: any(e == "job_progress" for (_m, e, _d) in c.events))
-
-    follow_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await follow_task
+        await _drain_until(client, lambda c: any(e == "job_progress" for (_m, e, _d) in c.events))
 
     progress_events = client.events_for("job_progress")
     assert progress_events == [progress]
@@ -248,22 +231,18 @@ async def test_follow_jobs_drops_lifecycle_event_with_no_job_payload(
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
-    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
-    await asyncio.sleep(0)
+    async with running_task(controller.follow_jobs(client=client, message_id="m1")):
+        await asyncio.sleep(0)
 
-    # Bare payload — no ``job`` key. The handler must early-return
-    # without raising and without pushing anything.
-    bus.fire(EventType.JOB_QUEUED, {"unrelated": "noise"})
+        # Bare payload — no ``job`` key. The handler must early-return
+        # without raising and without pushing anything.
+        bus.fire(EventType.JOB_QUEUED, {"unrelated": "noise"})
 
-    # And then a normal event so we have a synchronisation point —
-    # if the handler had crashed, the listener would be torn down
-    # and this second event would never reach the client.
-    bus.fire(EventType.JOB_PROGRESS, {"job_id": "a"})
-    await _drain_until(client, lambda c: any(e == "job_progress" for (_m, e, _d) in c.events))
-
-    follow_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await follow_task
+        # And then a normal event so we have a synchronisation point —
+        # if the handler had crashed, the listener would be torn down
+        # and this second event would never reach the client.
+        bus.fire(EventType.JOB_PROGRESS, {"job_id": "a"})
+        await _drain_until(client, lambda c: any(e == "job_progress" for (_m, e, _d) in c.events))
 
     assert client.events_for("job_queued") == []
     assert client.events_for("job_progress") == [{"job_id": "a"}]
@@ -283,16 +262,12 @@ async def test_follow_jobs_lifecycle_payload_passthrough_for_dict_job(
     bus = controller._db.bus
     client = FakeWebSocketClient(yield_per_event=True)
 
-    follow_task = asyncio.create_task(controller.follow_jobs(client=client, message_id="m1"))
-    await asyncio.sleep(0)
+    async with running_task(controller.follow_jobs(client=client, message_id="m1")):
+        await asyncio.sleep(0)
 
-    raw = {"job_id": "z", "status": "completed"}
-    bus.fire(EventType.JOB_COMPLETED, {"job": raw})
-    await _drain_until(client, lambda c: any(e == "job_completed" for (_m, e, _d) in c.events))
-
-    follow_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await follow_task
+        raw = {"job_id": "z", "status": "completed"}
+        bus.fire(EventType.JOB_COMPLETED, {"job": raw})
+        await _drain_until(client, lambda c: any(e == "job_completed" for (_m, e, _d) in c.events))
 
     completed = client.events_for("job_completed")
     assert completed == [raw]

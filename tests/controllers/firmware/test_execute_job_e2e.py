@@ -57,6 +57,8 @@ from tests.controllers.firmware.conftest import (
     wire_real_queue as _wire_real_queue,
 )
 
+from ...conftest import running_task
+
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
 
@@ -351,8 +353,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
 
     controller._db.bus.fire = _watch
 
-    runner_task = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()):
         await asyncio.wait_for(proc_alive.wait(), timeout=10.0)
         # The subprocess is now blocking in ``sys.stdin.read()``.
         # Mark cancel + terminate the process — the runner picks
@@ -363,16 +364,12 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         controller.state.processes[job.job_id].terminate()
 
         # Wait for the cancel event from the runner's natural
-        # post-``proc.wait()`` path, NOT from ``runner_task.cancel()``
-        # below. If we cancelled the task here without waiting,
+        # post-``proc.wait()`` path, NOT from the context exit's
+        # cancel. If we cancelled the task here without waiting,
         # ``_execute_job``'s ``except CancelledError`` branch would
         # fire JOB_CANCELLED too and the test couldn't distinguish
         # "user-cancel path worked" from "task-cancel path worked".
         await asyncio.wait_for(cancelled_fired.wait(), timeout=10.0)
-    finally:
-        runner_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner_task
 
     assert job.status == JobStatus.CANCELLED
     # Subprocess actually exited (the user-cancel branch awaits
@@ -436,8 +433,7 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
 
     controller._db.bus.fire = _watch
 
-    runner_task = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()) as runner_task:
         await asyncio.wait_for(proc_alive.wait(), timeout=10.0)
         assert job.job_id in controller.state.processes
         proc = controller.state.processes[job.job_id]
@@ -445,16 +441,12 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
         # Cancel the runner task itself — this is the shutdown shape,
         # not the user-cancel one. Nothing is added to
         # ``_cancel_requested`` so the post-``proc.wait()`` branch
-        # can't be the one that finalises the job.
+        # can't be the one that finalises the job. Awaited here (not
+        # left to the context exit) because the assertions below need
+        # the cancellation fully processed.
         runner_task.cancel()
         with suppress(asyncio.CancelledError):
             await runner_task
-    finally:
-        # Defensive cleanup if the assertion path above bailed early.
-        if not runner_task.done():
-            runner_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await runner_task
 
     assert job.status == JobStatus.CANCELLED
     assert any(c["type"] == EventType.JOB_CANCELLED for c in captured)
@@ -530,18 +522,12 @@ async def test_execute_job_runner_shutdown_kills_subprocess_group(
 
     controller._db.bus.fire = _watch
 
-    runner_task = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()) as runner_task:
         await asyncio.wait_for(child_seen.wait(), timeout=10.0)
         assert child_pid, "test bug: never read CHILD_PID line"
         runner_task.cancel()
         with suppress(asyncio.CancelledError):
             await runner_task
-    finally:
-        if not runner_task.done():
-            runner_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await runner_task
 
     # Poll until the child is reaped — group SIGTERM has a brief
     # propagation window, then the kernel cleans up the zombie

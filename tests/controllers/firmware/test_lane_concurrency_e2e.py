@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
 from esphome_device_builder.models import EventType, JobStatus, JobType
@@ -24,6 +23,8 @@ from tests.controllers.firmware.conftest import (
 from tests.controllers.firmware.conftest import (
     wire_real_queue as _wire_real_queue,
 )
+
+from ...conftest import running_task
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -83,8 +84,7 @@ async def test_parked_upload_does_not_block_a_compile(
     upload = await controller.upload(configuration="alpha.yaml", port="OTA")
     compile_job = await controller.compile(configuration="beta.yaml")
 
-    runner = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()):
         async with asyncio.timeout(10):
             await asyncio.gather(upload_started.wait(), compile_completed.wait())
 
@@ -103,7 +103,3 @@ async def test_parked_upload_does_not_block_a_compile(
         async with asyncio.timeout(10):
             await upload_terminal.wait()
         assert upload.status == JobStatus.CANCELLED
-    finally:
-        runner.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner

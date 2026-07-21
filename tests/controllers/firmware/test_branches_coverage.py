@@ -25,7 +25,6 @@ Surfaces touched here:
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -46,6 +45,8 @@ from tests.controllers.firmware.conftest import (
     BareFirmwareControllerFactory,
     FirmwareControllerFactory,
 )
+
+from ...conftest import running_task
 
 
 def _job(
@@ -213,15 +214,12 @@ async def test_run_queue_skips_cancelled_jobs_without_spawning(
 
     controller._execute_job = _spy_execute  # type: ignore[method-assign]
 
-    runner = asyncio.create_task(controller._run_queue())
-    # Give the runner a chance to dequeue + skip + return for next get.
-    for _ in range(20):
-        await asyncio.sleep(0)
-        if controller.state.compile_lane.queue.empty():
-            break
-    runner.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await runner
+    async with running_task(controller._run_queue()):
+        # Give the runner a chance to dequeue + skip + return for next get.
+        for _ in range(20):
+            await asyncio.sleep(0)
+            if controller.state.compile_lane.queue.empty():
+                break
 
     assert spawned is False
 
@@ -425,18 +423,13 @@ async def test_upload_lane_holds_upload_until_build_gate_clears(
 
     controller._execute_job = _spy_execute  # type: ignore[method-assign]
 
-    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
-    try:
+    async with running_task(runner.run_lane(controller, controller.state.upload_lane)):
         await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked at the gate
         assert not executed.is_set()  # held by the active reset
 
         reset.status = JobStatus.COMPLETED
         controller.state.build_gate.set()
         await asyncio.wait_for(executed.wait(), timeout=1.0)  # released, now runs
-    finally:
-        runner_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await runner_task
 
 
 async def test_upload_lane_holds_upload_behind_same_config_clean(
@@ -462,18 +455,13 @@ async def test_upload_lane_holds_upload_behind_same_config_clean(
 
     controller._execute_job = _spy_execute  # type: ignore[method-assign]
 
-    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
-    try:
+    async with running_task(runner.run_lane(controller, controller.state.upload_lane)):
         await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked behind the clean
         assert not executed.is_set()
 
         clean.status = JobStatus.COMPLETED
         controller.state.build_gate.set()
         await asyncio.wait_for(executed.wait(), timeout=1.0)  # released, now runs
-    finally:
-        runner_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await runner_task
 
 
 async def test_upload_lane_skips_an_upload_cancelled_while_held(
@@ -498,8 +486,7 @@ async def test_upload_lane_skips_an_upload_cancelled_while_held(
 
     controller._execute_job = _spy_execute  # type: ignore[method-assign]
 
-    runner_task = asyncio.create_task(runner.run_lane(controller, controller.state.upload_lane))
-    try:
+    async with running_task(runner.run_lane(controller, controller.state.upload_lane)):
         await asyncio.wait_for(held_at_gate.wait(), timeout=1.0)  # parked at the gate
         assert executed == []  # held by the active reset
 
@@ -513,7 +500,3 @@ async def test_upload_lane_skips_an_upload_cancelled_while_held(
 
         await asyncio.wait_for(fresh_ran.wait(), timeout=1.0)
         assert "u1" not in executed  # the cancelled held upload was skipped
-    finally:
-        runner_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await runner_task

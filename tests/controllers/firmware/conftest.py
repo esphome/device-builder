@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Iterator
-from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -51,6 +50,8 @@ from esphome_device_builder.models import (
     PeerStatus,
     StoredPairing,
 )
+
+from ...conftest import running_task
 
 
 class EnqueueStep(StrEnum):
@@ -495,14 +496,9 @@ async def run_until_terminal(
             settled.set()
 
     bus.fire = _capture
-    runner_task = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()):
         async with asyncio.timeout(timeout):
             await settled.wait()
-    finally:
-        runner_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner_task
 
     return captured
 

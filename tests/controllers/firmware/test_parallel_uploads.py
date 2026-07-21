@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
@@ -23,6 +22,8 @@ from esphome_device_builder.controllers.firmware.constants import MAX_CONCURRENT
 from esphome_device_builder.models import EventType, FirmwareJob, JobStatus, JobType
 from tests.controllers.firmware.conftest import run_until_terminal, seed_yamls, wire_real_queue
 from tests.controllers.firmware.conftest import wire_devices as _wire_devices
+
+from ...conftest import running_task
 
 if TYPE_CHECKING:
     from .conftest import FirmwareControllerFactory
@@ -68,8 +69,7 @@ async def test_three_uploads_overlap_and_fourth_queues(
 
     jobs = [await controller.upload(configuration=name, port="OTA") for name in names]
 
-    runner = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()):
         await _wait_started(started, *names[:MAX_CONCURRENT_UPLOADS])
 
         lane = controller.state.upload_lane
@@ -87,10 +87,6 @@ async def test_three_uploads_overlap_and_fourth_queues(
         await _wait_started(started, names[3])
         assert jobs[3].status is JobStatus.RUNNING
         assert jobs[0].status is JobStatus.CANCELLED
-    finally:
-        runner.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner
 
 
 async def test_thread_uploads_serialize_beside_concurrent_normal_uploads(
@@ -109,8 +105,7 @@ async def test_thread_uploads_serialize_beside_concurrent_normal_uploads(
     mesh2 = await controller.upload(configuration="mesh2.yaml", port="OTA")
     alpha = await controller.upload(configuration="alpha.yaml", port="OTA")
 
-    runner = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()):
         await _wait_started(started, "mesh1.yaml", "alpha.yaml")
 
         thread_lane = controller.state.thread_upload_lane
@@ -126,10 +121,6 @@ async def test_thread_uploads_serialize_beside_concurrent_normal_uploads(
         await controller._terminate_job_process(mesh1)
         await _wait_started(started, "mesh2.yaml")
         assert list(thread_lane.active) == [mesh2.job_id]
-    finally:
-        runner.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner
 
 
 async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
@@ -146,8 +137,7 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
 
     jobs = [await controller.upload(configuration=name, port="OTA") for name in names]
 
-    runner = asyncio.create_task(controller._run_queue())
-    try:
+    async with running_task(controller._run_queue()):
         await _wait_started(started, *names)
         # JOB_STARTED fires before the spawn; wait for every registration.
         async with asyncio.timeout(10):
@@ -164,10 +154,6 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
         assert jobs[2].status is JobStatus.RUNNING
         assert controller.state.processes[jobs[0].job_id].returncode is None
         assert controller.state.processes[jobs[2].job_id].returncode is None
-    finally:
-        runner.cancel()
-        with suppress(asyncio.CancelledError):
-            await runner
 
 
 # Each upload sleeps a per-device staggered duration, then exits 0 —
