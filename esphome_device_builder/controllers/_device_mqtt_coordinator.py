@@ -152,13 +152,12 @@ class DeviceMqttCoordinator:
             incumbent = monitor.is_publisher
             return (not monitor.connected, not incumbent, username is not None, username or "")
 
-        elected: dict[tuple[str, int], tuple[str, int, str | None]] = {}
+        elected: dict[tuple[str, int], DeviceMqttMonitor] = {}
         for key in sorted(self._monitors, key=order):
             host, port, _username = key
-            elected.setdefault((host, port), key)
-        for key, monitor in self._monitors.items():
-            host, port, _username = key
-            monitor.set_publisher(value=elected[host, port] == key)
+            elected.setdefault((host, port), self._monitors[key])
+        for (host, port, _username), monitor in self._monitors.items():
+            monitor.set_publisher(value=elected[host, port] is monitor)
 
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
         secrets_map = _load_secrets(self._config_dir)

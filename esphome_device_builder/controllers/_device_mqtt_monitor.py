@@ -19,7 +19,7 @@ import logging
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 try:
     import paho.mqtt.client as paho_mqtt
@@ -50,6 +50,24 @@ _DEFAULT_PORT = 1883
 # :meth:`DeviceStateMonitor.apply` without an extra wrapper.
 StateCallback = Callable[[str, DeviceState], object]
 IPCallback = Callable[[str, str], object]
+
+
+class PublishInfo(Protocol):
+    """The slice of paho's ``MQTTMessageInfo`` the monitor reads."""
+
+    rc: int
+
+
+class PublishClient(Protocol):
+    """The slice of paho's ``Client`` the broadcast loop drives."""
+
+    # Mirrors paho's signature so the real client satisfies the protocol.
+    def publish(
+        self,
+        topic: str,
+        payload: bytes | None = None,
+        retain: bool = False,  # noqa: FBT001, FBT002
+    ) -> PublishInfo: ...
 
 
 @dataclass(frozen=True)
@@ -347,7 +365,7 @@ class DeviceMqttMonitor:
             if ip:
                 self._on_ip_change(name, ip)
 
-    async def _ping_loop(self, client: Any) -> None:
+    async def _ping_loop(self, client: PublishClient) -> None:
         """
         Broadcast discover requests and sweep stale devices offline.
 
@@ -384,7 +402,7 @@ class DeviceMqttMonitor:
                 self._on_state_change(name, DeviceState.OFFLINE)
                 self._last_seen.pop(name, None)
 
-    def _broadcast(self, client: Any) -> bool:
+    def _broadcast(self, client: PublishClient) -> bool:
         """Send one discover request; False pauses aging for the tick."""
         info = client.publish(_DISCOVER_PUBLISH_TOPIC, payload=None, retain=False)
         if info.rc == 0:
