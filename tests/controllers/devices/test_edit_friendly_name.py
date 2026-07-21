@@ -27,6 +27,7 @@ import pytest
 
 from esphome_device_builder.controllers._device_scanner import DeviceFileMetadata, DeviceScanner
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.device_yaml import EsphomeMeta
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory, wifi_ap_block
@@ -678,7 +679,7 @@ async def test_edit_friendly_name_raises_internal_error_on_round_trip_mismatch(
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.mutations_simple.parse_esphome_meta",
-        lambda _content: (None, None, None, None),
+        lambda _content: EsphomeMeta(None, None, None, None),
     )
 
     with pytest.raises(CommandError) as excinfo:

@@ -6,7 +6,11 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
-from ...helpers.device_yaml import configuration_stem, retarget_fallback_ap_ssid
+from ...helpers.device_yaml import (
+    configuration_stem,
+    parse_esphome_meta,
+    retarget_fallback_ap_ssid,
+)
 from ...helpers.yaml import (
     ESPHOME_FRIENDLY_NAME_PATH,
     ESPHOME_NAME_PATH,
@@ -129,7 +133,9 @@ async def clone_device(  # noqa: C901
     new_content = rewrite_api_encryption_key(new_content, new_key)
     # Retarget the generated fallback-AP ssid, which the leaf
     # rewrites above don't reach.
-    new_content = retarget_fallback_ap_ssid(source_content, new_content)
+    new_content = retarget_fallback_ap_ssid(
+        new_content, parse_esphome_meta(source_content), parse_esphome_meta(new_content)
+    )
 
     # Carry forward only a *user-picked* ``board_id`` since that's
     # the catalog-key indirection the user chose at wizard time and

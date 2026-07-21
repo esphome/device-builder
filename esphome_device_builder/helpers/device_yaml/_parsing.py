@@ -368,32 +368,30 @@ def parse_esphome_meta(
     return EsphomeMeta(meta["name"], meta["friendly_name"], meta["comment"], meta["area"])
 
 
-def resolved_device_name(yaml_content: str, configuration: str) -> str:
-    """Return the device's ``esphome.name`` when known, else the filename stem.
+def resolved_device_name(meta: EsphomeMeta, configuration: str) -> str:
+    """Return *meta*'s ``name`` when known, else the filename stem.
 
     A nonlocal ``${var}`` name stays an unresolved token in the parsed
     meta, so fall back to the stem rather than using the literal ref.
     """
-    parsed = parse_esphome_meta(yaml_content).name
-    if parsed and parse_substitution_ref(parsed) is None:
-        return parsed
+    if meta.name and parse_substitution_ref(meta.name) is None:
+        return meta.name
     return configuration_stem(configuration)
 
 
-def retarget_fallback_ap_ssid(old_yaml: str, new_yaml: str) -> str:
+def retarget_fallback_ap_ssid(new_yaml: str, old_meta: EsphomeMeta, new_meta: EsphomeMeta) -> str:
     """
     Follow the device identity into *new_yaml*'s generated fallback-AP ssid.
 
-    Both labels resolve through :func:`parse_esphome_meta` (friendly name
+    Both labels come off :func:`parse_esphome_meta` results (friendly name
     first, then name) so substitution-driven identities compare correctly;
     a customized ssid or an indirection is left untouched.
     """
-    return rewrite_fallback_ap_ssid(new_yaml, device_ap_label(old_yaml), device_ap_label(new_yaml))
+    return rewrite_fallback_ap_ssid(new_yaml, device_ap_label(old_meta), device_ap_label(new_meta))
 
 
-def device_ap_label(yaml_content: str) -> str | None:
+def device_ap_label(meta: EsphomeMeta) -> str | None:
     """Return the label the generator derives the fallback-AP SSID from."""
-    meta = parse_esphome_meta(yaml_content)
     return meta.friendly_name or meta.name
 
 

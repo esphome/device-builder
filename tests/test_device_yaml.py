@@ -376,7 +376,7 @@ esphome:
     ],
 )
 def test_device_ap_label(yaml_content: str, expected: str | None) -> None:
-    assert device_ap_label(yaml_content) == expected
+    assert device_ap_label(parse_esphome_meta(yaml_content)) == expected
 
 
 # ----------------------------------------------------------------------

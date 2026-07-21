@@ -11,7 +11,11 @@ from esphome.storage_json import StorageJSON
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import remove_device_files
-from ...helpers.device_yaml import configuration_filename, resolved_device_name
+from ...helpers.device_yaml import (
+    configuration_filename,
+    parse_esphome_meta,
+    resolved_device_name,
+)
 from ...helpers.hostname import default_mdns_address
 from ...helpers.storage_path import resolve_storage_path
 from ...helpers.yaml import rewrite_rename_content
@@ -69,7 +73,7 @@ async def begin_rename(
     if new_content is None:
         new_content = rewrite_rename_content(content, new_name, remedy=RENAME_REMEDY)
     port = await resolve_old_device_address(
-        controller, configuration, resolved_device_name(content, configuration)
+        controller, configuration, resolved_device_name(parse_esphome_meta(content), configuration)
     )
     build_source = controller._resolve_install_source()
 
