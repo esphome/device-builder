@@ -334,7 +334,7 @@ async def test_bootstrap_first_pair_success(
     with caplog.at_level("INFO", logger=_RBO_LOGGER):
         window = capture_events(db.bus, EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED)
         bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
-        await window.wait_for_match(lambda e: e["open"], timeout=2.0)
+        await window.wait_for_match(lambda e: e["open"], timeout=2.0, what="pairing window open")
         assert receiver.state.auto_approve_first_pair
         key = receiver.state.bootstrap_pairing_key
         assert key is not None
@@ -390,7 +390,7 @@ async def test_bootstrap_banner_key_survives_pair_during_identity_load(
     with patch.object(rbo, "_log_pairing_banner", _spy):
         window = capture_events(db.bus, EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED)
         bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
-        await window.wait_for_match(lambda e: e["open"], timeout=2.0)
+        await window.wait_for_match(lambda e: e["open"], timeout=2.0, what="pairing window open")
         key = receiver.state.bootstrap_pairing_key
         response = await _send_pair_request(
             RemoteBuildController(MagicMock(), receiver), pairing_key=key
@@ -414,7 +414,7 @@ async def test_bootstrap_first_pair_with_source_allowlist(
     with caplog.at_level("INFO", logger=_RBO_LOGGER):
         window = capture_events(db.bus, EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED)
         bootstrap = asyncio.create_task(rbo._bootstrap_first_pair(db, receiver))
-        await window.wait_for_match(lambda e: e["open"], timeout=2.0)
+        await window.wait_for_match(lambda e: e["open"], timeout=2.0, what="pairing window open")
         key = receiver.state.bootstrap_pairing_key
         assert key is not None
 
@@ -479,14 +479,14 @@ async def test_serve_parks_after_bootstrap_pair(tmp_path: Path) -> None:
     window = capture_events(db.bus, EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED)
     serve = asyncio.create_task(rbo._serve(db))  # type: ignore[arg-type]
 
-    await window.wait_for_match(lambda e: e["open"], timeout=2.0)
-    # Fresh capture so the close wait can't match the earlier open event.
+    await window.wait_for_match(lambda e: e["open"], timeout=2.0, what="pairing window open")
+    # Fresh capture so the close wait observes only events emitted after the pair request.
     closing = capture_events(db.bus, EventType.REMOTE_BUILD_PAIRING_WINDOW_CHANGED)
     await _send_pair_request(
         RemoteBuildController(MagicMock(), receiver),
         pairing_key=receiver.state.bootstrap_pairing_key,
     )
-    await closing.wait_for_match(lambda e: not e["open"], timeout=2.0)
+    await closing.wait_for_match(lambda e: not e["open"], timeout=2.0, what="pairing window closed")
     await asyncio.sleep(0.05)
 
     assert not serve.done()
