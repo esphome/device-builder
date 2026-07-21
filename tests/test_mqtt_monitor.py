@@ -235,6 +235,39 @@ def test_parse_mqtt_block_ca_path_returns_none() -> None:
     assert parse_mqtt_block(yaml) is None
 
 
+def test_parse_mqtt_block_corrupt_ca_returns_none() -> None:
+    # Carries the PEM marker but isn't loadable; refusing at parse time
+    # routes it to the loud unresolved warning instead of an eternal
+    # quiet reconnect loop on SSLError.
+    yaml = (
+        "mqtt:\n  broker: broker.example\n  certificate_authority: |\n"
+        "    -----BEGIN CERTIFICATE-----\n"
+        "    bm90IGEgcmVhbCBjZXJ0\n"
+        "    -----END CERTIFICATE-----\n"
+    )
+    assert parse_mqtt_block(yaml) is None
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param("false", False, id="false"),
+        pytest.param("off", False, id="off"),
+        pytest.param("yes", True, id="yes"),
+        pytest.param("not-a-bool", None, id="unrecognized"),
+    ],
+)
+def test_parse_mqtt_block_skip_cn_value_handling(value: str, expected: bool | None) -> None:
+    """The YAML boolean vocabulary coerces; a typo refuses rather than meaning False."""
+    yaml = _tls_mqtt_yaml() + f"  skip_cert_cn_check: {value}\n"
+    config = parse_mqtt_block(yaml)
+    if expected is None:
+        assert config is None
+    else:
+        assert isinstance(config, MqttBrokerConfig)
+        assert config.skip_cert_cn_check is expected
+
+
 @pytest.mark.parametrize(
     "cert_lines",
     [

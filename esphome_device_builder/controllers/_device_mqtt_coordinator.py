@@ -10,6 +10,7 @@ each poll so monitors track YAML edits.
 from __future__ import annotations
 
 import logging
+import ssl
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -42,14 +43,7 @@ _DEFAULT_PORT = 1883
 
 # ``mqtt:`` fields read into an MqttBrokerConfig, each resolved through
 # the same !secret + substitution pipeline.
-_BROKER_FIELDS = (
-    "broker",
-    "port",
-    "username",
-    "password",
-    "certificate_authority",
-    "skip_cert_cn_check",
-)
+_BROKER_FIELDS = ("broker", "port", "username", "password", "certificate_authority")
 # TLS client-certificate auth has no paho path that accepts in-memory
 # PEM (``load_cert_chain`` wants files), so these blocks are skipped
 # with a warning instead of looping unreachable.
@@ -272,7 +266,7 @@ class DeviceMqttCoordinator:
             configuration,
             "Device %s declares mqtt: but broker could not be resolved "
             "(missing secret, invalid config, or a certificate_authority "
-            "that is not inline PEM content)",
+            "that is not valid inline PEM content)",
             "Device %s declares mqtt: but broker still could not be resolved",
             configuration,
         )
@@ -425,11 +419,20 @@ def _broker_from_block(
     if isinstance(host, str) and _UNRESOLVED_SUBSTITUTION_RE.search(host):
         return None
     certificate_authority = mqtt.get("certificate_authority") or None
-    # esphome's ``certificate_authority`` is PEM content; a file path
-    # here would hand paho garbage and loop on SSLError forever.
+    # esphome's ``certificate_authority`` is PEM content; a file path or
+    # a corrupt cert would hand paho garbage and loop on SSLError forever.
     if "certificate_authority" in raw_mqtt and (
-        certificate_authority is None or _PEM_CERT_MARKER not in certificate_authority
+        certificate_authority is None
+        or _PEM_CERT_MARKER not in certificate_authority
+        or not _ca_pem_is_loadable(certificate_authority)
     ):
+        return None
+    # The YAML loader already resolves the boolean vocabulary
+    # (true/yes/on/...), so anything non-bool is a typo or an
+    # indirection this flag doesn't support — refuse, don't silently
+    # keep hostname verification on for a user who mistyped the value.
+    skip_cert_cn_check = raw_mqtt.get("skip_cert_cn_check", False)
+    if not isinstance(skip_cert_cn_check, bool):
         return None
     port_raw = mqtt.get("port")
     try:
@@ -444,7 +447,7 @@ def _broker_from_block(
         username=str(username) if username is not None else None,
         password=str(password) if password is not None else None,
         certificate_authority=certificate_authority,
-        skip_cert_cn_check=_coerce_bool(mqtt.get("skip_cert_cn_check")),
+        skip_cert_cn_check=skip_cert_cn_check,
     )
 
 
@@ -475,9 +478,20 @@ def _safe_mtime(path: Path) -> float:
         return 0.0
 
 
-def _coerce_bool(value: str | None) -> bool:
-    """Read a pipeline-stringified boolean (``_resolve`` renders ``True`` as ``"True"``)."""
-    return value is not None and value.strip().lower() in ("true", "yes", "on", "1")
+def _ca_pem_is_loadable(certificate_authority: str) -> bool:
+    """
+    Validate the CA at parse time so a corrupt PEM fails loudly.
+
+    A cert that only fails inside the monitor's connect loop reads as
+    an unreachable broker forever; refusing here routes it to the gated
+    unresolved warning instead. Blocking (cert parsing), so callers run
+    on the executor.
+    """
+    try:
+        ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=certificate_authority)
+    except ssl.SSLError:
+        return False
+    return True
 
 
 def _resolve(value: Any, secrets_map: dict[str, Any]) -> str | None:
