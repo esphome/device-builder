@@ -92,7 +92,7 @@ def _make_monitor(
 
     monitor.mdns = MdnsSource(monitor)
 
-    monitor._presence = None
+    monitor.presence = None
     monitor.ping = PingSource(monitor)
     monitor._get_devices = lambda: devices
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]

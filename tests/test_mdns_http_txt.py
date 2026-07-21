@@ -30,7 +30,7 @@ def _make_monitor(*devices: Device) -> DeviceStateMonitor:
     monitor.state = MonitorState()
     monitor.importable = ImportableDiscovery(monitor)
     monitor.mdns = MdnsSource(monitor)
-    monitor._presence = None
+    monitor.presence = None
     monitor.ping = PingSource(monitor)
     monitor.mdns._zeroconf = MagicMock()
     monitor.mdns._zeroconf.zeroconf = MagicMock()

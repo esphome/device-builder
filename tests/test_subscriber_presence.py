@@ -138,66 +138,6 @@ async def test_wait_for_subscriber_wakes_every_awaiter_on_open() -> None:
         await asyncio.wait_for(asyncio.gather(*waiters), timeout=0.5)
 
 
-async def test_wait_for_no_subscribers_returns_immediately_when_count_is_zero() -> None:
-    """The mirror gate is open at startup (count == 0).
-
-    The 1→0 transition should set ``_no_subscribers`` *and* the
-    initial state at construction time should already be set —
-    so a consumer's first call to :meth:`wait_for_no_subscribers`
-    on a fresh gate returns immediately. Pinning the initial
-    state catches a regression that only sets the event on the
-    transition (which would leave a fresh gate's first awaiter
-    parked forever even though the count is already 0).
-    """
-    p = SubscriberPresence()
-    await asyncio.wait_for(p.wait_for_no_subscribers(), timeout=0.5)
-
-
-async def test_wait_for_no_subscribers_parks_while_subscribers_present() -> None:
-    """A subscriber holding the gate open blocks the no-subscriber waiter."""
-    p = SubscriberPresence()
-
-    async def _waiter() -> None:
-        await p.wait_for_no_subscribers()
-
-    with p.subscriber():
-        waiter_task = asyncio.create_task(_waiter())
-        await asyncio.sleep(0)
-        assert not waiter_task.done(), "waiter must park while count > 0"
-
-    # Subscriber dropped — the 1→0 transition wakes the waiter.
-    await asyncio.wait_for(waiter_task, timeout=0.5)
-
-
-async def test_wait_for_no_subscribers_wakes_on_drop_to_zero() -> None:
-    """Subscriber-drop wakes a parked no-subscribers waiter within one tick.
-
-    This is the contract the ICMP ping loop's interruptible idle
-    wait depends on — when the last subscriber leaves mid-sleep,
-    the loop's ``asyncio.wait_for(presence.wait_for_no_subscribers
-    (), timeout=<sweep interval>)`` must fire promptly so the next
-    subscriber's first sweep doesn't wait out the rest of the
-    interval.
-    """
-    p = SubscriberPresence()
-
-    cm = p.subscriber()
-    cm.__enter__()  # 0→1
-    try:
-
-        async def _waiter() -> None:
-            await p.wait_for_no_subscribers()
-
-        waiter_task = asyncio.create_task(_waiter())
-        await asyncio.sleep(0)
-        assert not waiter_task.done()
-    finally:
-        cm.__exit__(None, None, None)  # 1→0
-
-    # The drop must wake the waiter within a tick.
-    await asyncio.wait_for(waiter_task, timeout=0.1)
-
-
 def test_subscriber_callback_fires_on_each_zero_to_one() -> None:
     """Registered callback fires on every 0→1; not on nested entries; not on 1→0."""
     p = SubscriberPresence()

@@ -509,6 +509,14 @@ class DeviceMqttMonitor:
         for name in self._last_seen:
             self._last_seen[name] = now
 
+    def _sweep_stale(self) -> None:
+        """Flip entries silent past ``_OFFLINE_TIMEOUT`` to OFFLINE."""
+        now = asyncio.get_running_loop().time()
+        stale = [name for name, last in self._last_seen.items() if now - last > _OFFLINE_TIMEOUT]
+        for name in stale:
+            self._on_state_change(name, DeviceState.OFFLINE)
+            self._last_seen.pop(name, None)
+
     def _set_connected(self, *, value: bool) -> None:
         if self.connected == value:
             return
@@ -549,10 +557,15 @@ class _DiscoverPingLoop(PresenceGatedLoop):
         self._client: PublishClient | None = None
         self._broadcast_sent = False
 
+    @property
+    def _interval(self) -> float:  # type: ignore[override]
+        # Live-read like _OFFLINE_TIMEOUT so tests patching the
+        # module constant are honored.
+        return _PING_INTERVAL
+
     async def run_session(self, client: PublishClient) -> None:
         """Run this loop for one broker session's *client*."""
         self._client = client
-        self._interval = _PING_INTERVAL
         await self.run()
 
     def _on_resume(self) -> None:
@@ -566,15 +579,10 @@ class _DiscoverPingLoop(PresenceGatedLoop):
         monitor = self._monitor
         self._broadcast_sent = monitor.is_publisher and await monitor._broadcast(self._client)
 
-    def _after_idle(self) -> None:
-        if not self._broadcast_sent:
-            return
-        monitor = self._monitor
-        now = asyncio.get_running_loop().time()
-        stale = [name for name, last in monitor._last_seen.items() if now - last > _OFFLINE_TIMEOUT]
-        for name in stale:
-            monitor._on_state_change(name, DeviceState.OFFLINE)
-            monitor._last_seen.pop(name, None)
+    async def _idle(self) -> None:
+        await super()._idle()
+        if self._broadcast_sent:
+            self._monitor._sweep_stale()
 
 
 def _unwrap_session_error(eg: BaseExceptionGroup) -> BaseException:

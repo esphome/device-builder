@@ -205,7 +205,7 @@ class DeviceStateMonitor(TaskControllerBase):
         # dashboard, which paused ICMP on an empty subscriber set.
         # ``None`` means "always run the loop" so existing tests
         # without a presence gate keep working.
-        self._presence = presence
+        self.presence = presence
         self.importable = ImportableDiscovery(self)
         # One Native API worker dial at a time across every API source
         # (api_info + reviver): each dial spawns an interpreter and

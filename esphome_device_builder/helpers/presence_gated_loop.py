@@ -19,7 +19,7 @@ class PresenceGatedLoop:
     Presence-gated fixed-interval loop; subclasses supply ``_work``.
 
     Tick anatomy: gate → resume hook (real park only) → wake-clear →
-    work → idle → after-idle hook.
+    work → idle.
     """
 
     # Names the loop in the crash-continue log line.
@@ -74,7 +74,6 @@ class PresenceGatedLoop:
                 # lifetime; log it and try again next interval.
                 _LOGGER.exception("%s failed; continuing", self._label)
             await self._idle()
-            self._after_idle()
 
     async def _prepare(self) -> bool:
         """One-shot gate after the bootstrap sleep; False disables the loop."""
@@ -89,6 +88,3 @@ class PresenceGatedLoop:
     async def _idle(self) -> None:
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
-
-    def _after_idle(self) -> None:
-        """Run after each idle — work that judges the elapsed interval."""

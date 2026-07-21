@@ -14,7 +14,7 @@ class SweepSource(PresenceGatedLoop):
     """Presence-gated fixed-interval sweep loop; subclasses supply ``_sweep``."""
 
     def __init__(self, monitor: DeviceStateMonitor) -> None:
-        super().__init__(monitor._presence)
+        super().__init__(monitor.presence)
         self._monitor = monitor
 
     async def _work(self) -> None:

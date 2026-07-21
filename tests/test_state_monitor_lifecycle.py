@@ -80,7 +80,7 @@ def _make_monitor(
 
     monitor.mdns = MdnsSource(monitor)
 
-    monitor._presence = None  # ping loop runs unconditionally in tests
+    monitor.presence = None  # ping loop runs unconditionally in tests
     monitor._api_dial_budget = asyncio.Semaphore(1)
     monitor.ping = PingSource(monitor)
     monitor.api_info = ApiInfoSource(monitor)

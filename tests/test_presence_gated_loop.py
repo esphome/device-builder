@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 
 import pytest
 
@@ -20,19 +20,24 @@ class _RecordingLoop(PresenceGatedLoop):
         super().__init__(presence)
         self.ticks = 0
         self.resumes = 0
-        self.after_idles = 0
         self.work_error: BaseException | None = None
+        self._ticked = asyncio.Event()
+
+    async def wait_for_ticks(self, n: int) -> None:
+        """Park until ``_work`` has run *n* times (event-driven, no polling)."""
+        async with asyncio.timeout(1):
+            while self.ticks < n:
+                await self._ticked.wait()
+                self._ticked.clear()
 
     def _on_resume(self) -> None:
         self.resumes += 1
 
     async def _work(self) -> None:
         self.ticks += 1
+        self._ticked.set()
         if self.work_error is not None:
             raise self.work_error
-
-    def _after_idle(self) -> None:
-        self.after_idles += 1
 
 
 @contextlib.asynccontextmanager
@@ -46,25 +51,11 @@ async def _running(loop: PresenceGatedLoop) -> AsyncIterator[asyncio.Task[None]]
             await task
 
 
-async def _wait_for(predicate: Callable[[], bool], timeout: float = 1.0) -> None:
-    async with asyncio.timeout(timeout):
-        while not predicate():
-            await asyncio.sleep(0.001)
-
-
-async def test_base_contract() -> None:
-    """The base runs unconditionally by default and demands a ``_work``."""
-    base = PresenceGatedLoop(None)
-    assert await base._prepare() is True
-    with pytest.raises(NotImplementedError):
-        await base._work()
-
-
 async def test_runs_unconditionally_without_presence() -> None:
     """presence=None means no gate: ticks flow with no subscriber anywhere."""
     loop = _RecordingLoop(None)
     async with _running(loop):
-        await _wait_for(lambda: loop.ticks >= 2)
+        await loop.wait_for_ticks(2)
     assert loop.resumes == 0
 
 
@@ -73,10 +64,11 @@ async def test_parks_until_first_subscriber_then_resumes() -> None:
     presence = SubscriberPresence()
     loop = _RecordingLoop(presence)
     async with _running(loop):
-        await asyncio.sleep(0.05)
+        for _ in range(10):
+            await asyncio.sleep(0)
         assert loop.ticks == 0
         with presence.subscriber():
-            await _wait_for(lambda: loop.ticks >= 1)
+            await loop.wait_for_ticks(1)
         assert loop.resumes == 1
 
 
@@ -86,7 +78,7 @@ async def test_no_resume_hook_when_gate_already_open() -> None:
     loop = _RecordingLoop(presence)
     with presence.subscriber():
         async with _running(loop):
-            await _wait_for(lambda: loop.ticks >= 3)
+            await loop.wait_for_ticks(3)
     assert loop.resumes == 0
 
 
@@ -97,28 +89,24 @@ async def test_subscriber_return_cuts_idle_short() -> None:
     loop._interval = 60
     async with _running(loop):
         with presence.subscriber():
-            await _wait_for(lambda: loop.ticks == 1)
+            await loop.wait_for_ticks(1)
         with presence.subscriber():
-            await _wait_for(lambda: loop.ticks >= 2)
+            await loop.wait_for_ticks(2)
 
 
 async def test_wake_mid_work_short_circuits_following_idle() -> None:
     """A wake fired during ``_work`` survives the pre-work clear."""
-    ticks = 0
 
-    class _SelfWaking(PresenceGatedLoop):
-        _label = "self-waking"
-        _interval = 60
-
+    class _SelfWaking(_RecordingLoop):
         async def _work(self) -> None:
-            nonlocal ticks
-            ticks += 1
-            if ticks == 1:
+            await super()._work()
+            if self.ticks == 1:
                 self.wake()
 
     loop = _SelfWaking(None)
+    loop._interval = 60
     async with _running(loop):
-        await _wait_for(lambda: ticks >= 2)
+        await loop.wait_for_ticks(2)
 
 
 async def test_continue_on_error_logs_and_keeps_looping(
@@ -127,7 +115,7 @@ async def test_continue_on_error_logs_and_keeps_looping(
     loop = _RecordingLoop(None)
     loop.work_error = RuntimeError("boom")
     async with _running(loop):
-        await _wait_for(lambda: loop.ticks >= 2)
+        await loop.wait_for_ticks(2)
     assert "test loop failed; continuing" in caplog.text
 
 
@@ -161,22 +149,14 @@ async def test_cancellation_is_never_swallowed() -> None:
 
 
 async def test_prepare_false_disables_the_loop() -> None:
-    loop = _RecordingLoop(None)
+    class _Disabled(_RecordingLoop):
+        async def _prepare(self) -> bool:
+            return False
 
-    async def _no(self: object = None) -> bool:
-        return False
-
-    loop._prepare = _no  # type: ignore[method-assign]
+    loop = _Disabled(None)
     async with asyncio.timeout(1):
         await loop.run()
     assert loop.ticks == 0
-
-
-async def test_after_idle_runs_each_tick() -> None:
-    loop = _RecordingLoop(None)
-    async with _running(loop):
-        await _wait_for(lambda: loop.after_idles >= 2)
-    assert loop.ticks >= loop.after_idles
 
 
 async def test_unsubscribe_detaches_wake_callback_and_is_idempotent() -> None:

@@ -346,7 +346,7 @@ def create_legacy_routes() -> web.RouteTableDef:
         """Legacy GET /devices — returns configured + importable devices.
 
         Calls ``poll`` to refresh the scanner from disk before
-        reading. This is the same shape ``DeviceBuilder._run_background``
+        reading. This is the same shape the background poll loop
         uses on its periodic tick — HA's sync-after-edit pattern
         relies on each ``GET /devices`` actually re-walking the
         config directory rather than returning whatever the last

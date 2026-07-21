@@ -39,7 +39,7 @@ def _build_monitor(presence: SubscriberPresence | None) -> DeviceStateMonitor:
     """Bypass __init__ — ``PingSource.run`` only touches a few attrs."""
     monitor = DeviceStateMonitor.__new__(DeviceStateMonitor)
     monitor.state = MonitorState()
-    monitor._presence = presence
+    monitor.presence = presence
     monitor.ping = PingSource(monitor)
     return monitor
 
