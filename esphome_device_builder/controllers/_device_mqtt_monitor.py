@@ -547,7 +547,8 @@ class DeviceMqttMonitor:
         """
         Wrap *client* in a TLS context when the broker carries a CA.
 
-        Blocking (OpenSSL cert parsing) — call only from the executor.
+        Executor-only: the cert parse is CPU-bound OpenSSL work today,
+        and becomes hidden disk I/O the day a CA loads from a file path.
         """
         if not self._broker.certificate_authority:
             return
