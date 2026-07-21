@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import ssl
+import textwrap
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
@@ -24,6 +26,7 @@ from esphome_device_builder.controllers import (
 )
 from esphome_device_builder.controllers import _device_mqtt_monitor as monitor_module
 from esphome_device_builder.controllers._device_mqtt_coordinator import (
+    CLIENT_CERT_UNSUPPORTED,
     DeviceMqttCoordinator,
     _extract_broker_from_config,
     parse_mqtt_block,
@@ -169,6 +172,92 @@ def test_parse_mqtt_block_unresolved_port_substitution_falls_back_to_default() -
     assert config.port == 1883
 
 
+# A real (throwaway) self-signed certificate so ``load_verify_locations``
+# accepts it in the TLS-context tests; the parse tests only need the
+# PEM marker.
+_TEST_CA_PEM = """\
+-----BEGIN CERTIFICATE-----
+MIIBlzCCAT2gAwIBAgIUHWu1Lj97F4GFo6xWxlmnSwiQcR0wCgYIKoZIzj0EAwIw
+ITEfMB0GA1UEAwwWZGV2aWNlLWJ1aWxkZXIgdGVzdCBDQTAeFw0yNjA3MjEwOTM3
+NDFaFw0zNjA3MTgwOTM3NDFaMCExHzAdBgNVBAMMFmRldmljZS1idWlsZGVyIHRl
+c3QgQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAASxVkmntEhahEMjwX+pXYi8
+W8UHQjeY6du4eJNxIZpAQUllDlEWhz/QbHfOfMcrzuSj7VKMavxFFzRP9JWW5CKY
+o1MwUTAdBgNVHQ4EFgQUoQqW8ogEU4ejfrfxeFBguEHcElowHwYDVR0jBBgwFoAU
+oQqW8ogEU4ejfrfxeFBguEHcElowDwYDVR0TAQH/BAUwAwEB/zAKBggqhkjOPQQD
+AgNIADBFAiAqg5r0pEyWUbuNBfLpOIyIxQwRbjBjjTEU+J5UgYukOQIhAOve8VSf
+nODERLHpQGYe8XgP17e1hlbmvRUz3m87aC8/
+-----END CERTIFICATE-----
+"""
+
+
+def _tls_mqtt_yaml(**extra_lines: str) -> str:
+    """Build an ``mqtt:`` block carrying the test CA as an inline block scalar."""
+    lines = ["mqtt:", "  broker: broker.example", "  port: 8883", "  certificate_authority: |"]
+    lines.append(textwrap.indent(_TEST_CA_PEM, "    ").rstrip("\n"))
+    lines.extend(f"  {key}: {value}" for key, value in extra_lines.items())
+    return "\n".join(lines) + "\n"
+
+
+def test_parse_mqtt_block_reads_tls_fields() -> None:
+    config = parse_mqtt_block(_tls_mqtt_yaml(skip_cert_cn_check="true"))
+    assert isinstance(config, MqttBrokerConfig)
+    assert config.port == 8883
+    assert config.certificate_authority is not None
+    assert config.certificate_authority.strip() == _TEST_CA_PEM.strip()
+    assert config.skip_cert_cn_check is True
+
+
+def test_parse_mqtt_block_skip_cn_defaults_false() -> None:
+    config = parse_mqtt_block(_tls_mqtt_yaml())
+    assert isinstance(config, MqttBrokerConfig)
+    assert config.skip_cert_cn_check is False
+
+
+def test_parse_mqtt_block_resolves_ca_secret() -> None:
+    yaml = "mqtt:\n  broker: broker.example\n  certificate_authority: !secret mqtt_ca\n"
+    config = parse_mqtt_block(yaml, {"mqtt_ca": _TEST_CA_PEM})
+    assert isinstance(config, MqttBrokerConfig)
+    assert config.certificate_authority == _TEST_CA_PEM
+
+
+def test_parse_mqtt_block_ca_include_returns_none() -> None:
+    # An ``!include``d CA is invisible to the tolerant loader; a plaintext
+    # broker here would be wrong, so the caller must take the slow path.
+    yaml = "mqtt:\n  broker: broker.example\n  certificate_authority: !include ca.pem\n"
+    assert parse_mqtt_block(yaml) is None
+
+
+def test_parse_mqtt_block_ca_path_returns_none() -> None:
+    # esphome's certificate_authority carries PEM content; a path would
+    # hand paho garbage and loop on SSLError.
+    yaml = "mqtt:\n  broker: broker.example\n  certificate_authority: /config/ca.pem\n"
+    assert parse_mqtt_block(yaml) is None
+
+
+@pytest.mark.parametrize(
+    "cert_lines",
+    [
+        pytest.param("  client_certificate: cert\n  client_certificate_key: key\n", id="inline"),
+        pytest.param("  client_certificate: !secret cc\n", id="secret"),
+        pytest.param("  client_certificate: !include cc.pem\n", id="include"),
+    ],
+)
+def test_parse_mqtt_block_client_cert_returns_sentinel(cert_lines: str) -> None:
+    yaml = f"mqtt:\n  broker: broker.example\n{cert_lines}"
+    assert parse_mqtt_block(yaml) is CLIENT_CERT_UNSUPPORTED
+
+
+def test_extract_broker_from_config_reads_tls_and_client_cert() -> None:
+    tls_config = {"mqtt": {"broker": "b.example", "certificate_authority": _TEST_CA_PEM}}
+    broker = _extract_broker_from_config(tls_config)
+    assert isinstance(broker, MqttBrokerConfig)
+    assert broker.certificate_authority == _TEST_CA_PEM
+    client_cert_config = {
+        "mqtt": {"broker": "b.example", "client_certificate": "x", "client_certificate_key": "y"}
+    }
+    assert _extract_broker_from_config(client_cert_config) is CLIENT_CERT_UNSUPPORTED
+
+
 def test_mqtt_broker_config_key_groups_by_host_port_username() -> None:
     a = MqttBrokerConfig(host="broker", port=1883, username="alice")
     b = MqttBrokerConfig(host="broker", port=1883, username="bob")
@@ -178,6 +267,18 @@ def test_mqtt_broker_config_key_groups_by_host_port_username() -> None:
     assert a.key != b.key  # different username → its own session
     assert a.key != c.key  # different port
     assert d.key == e.key  # same login, password differs → shared session
+
+
+def test_mqtt_broker_config_key_reflects_tls_identity() -> None:
+    plain = MqttBrokerConfig(host="broker")
+    tls = MqttBrokerConfig(host="broker", certificate_authority=_TEST_CA_PEM)
+    other_ca = MqttBrokerConfig(host="broker", certificate_authority="-----BEGIN CERTIFICATE-----X")
+    skip_cn = MqttBrokerConfig(
+        host="broker", certificate_authority=_TEST_CA_PEM, skip_cert_cn_check=True
+    )
+    same = MqttBrokerConfig(host="broker", certificate_authority=_TEST_CA_PEM)
+    assert len({plain.key, tls.key, other_ca.key, skip_cn.key}) == 4
+    assert tls.key == same.key
 
 
 # ---------------------------------------------------------------------------
@@ -279,6 +380,85 @@ async def test_coordinator_groups_devices_with_same_broker(
     assert coord.active_brokers == 1
     assert len(stub_monitor.instances) == 1
     assert stub_monitor.instances[0].broker.host == "192.168.1.10"
+
+
+async def test_coordinator_skips_client_cert_device_with_warn_once(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    devices = [
+        _write_device(
+            tmp_path,
+            "alpha",
+            "mqtt:\n  broker: b.example\n  client_certificate: c\n  client_certificate_key: k\n",
+        )
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        await coord.reconcile()
+        await coord.reconcile()
+    assert coord.active_brokers == 0
+    assert stub_monitor.instances == []
+    matching = [r for r in caplog.records if "client-certificate" in r.getMessage()]
+    assert [r.levelname for r in matching] == ["WARNING", "DEBUG"]
+
+
+async def test_coordinator_rewarns_client_cert_after_recovery(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Dropping the client cert clears the gate; re-adding it warns again."""
+    client_cert_yaml = (
+        "esphome:\n  name: alpha\n\n"
+        "mqtt:\n  broker: b.example\n  client_certificate: c\n  client_certificate_key: k\n"
+    )
+    devices = [
+        _write_device(
+            tmp_path,
+            "alpha",
+            "mqtt:\n  broker: b.example\n  client_certificate: c\n  client_certificate_key: k\n",
+        )
+    ]
+    coord = _make_coordinator(tmp_path, devices)
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        await coord.reconcile()
+        (tmp_path / "alpha.yaml").write_text(
+            "esphome:\n  name: alpha\n\nmqtt:\n  broker: b.example\n"
+        )
+        await coord.reconcile()
+        assert coord.active_brokers == 1
+        (tmp_path / "alpha.yaml").write_text(client_cert_yaml)
+        await coord.reconcile()
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelname == "WARNING" and "client-certificate" in r.getMessage()
+    ]
+    assert len(warnings) == 2
+
+
+async def test_coordinator_replaces_monitor_when_tls_added(
+    tmp_path: Path,
+    stub_monitor: type[_RecordingMonitor],
+) -> None:
+    """Adding a CA to an existing broker login reads as a new broker key."""
+    devices = [_write_device(tmp_path, "alpha", "mqtt:\n  broker: broker.example\n  port: 8883\n")]
+    coord = _make_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    (first,) = stub_monitor.instances
+    assert first.broker.certificate_authority is None
+
+    (tmp_path / "alpha.yaml").write_text(f"esphome:\n  name: alpha\n\n{_tls_mqtt_yaml()}")
+    await coord.reconcile()
+
+    assert first.stopped is True
+    assert len(stub_monitor.instances) == 2
+    assert stub_monitor.instances[1].broker.certificate_authority is not None
+    assert coord.active_brokers == 1
 
 
 async def test_coordinator_starts_a_session_per_login_on_one_broker(
@@ -1776,6 +1956,12 @@ class _FakePahoClient:
     def username_pw_set(self, username: str, password: str) -> None:
         self._record("username_pw_set", (username, password))
 
+    def tls_set_context(self, context: ssl.SSLContext) -> None:
+        self._record("tls_set_context", (context,))
+
+    def tls_insecure_set(self, value: bool) -> None:
+        self._record("tls_insecure_set", (value,))
+
     def connect(self, host: str, port: int) -> None:
         self._record("connect", (host, port))
 
@@ -1868,6 +2054,105 @@ async def test_connect_and_listen_subscribes_publishes_and_runs_listen_ping(
         "loop_stop",
     ]
     assert ("subscribe", ("esphome/discover/#",)) in calls
+
+
+async def _drive_one_session(
+    monitor: DeviceMqttMonitor, monkeypatch: pytest.MonkeyPatch
+) -> list[tuple[str, Any]]:
+    """Run ``_connect_and_listen`` against the fake client; return its call log."""
+    calls: list[tuple[str, Any]] = []
+    started = asyncio.Event()
+
+    class _FakeClient(_FakePahoClient):
+        def _record(self, op: str, args: tuple[Any, ...]) -> None:
+            calls.append((op, args))
+
+    monkeypatch.setattr(monitor_module, "paho_mqtt", type("M", (), {"Client": _FakeClient}))
+
+    async def _park(_arg: Any) -> None:
+        started.set()
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(monitor, "_listen", _park)
+    monkeypatch.setattr(monitor, "_ping_loop", _park)
+
+    async with running_task(monitor._connect_and_listen("test-id")):
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+    return calls
+
+
+async def test_connect_wraps_ca_broker_in_tls_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="broker.local", port=8883, certificate_authority=_TEST_CA_PEM),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    calls = await _drive_one_session(monitor, monkeypatch)
+    op_names = [c[0] for c in calls]
+    assert op_names.index("tls_set_context") < op_names.index("connect")
+    assert "tls_insecure_set" not in op_names
+    (context,) = next(args for op, args in calls if op == "tls_set_context")
+    assert context.verify_mode is ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+    assert len(context.get_ca_certs()) == 1
+
+
+async def test_connect_skip_cn_check_uses_tls_insecure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the ``tls_insecure_set`` path.
+
+    A direct ``check_hostname`` flip hits the ``ssl.match_hostname``
+    removal on Python 3.12+.
+    """
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(
+            host="broker.local",
+            port=8883,
+            certificate_authority=_TEST_CA_PEM,
+            skip_cert_cn_check=True,
+        ),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    calls = await _drive_one_session(monitor, monkeypatch)
+    op_names = [c[0] for c in calls]
+    assert (
+        op_names.index("tls_set_context")
+        < op_names.index("tls_insecure_set")
+        < op_names.index("connect")
+    )
+    assert ("tls_insecure_set", (True,)) in calls
+
+
+async def test_run_treats_ssl_error_as_expected_reconnect(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A TLS handshake failure stays on the quiet unreachable path, no traceback."""
+    monkeypatch.setattr(monitor_module, "_RECONNECT_DELAY", 0)
+    monitor = DeviceMqttMonitor(
+        broker=MqttBrokerConfig(host="x", certificate_authority=_TEST_CA_PEM),
+        on_state_change=lambda *_: None,
+        on_ip_change=lambda *_: None,
+    )
+    attempts = 0
+    third_attempt = asyncio.Event()
+
+    async def _fail(_client_id: str) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts >= 3:
+            third_attempt.set()
+            await asyncio.Event().wait()
+        raise ssl.SSLError(1, "certificate verify failed")
+
+    monkeypatch.setattr(monitor, "_connect_and_listen", _fail)
+    target = "esphome_device_builder.controllers._device_mqtt_monitor"
+    with caplog.at_level("DEBUG", logger=target):
+        async with running_task(monitor._run()):
+            await asyncio.wait_for(third_attempt.wait(), timeout=2.0)
+    unreachable = [r for r in caplog.records if "unreachable" in r.getMessage()]
+    assert [r.levelname for r in unreachable][:2] == ["WARNING", "DEBUG"]
+    assert not [r for r in caplog.records if r.levelname == "ERROR"]
 
 
 def _fail_rc(_topic: str) -> tuple[int, int]:

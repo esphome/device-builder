@@ -14,8 +14,10 @@ disables itself; mDNS / ping discovery keeps working.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import secrets
+import ssl
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -116,6 +118,10 @@ class _SessionSignals:
         self.suback_pending.set()
 
 
+# Broker-session identity: (host, port, username, ca_digest, skip_cert_cn_check).
+BrokerKey = tuple[str, int, str | None, str | None, bool]
+
+
 @dataclass(frozen=True)
 class MqttBrokerConfig:
     """Connection parameters for an MQTT broker."""
@@ -124,11 +130,23 @@ class MqttBrokerConfig:
     port: int = _DEFAULT_PORT
     username: str | None = None
     password: str | None = None
+    # PEM certificate content (esphome's ``certificate_authority`` carries
+    # the PEM itself, not a file path); truthy means connect over TLS.
+    certificate_authority: str | None = None
+    skip_cert_cn_check: bool = False
 
     @property
-    def key(self) -> tuple[str, int, str | None]:
-        """Identifier for grouping devices to a single broker session (host, port, username)."""
-        return (self.host, self.port, self.username)
+    def key(self) -> BrokerKey:
+        """
+        Identifier for grouping devices to a single broker session.
+
+        The CA rides along as a digest so a rotated certificate (or a
+        toggled CN check) reads as a new broker and replaces the running
+        monitor on the next reconcile.
+        """
+        ca = self.certificate_authority
+        ca_digest = hashlib.sha256(ca.encode()).hexdigest()[:16] if ca else None
+        return (self.host, self.port, self.username, ca_digest, self.skip_cert_cn_check)
 
 
 class DeviceMqttMonitor:
@@ -366,6 +384,7 @@ class DeviceMqttMonitor:
         client = self._create_session_client(client_id, signals)
 
         def _connect_and_spin_up() -> None:
+            self._apply_tls(client)
             client.connect(self._broker.host, self._broker.port)
             # loop_start's socketpair setup does a blocking accept();
             # keep it off the loop thread too.
@@ -518,6 +537,23 @@ class DeviceMqttMonitor:
             self._on_state_change(name, DeviceState.OFFLINE)
             last_seen.pop(name, None)
 
+    def _apply_tls(self, client: Any) -> None:
+        """
+        Wrap *client* in a TLS context when the broker carries a CA.
+
+        Blocking (SSLContext building parses certs from disk state) —
+        call only from the executor.
+        """
+        if not self._broker.certificate_authority:
+            return
+        client.tls_set_context(_build_tls_context(self._broker))
+        if self._broker.skip_cert_cn_check:
+            # Never flip ``check_hostname`` directly: paho 1.6.1 then
+            # calls ``ssl.match_hostname``, removed in Python 3.12.
+            # ``tls_insecure_set`` is the supported switch and keeps
+            # chain verification on.
+            client.tls_insecure_set(True)  # noqa: FBT003 — paho's positional signature
+
     def _set_connected(self, *, value: bool) -> None:
         if self.connected == value:
             return
@@ -586,6 +622,20 @@ class _DiscoverPingLoop(PresenceGatedLoop[bool]):
     def _after_idle(self, broadcast_sent: bool) -> None:  # noqa: FBT001 — hook signature
         if broadcast_sent:
             self._monitor._sweep_stale()
+
+
+def _build_tls_context(broker: MqttBrokerConfig) -> ssl.SSLContext:
+    """
+    Build the client TLS context for *broker*'s PEM CA.
+
+    Deliberately not ``create_default_context``: its ``VERIFY_X509_STRICT``
+    rejects the homemade CAs esphome users generate, which the device's
+    own mbedTLS accepts. The bare client context still verifies the chain
+    and hostname.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.load_verify_locations(cadata=broker.certificate_authority)
+    return context
 
 
 def _unwrap_session_error(eg: BaseExceptionGroup) -> BaseException:
