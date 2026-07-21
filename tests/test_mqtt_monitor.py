@@ -235,7 +235,7 @@ def test_parse_mqtt_block_ca_path_returns_none() -> None:
     assert parse_mqtt_block(yaml) is None
 
 
-def test_parse_mqtt_block_corrupt_ca_returns_none() -> None:
+def test_parse_mqtt_block_corrupt_ca_returns_none(caplog: pytest.LogCaptureFixture) -> None:
     # Carries the PEM marker but isn't loadable; refusing at parse time
     # routes it to the loud unresolved warning instead of an eternal
     # quiet reconnect loop on SSLError.
@@ -245,7 +245,11 @@ def test_parse_mqtt_block_corrupt_ca_returns_none() -> None:
         "    bm90IGEgcmVhbCBjZXJ0\n"
         "    -----END CERTIFICATE-----\n"
     )
-    assert parse_mqtt_block(yaml) is None
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        assert parse_mqtt_block(yaml) is None
+    # The concrete SSL parse failure stays recoverable from the logs.
+    assert any("failed to parse" in r.getMessage() for r in caplog.records)
 
 
 @pytest.mark.parametrize(
