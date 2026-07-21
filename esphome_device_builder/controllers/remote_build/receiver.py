@@ -161,7 +161,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         :attr:`ReceiverState.pending_peers`). Deployment-mode
         aware: a fresh HA-addon install reads ``enabled=False``,
         matching what the bind site actually did, so the Settings
-        toggle never shows on beside a "Listener offline" badge.
+        toggle never renders enabled beside a "Listener offline"
+        badge.
         """
         settings = self._db.settings
         return await run_in_executor(
