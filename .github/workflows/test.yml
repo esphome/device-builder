@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -166,7 +166,7 @@ jobs:
             python-version: "3.14"
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -259,7 +259,7 @@ jobs:
     continue-on-error: ${{ matrix.allow_failure }}
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -320,7 +320,7 @@ jobs:
     continue-on-error: ${{ matrix.allow_failure }}
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -355,7 +355,7 @@ jobs:
     # installs it. Linux only — the broker path is platform-independent.
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -382,7 +382,7 @@ jobs:
     # the dashboard ships with.
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -422,7 +422,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -500,7 +500,7 @@ jobs:
     # against the version the dashboard ships.
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ inputs.ref || github.ref }}
 
@@ -531,7 +531,7 @@ jobs:
     if: github.event_name != 'workflow_call'
     steps:
       - name: Check out code from GitHub
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up Python
         # Stock CPython, held at 3.13: a version bump resets every
