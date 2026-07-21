@@ -130,6 +130,17 @@ def test_no_address_returns_empty() -> None:
     assert _build_address_cache_args(_device(address=""), _monitor(None)) == []
 
 
+def test_unspecified_cached_addresses_fall_back_to_device_ip() -> None:
+    """A junk zeroconf cache entry (0.0.0.0) is dropped; the tracked IP still serves."""
+    args = _build_address_cache_args(_device(ip="192.168.1.99"), _monitor(["0.0.0.0"]))
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.99"]
+
+
+def test_unspecified_device_ip_yields_no_cache_args() -> None:
+    """A poisoned ``device.ip`` never reaches the CLI."""
+    assert _build_address_cache_args(_device(ip="0.0.0.0"), _monitor(None)) == []
+
+
 def test_no_monitor_falls_back_to_device_ip() -> None:
     """``DeviceStateMonitor`` not yet running (e.g. during tests) is tolerated."""
     args = _build_address_cache_args(_device(ip="192.168.1.50"), None)

@@ -29,6 +29,7 @@ except ImportError:  # pragma: no cover — paho-mqtt arrives via the [esphome] 
 
 
 from ..helpers.async_ import drain_tasks, run_in_executor
+from ..helpers.ip import is_usable_ip
 from ..helpers.json import JSONDecodeError, loads
 from ..helpers.presence_gated_loop import PresenceGatedLoop
 from ..helpers.subscriber_presence import SubscriberPresence
@@ -657,15 +658,15 @@ def _unwrap_session_error(eg: BaseExceptionGroup) -> BaseException:
 
 def _extract_ip(data: dict[str, Any]) -> str:
     """
-    Pull the first IP-shaped field from a discovery payload.
+    Pull the first usable IP field from a discovery payload.
 
     ESPHome devices expose their addresses as ``ip``, ``ip0``, ``ip1``,
-    ... — returns the first non-empty value, or empty string when none
-    are present.
+    ... — returns the first value that parses as a real, non-unspecified
+    IP (the payload is untrusted), or empty string when none qualify.
     """
     for key in ("ip", "ip0", "ip1", "ip2"):
         value = data.get(key)
-        if isinstance(value, str) and value:
+        if isinstance(value, str) and is_usable_ip(value):
             return value
     return ""
 

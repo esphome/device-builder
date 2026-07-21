@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import parse_platform_from_yaml
+from ...helpers.ip import is_unspecified_address
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata
 from ..config import metadata_transaction
@@ -96,6 +97,10 @@ class DeviceMetadataBase(DeviceBuilderBase):
         store_md = self._metadata_store.get(filename)
         shared_md = self._shared_sidecar.get_sync(filename)
         ip = str(store_md.get("ip", ""))
+        if is_unspecified_address(ip):
+            # Self-heal a sidecar poisoned by a sinkhole resolver
+            # before the ingestion filters existed.
+            ip = ""
         expected_config_hash = read_build_info_hash(config_dir / filename) or str(
             store_md.get("expected_config_hash", "")
         )

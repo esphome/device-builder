@@ -216,6 +216,41 @@ async def test_async_resolve_handles_timeout(fake_resolver) -> None:
     assert result is None
 
 
+async def test_async_resolve_all_unspecified_is_a_cached_failure(fake_resolver) -> None:
+    """A sinkhole answer of ``0.0.0.0`` / ``::`` is a failed lookup, not a result."""
+    stub = fake_resolver(["0.0.0.0", "::"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("esp.example.com")
+        result2 = await cache.async_resolve("esp.example.com")
+    assert result is None
+    assert result2 is None
+    assert stub.calls == ["esp.example.com"]
+    assert cache.has_cached_failure("esp.example.com")
+
+
+async def test_async_resolve_drops_unspecified_keeps_real(fake_resolver) -> None:
+    """Unspecified entries are dropped; real addresses survive."""
+    stub = fake_resolver(["0.0.0.0", "10.0.0.7"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("esp.example.com")
+    assert result == ["10.0.0.7"]
+    assert cache.get_cached_addresses("esp.example.com") == ["10.0.0.7"]
+
+
+async def test_async_resolve_unspecified_local_falls_back_to_bare_hostname(
+    fake_resolver,
+) -> None:
+    """An all-unspecified ``.local`` answer still tries the bare-hostname fallback."""
+    stub = fake_resolver(["0.0.0.0"], ["10.0.0.8"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("foo.local")
+    assert result == ["10.0.0.8"]
+    assert stub.calls == ["foo.local", "foo"]
+
+
 # ----------------------------------------------------------------------
 # DeviceStateMonitor — ping pre-resolution
 # ----------------------------------------------------------------------

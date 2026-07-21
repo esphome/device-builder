@@ -2886,6 +2886,14 @@ def test_extract_ip_skips_empty_and_non_string_values() -> None:
     assert _extract_ip({"name": "kitchen", "version": "2026.5.0"}) == ""
 
 
+def test_extract_ip_skips_unspecified_and_unparseable_values() -> None:
+    """Unspecified / non-IP candidates are skipped; the next real IP wins."""
+    assert _extract_ip({"ip": "0.0.0.0", "ip0": "10.0.0.5"}) == "10.0.0.5"
+    assert _extract_ip({"ip": "::", "ip0": "10.0.0.5"}) == "10.0.0.5"
+    assert _extract_ip({"ip": "not-an-ip", "ip0": "10.0.0.5"}) == "10.0.0.5"
+    assert _extract_ip({"ip": "0.0.0.0", "ip0": "::"}) == ""
+
+
 def test_decode_payload_handles_str_bytes_and_garbage() -> None:
     """``_decode_payload`` accepts ``str`` / ``bytes`` / ``bytearray`` / ``memoryview``.
 

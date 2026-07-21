@@ -108,6 +108,25 @@ def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: An
     assert metadata.ip == "192.168.1.42"  # untouched
 
 
+@pytest.mark.parametrize("poisoned_ip", ["0.0.0.0", "::"])
+def test_unspecified_sidecar_ip_loads_as_empty(
+    tmp_path: Path, monkeypatch: Any, poisoned_ip: str
+) -> None:
+    """A sidecar poisoned by a sinkhole resolver self-heals on load."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    _seed_metadata(
+        monkeypatch,
+        controller,
+        "kitchen.yaml",
+        {"board_id": "", "ip": poisoned_ip, "expected_config_hash": ""},
+    )
+    write_synthetic_device(tmp_path, "kitchen")
+
+    metadata = controller._resolve_device_metadata(tmp_path, "kitchen.yaml")
+
+    assert metadata.ip == ""
+
+
 def test_falls_back_to_sidecar_when_build_dir_wiped(tmp_path: Path, monkeypatch: Any) -> None:
     """No build_info.json (e.g. after ``clean``) → use the sidecar's hash."""
     controller = _make_controller(monkeypatch, tmp_path)

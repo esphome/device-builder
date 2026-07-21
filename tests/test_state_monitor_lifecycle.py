@@ -1916,6 +1916,42 @@ def test_empty_ip_observations_are_rejected(call: Callable[[DeviceStateMonitor],
         call(monitor)
 
 
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param(lambda m: m.apply_ip("kitchen", "0.0.0.0"), id="apply_ip_v4"),
+        pytest.param(lambda m: m.apply_ip("kitchen", "::"), id="apply_ip_v6"),
+        pytest.param(
+            lambda m: m.apply_ip_addresses("kitchen", ["0.0.0.0", "::"]),
+            id="apply_ip_addresses_all_unspecified",
+        ),
+    ],
+)
+def test_unspecified_ip_observations_are_ignored(
+    call: Callable[[DeviceStateMonitor], bool],
+) -> None:
+    """A sinkhole resolver's 0.0.0.0 / :: never reaches device state."""
+    device = _device(ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, callbacks = _make_monitor([device])
+
+    assert call(monitor) is False
+
+    assert callbacks.calls_for("on_ip_change") == []
+    assert device.ip == "10.0.0.1"
+
+
+def test_apply_ip_addresses_drops_unspecified_keeps_real() -> None:
+    """Unspecified entries are filtered; the surviving address applies normally."""
+    device = _device(ip="", ip_addresses=[])
+    monitor, callbacks = _make_monitor([device])
+
+    assert monitor.apply_ip_addresses("kitchen", ["0.0.0.0", "10.0.0.7"]) is True
+
+    assert callbacks.calls_for("on_ip_change") == [
+        ("on_ip_change", "kitchen", "10.0.0.7", ["10.0.0.7"]),
+    ]
+
+
 def test_apply_ip_addresses_fires_when_list_changes_but_primary_does_not() -> None:
     """A device picking up a V6 address while keeping its V4 still fires.
 
