@@ -151,7 +151,7 @@ class MqttBrokerConfig:
         monitor on the next reconcile.
         """
         ca = self.certificate_authority
-        ca_digest = hashlib.sha256(ca.encode()).hexdigest()[:16] if ca else None
+        ca_digest = hashlib.sha256(ca.encode()).hexdigest() if ca else None
         return BrokerKey(self.host, self.port, self.username, ca_digest, self.skip_cert_cn_check)
 
 
@@ -547,8 +547,7 @@ class DeviceMqttMonitor:
         """
         Wrap *client* in a TLS context when the broker carries a CA.
 
-        Blocking (SSLContext building parses certs from disk state) —
-        call only from the executor.
+        Blocking (OpenSSL cert parsing) — call only from the executor.
         """
         if not self._broker.certificate_authority:
             return

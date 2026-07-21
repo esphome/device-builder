@@ -1,11 +1,9 @@
 """
 End-to-end MQTT discovery against a mosquitto TLS listener.
 
-A throwaway openssl self-signed cert (doubling as its own CA) secures
-the broker's TLS listener; the coordinator connects through the real
-paho TLS stack while the fake devices answer on a sibling plaintext
-listener of the same broker. Skips when mosquitto or openssl aren't
-installed.
+Real paho TLS handshakes against an openssl-generated cert; the fake
+devices answer on a sibling plaintext listener of the same broker.
+Skips when mosquitto or openssl aren't installed.
 """
 
 from __future__ import annotations

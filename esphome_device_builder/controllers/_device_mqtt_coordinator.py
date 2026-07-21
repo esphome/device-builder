@@ -244,7 +244,7 @@ class DeviceMqttCoordinator:
         secrets_mtime: float,
         secrets_map: dict[str, Any],
     ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
-        """Return the broker for *yaml_path*, or None if unresolvable."""
+        """Return *yaml_path*'s broker, ``CLIENT_CERT_UNSUPPORTED``, or None if unresolvable."""
         broker = parse_mqtt_block(yaml_content, secrets_map)
         if broker is not None:
             return broker
