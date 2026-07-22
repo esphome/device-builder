@@ -5227,9 +5227,26 @@ def _unwrap_schema_to_dict(node: Any) -> dict | None:
     return None
 
 
+def _ensure_list_item_validator(node: Any) -> Any | None:
+    """Return the item validator of a ``cv.ensure_list`` node (or one wrapped in ``vol.All``)."""
+    # Deliberately shallow (node + one vol.All level) — a transitive walk like
+    # _search_validator_graph could surface an ensure_list buried in an
+    # unrelated sub-field and descend its items at the wrong path.
+    for candidate in (node, *(getattr(node, "validators", None) or ())):
+        qualname = getattr(candidate, "__qualname__", "") or ""
+        if qualname.startswith("ensure_list."):
+            try:
+                return _closure_nonlocals(candidate).get("user")
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def _walk_schema_keys(
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
+    *,
+    descend_list_items: bool = False,
 ) -> None:
     """
     Walk *schema* and call ``visit(key, key_name, val, path)`` per dict entry.
@@ -5249,8 +5266,16 @@ def _walk_schema_keys(
     Each collector hands in a ``visit`` callback that records its
     domain-specific signal (per-platform defaults, refined type,
     platform constraint) on the ``out`` dict it owns.
+
+    Revisit-dedupe is keyed by ``(id, path)``, not bare ``id`` — a
+    sub-schema shared between two fields must be visited at both paths
+    or whichever comes second is silently shadowed.
+
+    ``descend_list_items`` additionally walks into ``cv.ensure_list``
+    item schemas at the same path (the catalog keys list-item fields
+    under the list field itself, e.g. ``(uart, stop_bits)``).
     """
-    visited: set[int] = set()
+    visited: set[tuple[int, tuple[str, ...]]] = set()
 
     def walk(node: Any, path: tuple[str, ...], depth: int) -> None:
         if depth > 6:
@@ -5263,13 +5288,17 @@ def _walk_schema_keys(
             # no path segment) so the collectors reach variant-only fields
             # like ethernet's ``clock_speed``.
             branches = _typed_branch_schemas(node)
-            if branches is not None:
-                for branch in branches.values():
-                    walk(branch, path, depth + 1)
+            if branches is None and descend_list_items:
+                # ``cv.ensure_list(...)`` is also a closure.
+                item = _ensure_list_item_validator(node)
+                branches = {"": item} if item is not None else None
+            for branch in (branches or {}).values():
+                walk(branch, path, depth + 1)
             return
-        if id(candidate) in visited:
+        marker = (id(candidate), path)
+        if marker in visited:
             return
-        visited.add(id(candidate))
+        visited.add(marker)
         for key, val in candidate.items():
             key_name = key.schema if hasattr(key, "schema") else str(key)
             sub_path = (*path, key_name)
@@ -5680,8 +5709,14 @@ def _collect_refined_types(  # noqa: C901
     out: dict[tuple[str, ...], RefinedType] = {}
 
     def classify(validator: Any) -> RefinedType | None:
-        if id(validator) in by_identity:
-            return by_identity[id(validator)]
+        # An enum whose live mapping keys / one_of values are all real
+        # ints validates the bare-int YAML form; the bundle stringifies
+        # the keys so the entry lands ``string`` and every select pick
+        # re-serializes quoted (#2272). String-keyed enums (cc1101's
+        # ``cv.enum({"8": ...})`` rejects a bare ``8``) stay unrefined.
+        refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
+        if refined is not None:
+            return refined
         # Some validators are wrapped (vol.All chains or partials);
         # peel down to find the inner.
         inner = getattr(validator, "validators", None)
@@ -5723,8 +5758,39 @@ def _collect_refined_types(  # noqa: C901
         elif _is_dict_list_union(val):
             out[path] = RefinedType("unknown")
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
+
+
+def _int_enum_refined_type(validator: Any) -> RefinedType | None:
+    """Return an ``integer`` refinement iff *validator*'s live enum values are all real ints."""
+    values = _extract_enum_values(validator)
+    if values and all(type(v) is int for v in values):
+        return RefinedType("integer")
+    return None
+
+
+def _extract_enum_values(validator: Any) -> list[Any] | None:
+    """
+    Return a ``cv.one_of`` / ``cv.enum`` validator's live values, else None.
+
+    Gated on ``__qualname__`` so no other validator is ever called with
+    the ``SCHEMA_EXTRACT`` sentinel.
+    """
+    qualname = getattr(validator, "__qualname__", "") or ""
+    if not qualname.startswith(("one_of.", "enum.")):
+        return None
+    if getattr(validator, "__module__", "") != "esphome.config_validation":
+        return None
+    import esphome.config_validation as cv
+
+    try:
+        extracted = validator(cv.SCHEMA_EXTRACT)
+    except Exception:
+        return None
+    if isinstance(extracted, (dict, list, tuple)):
+        return list(extracted)
+    return None
 
 
 def _closure_nonlocals(func: Any) -> dict[str, Any]:
