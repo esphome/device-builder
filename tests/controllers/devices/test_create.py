@@ -391,11 +391,19 @@ async def test_create_device_rejects_invalid_overridden_hostname(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-@pytest.mark.parametrize("hostname", ["-plug", "plug-", "-"])
-async def test_create_device_rejects_edge_hyphen_hostname_override(
+@pytest.mark.parametrize(
+    "hostname",
+    [
+        pytest.param("-plug", id="leading-hyphen"),
+        pytest.param("plug-", id="trailing-hyphen"),
+        pytest.param("-", id="bare-hyphen"),
+        pytest.param("a" * 32, id="over-length-cap"),
+    ],
+)
+async def test_create_device_rejects_invalid_hostname_override_shapes(
     tmp_path: Path, make_controller: MakeControllerFactory, hostname: str
 ) -> None:
-    """Pins that edge-hyphen overrides (RFC-invalid mDNS labels) are refused."""
+    """Pins that edge-hyphen and over-cap overrides are refused, never rewritten."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
 
     with pytest.raises(CommandError) as excinfo:
@@ -403,6 +411,22 @@ async def test_create_device_rejects_edge_hyphen_hostname_override(
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "not a valid hostname" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_accepts_hostname_override_at_the_length_cap(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that a 31-char override is accepted verbatim (the derive path clamps instead)."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    name = "a" * 31
+    result = await ctrl.create_device(name=name, friendly_name="Bedroom Plug")
+
+    assert result.configuration == f"{name}.yaml"
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
