@@ -35,8 +35,10 @@ if TYPE_CHECKING:
 _SECRET_TAG_RE = re.compile(r"^\s*!secret\s+\S")
 
 # An explicitly chosen hostname: esphome's ALLOWED_NAME_CHARS within its
-# hostname length cap. Checked, never rewritten (see _resolve_names).
-_HOSTNAME_RE = re.compile(rf"[a-z0-9_-]{{1,{_HOSTNAME_MAX_LEN}}}")
+# hostname length cap, minus edge hyphens (RFC 1123 labels can't start or
+# end with one — resolvers may refuse the .local name). Checked, never
+# rewritten (see _resolve_names).
+_HOSTNAME_RE = re.compile(rf"[a-z0-9_](?:[a-z0-9_-]{{0,{_HOSTNAME_MAX_LEN - 2}}}[a-z0-9_])?")
 
 
 async def create_device(  # noqa: C901, PLR0912
@@ -236,7 +238,8 @@ def _resolve_names(name: str, friendly_name: str | None) -> tuple[str, str]:
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
                 f"name {hostname!r} is not a valid hostname (lowercase letters, "
-                f"digits, hyphens, and underscores; at most {_HOSTNAME_MAX_LEN} chars)",
+                f"digits, hyphens, and underscores; no leading or trailing hyphen; "
+                f"at most {_HOSTNAME_MAX_LEN} chars)",
             )
         return hostname, friendly
     friendly = clean_friendly_name(name)

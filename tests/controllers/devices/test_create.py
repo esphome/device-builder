@@ -391,6 +391,21 @@ async def test_create_device_rejects_invalid_overridden_hostname(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+@pytest.mark.parametrize("hostname", ["-plug", "plug-", "-"])
+async def test_create_device_rejects_edge_hyphen_hostname_override(
+    tmp_path: Path, make_controller: MakeControllerFactory, hostname: str
+) -> None:
+    """Pins that edge-hyphen overrides (RFC-invalid mDNS labels) are refused."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name=hostname, friendly_name="Bedroom Plug")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "not a valid hostname" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_rejects_blank_hostname_with_friendly_name(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
