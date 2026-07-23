@@ -33,5 +33,5 @@ source:
   type: bluetooth-proxies
   remote_id: lilygo/lilygo-t-eth-poe
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/lilygo/lilygo-t-eth-poe.yaml
-  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  upstream_revision: c65f649a834bb308bdc4c76c2f3c398640d96bd6
   content_hash: ecdd36702f1c17e55b42b0a84ac99998d527da6b7c20f9efb19a5b5c778fbaab

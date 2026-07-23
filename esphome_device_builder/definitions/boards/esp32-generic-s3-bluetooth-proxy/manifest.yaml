@@ -20,5 +20,5 @@ source:
   type: bluetooth-proxies
   remote_id: esp32-generic/esp32-generic-s3
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/esp32-generic/esp32-generic-s3.yaml
-  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  upstream_revision: c65f649a834bb308bdc4c76c2f3c398640d96bd6
   content_hash: d962dd01e420261790f38319d3fc3d2036ffb32849c664450e09fc0107d6628a

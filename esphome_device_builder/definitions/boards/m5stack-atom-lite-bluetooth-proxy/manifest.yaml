@@ -26,5 +26,5 @@ source:
   type: bluetooth-proxies
   remote_id: m5stack/m5stack-atom-lite
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/m5stack/m5stack-atom-lite.yaml
-  upstream_revision: b0b310b215c40711040c1c1712c69348e4914f18
+  upstream_revision: c65f649a834bb308bdc4c76c2f3c398640d96bd6
   content_hash: 4462d27b8b55b86f3b54ba69ee75f54530ce5d31e4accdee1cd8fadc47a280d8
