@@ -19,12 +19,11 @@ stay within 15 characters of ``MAX_PATH`` -- ``C:\esphb\<id8>\idf`` (21) overflo
 (12) fits, and sharing matches upstream's machine-global cache semantics (version-safe: the
 tools dir is per-version inside). Existing data is moved in once (best-effort) so warm caches
 survive: from the legacy flat ``C:\esphb-<id8>`` of the first relocation release, else from
-``<config>/.esphome`` and ``~/.platformio``; the shared IDF dir sweeps in a per-dashboard
-``<root>\idf`` from earlier releases, else esphome's machine-global IDF cache. Concurrent
-first-ever starts of two dashboards can race that one-time sweep -- accepted unserialised,
-mirroring the repo's other Windows-degraded locks (``helpers/single_instance.py``): the window
-is a same-volume rename, and the worst case discards a toolchain cache esphome re-downloads.
-A cache later repopulated by CLI use is not re-merged (the completion marker short-circuits).
+``<config>/.esphome`` and ``~/.platformio``. The shared IDF dir is the exception: it always
+starts empty and the toolchain installs fresh -- penv paths bake into every configured build
+dir, so a *moved* IDF tree fails idf.py's active-vs-configured python check -- and an earlier
+release's per-dashboard ``<root>\idf`` is deleted rather than swept in. esphome's
+machine-global IDF cache is left untouched for native CLI use.
 Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long path. The tree
 is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by hand to
 reclaim space. No-op off Windows (including a
@@ -49,7 +48,7 @@ from .dashboard_identity import get_or_create_dashboard_id
 _LOGGER = logging.getLogger(__name__)
 
 _ROOT_BASE = Path("C:\\esphb")
-# One name ties the shared toolchain dir, the per-dashboard sweep source, and the
+# One name ties the shared toolchain dir, the per-dashboard purge target, and the
 # reserved-suffix guard together; a rename can't silently reopen the collision.
 _IDF_DIRNAME = "idf"
 # Legacy flat base from the first relocation release (``C:\esphb-<id8>``); migrated in once.
@@ -163,40 +162,38 @@ def _resolve_idf_dir(dashboard_idf: Path) -> Path | None:
     Return the ESP-IDF install dir to point ``ESPHOME_ESP_IDF_PREFIX`` at, or ``None``.
 
     Shared across dashboards: the prefix must stay within 15 chars of ``MAX_PATH`` (module
-    docstring), which a per-dashboard ``C:\esphb\<id8>\idf`` (21) cannot. Migrates
-    *dashboard_idf* (earlier releases' per-dashboard install) or the machine-global cache into
-    the shared dir; when that fails, an intact *dashboard_idf* still serves this session, and
-    with neither the default cache stands.
+    docstring), which a per-dashboard ``C:\esphb\<id8>\idf`` (21) cannot. The shared dir is
+    never seeded by moving an existing IDF tree — penv paths bake into every configured build
+    dir, so a moved tree fails idf.py's active-vs-configured python check — the toolchain
+    installs fresh, and an earlier release's *dashboard_idf* is deleted.
     """
     idf = _ROOT_BASE / _IDF_DIRNAME
-    idf_cache = _default_idf_cache()
-    if _relocate_into(idf, dashboard_idf, idf_cache):
-        return idf
-    if (dashboard_idf / _RELOCATED_MARKER).is_file():
+    if not _finalize_dir(idf):
+        # Unrelocated, esphome falls back to its machine-global cache — the long + spaced path
+        # this exists to avoid — so name it before the compile fails cryptically.
         _LOGGER.warning(
-            "Using per-dashboard ESP-IDF at %s; could not move to shared %s", dashboard_idf, idf
+            "ESP-IDF toolchain not relocated; native builds will use %s, where deep or spaced "
+            "paths may fail",
+            _default_idf_cache() or "esphome's default cache location",
         )
-        return dashboard_idf
-    # Unrelocated, esphome falls back to its machine-global cache — the long + spaced path
-    # this exists to avoid — so name it before the compile fails cryptically.
-    _LOGGER.warning(
-        "ESP-IDF toolchain not relocated; native builds will use %s, where deep or spaced "
-        "paths may fail",
-        idf_cache or "esphome's default cache location",
-    )
-    return None
+        return None
+    if dashboard_idf.is_dir():
+        try:
+            rmtree(dashboard_idf)
+        except OSError as err:
+            _LOGGER.warning(
+                "Could not remove stale per-dashboard ESP-IDF %s: %s", dashboard_idf, err
+            )
+    return idf
 
 
 def _default_idf_cache() -> Path | None:
-    """Esphome's machine-global native-IDF install dir to migrate from (a seam for tests)."""
-    # platformdirs ships with the esphome extra, not this package; without it there is no
-    # existing install to migrate, but the relocated dir is still created and pointed at.
+    """Esphome's machine-global native-IDF install dir, named in the not-relocated warning."""
+    # platformdirs ships with the esphome extra, not this package.
     try:
         import platformdirs  # noqa: PLC0415
     except ImportError:
-        # Distinguishes migration-skipped-because-unavailable from a genuinely absent cache;
-        # the relocation marker written this run means a later install won't re-migrate.
-        _LOGGER.debug("platformdirs unavailable; no machine-global IDF cache to migrate")
+        _LOGGER.debug("platformdirs unavailable; cannot name the default IDF cache")
         return None
     return Path(platformdirs.user_cache_dir("esphome", appauthor=False)) / "idf"
 
@@ -239,6 +236,19 @@ def _relocate_into(dst: Path, *sources: Path | None) -> bool:
             return False
     # No source left here: none existed, the move just completed, or a prior run moved it and only
     # the marker write was lost. dst is authoritative either way.
+    return _finalize_dir(dst)
+
+
+def _finalize_dir(dst: Path) -> bool:
+    """
+    Ensure *dst* exists and bears the completion marker; return whether it is trusted.
+
+    The terminal step of :func:`_relocate_into`, also used alone for a dir that starts
+    empty by design (the shared IDF install target -- nothing is ever moved into it).
+    """
+    marker = dst / _RELOCATED_MARKER
+    if marker.is_file():
+        return True
     try:
         dst.mkdir(parents=True, exist_ok=True)
         marker.write_text("{}", encoding="utf-8")
