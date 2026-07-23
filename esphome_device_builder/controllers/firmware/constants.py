@@ -117,11 +117,19 @@ _NO_ESPHOME_MODULE_MARKER = "No module named 'esphome'"
 # * ``PYTHONUNBUFFERED`` keeps Python subprocesses flushing progress
 #   lines (especially ``\r``-terminated ones) instead of buffering
 #   them until a ``\n`` arrives.
+# * ``PYTHONUTF8`` / ``PYTHONIOENCODING`` force every Python in the
+#   build tree (esphome, idf.py, the IDF penv tools) onto UTF-8 for
+#   stdio and locale-default codecs. Without them a layer of the
+#   Windows toolchain decodes esp_idf_size's UTF-8 box-drawing table
+#   with the OEM codepage and the job log shows ``Γöé`` mojibake;
+#   POSIX defaults to UTF-8 already, so there this only pins parity.
 ESPHOME_SUBPROCESS_ENV: dict[str, str] = {
     "PLATFORMIO_FORCE_ANSI": "true",
     "FORCE_COLOR": "1",
     "CLICOLOR_FORCE": "1",
     "PYTHONUNBUFFERED": "1",
+    "PYTHONUTF8": "1",
+    "PYTHONIOENCODING": "utf-8",
 }
 
 

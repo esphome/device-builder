@@ -181,3 +181,9 @@ def test_malformed_remote_build_path_falls_through_to_local(
     env = controller._compose_subprocess_env(_make_job(configuration=configuration))
 
     assert env.get("ESPHOME_DATA_DIR") == os.environ.get("ESPHOME_DATA_DIR")
+
+
+def test_subprocess_env_forces_utf8() -> None:
+    """The build tree runs in UTF-8 mode, or Windows layers decode output with the OEM codepage."""
+    assert ESPHOME_SUBPROCESS_ENV["PYTHONUTF8"] == "1"
+    assert ESPHOME_SUBPROCESS_ENV["PYTHONIOENCODING"] == "utf-8"
