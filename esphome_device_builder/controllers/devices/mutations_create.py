@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, NoReturn
 
+from esphome.const import ALLOWED_NAME_CHARS
 from esphome.storage_json import StorageJSON
 
 from ...helpers.api import CommandError
@@ -36,9 +37,14 @@ _SECRET_TAG_RE = re.compile(r"^\s*!secret\s+\S")
 
 # An explicitly chosen hostname: esphome's ALLOWED_NAME_CHARS within its
 # hostname length cap, minus edge hyphens (RFC 1123 labels can't start or
-# end with one — resolvers may refuse the .local name). Checked, never
-# rewritten (see _resolve_names).
-_HOSTNAME_RE = re.compile(rf"[a-z0-9_](?:[a-z0-9_-]{{0,{_HOSTNAME_MAX_LEN - 2}}}[a-z0-9_])?")
+# end with one — resolvers may refuse the .local name). Derived from the
+# upstream constant so the class can't drift (mirrors _VALID_ESPHOME_NAME_RE).
+# Checked, never rewritten (see _resolve_names).
+_NAME_CHARS = re.escape(ALLOWED_NAME_CHARS)
+_EDGE_CHARS = re.escape(ALLOWED_NAME_CHARS.replace("-", ""))
+_HOSTNAME_RE = re.compile(
+    rf"[{_EDGE_CHARS}](?:[{_NAME_CHARS}]{{0,{_HOSTNAME_MAX_LEN - 2}}}[{_EDGE_CHARS}])?"
+)
 
 
 async def create_device(  # noqa: C901, PLR0912
