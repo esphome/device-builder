@@ -53,9 +53,9 @@ async def create_device(  # noqa: C901, PLR0912
     """
     Create a new device configuration.
 
-    With *friendly_name*, *name* is the hostname (normalised through
-    ``slugify_hostname``); without it, *name* is the raw display label
-    and both values derive from it. Three flows decided by which
+    With *friendly_name*, *name* is the hostname (validated, never
+    rewritten); without it, *name* is the raw display label and both
+    values derive from it. Three flows decided by which
     arguments are provided: *file_content* writes user-supplied YAML
     as-is; *board_id* generates from the board template; neither emits
     a minimal valid esp32 stub for the wizard's "empty configuration"
@@ -230,6 +230,8 @@ def _resolve_names(name: str, friendly_name: str | None) -> tuple[str, str]:
     friendly = clean_friendly_name(friendly_name) if friendly_name else ""
     if friendly:
         hostname = name.strip()
+        if not hostname:
+            raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
         if not _HOSTNAME_RE.fullmatch(hostname):
             raise CommandError(
                 ErrorCode.INVALID_ARGS,
