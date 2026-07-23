@@ -264,6 +264,31 @@ def test_lock_unavailable_falls_back_to_dashboard_idf(
     assert dash_idf.is_dir()
 
 
+def test_lock_open_failure_skips_shared_relocation(tmp_path: Path, fake_windows: Path) -> None:
+    """An unopenable lock file skips the shared move; an intact own install still serves."""
+    dash_idf = fake_windows / "esphb" / _ID8 / "idf"
+    dash_idf.mkdir(parents=True)
+    (dash_idf / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (fake_windows / "esphb" / wbp._IDF_MIGRATE_LOCK).mkdir()  # a dir there makes open() raise
+
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(dash_idf)
+    assert not (fake_windows / "esphb" / "idf").exists()
+
+
+def test_flock_failure_reports_unheld(tmp_path: Path) -> None:
+    """A lock primitive rejecting the fd (EBADF) reports not-held instead of raising."""
+    handle = (tmp_path / "lock").open("a+b")
+    stale_fd = handle.fileno()
+    handle.close()
+
+    class _Stale:
+        def fileno(self) -> int:
+            return stale_fd
+
+    assert wbp._flock_exclusive(_Stale()) is False  # type: ignore[arg-type]
+
+
 def test_lock_unavailable_without_dashboard_idf_leaves_prefix_unset(
     tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
