@@ -19,10 +19,10 @@ stay within 15 characters of ``MAX_PATH`` -- ``C:\esphb\<id8>\idf`` (21) overflo
 (12) fits, and sharing matches upstream's machine-global cache semantics (version-safe: the
 tools dir is per-version inside). Existing data is moved in once (best-effort) so warm caches
 survive: from the legacy flat ``C:\esphb-<id8>`` of the first relocation release, else from
-``<config>/.esphome`` and ``~/.platformio``. The shared IDF dir is the exception: it always
-starts empty and the toolchain installs fresh -- penv paths bake into every configured build
-dir, so a *moved* IDF tree fails idf.py's active-vs-configured python check -- and an earlier
-release's per-dashboard ``<root>\idf`` is deleted rather than swept in. esphome's
+``<config>/.esphome`` and ``~/.platformio``. The shared IDF dir is the exception: nothing is
+ever migrated into it and the toolchain installs fresh -- penv paths bake into every configured
+build dir, so a *moved* IDF tree fails idf.py's active-vs-configured python check -- and an
+earlier release's per-dashboard ``<root>\idf`` is deleted rather than swept in. esphome's
 machine-global IDF cache is left untouched for native CLI use.
 Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long path. The tree
 is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by hand to
@@ -243,8 +243,8 @@ def _finalize_dir(dst: Path) -> bool:
     """
     Ensure *dst* exists and bears the completion marker; return whether it is trusted.
 
-    The terminal step of :func:`_relocate_into`, also used alone for a dir that starts
-    empty by design (the shared IDF install target -- nothing is ever moved into it).
+    The terminal step of :func:`_relocate_into`, also used alone for a dir nothing is
+    ever moved into (the shared IDF install target).
     """
     marker = dst / _RELOCATED_MARKER
     if marker.is_file():
@@ -252,7 +252,7 @@ def _finalize_dir(dst: Path) -> bool:
     try:
         dst.mkdir(parents=True, exist_ok=True)
         marker.write_text("{}", encoding="utf-8")
-    except OSError:
-        _LOGGER.warning("Could not finalize relocation dir %s", dst)
+    except OSError as err:
+        _LOGGER.warning("Could not finalize relocation dir %s: %s", dst, err)
         return False
     return True
