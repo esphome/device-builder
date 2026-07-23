@@ -356,6 +356,61 @@ async def test_create_device_slugifies_hostname_and_preserves_raw_name_as_friend
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_uses_explicit_friendly_name_with_name_as_hostname(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that with ``friendly_name``, ``name`` is the hostname and both land verbatim."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="bad-lueftung", friendly_name="Lüftung EG Bad")
+
+    assert result.configuration == "bad-lueftung.yaml"
+    content = (tmp_path / "bad-lueftung.yaml").read_text("utf-8")
+    assert "esphome:\n  name: bad-lueftung\n  friendly_name: Lüftung EG Bad\n" in content
+    storage = StorageJSON.load(tmp_path / "storage.json")
+    assert storage is not None
+    assert storage.name == "bad-lueftung"
+    assert storage.friendly_name == "Lüftung EG Bad"
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_normalises_overridden_hostname(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that a non-slug hostname override is normalised through ``slugify_hostname``."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="My Plug", friendly_name="Bedroom Plug")
+
+    assert result.configuration == "my-plug.yaml"
+    content = (tmp_path / "my-plug.yaml").read_text("utf-8")
+    assert "esphome:\n  name: my-plug\n  friendly_name: Bedroom Plug\n" in content
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_blank_friendly_name_falls_back_to_derive(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that a whitespace-only ``friendly_name`` uses the name-only derive path."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+    boards = StubBoardLookups(ctrl)
+    boards.find_by_pio_board_returns(None)
+    boards.find_by_platform_variant_returns(None)
+
+    result = await ctrl.create_device(name="Guest Room Fan", friendly_name="   ")
+
+    assert result.configuration == "guest-room-fan.yaml"
+    content = (tmp_path / "guest-room-fan.yaml").read_text("utf-8")
+    assert "esphome:\n  name: guest-room-fan\n  friendly_name: Guest Room Fan\n" in content
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_quotes_friendly_name_with_yaml_metachars(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

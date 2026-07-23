@@ -38,6 +38,7 @@ async def create_device(  # noqa: C901, PLR0912
     controller: DevicesController,
     *,
     name: str,
+    friendly_name: str | None = None,
     board_id: str | None,
     ssid: str,
     psk: str,
@@ -47,10 +48,12 @@ async def create_device(  # noqa: C901, PLR0912
     """
     Create a new device configuration.
 
-    Three flows decided by which arguments are provided:
-    *file_content* writes user-supplied YAML as-is; *board_id*
-    generates from the board template; neither emits a minimal
-    valid esp32 stub for the wizard's "empty configuration"
+    With *friendly_name*, *name* is the hostname (normalised through
+    ``slugify_hostname``); without it, *name* is the raw display label
+    and both values derive from it. Three flows decided by which
+    arguments are provided: *file_content* writes user-supplied YAML
+    as-is; *board_id* generates from the board template; neither emits
+    a minimal valid esp32 stub for the wizard's "empty configuration"
     button. Generated flows validate before write
     (``INTERNAL_ERROR`` on regression); the user-upload flow
     deliberately skips validation so an existing config from
@@ -64,19 +67,23 @@ async def create_device(  # noqa: C901, PLR0912
     metadata (labels / comment, and its board_id unless a new
     *board_id* is explicitly provided) and StorageJSON.
     """
-    # The wizard passes the user's raw input here — capitalisation,
-    # inter-word spaces, and unicode all stay intact. ``clean_friendly_name``
-    # makes it a valid ``esphome.friendly_name:`` (trims, swaps the
-    # reserved ``/`` for ``⁄`` as ESPHome itself does, drops control
-    # chars, clamps to the byte cap), and ``slugify_hostname`` derives
-    # the canonical lowercase-dashed hostname clamped to ESPHome's name
-    # length cap (mDNS / filename / esphome.name: schema). Centralising
-    # both here keeps the frontend out of the sanitisation business and
-    # avoids two implementations drifting.
-    friendly = clean_friendly_name(name)
-    if not friendly:
-        raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
-    name = slugify_hostname(friendly)
+    # ``clean_friendly_name`` makes the display label a valid
+    # ``esphome.friendly_name:`` (trims, swaps the reserved ``/`` for
+    # ``⁄`` as ESPHome itself does, drops control chars, clamps to the
+    # byte cap); ``slugify_hostname`` yields the canonical
+    # lowercase-dashed hostname clamped to ESPHome's name length cap
+    # (mDNS / filename / esphome.name: schema). Centralising both here
+    # keeps the frontend out of the sanitisation business and avoids two
+    # implementations drifting; a frontend-derived slug passes through
+    # ``slugify_hostname`` unchanged.
+    friendly = clean_friendly_name(friendly_name) if friendly_name else ""
+    if friendly:
+        name = slugify_hostname(name)
+    else:
+        friendly = clean_friendly_name(name)
+        if not friendly:
+            raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
+        name = slugify_hostname(friendly)
     if not name:
         raise CommandError(
             ErrorCode.INVALID_ARGS,

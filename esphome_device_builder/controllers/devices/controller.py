@@ -440,6 +440,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self,
         *,
         name: str,
+        friendly_name: str | None = None,
         board_id: str | None = None,
         ssid: str = "",
         psk: str = "",
@@ -451,6 +452,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         return await mutations_create.create_device(
             self,
             name=name,
+            friendly_name=friendly_name,
             board_id=board_id,
             ssid=ssid,
             psk=psk,
