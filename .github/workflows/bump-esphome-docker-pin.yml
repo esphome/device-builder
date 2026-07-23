@@ -109,6 +109,8 @@ jobs:
           base: dev
           branch: bump-device-builder-${{ github.event.release.tag_name }}
           delete-branch: true
+          author: "esphome[bot] <115708604+esphome[bot]@users.noreply.github.com>"
+          committer: "esphome[bot] <115708604+esphome[bot]@users.noreply.github.com>"
           commit-message: "Bump bundled esphome-device-builder to ${{ github.event.release.tag_name }}"
           title: "Bump bundled esphome-device-builder to ${{ github.event.release.tag_name }}"
           body: |
