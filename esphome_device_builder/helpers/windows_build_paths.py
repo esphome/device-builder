@@ -37,8 +37,9 @@ import os
 import shutil
 import string
 import sys
+import time
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from pathlib import Path
 from typing import IO
 
@@ -49,6 +50,9 @@ from .dashboard_identity import get_or_create_dashboard_id
 _LOGGER = logging.getLogger(__name__)
 
 _ROOT_BASE = Path("C:\\esphb")
+# One name ties the shared toolchain dir, the per-dashboard sweep source, and the
+# reserved-suffix guard together; a rename can't silently reopen the collision.
+_IDF_DIRNAME = "idf"
 # Legacy flat base from the first relocation release (``C:\esphb-<id8>``); migrated in once.
 _LEGACY_ROOT_BASE = Path("C:\\")
 _DASHBOARD_ID_CHARS = 8
@@ -63,9 +67,11 @@ _RELOCATED_MARKER = ".device-builder-relocated.json"
 # is per-data-dir and a no-op on Windows, so it guards neither). Lives beside the idf dir, not
 # inside it, so the migration's discard/move never touches the held lock file.
 _IDF_MIGRATE_LOCK = ".idf-migrate.lock"
-# msvcrt LK_LOCK blocks ~10s per attempt; bounds the wait on a wedged holder to ~1 min. The
-# expected hold is a same-volume rename (instant); only a cross-volume cache sweep takes longer.
-_LOCK_WAIT_ATTEMPTS = 6
+# Non-blocking attempts spaced _LOCK_RETRY_DELAY apart; bounds the wait on a wedged holder to
+# ~1 min. The expected hold is a same-volume rename (instant); only a cross-volume cache sweep
+# takes longer.
+_LOCK_WAIT_ATTEMPTS = 60
+_LOCK_RETRY_DELAY = 1.0
 
 
 @contextmanager
@@ -82,7 +88,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
         yield
         return
     suffix = _safe_suffix(dashboard_id)
-    if not suffix or suffix.lower() == "idf":
+    if not suffix or suffix.lower() == _IDF_DIRNAME:
         # Hand-corrupted sidecar only: empty would collapse the root onto the shared C:\esphb
         # parent; "idf" would collide with the shared toolchain dir beside the roots.
         _LOGGER.warning("dashboard_id sanitized to %r; skipping build relocation", suffix)
@@ -117,7 +123,7 @@ def windows_short_build_paths(config_dir: Path) -> Iterator[None]:
     # silently fall back to the long + spaced machine-global cache this exists to avoid.
     prev_idf = os.environ.get("ESPHOME_ESP_IDF_PREFIX")
     user_set_idf = bool(prev_idf and prev_idf.strip())
-    idf_dir = None if user_set_idf else _resolve_idf_dir(root / "idf")
+    idf_dir = None if user_set_idf else _resolve_idf_dir(root / _IDF_DIRNAME)
     if idf_dir is not None:
         saved["ESPHOME_ESP_IDF_PREFIX"] = prev_idf  # may be present-but-empty; kept verbatim
         os.environ["ESPHOME_ESP_IDF_PREFIX"] = str(idf_dir)
@@ -172,9 +178,12 @@ def _resolve_idf_dir(dashboard_idf: Path) -> Path | None:
     the shared dir runs under the cross-process lock; when it fails, an intact *dashboard_idf*
     still serves this session, and with neither the default cache stands.
     """
-    idf = _ROOT_BASE / "idf"
+    idf = _ROOT_BASE / _IDF_DIRNAME
+    if (idf / _RELOCATED_MARKER).is_file():
+        return idf  # already migrated; the warm path never touches the lock
+    idf_cache = _default_idf_cache()
     with _shared_idf_lock() as held:
-        if held and _relocate_into(idf, dashboard_idf, _default_idf_cache()):
+        if held and _relocate_into(idf, dashboard_idf, idf_cache):
             return idf
     if (dashboard_idf / _RELOCATED_MARKER).is_file():
         _LOGGER.warning(
@@ -186,7 +195,7 @@ def _resolve_idf_dir(dashboard_idf: Path) -> Path | None:
     _LOGGER.warning(
         "ESP-IDF toolchain not relocated; native builds will use %s, where deep or spaced "
         "paths may fail",
-        _default_idf_cache() or "esphome's default cache location",
+        idf_cache or "esphome's default cache location",
     )
     return None
 
@@ -201,7 +210,7 @@ def _shared_idf_lock() -> Iterator[bool]:
     """
     try:
         _ROOT_BASE.mkdir(parents=True, exist_ok=True)
-        lock_file = Path(_ROOT_BASE / _IDF_MIGRATE_LOCK).open("a+b")  # noqa: SIM115 (closed below)
+        lock_file = (_ROOT_BASE / _IDF_MIGRATE_LOCK).open("a+b")
     except OSError:
         _LOGGER.warning("Could not open %s; skipping shared ESP-IDF relocation", _IDF_MIGRATE_LOCK)
         yield False
@@ -220,27 +229,35 @@ def _shared_idf_lock() -> Iterator[bool]:
 
 
 def _flock_exclusive(lock_file: IO[bytes]) -> bool:
-    """Take a blocking exclusive lock on *lock_file* (bounded wait on Windows)."""
+    """Take an exclusive lock on *lock_file*, with a bounded non-blocking retry wait."""
+    last_err: OSError | None = None
+    for attempt in range(_LOCK_WAIT_ATTEMPTS):
+        if attempt:
+            time.sleep(_LOCK_RETRY_DELAY)
+        try:
+            _lock_once(lock_file)
+        except OSError as err:
+            last_err = err
+            continue
+        return True
+    # Contention and a permanent failure (e.g. EBADF) end here alike; the errno tells them apart.
+    _LOGGER.debug("Could not take the shared-IDF migration lock: %s", last_err)
+    return False
+
+
+def _lock_once(lock_file: IO[bytes]) -> None:
+    """One non-blocking exclusive-lock attempt; raises ``OSError`` when unavailable."""
     # The real platform, not the _is_windows seam: off-Windows tests drive the nt branch of the
     # relocation but must lock with the host's primitive.
     if sys.platform == "win32":  # pragma: no cover — Windows-only branch
         import msvcrt  # noqa: PLC0415
 
         lock_file.seek(0)
-        for _ in range(_LOCK_WAIT_ATTEMPTS):
-            try:
-                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
-            except OSError:
-                continue
-            return True
-        return False
-    import fcntl  # noqa: PLC0415
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl  # noqa: PLC0415
 
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-    except OSError:
-        return False
-    return True
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def _funlock(lock_file: IO[bytes]) -> None:
@@ -248,9 +265,13 @@ def _funlock(lock_file: IO[bytes]) -> None:
     if sys.platform == "win32":  # pragma: no cover — Windows-only branch
         import msvcrt  # noqa: PLC0415
 
-        with suppress(OSError):
+        try:
             lock_file.seek(0)
             msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError as err:
+            # The close right after normally still drops the byte-range lock; log so a lock
+            # that stays held (later starts eating the full retry window) is traceable.
+            _LOGGER.debug("Could not release the shared-IDF migration lock: %s", err)
 
 
 def _default_idf_cache() -> Path | None:

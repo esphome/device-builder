@@ -276,8 +276,10 @@ def test_lock_open_failure_skips_shared_relocation(tmp_path: Path, fake_windows:
     assert not (fake_windows / "esphb" / "idf").exists()
 
 
-def test_flock_failure_reports_unheld(tmp_path: Path) -> None:
+def test_flock_failure_reports_unheld(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A lock primitive rejecting the fd (EBADF) reports not-held instead of raising."""
+    monkeypatch.setattr(wbp, "_LOCK_WAIT_ATTEMPTS", 2)
+    monkeypatch.setattr(wbp, "_LOCK_RETRY_DELAY", 0)
     handle = (tmp_path / "lock").open("a+b")
     stale_fd = handle.fileno()
     handle.close()
@@ -290,6 +292,17 @@ def test_flock_failure_reports_unheld(tmp_path: Path) -> None:
             return pos
 
     assert wbp._flock_exclusive(_Stale()) is False  # type: ignore[arg-type]
+
+
+def test_flock_contention_reports_unheld(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lock held elsewhere is retried non-blocking and reported not-held, never waited on."""
+    monkeypatch.setattr(wbp, "_LOCK_WAIT_ATTEMPTS", 2)
+    monkeypatch.setattr(wbp, "_LOCK_RETRY_DELAY", 0)
+    path = tmp_path / "lock"
+    with path.open("a+b") as holder, path.open("a+b") as contender:
+        assert wbp._flock_exclusive(holder) is True
+        assert wbp._flock_exclusive(contender) is False
+        wbp._funlock(holder)
 
 
 def test_lock_unavailable_without_dashboard_idf_leaves_prefix_unset(
@@ -316,7 +329,7 @@ def test_shared_idf_prefix_fits_upstream_windows_budget() -> None:
     """The real shared prefix must fit esphome's measured MAX_PATH budget (esphome#16896)."""
     from esphome.espidf import framework  # noqa: PLC0415
 
-    prefix = str(wbp._ROOT_BASE / "idf")
+    prefix = str(wbp._ROOT_BASE / wbp._IDF_DIRNAME)
     assert len(prefix) + framework._TOOLCHAIN_NESTED_PATH_LEN <= framework._WINDOWS_MAX_PATH
 
 
