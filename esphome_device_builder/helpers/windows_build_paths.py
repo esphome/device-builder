@@ -168,7 +168,7 @@ def _resolve_idf_dir(dashboard_idf: Path) -> Path | None:
     installs fresh, and an earlier release's *dashboard_idf* is deleted.
     """
     idf = _ROOT_BASE / _IDF_DIRNAME
-    if not _relocate_into(idf):
+    if not _finalize_dir(idf):
         # Unrelocated, esphome falls back to its machine-global cache — the long + spaced path
         # this exists to avoid — so name it before the compile fails cryptically.
         _LOGGER.warning(
@@ -236,6 +236,19 @@ def _relocate_into(dst: Path, *sources: Path | None) -> bool:
             return False
     # No source left here: none existed, the move just completed, or a prior run moved it and only
     # the marker write was lost. dst is authoritative either way.
+    return _finalize_dir(dst)
+
+
+def _finalize_dir(dst: Path) -> bool:
+    """
+    Ensure *dst* exists and bears the completion marker; return whether it is trusted.
+
+    The terminal step of :func:`_relocate_into`, also used alone for a dir that starts
+    empty by design (the shared IDF install target -- nothing is ever moved into it).
+    """
+    marker = dst / _RELOCATED_MARKER
+    if marker.is_file():
+        return True
     try:
         dst.mkdir(parents=True, exist_ok=True)
         marker.write_text("{}", encoding="utf-8")
