@@ -449,6 +449,21 @@ async def test_create_device_rejects_name_with_no_hostname_safe_characters(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_empty_slug_error_names_the_hostname_input(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that the explicit-pair empty-slug error cites the hostname, not the friendly name."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="🚀", friendly_name="Bedroom")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "'🚀'" in excinfo.value.message
+    assert "Bedroom" not in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
 async def test_create_device_swaps_reserved_slash_in_friendly_name(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
