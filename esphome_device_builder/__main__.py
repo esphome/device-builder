@@ -412,6 +412,7 @@ def main() -> None:
 
     from .device_builder import DeviceBuilder  # noqa: PLC0415
     from .helpers.single_instance import ensure_single_execution  # noqa: PLC0415
+    from .helpers.toolchain_env import drop_inherited_idf_env  # noqa: PLC0415
     from .helpers.windows_build_paths import windows_short_build_paths  # noqa: PLC0415
 
     startup_timer.mark("builder")
@@ -420,6 +421,8 @@ def main() -> None:
     settings.parse_args(args)
     _warn_if_unprotected(settings)
     startup_timer.mark("settings")
+
+    drop_inherited_idf_env()
 
     # Keyed on ``CORE.data_dir`` (not ``config_dir``) so the HA
     # addon's Prod/Beta/DEV flavors — each with its own per-instance
