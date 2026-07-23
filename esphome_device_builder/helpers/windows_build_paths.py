@@ -20,12 +20,14 @@ stay within 15 characters of ``MAX_PATH`` -- ``C:\esphb\<id8>\idf`` (21) overflo
 tools dir is per-version inside). Existing data is moved in once (best-effort) so warm caches
 survive: from the legacy flat ``C:\esphb-<id8>`` of the first relocation release, else from
 ``<config>/.esphome`` and ``~/.platformio``; the shared IDF dir sweeps in a per-dashboard
-``<root>\idf`` from earlier releases, else esphome's machine-global IDF cache, serialised across
-concurrently-starting dashboards by a lock file (the migration's discard-partial step would
-otherwise delete a sibling's just-moved toolchain). A cache later repopulated by CLI use is not
-re-merged (the completion marker short-circuits). Real dirs (no junction), so CMake's REALPATH
-can't reintroduce the spaced/long path. The tree is left on uninstall (a reinstall keeps the
-warm toolchain); delete ``C:\esphb`` by hand to reclaim space. No-op off Windows (including a
+``<root>\idf`` from earlier releases, else esphome's machine-global IDF cache. Concurrent
+first-ever starts of two dashboards can race that one-time sweep -- accepted unserialised,
+mirroring the repo's other Windows-degraded locks (``helpers/single_instance.py``): the window
+is a same-volume rename, and the worst case discards a toolchain cache esphome re-downloads.
+A cache later repopulated by CLI use is not re-merged (the completion marker short-circuits).
+Real dirs (no junction), so CMake's REALPATH can't reintroduce the spaced/long path. The tree
+is left on uninstall (a reinstall keeps the warm toolchain); delete ``C:\esphb`` by hand to
+reclaim space. No-op off Windows (including a
 Linux Docker container on Windows -- the gate is ``os.name == "nt"``), and skipped if the user
 already set ``ESPHOME_DATA_DIR`` (a deliberate path choice we don't override).
 """
@@ -36,12 +38,9 @@ import logging
 import os
 import shutil
 import string
-import sys
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import IO
 
 from esphome.helpers import rmtree
 
@@ -63,15 +62,6 @@ _SAFE_SUFFIX_CHARS = frozenset(string.ascii_letters + string.digits + "_-")
 # clean / clean-all preserve it. Distinguishes a finished relocation from a partial one, so a
 # later stale write to the old location isn't mistaken for unfinished work.
 _RELOCATED_MARKER = ".device-builder-relocated.json"
-# Serialises the shared-IDF migration across dashboard processes (``ensure_single_execution``
-# is per-data-dir and a no-op on Windows, so it guards neither). Lives beside the idf dir, not
-# inside it, so the migration's discard/move never touches the held lock file.
-_IDF_MIGRATE_LOCK = ".idf-migrate.lock"
-# Non-blocking attempts spaced _LOCK_RETRY_DELAY apart; bounds the wait on a wedged holder to
-# ~1 min. The expected hold is a same-volume rename (instant); only a cross-volume cache sweep
-# takes longer.
-_LOCK_WAIT_ATTEMPTS = 60
-_LOCK_RETRY_DELAY = 1.0
 
 
 @contextmanager
@@ -173,18 +163,15 @@ def _resolve_idf_dir(dashboard_idf: Path) -> Path | None:
     Return the ESP-IDF install dir to point ``ESPHOME_ESP_IDF_PREFIX`` at, or ``None``.
 
     Shared across dashboards: the prefix must stay within 15 chars of ``MAX_PATH`` (module
-    docstring), which a per-dashboard ``C:\esphb\<id8>\idf`` (21) cannot. Migration of
+    docstring), which a per-dashboard ``C:\esphb\<id8>\idf`` (21) cannot. Migrates
     *dashboard_idf* (earlier releases' per-dashboard install) or the machine-global cache into
-    the shared dir runs under the cross-process lock; when it fails, an intact *dashboard_idf*
-    still serves this session, and with neither the default cache stands.
+    the shared dir; when that fails, an intact *dashboard_idf* still serves this session, and
+    with neither the default cache stands.
     """
     idf = _ROOT_BASE / _IDF_DIRNAME
-    if (idf / _RELOCATED_MARKER).is_file():
-        return idf  # already migrated; the warm path never touches the lock
     idf_cache = _default_idf_cache()
-    with _shared_idf_lock() as held:
-        if held and _relocate_into(idf, dashboard_idf, idf_cache):
-            return idf
+    if _relocate_into(idf, dashboard_idf, idf_cache):
+        return idf
     if (dashboard_idf / _RELOCATED_MARKER).is_file():
         _LOGGER.warning(
             "Using per-dashboard ESP-IDF at %s; could not move to shared %s", dashboard_idf, idf
@@ -198,80 +185,6 @@ def _resolve_idf_dir(dashboard_idf: Path) -> Path | None:
         idf_cache or "esphome's default cache location",
     )
     return None
-
-
-@contextmanager
-def _shared_idf_lock() -> Iterator[bool]:
-    """
-    Hold the cross-process shared-IDF migration lock for the block; yield whether held.
-
-    Unserialised, a second dashboard's discard-partial step in :func:`_relocate_into` can
-    delete the first one's just-moved toolchain. Not held means skip the shared relocation.
-    """
-    try:
-        _ROOT_BASE.mkdir(parents=True, exist_ok=True)
-        lock_file = (_ROOT_BASE / _IDF_MIGRATE_LOCK).open("a+b")
-    except OSError:
-        _LOGGER.warning("Could not open %s; skipping shared ESP-IDF relocation", _IDF_MIGRATE_LOCK)
-        yield False
-        return
-    with lock_file:
-        if not _flock_exclusive(lock_file):
-            _LOGGER.warning(
-                "Another dashboard holds %s; skipping shared ESP-IDF relocation", _IDF_MIGRATE_LOCK
-            )
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            _funlock(lock_file)
-
-
-def _flock_exclusive(lock_file: IO[bytes]) -> bool:
-    """Take an exclusive lock on *lock_file*, with a bounded non-blocking retry wait."""
-    last_err: OSError | None = None
-    for attempt in range(_LOCK_WAIT_ATTEMPTS):
-        if attempt:
-            time.sleep(_LOCK_RETRY_DELAY)
-        try:
-            _lock_once(lock_file)
-        except OSError as err:
-            last_err = err
-            continue
-        return True
-    # Contention and a permanent failure (e.g. EBADF) end here alike; the errno tells them apart.
-    _LOGGER.debug("Could not take the shared-IDF migration lock: %s", last_err)
-    return False
-
-
-def _lock_once(lock_file: IO[bytes]) -> None:
-    """One non-blocking exclusive-lock attempt; raises ``OSError`` when unavailable."""
-    # The real platform, not the _is_windows seam: off-Windows tests drive the nt branch of the
-    # relocation but must lock with the host's primitive.
-    if sys.platform == "win32":  # pragma: no cover — Windows-only branch
-        import msvcrt  # noqa: PLC0415
-
-        lock_file.seek(0)
-        msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-    else:
-        import fcntl  # noqa: PLC0415
-
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-
-def _funlock(lock_file: IO[bytes]) -> None:
-    """Release the lock taken by :func:`_flock_exclusive` (POSIX also releases on close)."""
-    if sys.platform == "win32":  # pragma: no cover — Windows-only branch
-        import msvcrt  # noqa: PLC0415
-
-        try:
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
-        except OSError as err:
-            # The close right after normally still drops the byte-range lock; log so a lock
-            # that stays held (later starts eating the full retry window) is traceable.
-            _LOGGER.debug("Could not release the shared-IDF migration lock: %s", err)
 
 
 def _default_idf_cache() -> Path | None:
