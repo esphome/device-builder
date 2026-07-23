@@ -16,6 +16,7 @@ from ...helpers.yaml import write_user_yaml
 from ...models import ErrorCode, WizardResponse
 from ..editor import IMPORT_VALIDATE_TIMEOUT
 from .helpers import (
+    _HOSTNAME_MAX_LEN,
     _looks_binary,
     clean_friendly_name,
     slugify_hostname,
@@ -32,6 +33,10 @@ if TYPE_CHECKING:
 # form (``!secret`` + whitespace + a key char) so an odd-but-real password
 # like ``!secretsauce`` or a literal ``!secret `` without a key is left alone.
 _SECRET_TAG_RE = re.compile(r"^\s*!secret\s+\S")
+
+# An explicitly chosen hostname: esphome's ALLOWED_NAME_CHARS within its
+# hostname length cap. Checked, never rewritten (see _resolve_names).
+_HOSTNAME_RE = re.compile(rf"[a-z0-9_-]{{1,{_HOSTNAME_MAX_LEN}}}")
 
 
 async def create_device(  # noqa: C901, PLR0912
@@ -214,26 +219,31 @@ def _resolve_names(name: str, friendly_name: str | None) -> tuple[str, str]:
     """
     Resolve the (hostname, friendly) pair from the command's name args.
 
-    With a *friendly_name* that cleans non-empty, *name* is the hostname;
-    otherwise both derive from *name* as the raw display label.
-    ``clean_friendly_name`` makes the label a valid ``esphome.friendly_name:``;
-    ``slugify_hostname`` yields the canonical lowercase-dashed hostname clamped
-    to ESPHome's name length cap (mDNS / filename / ``esphome.name:`` schema).
-    Centralising both here keeps the frontend out of the sanitisation business;
-    a frontend-derived slug passes through ``slugify_hostname`` unchanged.
+    With a *friendly_name* that cleans non-empty, *name* is the hostname and
+    is validated, never rewritten — a silent ``slugify_hostname`` here would
+    create a different name than the caller previewed. Otherwise both derive
+    from *name* as the raw display label: ``clean_friendly_name`` makes it a
+    valid ``esphome.friendly_name:`` and ``slugify_hostname`` yields the
+    canonical lowercase-dashed hostname clamped to ESPHome's name length cap
+    (mDNS / filename / ``esphome.name:`` schema).
     """
     friendly = clean_friendly_name(friendly_name) if friendly_name else ""
     if friendly:
-        slug_input = name
-    else:
-        friendly = clean_friendly_name(name)
-        if not friendly:
-            raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
-        slug_input = friendly
-    hostname = slugify_hostname(slug_input)
+        hostname = name.strip()
+        if not _HOSTNAME_RE.fullmatch(hostname):
+            raise CommandError(
+                ErrorCode.INVALID_ARGS,
+                f"name {hostname!r} is not a valid hostname (lowercase letters, "
+                f"digits, hyphens, and underscores; at most {_HOSTNAME_MAX_LEN} chars)",
+            )
+        return hostname, friendly
+    friendly = clean_friendly_name(name)
+    if not friendly:
+        raise CommandError(ErrorCode.INVALID_ARGS, "name is required")
+    hostname = slugify_hostname(friendly)
     if not hostname:
         raise CommandError(
             ErrorCode.INVALID_ARGS,
-            f"name {slug_input!r} has no hostname-safe characters",
+            f"name {friendly!r} has no hostname-safe characters",
         )
     return hostname, friendly

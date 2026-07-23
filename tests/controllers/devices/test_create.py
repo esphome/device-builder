@@ -377,20 +377,34 @@ async def test_create_device_uses_explicit_friendly_name_with_name_as_hostname(
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
-async def test_create_device_normalises_overridden_hostname(
+async def test_create_device_rejects_invalid_overridden_hostname(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Pins that a non-slug hostname override is normalised through ``slugify_hostname``."""
+    """Pins that a non-slug hostname override is rejected, never silently rewritten."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.create_device(name="My Plug", friendly_name="Bedroom Plug")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "not a valid hostname" in excinfo.value.message
+
+
+@pytest.mark.usefixtures("stub_create_device_metadata_helpers")
+async def test_create_device_keeps_underscore_hostname_override_verbatim(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Pins that a legal-but-unusual override (underscores) lands exactly as previewed."""
     ctrl = make_controller(tmp_path, with_state_monitor=True, with_boards=True)
     boards = StubBoardLookups(ctrl)
     boards.find_by_pio_board_returns(None)
     boards.find_by_platform_variant_returns(None)
 
-    result = await ctrl.create_device(name="My Plug", friendly_name="Bedroom Plug")
+    result = await ctrl.create_device(name="my_plug", friendly_name="Bedroom Plug")
 
-    assert result.configuration == "my-plug.yaml"
-    content = (tmp_path / "my-plug.yaml").read_text("utf-8")
-    assert "esphome:\n  name: my-plug\n  friendly_name: Bedroom Plug\n" in content
+    assert result.configuration == "my_plug.yaml"
+    content = (tmp_path / "my_plug.yaml").read_text("utf-8")
+    assert "esphome:\n  name: my_plug\n  friendly_name: Bedroom Plug\n" in content
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")
