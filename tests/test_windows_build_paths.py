@@ -59,16 +59,17 @@ def fake_windows(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_relocates_env_to_short_root_and_restores(tmp_path: Path, fake_windows: Path) -> None:
-    """Inside the block all three env vars point at the short root; all are cleared on exit."""
+    """Inside the block all three env vars point at the short dirs; all are cleared on exit."""
     config_dir = tmp_path / "First Last" / "esphome"
     root = fake_windows / "esphb" / _ID8
+    shared_idf = fake_windows / "esphb" / "idf"
     with windows_short_build_paths(config_dir):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)
         assert os.environ["PLATFORMIO_CORE_DIR"] == str(root / "pio")
-        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(shared_idf)
         assert root.is_dir()
         assert (root / "pio").is_dir()
-        assert (root / "idf").is_dir()
+        assert shared_idf.is_dir()
     assert "ESPHOME_DATA_DIR" not in os.environ
     assert "PLATFORMIO_CORE_DIR" not in os.environ
     assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ
@@ -136,10 +137,11 @@ def test_respects_user_set_toolchain_var(
     source.mkdir()  # would be swept if we relocated; must stay put
     monkeypatch.setenv(env_var, str(chosen))
     root = fake_windows / "esphb" / _ID8
+    install_dir = fake_windows / "esphb" / "idf" if subdir == "idf" else root / subdir
     with windows_short_build_paths(tmp_path / "First Last" / "esphome"):
         assert os.environ["ESPHOME_DATA_DIR"] == str(root)  # data dir still relocated
         assert os.environ[env_var] == str(chosen)  # user choice respected
-        assert not (root / subdir).exists()  # we did not create/override the toolchain dir
+        assert not install_dir.exists()  # we did not create/override the toolchain dir
     assert os.environ[env_var] == str(chosen)
     assert source.is_dir()  # user's install left untouched
 
@@ -162,10 +164,10 @@ def test_missing_platformdirs_still_relocates_idf(
 ) -> None:
     """No migration source (platformdirs absent) still creates and points at the idf dir."""
     monkeypatch.setattr(wbp, "_default_idf_cache", lambda: None)
-    root = fake_windows / "esphb" / _ID8
+    shared_idf = fake_windows / "esphb" / "idf"
     with windows_short_build_paths(tmp_path / "cfg"):
-        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
-        assert (root / "idf").is_dir()
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(shared_idf)
+        assert shared_idf.is_dir()
 
 
 def test_empty_esp_idf_prefix_is_not_user_set(
@@ -173,11 +175,121 @@ def test_empty_esp_idf_prefix_is_not_user_set(
 ) -> None:
     """An empty ESPHOME_ESP_IDF_PREFIX means unset to esphome, so relocation must still apply."""
     monkeypatch.setenv("ESPHOME_ESP_IDF_PREFIX", "  ")
-    root = fake_windows / "esphb" / _ID8
+    shared_idf = fake_windows / "esphb" / "idf"
     with windows_short_build_paths(tmp_path / "cfg"):
-        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(root / "idf")
-        assert (root / "idf").is_dir()
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(shared_idf)
+        assert shared_idf.is_dir()
     assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == "  "  # restored verbatim, not popped
+
+
+def test_migrates_per_dashboard_idf_to_shared(tmp_path: Path, fake_windows: Path) -> None:
+    """An earlier release's per-dashboard idf install is swept into the shared dir, cache second."""
+    root = fake_windows / "esphb" / _ID8
+    dash_idf = root / "idf"
+    dash_idf.mkdir(parents=True)
+    (root / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (dash_idf / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (dash_idf / "tool.txt").write_text("idf-toolchain", encoding="utf-8")
+    cache_idf = tmp_path / "cache_idf"
+    cache_idf.mkdir()
+    (cache_idf / "tool.txt").write_text("machine-global", encoding="utf-8")
+
+    shared_idf = fake_windows / "esphb" / "idf"
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(shared_idf)
+    assert (shared_idf / "tool.txt").read_text(encoding="utf-8") == "idf-toolchain"
+    assert (shared_idf / wbp._RELOCATED_MARKER).is_file()  # marker travelled with the move
+    assert not dash_idf.exists()
+    assert cache_idf.is_dir()  # lower-priority source left behind, never re-merged
+
+
+def test_second_dashboard_trusts_shared_idf_and_keeps_stale_copy(
+    tmp_path: Path, fake_windows: Path
+) -> None:
+    """A dashboard whose sibling already migrated must trust the shared dir, not re-move its own."""
+    shared_idf = fake_windows / "esphb" / "idf"
+    shared_idf.mkdir(parents=True)
+    (shared_idf / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (shared_idf / "tool.txt").write_text("winner", encoding="utf-8")
+    root = fake_windows / "esphb" / _ID8
+    dash_idf = root / "idf"
+    dash_idf.mkdir(parents=True)
+    (dash_idf / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (dash_idf / "tool.txt").write_text("loser", encoding="utf-8")
+
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(shared_idf)
+    assert (shared_idf / "tool.txt").read_text(encoding="utf-8") == "winner"
+    assert (dash_idf / "tool.txt").read_text(encoding="utf-8") == "loser"  # stale copy untouched
+
+
+def test_shared_idf_move_failure_falls_back_to_dashboard_idf(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When the shared move fails, an intact per-dashboard install keeps serving this session."""
+    root = fake_windows / "esphb" / _ID8
+    dash_idf = root / "idf"
+    dash_idf.mkdir(parents=True)
+    (dash_idf / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+    (dash_idf / "tool.txt").write_text("idf-toolchain", encoding="utf-8")
+
+    real_move = wbp.shutil.move
+
+    def _denied(src: str, dst: str, *args: object, **kwargs: object) -> object:
+        if Path(src).parts[-2:] == (_ID8, "idf"):
+            msg = "denied"
+            raise OSError(msg)
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(wbp.shutil, "move", _denied)
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(dash_idf)
+    assert (dash_idf / "tool.txt").read_text(encoding="utf-8") == "idf-toolchain"
+
+
+def test_lock_unavailable_falls_back_to_dashboard_idf(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unacquirable migration lock skips the shared move entirely; the own install serves."""
+    root = fake_windows / "esphb" / _ID8
+    dash_idf = root / "idf"
+    dash_idf.mkdir(parents=True)
+    (dash_idf / wbp._RELOCATED_MARKER).write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(wbp, "_flock_exclusive", lambda _f: False)
+    shared_idf = fake_windows / "esphb" / "idf"
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert os.environ["ESPHOME_ESP_IDF_PREFIX"] == str(dash_idf)
+    assert not shared_idf.exists()  # never created, and no discard ran against it
+    assert dash_idf.is_dir()
+
+
+def test_lock_unavailable_without_dashboard_idf_leaves_prefix_unset(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No lock and no own install means no override; esphome keeps its default cache."""
+    monkeypatch.setattr(wbp, "_flock_exclusive", lambda _f: False)
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert "ESPHOME_ESP_IDF_PREFIX" not in os.environ
+        assert os.environ["ESPHOME_DATA_DIR"]  # build data still relocated
+
+
+def test_reserved_idf_suffix_falls_back_to_noop(
+    tmp_path: Path, fake_windows: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An id sanitizing to "idf" (any case) must not collide a root with the shared toolchain."""
+    monkeypatch.setattr(wbp, "get_or_create_dashboard_id", lambda _config_dir: "I/D/F")
+    with windows_short_build_paths(tmp_path / "cfg"):
+        assert "ESPHOME_DATA_DIR" not in os.environ
+    assert not (fake_windows / "esphb" / "IDF").exists()
+
+
+def test_shared_idf_prefix_fits_upstream_windows_budget() -> None:
+    """The real shared prefix must fit esphome's measured MAX_PATH budget (esphome#16896)."""
+    from esphome.espidf import framework  # noqa: PLC0415
+
+    prefix = str(wbp._ROOT_BASE / "idf")
+    assert len(prefix) + framework._TOOLCHAIN_NESTED_PATH_LEN <= framework._WINDOWS_MAX_PATH
 
 
 def test_failed_idf_relocation_leaves_prefix_unset(
@@ -228,7 +340,8 @@ def test_migrates_existing_data_and_toolchain(tmp_path: Path, fake_windows: Path
     with windows_short_build_paths(config_dir):
         assert (root / "marker.txt").read_text(encoding="utf-8") == "data"
         assert (root / "pio" / "tool.txt").read_text(encoding="utf-8") == "toolchain"
-        assert (root / "idf" / "idf.txt").read_text(encoding="utf-8") == "idf-toolchain"
+        shared_idf = fake_windows / "esphb" / "idf"
+        assert (shared_idf / "idf.txt").read_text(encoding="utf-8") == "idf-toolchain"
     assert not (config_dir / ".esphome").exists()
     assert not home_pio.exists()
     assert not cache_idf.exists()

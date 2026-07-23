@@ -21,6 +21,7 @@ from typing import NamedTuple
 import pytest
 
 from esphome_device_builder.controllers.firmware.cli import compose_subprocess_env
+from esphome_device_builder.helpers import windows_build_paths as wbp
 from esphome_device_builder.helpers.windows_build_paths import windows_short_build_paths
 from esphome_device_builder.models import FirmwareJob, JobType
 
@@ -39,7 +40,8 @@ _PROFILE = "First Last"
 class _Toolchain(NamedTuple):
     option: str  # esp32-level option selecting the toolchain ("" = default)
     env_var: str  # the install-dir env var the relocation must set
-    root_subdir: str  # the relocated install dir under the root
+    subdir: str  # the relocated install dir name
+    shared: bool  # under the shared esphb base (idf) vs the per-dashboard root (pio)
     build_subdir: str  # artifact dir under build/<name>/ proving the compile landed
 
 
@@ -49,13 +51,15 @@ _TOOLCHAINS = {
     "native_idf": _Toolchain(
         option="",
         env_var="ESPHOME_ESP_IDF_PREFIX",
-        root_subdir="idf",
+        subdir="idf",
+        shared=True,
         build_subdir="build",
     ),
     "platformio": _Toolchain(
         option="toolchain: platformio",
         env_var="PLATFORMIO_CORE_DIR",
-        root_subdir="pio",
+        subdir="pio",
+        shared=False,
         build_subdir=".pioenvs",
     ),
 }
@@ -109,7 +113,8 @@ def relocated_compile(
         with windows_short_build_paths(config_dir):
             root = Path(os.environ["ESPHOME_DATA_DIR"])
             toolchain_dir = Path(os.environ[tc.env_var])
-            assert toolchain_dir == root / tc.root_subdir
+            expected = (wbp._ROOT_BASE if tc.shared else root) / tc.subdir
+            assert toolchain_dir == expected
             assert " " not in str(root)  # relocated to a short, space-free root
             assert " " not in str(toolchain_dir)
 
@@ -137,7 +142,7 @@ def test_compile_lands_under_relocated_root(relocated_compile: _Relocated) -> No
     assert build_marker.is_dir(), "build tree not under relocated root"
     assert not (r.config_dir / ".esphome").exists(), "nothing should build under the config dir"
     assert r.toolchain_dir.is_dir(), f"toolchain not under the relocated {r.tc.env_var}"
-    deepest = _deepest(r.root)
+    deepest = max(_deepest(r.root), _deepest(r.toolchain_dir))
     assert deepest < _MAX_PATH, f"deepest relocated path is {deepest}"
 
 
