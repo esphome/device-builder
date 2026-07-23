@@ -286,6 +286,9 @@ def test_flock_failure_reports_unheld(tmp_path: Path) -> None:
         def fileno(self) -> int:
             return stale_fd
 
+        def seek(self, pos: int) -> int:  # the msvcrt branch positions before locking
+            return pos
+
     assert wbp._flock_exclusive(_Stale()) is False  # type: ignore[arg-type]
 
 
