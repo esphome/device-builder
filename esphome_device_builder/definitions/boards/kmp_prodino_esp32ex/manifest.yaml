@@ -62,12 +62,18 @@ featured_components:
 - id: light_esp32_rmt_led_strip_1
   component_id: light.esp32_rmt_led_strip
   fields:
-    chipset: ws2812
+    chipset:
+      value: ws2812
+      locked: true
     pin:
       value: 0
       locked: true
-    num_leds: 1
-    rgb_order: GRB
+    num_leds:
+      value: 1
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
     id: light_esp32_rmt_led_strip_1
     name: LED WS2812B
 - id: sensor_dht_1

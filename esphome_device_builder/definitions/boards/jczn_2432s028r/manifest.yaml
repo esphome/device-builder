@@ -183,7 +183,9 @@ featured_components:
     pin:
       value: 4
       locked: true
-    inverted: true
+    inverted:
+      value: true
+      locked: true
     id: led_red
 - id: led_green
   component_id: output.ledc
@@ -191,7 +193,9 @@ featured_components:
     pin:
       value: 16
       locked: true
-    inverted: true
+    inverted:
+      value: true
+      locked: true
     id: led_green
 - id: led_blue
   component_id: output.ledc
@@ -199,7 +203,9 @@ featured_components:
     pin:
       value: 17
       locked: true
-    inverted: true
+    inverted:
+      value: true
+      locked: true
     id: led_blue
 - id: rgb_led
   component_id: light.rgb

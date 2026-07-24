@@ -75,7 +75,9 @@ featured_components:
     pin:
       value: 5
       locked: true
-    inverted: true
+    inverted:
+      value: true
+      locked: true
     id: backlight_output
 - id: display_backlight
   component_id: light.monochromatic

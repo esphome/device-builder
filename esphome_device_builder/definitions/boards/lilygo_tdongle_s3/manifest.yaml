@@ -113,8 +113,12 @@ featured_components:
 - id: light_spi_led_strip_1
   component_id: light.spi_led_strip
   fields:
-    num_leds: 1
-    data_rate: 1MHz
+    num_leds:
+      value: 1
+      locked: true
+    data_rate:
+      value: 1MHz
+      locked: true
     id: light_spi_led_strip_1
     name: FastLED SPI Light
     spi_id:

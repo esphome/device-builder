@@ -132,9 +132,15 @@ featured_components:
     pin:
       value: 18
       locked: true
-    num_leds: 12
-    chipset: WS2812
-    rgb_order: GRB
+    num_leds:
+      value: 12
+      locked: true
+    chipset:
+      value: WS2812
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
     default_transition_length: 0s
     internal: true
     id: led_strip

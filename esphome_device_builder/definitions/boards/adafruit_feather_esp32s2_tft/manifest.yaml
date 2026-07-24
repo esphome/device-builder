@@ -139,9 +139,15 @@ featured_components:
     pin:
       value: 33
       locked: true
-    num_leds: 1
-    chipset: WS2812
-    rgb_order: GRB
+    num_leds:
+      value: 1
+      locked: true
+    chipset:
+      value: WS2812
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
     id: neopixel
   requires:
   - neopixel_power

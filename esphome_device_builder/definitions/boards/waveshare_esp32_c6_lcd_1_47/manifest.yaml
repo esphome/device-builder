@@ -111,9 +111,15 @@ featured_components:
         number: 8
         ignore_strapping_warning: true
       locked: true
-    num_leds: 1
-    chipset: WS2812
-    rgb_order: GRB
+    num_leds:
+      value: 1
+      locked: true
+    chipset:
+      value: WS2812
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
     id: rgb_led
 featured_bundles:
 - id: display_setup

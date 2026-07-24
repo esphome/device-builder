@@ -139,7 +139,9 @@ featured_components:
     basement.
   fields:
     id: aht20
-    variant: AHT20
+    variant:
+      value: AHT20
+      locked: true
 # Uses ESPHome's max17043 driver for the MAX17048 chip. Same I²C
 # protocol (fixed address 0x36, VCELL + SOC register layout).
 - id: battery_monitor
@@ -174,8 +176,12 @@ featured_components:
       locked: true
     name: Accessory Power
     restore_mode: ALWAYS_ON
-    setup_priority: 2000
-    internal: true
+    setup_priority:
+      value: 2000
+      locked: true
+    internal:
+      value: true
+      locked: true
 - id: motion_module
   component_id: binary_sensor.gpio
   image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/pir_module.png?v=1781660489
@@ -240,10 +246,18 @@ featured_components:
     name: RGB LEDs
     pin:
       value: 14
-    chipset: WS2812
-    num_leds: 10
-    rgb_order: GRB
-    rmt_symbols: 48
+    chipset:
+      value: WS2812
+      locked: true
+    num_leds:
+      value: 10
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
+    rmt_symbols:
+      value: 48
+      locked: true
 - id: onboard_rgb_led
   component_id: light.esp32_rmt_led_strip
   name: Onboard RGB LED
@@ -255,10 +269,18 @@ featured_components:
     pin:
       value: 5
       locked: true
-    chipset: WS2812
-    num_leds: 1
-    rgb_order: GRB
-    rmt_symbols: 48
+    chipset:
+      value: WS2812
+      locked: true
+    num_leds:
+      value: 1
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
+    rmt_symbols:
+      value: 48
+      locked: true
 - id: buzzer_output
   component_id: output.ledc
   image_url: https://cdn.shopify.com/s/files/1/0792/0959/5187/files/led_buzzer_module.png?v=1781660489
@@ -269,7 +291,9 @@ featured_components:
     bundle instead. It includes the buzzer along with the LEDs and
     ringtone player.
   fields:
-    id: buzzer_output
+    id:
+      value: buzzer_output
+      locked: true
     pin:
       value: 18
 - id: rtttl_player

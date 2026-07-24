@@ -99,9 +99,15 @@ featured_components:
     pin:
       value: 27
       locked: true
-    chipset: SK6812
-    rgb_order: GRB
-    num_leds: 1
+    chipset:
+      value: SK6812
+      locked: true
+    rgb_order:
+      value: GRB
+      locked: true
+    num_leds:
+      value: 1
+      locked: true
     id: status_led
 - id: button
   component_id: binary_sensor.gpio

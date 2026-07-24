@@ -81,12 +81,18 @@ featured_components:
 - id: rgb_led
   component_id: light.esp32_rmt_led_strip
   fields:
-    chipset: ws2812
+    chipset:
+      value: ws2812
+      locked: true
     pin:
       value: 38
       locked: true
-    num_leds: 1
-    rgb_order: RGB
+    num_leds:
+      value: 1
+      locked: true
+    rgb_order:
+      value: RGB
+      locked: true
     id: rgb_led
     name: RGB LED
 - id: buzzer_output

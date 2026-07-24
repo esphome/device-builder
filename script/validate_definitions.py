@@ -488,6 +488,7 @@ def _validate_featured(  # noqa: C901
     errors.extend(
         _validate_featured_dependencies(board_id, featured, components_index, is_imported, defaults)
     )
+    errors.extend(_validate_locked_reference_targets(board_id, featured))
     return errors
 
 
@@ -584,6 +585,41 @@ def _ref_ids(entries: list) -> set[str]:
         elif isinstance(entry, dict) and isinstance(entry.get("id"), str):
             ids.add(entry["id"])
     return ids
+
+
+def _validate_locked_reference_targets(board_id: str, featured: list) -> list[str]:
+    """
+    Require the ``id`` preset a locked sibling reference points at to be locked too.
+
+    A locked ``rtttl.output: buzzer_output`` with a rename-able sibling id
+    desyncs the pair on first edit.
+    """
+    errors: list[str] = []
+    id_presets: dict[str, object] = {}
+    for fc in featured:
+        if not isinstance(fc, dict):
+            continue
+        raw = (fc.get("fields") or {}).get("id")
+        _, value, _ = _unpack_field_preset(raw)
+        if isinstance(value, str):
+            id_presets[value] = raw
+    for idx, fc in enumerate(featured):
+        if not isinstance(fc, dict):
+            continue
+        for fkey, fval in (fc.get("fields") or {}).items():
+            if fkey == "id":
+                continue
+            locked, value, _ = _unpack_field_preset(fval)
+            if not locked or not isinstance(value, str) or value not in id_presets:
+                continue
+            target_locked, _, _ = _unpack_field_preset(id_presets[value])
+            if not target_locked:
+                errors.append(
+                    f"{board_id}.featured_components[{idx}].fields.{fkey}: locked "
+                    f"reference to sibling id '{value}' whose own 'id' preset is "
+                    "not locked — renaming the sibling desyncs the pair"
+                )
+    return errors
 
 
 def _validate_featured_dependencies(

@@ -38,12 +38,20 @@ featured_components:
     name: Onboard RGB (WS2812B) status LED
     description: Onboard RGB LED connected to GPIO10
     fields:
-      pin: GPIO10
+      pin:
+        value: GPIO10
+        locked: true
       id: onboard_rgb_led
       name: Onboard RGB LED
-      chipset: WS2812
-      num_leds: 1
-      rgb_order: RGB
+      chipset:
+        value: WS2812
+        locked: true
+      num_leds:
+        value: 1
+        locked: true
+      rgb_order:
+        value: RGB
+        locked: true
 
   - id: mcu_temperature
     component_id: sensor.internal_temperature

@@ -85,7 +85,9 @@ featured_components:
     pin:
       value: 25
       locked: true
-    inverted: true
+    inverted:
+      value: true
+      locked: true
     frequency: 1000Hz
     id: backlight_output
 - id: display_backlight

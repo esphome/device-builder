@@ -101,12 +101,18 @@ featured_components:
 - id: id_led
   component_id: light.esp32_rmt_led_strip
   fields:
-    rgb_order: GRB
+    rgb_order:
+      value: GRB
+      locked: true
     pin:
       value: 21
       locked: true
-    num_leds: 1
-    chipset: SK6812
+    num_leds:
+      value: 1
+      locked: true
+    chipset:
+      value: SK6812
+      locked: true
     restore_mode: RESTORE_AND_OFF
     color_correct:
       value:

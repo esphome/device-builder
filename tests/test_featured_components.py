@@ -770,10 +770,10 @@ async def test_apply_presets_suggestion_falls_back_to_value(
 
 async def test_apply_presets_default_overridable(catalog: ComponentCatalog) -> None:
     """Plain defaults (no locked/suggestions) are overridable by user input."""
-    record = catalog.get_featured_record("featured.apollo-esk-1.aht20")
+    record = catalog.get_featured_record("featured.apollo-esk-1.motion_module")
     assert record is not None
-    out: dict[str, Any] = await _apply(catalog, record, {"variant": "AHT10"})
-    assert out["variant"] == "AHT10"
+    out: dict[str, Any] = await _apply(catalog, record, {"device_class": "occupancy"})
+    assert out["device_class"] == "occupancy"
 
 
 async def test_apply_presets_locked_without_value_fails_fast(

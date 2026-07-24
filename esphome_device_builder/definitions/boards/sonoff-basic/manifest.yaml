@@ -172,7 +172,9 @@ featured_components:
     pin:
       value: 13
       locked: true
-    inverted: true
+    inverted:
+      value: true
+      locked: true
 - id: status_led_light
   component_id: light.binary
   name: Status LED Light
