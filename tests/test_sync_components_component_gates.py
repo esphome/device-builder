@@ -173,13 +173,14 @@ def test_internal_id_keys_stay_skipped(tmp_path: Path) -> None:
     """``mqtt_id`` / ``zigbee_id`` never reach the catalog; other ids survive."""
     node = {
         "config_vars": {
-            "mqtt_id": {"key": "GeneratedID", "use_id_type": True},
-            "zigbee_id": {"key": "GeneratedID", "use_id_type": True},
-            "web_server_id": {"key": "Optional", "use_id_type": True},
+            "mqtt_id": {"key": "GeneratedID", "use_id_type": "mqtt::MQTTClientComponent"},
+            "zigbee_id": {"key": "GeneratedID", "use_id_type": "zigbee::ZigbeeComponent"},
+            "web_server_id": {"key": "OnlyWith", "use_id_type": "web_server::WebServer"},
         }
     }
-    keys = [e["key"] for e in _convert_config_vars(node, tmp_path)]
-    assert keys == ["web_server_id"]
+    entries = _convert_config_vars(node, tmp_path)
+    assert [e["key"] for e in entries] == ["web_server_id"]
+    assert entries[0]["references_component"] == "web_server"
 
 
 def test_live_switch_platform_derives_the_mqtt_gates(cv) -> None:
