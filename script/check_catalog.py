@@ -208,6 +208,7 @@ def main() -> int:  # noqa: C901
 
     failures.extend(_check_option_lists(catalog))
     failures.extend(_check_component_gating(catalog))
+    failures.extend(_check_gating_floors(catalog))
     failures.extend(_check_no_field_bullet_descriptions(catalog))
     failures.extend(_check_boolean_options_exclusive(catalog))
 
@@ -222,6 +223,7 @@ def main() -> int:  # noqa: C901
         f"OK: {len(_EXPECTATIONS)} components, {field_count} fields, "
         f"{len(_OPTION_EXPECTATIONS)} option lists, "
         f"{len(_GATING_EXPECTATIONS)} gating rules, "
+        f"{len(_GATING_FLOORS)} gating floors, "
         "boolean/options exclusivity verified."
     )
     return 0
@@ -247,20 +249,34 @@ _OPTION_EXPECTATIONS: list[tuple[str, str, int]] = [
 
 
 # Cross-component gating assertions. Catches regressions where
-# infrastructure-dependent fields (zigbee_sensor, web_server, mqtt
-# discovery) lose their ``depends_on_component`` tag and start
-# showing up on the form even when the named component isn't
-# configured on the device.
+# infrastructure-dependent fields (zigbee_sensor, web_server) lose
+# their ``depends_on_component`` tag and start showing up on the
+# form even when the named component isn't configured on the device.
+# Gates are introspected from the live schema (requires_component /
+# OnlyWith), so a component's own fields carry no self-gate; only
+# entity-level inheritances belong here. The derivation itself is
+# pinned against live manifests in
+# ``tests/test_sync_components_component_gates.py``.
 _GATING_EXPECTATIONS: list[tuple[str, str, str]] = [
     # Zigbee + web_server entity options are inherited onto every
     # sensor via ``_SENSOR_SCHEMA``; they must be gated.
     ("sensor.ct_clamp", "zigbee_sensor", "zigbee"),
     ("sensor.ct_clamp", "web_server", "web_server"),
-    # MQTT-internal fields (inside the ``mqtt`` component itself).
-    # Gated even on the mqtt component because the field is only
-    # meaningful when the broker is configured downstream.
-    ("mqtt", "discovery", "mqtt"),
 ]
+
+# Catalog-wide floors on gated-entry counts. The per-field rules above
+# can't catch the wholesale failure mode: live-schema introspection
+# silently returning nothing (esphome upstream reshapes the
+# ``requires_component`` closures or ``OnlyWith`` markers, the walker
+# breaks) and a sync shipping a catalog with every gate stripped —
+# thousands of MQTT/zigbee/web_server fields un-hidden at once. Floors
+# sit at roughly half the current counts (mqtt 12719, web_server 4125,
+# zigbee 1792) so legitimate churn passes and wholesale loss fails.
+_GATING_FLOORS: dict[str, int] = {
+    "mqtt": 6000,
+    "web_server": 2000,
+    "zigbee": 800,
+}
 
 
 def _resolve_field(component: Any, path: str) -> Any:
@@ -338,6 +354,30 @@ def _check_component_gating(catalog: ComponentCatalog) -> list[str]:
             failures.append(
                 f"{cid}.{path}: depends_on_component expected {gate!r}, "
                 f"got {entry.depends_on_component!r}"
+            )
+    return failures
+
+
+def _check_gating_floors(catalog: ComponentCatalog) -> list[str]:
+    """Return a failure per gate whose catalog-wide entry count fell below its floor."""
+    counts: dict[str, int] = {}
+    for cid in catalog._by_id:
+        component = _load_body_from_disk(cid)
+        if component is None:
+            continue
+        stack = list(component.config_entries or [])
+        while stack:
+            entry = stack.pop()
+            if entry.depends_on_component:
+                counts[entry.depends_on_component] = counts.get(entry.depends_on_component, 0) + 1
+            stack.extend(entry.config_entries or [])
+    failures: list[str] = []
+    for gate, floor in _GATING_FLOORS.items():
+        if counts.get(gate, 0) < floor:
+            failures.append(
+                f"gating floor: {counts.get(gate, 0)} entries gated on {gate!r}, "
+                f"expected at least {floor} — introspection likely stopped "
+                "discovering gates"
             )
     return failures
 
