@@ -142,6 +142,12 @@ featured_components:
     variant:
       value: AHT20
       locked: true
+    temperature:
+      value:
+        name: Temperature
+    humidity:
+      value:
+        name: Humidity
 # Uses ESPHome's max17043 driver for the MAX17048 chip. Same I²C
 # protocol (fixed address 0x36, VCELL + SOC register layout).
 - id: battery_monitor
