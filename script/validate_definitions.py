@@ -592,7 +592,9 @@ def _validate_locked_reference_targets(board_id: str, featured: list) -> list[st
     Require the ``id`` preset a locked sibling reference points at to be locked too.
 
     A locked ``rtttl.output: buzzer_output`` with a rename-able sibling id
-    desyncs the pair on first edit.
+    desyncs the pair on first edit. Scope is deliberately scalar string refs
+    matched against sibling ``fields.id`` presets — list-valued refs and
+    top-level-only ids aren't guarded (no manifest has either shape).
     """
     errors: list[str] = []
     id_locked: dict[str, bool] = {}
