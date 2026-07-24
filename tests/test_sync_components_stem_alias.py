@@ -1,10 +1,4 @@
-"""Tests for the MDX bare-stem aliasing in ``script/sync_components.py``.
-
-Pins ``_index_by_id_and_stem`` (the collision-aware id/stem index shared by the
-four ``_load_mdx_*`` loaders) and the name-backfill it feeds, so a stem claimed
-by two disagreeing docs pages (``image/animation`` vs ``lvgl/animation``) can't
-rename the top-level ``animation`` component to "LVGL Animations".
-"""
+"""Pins ``_index_by_id_and_stem``: a bare stem two docs pages disagree on is dropped."""
 
 from __future__ import annotations
 

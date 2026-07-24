@@ -1870,14 +1870,10 @@ def _iter_component_mdx() -> Iterator[tuple[str, str, Path]]:
 
 def _index_by_id_and_stem[V](triples: Iterable[tuple[str, str, V]]) -> dict[str, V]:
     """
-    Index MDX values by catalog id and bare stem, dropping ambiguous stems.
+    Index by catalog id and bare stem; drop a stem whose pages disagree.
 
-    The bare-stem alias lets a top-level component (``animation``) pick up the
-    value from its domain page (``image/animation``) it can't reach by exact id.
-    But when two pages share a stem with different values (``image/animation``
-    "Animation" vs ``lvgl/animation`` "LVGL Animations") the alias is ambiguous,
-    and ``rglob`` walk order would pick a winner nondeterministically — so the
-    stem key is dropped and the caller keeps the schema-derived value. Exact
+    A bare stem shared by two pages with different values is dropped rather
+    than resolved by ``rglob`` walk order (non-deterministic). Exact
     catalog-id keys are always authoritative.
     """
     by_cid: dict[str, V] = {}
