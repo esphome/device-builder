@@ -298,8 +298,8 @@ _USE_ID_NAMESPACE_OVERRIDES: dict[str, str] = {
 _SECRET_KEY_FRAGMENTS = ("password", "passcode", "secret", "token", "api_key", "apikey")
 
 # Schema-time keys we don't expose to the user (build-system / preload).
-# ``web_server_base_id`` is deliberately absent: singleton auto-loaded
-# base ids stay in the catalog as advanced pickers (#1441).
+# Do not add ``web_server_base_id``: singleton auto-loaded base ids
+# stay in the catalog as advanced pickers (#1441).
 _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 
 # Per-component fields we don't surface in the catalog because they're
