@@ -208,9 +208,11 @@ def main() -> int:  # noqa: C901
 
     failures.extend(_check_option_lists(catalog))
     failures.extend(_check_component_gating(catalog))
-    failures.extend(_check_gating_floors(catalog))
+    # One shared body pass feeds the full-catalog checks below.
+    all_bodies = [(cid, _load_body_from_disk(cid)) for cid in catalog._by_id]
+    failures.extend(_check_gating_floors(all_bodies))
     failures.extend(_check_no_field_bullet_descriptions(catalog))
-    failures.extend(_check_boolean_options_exclusive(catalog))
+    failures.extend(_check_boolean_options_exclusive(all_bodies))
 
     if failures:
         print(f"FAIL: {len(failures)} catalog regression(s):")
@@ -262,6 +264,8 @@ _GATING_EXPECTATIONS: list[tuple[str, str, str]] = [
     # sensor via ``_SENSOR_SCHEMA``; they must be gated.
     ("sensor.ct_clamp", "zigbee_sensor", "zigbee"),
     ("sensor.ct_clamp", "web_server", "web_server"),
+    # MQTT entity option inherited via ``MQTT_COMPONENT_SCHEMA``.
+    ("switch.gpio", "state_topic", "mqtt"),
 ]
 
 # Catalog-wide floors on gated-entry counts. The per-field rules above
@@ -358,11 +362,10 @@ def _check_component_gating(catalog: ComponentCatalog) -> list[str]:
     return failures
 
 
-def _check_gating_floors(catalog: ComponentCatalog) -> list[str]:
+def _check_gating_floors(bodies: list[tuple[str, Any]]) -> list[str]:
     """Return a failure per gate whose catalog-wide entry count fell below its floor."""
     counts: dict[str, int] = {}
-    for cid in catalog._by_id:
-        component = _load_body_from_disk(cid)
+    for _cid, component in bodies:
         if component is None:
             continue
         stack = list(component.config_entries or [])
@@ -382,7 +385,7 @@ def _check_gating_floors(catalog: ComponentCatalog) -> list[str]:
     return failures
 
 
-def _check_boolean_options_exclusive(catalog: ComponentCatalog) -> list[str]:
+def _check_boolean_options_exclusive(bodies: list[tuple[str, Any]]) -> list[str]:
     """Fail on any entry typed ``boolean`` that also carries an option list.
 
     The frontend renders any entry with options as a dropdown, so a boolean
@@ -401,8 +404,7 @@ def _check_boolean_options_exclusive(catalog: ComponentCatalog) -> list[str]:
             if entry.config_entries:
                 walk(cid, entry.config_entries, f"{path}.")
 
-    for cid in catalog._by_id:
-        component = _load_body_from_disk(cid)
+    for cid, component in bodies:
         if component is None:
             failures.append(f"boolean/options check: missing body for {cid}")
         elif component.config_entries:

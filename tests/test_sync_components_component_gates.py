@@ -146,5 +146,6 @@ def test_live_switch_platform_derives_the_mqtt_gates(cv) -> None:
 
 def test_live_mqtt_component_has_no_self_gate(cv) -> None:
     """The mqtt component's own fields carry no gate on mqtt itself."""
-    gates = introspect_component("mqtt").get("component_gates") or {}
-    assert ("discovery",) not in gates
+    info = introspect_component("mqtt")
+    assert info, "mqtt manifest did not introspect"
+    assert ("discovery",) not in (info.get("component_gates") or {})
