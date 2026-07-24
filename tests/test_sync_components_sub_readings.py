@@ -322,15 +322,23 @@ def test_resolve_auto_load_forces_and_restores_core_platform() -> None:
             core.pop(KEY_TARGET_PLATFORM, None)
 
 
-def test_web_server_base_id_converts_to_an_entry(tmp_path: Path) -> None:
-    """``web_server_base_id`` is not in ``_SKIP_KEYS``; it must survive conversion."""
+def test_web_server_base_id_converts_to_a_reference_entry(tmp_path: Path) -> None:
+    """A ``web_server_base_id`` config var survives conversion as a base-id picker."""
     from script.sync_components import _convert_config_vars  # noqa: PLC0415
 
     entries = _convert_config_vars(
-        {"config_vars": {"web_server_base_id": {"key": "GeneratedID", "use_id_type": True}}},
+        {
+            "config_vars": {
+                "web_server_base_id": {
+                    "key": "GeneratedID",
+                    "use_id_type": "web_server_base::WebServerBase",
+                }
+            }
+        },
         tmp_path,
     )
     assert [e["key"] for e in entries] == ["web_server_base_id"]
+    assert entries[0]["references_component"] == "web_server_base"
 
 
 def test_catalog_singleton_base_ids_advanced_multi_stay_shown() -> None:

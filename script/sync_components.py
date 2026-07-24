@@ -298,6 +298,7 @@ _USE_ID_NAMESPACE_OVERRIDES: dict[str, str] = {
 _SECRET_KEY_FRAGMENTS = ("password", "passcode", "secret", "token", "api_key", "apikey")
 
 # Schema-time keys we don't expose to the user (build-system / preload).
+# ``mqtt_id`` / ``zigbee_id`` are auto-``GenerateID``'d internal refs.
 # Do not add ``web_server_base_id``: singleton auto-loaded base ids
 # stay in the catalog as advanced pickers (#1441).
 _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
