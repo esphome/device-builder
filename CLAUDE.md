@@ -60,6 +60,13 @@ Home Assistant add-on.
   retelling the production story (name what the test pins, in one
   sentence); "same shape as X / mirrors Y" framing.
 
+  **The most-repeated review nit in this repo** is a fresh docstring
+  that states the contract and then keeps going: a second sentence or
+  paragraph of why the code exists, what breaks without it, or which
+  CI job catches the regression. Write the one-line contract and stop;
+  the justification goes in the PR body. Before committing, reread
+  every new docstring and delete everything after the contract.
+
 - **Comments**: same bar. Default to none. Add one only when the *why*
   is non-obvious: a hidden constraint, subtle invariant, bug workaround,
   surprising behaviour. **Don't remove existing comments** unless the

@@ -135,12 +135,7 @@ def test_apply_never_overrides_an_explicit_gate() -> None:
 
 
 def test_live_switch_platform_derives_the_mqtt_gates(cv) -> None:
-    """The installed esphome's real gpio manifests yield the entity MQTT gates.
-
-    Runs against the esphome dev matrix too, so an upstream reshape of the
-    ``requires_component`` closures or ``OnlyWith`` markers fails here before
-    a nightly sync can ship a catalog with the gates stripped.
-    """
+    """The installed esphome's real gpio manifests yield the entity gates."""
     gates = introspect_component("gpio").get("component_gates") or {}
     assert gates.get(("command_retain",)) == "mqtt"
     assert gates.get(("state_topic",)) == "mqtt"
