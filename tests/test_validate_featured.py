@@ -575,3 +575,54 @@ def test_featured_dep_non_string_component_id_does_not_crash(_index: dict | None
     featured = [{"id": "x", "component_id": ["bad"]}, _leaf("sensor.sht3xd", "t")]
     errors = _validate_featured_dependencies("demo", featured, _index, True)
     assert any("depends on bus 'i2c'" in e for e in errors)
+
+
+def test_locked_reference_to_unlocked_sibling_id_flagged(_index: dict | None) -> None:
+    """A locked reference to a rename-able sibling id fails validation."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "buzzer",
+                    "component_id": "output.ledc",
+                    "fields": {"id": {"value": "buzzer_output"}, "pin": {"value": 18}},
+                },
+                {
+                    "id": "player",
+                    "component_id": "rtttl",
+                    "fields": {"output": {"value": "buzzer_output", "locked": True}},
+                },
+            ]
+        ),
+        _pins(18),
+        _index,
+    )
+    assert any("locked reference to sibling id 'buzzer_output'" in e for e in errors)
+
+
+def test_locked_reference_to_locked_sibling_id_passes(_index: dict | None) -> None:
+    """Locking the target id satisfies the reference-target rule."""
+    errors = _validate_featured(
+        "demo",
+        _board(
+            [
+                {
+                    "id": "buzzer",
+                    "component_id": "output.ledc",
+                    "fields": {
+                        "id": {"value": "buzzer_output", "locked": True},
+                        "pin": {"value": 18},
+                    },
+                },
+                {
+                    "id": "player",
+                    "component_id": "rtttl",
+                    "fields": {"output": {"value": "buzzer_output", "locked": True}},
+                },
+            ]
+        ),
+        _pins(18),
+        _index,
+    )
+    assert not any("locked reference" in e for e in errors)
