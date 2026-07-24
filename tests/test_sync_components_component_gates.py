@@ -1,4 +1,4 @@
-"""``cv.requires_component`` gates are auto-discovered from the live schema (#2300)."""
+"""Cross-component gates are auto-discovered from the live schema, not hand-listed."""
 
 from __future__ import annotations
 
@@ -26,8 +26,7 @@ def _manifest(schema) -> SimpleNamespace:
     return SimpleNamespace(config_schema=schema)
 
 
-def test_command_retain_gate_is_discovered(cv) -> None:
-    """The #2300 field: ``All(requires_component("mqtt"), boolean)`` yields the gate."""
+def test_requires_component_gate_is_discovered(cv) -> None:
     schema = cv.Schema(
         {cv.Optional("command_retain"): cv.All(cv.requires_component("mqtt"), cv.boolean)}
     )
@@ -59,6 +58,57 @@ def test_first_gate_in_a_multi_requires_chain_wins(cv) -> None:
         }
     )
     assert _collect_component_gates(_manifest(schema)) == {("report",): "zigbee"}
+
+
+def test_only_with_key_marker_is_discovered(cv) -> None:
+    schema = cv.Schema({cv.OnlyWith("web_server_id", "web_server"): cv.string})
+    assert _collect_component_gates(_manifest(schema)) == {("web_server_id",): "web_server"}
+
+
+def test_only_with_component_list_skips_chip_platforms(cv) -> None:
+    schema = cv.Schema({cv.OnlyWith("zigbee_switch", ["nrf52", "zigbee"]): cv.string})
+    assert _collect_component_gates(_manifest(schema)) == {("zigbee_switch",): "zigbee"}
+
+
+def test_only_without_is_not_a_gate(cv) -> None:
+    """``OnlyWithout`` keys on component absence; gating them would invert the meaning."""
+    schema = cv.Schema({cv.OnlyWithout("fallback", "wifi", default=True): cv.boolean})
+    assert _collect_component_gates(_manifest(schema)) == {}
+
+
+def test_container_with_unanimously_gated_children_inherits(cv) -> None:
+    schema = cv.Schema(
+        {
+            cv.Optional("web_server"): cv.Schema(
+                {
+                    cv.OnlyWith("web_server_id", "web_server"): cv.string,
+                    cv.Optional("sorting_weight"): cv.All(
+                        cv.requires_component("web_server"), cv.float_
+                    ),
+                }
+            )
+        }
+    )
+    gates = _collect_component_gates(_manifest(schema))
+    assert gates[("web_server",)] == "web_server"
+    assert gates[("web_server", "web_server_id")] == "web_server"
+    assert gates[("web_server", "sorting_weight")] == "web_server"
+
+
+def test_container_with_mixed_children_is_not_gated(cv) -> None:
+    schema = cv.Schema(
+        {
+            cv.Optional("box"): cv.Schema(
+                {
+                    cv.Optional("gated"): cv.All(cv.requires_component("mqtt"), cv.boolean),
+                    cv.Optional("plain"): cv.boolean,
+                }
+            )
+        }
+    )
+    gates = _collect_component_gates(_manifest(schema))
+    assert ("box",) not in gates
+    assert gates[("box", "gated")] == "mqtt"
 
 
 def test_ungated_fields_yield_nothing(cv) -> None:

@@ -237,8 +237,8 @@ def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: P
 def test_convert_field_unconditional_default_unchanged(schema_dir: Path) -> None:
     """Plain ``cv.Optional(K, default=True)`` flows through with no gate.
 
-    ``retain``'s ``_COMPONENT_GATED_KEYS`` membership applies in
-    ``_convert_config_vars``, not ``_convert_field``.
+    ``retain``'s mqtt gate is stamped from live introspection
+    (``_apply_component_gates``), not schema conversion.
     """
     raw = {"default": "true", "key": "Optional", "type": "boolean"}
     entry = _convert_field("retain", raw, schema_dir)
