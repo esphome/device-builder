@@ -595,14 +595,13 @@ def _validate_locked_reference_targets(board_id: str, featured: list) -> list[st
     desyncs the pair on first edit.
     """
     errors: list[str] = []
-    id_presets: dict[str, object] = {}
+    id_locked: dict[str, bool] = {}
     for fc in featured:
         if not isinstance(fc, dict):
             continue
-        raw = (fc.get("fields") or {}).get("id")
-        _, value, _ = _unpack_field_preset(raw)
+        locked, value, _ = _unpack_field_preset((fc.get("fields") or {}).get("id"))
         if isinstance(value, str):
-            id_presets[value] = raw
+            id_locked[value] = locked
     for idx, fc in enumerate(featured):
         if not isinstance(fc, dict):
             continue
@@ -610,10 +609,9 @@ def _validate_locked_reference_targets(board_id: str, featured: list) -> list[st
             if fkey == "id":
                 continue
             locked, value, _ = _unpack_field_preset(fval)
-            if not locked or not isinstance(value, str) or value not in id_presets:
+            if not locked or not isinstance(value, str) or value not in id_locked:
                 continue
-            target_locked, _, _ = _unpack_field_preset(id_presets[value])
-            if not target_locked:
+            if not id_locked[value]:
                 errors.append(
                     f"{board_id}.featured_components[{idx}].fields.{fkey}: locked "
                     f"reference to sibling id '{value}' whose own 'id' preset is "
