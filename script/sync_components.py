@@ -339,9 +339,13 @@ _BOARD_COMBOBOX_PLATFORMS: frozenset[str] = frozenset(
 # frontend reads ``depends_on_component`` and hides each entry
 # unless the named component appears in the device's YAML.
 #
-# Keep this list focused on cross-cutting infrastructure. Component-
-# specific gates (e.g. "this LED option requires this LED platform")
-# belong in the per-component schema via ``depends_on`` /
+# Fields upstream wraps in ``cv.requires_component(...)`` are gated
+# automatically from the live schema (``_collect_component_gates``) —
+# don't add those here; the hand entries below cover only gates the
+# walker can't see (``cv.OnlyWith`` keys and validator-less schema
+# refs) plus a name-keyed safety net for the core MQTT options.
+# Component-specific gates (e.g. "this LED option requires this LED
+# platform") belong in the per-component schema via ``depends_on`` /
 # ``depends_on_value_any`` instead.
 _COMPONENT_GATED_KEYS: dict[str, str] = {
     # MQTT entity options (apply to every entity when ``mqtt:`` is set)
@@ -2621,6 +2625,7 @@ def build_component_entry(
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
     _apply_field_ranges(config_entries, field_ranges)
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
+    _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
     _apply_list_fields(config_entries, introspection.get("list_fields") or {})
@@ -4716,6 +4721,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         return merged
 
     refined_types = merge_from_platforms(_collect_refined_types)
+    component_gates = merge_from_platforms(_collect_component_gates)
     platform_constraints = merge_from_platforms(_collect_platform_constraints)
     field_ranges = _drop_machine_derived_ranges(
         component_id, merge_from_platforms(_collect_field_ranges)
@@ -4760,6 +4766,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "field_ranges": field_ranges,
         "field_range_bleed_keys": field_range_bleed_keys,
         "refined_types": refined_types,
+        "component_gates": component_gates,
         "inclusive_groups": inclusive_groups,
         "required_groups": required_groups,
         "list_fields": list_fields,
@@ -5776,6 +5783,51 @@ def _collect_refined_types(  # noqa: C901
     return out
 
 
+def _requires_component_gate(validator: Any) -> str | None:
+    """
+    Component name from a ``cv.requires_component`` validator chain, else None.
+
+    Peels ``vol.All`` wrappers; the first gate in chain order wins (zigbee's
+    ``report`` chains zigbee then esp32 — the entity gate, not the chip).
+    """
+    qualname = getattr(validator, "__qualname__", "") or ""
+    if qualname.startswith("requires_component.") and (
+        getattr(validator, "__module__", "") == "esphome.config_validation"
+    ):
+        try:
+            comp = _closure_nonlocals(validator).get("comp")
+        except ValueError:
+            comp = None
+        if isinstance(comp, str) and comp:
+            return comp
+    for inner in getattr(validator, "validators", None) or ():
+        gate = _requires_component_gate(inner)
+        if gate is not None:
+            return gate
+    return None
+
+
+def _collect_component_gates(manifest: Any) -> dict[tuple[str, ...], str]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for ``cv.requires_component`` gates.
+
+    The schema bundle drops the wrapper, so the gate is only recoverable
+    here; ``depends_on_component`` is stamped from the result (#2300).
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+    out: dict[tuple[str, ...], str] = {}
+
+    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        gate = _requires_component_gate(val)
+        if gate is not None:
+            out[path] = gate
+
+    _walk_schema_keys(schema, visit, descend_list_items=True)
+    return out
+
+
 def _int_enum_refined_type(validator: Any) -> RefinedType | None:
     """Return an ``integer`` refinement iff *validator*'s live enum values are all real ints."""
     values = _extract_enum_values(validator)
@@ -6272,6 +6324,27 @@ def _normalize_bus_constraint_value(key: str, value: Any) -> Any:
     if key.endswith("timeout"):
         return cv.time_period(value).total_milliseconds
     return value
+
+
+def _apply_component_gates(
+    entries: list[dict],
+    gates: dict[tuple[str, ...], str],
+) -> None:
+    """
+    Stamp introspected ``cv.requires_component`` gates onto matching entries.
+
+    Explicit ``depends_on_component`` values (overrides, ``_COMPONENT_GATED_KEYS``,
+    ``default_with``) win; the introspected gate only fills the gap.
+    """
+    if not gates:
+        return
+
+    def visit(entry: dict, path: tuple[str, ...]) -> None:
+        gate = gates.get(path)
+        if gate and not entry.get("depends_on_component"):
+            entry["depends_on_component"] = gate
+
+    _walk_catalog_entries(entries, visit)
 
 
 def _apply_refined_types(
