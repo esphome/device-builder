@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,7 @@ import pytest
 from script.sync_components import (  # type: ignore[import-not-found]
     _apply_component_gates,
     _collect_component_gates,
+    _convert_config_vars,
     introspect_component,
 )
 
@@ -71,6 +73,12 @@ def test_only_with_component_list_skips_chip_platforms(cv) -> None:
     assert _collect_component_gates(_manifest(schema)) == {("zigbee_switch",): "zigbee"}
 
 
+def test_only_with_all_chip_list_yields_no_gate(cv) -> None:
+    """Chip-only gating belongs to ``supported_platforms``, not ``depends_on_component``."""
+    schema = cv.Schema({cv.OnlyWith("himem", ["esp32"]): cv.string})
+    assert _collect_component_gates(_manifest(schema)) == {}
+
+
 def test_only_without_is_not_a_gate(cv) -> None:
     """``OnlyWithout`` keys on component absence; gating them would invert the meaning."""
     schema = cv.Schema({cv.OnlyWithout("fallback", "wifi", default=True): cv.boolean})
@@ -94,6 +102,24 @@ def test_container_with_unanimously_gated_children_inherits(cv) -> None:
     assert gates[("web_server",)] == "web_server"
     assert gates[("web_server", "web_server_id")] == "web_server"
     assert gates[("web_server", "sorting_weight")] == "web_server"
+
+
+def test_nested_containers_cascade_the_inherited_gate(cv) -> None:
+    schema = cv.Schema(
+        {
+            cv.Optional("outer"): cv.Schema(
+                {
+                    cv.Optional("inner"): cv.Schema(
+                        {cv.Optional("leaf"): cv.All(cv.requires_component("mqtt"), cv.boolean)}
+                    )
+                }
+            )
+        }
+    )
+    gates = _collect_component_gates(_manifest(schema))
+    assert gates[("outer", "inner", "leaf")] == "mqtt"
+    assert gates[("outer", "inner")] == "mqtt"
+    assert gates[("outer",)] == "mqtt"
 
 
 def test_container_with_mixed_children_is_not_gated(cv) -> None:
@@ -132,6 +158,28 @@ def test_apply_never_overrides_an_explicit_gate() -> None:
     entries = [{"key": "command_retain", "depends_on_component": "custom"}]
     _apply_component_gates(entries, {("command_retain",): "mqtt"})
     assert entries[0]["depends_on_component"] == "custom"
+
+
+def test_apply_stamps_nested_paths() -> None:
+    leaf = {"key": "state_topic", "depends_on_component": None}
+    sibling = {"key": "name", "depends_on_component": None}
+    entries = [{"key": "compressor_current", "config_entries": [leaf, sibling]}]
+    _apply_component_gates(entries, {("compressor_current", "state_topic"): "mqtt"})
+    assert leaf["depends_on_component"] == "mqtt"
+    assert sibling["depends_on_component"] is None
+
+
+def test_internal_id_keys_stay_skipped(tmp_path: Path) -> None:
+    """``mqtt_id`` / ``zigbee_id`` never reach the catalog; other ids survive."""
+    node = {
+        "config_vars": {
+            "mqtt_id": {"key": "GeneratedID", "use_id_type": True},
+            "zigbee_id": {"key": "GeneratedID", "use_id_type": True},
+            "web_server_id": {"key": "Optional", "use_id_type": True},
+        }
+    }
+    keys = [e["key"] for e in _convert_config_vars(node, tmp_path)]
+    assert keys == ["web_server_id"]
 
 
 def test_live_switch_platform_derives_the_mqtt_gates(cv) -> None:
