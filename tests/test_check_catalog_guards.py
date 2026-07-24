@@ -1,4 +1,4 @@
-"""Pins ``script/check_catalog.py``'s gating guards, including their failure branches."""
+"""Pins ``check_catalog``'s full-catalog body guards, including failure branches."""
 
 from __future__ import annotations
 
@@ -7,7 +7,10 @@ from typing import Any
 
 from script.check_catalog import (  # type: ignore[import-not-found]
     _GATING_FLOORS,
+    ComponentCatalog,
+    _check_boolean_options_exclusive,
     _check_gating_floors,
+    _load_body_from_disk,
 )
 
 
@@ -47,5 +50,62 @@ def test_floor_tally_counts_nested_entries() -> None:
 
 
 def test_floor_tally_skips_missing_bodies() -> None:
+    # The floors silently skip a None body; the sibling boolean/options
+    # guard reports it, so the miss is covered when both run on the same
+    # list (as main() feeds them).
     bodies = [("gone", None), *_bodies_with(dict(_GATING_FLOORS))]
     assert _check_gating_floors(bodies) == []
+
+
+def test_floors_sit_in_a_sane_band_of_the_live_catalog() -> None:
+    """A floor typo (6000 -> 60, or above the live count) fails here, not in the field."""
+    catalog = ComponentCatalog()
+    catalog.load()
+    counts: dict[str, int] = {}
+    for cid in catalog._by_id:
+        component = _load_body_from_disk(cid)
+        if component is None:
+            continue
+        stack = list(component.config_entries or [])
+        while stack:
+            entry = stack.pop()
+            if entry.depends_on_component:
+                counts[entry.depends_on_component] = counts.get(entry.depends_on_component, 0) + 1
+            stack.extend(entry.config_entries or [])
+    for gate, floor in _GATING_FLOORS.items():
+        live = counts.get(gate, 0)
+        assert floor <= live, f"{gate} floor {floor} above live count {live}: would fire spuriously"
+        assert floor >= live // 4, f"{gate} floor {floor} uselessly low vs live count {live}"
+
+
+def _bool_entry(type_: str, options: list | None, children: list | None = None) -> SimpleNamespace:
+    return SimpleNamespace(key="k", type=type_, options=options, config_entries=children)
+
+
+def test_boolean_options_exclusive_flags_the_union_regression() -> None:
+    nested = _bool_entry("string", None, children=[_bool_entry("boolean", [{"value": "once"}])])
+    bodies = [("comp", SimpleNamespace(config_entries=[nested]))]
+    failures = _check_boolean_options_exclusive(bodies)
+    assert len(failures) == 1
+    assert "boolean entry carries an options list" in failures[0]
+
+
+def test_boolean_options_exclusive_passes_clean_entries() -> None:
+    bodies = [
+        (
+            "comp",
+            SimpleNamespace(
+                config_entries=[
+                    _bool_entry("boolean", None),
+                    _bool_entry("string", [{"value": "x"}]),
+                ]
+            ),
+        )
+    ]
+    assert _check_boolean_options_exclusive(bodies) == []
+
+
+def test_boolean_options_exclusive_reports_a_missing_body() -> None:
+    assert _check_boolean_options_exclusive([("gone", None)]) == [
+        "boolean/options check: missing body for gone"
+    ]

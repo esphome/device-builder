@@ -1,4 +1,4 @@
-"""Cross-component gates are auto-discovered from the live schema, not hand-listed."""
+"""Cross-component gate discovery and catalog-key skipping, pinned at the generator."""
 
 from __future__ import annotations
 
@@ -175,7 +175,7 @@ def test_internal_id_keys_stay_skipped(tmp_path: Path) -> None:
         "config_vars": {
             "mqtt_id": {"key": "GeneratedID", "use_id_type": "mqtt::MQTTClientComponent"},
             "zigbee_id": {"key": "GeneratedID", "use_id_type": "zigbee::ZigbeeComponent"},
-            "web_server_id": {"key": "OnlyWith", "use_id_type": "web_server::WebServer"},
+            "web_server_id": {"key": "Optional", "use_id_type": "web_server::WebServer"},
         }
     }
     entries = _convert_config_vars(node, tmp_path)
