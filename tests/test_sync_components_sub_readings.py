@@ -322,6 +322,17 @@ def test_resolve_auto_load_forces_and_restores_core_platform() -> None:
             core.pop(KEY_TARGET_PLATFORM, None)
 
 
+def test_web_server_base_id_converts_to_an_entry(tmp_path: Path) -> None:
+    """``web_server_base_id`` is not in ``_SKIP_KEYS``; it must survive conversion."""
+    from script.sync_components import _convert_config_vars  # noqa: PLC0415
+
+    entries = _convert_config_vars(
+        {"config_vars": {"web_server_base_id": {"key": "GeneratedID", "use_id_type": True}}},
+        tmp_path,
+    )
+    assert [e["key"] for e in entries] == ["web_server_base_id"]
+
+
 def test_catalog_singleton_base_ids_advanced_multi_stay_shown() -> None:
     """Singleton auto-loaded base ids hide; multi-instance pickers stay on the main form."""
     ws = {e["key"]: e for e in _load_body("web_server")["config_entries"]}
