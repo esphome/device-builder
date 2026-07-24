@@ -5,13 +5,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
+from esphome_device_builder.controllers.components import ComponentCatalog
 from script.check_catalog import (  # type: ignore[import-not-found]
     _GATING_FLOORS,
-    ComponentCatalog,
     _check_boolean_options_exclusive,
     _check_gating_floors,
     _load_body_from_disk,
 )
+
+pytestmark = pytest.mark.xdist_group("catalog")
 
 
 def _entry(gate: str | None, children: list[Any] | None = None) -> SimpleNamespace:
@@ -57,12 +61,12 @@ def test_floor_tally_skips_missing_bodies() -> None:
     assert _check_gating_floors(bodies) == []
 
 
-def test_floors_sit_in_a_sane_band_of_the_live_catalog() -> None:
+def test_floors_sit_in_a_sane_band_of_the_live_catalog(
+    session_component_catalog: ComponentCatalog,
+) -> None:
     """A floor typo (6000 -> 60, or above the live count) fails here, not in the field."""
-    catalog = ComponentCatalog()
-    catalog.load()
     counts: dict[str, int] = {}
-    for cid in catalog._by_id:
+    for cid in session_component_catalog._by_id:
         component = _load_body_from_disk(cid)
         if component is None:
             continue
@@ -74,8 +78,14 @@ def test_floors_sit_in_a_sane_band_of_the_live_catalog() -> None:
             stack.extend(entry.config_entries or [])
     for gate, floor in _GATING_FLOORS.items():
         live = counts.get(gate, 0)
-        assert floor <= live, f"{gate} floor {floor} above live count {live}: would fire spuriously"
-        assert floor >= live // 4, f"{gate} floor {floor} uselessly low vs live count {live}"
+        assert floor <= live, (
+            f"{gate} floor {floor} above live count {live}: the sync smoke would fire "
+            "spuriously — lower _GATING_FLOORS in script/check_catalog.py"
+        )
+        assert floor >= live // 4, (
+            f"{gate} floor {floor} drifted far below live count {live} — the catalog "
+            "grew; bump _GATING_FLOORS in script/check_catalog.py"
+        )
 
 
 def _bool_entry(type_: str, options: list | None, children: list | None = None) -> SimpleNamespace:

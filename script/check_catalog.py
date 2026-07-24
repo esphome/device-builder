@@ -274,12 +274,14 @@ _GATING_EXPECTATIONS: list[tuple[str, str, str]] = [
 # ``requires_component`` closures or ``OnlyWith`` markers, the walker
 # breaks) and a sync shipping a catalog with every gate stripped —
 # thousands of MQTT/zigbee/web_server fields un-hidden at once. Floors
-# sit at roughly half the current counts (mqtt 12719, web_server 4125,
-# zigbee 1792) so legitimate churn passes and wholesale loss fails.
+# sit well below the live counts so legitimate churn passes and
+# wholesale loss fails; the band test in
+# ``tests/test_check_catalog_guards.py`` keeps them calibrated against
+# the checked-in catalog from both sides.
 _GATING_FLOORS: dict[str, int] = {
     "mqtt": 6000,
     "web_server": 2000,
-    "zigbee": 800,
+    "zigbee": 1600,
 }
 
 
