@@ -35,11 +35,21 @@ if TYPE_CHECKING:
     from .client import PeerLinkClient
 
 
-# 60s headroom for the receiver's worst-case bundle-finalise +
-# extract + queue-acquire path on a constrained SoC, without
-# pinning the offloader's submit handler forever if the wire
-# goes silent.
+# Flat floor for every ack: headroom for the receiver's queue-acquire
+# path on a constrained SoC, without pinning the offloader's submit
+# handler forever if the wire goes silent.
 _SUBMIT_JOB_ACK_TIMEOUT_SECONDS = 60.0
+
+# The receiver writes and extracts the whole bundle before acking a
+# submit, so that ack's window grows with bundle size — sized for
+# SD-card-backed SoCs sustaining only a few MiB/s (a max 128 MiB
+# bundle adds ~64s on top of the floor).
+_ACK_BYTES_PER_SECOND = 2 * 1024 * 1024
+
+
+def _submit_ack_timeout(bundle_size: int) -> float:
+    """Return the submit-ack window: the flat floor plus size-proportional headroom."""
+    return _SUBMIT_JOB_ACK_TIMEOUT_SECONDS + bundle_size / _ACK_BYTES_PER_SECOND
 
 
 async def submit_job(
@@ -80,7 +90,13 @@ async def submit_job(
             device_friendly_name=device_friendly_name,
             target_esphome_version=target_esphome_version,
         )
-        return await _await_ack(client, ack_fut, job_id=job_id, label="submit_job")
+        return await _await_ack(
+            client,
+            ack_fut,
+            job_id=job_id,
+            label="submit_job",
+            timeout_seconds=_submit_ack_timeout(len(bundle_bytes)),
+        )
     finally:
         client._submit_job_acks.pop(job_id, None)
 
@@ -243,13 +259,15 @@ async def _await_ack[AckT](
     *,
     job_id: str,
     label: str,
+    timeout_seconds: float | None = None,
 ) -> AckT:
     """Park on *ack_fut* with a bounded timeout; raise structured errors."""
+    timeout = timeout_seconds if timeout_seconds is not None else _SUBMIT_JOB_ACK_TIMEOUT_SECONDS
     try:
-        return await asyncio.wait_for(ack_fut, timeout=_SUBMIT_JOB_ACK_TIMEOUT_SECONDS)
+        return await asyncio.wait_for(ack_fut, timeout=timeout)
     except TimeoutError as exc:
         raise SubmitJobTimeoutError(
             f"{label}: no ack from {client._hostname}:{client._port} "
-            f"after {_SUBMIT_JOB_ACK_TIMEOUT_SECONDS:.0f}s "
+            f"after {timeout:.0f}s "
             f"(job_id={job_id!r})"
         ) from exc

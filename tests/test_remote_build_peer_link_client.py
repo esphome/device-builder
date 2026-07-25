@@ -5031,6 +5031,13 @@ async def test_submit_job_sends_header_chunks_and_returns_ack(
     assert [c["is_last"] for c in chunks] == [False, False, True]
 
 
+def test_submit_ack_timeout_scales_with_bundle_size() -> None:
+    """The floor covers small bundles; a max-size bundle earns write+extract headroom."""
+    timeout = remote_build_peer_link_client._submit._submit_ack_timeout
+    assert timeout(0) == 60.0
+    assert timeout(128 * 1024 * 1024) == pytest.approx(124.0)
+
+
 async def test_submit_job_times_out_when_no_ack_arrives(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
