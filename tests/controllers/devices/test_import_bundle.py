@@ -20,9 +20,16 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import mutations_import_bundle
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_MAX_TOTAL_BYTES
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
+
+
+def test_upload_cap_not_below_remote_build_bundle_cap() -> None:
+    """A config small enough to remote-build stays importable (import cap >= peer-link cap)."""
+    assert mutations_import_bundle._MAX_BUNDLE_UPLOAD_BYTES >= BUNDLE_MAX_TOTAL_BYTES
+
 
 MAIN_YAML = (
     "esphome:\n"

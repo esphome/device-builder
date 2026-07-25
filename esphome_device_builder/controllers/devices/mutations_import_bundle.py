@@ -35,7 +35,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # Compressed-upload cap. The 500 MB decompressed cap is enforced inside
 # esphome.bundle.extract_bundle; this guards the base64 payload itself.
-_MAX_BUNDLE_UPLOAD_BYTES = 64 * 1024 * 1024
+# Kept >= the peer-link remote-build bundle cap (BUNDLE_MAX_TOTAL_BYTES) so a
+# config that can be remote-built (image/font-heavy trees run tens of MiB) can
+# also be imported here; a test pins the ordering.
+_MAX_BUNDLE_UPLOAD_BYTES = 128 * 1024 * 1024
 
 
 async def import_bundle(
