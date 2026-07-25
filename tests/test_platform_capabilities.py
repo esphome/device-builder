@@ -22,7 +22,7 @@ from esphome.components.rp2040.boards import BOARDS
 from esphome.components.wifi import NO_WIFI_VARIANTS
 
 from esphome_device_builder.definitions import (
-    PlatformCapabilities,
+    EMPTY_PLATFORM_CAPABILITIES,
     _load_platform_capabilities,
     _parse_download_types,
     load_platform_capabilities_index,
@@ -30,8 +30,6 @@ from esphome_device_builder.definitions import (
 from script.sync_components import _logger_interface_snapshot  # type: ignore[import-not-found]
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
-
-_EMPTY = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
 
 
 def test_loader_returns_known_platforms() -> None:
@@ -115,21 +113,21 @@ def test_logger_interface_snapshot_within_installed_esphome() -> None:
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:
     """A missing index degrades to empty (fail-open), not a raise."""
-    assert _load_platform_capabilities(tmp_path / "absent.json") == _EMPTY
+    assert _load_platform_capabilities(tmp_path / "absent.json") == EMPTY_PLATFORM_CAPABILITIES
 
 
 def test_load_malformed_index_is_empty(tmp_path: Path) -> None:
     """Unparsable JSON degrades to empty."""
     path = tmp_path / "bad.json"
     path.write_bytes(b"{not valid json")
-    assert _load_platform_capabilities(path) == _EMPTY
+    assert _load_platform_capabilities(path) == EMPTY_PLATFORM_CAPABILITIES
 
 
 def test_load_non_mapping_index_is_empty(tmp_path: Path) -> None:
     """A top-level JSON array (not an object) degrades to empty."""
     path = tmp_path / "list.json"
     path.write_bytes(b"[]")
-    assert _load_platform_capabilities(path) == _EMPTY
+    assert _load_platform_capabilities(path) == EMPTY_PLATFORM_CAPABILITIES
 
 
 def test_load_coerces_non_list_fields(tmp_path: Path) -> None:
