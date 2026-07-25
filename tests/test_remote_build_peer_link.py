@@ -1561,6 +1561,8 @@ async def test_e2e_submit_job_dispatches_to_receiver(
     assert ack["accepted"] is True
     assert "reason" not in ack
 
+    # The ack precedes the off-loop extract + queue hop; wait for the enqueue.
+    await wait_until(lambda: bool(queued_jobs), 5.0, "receiver to enqueue the job")
     assert len(queued_jobs) == 1
     assert queued_jobs[0].remote_peer == "alpha"
 

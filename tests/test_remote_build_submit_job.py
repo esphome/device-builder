@@ -17,6 +17,7 @@ e2e harness in :mod:`tests.e2e` stays visible:
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import shutil
 from pathlib import Path
@@ -106,6 +107,11 @@ def _header(
         bundle=bundle,
     )
     return cast(SubmitJobFrameData, header)
+
+
+async def _drain_extracts(receiver: SubmitJobReceiver) -> None:
+    """Await the off-loop post-ack extract tasks so assertions see their effects."""
+    await asyncio.gather(*receiver._extract_tasks.values(), return_exceptions=True)
 
 
 def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
@@ -378,6 +384,7 @@ async def test_submit_job_upload_reject_leaves_session_intact_for_chunks(
     await receiver.handle_submit_job(session, _header(target="upload", bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     payloads = [c.args[0] for c in session.send_app_frame.call_args_list]
     assert payloads[0]["reason"] == "upload_unsupported"
@@ -571,6 +578,7 @@ async def test_submit_job_happy_path_extracts_and_queues(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     # Ack accepted, reason omitted on the success path.
     payload = _ack_payload(session)
@@ -631,6 +639,7 @@ async def test_submit_job_happy_path_with_relative_config_dir(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     payload = _ack_payload(session)
     assert payload["accepted"] is True, payload
@@ -684,6 +693,7 @@ async def test_submit_job_clean_target_creates_clean_job(
     await receiver.handle_submit_job(session, _header(target="clean", bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     payload = _ack_payload(session)
     assert payload["accepted"] is True
@@ -755,6 +765,7 @@ async def test_submit_job_carries_display_fields_through_to_firmware_job(
     await receiver.handle_submit_job(session, cast(SubmitJobFrameData, header))
     for chunk in chunks:
         await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+    await _drain_extracts(receiver)
 
     assert _ack_payload(session)["accepted"] is True
     assert len(firmware.created_jobs) == 1
@@ -815,6 +826,7 @@ async def test_submit_job_malformed_display_fields_coerce_to_empty(
     await receiver.handle_submit_job(session, cast(SubmitJobFrameData, header))
     for chunk in chunks:
         await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+    await _drain_extracts(receiver)
 
     assert _ack_payload(session)["accepted"] is True
     job = firmware.created_jobs[0]
@@ -882,6 +894,7 @@ async def test_submit_job_missing_display_fields_falls_through_to_empty_strings(
     await receiver.handle_submit_job(session, cast(SubmitJobFrameData, legacy_header))
     for chunk in chunks:
         await receiver.handle_submit_job_chunk(session, cast(SubmitJobChunkFrameData, chunk))
+    await _drain_extracts(receiver)
 
     assert _ack_payload(session)["accepted"] is True
     job = firmware.created_jobs[0]
@@ -953,6 +966,7 @@ async def test_submit_job_bundle_path_survives_prepare_bundle_wipe(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     payload = _ack_payload(session)
     assert payload["accepted"] is True
@@ -1011,6 +1025,7 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     frames = _sent_frames(session)
     # The escape is caught post-ack, during extract.
@@ -1045,8 +1060,101 @@ async def test_submit_job_acks_before_extract(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     assert ack_before_extract
+
+
+async def test_receive_path_stays_live_while_the_extract_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The final chunk handler returns with the extract still parked off-loop."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    release = asyncio.Event()
+    entered = asyncio.Event()
+
+    async def _blocked_extract(**_kwargs: object) -> None:
+        entered.set()
+        await release.wait()
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _blocked_extract)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    # The handler returned with the extract parked: the receive loop is free
+    # to answer heartbeats and take the next frame.
+    await entered.wait()
+    assert _ack_payload(session)["accepted"] is True
+    header2 = _header(job_id="job-2", configuration_filename="other.yaml", bundle=bundle)
+    await receiver.handle_submit_job(session, header2)
+    assert session.dashboard_id in receiver._inflight
+
+    release.set()
+    await _drain_extracts(receiver)
+
+
+async def test_extracts_chain_per_peer_preserving_enqueue_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second accepted submit waits for the peer's previous extract."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    release = asyncio.Event()
+    order: list[str] = []
+
+    async def _recording_extract(*, session: object, pending: object, bundle_bytes: bytes) -> None:
+        if not order:
+            # Park the first extract so the second lands behind it.
+            order.append(pending.job_id)  # type: ignore[attr-defined]
+            await release.wait()
+            return
+        order.append(pending.job_id)  # type: ignore[attr-defined]
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _recording_extract)
+
+    await receiver.handle_submit_job(session, _header(job_id="job-1", bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await receiver.handle_submit_job(
+        session, _header(job_id="job-2", configuration_filename="other.yaml", bundle=bundle)
+    )
+    for chunk in _frame_chunks("job-2", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    await asyncio.sleep(0)
+    assert order == ["job-1"]  # the second extract is parked behind the first
+    release.set()
+    await _drain_extracts(receiver)
+    assert order == ["job-1", "job-2"]
+
+
+async def test_stop_cancels_a_parked_extract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Receiver shutdown cancels the off-loop extract instead of leaking it."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+
+    async def _parked_extract(**_kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    assert receiver._extract_tasks
+
+    await receiver.stop()
+    assert not receiver._extract_tasks
 
 
 async def test_submit_job_enqueue_failure_reports_failed_after_ack(
@@ -1067,6 +1175,7 @@ async def test_submit_job_enqueue_failure_reports_failed_after_ack(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     frames = _sent_frames(session)
     # Accepted up front, before the extract/queue hop...
@@ -1100,6 +1209,7 @@ async def test_submit_job_extract_failure_reports_failed_without_terminate(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
 
     frames = _sent_frames(session)
     assert frames[0]["type"] == "submit_job_ack"

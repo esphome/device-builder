@@ -125,6 +125,8 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         if self.state.job_fanout is not None:
             self.state.job_fanout.stop()
             self.state.job_fanout = None
+        if self.state.submit_job_receiver is not None:
+            await self.state.submit_job_receiver.stop()
         # Drop the receiver-side handler refs so a subsequent
         # ``get_*`` call after ``stop()`` fails its
         # ``RuntimeError`` guard cleanly instead of returning a

@@ -55,13 +55,15 @@ hit. Phase-6 24h TTL sweeps cold subtrees later.
 
 from __future__ import annotations
 
+import asyncio
 import binascii
 import logging
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import drain_tasks, run_in_executor
 from ...helpers.lazy_module import async_import_module
 from ...helpers.paths import PathEscapeError, resolve_under_root
 from ...helpers.peer_link_bundle import (
@@ -361,10 +363,18 @@ class SubmitJobReceiver:
         self._config_dir = config_dir
         self._firmware = firmware_controller
         self._inflight: dict[str, _PendingSubmit] = {}
+        # Latest post-ack extract task per dashboard_id; each new task
+        # chains behind its predecessor (see _run_post_ack_extract).
+        self._extract_tasks: dict[str, asyncio.Task[None]] = {}
 
     def has_any_inflight(self) -> bool:
         """Whether any offloader has a bundle mid-upload (the reset busy gate)."""
         return bool(self._inflight)
+
+    async def stop(self) -> None:
+        """Cancel and drain any post-ack extract tasks."""
+        await drain_tasks(self._extract_tasks.values())
+        self._extract_tasks.clear()
 
     def discard_session(self, dashboard_id: str) -> None:
         """Drop any in-flight submit state for *dashboard_id*.
@@ -539,10 +549,53 @@ class SubmitJobReceiver:
         # offloader's ``job_id`` back so it can match the response; the
         # receiver-side id rides :attr:`FirmwareJob.remote_peer` in the fan-out.
         await self._send_ack_accepted(session, job_id=pending.job_id)
+        # The write + extract runs off the receive loop so the session keeps
+        # answering heartbeat pings (and a cancel_job stays reachable) for
+        # its whole duration — inline, a slow-disk extract past the 90s
+        # heartbeat window tore the link down and orphaned the build.
+        previous = self._extract_tasks.get(session.dashboard_id)
+        task = asyncio.get_running_loop().create_task(
+            self._run_post_ack_extract(
+                session=session,
+                pending=pending,
+                bundle_bytes=assembled,
+                previous=previous,
+            ),
+            name=f"submit-job-extract-{pending.job_id}",
+        )
+        self._extract_tasks[session.dashboard_id] = task
+        task.add_done_callback(partial(self._extract_task_done, session.dashboard_id))
+
+    async def _run_post_ack_extract(
+        self,
+        *,
+        session: PeerLinkSession,
+        pending: _PendingSubmit,
+        bundle_bytes: bytes,
+        previous: asyncio.Task[None] | None,
+    ) -> None:
+        """
+        Extract + queue one accepted bundle, chained behind the peer's previous.
+
+        The chain preserves the per-peer enqueue order the inline extract
+        used to give for free, and keeps a same-configuration resubmit off
+        a target dir that is still mid-extract.
+        """
+        if previous is not None:
+            await asyncio.gather(previous, return_exceptions=True)
         try:
-            await self._extract_and_queue(session=session, pending=pending, bundle_bytes=assembled)
+            await self._extract_and_queue(
+                session=session, pending=pending, bundle_bytes=bundle_bytes
+            )
         except _SubmitJobRejectionError as exc:
             await self._report_post_ack_failure(session, pending=pending, reason=exc.reason)
+
+    def _extract_task_done(self, dashboard_id: str, task: asyncio.Task[None]) -> None:
+        """Drop the tracked task and surface anything its own reporting missed."""
+        if self._extract_tasks.get(dashboard_id) is task:
+            del self._extract_tasks[dashboard_id]
+        if not task.cancelled() and (exc := task.exception()) is not None:
+            _LOGGER.error("submit_job: post-ack extract task failed: %s", exc)
 
     async def _reject_assembler(
         self,
