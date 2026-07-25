@@ -21,6 +21,7 @@ from esphome.core import EsphomeError
 
 from ...constants import SECRETS_FILENAME
 from ...helpers.api import CommandError
+from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
 from ...helpers.device_yaml import configuration_stem, parse_platform_from_yaml
 from ...helpers.secrets_state import merge_secrets_file
 from ...helpers.yaml import ESPHOME_FRIENDLY_NAME_PATH, read_yaml_scalar, write_user_yaml
@@ -34,11 +35,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Compressed-upload cap. The 500 MB decompressed cap is enforced inside
-# esphome.bundle.extract_bundle; this guards the base64 payload itself.
-# Kept >= the peer-link remote-build bundle cap (BUNDLE_MAX_TOTAL_BYTES) so a
-# config that can be remote-built (image/font-heavy trees run tens of MiB) can
-# also be imported here; a test pins the ordering.
-_MAX_BUNDLE_UPLOAD_BYTES = 128 * 1024 * 1024
+# esphome.bundle.extract_bundle; this guards the base64 payload itself. Shares
+# BUNDLE_MAX_TOTAL_BYTES so a config that can be remote-built can also be
+# imported (both materialise the whole compressed bundle in memory).
 
 
 async def import_bundle(
@@ -217,19 +216,19 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
 
 def _decode_bundle(file_content_b64: str) -> bytes:
     """Base64-decode the upload; reject non-base64, oversize, or non-gzip."""
-    limit_mb = _MAX_BUNDLE_UPLOAD_BYTES // (1024 * 1024)
+    limit_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
     oversize = CommandError(
         ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit."
     )
     # base64 inflates ~4/3, so reject an obviously-oversize payload by its
     # encoded length before materialising the decoded bytes in memory.
-    if len(file_content_b64) > (_MAX_BUNDLE_UPLOAD_BYTES // 3 + 1) * 4:
+    if len(file_content_b64) > (BUNDLE_MAX_TOTAL_BYTES // 3 + 1) * 4:
         raise oversize
     try:
         raw = base64.b64decode(file_content_b64, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, "Bundle upload isn't valid base64.") from exc
-    if len(raw) > _MAX_BUNDLE_UPLOAD_BYTES:
+    if len(raw) > BUNDLE_MAX_TOTAL_BYTES:
         raise oversize
     if raw[:2] != b"\x1f\x8b":
         raise CommandError(

@@ -45,6 +45,10 @@ from collections.abc import Iterator
 from enum import StrEnum
 from typing import NoReturn
 
+# Re-exported: the bundle-assembly cap lives in the neutral ``bundle_limits``
+# module so the UI import path can share it without importing peer-link code.
+from .bundle_limits import BUNDLE_MAX_TOTAL_BYTES
+
 # Raw bytes per chunk before b64 encoding. Sized so the
 # resulting JSON frame fits comfortably under
 # :data:`APP_FRAME_MAX_BYTES` (60 KiB after 5c-1's bump):
@@ -56,18 +60,6 @@ from typing import NoReturn
 # fixed per-frame overhead (Noise AEAD tag + JSON envelope)
 # in half on a typical ESPHome bundle.
 BUNDLE_CHUNK_SIZE_BYTES = 32 * 1024
-
-# Hard cap on the assembled bundle. Most ESPHome bundles are a
-# few KiB compressed, but image/font-heavy include trees (many
-# ``mdi:`` icons resized into embedded ``BINARY`` images) have
-# been observed near ~40 MiB in the wild. 128 MiB leaves generous
-# headroom while still bounding receiver RAM: peak is ~2x the cap
-# per in-flight session (``finalise`` copies the assembled
-# bytearray), and ``_inflight`` is keyed per paired offloader, so
-# concurrent submits multiply it. The receiver enforces this cap,
-# so an offloader only benefits once the build server is on a
-# version that carries the larger value.
-BUNDLE_MAX_TOTAL_BYTES = 128 * 1024 * 1024
 
 # Hard cap on the assembled firmware tarball. The materialise
 # pipeline ships the receiver's full build subtree (firmware

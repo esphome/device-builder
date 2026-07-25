@@ -20,16 +20,9 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.devices import mutations_import_bundle
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_MAX_TOTAL_BYTES
 from esphome_device_builder.models import ErrorCode
 
 from .conftest import MakeControllerFactory
-
-
-def test_upload_cap_not_below_remote_build_bundle_cap() -> None:
-    """A config small enough to remote-build stays importable (import cap >= peer-link cap)."""
-    assert mutations_import_bundle._MAX_BUNDLE_UPLOAD_BYTES >= BUNDLE_MAX_TOTAL_BYTES
-
 
 MAIN_YAML = (
     "esphome:\n"
@@ -291,7 +284,7 @@ def test_decode_bundle_rejects_oversize_before_decode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An over-long base64 payload is rejected by encoded length, pre-decode."""
-    monkeypatch.setattr(mutations_import_bundle, "_MAX_BUNDLE_UPLOAD_BYTES", 16)
+    monkeypatch.setattr(mutations_import_bundle, "BUNDLE_MAX_TOTAL_BYTES", 16)
 
     with pytest.raises(CommandError) as excinfo:
         mutations_import_bundle._decode_bundle("A" * 200)
@@ -398,7 +391,7 @@ def test_decode_bundle_rejects_oversize_after_decode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A payload that clears the encoded pre-check but decodes over the cap is rejected."""
-    monkeypatch.setattr(mutations_import_bundle, "_MAX_BUNDLE_UPLOAD_BYTES", 16)
+    monkeypatch.setattr(mutations_import_bundle, "BUNDLE_MAX_TOTAL_BYTES", 16)
     # 24 base64 chars equal the encoded-length ceiling but decode to 18 bytes.
     with pytest.raises(CommandError) as excinfo:
         mutations_import_bundle._decode_bundle("A" * 24)
