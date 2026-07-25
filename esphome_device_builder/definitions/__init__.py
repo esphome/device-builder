@@ -290,8 +290,9 @@ def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
     """Load a BoardEsphomeConfig from a dict."""
     platform = Platform(data["platform"])
     variant_raw = data.get("variant")
-    variant = normalize_chip_variant(str(variant_raw)) if variant_raw else None
-    if variant is not None:
+    variant: str | None = None
+    if platform is Platform.ESP32 and isinstance(variant_raw, str) and variant_raw:
+        variant = normalize_chip_variant(variant_raw)
         known = load_platform_capabilities_index().esp32_variants
         # Fail open on an empty snapshot; warn (not drop) on an unknown value
         # so the sync-time gate is where a typo actually fails.

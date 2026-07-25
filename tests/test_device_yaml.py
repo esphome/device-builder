@@ -1605,7 +1605,7 @@ def _make_board(
 @pytest.mark.parametrize(
     ("board", "expect_fallback"),
     [
-        pytest.param(_make_board(platform=Platform.ESP32, variant="esp32c3"), True, id="esp32"),
+        pytest.param(_make_board(platform=Platform.ESP32, variant="esp32c3"), True, id="esp32c3"),
         pytest.param(
             _make_board(platform=Platform.RP2040, pio_board="rpipicow"), True, id="rp2040_picow"
         ),
