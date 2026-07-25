@@ -26,3 +26,5 @@ def test_unknown_variant_rejected() -> None:
 def test_absent_variant_passes() -> None:
     assert _validate_variant_vocabulary("b", {"esphome": {}}) == []
     assert _validate_variant_vocabulary("b", {}) == []
+    # Malformed shapes are the schema step's job; the manual check stays quiet.
+    assert _validate_variant_vocabulary("b", {"esphome": ["not-a-dict"]}) == []

@@ -84,11 +84,7 @@ _ESP32_NO_WIFI_VARIANTS = _load_esp32_no_wifi_variants()
 
 
 def _load_esp32_variants() -> frozenset[str]:
-    """
-    Read the ``esp32_variants`` vocabulary from the capabilities snapshot.
-
-    Same stdlib-json / fail-open shape as ``_load_esp32_no_wifi_variants``.
-    """
+    """Read the ``esp32_variants`` vocabulary from the snapshot; empty when unreadable."""
     caps_path = DEFINITIONS_DIR / "platform_capabilities.index.json"
     try:
         caps = json.loads(caps_path.read_text(encoding="utf-8"))
@@ -257,7 +253,8 @@ def validate_board(
 
 def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
     """Reject a variant outside the snapshot vocabulary; fail open on an empty snapshot."""
-    declared = (data.get("esphome") or {}).get("variant")
+    esphome_cfg = data.get("esphome")
+    declared = esphome_cfg.get("variant") if isinstance(esphome_cfg, dict) else None
     if not isinstance(declared, str) or not _ESP32_VARIANTS:
         return []
     if normalize_chip_variant(declared) not in _ESP32_VARIANTS:
