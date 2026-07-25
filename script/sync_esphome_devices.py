@@ -581,9 +581,9 @@ def _resolve_board_and_variant(
     # never compile, so treat them the same as a missing board.
     if board is not None and _is_placeholder_value(board):
         board = None
-    # Upstream pages sometimes write the variant in uppercase (``ESP32C3``)
-    # — normalize to match our enum.
-    variant = raw_variant.lower() if isinstance(raw_variant, str) else None
+    # Upstream pages sometimes write the variant in uppercase or with
+    # separators (``ESP32-C3``) — fold onto the catalog spelling.
+    variant = normalize_chip_variant(raw_variant) if isinstance(raw_variant, str) else None
     framework: str | None = None
     if isinstance(raw_framework, dict):
         ftype = raw_framework.get("type")
