@@ -189,7 +189,11 @@ async def test_build_yaml_bundle_timeout_raises_bundle_build_error(
         tmp_path,
         "print('EARLY DIAGNOSTIC', flush=True)\ntime.sleep(30)\n",
     )
-    monkeypatch.setattr(config_bundle, "_BUNDLE_BUILD_TIMEOUT_SECONDS", 0.5)
+    # The timeout clock starts after spawn but still covers the child's Python
+    # interpreter cold-start + first print; on a loaded CI runner that can take
+    # most of a second, so keep comfortable margin or the timeout fires with an
+    # empty buffer and the pre-timeout-output assertion below flakes.
+    monkeypatch.setattr(config_bundle, "_BUNDLE_BUILD_TIMEOUT_SECONDS", 5.0)
 
     with pytest.raises(BundleBuildError, match="timed out") as exc_info:
         await build_yaml_bundle(yaml_path)
