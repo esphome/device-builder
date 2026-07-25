@@ -29,7 +29,7 @@ from esphome_device_builder.definitions import (
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
 
-_EMPTY = PlatformCapabilities([], [], [], [], {}, [], {})
+_EMPTY = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
 
 
 def test_loader_returns_known_platforms() -> None:
@@ -122,11 +122,20 @@ def test_load_coerces_non_list_fields(tmp_path: Path) -> None:
     assert caps.libretiny_families == ["bk72xx"]  # the non-str 7 is filtered
 
 
-def test_load_coerces_board_variants(tmp_path: Path) -> None:
-    """``esp32_board_variants`` keeps str→str pairs; anything else drops."""
+def test_load_coerces_string_maps(tmp_path: Path) -> None:
+    """The str→str map fields keep valid pairs; anything else drops."""
     path = tmp_path / "x.json"
-    path.write_bytes(orjson.dumps({"esp32_board_variants": {"esp32dev": "ESP32", "bad": 7}}))
-    assert _load_platform_capabilities(path).esp32_board_variants == {"esp32dev": "ESP32"}
+    path.write_bytes(
+        orjson.dumps(
+            {
+                "esp32_board_variants": {"esp32dev": "ESP32", "bad": 7},
+                "logger_interface_defaults": {"esp32c3": "USB_SERIAL_JTAG", "bad": 7},
+            }
+        )
+    )
+    caps = _load_platform_capabilities(path)
+    assert caps.esp32_board_variants == {"esp32dev": "ESP32"}
+    assert caps.logger_interface_defaults == {"esp32c3": "USB_SERIAL_JTAG"}
     path.write_bytes(orjson.dumps({"esp32_board_variants": "notadict"}))
     assert _load_platform_capabilities(path).esp32_board_variants == {}
 

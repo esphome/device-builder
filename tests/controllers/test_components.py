@@ -202,7 +202,7 @@ async def test_helper_aliases_come_from_the_capabilities_snapshot(
     monkeypatch.setattr(
         comp_controller,
         "load_platform_capabilities_index",
-        lambda: PlatformCapabilities([], [], [], [], {}, ["esp32_ble_client"], {}),
+        lambda: PlatformCapabilities([], [], [], [], {}, ["esp32_ble_client"], {}, {}, []),
     )
     docs = await cat.get_integration_docs()
     assert docs["esp32_ble_client"]["url"] == "https://esphome.io/components/esp32_ble"

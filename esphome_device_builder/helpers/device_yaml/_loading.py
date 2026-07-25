@@ -224,7 +224,7 @@ def load_device_from_storage(
         target_platform = detect_platform_from_yaml(yaml_content, resolved_config)
     target_platform = normalize_platform(target_platform)
 
-    # Drives the frontend's serial-console mismatch check (#2310).
+    # Drives the frontend's serial-console mismatch check.
     # ``storage.target_platform`` is upstream's post-codegen chip variant
     # (``ESP32C3``) — exactly the refinement the esp32 default needs.
     logger_interface = extract_logger_interface(

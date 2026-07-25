@@ -72,6 +72,11 @@ def normalize_platform(name: str) -> str:
     return RP2_CANONICAL_PLATFORM if name.lower() == RP2_ALIAS_PLATFORM else name
 
 
+def normalize_chip_variant(name: str) -> str:
+    """Fold a chip-variant spelling (``ESP32-C3`` / ``esp32_c3``) onto the catalog form."""
+    return name.strip().replace("-", "").replace("_", "").lower()
+
+
 class Esp32Variant(StrEnum):
     """ESP32 chip variants."""
 

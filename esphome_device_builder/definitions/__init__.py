@@ -563,9 +563,15 @@ class PlatformCapabilities(NamedTuple):
     # ``ESP32C3``) for resolving a device's chip when its YAML names only
     # the board. Empty until the index is regenerated with the field.
     esp32_board_variants: dict[str, str]
+    # ``{platform-or-variant: interface}`` — logger's ``hardware_uart``
+    # defaults (``esp32c3`` → ``USB_SERIAL_JTAG``); SDK-runtime rows
+    # (libretiny) are absent as unknowable.
+    logger_interface_defaults: dict[str, str]
+    # The explicit ``hardware_uart`` values the logger accepts.
+    logger_interface_values: list[str]
 
 
-_EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {})
+_EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
 
 
 @cache
@@ -607,7 +613,16 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
             return []
         return [str(item) for item in value if isinstance(item, str)]
 
-    board_variants = payload.get("esp32_board_variants")
+    def _str_map(key: str) -> dict[str, str]:
+        value = payload.get(key)
+        if not isinstance(value, dict):
+            return {}
+        return {
+            item: mapped
+            for item, mapped in value.items()
+            if isinstance(item, str) and isinstance(mapped, str)
+        }
+
     return PlatformCapabilities(
         esp32_variants=_str_list("esp32_variants"),
         esp32_no_wifi_variants=_str_list("esp32_no_wifi_variants"),
@@ -615,13 +630,9 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
         rp2040_no_wifi_boards=_str_list("rp2040_no_wifi_boards"),
         download_types=_parse_download_types(payload.get("download_types")),
         component_names=_str_list("component_names"),
-        esp32_board_variants={
-            str(board): str(variant)
-            for board, variant in (
-                board_variants.items() if isinstance(board_variants, dict) else ()
-            )
-            if isinstance(variant, str)
-        },
+        esp32_board_variants=_str_map("esp32_board_variants"),
+        logger_interface_defaults=_str_map("logger_interface_defaults"),
+        logger_interface_values=_str_list("logger_interface_values"),
     )
 
 

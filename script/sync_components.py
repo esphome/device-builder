@@ -136,12 +136,14 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTriggerIndex,
     ComponentCatalogEntry,
     ComponentCategory,
+    Esp32Variant,
     Filter,
     FilterIndex,
     LightEffect,
     LightEffectIndex,
     PinFeature,
     PinMode,
+    normalize_chip_variant,
     normalize_platform,
 )
 from script._light_schemas import (  # noqa: E402
@@ -3640,16 +3642,19 @@ def _emit_platform_capabilities_index() -> None:
         if entry.is_dir() and not entry.name.startswith("_")
     )
 
+    logger_defaults, logger_values = _logger_interface_snapshot()
     payload = {
         "component_names": component_names,
         "esp32_variants": sorted(VARIANTS),
         "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
         # ``{pio_board: variant}`` so the dashboard can resolve a device's
-        # chip variant when its YAML names only the board (#2310).
+        # chip variant when its YAML names only the board.
         "esp32_board_variants": {
             board: info[KEY_VARIANT] for board, info in sorted(ESP32_BOARDS.items())
         },
         "libretiny_families": list(_libretiny_families()),
+        "logger_interface_defaults": logger_defaults,
+        "logger_interface_values": logger_values,
         "rp2040_no_wifi_boards": sorted(
             board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
         ),
@@ -3660,6 +3665,54 @@ def _emit_platform_capabilities_index() -> None:
         orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
     )
     next_path.replace(_PLATFORM_CAPABILITIES_INDEX_FILE)
+
+
+def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
+    """
+    Snapshot logger's ``hardware_uart`` defaults and legal values.
+
+    Defaults come from the live ``SplitDefault`` table, re-keyed to the
+    dashboard's canonical platform / variant spelling; rows resolving to the
+    SDK-runtime ``DEFAULT`` (libretiny) are dropped as unknowable.
+    """
+    from esphome import config_validation as cv
+    from esphome.components import logger as logger_component
+
+    schema: Any = logger_component.CONFIG_SCHEMA
+    while not isinstance(getattr(schema, "schema", None), dict):
+        schema = schema.validators[0]
+    marker = next(
+        key
+        for key in schema.schema
+        if isinstance(key, cv.SplitDefault) and key.schema == "hardware_uart"
+    )
+    # The exact key set the runtime can look up: platform keys plus the
+    # esp32 variants, spelled through the same normalizers the runtime
+    # uses. An upstream key that lands outside it (a renamed platform,
+    # a new variant family) must fail the sync loudly, not emit a dead
+    # row the runtime never matches.
+    known_keys = (
+        {"esp8266", "nrf52", RP2_CANONICAL_PLATFORM}
+        | {variant.value for variant in Esp32Variant}
+        | set(_libretiny_families())
+    )
+    defaults: dict[str, str] = {}
+    for key, factory in sorted(marker._defaults.items()):
+        value = factory()
+        if value == "DEFAULT":
+            continue
+        canonical = normalize_chip_variant(normalize_platform(key))
+        if canonical not in known_keys:
+            raise RuntimeError(
+                f"logger hardware_uart default key {key!r} does not map onto a "
+                "known platform/variant — update the dashboard's platform "
+                "vocabulary before syncing"
+            )
+        defaults[canonical] = value
+    values = sorted(
+        value for value in logger_component.HARDWARE_UART_TO_UART_SELECTION if value != "DEFAULT"
+    )
+    return defaults, values
 
 
 def _synthesise_long_form_extra(

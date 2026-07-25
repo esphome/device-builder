@@ -21,6 +21,7 @@ from esphome.const import ALLOWED_NAME_CHARS
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
+    load_platform_capabilities_index,
 )
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -40,12 +41,12 @@ from esphome_device_builder.helpers.device_yaml import (
     pending_changes_via_hash,
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
-    _LOGGER_INTERFACE_DEFAULTS,
     _is_valid_esphome_name,
     device_ap_label,
     extract_logger_baud_rate,
     extract_logger_interface,
     extract_ota_partition_access,
+    resolve_esp32_variant,
 )
 from esphome_device_builder.models import (
     BoardCatalogEntry,
@@ -891,17 +892,28 @@ def test_extract_logger_interface_resolves_substitution() -> None:
 def test_extract_logger_interface_storage_variant_fills_missing_yaml_variant() -> None:
     config = {"logger": {}, "esp32": {"board": "unknown-board"}}
     assert extract_logger_interface(config, "esp32", None, "ESP32C3") == "USB_SERIAL_JTAG"
-    assert extract_logger_interface(config, "esp32", None, "ESP32") == "UART0"
 
 
-def test_extract_logger_interface_board_snapshot_fallback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        device_yaml._parsing,
-        "load_platform_capabilities_index",
-        lambda: SimpleNamespace(esp32_board_variants={"esp32-s3-devkitc-1": "ESP32S3"}),
-    )
+def test_resolve_esp32_variant_family_storage_defers_to_board_snapshot() -> None:
+    """A never-compiled sidecar seeds the bare family; the board must answer."""
+    config = {"esp32": {"board": "esp32-s3-devkitc-1"}}
+    assert resolve_esp32_variant(config, None, "esp32") == "esp32s3"
+    # Bare family with an unknown board stays unknowable, never UART0's key.
+    assert resolve_esp32_variant({"esp32": {"board": "custom"}}, None, "esp32") is None
+
+
+def test_resolve_esp32_variant_resolves_substitutions() -> None:
+    subs = {"chip": "esp32c6", "the_board": "esp32-s3-devkitc-1"}
+    assert resolve_esp32_variant({"esp32": {"variant": "$chip"}}, subs) == "esp32c6"
+    assert resolve_esp32_variant({"esp32": {"board": "${the_board}"}}, subs) == "esp32s3"
+
+
+def test_resolve_esp32_variant_unresolved_yaml_variant_falls_back_to_storage() -> None:
+    config = {"esp32": {"variant": "${chip}"}}
+    assert resolve_esp32_variant(config, None, "ESP32C3") == "esp32c3"
+
+
+def test_extract_logger_interface_board_snapshot_fallback() -> None:
     config = {"logger": {}, "esp32": {"board": "esp32-s3-devkitc-1"}}
     assert extract_logger_interface(config, "esp32") == "USB_SERIAL_JTAG"
 
@@ -925,8 +937,8 @@ def test_extract_logger_interface_none(config: Any, platform: str) -> None:
     assert extract_logger_interface(config, platform) is None
 
 
-def test_logger_interface_defaults_match_live_logger_schema() -> None:
-    """Pins ``_LOGGER_INTERFACE_DEFAULTS`` against the live SplitDefault table."""
+def test_logger_interface_snapshot_matches_live_logger_schema() -> None:
+    """Pins the checked-in capability snapshot against the live SplitDefault table."""
     cv = pytest.importorskip("esphome.config_validation")
     logger = pytest.importorskip("esphome.components.logger")
 
@@ -941,21 +953,25 @@ def test_logger_interface_defaults_match_live_logger_schema() -> None:
     live = {key: factory() for key, factory in marker._defaults.items()}
     assert live, "hardware_uart SplitDefault table is empty"
 
+    snapshot = load_platform_capabilities_index().logger_interface_defaults
     known: set[str] = set()
     for key, value in live.items():
         mapped = "rp2040" if key == "rp2" else key.replace("esp32_", "esp32")
         if value == "DEFAULT":
-            assert mapped not in _LOGGER_INTERFACE_DEFAULTS, mapped
+            assert mapped not in snapshot, mapped
             continue
         known.add(mapped)
-        assert _LOGGER_INTERFACE_DEFAULTS.get(mapped) == value, mapped
-    assert set(_LOGGER_INTERFACE_DEFAULTS) == known
+        assert snapshot.get(mapped) == value, mapped
+    assert set(snapshot) == known
+
+    live_values = {v for v in logger.HARDWARE_UART_TO_UART_SELECTION if v != "DEFAULT"}
+    assert set(load_platform_capabilities_index().logger_interface_values) == live_values
 
 
 def test_logger_interface_esp32_keys_are_known_variants() -> None:
-    """Every esp32-family key in the defaults table matches the Esp32Variant spelling."""
+    """Every esp32-family key in the snapshot matches the Esp32Variant spelling."""
     variants = {v.value for v in Esp32Variant}
-    for key in _LOGGER_INTERFACE_DEFAULTS:
+    for key in load_platform_capabilities_index().logger_interface_defaults:
         if key.startswith("esp32"):
             assert key in variants, key
 
@@ -971,6 +987,19 @@ def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> N
     silent = tmp_path / "nolog.yaml"
     silent.write_text("esphome:\n  name: nolog\nesp32:\n  variant: esp32c3\n", encoding="utf-8")
     assert load_device_from_storage(silent).logger_interface is None
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_from_storage_family_sidecar_uses_board_snapshot(tmp_path: Path) -> None:
+    """A never-compiled sidecar's bare-family platform doesn't shadow the board."""
+    yaml_file = tmp_path / "s3.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: s3\nesp32:\n  board: esp32-s3-devkitc-1\nlogger:\n",
+        encoding="utf-8",
+    )
+    # Fixture default sidecar carries the bare-family esp_platform ("esp32").
+    write_storage_json(tmp_path, "s3.yaml")
+    assert load_device_from_storage(yaml_file).logger_interface == "USB_SERIAL_JTAG"
 
 
 @pytest.mark.parametrize(

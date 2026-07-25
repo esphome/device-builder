@@ -264,9 +264,9 @@ class Device(DashboardModel):
     logger_baud_rate: int | None = None
     # Resolved ``logger:`` output interface (``UART0`` / ``USB_CDC`` /
     # ``USB_SERIAL_JTAG`` / ...). The frontend compares it against the Web
-    # Serial port's USB vendor to spot a console the port can't carry
-    # (#2310). ``None`` ⇒ unknowable (no logger, unknown variant, libretiny
-    # runtime default).
+    # Serial port's USB vendor to spot a console the port can't carry.
+    # ``None`` ⇒ unknowable (no logger, unknown variant, libretiny runtime
+    # default).
     logger_interface: str | None = None
     # esp32 whose ``ota: platform: esphome`` sets ``allow_partition_access``
     # — gates the install dialog's OTA bootloader-update action. Whether the
