@@ -36,11 +36,11 @@ from esphome_device_builder.constants import (  # noqa: E402
     BUS_CATEGORIES,
     FEATURED_EXCLUDED_CATEGORIES,
 )
+from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
     is_external_image_url,
     is_unsafe_manifest_path,
 )
-from esphome_device_builder.models.boards import normalize_chip_variant  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 

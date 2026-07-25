@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from ..helpers.chips import normalize_chip_variant
 from .common import (
     DashboardModel,
     FieldPreset,
@@ -19,6 +20,7 @@ from .common import (
 # `from .boards import PinFeature` paths.
 
 _ = PinFeature  # suppress "imported but unused" — this is a re-export
+__ = normalize_chip_variant  # re-export: dep-free home is helpers.chips
 
 
 class Connectivity(StrEnum):
@@ -70,11 +72,6 @@ RP2_PLATFORM_ALIASES: frozenset[str] = frozenset({RP2_ALIAS_PLATFORM, RP2_CANONI
 def normalize_platform(name: str) -> str:
     """Fold the non-canonical RP2 platform spelling onto the canonical one."""
     return RP2_CANONICAL_PLATFORM if name.lower() == RP2_ALIAS_PLATFORM else name
-
-
-def normalize_chip_variant(name: str) -> str:
-    """Fold a chip-variant spelling (``ESP32-C3`` / ``esp32_c3``) onto the catalog form."""
-    return name.strip().replace("-", "").replace("_", "").lower()
 
 
 class BoardTag(StrEnum):
