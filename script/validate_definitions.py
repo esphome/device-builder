@@ -40,6 +40,7 @@ from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
     is_external_image_url,
     is_unsafe_manifest_path,
 )
+from esphome_device_builder.models.boards import normalize_chip_variant  # noqa: E402
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 
@@ -262,9 +263,14 @@ def _validate_pins_from(
         errors.append(f"{board_id}: pins_from '{donor_id}' has no pin table")
     ours = data.get("esphome") or {}
     theirs = donor.get("esphome") or {}
-    if (ours.get("platform"), ours.get("variant")) != (
+
+    def _variant_key(cfg: dict) -> str:
+        raw = cfg.get("variant")
+        return normalize_chip_variant(raw) if isinstance(raw, str) else ""
+
+    if (ours.get("platform"), _variant_key(ours)) != (
         theirs.get("platform"),
-        theirs.get("variant"),
+        _variant_key(theirs),
     ):
         errors.append(f"{board_id}: pins_from '{donor_id}' is a different chip")
     return errors
@@ -307,7 +313,7 @@ def _variant_warning(board_id: str, esphome_cfg: dict) -> str | None:
     if (
         isinstance(declared, str)
         and table_variant is not None
-        and declared.lower() != table_variant
+        and normalize_chip_variant(declared) != normalize_chip_variant(table_variant)
     ):
         return (
             f"{board_id}: esphome.variant '{declared}' does not match "
@@ -323,7 +329,7 @@ def _resolve_chip(esphome_cfg: dict) -> str | None:
     if platform == "esp32":
         declared = esphome_cfg.get("variant")
         if isinstance(declared, str):
-            return declared.lower()
+            return normalize_chip_variant(declared)
         return _esp32_table_variant(esphome_cfg)
     if platform == "esp8266":
         return "esp8266"
