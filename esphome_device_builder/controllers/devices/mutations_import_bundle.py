@@ -34,11 +34,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Compressed-upload cap. The 500 MB decompressed cap is enforced inside
-# esphome.bundle.extract_bundle; this guards the base64 payload itself. Shares
-# BUNDLE_MAX_TOTAL_BYTES so a config that can be remote-built can also be
-# imported (both materialise the whole compressed bundle in memory).
-
 
 async def import_bundle(
     controller: DevicesController,
@@ -216,6 +211,8 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
 
 def _decode_bundle(file_content_b64: str) -> bytes:
     """Base64-decode the upload; reject non-base64, oversize, or non-gzip."""
+    # Caps the compressed payload only; extract_bundle enforces the 500 MB
+    # decompressed cap.
     limit_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
     oversize = CommandError(
         ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit."
