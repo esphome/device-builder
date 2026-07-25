@@ -10,8 +10,9 @@ import tempfile
 from contextlib import suppress
 from pathlib import Path
 
+from ...definitions import load_platform_capabilities_index
 from ...helpers.subprocess import run_subprocess_capture
-from ...models.boards import Esp32Variant
+from ...models.boards import normalize_chip_variant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,16 +21,18 @@ def _esp32_chip_family_map() -> dict[str, tuple[str, str, str]]:
     """
     Build the esptool-family → ``(chip_family, variant, platform)`` table.
 
-    Sourced from :class:`Esp32Variant` so a new ESP32 variant is
-    recognised by adding one enum member; keys mirror esptool's dashed
-    family string and ``chip_family`` the frontend filter label.
+    Sourced from the live ``esp32_variants`` snapshot so a new ESP32 variant
+    is recognised after a catalog sync with no code change; keys mirror
+    esptool's dashed family string and ``chip_family`` the frontend filter
+    label.
     """
     table: dict[str, tuple[str, str, str]] = {}
-    for v in Esp32Variant:
-        suffix = v.value[len("esp32") :]  # "" for classic, "s3"/"c61"/… otherwise
+    for raw in sorted(load_platform_capabilities_index().esp32_variants):
+        variant = normalize_chip_variant(raw)
+        suffix = variant[len("esp32") :]  # "" for classic, "s3"/"c61"/… otherwise
         key = "esp32" if not suffix else f"esp32-{suffix}"
         label = "ESP32" if not suffix else f"ESP32-{suffix.upper()}"
-        table[key] = (label, v.value, "esp32")
+        table[key] = (label, variant, "esp32")
     return table
 
 

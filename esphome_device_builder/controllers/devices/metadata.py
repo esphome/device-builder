@@ -56,7 +56,7 @@ def _migrate_board_id_user_set_sync(config_dir: Path, boards: BoardCatalog) -> i
             picked = boards.get_by_id(board_id)
             if picked is None or picked.is_generic or _is_devices_esphome_io_import(picked):
                 continue
-            variant = picked.esphome.variant.value if picked.esphome.variant else ""
+            variant = picked.esphome.variant or ""
             winner = boards.find_by_pio_board(
                 picked.esphome.board, variant, picked.esphome.platform.value
             )

@@ -59,7 +59,7 @@ def _summarize_description(text: str) -> str:
 
 
 def variant_to_key(variant: str) -> str:
-    """Normalise an ``Esp32Variant`` value (``esp32c3``) to a catalog key (``esp32_c3``).
+    """Normalise a chip-variant value (``esp32c3``) to a catalog key (``esp32_c3``).
 
     Matches the ``platform_defaults`` / ``platform_options`` key form; the
     base ``esp32`` and non-ESP32 platforms pass through unchanged. Shared with
@@ -832,7 +832,7 @@ class ComponentCatalog:
         board = self._db.boards.get_by_id(board_id)
         if board is None or board.esphome.variant is None:
             return None
-        return variant_to_key(board.esphome.variant.value)
+        return variant_to_key(board.esphome.variant)
 
 
 def _query_rank(entry: ComponentCatalogIndexEntry, query_lower: str) -> int:

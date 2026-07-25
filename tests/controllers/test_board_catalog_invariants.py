@@ -81,7 +81,7 @@ def test_featured_boards_never_lose_to_a_non_canonical_entry(real_catalog: Board
     for board in real_catalog._boards:
         if not board.featured:
             continue
-        variant = board.esphome.variant.value if board.esphome.variant else ""
+        variant = board.esphome.variant or ""
         winner = real_catalog.find_by_pio_board(
             board.esphome.board, variant, board.esphome.platform.value
         )

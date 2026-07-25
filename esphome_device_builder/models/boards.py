@@ -77,24 +77,6 @@ def normalize_chip_variant(name: str) -> str:
     return name.strip().replace("-", "").replace("_", "").lower()
 
 
-class Esp32Variant(StrEnum):
-    """ESP32 chip variants."""
-
-    ESP32 = "esp32"
-    ESP32S2 = "esp32s2"
-    ESP32S3 = "esp32s3"
-    ESP32S31 = "esp32s31"
-    ESP32C2 = "esp32c2"
-    ESP32C3 = "esp32c3"
-    ESP32C5 = "esp32c5"
-    ESP32C6 = "esp32c6"
-    ESP32C61 = "esp32c61"
-    ESP32H2 = "esp32h2"
-    ESP32H4 = "esp32h4"
-    ESP32H21 = "esp32h21"
-    ESP32P4 = "esp32p4"
-
-
 class BoardTag(StrEnum):
     """Board tags for unique features not captured by other fields."""
 
@@ -153,7 +135,10 @@ class BoardEsphomeConfig(DashboardModel):
 
     platform: Platform
     board: str  # PlatformIO board ID
-    variant: Esp32Variant | None = None
+    # Lowercase esp32 chip variant ("esp32c3"). The vocabulary is the live
+    # ``esp32_variants`` snapshot in platform_capabilities.index.json — never
+    # a local enum, which would lag upstream.
+    variant: str | None = None
     framework: str | None = None  # "arduino" or "esp-idf"
     # Chip series within an ESPHome platform that lumps several under one
     # key: currently rp2040 ("rp2040" / "rp2350"). Reusable to split the

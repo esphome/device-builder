@@ -58,7 +58,6 @@ from esphome_device_builder.models import (
     Device,
     DeviceRuntimeState,
     DeviceState,
-    Esp32Variant,
     Platform,
     ReachabilitySource,
 )
@@ -67,7 +66,7 @@ from tests._storage_fixtures import write_storage_json
 
 def _make_esp32_board(
     *,
-    variant: Esp32Variant | None = None,
+    variant: str | None = None,
     flash_size: str | None = None,
     framework: str | None = None,
     engineering_sample: bool = False,
@@ -1262,7 +1261,7 @@ def test_generate_yaml_emits_esp32_variant_when_set() -> None:
     refactor that consolidated the three ``if``s into one block
     can't silently drop a field.
     """
-    board = _make_esp32_board(variant=Esp32Variant.ESP32S3)
+    board = _make_esp32_board(variant="esp32s3")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
 
     assert "esp32:\n  variant: esp32s3\n" in yaml
@@ -1325,7 +1324,7 @@ def test_generate_yaml_emits_engineering_sample_for_prerev3_p4() -> None:
     that faults at the bootloader on pre-rev3 silicon.
     """
     board = _make_esp32_board(
-        variant=Esp32Variant.ESP32P4,
+        variant="esp32p4",
         flash_size="32MB",
         framework="esp-idf",
         engineering_sample=True,
@@ -1337,7 +1336,7 @@ def test_generate_yaml_emits_engineering_sample_for_prerev3_p4() -> None:
 
 def test_generate_yaml_omits_engineering_sample_by_default() -> None:
     """Non-ES board → no ``engineering_sample`` line (rev3 P4s must not get it)."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
 
     assert "engineering_sample" not in yaml
@@ -1350,7 +1349,7 @@ def test_generate_yaml_pins_logger_hardware_uart_when_set() -> None:
     output but no app logs on the chip-default console.
     """
     board = _make_esp32_board(
-        variant=Esp32Variant.ESP32P4,
+        variant="esp32p4",
         framework="esp-idf",
         logger_hardware_uart="UART0",
     )
@@ -1361,7 +1360,7 @@ def test_generate_yaml_pins_logger_hardware_uart_when_set() -> None:
 
 def test_generate_yaml_leaves_logger_bare_by_default() -> None:
     """No ``logger_hardware_uart`` → bare ``logger:`` (ESPHome's default console)."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
 
     assert "logger:\n\n" in yaml
@@ -1376,7 +1375,7 @@ def test_generate_yaml_emits_all_three_esp32_fields_together() -> None:
     configs) expect the same shape ESPHome's docs use.
     """
     board = _make_esp32_board(
-        variant=Esp32Variant.ESP32S3,
+        variant="esp32s3",
         flash_size="16MB",
         framework="arduino",
     )
@@ -1398,7 +1397,7 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
     that always emitted ``!secret`` would silently break the
     "works without secrets.yaml" path.
     """
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
 
     # Explicit credentials.
     explicit = generate_device_yaml("kitchen", "Kitchen", board, ssid="MyNetwork", psk="hunter2")
@@ -1414,7 +1413,7 @@ def test_generate_yaml_emits_explicit_wifi_credentials_when_provided() -> None:
 
 def test_generate_yaml_omits_wifi_when_board_has_wifi_but_no_secrets() -> None:
     """No literal ssid and no wifi secrets → no ``!secret`` block, network TODO instead."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
 
     out = generate_device_yaml(
         "kitchen", "Kitchen", board, ssid="", psk="", wifi_secrets_available=False
@@ -1430,7 +1429,7 @@ def test_generate_yaml_omits_wifi_when_board_has_wifi_but_no_secrets() -> None:
 
 def test_generate_yaml_literal_ssid_inlines_regardless_of_secrets() -> None:
     """A literal ssid still inlines even when wifi secrets are absent."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
 
     out = generate_device_yaml(
         "kitchen", "Kitchen", board, ssid="MyNet", psk="pw", wifi_secrets_available=False
@@ -1462,7 +1461,7 @@ def test_generate_yaml_secret_refs_resolve_through_esphome_loader(tmp_path: Path
     would load as the literal string "!secret wifi_ssid" and silently
     break wifi.
     """
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
     (tmp_path / "secrets.yaml").write_text(
         "wifi_ssid: RealNetwork-7f3a\nwifi_password: RealPass-9b21\n", encoding="utf-8"
     )
@@ -1483,7 +1482,7 @@ def test_generate_yaml_literal_secret_string_stays_a_literal(tmp_path: Path) -> 
     magic secret string yields a literal, not a resolved secret, so
     the wizard must send empty rather than the string itself.
     """
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
     (tmp_path / "secrets.yaml").write_text(
         "wifi_ssid: RealNetwork\nwifi_password: RealPass\n", encoding="utf-8"
     )
@@ -1513,7 +1512,7 @@ def test_generate_yaml_literal_secret_string_stays_a_literal(tmp_path: Path) -> 
 )
 def test_generate_device_yaml_quotes_wifi_credentials(ssid: str, psk: str) -> None:
     """ssid/psk round-trip through safe-scalar quoting intact."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
     text = generate_device_yaml("kitchen", "Kitchen", board, ssid=ssid, psk=psk)
 
     parsed = yaml.safe_load(text)
@@ -1523,7 +1522,7 @@ def test_generate_device_yaml_quotes_wifi_credentials(ssid: str, psk: str) -> No
 
 def test_generate_device_yaml_emits_fallback_ap_and_captive_portal() -> None:
     """ESP32 wizard YAML carries the fallback hotspot ssid + a captive_portal block."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
     text = generate_device_yaml("kitchen", "Kitchen Lamp", board, ssid="Net", psk="pw")
 
     parsed = yaml.safe_load(text)
@@ -1534,7 +1533,7 @@ def test_generate_device_yaml_emits_fallback_ap_and_captive_portal() -> None:
 
 def test_generate_device_yaml_fallback_ap_password_is_per_device() -> None:
     """The fallback-hotspot psk is freshly generated each call."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
     a = yaml.safe_load(generate_device_yaml("k", "K", board, ssid="N", psk="p"))
     b = yaml.safe_load(generate_device_yaml("k", "K", board, ssid="N", psk="p"))
     assert a["wifi"]["ap"]["password"] != b["wifi"]["ap"]["password"]
@@ -1558,7 +1557,7 @@ def test_generate_device_yaml_fallback_ap_ssid_respects_32_char_cap(
     friendly_name: str, expected: str
 ) -> None:
     """AP ssid keeps the " Fallback Hotspot" marker, trimming the name to stay within 32 chars."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32)
+    board = _make_esp32_board(variant="esp32")
     text = generate_device_yaml("dev", friendly_name, board, ssid="Net", psk="pw")
     ap_ssid = yaml.safe_load(text)["wifi"]["ap"]["ssid"]
     assert ap_ssid == expected
@@ -1578,7 +1577,7 @@ def test_generate_device_yaml_fallback_ap_ssid_respects_32_char_cap(
 def _make_board(
     *,
     platform: Platform,
-    variant: Esp32Variant | None = None,
+    variant: str | None = None,
     pio_board: str = "",
     connectivity: list[Connectivity] | None = None,
 ) -> BoardCatalogEntry:
@@ -1606,14 +1605,12 @@ def _make_board(
 @pytest.mark.parametrize(
     ("board", "expect_fallback"),
     [
-        pytest.param(
-            _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3), True, id="esp32"
-        ),
+        pytest.param(_make_board(platform=Platform.ESP32, variant="esp32c3"), True, id="esp32"),
         pytest.param(
             _make_board(platform=Platform.RP2040, pio_board="rpipicow"), True, id="rp2040_picow"
         ),
         pytest.param(
-            _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2),
+            _make_board(platform=Platform.ESP32, variant="esp32h2"),
             False,
             id="esp32h2_no_wifi",
         ),
@@ -1647,7 +1644,7 @@ def test_generate_yaml_omits_wifi_for_esp32h2_without_explicit_connectivity() ->
     future no-Wi-Fi variant added upstream is picked up
     automatically.
     """
-    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2)
+    board = _make_board(platform=Platform.ESP32, variant="esp32h2")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "wifi:" not in yaml
 
@@ -1667,7 +1664,7 @@ def test_generate_yaml_omits_api_and_ota_for_no_wifi_board() -> None:
     ``ota:`` in backticks so naive ``"api:" not in yaml`` would
     false-positive on the guidance text.
     """
-    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2)
+    board = _make_board(platform=Platform.ESP32, variant="esp32h2")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     lines = yaml.splitlines()
     assert "api:" not in lines
@@ -1683,7 +1680,7 @@ def test_generate_yaml_no_wifi_board_emits_network_todo_comment() -> None:
     have a starting point. Pin a couple of stable substrings so a
     rewording that drops the guidance entirely surfaces here.
     """
-    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32H2)
+    board = _make_board(platform=Platform.ESP32, variant="esp32h2")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "no native Wi-Fi" in yaml
     assert "network" in yaml
@@ -1696,7 +1693,7 @@ def test_generate_yaml_keeps_api_and_ota_for_wifi_board() -> None:
     every ESP32 / ESP8266 / Pico-W config keeps the api +
     encryption + ota blocks the wizard always produced.
     """
-    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
+    board = _make_board(platform=Platform.ESP32, variant="esp32c3")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     lines = yaml.splitlines()
     assert "api:" in lines
@@ -1713,7 +1710,7 @@ def test_generate_yaml_emits_wifi_for_esp32c3_without_explicit_connectivity() ->
     without spelling out the connectivity list still get a
     compilable basic config.
     """
-    board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
+    board = _make_board(platform=Platform.ESP32, variant="esp32c3")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "wifi:" in yaml
 
@@ -1769,7 +1766,7 @@ def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
     # radio provider in defaults wins.
     h2_with_wifi = _make_board(
         platform=Platform.ESP32,
-        variant=Esp32Variant.ESP32H2,
+        variant="esp32h2",
         connectivity=[Connectivity.WIFI],
     )
     hosted = _hosted_defaults()
@@ -1785,7 +1782,7 @@ def test_generate_yaml_explicit_connectivity_overrides_inference() -> None:
     # Inference says wifi (plain ESP32), explicit ethernet-only opts out.
     eth_only = _make_board(
         platform=Platform.ESP32,
-        variant=Esp32Variant.ESP32,
+        variant="esp32",
         connectivity=[Connectivity.ETHERNET],
     )
     yaml = generate_device_yaml("kitchen", "Kitchen", eth_only, ssid="", psk="")
@@ -2003,7 +2000,7 @@ def test_infer_native_wifi_routes_through_module_alias(
 
     monkeypatch.setattr(device_yaml._generation, "_has_native_wifi", _stub)
 
-    esp32_board = _make_board(platform=Platform.ESP32, variant=Esp32Variant.ESP32C3)
+    esp32_board = _make_board(platform=Platform.ESP32, variant="esp32c3")
     rp2040_board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
 
     assert device_yaml._infer_native_wifi(esp32_board) is False
@@ -3061,7 +3058,7 @@ def test_generate_device_yaml_network_default_wins_over_no_wifi_secrets() -> Non
 
 def test_generate_device_yaml_hosted_radio_enables_wifi_on_p4() -> None:
     """An ``esp32_hosted`` default makes a wifi-claiming P4 emit a real ``wifi:``."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     defaults = _hosted_defaults()
     out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=defaults)
     assert "wifi:" in out
@@ -3073,7 +3070,7 @@ def test_generate_device_yaml_hosted_radio_enables_wifi_on_p4() -> None:
 
 def test_generate_device_yaml_hosted_default_appends_firmware_update() -> None:
     """An ``esp32_hosted`` default appends ``http_request:`` and its update entity."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     out = generate_device_yaml(
         "kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=_hosted_defaults()
     )
@@ -3093,7 +3090,7 @@ def test_generate_device_yaml_hosted_default_appends_firmware_update() -> None:
 def test_generate_device_yaml_hosted_variant_without_firmware_manifest_skips_update() -> None:
     """No published firmware manifest for the variant → no update entity, no dead URL."""
     defaults = [(_make_component("esp32_hosted"), {"variant": "ESP32C3"})]
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw", defaults=defaults)
 
     assert "http_request:" not in out
@@ -3102,7 +3099,7 @@ def test_generate_device_yaml_hosted_variant_without_firmware_manifest_skips_upd
 
 def test_generate_device_yaml_no_hosted_default_appends_no_update() -> None:
     """Boards without a hosted radio get neither ``http_request:`` nor ``update:``."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32S3, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32s3", framework="esp-idf")
     out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw")
 
     assert "http_request:" not in out
@@ -3116,7 +3113,7 @@ def test_generate_device_yaml_p4_wifi_claim_without_radio_gets_network_todo() ->
     component esp32_hosted on ESP32P4"), so the generator falls back to
     the no-network TODO stub instead of an invalid config.
     """
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     out = generate_device_yaml("kitchen", "Kitchen", board, ssid="net", psk="pw")
     lines = out.splitlines()
     assert "wifi:" not in lines
@@ -3132,7 +3129,7 @@ def test_generate_device_yaml_ethernet_beats_hosted_radio() -> None:
     dual-network boards must come out wired-first; the hosted block still
     lands so switching to Wi-Fi is a block swap, not a pin hunt.
     """
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     defaults = [(_make_component("ethernet"), {"type": "IP101"}), *_hosted_defaults()]
     out = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="", defaults=defaults)
     assert "ethernet:" in out
@@ -3143,7 +3140,7 @@ def test_generate_device_yaml_ethernet_beats_hosted_radio() -> None:
 
 def test_generate_device_yaml_hosted_radio_without_secrets_gets_wifi_todo() -> None:
     """A hosted-radio P4 with no credentials gets the no-secrets TODO, not no-network."""
-    board = _make_esp32_board(variant=Esp32Variant.ESP32P4, framework="esp-idf")
+    board = _make_esp32_board(variant="esp32p4", framework="esp-idf")
     defaults = _hosted_defaults()
     out = generate_device_yaml(
         "kitchen",

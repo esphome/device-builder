@@ -44,7 +44,6 @@ from esphome_device_builder.models.boards import (
     BoardTag,
     Connectivity,
     DefaultComponent,
-    Esp32Variant,
     FeaturedBundle,
     FeaturedComponent,
     Platform,
@@ -568,7 +567,7 @@ def test_round_trip_all_populated_entry_preserves_everything() -> None:
         esphome=BoardEsphomeConfig(
             platform=Platform.ESP32,
             board="esp32dev",
-            variant=Esp32Variant.ESP32S3,
+            variant="esp32s3",
             framework="arduino",
         ),
         hardware=BoardHardware(

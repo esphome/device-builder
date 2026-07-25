@@ -83,12 +83,12 @@ from esphome_device_builder.models import (  # noqa: E402
     BoardEsphomeConfig,
     BoardPin,
     BoardTag,
-    Esp32Variant,
     FeaturedBundle,
     FeaturedComponent,
     PinFeature,
     Platform,
 )
+from esphome_device_builder.models.boards import normalize_chip_variant  # noqa: E402
 
 _LOGGER = logging.getLogger("sync_boards")
 
@@ -276,7 +276,7 @@ def _generated_board(
     name: str,
     display_name: str,
     pins: list[BoardPin],
-    variant: Esp32Variant | None = None,
+    variant: str | None = None,
 ) -> BoardCatalogEntry:
     """Build a minimal catalog entry (identity + derived pins) for an unmanifested board."""
     return BoardCatalogEntry(
@@ -571,7 +571,7 @@ def _augment_rp2040_onboard_ethernet_pins(boards: list[BoardCatalogEntry]) -> No
 
 def _esp32_generic_pins_by_variant(
     boards: list[BoardCatalogEntry],
-) -> dict[tuple[Esp32Variant, bool], list[BoardPin]]:
+) -> dict[tuple[str, bool], list[BoardPin]]:
     """
     Index the loaded ``generic-<variant>`` manifests' pins by (variant, ES-ness).
 
@@ -652,7 +652,7 @@ def _backfill_esp32_variants(boards: list[BoardCatalogEntry]) -> None:
             continue
         variant = esp32_variant_for_board(cfg.board)
         if variant is not None:
-            cfg.variant = Esp32Variant(variant)
+            cfg.variant = normalize_chip_variant(variant)
 
 
 def _backfill_donor_pins(
@@ -678,7 +678,7 @@ def _backfill_donor_pins(
             board.pins = list(donor.pins)
 
     def _chip(cfg: BoardEsphomeConfig) -> tuple[str, str, str | None]:
-        return (cfg.platform.value, cfg.board, cfg.variant.value if cfg.variant else None)
+        return (cfg.platform.value, cfg.board, cfg.variant or None)
 
     donors: dict[tuple[str, str, str | None], list[BoardCatalogEntry]] = {}
     for board in boards:
@@ -732,7 +732,7 @@ def _augment_esp32_boards(boards: list[BoardCatalogEntry]) -> None:
         display = _meta_name(meta, name)
         if name in ids or _name_already_listed(Platform("esp32"), name, display, names):
             continue
-        variant = Esp32Variant(meta["variant"].lower())
+        variant = normalize_chip_variant(meta["variant"])
         pins = _resolve_board_pins(pin_map, name)
         es = bool(meta.get("engineering_sample"))
         # Fall back to the other revision's generic for variants with one manifest.
@@ -930,14 +930,14 @@ def _augment_rmii_data_pins(boards: list[BoardCatalogEntry]) -> None:
     """
     module = importlib.import_module("esphome.components.ethernet")
     # No getattr default: an upstream rename should fail the sync loudly.
-    by_variant: dict[Esp32Variant, dict[int, str]] = {
-        Esp32Variant.ESP32: module.ESP32_RMII_FIXED_PINS,
-        Esp32Variant.ESP32P4: module.ESP32P4_RMII_DEFAULT_PINS,
+    by_variant: dict[str, dict[int, str]] = {
+        "esp32": module.ESP32_RMII_FIXED_PINS,
+        "esp32p4": module.ESP32P4_RMII_DEFAULT_PINS,
     }
     for board in boards:
         if board.esphome.platform is not Platform.ESP32 or not _has_rmii_ethernet(board):
             continue
-        fixed = by_variant.get(board.esphome.variant or Esp32Variant.ESP32)
+        fixed = by_variant.get(board.esphome.variant or "esp32")
         if not fixed:
             continue
         roles = {gpio: f"Ethernet {emac.removeprefix('EMAC_')}" for gpio, emac in fixed.items()}

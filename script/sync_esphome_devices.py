@@ -54,7 +54,7 @@ from esphome_device_builder.constants import (  # noqa: E402
     DEVICE_IMPORT_SOURCE_TYPE,
     FEATURED_EXCLUDED_CATEGORIES,
 )
-from esphome_device_builder.models.boards import Esp32Variant  # noqa: E402
+from esphome_device_builder.models.boards import normalize_chip_variant  # noqa: E402
 from script._board_import import (  # noqa: E402
     ESP32_VARIANT_DEFAULT_BOARD,
     build_esphome_block,
@@ -110,18 +110,25 @@ _DEVICES_REPO_RAW_BASE = "https://raw.githubusercontent.com/esphome/devices.esph
 # devices.esphome.io/src/utils/validFrontmatter.ts).
 _VALID_SOC_FAMILIES: frozenset[str] = frozenset({"esp32", "esp8266", "bk72xx", "rp2040", "rtl87xx"})
 
+
 # ESPHome esp32 board ids encode the chip variant (``esp32-p4-evboard``,
 # ``esp32-c6-devkitc-1``); infer it when a page gives ``board:`` but no
 # ``variant:``. Load-bearing for esp32p4 — it has no built-in radio, so the
 # wrong (classic-esp32) variant would mislabel it wifi-capable and emit a
 # ``wifi:`` block that fails validation (P4 wifi needs ``esp32_hosted``). Built
-# from ``Esp32Variant`` longest-first so e.g. ``esp32s31`` isn't swallowed by
-# ``esp32s3`` (nor ``esp32c61`` by ``esp32c6``).
-_ESP32_VARIANT_SUFFIXES = sorted(
-    (v.value.removeprefix("esp32") for v in Esp32Variant if v is not Esp32Variant.ESP32),
-    key=len,
-    reverse=True,
-)
+# from the live variant list longest-first so e.g. ``esp32s31`` isn't
+# swallowed by ``esp32s3`` (nor ``esp32c61`` by ``esp32c6``).
+def _esp32_variant_suffixes() -> list[str]:
+    from esphome.components.esp32.const import VARIANTS
+
+    return sorted(
+        (suffix for v in VARIANTS if (suffix := normalize_chip_variant(v).removeprefix("esp32"))),
+        key=len,
+        reverse=True,
+    )
+
+
+_ESP32_VARIANT_SUFFIXES = _esp32_variant_suffixes()
 # Suffix must end the token (next char is ``-``, ``_``, or end) — a bare ``\b``
 # wouldn't fire before ``_`` (underscore is a word char) so ``esp32_s3_zero`` would
 # miss, and it keeps ``s3`` from matching inside ``s31``.

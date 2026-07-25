@@ -5,11 +5,11 @@ from __future__ import annotations
 import importlib
 
 import pytest
+from esphome.components.esp32.const import VARIANTS
 
 from esphome_device_builder.models import (
     BoardCatalogResponse,
     BoardPin,
-    Esp32Variant,
     PinFeature,
 )
 from script.sync_boards import (
@@ -21,13 +21,13 @@ from script.sync_boards import (
 pytestmark = pytest.mark.xdist_group("board_sync")
 
 
-def test_every_esphome_variant_maps_to_enum() -> None:
+def test_every_esphome_board_variant_is_a_known_variant() -> None:
+    """Pins the invariant the capability emitters rely on: BOARDS ⊆ VARIANTS."""
     module = importlib.import_module(_ESP32_BOARDS_MODULE)
     board_list = getattr(module, _ESP32_BOARDS_ATTR)
     variants = {meta["variant"] for meta in board_list.values()}
     assert variants, "esphome should expose esp32 boards"
-    for variant in variants:
-        assert Esp32Variant(variant.lower())
+    assert variants <= set(VARIANTS)
 
 
 def test_catalog_generates_board_with_derived_pins(
@@ -40,7 +40,7 @@ def test_catalog_generates_board_with_derived_pins(
     assert "adafruit_feather_esp32_v2" in boards
     board = boards["adafruit_feather_esp32_v2"]
     assert board.esphome.platform.value == "esp32"
-    assert board.esphome.variant is Esp32Variant.ESP32
+    assert board.esphome.variant == "esp32"
     feats = {f for pin in board.pins for f in pin.features}
     assert {PinFeature.I2C_SDA, PinFeature.I2C_SCL, PinFeature.UART_TX} <= feats
     # Aliases enrich, not replace, the variant pinout: the full generic-esp32
@@ -59,7 +59,7 @@ def test_sparse_board_keeps_full_variant_pinout(
     boards = {b.id: b for b in generated_board_catalog.boards}
     assert "mhetesp32minikit" in boards
     board = boards["mhetesp32minikit"]
-    assert board.esphome.variant is Esp32Variant.ESP32
+    assert board.esphome.variant == "esp32"
     generic_gpios = {p.gpio for p in boards["generic-esp32"].pins}
     assert {p.gpio for p in board.pins} == generic_gpios
     assert {1, 3, 16} <= generic_gpios
@@ -99,7 +99,7 @@ def test_catalog_falls_back_to_generic_variant_pins(
     # so it inherits the generic-esp32s3 pinout.
     assert "adafruit_camera_esp32s3" in boards
     board = boards["adafruit_camera_esp32s3"]
-    assert board.esphome.variant is Esp32Variant.ESP32S3
+    assert board.esphome.variant == "esp32s3"
     generic = boards["generic-esp32s3"]
     assert board.pins, "fallback board should carry the generic variant pins"
     assert [p.to_dict() for p in board.pins] == [p.to_dict() for p in generic.pins]

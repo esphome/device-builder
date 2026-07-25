@@ -28,7 +28,6 @@ from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardCatalogIndex,
     BoardTag,
-    Esp32Variant,
     Platform,
 )
 from esphome_device_builder.models.boards import BoardEsphomeConfig
@@ -41,7 +40,7 @@ def _board(
     description: str = "",
     manufacturer: str = "Acme",
     platform: Platform = Platform.ESP32,
-    variant: Esp32Variant | None = None,
+    variant: str | None = None,
     pio_board: str = "esp32dev",
     tags: list[BoardTag] | None = None,
     featured: bool = False,
@@ -107,7 +106,7 @@ def catalog() -> BoardCatalog:
                 description="Compact dev board",
                 manufacturer="Seeed",
                 platform=Platform.ESP32,
-                variant=Esp32Variant.ESP32C3,
+                variant="esp32c3",
                 pio_board="esp32-c3-devkitm-1",
                 tags=[BoardTag.COMPACT, BoardTag.USB_C],
                 featured=True,
@@ -118,7 +117,7 @@ def catalog() -> BoardCatalog:
                 description="Display-equipped ESP32-S3",
                 manufacturer="M5Stack",
                 platform=Platform.ESP32,
-                variant=Esp32Variant.ESP32S3,
+                variant="esp32s3",
                 pio_board="m5stack-cores3",
                 tags=[BoardTag.DISPLAY],
             ),
@@ -127,7 +126,7 @@ def catalog() -> BoardCatalog:
                 name="Generic ESP32-C3",
                 manufacturer="Generic",
                 platform=Platform.ESP32,
-                variant=Esp32Variant.ESP32C3,
+                variant="esp32c3",
                 pio_board="esp32-c3-devkitm-1",
                 is_generic=True,
             ),
@@ -136,7 +135,7 @@ def catalog() -> BoardCatalog:
                 name="Generic ESP32-S3",
                 manufacturer="Generic",
                 platform=Platform.ESP32,
-                variant=Esp32Variant.ESP32S3,
+                variant="esp32s3",
                 pio_board="esp32-s3-devkitc-1",
                 is_generic=True,
             ),
@@ -173,7 +172,7 @@ async def test_get_board_returns_match_by_id(catalog: BoardCatalog) -> None:
     board = await catalog.get_board(board_id="m5stack-cores3")
     assert board is not None
     assert board.id == "m5stack-cores3"
-    assert board.esphome.variant == Esp32Variant.ESP32S3
+    assert board.esphome.variant == "esp32s3"
 
 
 async def test_get_board_returns_none_for_unknown_id(catalog: BoardCatalog) -> None:
@@ -325,7 +324,7 @@ async def test_get_boards_filters_compose(catalog: BoardCatalog) -> None:
     """
     resp = await catalog.get_boards(
         platform=Platform.ESP32,
-        variant=Esp32Variant.ESP32C3,
+        variant="esp32c3",
         tag=BoardTag.COMPACT,
     )
 
@@ -466,7 +465,7 @@ def test_find_by_pio_board_prefer_exact_id_beats_generic(catalog: BoardCatalog) 
             board_id="esp32-c3-devkitm-1",
             name="Espressif ESP32-C3-DevKitM-1",
             platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32C3,
+            variant="esp32c3",
             pio_board="esp32-c3-devkitm-1",
         )
     )
@@ -498,7 +497,7 @@ def test_find_by_pio_board_returns_first_when_no_generic(
             board_id="zzz-second-vendor-c3",
             name="ZZZ Second Vendor C3",
             platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32C3,
+            variant="esp32c3",
             pio_board="esp32-c3-devkitm-1",
         )
     )
@@ -582,7 +581,7 @@ def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> No
         _board(
             board_id="alt-c3-board",
             platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32C3,
+            variant="esp32c3",
             pio_board="some-shared-pio",
         )
     )
@@ -590,7 +589,7 @@ def test_find_by_pio_board_prefers_matching_variant(catalog: BoardCatalog) -> No
         _board(
             board_id="alt-s3-board",
             platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32S3,
+            variant="esp32s3",
             pio_board="some-shared-pio",
         )
     )
@@ -607,7 +606,7 @@ def test_find_by_pio_board_matches_uppercase_variant(catalog: BoardCatalog) -> N
         _board(
             board_id="alt-c3-board",
             platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32C3,
+            variant="esp32c3",
             pio_board="shared-pio-upper",
         )
     )
@@ -615,7 +614,7 @@ def test_find_by_pio_board_matches_uppercase_variant(catalog: BoardCatalog) -> N
         _board(
             board_id="alt-s3-board",
             platform=Platform.ESP32,
-            variant=Esp32Variant.ESP32S3,
+            variant="esp32s3",
             pio_board="shared-pio-upper",
         )
     )

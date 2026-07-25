@@ -46,13 +46,13 @@ from ..models import (
     BoardTag,
     Connectivity,
     DefaultComponent,
-    Esp32Variant,
     FeaturedBundle,
     FeaturedComponent,
     FieldPreset,
     PinFeature,
     Platform,
 )
+from ..models.boards import normalize_chip_variant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -290,7 +290,13 @@ def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
     """Load a BoardEsphomeConfig from a dict."""
     platform = Platform(data["platform"])
     variant_raw = data.get("variant")
-    variant = Esp32Variant(variant_raw) if variant_raw else None
+    variant = normalize_chip_variant(str(variant_raw)) if variant_raw else None
+    if variant is not None:
+        known = load_platform_capabilities_index().esp32_variants
+        # Fail open on an empty snapshot; warn (not drop) on an unknown value
+        # so the sync-time gate is where a typo actually fails.
+        if known and variant not in {normalize_chip_variant(v) for v in known}:
+            _LOGGER.warning("Board %s: unknown esp32 variant %r", board_id, variant)
     return BoardEsphomeConfig(
         platform=platform,
         board=data["board"],
@@ -363,7 +369,7 @@ def build_board_catalog_from_manifests(*, strict: bool = False) -> BoardCatalogR
             if not images:
                 generic = _generic_image_url(
                     esphome_cfg.platform.value,
-                    esphome_cfg.variant.value if esphome_cfg.variant else None,
+                    esphome_cfg.variant or None,
                 )
                 if generic:
                     images = [generic]

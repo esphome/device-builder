@@ -3682,9 +3682,9 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     raw = _collect_platform_defaults(loader.get_component("logger")).get(("hardware_uart",), {})
     if not raw:
         raise RuntimeError("logger hardware_uart SplitDefault table not found")
-    # The key set the runtime can look up: platform keys plus the LIVE esp32
+    # The key set the runtime can look up: platform keys plus the live esp32
     # variants, spelled through the same normalizers the runtime uses. Live
-    # (not the local Esp32Variant enum) so a brand-new chip syncs the day it
+    # so a brand-new chip syncs the day it
     # lands; only a genuinely unknown platform key fails the sync loudly.
     known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
     defaults: dict[str, str] = {}

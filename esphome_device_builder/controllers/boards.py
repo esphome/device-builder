@@ -16,7 +16,6 @@ from ..models import (
     BoardCatalogEntry,
     BoardCatalogIndex,
     BoardTag,
-    Esp32Variant,
     PagedBoardsResponse,
     Platform,
 )
@@ -44,7 +43,7 @@ def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, bool, str]:
 def _filter_by_variant(boards: list[BoardCatalogIndex], variant: str) -> list[BoardCatalogIndex]:
     """Boards whose variant equals *variant*, case-insensitively (empty if none)."""
     target = variant.lower()
-    return [b for b in boards if b.esphome.variant and b.esphome.variant.value.lower() == target]
+    return [b for b in boards if b.esphome.variant and b.esphome.variant.lower() == target]
 
 
 class BoardCatalog:
@@ -86,7 +85,7 @@ class BoardCatalog:
         *,
         query: str | None = None,
         platform: Platform | str | None = None,
-        variant: Esp32Variant | str | None = None,
+        variant: str | None = None,
         mcu: str | None = None,
         tag: BoardTag | str | None = None,
         offset: int = 0,

@@ -6,7 +6,6 @@ from esphome_device_builder.models import (
     BoardCatalogEntry,
     BoardEsphomeConfig,
     BoardPin,
-    Esp32Variant,
     FeaturedComponent,
     Platform,
 )
@@ -19,7 +18,7 @@ _RMII_GPIOS = {19, 21, 22, 25, 26, 27}
 def _board(
     *,
     platform: Platform = Platform.ESP32,
-    variant: Esp32Variant | None = Esp32Variant.ESP32,
+    variant: str | None = "esp32",
     eth_fields: dict[str, object] | None = None,
     pins: list[BoardPin] | None = None,
 ) -> BoardCatalogEntry:
@@ -100,7 +99,7 @@ def test_non_esp32_board_skipped() -> None:
 def test_esp32p4_board_uses_p4_pins() -> None:
     """An esp32p4 RMII board gets the P4 default data pins, not the classic set."""
     board = _board(
-        variant=Esp32Variant.ESP32P4,
+        variant="esp32p4",
         eth_fields={"type": "LAN8720", "mdc_pin": "GPIO23"},
     )
     _augment_rmii_data_pins([board])
@@ -113,7 +112,7 @@ def test_esp32p4_board_uses_p4_pins() -> None:
 def test_esp32_variant_without_emac_skipped() -> None:
     """An esp32 variant with no RMII pin map (e.g. esp32s3) is left untouched."""
     board = _board(
-        variant=Esp32Variant.ESP32S3,
+        variant="esp32s3",
         eth_fields={"type": "LAN8720", "mdc_pin": "GPIO23"},
     )
     _augment_rmii_data_pins([board])
