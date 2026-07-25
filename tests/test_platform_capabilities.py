@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import orjson
+from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 from esphome.components.esp32.const import VARIANTS
 from esphome.components.libretiny.const import FAMILY_COMPONENT
 from esphome.components.rp2040.boards import BOARDS
@@ -26,6 +27,8 @@ from esphome_device_builder.definitions import (
     _parse_download_types,
     load_platform_capabilities_index,
 )
+from esphome_device_builder.models import Esp32Variant
+from script.sync_components import _logger_interface_snapshot  # type: ignore[import-not-found]
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
 
@@ -73,6 +76,7 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.esp32_no_wifi_variants), set(NO_WIFI_VARIANTS)),
         (set(caps.libretiny_families), set(FAMILY_COMPONENT.values())),
         (set(caps.rp2040_no_wifi_boards), installed_no_wifi_boards),
+        (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
     ]
     for component in ("esp32", "esp8266", "rp2040"):
         module = importlib.import_module(f"esphome.components.{component}")
@@ -90,6 +94,28 @@ def test_index_within_installed_esphome() -> None:
         else:
             extra = indexed - installed
             assert not extra, f"committed index data no installed esphome exposes: {extra}"
+
+
+def test_logger_interface_snapshot_matches_live_logger_schema() -> None:
+    """
+    Checked-in logger snapshot re-derives identically from the live schema.
+
+    Strict parity, unlike the one-release drift the sibling test tolerates:
+    the esphome-dev matrix is the early-warning alarm for an upstream
+    ``hardware_uart`` default change.
+    """
+    defaults, values = _logger_interface_snapshot()
+    caps = load_platform_capabilities_index()
+    assert caps.logger_interface_defaults == defaults
+    assert caps.logger_interface_values == values
+
+
+def test_logger_interface_esp32_keys_are_known_variants() -> None:
+    """Every esp32-family key in the snapshot matches the Esp32Variant spelling."""
+    variants = {v.value for v in Esp32Variant}
+    for key in load_platform_capabilities_index().logger_interface_defaults:
+        if key.startswith("esp32"):
+            assert key in variants, key
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:

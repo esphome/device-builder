@@ -143,6 +143,7 @@ from esphome_device_builder.models import (  # noqa: E402
     LightEffectIndex,
     PinFeature,
     PinMode,
+    Platform,
     normalize_chip_variant,
     normalize_platform,
 )
@@ -3675,40 +3676,30 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     dashboard's canonical platform / variant spelling; rows resolving to the
     SDK-runtime ``DEFAULT`` (libretiny) are dropped as unknowable.
     """
-    from esphome import config_validation as cv
+    from esphome import loader
     from esphome.components import logger as logger_component
 
-    schema: Any = logger_component.CONFIG_SCHEMA
-    while not isinstance(getattr(schema, "schema", None), dict):
-        schema = schema.validators[0]
-    marker = next(
-        key
-        for key in schema.schema
-        if isinstance(key, cv.SplitDefault) and key.schema == "hardware_uart"
-    )
+    raw = _collect_platform_defaults(loader.get_component("logger")).get(("hardware_uart",), {})
+    if not raw:
+        raise RuntimeError("logger hardware_uart SplitDefault table not found")
     # The exact key set the runtime can look up: platform keys plus the
     # esp32 variants, spelled through the same normalizers the runtime
     # uses. An upstream key that lands outside it (a renamed platform,
     # a new variant family) must fail the sync loudly, not emit a dead
     # row the runtime never matches.
-    known_keys = (
-        {"esp8266", "nrf52", RP2_CANONICAL_PLATFORM}
-        | {variant.value for variant in Esp32Variant}
-        | set(_libretiny_families())
-    )
+    known_keys = {p.value for p in Platform} | {v.value for v in Esp32Variant}
     defaults: dict[str, str] = {}
-    for key, factory in sorted(marker._defaults.items()):
-        value = factory()
+    for key, value in sorted(raw.items()):
         if value == "DEFAULT":
             continue
-        canonical = normalize_chip_variant(normalize_platform(key))
+        canonical = normalize_chip_variant(key)
         if canonical not in known_keys:
             raise RuntimeError(
                 f"logger hardware_uart default key {key!r} does not map onto a "
                 "known platform/variant — update the dashboard's platform "
                 "vocabulary before syncing"
             )
-        defaults[canonical] = value
+        defaults[canonical] = str(value)
     values = sorted(
         value for value in logger_component.HARDWARE_UART_TO_UART_SELECTION if value != "DEFAULT"
     )

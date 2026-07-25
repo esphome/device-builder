@@ -21,7 +21,6 @@ from esphome.const import ALLOWED_NAME_CHARS
 from esphome_device_builder.definitions import (
     load_board_body_from_disk,
     load_board_index,
-    load_platform_capabilities_index,
 )
 from esphome_device_builder.helpers import device_yaml
 from esphome_device_builder.helpers.device_yaml import (
@@ -935,45 +934,6 @@ def test_extract_logger_interface_board_snapshot_fallback() -> None:
 def test_extract_logger_interface_none(config: Any, platform: str) -> None:
     """Unknowable interfaces (no logger, libretiny, unknown variant) yield ``None``."""
     assert extract_logger_interface(config, platform) is None
-
-
-def test_logger_interface_snapshot_matches_live_logger_schema() -> None:
-    """Pins the checked-in capability snapshot against the live SplitDefault table."""
-    cv = pytest.importorskip("esphome.config_validation")
-    logger = pytest.importorskip("esphome.components.logger")
-
-    inner: Any = logger.CONFIG_SCHEMA
-    while not isinstance(getattr(inner, "schema", None), dict):
-        inner = inner.validators[0]
-    marker = next(
-        key
-        for key in inner.schema
-        if isinstance(key, cv.SplitDefault) and key.schema == "hardware_uart"
-    )
-    live = {key: factory() for key, factory in marker._defaults.items()}
-    assert live, "hardware_uart SplitDefault table is empty"
-
-    snapshot = load_platform_capabilities_index().logger_interface_defaults
-    known: set[str] = set()
-    for key, value in live.items():
-        mapped = "rp2040" if key == "rp2" else key.replace("esp32_", "esp32")
-        if value == "DEFAULT":
-            assert mapped not in snapshot, mapped
-            continue
-        known.add(mapped)
-        assert snapshot.get(mapped) == value, mapped
-    assert set(snapshot) == known
-
-    live_values = {v for v in logger.HARDWARE_UART_TO_UART_SELECTION if v != "DEFAULT"}
-    assert set(load_platform_capabilities_index().logger_interface_values) == live_values
-
-
-def test_logger_interface_esp32_keys_are_known_variants() -> None:
-    """Every esp32-family key in the snapshot matches the Esp32Variant spelling."""
-    variants = {v.value for v in Esp32Variant}
-    for key in load_platform_capabilities_index().logger_interface_defaults:
-        if key.startswith("esp32"):
-            assert key in variants, key
 
 
 def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:

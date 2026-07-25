@@ -473,9 +473,13 @@ def extract_logger_interface(
         value = value.strip().upper()
         return value if value in caps.logger_interface_values else None
     platform = normalize_platform(target_platform.strip().lower())
-    key: str | None = platform
-    if platform == "esp32":
-        key = resolve_esp32_variant(config, extra_substitutions, storage_variant)
+    key = (
+        resolve_esp32_variant(config, extra_substitutions, storage_variant)
+        if platform == "esp32"
+        else platform
+    )
+    # The falsy guard is for mypy (resolve may return None); dict.get(None)
+    # would behave identically.
     return caps.logger_interface_defaults.get(key) if key else None
 
 
