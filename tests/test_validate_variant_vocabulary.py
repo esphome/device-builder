@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from script.validate_definitions import (  # type: ignore[import-not-found]
+import pytest
+
+import script.validate_definitions as vd  # type: ignore[import-not-found]
+from script.validate_definitions import (
     _ESP32_VARIANTS,
     _validate_variant_vocabulary,
     validate_board,
@@ -28,10 +31,17 @@ def test_non_canonical_spelling_gets_the_friendly_error() -> None:
 
 
 def test_non_esp32_prefix_gets_the_friendly_error() -> None:
-    # Snapshot-independent, so the field stays guarded even on a degraded index.
-    for value in ("c3", "esp8266"):
+    for value in ("c3", "esp8266", "ESP8266"):
         errors = _validate_variant_vocabulary("b", {"esphome": {"variant": value}})
         assert errors and "must be an esp32-family variant" in errors[0]
+
+
+def test_degraded_snapshot_fails_open_but_keeps_the_prefix_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vd, "_ESP32_VARIANTS", frozenset())
+    assert vd._validate_variant_vocabulary("b", {"esphome": {"variant": "esp32z9"}}) == []
+    assert vd._validate_variant_vocabulary("b", {"esphome": {"variant": "esp8266"}})
 
 
 def test_unknown_variant_rejected() -> None:

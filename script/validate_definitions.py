@@ -261,15 +261,18 @@ def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
     if not isinstance(declared, str):
         return []
     canonical = normalize_chip_variant(declared)
-    if declared != canonical:
-        return [
-            f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
-            f"spelling '{canonical}'"
-        ]
+    # Family membership first, decided on the folded value — a mixed-case
+    # non-esp32 typo gets the real diagnosis in one round, not after a
+    # lowercasing round-trip.
     if not canonical.startswith("esp32"):
         return [
             f"{board_id}: esphome.variant '{declared}' must be an esp32-family variant "
             "(e.g. esp32c3)"
+        ]
+    if declared != canonical:
+        return [
+            f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
+            f"spelling '{canonical}'"
         ]
     if _ESP32_VARIANTS and canonical not in _ESP32_VARIANTS:
         return [
