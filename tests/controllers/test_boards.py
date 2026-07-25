@@ -223,14 +223,10 @@ async def test_get_boards_filters_by_platform(catalog: BoardCatalog) -> None:
     assert {b.id for b in resp.boards} == {"d1-mini", "generic-esp8266"}
 
 
-async def test_get_boards_filters_by_variant_case_insensitive(
+async def test_get_boards_filters_by_variant_spelling_fold(
     catalog: BoardCatalog,
 ) -> None:
-    """``variant`` filter is case-insensitive — ``ESP32C3`` matches ``esp32c3``.
-
-    ``variant`` folds spellings — ``ESP32C3`` and ``ESP32-C3`` both
-    match the catalog's ``esp32c3``.
-    """
+    """``variant`` folds spellings — ``ESP32C3`` / ``ESP32-C3`` both match ``esp32c3``."""
     resp = await catalog.get_boards(variant="ESP32C3")
 
     assert resp.total == 2

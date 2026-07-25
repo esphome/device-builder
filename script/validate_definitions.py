@@ -81,8 +81,16 @@ def _load_capabilities_snapshot() -> dict:
 
 
 def _snapshot_variant_set(caps: dict, key: str) -> frozenset[str]:
-    """Return the normalized variant set for *key* in the parsed snapshot."""
-    return frozenset(normalize_chip_variant(str(v)) for v in caps.get(key, []))
+    """Return the normalized variant set for *key*; empty (and loud) when malformed."""
+    values = caps.get(key)
+    if not isinstance(values, list):
+        print(
+            f"warning: {key} missing or malformed in platform_capabilities.index.json; "
+            "the variant vocabulary check is disabled",
+            file=sys.stderr,
+        )
+        return frozenset()
+    return frozenset(normalize_chip_variant(str(v)) for v in values)
 
 
 _CAPS_SNAPSHOT = _load_capabilities_snapshot()
@@ -247,12 +255,18 @@ def validate_board(
 
 
 def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
-    """Reject a variant outside the snapshot vocabulary; fail open on an empty snapshot."""
+    """Reject a non-canonical or out-of-vocabulary variant; fail open on an empty snapshot."""
     esphome_cfg = data.get("esphome")
     declared = esphome_cfg.get("variant") if isinstance(esphome_cfg, dict) else None
-    if not isinstance(declared, str) or not _ESP32_VARIANTS:
+    if not isinstance(declared, str):
         return []
-    if normalize_chip_variant(declared) not in _ESP32_VARIANTS:
+    canonical = normalize_chip_variant(declared)
+    if declared != canonical:
+        return [
+            f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
+            f"spelling '{canonical}'"
+        ]
+    if _ESP32_VARIANTS and canonical not in _ESP32_VARIANTS:
         return [
             f"{board_id}: esphome.variant '{declared}' is not a known esp32 variant "
             "(vocabulary: esp32_variants in platform_capabilities.index.json)"
