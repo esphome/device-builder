@@ -280,7 +280,7 @@ async def test_interface_monitor_done_callback_logs_unexpected_crash(
     with caplog.at_level(logging.ERROR):
         log_task_exit("Interface monitor", task)
 
-    assert "Interface monitor loop crashed" in caplog.text
+    assert "Interface monitor crashed" in caplog.text
 
 
 async def test_interface_monitor_done_callback_silent_on_cancel(

@@ -972,7 +972,7 @@ def test_log_task_exit_logs_crash(caplog: Any) -> None:
     task.exception.return_value = RuntimeError("loop died")
     with caplog.at_level(logging.ERROR):
         log_task_exit("API info fallback", task)
-    assert "API info fallback loop crashed" in caplog.text
+    assert "API info fallback crashed" in caplog.text
 
 
 # ----------------------------------------------------------------------

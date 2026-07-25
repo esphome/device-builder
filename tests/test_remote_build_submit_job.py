@@ -31,6 +31,7 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
     _DEVICE_DISPLAY_FIELD_MAX_LEN,
     SubmitJobReceiver,
     _coerce_display_field,
+    _PendingSubmit,
     _validate_configuration_filename,
 )
 from esphome_device_builder.helpers.peer_link_bundle import (
@@ -111,7 +112,7 @@ def _header(
 
 async def _drain_extracts(receiver: SubmitJobReceiver) -> None:
     """Await the off-loop post-ack extract tasks so assertions see their effects."""
-    await asyncio.gather(*receiver._extract_tasks.values(), return_exceptions=True)
+    await asyncio.gather(*receiver._extract_tasks, return_exceptions=True)
 
 
 def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
@@ -384,7 +385,6 @@ async def test_submit_job_upload_reject_leaves_session_intact_for_chunks(
     await receiver.handle_submit_job(session, _header(target="upload", bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
-    await _drain_extracts(receiver)
 
     payloads = [c.args[0] for c in session.send_app_frame.call_args_list]
     assert payloads[0]["reason"] == "upload_unsupported"
@@ -1069,8 +1069,7 @@ async def test_receive_path_stays_live_while_the_extract_runs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The final chunk handler returns with the extract still parked off-loop."""
-    firmware = _make_firmware_controller()
-    receiver = _make_receiver(tmp_path, firmware)
+    receiver = _make_receiver(tmp_path)
     session = _make_session()
     bundle = b"hello"
     release = asyncio.Event()
@@ -1101,20 +1100,19 @@ async def test_extracts_chain_per_peer_preserving_enqueue_order(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A second accepted submit waits for the peer's previous extract."""
-    firmware = _make_firmware_controller()
-    receiver = _make_receiver(tmp_path, firmware)
+    receiver = _make_receiver(tmp_path)
     session = _make_session()
     bundle = b"hello"
     release = asyncio.Event()
     order: list[str] = []
 
-    async def _recording_extract(*, session: object, pending: object, bundle_bytes: bytes) -> None:
-        if not order:
+    async def _recording_extract(
+        *, session: object, pending: _PendingSubmit, bundle_bytes: bytes
+    ) -> None:
+        order.append(pending.job_id)
+        if len(order) == 1:
             # Park the first extract so the second lands behind it.
-            order.append(pending.job_id)  # type: ignore[attr-defined]
             await release.wait()
-            return
-        order.append(pending.job_id)  # type: ignore[attr-defined]
 
     monkeypatch.setattr(receiver, "_extract_and_queue", _recording_extract)
 
@@ -1138,8 +1136,7 @@ async def test_stop_cancels_a_parked_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Receiver shutdown cancels the off-loop extract instead of leaking it."""
-    firmware = _make_firmware_controller()
-    receiver = _make_receiver(tmp_path, firmware)
+    receiver = _make_receiver(tmp_path)
     session = _make_session()
     bundle = b"hello"
 

@@ -11,11 +11,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def log_task_exit(label: str, task: Task[Any]) -> None:
-    """Done-callback surfacing an unexpected loop crash instead of a silent death."""
+    """Done-callback surfacing an unexpected task crash instead of a silent death."""
     if task.cancelled():
         return
     if (exc := task.exception()) is not None:
-        _LOGGER.error("%s loop crashed: %s", label, exc, exc_info=exc)
+        _LOGGER.error("%s crashed: %s", label, exc, exc_info=exc)
 
 
 def log_gather_failures(results: Iterable[Any], message: str) -> None:
