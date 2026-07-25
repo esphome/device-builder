@@ -521,18 +521,13 @@ class SubmitJobReceiver:
     async def _finalise_and_queue(
         self, *, session: PeerLinkSession, pending: _PendingSubmit
     ) -> None:
-        """Pull the in-flight entry, finalise the bundle, ack, then extract + queue.
+        """
+        Pull the in-flight entry, finalise the bundle, ack, then extract + queue.
 
-        Split out from :meth:`handle_submit_job_chunk` so the
-        final-chunk path is read-on-its-own rather than tail-of-
-        a-flat-cascade. Drops the in-flight entry first so any
-        later failure can't leave a closed assembler dangling.
-
-        The ack is sent as soon as the bundle is assembled +
-        hash-validated, *before* the write + extract — that disk
-        hop can span the offloader's ack timeout on a slow disk,
-        so a post-ack failure is reported as a terminal
-        ``failed`` job-state frame instead.
+        The ack precedes the write + extract (which can span the offloader's
+        ack timeout on a slow disk); a post-ack failure is reported as a
+        terminal ``failed`` job-state frame. Drops the in-flight entry first
+        so a later failure can't leave a closed assembler dangling.
         """
         self._inflight.pop(session.dashboard_id, None)
         try:

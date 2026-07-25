@@ -586,13 +586,7 @@ def wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmware
 async def wait_for_receiver_jobs(
     instances: PairedInstances, count: int, *, timeout: float = 5.0
 ) -> None:
-    """Wait until the receiver has extracted + enqueued *count* jobs.
-
-    The receiver acks acceptance before the extract + queue hop, so a
-    submitted job reaches the recorder only after the ack returns to the
-    offloader; tests inspecting receiver state must wait rather than read
-    synchronously.
-    """
+    """Wait until the receiver has extracted + enqueued *count* jobs (the ack precedes both)."""
     firmware = instances.receiver._db.firmware
     await wait_until(
         lambda: firmware._enqueue.await_count >= count,

@@ -1013,8 +1013,7 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
         await receiver.handle_submit_job_chunk(session, chunk)
 
     frames = _sent_frames(session)
-    # Accepted up front; the escape is caught during extract and reported as a
-    # terminal failed frame (defence-in-depth still refuses to write outside root).
+    # The escape is caught post-ack, during extract.
     assert frames[0]["type"] == "submit_job_ack"
     assert frames[0]["accepted"] is True
     assert frames[-1]["type"] == "job_state_changed"
