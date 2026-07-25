@@ -259,13 +259,20 @@ _OPTION_EXPECTATIONS: list[tuple[str, str, int]] = [
 # entity-level inheritances belong here. The derivation itself is
 # pinned against live manifests in
 # ``tests/test_sync_components_component_gates.py``.
-_GATING_EXPECTATIONS: list[tuple[str, str, str]] = [
+_GATING_EXPECTATIONS: list[tuple[str, str, str | None]] = [
     # Zigbee + web_server entity options are inherited onto every
     # sensor via ``_SENSOR_SCHEMA``; they must be gated.
     ("sensor.ct_clamp", "zigbee_sensor", "zigbee"),
     ("sensor.ct_clamp", "web_server", "web_server"),
-    # MQTT entity option inherited via ``MQTT_COMPONENT_SCHEMA``.
+    # MQTT entity options inherited via ``MQTT_COMPONENT_SCHEMA`` /
+    # ``MQTT_COMMAND_COMPONENT_SCHEMA`` (#2300).
     ("switch.gpio", "state_topic", "mqtt"),
+    ("switch.gpio", "command_retain", "mqtt"),
+    # ``None`` pins gate *absence*: mqtt's own page never self-gates,
+    # and singleton auto-loaded base ids stay ungated advanced pickers
+    # (#1441; restored in #2305).
+    ("mqtt", "discovery", None),
+    ("captive_portal", "web_server_base_id", None),
 ]
 
 # Catalog-wide floors on gated-entry counts. The per-field rules above
