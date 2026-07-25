@@ -255,6 +255,9 @@ class BundleAssembler:
         self._buf = bytearray()
         self._next_index = 0
         self._closed = False
+        # Set on the first successful ``finalise``; the working buffer is
+        # released at the same point.
+        self._result: bytes | None = None
 
     def feed(self, chunk_index: int, raw: bytes, *, is_last: bool) -> None:
         """Accept one chunk. Raises :class:`BundleAssemblerError` on mismatch."""
@@ -297,8 +300,12 @@ class BundleAssembler:
         assembler hasn't seen its announced last chunk, or
         :attr:`BundleAssemblerErrorCode.HASH_MISMATCH` if the
         SHA-256 of the assembled bytes doesn't match the
-        offloader's announced digest.
+        offloader's announced digest. Memoised: the result is
+        cached and the working buffer freed on the first call,
+        so a second call returns the same bytes without re-work.
         """
+        if self._result is not None:
+            return self._result
         if not self._closed:
             _fail(
                 _Code.UNDERSIZED,
@@ -316,4 +323,7 @@ class BundleAssembler:
                 _Code.HASH_MISMATCH,
                 f"assembled bundle sha256 {actual} != announced {self._sha256_hex}",
             )
-        return bytes(self._buf)
+        self._result = bytes(self._buf)
+        # Release the working buffer once the result is cached.
+        self._buf = bytearray()
+        return self._result
