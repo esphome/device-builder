@@ -681,7 +681,7 @@ async def test_remote_compile_oversized_ack_translates_to_actionable_error(
     """An ``oversized`` rejection is remapped to guidance that also fits an old receiver."""
     controller = firmware_controller_factory(with_terminate=True)
     captured = capture_local_events(controller)
-    patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MB
+    patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MiB
     client = _make_client(accepted=False, reason="oversized")
     _wire_remote_build(controller, client=client)
     job = make_remote_job()
@@ -690,7 +690,7 @@ async def test_remote_compile_oversized_ack_translates_to_actionable_error(
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None
-    assert "bundle too large (5.0 MB)" in job.error
+    assert "bundle too large (5.0 MiB)" in job.error
     assert "update the remote build server" in job.error
     assert "build this device locally" in job.error
     assert "reduce embedded assets" in job.error
@@ -709,7 +709,7 @@ async def test_remote_compile_oversized_bundle_fails_fast_before_dispatch(
     controller = firmware_controller_factory(with_terminate=True)
     captured = capture_local_events(controller)
     monkeypatch.setattr(remote_runner, "BUNDLE_MAX_TOTAL_BYTES", 4 * 1024 * 1024)
-    patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MB > patched 4 MiB cap
+    patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MiB > patched 4 MiB cap
     client = _make_client()
     remote_build, _ = _wire_remote_build(controller, client=client)
     job = make_remote_job()
@@ -718,8 +718,8 @@ async def test_remote_compile_oversized_bundle_fails_fast_before_dispatch(
 
     assert job.status == JobStatus.FAILED
     assert job.error is not None
-    assert "configuration bundle is 5.0 MB" in job.error
-    assert "over the 4 MB remote-build limit" in job.error
+    assert "configuration bundle is 5.0 MiB" in job.error
+    assert "over the 4 MiB remote-build limit" in job.error
     remote_build._lookup_open_peer_link_client.assert_not_called()
     client.submit_job.assert_not_awaited()
     assert len(captured[EventType.JOB_FAILED]) == 1

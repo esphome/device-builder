@@ -157,7 +157,7 @@ def test_assembler_rejects_non_positive_num_chunks() -> None:
 
 
 def test_bundle_max_total_bytes_is_128_mib() -> None:
-    """Pin the cap: image/font-heavy bundles near ~40 MiB must fit under it."""
+    """Pin the intended cap value."""
     assert BUNDLE_MAX_TOTAL_BYTES == 128 * 1024 * 1024
 
 

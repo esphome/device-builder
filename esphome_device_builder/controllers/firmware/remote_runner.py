@@ -389,20 +389,17 @@ def _local_device_display_for_job(
     return (device.name, device.friendly_name) if device is not None else ("", "")
 
 
-def _bundle_size_mb(bundle_len: int) -> str:
-    """Render a bundle byte count as a one-decimal ``MB`` string."""
-    return f"{bundle_len / (1024 * 1024):.1f} MB"
+def _bundle_size_mib(bundle_len: int) -> str:
+    """Render a bundle byte count as a one-decimal ``MiB`` string."""
+    return f"{bundle_len / (1024 * 1024):.1f} MiB"
 
 
 def _receiver_oversized_reason(bundle_len: int) -> str:
-    """
-    Actionable ``oversized`` remap for a receiver-rejected submit.
-
-    Names the bundle size but no limit: the rejecting receiver may be an
-    old version whose cap differs from ours, so updating it is a remedy.
-    """
+    """Actionable remap for a receiver ``oversized`` reject; names size, not a cap."""
+    # No cap number: the rejecting receiver may be an older version whose cap
+    # differs from ours, so "update the build server" is part of the remedy.
     return (
-        f"bundle too large ({_bundle_size_mb(bundle_len)}); update the remote "
+        f"bundle too large ({_bundle_size_mib(bundle_len)}); update the remote "
         "build server to the latest ESPHome, build this device locally, or "
         "reduce embedded assets (large images/fonts or many mdi: icons)"
     )
@@ -410,10 +407,10 @@ def _receiver_oversized_reason(bundle_len: int) -> str:
 
 def _local_oversized_reason(bundle_len: int) -> str:
     """Actionable failure reason for a bundle past the offloader's own cap."""
-    cap_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
+    cap_mib = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
     return (
-        f"configuration bundle is {_bundle_size_mb(bundle_len)}, over the "
-        f"{cap_mb} MB remote-build limit; build this device locally, or reduce "
+        f"configuration bundle is {_bundle_size_mib(bundle_len)}, over the "
+        f"{cap_mib} MiB remote-build limit; build this device locally, or reduce "
         "embedded assets (large images/fonts or many mdi: icons)"
     )
 
