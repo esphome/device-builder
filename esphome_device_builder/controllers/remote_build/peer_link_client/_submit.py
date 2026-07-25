@@ -221,7 +221,7 @@ async def _send_submit_job_frames(
     # Streamed via ``chunk_bundle``'s generator rather than
     # materialising the list — slicing produces a fresh ``bytes``
     # per chunk and holding all of them alive would roughly double
-    # peak memory (up to BUNDLE_MAX_TOTAL_BYTES = 4 MiB).
+    # peak memory (up to ``BUNDLE_MAX_TOTAL_BYTES``).
     for chunk_index, raw, is_last in chunk_bundle(bundle_bytes):
         chunk_frame: SubmitJobChunkFrameData = {
             "type": "submit_job_chunk",

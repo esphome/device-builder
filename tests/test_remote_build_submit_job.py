@@ -32,7 +32,10 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
     _coerce_display_field,
     _validate_configuration_filename,
 )
-from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
+from esphome_device_builder.helpers.peer_link_bundle import (
+    BUNDLE_CHUNK_SIZE_BYTES,
+    BUNDLE_MAX_TOTAL_BYTES,
+)
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     JobType,
@@ -399,7 +402,7 @@ async def test_submit_job_oversized_bundle_rejected(tmp_path: Path) -> None:
         job_id="job-1",
         configuration_filename="kitchen.yaml",
         target="compile",
-        total_bundle_bytes=10 * 1024 * 1024,  # 10 MiB > 4 MiB cap
+        total_bundle_bytes=BUNDLE_MAX_TOTAL_BYTES + 1,
         num_chunks=1,
         bundle_sha256="0" * 64,
     )

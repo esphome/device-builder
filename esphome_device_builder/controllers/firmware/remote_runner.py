@@ -31,13 +31,14 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal
 
 from esphome.const import __version__ as _offloader_esphome_version
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_bundle import BundleBuildError
+from ...helpers.peer_link_bundle import BUNDLE_MAX_TOTAL_BYTES
 from ...helpers.remote_artifacts_materialise import (
     MaterialiseError,
     materialise_remote_artifacts,
@@ -53,7 +54,6 @@ from ...models import (
     OffloaderJobStateChangedData,
     OffloaderPeerLinkClosedData,
     ResetBuildEnvAckFrameData,
-    ResetBuildEnvRejectReason,
     SubmitJobAckFrameData,
 )
 from ..remote_build.peer_link_client import (
@@ -344,6 +344,14 @@ async def _build_bundle_or_fail(
         return None
     if bundle_bytes is None:
         lifecycle.cancel_if_requested(controller, job)
+        return None
+    # Fail fast on a bundle past our own cap rather than streaming it only to
+    # be rejected. Uses the offloader's cap, so a newer receiver with a higher
+    # one could accept a bundle we reject here — the receiver's ack (translated
+    # in ``_submit_job_to_receiver``) is the real gate; this is an optimisation.
+    if len(bundle_bytes) > BUNDLE_MAX_TOTAL_BYTES:
+        _fail_locally(controller, job, reason=_local_oversized_reason(len(bundle_bytes)))
+        return None
     return bundle_bytes
 
 
@@ -381,6 +389,35 @@ def _local_device_display_for_job(
     return (device.name, device.friendly_name) if device is not None else ("", "")
 
 
+def _bundle_size_mb(bundle_len: int) -> str:
+    """Render a bundle byte count as a one-decimal ``MB`` string."""
+    return f"{bundle_len / (1024 * 1024):.1f} MB"
+
+
+def _receiver_oversized_reason(bundle_len: int) -> str:
+    """
+    Actionable ``oversized`` remap for a receiver-rejected submit.
+
+    Names the bundle size but no limit: the rejecting receiver may be an
+    old version whose cap differs from ours, so updating it is a remedy.
+    """
+    return (
+        f"bundle too large ({_bundle_size_mb(bundle_len)}); update the remote "
+        "build server to the latest ESPHome, build this device locally, or "
+        "reduce embedded assets (large images/fonts or many mdi: icons)"
+    )
+
+
+def _local_oversized_reason(bundle_len: int) -> str:
+    """Actionable failure reason for a bundle past the offloader's own cap."""
+    cap_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
+    return (
+        f"configuration bundle is {_bundle_size_mb(bundle_len)}, over the "
+        f"{cap_mb} MB remote-build limit; build this device locally, or reduce "
+        "embedded assets (large images/fonts or many mdi: icons)"
+    )
+
+
 async def _submit_job_to_receiver(
     *,
     controller: FirmwareController,
@@ -412,7 +449,13 @@ async def _submit_job_to_receiver(
     except _PEER_LINK_ACKED_REQUEST_ERRORS as exc:
         _fail_locally(controller, job, reason=f"dispatch failed: {exc}")
         return False
-    return _check_ack(controller, job, ack, reject_label="receiver rejected job")
+    return _check_ack(
+        controller,
+        job,
+        ack,
+        reject_label="receiver rejected job",
+        reason_remap={"oversized": _receiver_oversized_reason(len(bundle_bytes))},
+    )
 
 
 async def _send_reset_to_receiver(
@@ -444,7 +487,7 @@ def _check_ack(
     ack: SubmitJobAckFrameData | ResetBuildEnvAckFrameData,
     *,
     reject_label: str,
-    reason_remap: Mapping[ResetBuildEnvRejectReason, str] | None = None,
+    reason_remap: Mapping[str, str] | None = None,
 ) -> bool:
     """
     Fail *job* locally on a rejected ack; True iff accepted.
@@ -455,7 +498,7 @@ def _check_ack(
         return True
     reason = ack.get("reason", "no reason given")
     if reason_remap:
-        reason = cast("Mapping[str, str]", reason_remap).get(reason, reason)
+        reason = reason_remap.get(reason, reason)
     _fail_locally(controller, job, reason=f"{reject_label}: {reason}")
     return False
 

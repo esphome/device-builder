@@ -674,6 +674,57 @@ async def test_remote_compile_rejected_ack_without_reason_uses_fallback(
     assert len(captured[EventType.JOB_FAILED]) == 1
 
 
+async def test_remote_compile_oversized_ack_translates_to_actionable_error(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+) -> None:
+    """An ``oversized`` rejection is remapped to guidance that also fits an old receiver."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = capture_local_events(controller)
+    patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MB
+    client = _make_client(accepted=False, reason="oversized")
+    _wire_remote_build(controller, client=client)
+    job = make_remote_job()
+
+    await remote_runner.run_remote_job(controller, job)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None
+    assert "bundle too large (5.0 MB)" in job.error
+    assert "update the remote build server" in job.error
+    assert "build this device locally" in job.error
+    assert "reduce embedded assets" in job.error
+    # Bare wire code translated away; no local cap number (receiver's cap is unknown).
+    assert "oversized" not in job.error
+    assert "128" not in job.error
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
+async def test_remote_compile_oversized_bundle_fails_fast_before_dispatch(
+    firmware_controller_factory: FirmwareControllerFactory,
+    patch_bundle: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bundle past the offloader's own cap fails locally without looking up a client."""
+    controller = firmware_controller_factory(with_terminate=True)
+    captured = capture_local_events(controller)
+    monkeypatch.setattr(remote_runner, "BUNDLE_MAX_TOTAL_BYTES", 4 * 1024 * 1024)
+    patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MB > patched 4 MiB cap
+    client = _make_client()
+    remote_build, _ = _wire_remote_build(controller, client=client)
+    job = make_remote_job()
+
+    await remote_runner.run_remote_job(controller, job)
+
+    assert job.status == JobStatus.FAILED
+    assert job.error is not None
+    assert "configuration bundle is 5.0 MB" in job.error
+    assert "over the 4 MB remote-build limit" in job.error
+    remote_build._lookup_open_peer_link_client.assert_not_called()
+    client.submit_job.assert_not_awaited()
+    assert len(captured[EventType.JOB_FAILED]) == 1
+
+
 async def test_remote_compile_receiver_unreachable_fires_job_failed(
     firmware_controller_factory: FirmwareControllerFactory,
     patch_bundle: AsyncMock,
