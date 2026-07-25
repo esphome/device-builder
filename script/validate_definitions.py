@@ -269,15 +269,17 @@ def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
             f"{board_id}: esphome.variant '{declared}' must be an esp32-family variant "
             "(e.g. esp32c3)"
         ]
-    if declared != canonical:
-        return [
-            f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
-            f"spelling '{canonical}'"
-        ]
+    # Vocabulary before spelling: the spelling message proposes the folded
+    # value, so it must only fire when that value is actually accepted.
     if _ESP32_VARIANTS and canonical not in _ESP32_VARIANTS:
         return [
             f"{board_id}: esphome.variant '{declared}' is not a known esp32 variant "
             "(vocabulary: esp32_variants in platform_capabilities.index.json)"
+        ]
+    if declared != canonical:
+        return [
+            f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
+            f"spelling '{canonical}'"
         ]
     return []
 

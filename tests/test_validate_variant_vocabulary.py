@@ -47,6 +47,10 @@ def test_degraded_snapshot_fails_open_but_keeps_the_prefix_guard(
 def test_unknown_variant_rejected() -> None:
     errors = _validate_variant_vocabulary("b", {"esphome": {"variant": "esp32z9"}})
     assert errors and "not a known esp32 variant" in errors[0]
+    # An inner space folds to a value the vocabulary rejects; the gate must
+    # not propose that value as the fix.
+    errors = _validate_variant_vocabulary("b", {"esphome": {"variant": "ESP32 C3"}})
+    assert errors and "not a known esp32 variant" in errors[0]
 
 
 def test_absent_variant_passes() -> None:
