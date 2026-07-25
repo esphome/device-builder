@@ -952,6 +952,14 @@ def test_logger_interface_defaults_match_live_logger_schema() -> None:
     assert set(_LOGGER_INTERFACE_DEFAULTS) == known
 
 
+def test_logger_interface_esp32_keys_are_known_variants() -> None:
+    """Every esp32-family key in the defaults table matches the Esp32Variant spelling."""
+    variants = {v.value for v in Esp32Variant}
+    for key in _LOGGER_INTERFACE_DEFAULTS:
+        if key.startswith("esp32"):
+            assert key in variants, key
+
+
 def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:
     yaml_file = tmp_path / "c3.yaml"
     yaml_file.write_text(
