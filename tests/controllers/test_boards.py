@@ -228,18 +228,14 @@ async def test_get_boards_filters_by_variant_case_insensitive(
 ) -> None:
     """``variant`` filter is case-insensitive — ``ESP32C3`` matches ``esp32c3``.
 
-    Frontend may send the upper-cased enum name (``ESP32C3``)
-    while the catalog stores the lowercase value (``esp32c3``).
-    The controller lowercases both sides so the dropdown's
-    selected value round-trips.
+    ``variant`` folds spellings — ``ESP32C3`` and ``ESP32-C3`` both
+    match the catalog's ``esp32c3``.
     """
     resp = await catalog.get_boards(variant="ESP32C3")
 
     assert resp.total == 2
     assert {b.id for b in resp.boards} == {"seeed-xiao-esp32c3", "generic-esp32c3"}
 
-    # Dashed spellings (copy-pasted from esphome docs / esptool output) fold
-    # through the shared normalizer instead of returning an empty page.
     dashed = await catalog.get_boards(variant="ESP32-C3")
     assert {b.id for b in dashed.boards} == {"seeed-xiao-esp32c3", "generic-esp32c3"}
 

@@ -63,37 +63,31 @@ _FEATURED_CATEGORY_EXCEPTIONS = {"ethernet"}
 _WIFI_RADIO_COMPONENT_IDS = {"esp32_hosted"}
 
 
-def _load_esp32_no_wifi_variants() -> frozenset[str]:
+def _load_capabilities_snapshot() -> dict:
     """
-    Read ``esp32_no_wifi_variants`` from the capabilities snapshot.
+    Parse the capabilities snapshot; empty mapping when unreadable.
 
     Stdlib json rather than ``load_platform_capabilities_index`` — the
     pre-commit hook env has no ``orjson``, so the runtime loader isn't
-    importable here. An unreadable snapshot degrades to an empty set
+    importable here. An unreadable snapshot degrades to empty vocabularies
     (fail-open), matching the runtime loader's behaviour.
     """
     caps_path = DEFINITIONS_DIR / "platform_capabilities.index.json"
     try:
         caps = json.loads(caps_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return frozenset()
-    return frozenset(str(v).lower() for v in caps.get("esp32_no_wifi_variants", []))
+        return {}
+    return caps if isinstance(caps, dict) else {}
 
 
-_ESP32_NO_WIFI_VARIANTS = _load_esp32_no_wifi_variants()
+def _snapshot_variant_set(caps: dict, key: str) -> frozenset[str]:
+    """Return the normalized variant set for *key* in the parsed snapshot."""
+    return frozenset(normalize_chip_variant(str(v)) for v in caps.get(key, []))
 
 
-def _load_esp32_variants() -> frozenset[str]:
-    """Read the ``esp32_variants`` vocabulary from the snapshot; empty when unreadable."""
-    caps_path = DEFINITIONS_DIR / "platform_capabilities.index.json"
-    try:
-        caps = json.loads(caps_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return frozenset()
-    return frozenset(normalize_chip_variant(str(v)) for v in caps.get("esp32_variants", []))
-
-
-_ESP32_VARIANTS = _load_esp32_variants()
+_CAPS_SNAPSHOT = _load_capabilities_snapshot()
+_ESP32_NO_WIFI_VARIANTS = _snapshot_variant_set(_CAPS_SNAPSHOT, "esp32_no_wifi_variants")
+_ESP32_VARIANTS = _snapshot_variant_set(_CAPS_SNAPSHOT, "esp32_variants")
 
 # Required shape for featured-component ids: lowercase letters, digits, and
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
@@ -229,13 +223,14 @@ def validate_board(
                 seen_gpios.add(gpio)
                 pins_by_gpio[gpio] = pin
 
+    errors.extend(_validate_variant_vocabulary(board_id, data))
+
     # Imported boards (source.type set) carry only synthesized pin
     # entries with empty ``features`` — we don't have a per-chip pin-
     # feature DB to populate them. Skip the per-pin feature
     # intersection check for these; the rest of featured-component
     # validation (component_id present, fields key match,
     # GPIO declared) still runs.
-    errors.extend(_validate_variant_vocabulary(board_id, data))
     errors.extend(_validate_pins_from(board_id, data, all_boards))
 
     is_imported = isinstance(data.get("source"), dict) and bool(data["source"].get("type"))
@@ -529,7 +524,7 @@ def _validate_featured(  # noqa: C901
 def _validate_wifi_radio_claim(board_id: str, data: dict) -> list[str]:
     """Require a radio-provider default when a no-native-Wi-Fi variant claims wifi."""
     esphome_cfg = data.get("esphome") or {}
-    variant = str(esphome_cfg.get("variant") or "").lower()
+    variant = normalize_chip_variant(str(esphome_cfg.get("variant") or ""))
     if esphome_cfg.get("platform") != "esp32" or variant not in _ESP32_NO_WIFI_VARIANTS:
         return []
     connectivity = (data.get("hardware") or {}).get("connectivity") or []
