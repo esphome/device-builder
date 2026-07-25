@@ -286,6 +286,14 @@ def _load_default_component(entry: object) -> DefaultComponent:
     raise TypeError(msg)
 
 
+@cache
+def _known_esp32_variants() -> frozenset[str]:
+    """Return the normalized snapshot vocabulary; empty when the index is degraded."""
+    return frozenset(
+        normalize_chip_variant(v) for v in load_platform_capabilities_index().esp32_variants
+    )
+
+
 def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
     """Load a BoardEsphomeConfig from a dict."""
     platform = Platform(data["platform"])
@@ -293,11 +301,12 @@ def _load_esphome_config(data: dict, board_id: str) -> BoardEsphomeConfig:
     variant: str | None = None
     if platform is Platform.ESP32 and isinstance(variant_raw, str) and variant_raw:
         variant = normalize_chip_variant(variant_raw)
-        known = load_platform_capabilities_index().esp32_variants
-        # Fail open on an empty snapshot; warn (not drop) on an unknown value
-        # so the sync-time gate is where a typo actually fails.
-        if known and variant not in {normalize_chip_variant(v) for v in known}:
-            _LOGGER.warning("Board %s: unknown esp32 variant %r", board_id, variant)
+        known = _known_esp32_variants()
+        # Fail open on an empty snapshot; a populated one is the loud gate
+        # (the manifest walk skips or aborts per its ``strict`` mode).
+        if known and variant not in known:
+            msg = f"Board {board_id}: unknown esp32 variant {variant!r}"
+            raise ValueError(msg)
     return BoardEsphomeConfig(
         platform=platform,
         board=data["board"],

@@ -443,16 +443,31 @@ def test_load_board_catalog_skips_when_body_missing(
     assert any("Board body missing" in rec.getMessage() for rec in caplog.records)
 
 
-def test_load_esphome_config_warns_on_unknown_variant(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """An out-of-snapshot variant loads (fail-open) with a warning, not a drop."""
-    with caplog.at_level(logging.WARNING):
-        cfg = defs._load_esphome_config(
+def test_load_esphome_config_rejects_unknown_variant() -> None:
+    """An out-of-snapshot variant raises, feeding the manifest walk's strict mode."""
+    with pytest.raises(ValueError, match="unknown esp32 variant"):
+        defs._load_esphome_config(
             {"platform": "esp32", "board": "custom", "variant": "ESP32-Z9"}, "custom-board"
         )
+
+
+def test_load_esphome_config_fails_open_on_empty_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A degraded capabilities index accepts any variant instead of raising."""
+    monkeypatch.setattr(defs, "_known_esp32_variants", frozenset)
+    cfg = defs._load_esphome_config(
+        {"platform": "esp32", "board": "custom", "variant": "ESP32-Z9"}, "custom-board"
+    )
     assert cfg.variant == "esp32z9"
-    assert "unknown esp32 variant" in caplog.text
+
+
+def test_load_esphome_config_ignores_variant_off_esp32() -> None:
+    """A non-esp32 manifest never grows a normalized variant."""
+    cfg = defs._load_esphome_config(
+        {"platform": "rp2040", "board": "rpipicow", "variant": "ESP32C3"}, "pico-board"
+    )
+    assert cfg.variant is None
 
 
 def test_load_default_component_rejects_non_string_non_dict_entry() -> None:

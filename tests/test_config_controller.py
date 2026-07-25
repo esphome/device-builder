@@ -75,6 +75,7 @@ from esphome_device_builder.controllers.config import (
     set_device_metadata,
 )
 from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
+from esphome_device_builder.controllers.config.chip_detect import _CHIP_FAMILY_MAP
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.secrets_state import read_secrets_yaml
 from esphome_device_builder.models import (
@@ -1440,6 +1441,14 @@ def test_parse_chip_family_line_returns_none_when_unparseable() -> None:
 
 def test_parse_chip_family_line_returns_none_for_unknown_family() -> None:
     assert _parse_chip_family_line("Chip type: ESP32-Z99 (revision v9.9)") is None
+
+
+def test_chip_family_map_carries_snapshot_variants_and_seeded_rows() -> None:
+    """The table derives from the variant snapshot, with classic esp32 seeded."""
+    assert _CHIP_FAMILY_MAP["esp32"] == ("ESP32", "esp32", "esp32")
+    assert _CHIP_FAMILY_MAP["esp32-c3"] == ("ESP32-C3", "esp32c3", "esp32")
+    assert _CHIP_FAMILY_MAP["esp32-s3"] == ("ESP32-S3", "esp32s3", "esp32")
+    assert _CHIP_FAMILY_MAP["esp8266"] == ("ESP8266", "", "esp8266")
 
 
 def test_chip_family_to_descriptor_maps_esp8266() -> None:

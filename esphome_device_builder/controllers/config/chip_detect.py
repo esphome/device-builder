@@ -42,6 +42,9 @@ def _esp32_chip_family_map() -> dict[str, tuple[str, str, str]]:
 # ``_chip_family_to_descriptor`` to return ``None``, which the WS
 # handler surfaces as ``_DETECT_UNKNOWN_CHIP``.
 _CHIP_FAMILY_MAP: dict[str, tuple[str, str, str]] = {
+    # Seeded unconditionally: a degraded capabilities index empties the
+    # variant walk, and the common classic probe must keep working.
+    "esp32": ("ESP32", "esp32", "esp32"),
     **_esp32_chip_family_map(),
     "esp8266": ("ESP8266", "", "esp8266"),
 }

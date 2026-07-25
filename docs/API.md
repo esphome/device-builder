@@ -220,7 +220,7 @@ The subscription stays open for the connection's lifetime; closing the WebSocket
 
 > Controller: [`BoardCatalog`](../esphome_device_builder/controllers/boards.py)
 >
-> Enums: [`Platform`](../esphome_device_builder/models/boards.py), [`Esp32Variant`](../esphome_device_builder/models/boards.py), [`BoardTag`](../esphome_device_builder/models/boards.py)
+> Enums: [`Platform`](../esphome_device_builder/models/boards.py), [`BoardTag`](../esphome_device_builder/models/boards.py). A board's `variant` is a lowercase chip-variant string (`esp32c3`); its vocabulary is the `esp32_variants` snapshot in `platform_capabilities.index.json`.
 
 | Command | Args | Response | Description |
 |---------|------|----------|-------------|

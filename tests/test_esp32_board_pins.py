@@ -5,13 +5,14 @@ from __future__ import annotations
 import importlib
 
 import pytest
-from esphome.components.esp32.const import VARIANTS
 
+from esphome_device_builder.definitions import load_platform_capabilities_index
 from esphome_device_builder.models import (
     BoardCatalogResponse,
     BoardPin,
     PinFeature,
 )
+from esphome_device_builder.models.boards import normalize_chip_variant
 from script.sync_boards import (
     _ESP32_BOARDS_ATTR,
     _ESP32_BOARDS_MODULE,
@@ -21,13 +22,14 @@ from script.sync_boards import (
 pytestmark = pytest.mark.xdist_group("board_sync")
 
 
-def test_every_esphome_board_variant_is_a_known_variant() -> None:
-    """Pins the invariant the capability emitters rely on: BOARDS ⊆ VARIANTS."""
+def test_every_esphome_board_variant_is_in_the_committed_snapshot() -> None:
+    """The tripwire the deleted enum provided: our snapshot keeps up with upstream."""
+    known = {normalize_chip_variant(v) for v in load_platform_capabilities_index().esp32_variants}
     module = importlib.import_module(_ESP32_BOARDS_MODULE)
     board_list = getattr(module, _ESP32_BOARDS_ATTR)
-    variants = {meta["variant"] for meta in board_list.values()}
+    variants = {normalize_chip_variant(meta["variant"]) for meta in board_list.values()}
     assert variants, "esphome should expose esp32 boards"
-    assert variants <= set(VARIANTS)
+    assert variants <= known
 
 
 def test_catalog_generates_board_with_derived_pins(

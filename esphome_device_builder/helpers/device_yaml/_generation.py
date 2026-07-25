@@ -381,11 +381,10 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
     snapshotted platform_capabilities index.
     """
     esphome_cfg = board.esphome
-    # ``str(...)`` handles both the production ``Platform`` StrEnum
-    # and bare-string inputs from
-    # tests that mock the catalog entry without going through the
-    # enum constructors. ``_has_native_wifi`` lowercases the variant
-    # itself, so no case normalisation is needed here.
+    # ``str(...)`` handles both the production ``Platform`` StrEnum and
+    # bare-string inputs from tests that mock the catalog entry.
+    # ``_has_native_wifi`` lowercases the variant itself, so no case
+    # normalisation is needed here.
     return _has_native_wifi(
         platform=str(esphome_cfg.platform) if esphome_cfg.platform else "",
         board=esphome_cfg.board,

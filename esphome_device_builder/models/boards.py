@@ -135,9 +135,8 @@ class BoardEsphomeConfig(DashboardModel):
 
     platform: Platform
     board: str  # PlatformIO board ID
-    # Lowercase esp32 chip variant ("esp32c3"). The vocabulary is the live
-    # ``esp32_variants`` snapshot in platform_capabilities.index.json — never
-    # a local enum, which would lag upstream.
+    # Lowercase esp32 chip variant ("esp32c3"); vocabulary is the
+    # ``esp32_variants`` snapshot in platform_capabilities.index.json.
     variant: str | None = None
     framework: str | None = None  # "arduino" or "esp-idf"
     # Chip series within an ESPHome platform that lumps several under one
