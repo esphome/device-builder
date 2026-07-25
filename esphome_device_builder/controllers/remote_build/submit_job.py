@@ -370,9 +370,13 @@ class SubmitJobReceiver:
         return bool(self._inflight)
 
     async def stop(self) -> None:
-        """Cancel and drain any post-ack extract tasks."""
-        await drain_tasks(self._extract_tasks)
-        self._extract_tasks.clear()
+        """Cancel and drain post-ack extract tasks, including any spawned mid-drain."""
+        # Sessions are still live while this runs, so a final chunk can
+        # spawn a new task during the drain await; loop until none remain.
+        while self._extract_tasks:
+            tasks = list(self._extract_tasks)
+            self._extract_tasks.difference_update(tasks)
+            await drain_tasks(tasks)
         self._extract_locks.clear()
 
     def discard_session(self, dashboard_id: str) -> None:

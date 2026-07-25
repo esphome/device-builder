@@ -1181,6 +1181,39 @@ async def test_stop_cancels_a_parked_extract(
     assert not receiver._extract_tasks
 
 
+async def test_stop_drains_an_extract_spawned_mid_drain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A task spawned while ``stop()`` awaits its drain is still cancelled."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"hello"
+
+    async def _parked_extract(**_kwargs: object) -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await asyncio.sleep(0)  # let the first extract park
+
+    stop_task = asyncio.ensure_future(receiver.stop())
+    await asyncio.sleep(0)  # stop() is now awaiting the first drain
+    # The session is still live mid-drain; a second submit spawns a task.
+    await receiver.handle_submit_job(
+        session, _header(job_id="job-2", configuration_filename="other.yaml", bundle=bundle)
+    )
+    for chunk in _frame_chunks("job-2", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    late_task = next(iter(receiver._extract_tasks))
+
+    await stop_task
+    assert late_task.cancelled()
+    assert not receiver._extract_tasks
+
+
 async def test_submit_job_enqueue_failure_reports_failed_after_ack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
