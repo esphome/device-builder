@@ -41,8 +41,8 @@
         },
         "variant": {
           "type": ["string", "null"],
-          "description": "ESP32 chip variant. Only for esp32 platform.",
-          "enum": ["esp32", "esp32s2", "esp32s3", "esp32c2", "esp32c3", "esp32c5", "esp32c6", "esp32c61", "esp32h2", "esp32p4", null]
+          "description": "ESP32 chip variant, lowercase (e.g. esp32c3). Only for esp32 platform; the vocabulary is the esp32_variants snapshot, enforced by validate_definitions.",
+          "pattern": "^esp32[a-z0-9]*$"
         },
         "framework": {
           "type": ["string", "null"],

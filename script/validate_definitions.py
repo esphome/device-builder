@@ -82,6 +82,23 @@ def _load_esp32_no_wifi_variants() -> frozenset[str]:
 
 _ESP32_NO_WIFI_VARIANTS = _load_esp32_no_wifi_variants()
 
+
+def _load_esp32_variants() -> frozenset[str]:
+    """
+    Read the ``esp32_variants`` vocabulary from the capabilities snapshot.
+
+    Same stdlib-json / fail-open shape as ``_load_esp32_no_wifi_variants``.
+    """
+    caps_path = DEFINITIONS_DIR / "platform_capabilities.index.json"
+    try:
+        caps = json.loads(caps_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(normalize_chip_variant(str(v)) for v in caps.get("esp32_variants", []))
+
+
+_ESP32_VARIANTS = _load_esp32_variants()
+
 # Required shape for featured-component ids: lowercase letters, digits, and
 # underscores only, starting with a letter. Mirrors what ESPHome accepts
 # as a valid identifier and what the sync script's auto-id format produces.
@@ -222,6 +239,7 @@ def validate_board(
     # intersection check for these; the rest of featured-component
     # validation (component_id present, fields key match,
     # GPIO declared) still runs.
+    errors.extend(_validate_variant_vocabulary(board_id, data))
     errors.extend(_validate_pins_from(board_id, data, all_boards))
 
     is_imported = isinstance(data.get("source"), dict) and bool(data["source"].get("type"))
@@ -235,6 +253,19 @@ def validate_board(
     errors.extend(_validate_image_paths(board_id, data))
 
     return errors
+
+
+def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
+    """Reject a variant outside the snapshot vocabulary; fail open on an empty snapshot."""
+    declared = (data.get("esphome") or {}).get("variant")
+    if not isinstance(declared, str) or not _ESP32_VARIANTS:
+        return []
+    if normalize_chip_variant(declared) not in _ESP32_VARIANTS:
+        return [
+            f"{board_id}: esphome.variant '{declared}' is not a known esp32 variant "
+            "(vocabulary: esp32_variants in platform_capabilities.index.json)"
+        ]
+    return []
 
 
 def _validate_pins_from(

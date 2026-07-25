@@ -10,6 +10,7 @@ from ..definitions import (
     load_board_index,
 )
 from ..helpers.api import api_command
+from ..helpers.chips import normalize_chip_variant
 from ..helpers.device_yaml import board_requires_wifi
 from ..helpers.lazy_catalog import LazyBodyStore
 from ..models import (
@@ -41,9 +42,13 @@ def _board_sort_key(board: BoardCatalogIndex) -> tuple[bool, bool, bool, str]:
 
 
 def _filter_by_variant(boards: list[BoardCatalogIndex], variant: str) -> list[BoardCatalogIndex]:
-    """Boards whose variant equals *variant*, case-insensitively (empty if none)."""
-    target = variant.lower()
-    return [b for b in boards if b.esphome.variant and b.esphome.variant.lower() == target]
+    """Boards whose variant matches *variant* under the shared spelling fold (empty if none)."""
+    target = normalize_chip_variant(variant)
+    return [
+        b
+        for b in boards
+        if b.esphome.variant and normalize_chip_variant(b.esphome.variant) == target
+    ]
 
 
 class BoardCatalog:
