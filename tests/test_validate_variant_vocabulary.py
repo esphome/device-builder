@@ -27,6 +27,13 @@ def test_non_canonical_spelling_gets_the_friendly_error() -> None:
         assert errors and "canonical lowercase spelling 'esp32c3'" in errors[0]
 
 
+def test_non_esp32_prefix_gets_the_friendly_error() -> None:
+    # Snapshot-independent, so the field stays guarded even on a degraded index.
+    for value in ("c3", "esp8266"):
+        errors = _validate_variant_vocabulary("b", {"esphome": {"variant": value}})
+        assert errors and "must be an esp32-family variant" in errors[0]
+
+
 def test_unknown_variant_rejected() -> None:
     errors = _validate_variant_vocabulary("b", {"esphome": {"variant": "esp32z9"}})
     assert errors and "not a known esp32 variant" in errors[0]

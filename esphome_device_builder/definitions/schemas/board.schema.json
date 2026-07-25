@@ -41,8 +41,7 @@
         },
         "variant": {
           "type": ["string", "null"],
-          "description": "ESP32 chip variant, lowercase (e.g. esp32c3). Only for esp32 platform; canonical spelling and the esp32_variants vocabulary are enforced by validate_definitions.",
-          "pattern": "^[Ee][Ss][Pp]32[A-Za-z0-9_-]*$"
+          "description": "ESP32 chip variant, lowercase (e.g. esp32c3). Only for esp32 platform; spelling and the esp32_variants vocabulary are enforced by validate_definitions."
         },
         "framework": {
           "type": ["string", "null"],

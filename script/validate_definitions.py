@@ -86,7 +86,7 @@ def _snapshot_variant_set(caps: dict, key: str) -> frozenset[str]:
     if not isinstance(values, list):
         print(
             f"warning: {key} missing or malformed in platform_capabilities.index.json; "
-            "the variant vocabulary check is disabled",
+            "the check backed by it is disabled",
             file=sys.stderr,
         )
         return frozenset()
@@ -265,6 +265,11 @@ def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
         return [
             f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
             f"spelling '{canonical}'"
+        ]
+    if not canonical.startswith("esp32"):
+        return [
+            f"{board_id}: esphome.variant '{declared}' must be an esp32-family variant "
+            "(e.g. esp32c3)"
         ]
     if _ESP32_VARIANTS and canonical not in _ESP32_VARIANTS:
         return [
@@ -537,7 +542,9 @@ def _validate_featured(  # noqa: C901
 
 def _validate_wifi_radio_claim(board_id: str, data: dict) -> list[str]:
     """Require a radio-provider default when a no-native-Wi-Fi variant claims wifi."""
-    esphome_cfg = data.get("esphome") or {}
+    esphome_cfg = data.get("esphome")
+    if not isinstance(esphome_cfg, dict):
+        return []
     variant = normalize_chip_variant(str(esphome_cfg.get("variant") or ""))
     if esphome_cfg.get("platform") != "esp32" or variant not in _ESP32_NO_WIFI_VARIANTS:
         return []
