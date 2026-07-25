@@ -278,22 +278,31 @@ def test_assembler_finalise_hash_mismatch() -> None:
 def test_assembler_finalise_is_idempotent() -> None:
     """A second ``finalise()`` on a closed assembler returns the same bytes.
 
-    The closed-flag guard lives in :meth:`feed`, not
-    :meth:`finalise`; ``finalise`` re-validates the
-    aggregate (length + hash) against the stored header and
-    returns the buffer regardless of whether it's been called
-    before. Pinned to document the actual contract: callers
-    don't *need* to memoise the return value, and re-calling
-    is a no-op rather than an error. If a future change adds
-    a single-use guard (raising ``POST_COMPLETION`` on the
-    second call), this test should be flipped to assert that
-    raise instead, alongside the production change.
+    ``finalise`` memoises: the first call validates the
+    aggregate (length + hash), caches the result, and frees
+    the working buffer; a second call returns the cached bytes
+    without re-validating. Pinned to document the contract:
+    re-calling is a no-op rather than an error, and callers
+    share the single cached object rather than each getting a
+    fresh copy.
     """
     data = b"hash me"
     asm = BundleAssembler(**_header(data, chunk_size=len(data)))
     asm.feed(0, data, is_last=True)
     assert asm.finalise() == data
     assert asm.finalise() == data
+
+
+def test_assembler_finalise_frees_buffer_and_shares_result() -> None:
+    """Finalise releases the working buffer and hands back the single cached object."""
+    data = b"hash me once"
+    asm = BundleAssembler(**_header(data, chunk_size=len(data)))
+    asm.feed(0, data, is_last=True)
+    first = asm.finalise()
+    # Working buffer released, so peak isn't held at 2x through downstream use...
+    assert asm._buf == bytearray()
+    # ...and the second call hands back the same object, not a fresh copy.
+    assert asm.finalise() is first
 
 
 # ---------------------------------------------------------------------------
