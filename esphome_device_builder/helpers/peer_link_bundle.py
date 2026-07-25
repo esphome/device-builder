@@ -263,9 +263,8 @@ class BundleAssembler:
         self._buf = bytearray()
         self._next_index = 0
         self._closed = False
-        # Set once on the first successful ``finalise``; the working buffer is
-        # released then, so peak isn't doubled through the caller's downstream
-        # use (disk write / extract), only during the one-shot copy itself.
+        # Set on the first successful ``finalise``; the working buffer is
+        # released at the same point.
         self._result: bytes | None = None
 
     def feed(self, chunk_index: int, raw: bytes, *, is_last: bool) -> None:
@@ -333,7 +332,6 @@ class BundleAssembler:
                 f"assembled bundle sha256 {actual} != announced {self._sha256_hex}",
             )
         self._result = bytes(self._buf)
-        # Drop the working buffer: the cached result is the single retained copy
-        # (the caller holds the same object), so peak returns to 1x immediately.
+        # Release the working buffer once the result is cached.
         self._buf = bytearray()
         return self._result

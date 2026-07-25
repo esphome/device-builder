@@ -298,10 +298,12 @@ def test_assembler_finalise_frees_buffer_and_shares_result() -> None:
     data = b"hash me once"
     asm = BundleAssembler(**_header(data, chunk_size=len(data)))
     asm.feed(0, data, is_last=True)
+    buf_before = asm._buf
     first = asm.finalise()
-    # Working buffer released, so peak isn't held at 2x through downstream use...
-    assert asm._buf == bytearray()
-    # ...and the second call hands back the same object, not a fresh copy.
+    # The working buffer is dropped, not cleared in place: the identity change
+    # proves the allocation is released rather than emptied while still held.
+    assert asm._buf is not buf_before
+    # The second call hands back the same object, not a fresh copy.
     assert asm.finalise() is first
 
 
