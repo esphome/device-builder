@@ -44,12 +44,12 @@ _SUBMIT_JOB_ACK_TIMEOUT_SECONDS = 60.0
 # submit, so that ack's window grows with bundle size — sized for
 # SD-card-backed SoCs sustaining only a few MiB/s (a max 128 MiB
 # bundle adds ~64s on top of the floor).
-_ACK_BYTES_PER_SECOND = 2 * 1024 * 1024
+_SUBMIT_ACK_BYTES_PER_SECOND = 2 * 1024 * 1024
 
 
 def _submit_ack_timeout(bundle_size: int) -> float:
     """Return the submit-ack window: the flat floor plus size-proportional headroom."""
-    return _SUBMIT_JOB_ACK_TIMEOUT_SECONDS + bundle_size / _ACK_BYTES_PER_SECOND
+    return _SUBMIT_JOB_ACK_TIMEOUT_SECONDS + bundle_size / _SUBMIT_ACK_BYTES_PER_SECOND
 
 
 async def submit_job(

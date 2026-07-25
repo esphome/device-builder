@@ -87,6 +87,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_lifecycle import 
 )
 from esphome_device_builder.helpers import json as _json
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_bundle import (
     chunk_bundle,
@@ -5035,7 +5036,9 @@ def test_submit_ack_timeout_scales_with_bundle_size() -> None:
     """The floor covers small bundles; a max-size bundle earns write+extract headroom."""
     timeout = remote_build_peer_link_client._submit._submit_ack_timeout
     assert timeout(0) == 60.0
-    assert timeout(128 * 1024 * 1024) == pytest.approx(124.0)
+    assert timeout(BUNDLE_MAX_TOTAL_BYTES) == pytest.approx(124.0), (
+        "bundle cap changed — re-derive the max-size ack window"
+    )
 
 
 async def test_submit_job_times_out_when_no_ack_arrives(
