@@ -570,7 +570,19 @@ class SubmitJobReceiver:
                     session=session, pending=pending, bundle_bytes=bundle_bytes
                 )
             except _SubmitJobRejectionError as exc:
-                await self._report_post_ack_failure(session, pending=pending, reason=exc.reason)
+                reason = exc.reason
+            except Exception:
+                # The offloader already got ``accepted`` and is waiting on
+                # job-state events; an unreported crash strands it forever.
+                _LOGGER.exception(
+                    "submit_job from %s: unexpected extract failure for job %s",
+                    session.dashboard_id,
+                    pending.job_id,
+                )
+                reason = _REASON_EXTRACT_FAILED
+            else:
+                return
+            await self._report_post_ack_failure(session, pending=pending, reason=reason)
 
     async def _reject_assembler(
         self,

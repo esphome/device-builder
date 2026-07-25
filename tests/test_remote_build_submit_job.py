@@ -1132,6 +1132,33 @@ async def test_extracts_chain_per_peer_preserving_enqueue_order(
     assert order == ["job-1", "job-2"]
 
 
+async def test_unexpected_extract_crash_reports_failed_instead_of_stranding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-rejection crash in the off-loop extract still sends the terminal frame."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"hello"
+
+    async def _crashing_extract(**_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _crashing_extract)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
+
+    frames = _sent_frames(session)
+    assert frames[0]["type"] == "submit_job_ack"
+    assert frames[0]["accepted"] is True
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "failed"
+    assert "extract_failed" in frames[-1]["error_message"]
+    session.terminate.assert_not_called()
+
+
 async def test_stop_cancels_a_parked_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
