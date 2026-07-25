@@ -39,6 +39,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.config_bundle import BundleBuildError
+from esphome_device_builder.helpers.peer_link_bundle import BundleAssemblerErrorCode
 from esphome_device_builder.helpers.remote_artifacts_materialise import MaterialiseError
 from esphome_device_builder.models import (
     ErrorCode,
@@ -682,7 +683,7 @@ async def test_remote_compile_oversized_ack_translates_to_actionable_error(
     controller = firmware_controller_factory(with_terminate=True)
     captured = capture_local_events(controller)
     patch_bundle.return_value = b"x" * (5 * 1024 * 1024)  # 5.0 MiB
-    client = _make_client(accepted=False, reason="oversized")
+    client = _make_client(accepted=False, reason=BundleAssemblerErrorCode.OVERSIZED.value)
     _wire_remote_build(controller, client=client)
     job = make_remote_job()
 

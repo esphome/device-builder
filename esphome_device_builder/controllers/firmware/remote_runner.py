@@ -38,7 +38,7 @@ from esphome.const import __version__ as _offloader_esphome_version
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.config_bundle import BundleBuildError
-from ...helpers.peer_link_bundle import BUNDLE_MAX_TOTAL_BYTES
+from ...helpers.peer_link_bundle import BUNDLE_MAX_TOTAL_BYTES, BundleAssemblerErrorCode
 from ...helpers.remote_artifacts_materialise import (
     MaterialiseError,
     materialise_remote_artifacts,
@@ -451,7 +451,9 @@ async def _submit_job_to_receiver(
         job,
         ack,
         reject_label="receiver rejected job",
-        reason_remap={"oversized": _receiver_oversized_reason(len(bundle_bytes))},
+        reason_remap={
+            BundleAssemblerErrorCode.OVERSIZED.value: _receiver_oversized_reason(len(bundle_bytes))
+        },
     )
 
 

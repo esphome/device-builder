@@ -4,7 +4,7 @@ Bundle chunking + reassembly helpers for the peer-link ``submit_job`` flow.
 The offloader produces a gzipped tarball via
 :class:`esphome.bundle.ConfigBundleCreator`; that's a single
 ``bytes`` payload that has to ride the peer-link's per-frame
-size cap (:data:`APP_FRAME_MAX_BYTES`, 32 KiB).
+size cap (:data:`APP_FRAME_MAX_BYTES`, 60 KiB).
 :func:`chunk_bundle` slices the bundle into the wire-format's
 base64 envelope shape; :class:`BundleAssembler` does the
 reverse on the receiver side, with structured rejection of
@@ -61,11 +61,12 @@ BUNDLE_CHUNK_SIZE_BYTES = 32 * 1024
 # few KiB compressed, but image/font-heavy include trees (many
 # ``mdi:`` icons resized into embedded ``BINARY`` images) have
 # been observed near ~40 MiB in the wild. 128 MiB leaves generous
-# headroom while still bounding the RAM a misbehaving offloader
-# can pin (the receiver holds the whole assembled bundle in
-# memory). The receiver enforces this cap, so an offloader only
-# benefits once the build server is on a version that carries the
-# larger value.
+# headroom while still bounding receiver RAM: peak is ~2x the cap
+# per in-flight session (``finalise`` copies the assembled
+# bytearray), and ``_inflight`` is keyed per paired offloader, so
+# concurrent submits multiply it. The receiver enforces this cap,
+# so an offloader only benefits once the build server is on a
+# version that carries the larger value.
 BUNDLE_MAX_TOTAL_BYTES = 128 * 1024 * 1024
 
 # Hard cap on the assembled firmware tarball. The materialise
