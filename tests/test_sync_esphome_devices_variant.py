@@ -42,8 +42,11 @@ def test_explicit_variant_wins_over_inference() -> None:
 @pytest.mark.parametrize("spelling", ["ESP32-C3", "esp32_c3", "ESP32C3"])
 def test_explicit_variant_folds_separator_spellings(spelling: str) -> None:
     """Dashed / underscored / uppercase upstream spellings fold onto the catalog form."""
-    _, variant, _ = _resolve_board_and_variant("esp32", {"variant": spelling})
+    board, variant, _ = _resolve_board_and_variant("esp32", {"variant": spelling})
     assert variant == "esp32c3"
+    # The canonical form is the lookup key that unlocks the default board;
+    # the pre-fix "esp32-c3" missed the map entirely.
+    assert board == "esp32-c3-devkitm-1"
 
 
 def test_variant_default_boards_exist_in_esphome() -> None:
