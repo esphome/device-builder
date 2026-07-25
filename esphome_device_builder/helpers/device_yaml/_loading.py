@@ -28,6 +28,7 @@ from ._parsing import (
     extract_directly_referenced_integrations,
     extract_esphome_meta_from_config,
     extract_logger_baud_rate,
+    extract_logger_interface,
     extract_ota_partition_access,
     get_api_encryption_block,
     has_top_level_block,
@@ -223,6 +224,16 @@ def load_device_from_storage(
         target_platform = detect_platform_from_yaml(yaml_content, resolved_config)
     target_platform = normalize_platform(target_platform)
 
+    # Drives the frontend's serial-console mismatch check (#2310).
+    # ``storage.target_platform`` is upstream's post-codegen chip variant
+    # (``ESP32C3``) — exactly the refinement the esp32 default needs.
+    logger_interface = extract_logger_interface(
+        resolved_config,
+        target_platform,
+        extra_subs,
+        storage_variant=storage.target_platform if storage else None,
+    )
+
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
     # Subset of loaded_integrations the user directly wrote — top-
     # level keys + ``- platform:`` stems. Frontend's device-drawer
@@ -329,6 +340,7 @@ def load_device_from_storage(
         build_size_bytes=build_size_bytes,
         labels=list(labels),
         logger_baud_rate=logger_baud_rate,
+        logger_interface=logger_interface,
         # Gates the install dialog's OTA bootloader-update action; esp32-only
         # (the esphome schema rejects the flag elsewhere). Union of two
         # signals: the in-process resolved YAML (immediate on edit) and the

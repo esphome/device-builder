@@ -9,7 +9,8 @@ from typing import NamedTuple
 from esphome import const
 from esphome.const import CONF_PACKAGES
 
-from ...models.boards import RP2_PLATFORM_ALIASES
+from ...definitions import load_platform_capabilities_index
+from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
 from ..yaml import (
     _split_value_and_comment,
     _strip_yaml_quotes,
@@ -448,6 +449,68 @@ def extract_logger_baud_rate(
     return value
 
 
+# Mirrors the ``SplitDefault`` table on logger's ``hardware_uart``
+# (``esphome.components.logger``; importing it would break the cold-import
+# invariant). Pinned against the live schema in ``tests/test_device_yaml.py``.
+# Keys: backend-canonical platform, esp32 refined to the lowercase variant.
+# libretiny families resolve to the SDK's runtime ``DEFAULT`` — unknowable
+# from YAML, so absent here.
+_LOGGER_INTERFACE_DEFAULTS: dict[str, str] = {
+    "esp8266": "UART0",
+    "esp32": "UART0",
+    "esp32c2": "UART0",
+    "esp32c3": "USB_SERIAL_JTAG",
+    "esp32c5": "USB_SERIAL_JTAG",
+    "esp32c6": "USB_SERIAL_JTAG",
+    "esp32c61": "USB_SERIAL_JTAG",
+    "esp32h2": "USB_SERIAL_JTAG",
+    "esp32h4": "USB_SERIAL_JTAG",
+    "esp32h21": "USB_SERIAL_JTAG",
+    "esp32p4": "USB_SERIAL_JTAG",
+    "esp32s2": "USB_CDC",
+    "esp32s3": "USB_SERIAL_JTAG",
+    "esp32s31": "USB_SERIAL_JTAG",
+    "rp2040": "USB_CDC",
+    "nrf52": "USB_CDC",
+}
+
+# The explicit ``hardware_uart`` values the logger accepts anywhere; anything
+# else (libretiny's ``DEFAULT``, an unresolved substitution) is unknowable.
+_LOGGER_INTERFACE_VALUES = frozenset(
+    {"UART0", "UART0_SWAP", "UART1", "UART2", "USB_CDC", "USB_SERIAL_JTAG"}
+)
+
+
+def extract_logger_interface(
+    config: dict | None,
+    target_platform: str,
+    extra_substitutions: dict[str, str] | None = None,
+    storage_variant: str | None = None,
+) -> str | None:
+    """
+    Resolve the ``logger:`` output interface, or ``None`` when unknowable.
+
+    Explicit ``hardware_uart`` wins; otherwise the platform default, with
+    esp32 keyed by variant (YAML ``variant``, then *storage_variant* from a
+    compiled StorageJSON, then the board→variant snapshot).
+    """
+    if not isinstance(config, dict) or const.CONF_LOGGER not in config:
+        return None
+    logger = config.get(const.CONF_LOGGER)
+    explicit = logger.get(const.CONF_HARDWARE_UART) if isinstance(logger, dict) else None
+    if explicit is not None:
+        if not isinstance(explicit, str):
+            return None
+        value = _resolve_substitutions(explicit, extra_substitutions or {}) or ""
+        value = value.strip().upper()
+        return value if value in _LOGGER_INTERFACE_VALUES else None
+    platform = normalize_platform(target_platform.strip().lower())
+    if platform == "esp32":
+        variant = _esp32_variant(config, storage_variant)
+        return _LOGGER_INTERFACE_DEFAULTS.get(variant) if variant else None
+    return _LOGGER_INTERFACE_DEFAULTS.get(platform)
+
+
 def extract_ota_partition_access(config: dict | None) -> bool:
     """
     Report whether an ``ota: platform: esphome`` entry sets ``allow_partition_access``.
@@ -665,6 +728,22 @@ def get_api_port(config: dict | None) -> int:
             # from the unconfigured default.
             _LOGGER.debug("Ignoring invalid api.port %r; using %d", port, DEFAULT_API_PORT)
     return DEFAULT_API_PORT
+
+
+def _esp32_variant(config: dict, storage_variant: str | None) -> str | None:
+    """Lowercase esp32 variant: YAML, then *storage_variant*, then the board snapshot."""
+    esp32 = config.get("esp32")
+    variant = esp32.get(const.CONF_VARIANT) if isinstance(esp32, dict) else None
+    if not (isinstance(variant, str) and variant.strip()):
+        variant = storage_variant
+    if not (isinstance(variant, str) and variant.strip().lower().startswith("esp32")):
+        board = esp32.get(const.CONF_BOARD) if isinstance(esp32, dict) else None
+        if not isinstance(board, str):
+            return None
+        variant = load_platform_capabilities_index().esp32_board_variants.get(board.strip())
+        if not variant:
+            return None
+    return variant.strip().replace("-", "").lower()
 
 
 def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | None:

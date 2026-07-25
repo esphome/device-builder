@@ -40,9 +40,11 @@ from esphome_device_builder.helpers.device_yaml import (
     pending_changes_via_hash,
 )
 from esphome_device_builder.helpers.device_yaml._parsing import (
+    _LOGGER_INTERFACE_DEFAULTS,
     _is_valid_esphome_name,
     device_ap_label,
     extract_logger_baud_rate,
+    extract_logger_interface,
     extract_ota_partition_access,
 )
 from esphome_device_builder.models import (
@@ -859,6 +861,108 @@ def test_extract_logger_baud_rate_zero_disabled() -> None:
 def test_extract_logger_baud_rate_none(config: Any) -> None:
     """Missing / malformed / unresolvable / negative baud yields ``None``."""
     assert extract_logger_baud_rate(config) is None
+
+
+@pytest.mark.parametrize(
+    ("config", "platform", "expected"),
+    [
+        ({"logger": {"hardware_uart": "UART2"}}, "esp8266", "UART2"),
+        ({"logger": {"hardware_uart": "usb_serial_jtag"}}, "esp32", "USB_SERIAL_JTAG"),
+        ({"logger": None}, "esp8266", "UART0"),  # bare block, platform default
+        ({"logger": {}}, "rp2040", "USB_CDC"),
+        ({"logger": {}}, "nrf52", "USB_CDC"),
+        ({"logger": {}, "esp32": {"variant": "esp32c3"}}, "esp32", "USB_SERIAL_JTAG"),
+        ({"logger": {}, "esp32": {"variant": "ESP32-S2"}}, "esp32", "USB_CDC"),
+        ({"logger": {}, "esp32": {"variant": "ESP32"}}, "esp32", "UART0"),
+    ],
+)
+def test_extract_logger_interface_resolves(config: dict, platform: str, expected: str) -> None:
+    """Explicit ``hardware_uart`` wins; else the platform / variant default."""
+    assert extract_logger_interface(config, platform) == expected
+
+
+def test_extract_logger_interface_resolves_substitution() -> None:
+    assert (
+        extract_logger_interface({"logger": {"hardware_uart": "$uart"}}, "esp32", {"uart": "uart1"})
+        == "UART1"
+    )
+
+
+def test_extract_logger_interface_storage_variant_fills_missing_yaml_variant() -> None:
+    config = {"logger": {}, "esp32": {"board": "unknown-board"}}
+    assert extract_logger_interface(config, "esp32", None, "ESP32C3") == "USB_SERIAL_JTAG"
+    assert extract_logger_interface(config, "esp32", None, "ESP32") == "UART0"
+
+
+def test_extract_logger_interface_board_snapshot_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        device_yaml._parsing,
+        "load_platform_capabilities_index",
+        lambda: SimpleNamespace(esp32_board_variants={"esp32-s3-devkitc-1": "ESP32S3"}),
+    )
+    config = {"logger": {}, "esp32": {"board": "esp32-s3-devkitc-1"}}
+    assert extract_logger_interface(config, "esp32") == "USB_SERIAL_JTAG"
+
+
+@pytest.mark.parametrize(
+    ("config", "platform"),
+    [
+        (None, "esp32"),
+        ({}, "esp32"),  # no logger block at all
+        ({"logger": {"hardware_uart": "DEFAULT"}}, "bk72xx"),  # runtime-resolved
+        ({"logger": {"hardware_uart": "${unset}"}}, "esp32"),  # unresolved token
+        ({"logger": {"hardware_uart": True}}, "esp32"),  # non-string
+        ({"logger": {}}, "bk72xx"),  # libretiny default is unknowable
+        ({"logger": {}}, ""),  # unknown platform
+        ({"logger": {}}, "esp32"),  # esp32 with no variant or board
+        ({"logger": {}, "esp32": {"board": "no-such-board"}}, "esp32"),
+    ],
+)
+def test_extract_logger_interface_none(config: Any, platform: str) -> None:
+    """Unknowable interfaces (no logger, libretiny, unknown variant) yield ``None``."""
+    assert extract_logger_interface(config, platform) is None
+
+
+def test_logger_interface_defaults_match_live_logger_schema() -> None:
+    """Pins ``_LOGGER_INTERFACE_DEFAULTS`` against the live SplitDefault table."""
+    cv = pytest.importorskip("esphome.config_validation")
+    logger = pytest.importorskip("esphome.components.logger")
+
+    inner: Any = logger.CONFIG_SCHEMA
+    while not isinstance(getattr(inner, "schema", None), dict):
+        inner = inner.validators[0]
+    marker = next(
+        key
+        for key in inner.schema
+        if isinstance(key, cv.SplitDefault) and key.schema == "hardware_uart"
+    )
+    live = {key: factory() for key, factory in marker._defaults.items()}
+    assert live, "hardware_uart SplitDefault table is empty"
+
+    known: set[str] = set()
+    for key, value in live.items():
+        mapped = "rp2040" if key == "rp2" else key.replace("esp32_", "esp32")
+        if value == "DEFAULT":
+            assert mapped not in _LOGGER_INTERFACE_DEFAULTS, mapped
+            continue
+        known.add(mapped)
+        assert _LOGGER_INTERFACE_DEFAULTS.get(mapped) == value, mapped
+    assert set(_LOGGER_INTERFACE_DEFAULTS) == known
+
+
+def test_load_device_from_storage_resolves_logger_interface(tmp_path: Path) -> None:
+    yaml_file = tmp_path / "c3.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: c3\nesp32:\n  variant: esp32c3\nlogger:\n",
+        encoding="utf-8",
+    )
+    assert load_device_from_storage(yaml_file).logger_interface == "USB_SERIAL_JTAG"
+
+    silent = tmp_path / "nolog.yaml"
+    silent.write_text("esphome:\n  name: nolog\nesp32:\n  variant: esp32c3\n", encoding="utf-8")
+    assert load_device_from_storage(silent).logger_interface is None
 
 
 @pytest.mark.parametrize(

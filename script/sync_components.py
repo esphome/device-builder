@@ -3605,7 +3605,8 @@ def _emit_platform_capabilities_index() -> None:
     from types import SimpleNamespace
 
     import esphome
-    from esphome.components.esp32.const import VARIANTS
+    from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
+    from esphome.components.esp32.const import KEY_VARIANT, VARIANTS
     from esphome.components.rp2040.boards import BOARDS as RP2040_BOARDS
     from esphome.components.wifi import NO_WIFI_VARIANTS
 
@@ -3643,6 +3644,11 @@ def _emit_platform_capabilities_index() -> None:
         "component_names": component_names,
         "esp32_variants": sorted(VARIANTS),
         "esp32_no_wifi_variants": sorted(NO_WIFI_VARIANTS),
+        # ``{pio_board: variant}`` so the dashboard can resolve a device's
+        # chip variant when its YAML names only the board (#2310).
+        "esp32_board_variants": {
+            board: info[KEY_VARIANT] for board, info in sorted(ESP32_BOARDS.items())
+        },
         "libretiny_families": list(_libretiny_families()),
         "rp2040_no_wifi_boards": sorted(
             board for board, info in RP2040_BOARDS.items() if not info.get("wifi", False)
