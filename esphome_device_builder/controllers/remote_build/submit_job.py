@@ -75,6 +75,7 @@ from ...helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 from ...helpers.version_compat import coerce_pep440_version
 from ...models import (
     PAIRING_VERSION_MAX_LEN,
+    JobStateChangedFrameData,
     JobType,
     SubmitJobAckFrameData,
     SubmitJobChunkFrameData,
@@ -520,12 +521,18 @@ class SubmitJobReceiver:
     async def _finalise_and_queue(
         self, *, session: PeerLinkSession, pending: _PendingSubmit
     ) -> None:
-        """Pull the in-flight entry, finalise the bundle, extract + queue + ack.
+        """Pull the in-flight entry, finalise the bundle, ack, then extract + queue.
 
         Split out from :meth:`handle_submit_job_chunk` so the
         final-chunk path is read-on-its-own rather than tail-of-
         a-flat-cascade. Drops the in-flight entry first so any
         later failure can't leave a closed assembler dangling.
+
+        The ack is sent as soon as the bundle is assembled +
+        hash-validated, *before* the write + extract — that disk
+        hop can span the offloader's ack timeout on a slow disk,
+        so a post-ack failure is reported as a terminal
+        ``failed`` job-state frame instead.
         """
         self._inflight.pop(session.dashboard_id, None)
         try:
@@ -533,16 +540,14 @@ class SubmitJobReceiver:
         except BundleAssemblerError as exc:
             await self._reject_assembler(session, pending=pending, exc=exc)
             return
+        # Ack acceptance now (bundle received + hash-validated). Echo the
+        # offloader's ``job_id`` back so it can match the response; the
+        # receiver-side id rides :attr:`FirmwareJob.remote_peer` in the fan-out.
+        await self._send_ack_accepted(session, job_id=pending.job_id)
         try:
             await self._extract_and_queue(session=session, pending=pending, bundle_bytes=assembled)
         except _SubmitJobRejectionError as exc:
-            await self._reject(session, job_id=pending.job_id, reason=exc.reason)
-            return
-        # Echo the offloader's ``job_id`` back on the ack so the
-        # offloader can match the response to its submit; the
-        # receiver-side job id is threaded into the fan-out
-        # via :attr:`FirmwareJob.remote_peer` instead.
-        await self._send_ack_accepted(session, job_id=pending.job_id)
+            await self._report_post_ack_failure(session, pending=pending, reason=exc.reason)
 
     async def _reject_assembler(
         self,
@@ -579,10 +584,10 @@ class SubmitJobReceiver:
         """Write the tarball, extract it, queue a :class:`FirmwareJob`.
 
         Raises :class:`_SubmitJobRejectionError` on any failure
-        with a :class:`SubmitJobAckFrameData.reason`-shaped code
-        so the caller can convert into an ack reject without a
-        terminate (extract / queue failures are receiver-side
-        problems, not wire-level misbehaviour). The receiver-side
+        with a reason code; the caller has already acked
+        acceptance, so it converts the raise into a terminal
+        ``failed`` job-state frame (extract / queue failures are
+        receiver-side problems, not wire-level misbehaviour). The receiver-side
         job id is captured in :attr:`FirmwareJob.remote_peer` for
         the fan-out path; the offloader echoes against its
         own submit-tagged ``job_id`` rather than the receiver's
@@ -706,6 +711,30 @@ class SubmitJobReceiver:
         payload = SubmitJobAckFrameData(type="submit_job_ack", job_id=job_id, accepted=True)
         await session.send_app_frame(dict(payload))
 
+    async def _report_post_ack_failure(
+        self, session: PeerLinkSession, *, pending: _PendingSubmit, reason: str
+    ) -> None:
+        """Surface a post-ack extract/queue failure as a terminal ``failed`` frame.
+
+        The offloader already got ``accepted`` and is waiting on job-state
+        events, but no :class:`FirmwareJob` reached the queue so the
+        :class:`JobFanout` won't emit one; send the ``failed`` frame here,
+        keyed on the offloader's ``job_id``.
+        """
+        _LOGGER.warning(
+            "submit_job from %s: job %s failed after accept (%s)",
+            session.dashboard_id,
+            pending.job_id,
+            reason,
+        )
+        frame = JobStateChangedFrameData(
+            type="job_state_changed",
+            job_id=pending.job_id,
+            status="failed",
+            error_message=f"receiver could not process the bundle: {reason}",
+        )
+        await session.send_app_frame(dict(frame))
+
     async def _reject(
         self,
         session: PeerLinkSession,
@@ -724,11 +753,12 @@ class SubmitJobReceiver:
         *reason*, then optionally fires
         ``terminate{malformed_frame}`` on the session when the
         failure was wire-level misbehaviour (out-of-order
-        chunks, base64 garbage). Receiver-side problems
-        (``extract_failed`` / ``queue_rejected`` / header
-        validation that didn't reach an assembler) leave the
-        session intact so the offloader can retry on a fresh
-        submit.
+        chunks, base64 garbage). Header-validation reasons and
+        recoverable assembler codes leave the session intact so
+        the offloader can retry on a fresh submit. (Post-ack
+        extract / queue failures don't reach here — they surface
+        as a ``failed`` job-state frame via
+        :meth:`_report_post_ack_failure`.)
 
         Failures from ``send_app_frame`` are logged at the
         channel layer and don't propagate here — the session

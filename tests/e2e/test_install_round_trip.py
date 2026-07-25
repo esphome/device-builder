@@ -98,6 +98,7 @@ from .conftest import (
     PairedInstances,
     drive_remote_job_to_completed,
     make_real_bundle,
+    wait_for_receiver_jobs,
     wire_receiver_firmware_recorder,
 )
 
@@ -407,6 +408,7 @@ async def test_remote_install_submit_then_lifecycle_then_download_on_one_session
         bundle_bytes=bundle_bytes,
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     assert len(created_jobs) == 1
     receiver_job = created_jobs[0]
     assert receiver_job.remote_peer == paired_instances.offloader_dashboard_id
@@ -523,6 +525,7 @@ async def test_remote_compile_materialises_for_local_firmware_download(
         bundle_bytes=make_real_bundle(),
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     receiver_job = created_jobs[0]
     images = _write_build_artifacts_on_disk(tmp_path, configuration=receiver_job.configuration)
 
@@ -630,6 +633,7 @@ async def test_windows_receiver_tarball_materialises_for_local_firmware_download
         bundle_bytes=make_real_bundle(),
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     receiver_job = created_jobs[0]
     images = _write_build_artifacts_on_disk(tmp_path, configuration=receiver_job.configuration)
 
@@ -811,6 +815,7 @@ async def test_back_to_back_successful_jobs_keep_scheduler_routing_remote(
             bundle_bytes=bundle_bytes,
         )
         assert ack["accepted"] is True
+        await wait_for_receiver_jobs(paired_instances, cycle + 1)
         assert receiver_jobs[-1].remote_job_id == job_tag
 
         _drive_receiver_lifecycle(
@@ -869,6 +874,7 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
         bundle_bytes=bundle_bytes,
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     _drive_receiver_lifecycle(paired_instances, receiver_jobs[-1], terminal=EventType.JOB_FAILED)
     await _wait_for_offloader_idle(paired_instances, queue_status_events)
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
@@ -882,6 +888,7 @@ async def test_failed_first_job_still_routes_remote_on_second_install(
         bundle_bytes=bundle_bytes,
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 2)
     _drive_receiver_lifecycle(paired_instances, receiver_jobs[-1], terminal=EventType.JOB_COMPLETED)
     await _wait_for_offloader_idle(paired_instances, queue_status_events)
     snapshot = paired_instances.offloader.build_scheduler_snapshot()
@@ -930,6 +937,7 @@ async def test_remote_clean_round_trip_lands_clean_job_and_fans_state_back(
     # Receiver accepted the clean target on the same wire path
     # compile uses.
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     assert len(receiver_jobs) == 1
     receiver_job = receiver_jobs[0]
     assert receiver_job.job_type is JobType.CLEAN

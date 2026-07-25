@@ -125,6 +125,11 @@ def _ack_payload(session: Any) -> dict[str, Any]:
     return payload
 
 
+def _sent_frames(session: Any) -> list[dict[str, Any]]:
+    """Every ``send_app_frame`` payload off *session*, in send order."""
+    return [call.args[0] for call in session.send_app_frame.call_args_list]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1007,16 +1012,48 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
 
-    payload = _ack_payload(session)
-    assert payload["accepted"] is False
-    assert payload["reason"] == "invalid_header"
+    frames = _sent_frames(session)
+    # Accepted up front; the escape is caught during extract and reported as a
+    # terminal failed frame (defence-in-depth still refuses to write outside root).
+    assert frames[0]["type"] == "submit_job_ack"
+    assert frames[0]["accepted"] is True
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "failed"
+    assert "invalid_header" in frames[-1]["error_message"]
     firmware._enqueue.assert_not_called()
 
 
-async def test_submit_job_enqueue_failure_rejects(
+async def test_submit_job_acks_before_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failure inside ``_enqueue`` rejects ``queue_rejected``; session stays."""
+    """The accepted ack is sent before the (slow) write + extract hop runs."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    ack_before_extract = False
+
+    def _prepare(bundle_path: Path, target_dir: Path) -> Path:
+        nonlocal ack_before_extract
+        ack_before_extract = any(
+            call.args[0].get("type") == "submit_job_ack" and call.args[0].get("accepted")
+            for call in session.send_app_frame.call_args_list
+        )
+        return target_dir / "kitchen.yaml"
+
+    monkeypatch.setattr("esphome.bundle.prepare_bundle_for_compile", _prepare)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    assert ack_before_extract
+
+
+async def test_submit_job_enqueue_failure_reports_failed_after_ack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``_enqueue`` failure acks accepted, then reports a terminal ``failed`` frame."""
     firmware = _make_firmware_controller()
     firmware._enqueue = AsyncMock(side_effect=RuntimeError("queue full"))
     receiver = _make_receiver(tmp_path, firmware)
@@ -1032,16 +1069,22 @@ async def test_submit_job_enqueue_failure_rejects(
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
 
-    payload = _ack_payload(session)
-    assert payload["accepted"] is False
-    assert payload["reason"] == "queue_rejected"
+    frames = _sent_frames(session)
+    # Accepted up front, before the extract/queue hop...
+    assert frames[0]["type"] == "submit_job_ack"
+    assert frames[0]["accepted"] is True
+    # ...then a terminal failed frame carrying the reason; the wire stays good.
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "failed"
+    assert frames[-1]["job_id"] == "job-1"
+    assert "queue_rejected" in frames[-1]["error_message"]
     session.terminate.assert_not_called()
 
 
-async def test_submit_job_extract_failure_rejects_without_terminate(
+async def test_submit_job_extract_failure_reports_failed_without_terminate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failure inside ``prepare_bundle_for_compile`` rejects ``extract_failed``; session stays."""
+    """A ``prepare_bundle_for_compile`` failure acks accepted, then reports ``failed``."""
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session()
@@ -1059,12 +1102,14 @@ async def test_submit_job_extract_failure_rejects_without_terminate(
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
 
-    payload = _ack_payload(session)
-    assert payload["accepted"] is False
-    assert payload["reason"] == "extract_failed"
-    # Receiver-side problem; the wire is still good.
+    frames = _sent_frames(session)
+    assert frames[0]["type"] == "submit_job_ack"
+    assert frames[0]["accepted"] is True
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "failed"
+    assert "extract_failed" in frames[-1]["error_message"]
+    # Receiver-side problem; the wire is still good and no job was queued.
     session.terminate.assert_not_called()
-    # No job was queued.
     firmware._enqueue.assert_not_called()
 
 

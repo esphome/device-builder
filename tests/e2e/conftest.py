@@ -81,6 +81,7 @@ from ..conftest import (
     _CapturedEvents,
     capture_events,
     make_remote_build_controller,
+    wait_until,
     wire_firmware_remote_peer_api_mocks,
 )
 
@@ -469,6 +470,7 @@ async def run_offload_compile_round_trip(
         ),
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(instances, 1)
     receiver_job = created_jobs[0]
 
     remote_build_path = parse_from_configuration(receiver_job.configuration)
@@ -579,6 +581,25 @@ def wire_receiver_firmware_recorder(instances: PairedInstances) -> list[Firmware
         return_value=QueueStatus(idle=True, running=False, queue_depth=0)
     )
     return created_jobs
+
+
+async def wait_for_receiver_jobs(
+    instances: PairedInstances, count: int, *, timeout: float = 5.0
+) -> None:
+    """Wait until the receiver has extracted + enqueued *count* jobs.
+
+    The receiver acks acceptance before the extract + queue hop, so a
+    submitted job reaches the recorder only after the ack returns to the
+    offloader; tests inspecting receiver state must wait rather than read
+    synchronously.
+    """
+    firmware = instances.receiver._db.firmware
+    await wait_until(
+        lambda: firmware._enqueue.await_count >= count,
+        timeout,
+        f"receiver to enqueue {count} job(s)",
+        interval=0.01,
+    )
 
 
 async def drive_remote_job_to_completed(

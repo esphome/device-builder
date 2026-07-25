@@ -63,7 +63,7 @@ from esphome_device_builder.models import (
 )
 
 from ..conftest import capture_events
-from .conftest import PairedInstances, make_real_bundle
+from .conftest import PairedInstances, make_real_bundle, wait_for_receiver_jobs
 
 
 def _wire_receiver_firmware_recorder(instances: PairedInstances) -> list[FirmwareJob]:
@@ -161,6 +161,8 @@ async def test_submit_job_round_trip_extracts_real_bundle_and_queues_job(
     assert ack["job_id"] == "off-job-1"
     assert "reason" not in ack
 
+    # The receiver extracts + creates + enqueues after acking now; wait for it.
+    await wait_for_receiver_jobs(paired_instances, 1)
     assert len(created_jobs) == 1
     job = created_jobs[0]
     assert job.remote_peer == paired_instances.offloader_dashboard_id
@@ -213,6 +215,7 @@ async def test_submit_job_round_trip_with_relative_receiver_config_dir(
     assert ack["job_id"] == "off-job-678"
     assert "reason" not in ack
 
+    await wait_for_receiver_jobs(instances, 1)
     assert len(created_jobs) == 1
     job = created_jobs[0]
     assert job.remote_peer == instances.offloader_dashboard_id
@@ -273,6 +276,7 @@ async def test_submit_job_round_trip_then_fanout_to_offloader_bus(
         bundle_bytes=make_real_bundle(),
     )
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     assert len(created_jobs) == 1
     job = created_jobs[0]
 
@@ -341,6 +345,7 @@ async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
     )
 
     assert ack["accepted"] is True
+    await wait_for_receiver_jobs(paired_instances, 1)
     assert len(created_jobs) == 1
     job = created_jobs[0]
 
