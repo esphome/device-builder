@@ -443,6 +443,18 @@ def test_load_board_catalog_skips_when_body_missing(
     assert any("Board body missing" in rec.getMessage() for rec in caplog.records)
 
 
+def test_load_esphome_config_warns_on_unknown_variant(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An out-of-snapshot variant loads (fail-open) with a warning, not a drop."""
+    with caplog.at_level(logging.WARNING):
+        cfg = defs._load_esphome_config(
+            {"platform": "esp32", "board": "custom", "variant": "ESP32-Z9"}, "custom-board"
+        )
+    assert cfg.variant == "esp32z9"
+    assert "unknown esp32 variant" in caplog.text
+
+
 def test_load_default_component_rejects_non_string_non_dict_entry() -> None:
     """A malformed default_components entry (not str / dict) raises ``TypeError``.
 
