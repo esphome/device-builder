@@ -23,7 +23,7 @@ from esphome_device_builder.controllers.remote_build.artifact_platforms import (
     ln882x,
     rtl87xx,
 )
-from esphome_device_builder.definitions import PlatformCapabilities
+from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 
 
 def _public_platform_modules() -> list:
@@ -119,7 +119,7 @@ def test_esp32_variant_folds_to_esp32_when_index_degraded(monkeypatch: pytest.Mo
     monkeypatch.setattr(
         artifact_platforms,
         "load_platform_capabilities_index",
-        lambda: PlatformCapabilities([], [], [], [], {}, [], {}, {}, []),
+        lambda: EMPTY_PLATFORM_CAPABILITIES,
     )
     artifact_platforms._by_target.cache_clear()
     try:

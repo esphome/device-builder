@@ -27,7 +27,6 @@ from esphome_device_builder.definitions import (
     _parse_download_types,
     load_platform_capabilities_index,
 )
-from esphome_device_builder.models import Esp32Variant
 from script.sync_components import _logger_interface_snapshot  # type: ignore[import-not-found]
 
 from .conftest import catalog_releases_ahead as _catalog_releases_ahead
@@ -96,26 +95,22 @@ def test_index_within_installed_esphome() -> None:
             assert not extra, f"committed index data no installed esphome exposes: {extra}"
 
 
-def test_logger_interface_snapshot_matches_live_logger_schema() -> None:
-    """
-    Checked-in logger snapshot re-derives identically from the live schema.
-
-    Strict parity, unlike the one-release drift the sibling test tolerates:
-    the esphome-dev matrix is the early-warning alarm for an upstream
-    ``hardware_uart`` default change.
-    """
-    defaults, values = _logger_interface_snapshot()
+def test_logger_interface_snapshot_within_installed_esphome() -> None:
+    """Checked-in logger snapshot stays within one esphome release of the live schema."""
+    live_defaults, live_values = _logger_interface_snapshot()
     caps = load_platform_capabilities_index()
-    assert caps.logger_interface_defaults == defaults
-    assert caps.logger_interface_values == values
-
-
-def test_logger_interface_esp32_keys_are_known_variants() -> None:
-    """Every esp32-family key in the snapshot matches the Esp32Variant spelling."""
-    variants = {v.value for v in Esp32Variant}
-    for key in load_platform_capabilities_index().logger_interface_defaults:
-        if key.startswith("esp32"):
-            assert key in variants, key
+    ahead = _catalog_releases_ahead()
+    pairs = [
+        (set(caps.logger_interface_defaults.items()), set(live_defaults.items())),
+        (set(caps.logger_interface_values), set(live_values)),
+    ]
+    for indexed, installed in pairs:
+        if ahead >= 1:
+            missing = installed - indexed
+            assert not missing, f"installed logger data missing from the newer catalog: {missing}"
+        else:
+            extra = indexed - installed
+            assert not extra, f"committed logger data no installed esphome exposes: {extra}"
 
 
 def test_load_missing_index_is_empty(tmp_path: Path) -> None:

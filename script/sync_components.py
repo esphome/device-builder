@@ -136,7 +136,6 @@ from esphome_device_builder.models import (  # noqa: E402
     AutomationTriggerIndex,
     ComponentCatalogEntry,
     ComponentCategory,
-    Esp32Variant,
     Filter,
     FilterIndex,
     LightEffect,
@@ -3678,16 +3677,16 @@ def _logger_interface_snapshot() -> tuple[dict[str, str], list[str]]:
     """
     from esphome import loader
     from esphome.components import logger as logger_component
+    from esphome.components.esp32.const import VARIANTS
 
     raw = _collect_platform_defaults(loader.get_component("logger")).get(("hardware_uart",), {})
     if not raw:
         raise RuntimeError("logger hardware_uart SplitDefault table not found")
-    # The exact key set the runtime can look up: platform keys plus the
-    # esp32 variants, spelled through the same normalizers the runtime
-    # uses. An upstream key that lands outside it (a renamed platform,
-    # a new variant family) must fail the sync loudly, not emit a dead
-    # row the runtime never matches.
-    known_keys = {p.value for p in Platform} | {v.value for v in Esp32Variant}
+    # The key set the runtime can look up: platform keys plus the LIVE esp32
+    # variants, spelled through the same normalizers the runtime uses. Live
+    # (not the local Esp32Variant enum) so a brand-new chip syncs the day it
+    # lands; only a genuinely unknown platform key fails the sync loudly.
+    known_keys = {p.value for p in Platform} | {normalize_chip_variant(v) for v in VARIANTS}
     defaults: dict[str, str] = {}
     for key, value in sorted(raw.items()):
         if value == "DEFAULT":

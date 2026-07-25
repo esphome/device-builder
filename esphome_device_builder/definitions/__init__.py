@@ -571,7 +571,7 @@ class PlatformCapabilities(NamedTuple):
     logger_interface_values: list[str]
 
 
-_EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
+EMPTY_PLATFORM_CAPABILITIES = PlatformCapabilities([], [], [], [], {}, [], {}, {}, [])
 
 
 @cache
@@ -591,7 +591,7 @@ def _load_platform_capabilities(path: Path) -> PlatformCapabilities:
     """Parse a platform-capabilities index at *path*; empty on missing / malformed."""
     return _load_json_artifact(
         path,
-        default=_EMPTY_PLATFORM_CAPABILITIES,
+        default=EMPTY_PLATFORM_CAPABILITIES,
         transform=_platform_capabilities_from_payload,
         missing_msg=(
             "platform_capabilities.index.json missing — download routing + wifi "
@@ -605,7 +605,7 @@ def _platform_capabilities_from_payload(payload: Any) -> PlatformCapabilities:
     """Coerce a parsed index payload; empty on a non-mapping."""
     if not isinstance(payload, dict):
         _LOGGER.warning("platform_capabilities.index.json is not a mapping — ignoring.")
-        return _EMPTY_PLATFORM_CAPABILITIES
+        return EMPTY_PLATFORM_CAPABILITIES
 
     def _str_list(key: str) -> list[str]:
         value = payload.get(key)

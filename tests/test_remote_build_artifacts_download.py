@@ -47,6 +47,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsResult,
 )
+from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
 from esphome_device_builder.helpers.storage_path import (
     resolve_compiled_config_path,
@@ -695,7 +696,7 @@ def test_pack_build_artifacts_logs_download_types_failure(
     monkeypatch.setattr(
         download_mod,
         "_capabilities",
-        lambda: download_mod.PlatformCapabilities([], [], [], [], {}, [], {}, {}, []),
+        lambda: EMPTY_PLATFORM_CAPABILITIES,
     )
 
     def _raise(*_args: object, **_kwargs: object) -> object:

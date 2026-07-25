@@ -35,7 +35,7 @@ from esphome_device_builder.controllers.components import (
 )
 from esphome_device_builder.controllers.components import _resolve as components_module
 from esphome_device_builder.controllers.components import controller as comp_controller
-from esphome_device_builder.definitions import PlatformCapabilities
+from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
@@ -202,7 +202,7 @@ async def test_helper_aliases_come_from_the_capabilities_snapshot(
     monkeypatch.setattr(
         comp_controller,
         "load_platform_capabilities_index",
-        lambda: PlatformCapabilities([], [], [], [], {}, ["esp32_ble_client"], {}, {}, []),
+        lambda: EMPTY_PLATFORM_CAPABILITIES._replace(component_names=["esp32_ble_client"]),
     )
     docs = await cat.get_integration_docs()
     assert docs["esp32_ble_client"]["url"] == "https://esphome.io/components/esp32_ble"
