@@ -11,8 +11,8 @@ from contextlib import suppress
 from pathlib import Path
 
 from ...definitions import load_platform_capabilities_index
+from ...helpers.chips import normalize_chip_variant
 from ...helpers.subprocess import run_subprocess_capture
-from ...models.boards import normalize_chip_variant
 
 _LOGGER = logging.getLogger(__name__)
 

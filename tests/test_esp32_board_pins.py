@@ -7,12 +7,12 @@ import importlib
 import pytest
 
 from esphome_device_builder.definitions import load_platform_capabilities_index
+from esphome_device_builder.helpers.chips import normalize_chip_variant
 from esphome_device_builder.models import (
     BoardCatalogResponse,
     BoardPin,
     PinFeature,
 )
-from esphome_device_builder.models.boards import normalize_chip_variant
 from script.sync_boards import (
     _ESP32_BOARDS_ATTR,
     _ESP32_BOARDS_MODULE,

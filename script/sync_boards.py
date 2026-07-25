@@ -75,6 +75,7 @@ from esphome_device_builder.constants import BOARD_PIN_KEYS  # noqa: E402
 from esphome_device_builder.definitions import (  # noqa: E402
     build_board_catalog_from_manifests,
 )
+from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.helpers.pin_gpio import parse_board_gpio  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     BoardCatalogEntry,
@@ -88,7 +89,6 @@ from esphome_device_builder.models import (  # noqa: E402
     PinFeature,
     Platform,
 )
-from esphome_device_builder.models.boards import normalize_chip_variant  # noqa: E402
 
 _LOGGER = logging.getLogger("sync_boards")
 

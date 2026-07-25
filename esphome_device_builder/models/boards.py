@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
-from ..helpers.chips import normalize_chip_variant
 from .common import (
     DashboardModel,
     FieldPreset,
@@ -20,7 +19,6 @@ from .common import (
 # `from .boards import PinFeature` paths.
 
 _ = PinFeature  # suppress "imported but unused" — this is a re-export
-__ = normalize_chip_variant  # re-export: dep-free home is helpers.chips
 
 
 class Connectivity(StrEnum):

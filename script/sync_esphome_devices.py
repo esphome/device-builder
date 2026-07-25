@@ -46,6 +46,7 @@ sys.path.insert(0, str(_REPO_ROOT))
 
 # Up here so a missing esphome fails at startup, not mid-run on the
 # first page with a ``substitutions:`` block.
+from esphome.components.esp32.const import VARIANTS  # noqa: E402
 from esphome.components.substitutions import do_substitution_pass  # noqa: E402
 
 from esphome_device_builder.constants import (  # noqa: E402
@@ -54,7 +55,7 @@ from esphome_device_builder.constants import (  # noqa: E402
     DEVICE_IMPORT_SOURCE_TYPE,
     FEATURED_EXCLUDED_CATEGORIES,
 )
-from esphome_device_builder.models.boards import normalize_chip_variant  # noqa: E402
+from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from script._board_import import (  # noqa: E402
     ESP32_VARIANT_DEFAULT_BOARD,
     build_esphome_block,
@@ -118,17 +119,11 @@ _VALID_SOC_FAMILIES: frozenset[str] = frozenset({"esp32", "esp8266", "bk72xx", "
 # ``wifi:`` block that fails validation (P4 wifi needs ``esp32_hosted``). Built
 # from the live variant list longest-first so e.g. ``esp32s31`` isn't
 # swallowed by ``esp32s3`` (nor ``esp32c61`` by ``esp32c6``).
-def _esp32_variant_suffixes() -> list[str]:
-    from esphome.components.esp32.const import VARIANTS
-
-    return sorted(
-        (suffix for v in VARIANTS if (suffix := normalize_chip_variant(v).removeprefix("esp32"))),
-        key=len,
-        reverse=True,
-    )
-
-
-_ESP32_VARIANT_SUFFIXES = _esp32_variant_suffixes()
+_ESP32_VARIANT_SUFFIXES = sorted(
+    (suffix for v in VARIANTS if (suffix := normalize_chip_variant(v).removeprefix("esp32"))),
+    key=len,
+    reverse=True,
+)
 # Suffix must end the token (next char is ``-``, ``_``, or end) — a bare ``\b``
 # wouldn't fire before ``_`` (underscore is a word char) so ``esp32_s3_zero`` would
 # miss, and it keeps ``s3`` from matching inside ``s31``.

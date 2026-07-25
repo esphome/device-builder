@@ -30,6 +30,7 @@ import orjson
 import yaml
 
 from ..constants import IMPORT_SOURCE_TYPES
+from ..helpers.chips import normalize_chip_variant
 from ..helpers.lazy_catalog import (
     is_external_image_url,
     is_unsafe_catalog_id,
@@ -52,7 +53,6 @@ from ..models import (
     PinFeature,
     Platform,
 )
-from ..models.boards import normalize_chip_variant
 
 _LOGGER = logging.getLogger(__name__)
 

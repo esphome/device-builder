@@ -125,6 +125,7 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 )
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
+from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
 from esphome_device_builder.models import (  # noqa: E402
     RP2_ALIAS_PLATFORM,
     RP2_CANONICAL_PLATFORM,
@@ -143,7 +144,6 @@ from esphome_device_builder.models import (  # noqa: E402
     PinFeature,
     PinMode,
     Platform,
-    normalize_chip_variant,
     normalize_platform,
 )
 from script._light_schemas import (  # noqa: E402

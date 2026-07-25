@@ -10,7 +10,8 @@ from esphome import const
 from esphome.const import CONF_PACKAGES
 
 from ...definitions import load_platform_capabilities_index
-from ...models.boards import RP2_PLATFORM_ALIASES, normalize_chip_variant, normalize_platform
+from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
+from ..chips import normalize_chip_variant
 from ..yaml import (
     _split_value_and_comment,
     _strip_yaml_quotes,
