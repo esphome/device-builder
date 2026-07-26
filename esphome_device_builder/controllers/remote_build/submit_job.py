@@ -381,10 +381,9 @@ class SubmitJobReceiver:
         """
         Flag a mid-extract submit for cancellation.
 
-        True when a live extract holds the (*dashboard_id*, *job_id*)
-        correlation and will report the terminal ``cancelled`` frame (or
-        route a firmware cancel if it already queued); False once the
-        enqueue handoff has made the job resolvable through the fan-out.
+        True when a live extract holds the correlation and will report the
+        terminal; False once the enqueue handoff has made the job resolvable
+        through the fan-out.
         """
         return self._extracts.cancel((dashboard_id, job_id))
 
@@ -437,21 +436,22 @@ class SubmitJobReceiver:
                 terminate_session=True,
             )
             return
+        job_id = frame["job_id"]
         # A resubmit of a job_id whose accepted bundle is still mid-extract
         # would overwrite the extract index and mis-route a cancel.
         if session.dashboard_id in self._inflight or self._extracts.is_tracked(
-            (session.dashboard_id, frame["job_id"])
+            (session.dashboard_id, job_id)
         ):
-            await self._reject(session, job_id=frame["job_id"], reason=_REASON_DUPLICATE_SUBMIT)
+            await self._reject(session, job_id=job_id, reason=_REASON_DUPLICATE_SUBMIT)
             return
         target = frame["target"]
         if target == "upload":
             # Distinct from ``invalid_header`` so an older offloader's
             # dialog surfaces a recognisable refusal, not "bad frame".
-            await self._reject(session, job_id=frame["job_id"], reason=_REASON_UPLOAD_UNSUPPORTED)
+            await self._reject(session, job_id=job_id, reason=_REASON_UPLOAD_UNSUPPORTED)
             return
         if target not in _TARGET_TO_JOB_TYPE:
-            await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
+            await self._reject(session, job_id=job_id, reason=_REASON_INVALID_HEADER)
             return
         # Validate the peer-supplied filename — it becomes the
         # second path segment under
@@ -461,7 +461,7 @@ class SubmitJobReceiver:
         # outside the intended subtree.
         device_stem = _validate_configuration_filename(frame["configuration_filename"])
         if device_stem is None:
-            await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
+            await self._reject(session, job_id=job_id, reason=_REASON_INVALID_HEADER)
             return
         try:
             assembler = BundleAssembler(
@@ -470,11 +470,11 @@ class SubmitJobReceiver:
                 sha256_hex=frame["bundle_sha256"],
             )
         except BundleAssemblerError as exc:
-            await self._reject(session, job_id=frame["job_id"], reason=exc.code.value)
+            await self._reject(session, job_id=job_id, reason=exc.code.value)
             return
 
         self._inflight[session.dashboard_id] = _PendingSubmit(
-            job_id=frame["job_id"],
+            job_id=job_id,
             configuration_filename=frame["configuration_filename"],
             target=target,
             assembler=assembler,
@@ -583,42 +583,43 @@ class SubmitJobReceiver:
         """Extract + queue one accepted bundle, serialized per peer."""
         key = (session.dashboard_id, pending.job_id)
         try:
-            if self._extracts.consume(key):
-                await self._send_job_cancelled(session, job_id=pending.job_id)
-                return
+            self._raise_if_cancel_flagged(key)
             # The (FIFO) lock keeps per-peer enqueue order and keeps a
             # same-configuration resubmit off a target dir mid-extract.
             async with self._extracts.lock(session.dashboard_id):
-                try:
-                    job = await self._extract_and_queue(
-                        session=session, pending=pending, bundle_bytes=bundle_bytes, cancel_key=key
-                    )
-                except _SubmitJobRejectionError as exc:
-                    await self._report_post_ack_failure(session, pending=pending, reason=exc.reason)
-                except _ExtractCancelledError:
-                    await self._send_job_cancelled(session, job_id=pending.job_id)
-                except Exception:
-                    # The offloader already got ``accepted`` and is waiting on
-                    # job-state events; an unreported crash strands it forever.
-                    _LOGGER.exception(
-                        "submit_job from %s: unexpected extract failure for job %s",
-                        session.dashboard_id,
-                        pending.job_id,
-                    )
-                    await self._report_post_ack_failure(
-                        session, pending=pending, reason=_REASON_EXTRACT_FAILED
-                    )
-                else:
-                    # Queued: the fan-out cached the correlation during the
-                    # enqueue fire, and the return reached this block with no
-                    # intervening await, so dropping the index here leaves no
-                    # unroutable window. From now on the job is live in the
-                    # queue; nothing past this point may report ``failed``.
-                    self._extracts.handoff(key)
-                    if self._extracts.consume(key):
-                        await self._cancel_queued_job(session, pending=pending, job=job)
+                job = await self._extract_and_queue(
+                    session=session, pending=pending, bundle_bytes=bundle_bytes, cancel_key=key
+                )
+        except _SubmitJobRejectionError as exc:
+            await self._report_post_ack_failure(session, pending=pending, reason=exc.reason)
+        except _ExtractCancelledError:
+            await self._send_job_cancelled(session, job_id=pending.job_id)
+        except Exception:
+            # The offloader already got ``accepted`` and is waiting on
+            # job-state events; an unreported crash strands it forever.
+            _LOGGER.exception(
+                "submit_job from %s: unexpected extract failure for job %s",
+                session.dashboard_id,
+                pending.job_id,
+            )
+            await self._report_post_ack_failure(
+                session, pending=pending, reason=_REASON_EXTRACT_FAILED
+            )
+        else:
+            # No await between the enqueue and this block (the lock's exit
+            # doesn't yield), so dropping the index here leaves no
+            # unroutable window. The job is live in the queue; nothing
+            # past this point may report ``failed``.
+            self._extracts.handoff(key)
+            if self._extracts.consume(key):
+                await self._cancel_queued_job(session, pending=pending, job=job)
         finally:
             self._extracts.consume(key)
+
+    def _raise_if_cancel_flagged(self, key: tuple[str, str]) -> None:
+        """Consume any cancellation flag for *key* and raise if one was set."""
+        if self._extracts.consume(key):
+            raise _ExtractCancelledError
 
     async def _reject_assembler(
         self,
@@ -671,8 +672,7 @@ class SubmitJobReceiver:
         ``run_in_executor`` keeps the receiver's WS dispatch
         coroutine non-blocking through a multi-MB write.
         """
-        if self._extracts.consume(cancel_key):
-            raise _ExtractCancelledError
+        self._raise_if_cancel_flagged(cancel_key)
         # Subtree (extract target) + bundle (sibling tarball)
         # flow through the layout helper so the writer here and
         # the 6c sweeper read one source of truth for the
@@ -737,8 +737,7 @@ class SubmitJobReceiver:
         if receiver is not None:
             remote_peer_label = receiver.approved_peer_label(session.dashboard_id)
 
-        if self._extracts.consume(cancel_key):
-            raise _ExtractCancelledError
+        self._raise_if_cancel_flagged(cancel_key)
         try:
             job = self._firmware._create_job(
                 configuration=configuration,
@@ -775,6 +774,8 @@ class SubmitJobReceiver:
             configuration,
             pending.target,
         )
+        # No awaits between the enqueue and this return; the caller's
+        # handoff relies on it.
         return job
 
     async def _cancel_queued_job(
@@ -783,11 +784,9 @@ class SubmitJobReceiver:
         """
         Route a cancel flagged in the enqueue window through the firmware queue.
 
-        An already-terminal refusal is fan-out-owned (its terminal frame was
-        emitted on the transition); any other failure must not report
-        ``failed`` for a job that is live in the queue, but a vanished job
-        gets the terminal ``cancelled`` frame directly so the offloader is
-        never stranded.
+        An already-terminal refusal defers to the fan-out's frame; a vanished
+        job gets the terminal ``cancelled`` frame directly; any other failure
+        sends nothing (the job is live in the queue).
         """
         try:
             await self._firmware.cancel(job_id=job.job_id)
@@ -807,7 +806,12 @@ class SubmitJobReceiver:
                 exc.code,
                 exc.message,
             )
-            await self._send_job_cancelled(session, job_id=pending.job_id)
+            await self._send_terminal_state(
+                session,
+                job_id=pending.job_id,
+                status="cancelled",
+                error_message="cancelled after queueing; job no longer present",
+            )
         except Exception:
             _LOGGER.exception(
                 "submit_job from %s: post-enqueue cancel for job %s crashed; job remains queued",

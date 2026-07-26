@@ -123,6 +123,17 @@ def _passthrough_prepare(bundle_path: Path, target_dir: Path) -> Path:
     return target_dir / "kitchen.yaml"
 
 
+def _park_extract(receiver: SubmitJobReceiver, monkeypatch: pytest.MonkeyPatch) -> asyncio.Event:
+    """Replace the receiver's extract with one parked on the returned release event."""
+    release = asyncio.Event()
+
+    async def _parked_extract(**_kwargs: object) -> None:
+        await release.wait()
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+    return release
+
+
 def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
     """Build typed ``SubmitJobChunkFrameData`` chunks via the shared helper."""
     _header_dict, chunks = make_submit_job_frames(
@@ -1168,17 +1179,13 @@ async def test_unexpected_extract_crash_reports_failed_instead_of_stranding(
 
 
 async def test_cancel_extract_in_the_window_skips_queue_and_reports_cancelled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A ``cancel_job`` flagged before the extract runs never queues; terminal frame sent."""
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
     session = _make_session()
     bundle = b"hello"
-    monkeypatch.setattr(
-        "esphome.bundle.prepare_bundle_for_compile",
-        _passthrough_prepare,
-    )
 
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
@@ -1192,21 +1199,37 @@ async def test_cancel_extract_in_the_window_skips_queue_and_reports_cancelled(
     assert frames[-1]["type"] == "job_state_changed"
     assert frames[-1]["status"] == "cancelled"
     assert frames[-1]["job_id"] == "job-1"
+    firmware._create_job.assert_not_called()
     firmware._enqueue.assert_not_called()
     assert not receiver._extracts._cancel_requested
 
 
 @pytest.mark.parametrize(
-    "cancel_side_effect",
+    ("cancel_side_effect", "expect_cancelled_frame"),
     [
-        pytest.param(None, id="cancel-accepted"),
+        pytest.param(None, False, id="cancel-accepted"),
         pytest.param(
-            CommandError(ErrorCode.INVALID_ARGS, "job already terminal"), id="cancel-refused"
+            CommandError(ErrorCode.INVALID_ARGS, "job already terminal"),
+            False,
+            id="already-terminal-refusal-defers-to-fanout",
+        ),
+        pytest.param(
+            CommandError(ErrorCode.NOT_FOUND, "Job not found: local-0"),
+            True,
+            id="vanished-job-gets-the-frame-directly",
+        ),
+        pytest.param(
+            RuntimeError("state out of sync"),
+            False,
+            id="crash-never-reports-terminal-for-a-queued-job",
         ),
     ],
 )
 async def test_cancel_extract_flagged_mid_enqueue_routes_a_firmware_cancel(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cancel_side_effect: Exception | None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    cancel_side_effect: Exception | None,
+    expect_cancelled_frame: bool,
 ) -> None:
     """A cancel landing during the enqueue await cancels through the firmware queue."""
     firmware = _make_firmware_controller()
@@ -1231,72 +1254,17 @@ async def test_cancel_extract_flagged_mid_enqueue_routes_a_firmware_cancel(
     await _drain_extracts(receiver)
 
     firmware.cancel.assert_awaited_once_with(job_id="local-0")
-    # The fan-out owns the terminal frame on this path (a refusal means the
-    # job already went terminal); none is sent here.
-    assert all(f["type"] != "job_state_changed" for f in _sent_frames(session))
+    terminal_frames = [f for f in _sent_frames(session) if f["type"] == "job_state_changed"]
+    if expect_cancelled_frame:
+        # A vanished job gets the terminal ``cancelled`` frame directly.
+        assert [f["status"] for f in terminal_frames] == ["cancelled"]
+        assert terminal_frames[0]["job_id"] == "job-1"
+    else:
+        # The fan-out owns the terminal frame (already-terminal refusal), or
+        # the job is live in the queue (crash): nothing is sent here.
+        assert not terminal_frames
     # Post-handoff the extract window no longer claims the correlation.
     assert not receiver.cancel_extract(session.dashboard_id, "job-1")
-
-
-async def test_post_enqueue_cancel_not_found_still_sends_the_terminal_frame(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A vanished job (``NOT_FOUND``) gets the terminal ``cancelled`` frame directly."""
-    firmware = _make_firmware_controller()
-    receiver = _make_receiver(tmp_path, firmware)
-    session = _make_session()
-    bundle = b"hello"
-    monkeypatch.setattr(
-        "esphome.bundle.prepare_bundle_for_compile",
-        _passthrough_prepare,
-    )
-
-    async def _enqueue_with_late_cancel(job: Any) -> Any:
-        assert receiver.cancel_extract(session.dashboard_id, "job-1")
-        return job
-
-    firmware._enqueue = AsyncMock(side_effect=_enqueue_with_late_cancel)
-    firmware.cancel = AsyncMock(
-        side_effect=CommandError(ErrorCode.NOT_FOUND, "Job not found: local-0")
-    )
-
-    await receiver.handle_submit_job(session, _header(bundle=bundle))
-    for chunk in _frame_chunks("job-1", bundle):
-        await receiver.handle_submit_job_chunk(session, chunk)
-    await _drain_extracts(receiver)
-
-    frames = _sent_frames(session)
-    assert frames[-1]["type"] == "job_state_changed"
-    assert frames[-1]["status"] == "cancelled"
-    assert frames[-1]["job_id"] == "job-1"
-
-
-async def test_post_enqueue_cancel_crash_never_reports_failed_for_a_queued_job(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An unexpected cancel crash after a successful enqueue sends no terminal frame."""
-    firmware = _make_firmware_controller()
-    receiver = _make_receiver(tmp_path, firmware)
-    session = _make_session()
-    bundle = b"hello"
-    monkeypatch.setattr(
-        "esphome.bundle.prepare_bundle_for_compile",
-        _passthrough_prepare,
-    )
-
-    async def _enqueue_with_late_cancel(job: Any) -> Any:
-        assert receiver.cancel_extract(session.dashboard_id, "job-1")
-        return job
-
-    firmware._enqueue = AsyncMock(side_effect=_enqueue_with_late_cancel)
-    firmware.cancel = AsyncMock(side_effect=RuntimeError("state out of sync"))
-
-    await receiver.handle_submit_job(session, _header(bundle=bundle))
-    for chunk in _frame_chunks("job-1", bundle):
-        await receiver.handle_submit_job_chunk(session, chunk)
-    await _drain_extracts(receiver)
-
-    assert all(f["type"] != "job_state_changed" for f in _sent_frames(session))
 
 
 async def test_resubmit_of_a_mid_extract_job_id_is_rejected(
@@ -1306,12 +1274,7 @@ async def test_resubmit_of_a_mid_extract_job_id_is_rejected(
     receiver = _make_receiver(tmp_path)
     session = _make_session()
     bundle = b"hello"
-    release = asyncio.Event()
-
-    async def _parked_extract(**_kwargs: object) -> None:
-        await release.wait()
-
-    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+    release = _park_extract(receiver, monkeypatch)
 
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
@@ -1373,12 +1336,7 @@ async def test_mid_extract_job_holds_the_reset_busy_gate(
     receiver = _make_receiver(tmp_path)
     session = _make_session()
     bundle = b"hello"
-    release = asyncio.Event()
-
-    async def _parked_extract(**_kwargs: object) -> None:
-        await release.wait()
-
-    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+    release = _park_extract(receiver, monkeypatch)
 
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
@@ -1388,28 +1346,6 @@ async def test_mid_extract_job_holds_the_reset_busy_gate(
     release.set()
     await _drain_extracts(receiver)
     assert not receiver.has_any_inflight()
-
-
-async def test_cancel_flagged_before_the_task_starts_reports_without_extracting(
-    tmp_path: Path,
-) -> None:
-    """A cancel consumed at the pre-lock checkpoint never touches the extract path."""
-    firmware = _make_firmware_controller()
-    receiver = _make_receiver(tmp_path, firmware)
-    session = _make_session()
-    bundle = b"hello"
-
-    await receiver.handle_submit_job(session, _header(bundle=bundle))
-    for chunk in _frame_chunks("job-1", bundle):
-        await receiver.handle_submit_job_chunk(session, chunk)
-    # Flag before the spawned task first runs.
-    assert receiver.cancel_extract(session.dashboard_id, "job-1")
-    await _drain_extracts(receiver)
-
-    frames = _sent_frames(session)
-    assert frames[-1]["type"] == "job_state_changed"
-    assert frames[-1]["status"] == "cancelled"
-    firmware._create_job.assert_not_called()
 
 
 async def test_cancel_while_parked_behind_a_predecessor_skips_its_extract(
@@ -1494,10 +1430,7 @@ async def test_stop_cancels_a_parked_extract(
     session = _make_session()
     bundle = b"hello"
 
-    async def _parked_extract(**_kwargs: object) -> None:
-        await asyncio.Event().wait()
-
-    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+    _park_extract(receiver, monkeypatch)
 
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
@@ -1516,10 +1449,7 @@ async def test_submit_landing_mid_drain_spawns_nothing(
     session = _make_session()
     bundle = b"hello"
 
-    async def _parked_extract(**_kwargs: object) -> None:
-        await asyncio.Event().wait()
-
-    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+    _park_extract(receiver, monkeypatch)
 
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
