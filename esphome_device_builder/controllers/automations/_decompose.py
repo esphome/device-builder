@@ -160,10 +160,14 @@ def _uncatalogued_action(action_id: str, raw_params: Any, *, multi_key: bool) ->
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     # Uncatalogued single-key id (an external component's action, or a typo):
     # keep it as an opaque passthrough node so its siblings stay editable
-    # rather than collapsing the whole automation to read-only. ``raw_body``
-    # round-trips through the emitter (bar comments and any non-``!lambda``
-    # tag, which ruamel drops); the frontend shows it read-only.
-    return ActionNode(action_id=action_id, unknown=True, raw_body=_render_value(raw_params))
+    # rather than collapsing the whole automation to read-only. ``preserve_tags``
+    # keeps ``!secret`` / ``!include`` etc. through the emitter (comments and
+    # exact formatting are still lost); the frontend shows it read-only.
+    return ActionNode(
+        action_id=action_id,
+        unknown=True,
+        raw_body=_render_value(raw_params, preserve_tags=True),
+    )
 
 
 def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = False) -> ActionNode:
@@ -288,7 +292,7 @@ def _collect_api_action_params(block: dict) -> dict[str, Any]:
     return out
 
 
-def _render_value(value: Any) -> Any:
+def _render_value(value: Any, *, preserve_tags: bool = False) -> Any:
     """
     Convert a ruamel-parsed value to its JSON-wire shape.
 
@@ -296,25 +300,34 @@ def _render_value(value: Any) -> Any:
     sentinel; an ``!lambda``-tagged value additionally carries
     ``"_tag": "!lambda"`` so the emitter re-emits the tag (dropping it
     turns the C++ lambda into a plain string literal). ruamel maps and
-    lists become plain dicts/lists, recursively. Tagged scalars from
-    ruamel are not JSON-serialisable on their own, so any unrecognised
-    tag falls back to its plain string value.
+    lists become plain dicts/lists, recursively. Any other tagged scalar
+    falls back to its plain string value — *unless* ``preserve_tags``
+    (an opaque passthrough body), where it becomes a
+    ``{"_tagged", "_tag"}`` sentinel the emitter re-tags, so ``!secret``
+    / ``!include`` inside an uncatalogued action survive a re-emit.
     """
     if isinstance(value, LiteralScalarString):
         return {"_lambda": str(value)}
     if isinstance(value, TaggedScalar):
-        tag = getattr(value.tag, "value", "") if value.tag is not None else ""
-        if tag == "!lambda":
-            return {"_lambda": str(value), "_tag": "!lambda"}
-        return str(value)
+        return _render_tagged_scalar(value, preserve_tags=preserve_tags)
     if isinstance(value, dict):
-        return {k: _render_value(v) for k, v in value.items()}
+        return {k: _render_value(v, preserve_tags=preserve_tags) for k, v in value.items()}
     if isinstance(value, list):
-        return [_render_value(v) for v in value]
+        return [_render_value(v, preserve_tags=preserve_tags) for v in value]
     # ruamel round-trip mode wraps floats in ScalarFloat (a float subclass);
     # orjson serialises int/bool subclasses but refuses float subclasses, so
     # coerce to a plain float for the wire.
     return float(value) if isinstance(value, ScalarFloat) else value
+
+
+def _render_tagged_scalar(value: TaggedScalar, *, preserve_tags: bool) -> Any:
+    """Render a ruamel ``TaggedScalar`` to its wire shape (see :func:`_render_value`)."""
+    tag = getattr(value.tag, "value", "") if value.tag is not None else ""
+    if tag == "!lambda":
+        return {"_lambda": str(value), "_tag": "!lambda"}
+    if preserve_tags and tag:
+        return {"_tagged": str(value), "_tag": tag}
+    return str(value)
 
 
 def _render_params(value: Any) -> Any:

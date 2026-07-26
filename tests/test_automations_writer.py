@@ -858,6 +858,11 @@ def test_if_emits_condition_before_then_else() -> None:
             "storage.file_append:\n  fmt: !lambda return 0;\n",
             id="lambda",
         ),
+        pytest.param(
+            {"token": {"_tagged": "api_token", "_tag": "!secret"}},
+            "storage.file_append:\n  token: !secret api_token\n",
+            id="secret_tag",
+        ),
     ],
 )
 def test_unknown_action_node_round_trips_its_raw_body(raw_body: object, expected: str) -> None:
@@ -871,6 +876,28 @@ def test_emit_uncatalogued_structured_node_fails_loud() -> None:
     node = ActionNode(action_id="ext.action", params={"token": "secret"})
     with pytest.raises(CommandError, match="uncatalogued action"):
         emit_action_node(node)
+
+
+def test_passthrough_body_preserves_secret_tag_through_round_trip() -> None:
+    """A ``!secret`` inside an external action survives a sibling edit + re-emit."""
+    text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - logger.log: hi\n"
+        "      - ext.upload:\n"
+        "          token: !secret api_token\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    assert parsed.error is None
+    assert parsed.automation.actions[1].raw_body == {
+        "token": {"_tagged": "api_token", "_tag": "!secret"}
+    }
+    tree = parsed.automation
+    tree.actions[0].params["format"] = "edited"
+    new_text, _diff = render_upsert(text, tree=tree, location=parsed.location)
+    assert "token: !secret api_token" in new_text
 
 
 def test_round_trip_preserves_external_action_while_editing_a_sibling() -> None:

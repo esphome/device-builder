@@ -234,6 +234,12 @@ def encode_value(value: Any) -> Any:
     """
     if is_lambda_sentinel(value):
         return _encode_lambda(value["_lambda"], value.get("_tag"))
+    if isinstance(value, dict) and value.keys() == {"_tagged", "_tag"}:
+        # Passthrough-body tag sentinel (`!secret` / `!include` inside an
+        # uncatalogued action) — re-attach the original tag.
+        scalar = TaggedScalar(value=value["_tagged"], style=None)
+        scalar.yaml_set_ctag(Tag(suffix=value["_tag"]))
+        return scalar
     if isinstance(value, dict):
         out = CommentedMap()
         for k, v in value.items():
