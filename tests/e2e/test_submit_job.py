@@ -50,14 +50,21 @@ covered separately by tests on :func:`build_yaml_bundle`.
 
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from esphome.bundle import EsphomeError
+
+from esphome_device_builder.controllers.firmware import remote_runner
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
     EventType,
     FirmwareJob,
     JobLifecycleData,
+    JobSource,
     JobStatus,
     JobType,
 )
@@ -370,3 +377,91 @@ async def test_submit_job_round_trip_carries_display_strings_to_receiver_job(
         "has something to find"
     )
     assert job.remote_peer_label == expected_label
+
+
+async def test_post_ack_extract_failure_finalises_offloader_job_failed(
+    paired_instances: PairedInstances,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An accepted ack followed by a receiver extract failure fails the mirror job.
+
+    The seam nothing else exercises end to end: the offloader's
+    :func:`remote_runner.run_remote_job` has already returned from
+    ``_submit_job_to_receiver`` with ``accepted=True`` when the
+    receiver's off-loop extract raises; the receiver reports the
+    terminal ``job_state_changed{failed}`` from
+    ``SubmitJobReceiver`` itself (no :class:`FirmwareJob` reached
+    the queue, so :class:`JobFanout` never sees it), and the
+    runner's ``_await_terminal`` must catch that frame over the
+    live Noise session and finalise the mirror job FAILED with the
+    receiver's message. Runs with ``retry_on_server_loss=True`` to
+    pin that an ordinary extract failure never triggers the
+    dispatch pool's local-rebuild fallback (reserved for
+    ``failure_reason: provision``).
+    """
+    await paired_instances.wait_until_session_opened()
+
+    # Force the receiver's real post-ack dispatch to fail at extract.
+    def _exploding_prepare(bundle_path: Path, target_dir: Path) -> Path:
+        raise EsphomeError("bundle invalid: simulated extract failure")
+
+    monkeypatch.setattr("esphome.bundle.prepare_bundle_for_compile", _exploding_prepare)
+    # Skip the esphome-CLI bundle subprocess on the offloader side
+    # (upstream contract, covered by tests on build_yaml_bundle).
+    monkeypatch.setattr(
+        remote_runner, "run_bundle_phase", AsyncMock(return_value=make_real_bundle())
+    )
+
+    # Minimal-real offloader firmware controller for the runner: the
+    # real bus and peer-link lookup, real cancel-state containers,
+    # recordable finalisers.
+    controller = MagicMock()
+    controller.bus = paired_instances.offloader_bus
+    controller.state.cancel_events = {}
+    controller.state.cancel_requested = set()
+    controller._db.bus = paired_instances.offloader_bus
+    controller._db.remote_build_offloader = paired_instances.offloader
+    controller._db.devices = None
+    finalised: list[tuple[JobStatus, str]] = []
+    controller._finalize_terminal = MagicMock(
+        side_effect=lambda job, status, error="": finalised.append((status, error))
+    )
+
+    job = FirmwareJob(
+        job_id="off-fail-1",
+        configuration="kitchen.yaml",
+        job_type=JobType.COMPILE,
+        status=JobStatus.RUNNING,
+        source=JobSource.REMOTE,
+        source_pin_sha256=paired_instances.pin_sha256,
+    )
+    state_changes = capture_events(
+        paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
+    )
+
+    # No RemoteServerLostError / ProvisionUnavailableError may escape:
+    # an ordinary extract failure finalises, never re-routes.
+    await asyncio.wait_for(
+        remote_runner.run_remote_job(controller, job, retry_on_server_loss=True),
+        timeout=5.0,
+    )
+
+    # The receiver's terminal frame crossed the live session with its message.
+    failed_payload = await state_changes.wait_for_status("failed")
+    assert failed_payload["job_id"] == "off-fail-1"
+    assert failed_payload["error_message"] == (
+        "receiver could not process the bundle: extract_failed"
+    )
+
+    # The runner finalised the mirror job FAILED, carrying the
+    # receiver's message; exactly once, with no cancelled/completed
+    # misfire.
+    assert finalised == [
+        (
+            JobStatus.FAILED,
+            "remote build: receiver could not process the bundle: extract_failed",
+        )
+    ]
+    controller._finalize_cancelled.assert_not_called()
+    # The runner's cancel-event registration was cleaned up.
+    assert controller.state.cancel_events == {}
