@@ -3,48 +3,34 @@
 from __future__ import annotations
 
 import logging
-import secrets
-import time
 
 from aiohttp import web
 
 from ...helpers.api import CommandError
 from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
+from ...helpers.capability_tokens import CapabilityTokens
+from ...helpers.json import json_response
 
 _LOGGER = logging.getLogger(__name__)
 
 _UPLOAD_CHUNK_BYTES = 64 * 1024
 
 
-class UploadTokens:
-    """Single-use, short-TTL capability tokens authorizing an HTTP bundle upload.
+class UploadTokens(CapabilityTokens[bool]):
+    """Capability tokens authorizing an HTTP bundle upload (bound to nothing).
 
     Minted over the authenticated WebSocket (``devices/import_bundle_token``)
-    and consumed by ``POST /api/devices/import_bundle``, which is the route's
-    sole authorization (it's in ``auth_middleware``'s public allowlist). A
-    ``fetch`` POST can't easily carry the session bearer, so the token stands
-    in — unguessable (:mod:`secrets`), fast-expiring, and single-use.
+    and consumed by ``POST /api/devices/import_bundle``; a ``fetch`` POST can't
+    easily carry the session bearer, so the token is the route's authorization.
     """
 
-    def __init__(self, ttl_seconds: float = 60.0) -> None:
-        self._ttl = ttl_seconds
-        self._tokens: dict[str, float] = {}
-
     def create(self) -> str:
-        self._purge()
-        token = secrets.token_urlsafe(32)
-        self._tokens[token] = time.monotonic() + self._ttl
-        return token
+        # The payload is a bare presence sentinel — the token binds no resource.
+        return self._mint(True)  # noqa: FBT003
 
     def consume(self, token: str) -> bool:
-        """Pop a token (single-use); False if unknown, already-used, or expired."""
-        expiry = self._tokens.pop(token, None)
-        return expiry is not None and time.monotonic() <= expiry
-
-    def _purge(self) -> None:
-        now = time.monotonic()
-        for token in [t for t, exp in self._tokens.items() if now > exp]:
-            del self._tokens[token]
+        """Pop a token; ``False`` if unknown, already-used, or expired."""
+        return self._redeem(token) is not None
 
 
 async def http_import_bundle(request: web.Request) -> web.StreamResponse:
@@ -74,7 +60,7 @@ async def http_import_bundle(request: web.Request) -> web.StreamResponse:
         request.query.getall("overwrite", []) if request.query.get("mode") == "resolve" else None
     )
     try:
-        result = await db.devices.import_bundle(bundle_bytes=bytes(buf), overwrite=overwrite)
+        result = await db.devices.import_bundle(bundle_bytes=buf, overwrite=overwrite)
     except CommandError as err:
-        return web.json_response({"error_code": str(err.code), "details": err.message}, status=400)
-    return web.json_response(result.to_dict())
+        return json_response({"error_code": str(err.code), "details": err.message}, status=400)
+    return json_response(result)

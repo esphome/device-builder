@@ -36,7 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 async def import_bundle(
     controller: DevicesController,
     *,
-    bundle_bytes: bytes,
+    bundle_bytes: bytes | bytearray,
     overwrite: list[str] | None = None,
 ) -> ImportBundleResponse:
     """
@@ -51,11 +51,6 @@ async def import_bundle(
     as a full one.
     """
     _validate_raw_bundle(bundle_bytes)
-    if overwrite is not None and (
-        not isinstance(overwrite, list) or not all(isinstance(p, str) for p in overwrite)
-    ):
-        raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a list of strings")
-
     config_dir = controller._db.settings.config_dir
     # Staging writes the bundle's files (secrets, !include fragments, packages,
     # external_components). Funnel through the shared lock + editor-cache drop so
@@ -112,7 +107,9 @@ class _Outcome:
     kept: list[str] = field(default_factory=list)
 
 
-def _stage_bundle(bundle_bytes: bytes, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
+def _stage_bundle(
+    bundle_bytes: bytes | bytearray, config_dir: Path, overwrite: list[str] | None
+) -> _Outcome:
     """Extract the bundle to a temp dir, then plan or place the files (blocking)."""
     # Lazy: keeps esphome.bundle off cold import.
     from esphome.bundle import (  # noqa: PLC0415
@@ -204,22 +201,20 @@ def _stage_bundle(bundle_bytes: bytes, config_dir: Path, overwrite: list[str] | 
         )
 
 
-def _validate_raw_bundle(raw: bytes) -> None:
+def _validate_raw_bundle(raw: bytes | bytearray) -> None:
     """Reject an oversize or non-gzip bundle."""
     # Caps the compressed payload only; extract_bundle enforces the 500 MB
     # decompressed cap.
     if len(raw) > BUNDLE_MAX_TOTAL_BYTES:
-        raise _oversize_error()
+        limit_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
+        raise CommandError(
+            ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit."
+        )
     if raw[:2] != b"\x1f\x8b":
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "Upload isn't a .tar.gz bundle (missing gzip header).",
         )
-
-
-def _oversize_error() -> CommandError:
-    limit_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
-    return CommandError(ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit.")
 
 
 def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:

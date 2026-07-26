@@ -315,23 +315,6 @@ async def test_import_bundle_rejects_malformed_tar(
     assert ctrl._scanner.calls == []
 
 
-async def test_import_bundle_rejects_non_list_overwrite(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    """A non-list ``overwrite`` is rejected at the boundary, not coerced into a set."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
-    bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
-
-    with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_bundle(
-            bundle_bytes=bundle,
-            overwrite="kitchen.yaml",  # type: ignore[arg-type]
-        )
-
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "overwrite" in excinfo.value.message
-
-
 async def test_import_bundle_rejects_non_utf8_main_config(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

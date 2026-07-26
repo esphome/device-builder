@@ -471,7 +471,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def import_bundle(
         self,
         *,
-        bundle_bytes: bytes,
+        bundle_bytes: bytes | bytearray,
         overwrite: list[str] | None = None,
     ) -> ImportBundleResponse:
         """Import an ``esphome bundle`` archive uploaded over HTTP."""
