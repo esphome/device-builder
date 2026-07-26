@@ -14,11 +14,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from ruamel.yaml.comments import TaggedScalar
+from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.scalarfloat import ScalarFloat
 from ruamel.yaml.scalarstring import LiteralScalarString
 
 from ...helpers.api import CommandError
+from ...helpers.yaml.scalar import is_custom_yaml_tag
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
@@ -312,13 +313,12 @@ def _render_value(value: Any, *, preserve_tags: bool = False) -> Any:
         return {"_lambda": str(value)}
     if isinstance(value, TaggedScalar):
         return _render_tagged_scalar(value, preserve_tags=preserve_tags)
-    collection_tag = _collection_tag(value) if preserve_tags else ""
     if isinstance(value, dict):
         rendered = {k: _render_value(v, preserve_tags=preserve_tags) for k, v in value.items()}
-        return {"_tagged": rendered, "_tag": collection_tag} if collection_tag else rendered
+        return _maybe_tagged(value, rendered, preserve_tags=preserve_tags)
     if isinstance(value, list):
         items = [_render_value(v, preserve_tags=preserve_tags) for v in value]
-        return {"_tagged": items, "_tag": collection_tag} if collection_tag else items
+        return _maybe_tagged(value, items, preserve_tags=preserve_tags)
     # ruamel round-trip mode wraps floats in ScalarFloat (a float subclass);
     # orjson serialises int/bool subclasses but refuses float subclasses, so
     # coerce to a plain float for the wire.
@@ -327,19 +327,21 @@ def _render_value(value: Any, *, preserve_tags: bool = False) -> Any:
 
 def _render_tagged_scalar(value: TaggedScalar, *, preserve_tags: bool) -> Any:
     """Render a ruamel ``TaggedScalar`` to its wire shape (see :func:`_render_value`)."""
-    tag = getattr(value.tag, "value", "") if value.tag is not None else ""
+    tag = value.tag.value
     if tag == "!lambda":
         return {"_lambda": str(value), "_tag": "!lambda"}
-    if preserve_tags and tag:
+    if preserve_tags and is_custom_yaml_tag(tag):
         return {"_tagged": str(value), "_tag": tag}
     return str(value)
 
 
-def _collection_tag(value: Any) -> str:
-    """Return a ``!``-prefixed custom tag on a ruamel map/seq, or ``""`` (untagged / plain)."""
-    tag = getattr(value, "tag", None)
-    suffix = getattr(tag, "value", None) if tag is not None else None
-    return suffix if isinstance(suffix, str) and suffix.startswith("!") else ""
+def _maybe_tagged(node: Any, rendered: Any, *, preserve_tags: bool) -> Any:
+    """Wrap *rendered* in a ``{_tagged, _tag}`` sentinel iff *node* is a tagged ruamel map/seq."""
+    if preserve_tags and isinstance(node, (CommentedMap, CommentedSeq)):
+        tag = node.tag.value
+        if is_custom_yaml_tag(tag):
+            return {"_tagged": rendered, "_tag": tag}
+    return rendered
 
 
 def _render_params(value: Any) -> Any:

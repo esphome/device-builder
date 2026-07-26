@@ -32,7 +32,7 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
 from ...helpers.api import CommandError
-from ...helpers.yaml.scalar import is_lambda_sentinel
+from ...helpers.yaml.scalar import is_custom_yaml_tag, is_lambda_sentinel, is_tagged_sentinel
 from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
@@ -240,7 +240,7 @@ def encode_value(value: Any) -> Any:
     """
     if is_lambda_sentinel(value):
         return _encode_lambda(value["_lambda"], value.get("_tag"))
-    if isinstance(value, dict) and value.keys() == {"_tagged", "_tag"}:
+    if is_tagged_sentinel(value):
         return _encode_tagged(value["_tagged"], value["_tag"])
     if isinstance(value, dict):
         out = CommentedMap()
@@ -263,6 +263,13 @@ def dump(value: Any) -> str:
     return buf.getvalue()
 
 
+def _tagged_scalar(value: str, tag: str, *, style: str | None = None) -> TaggedScalar:
+    """Build a ``TaggedScalar`` carrying *tag* (``!secret`` / ``!lambda`` …)."""
+    scalar = TaggedScalar(value=value, style=style)
+    scalar.yaml_set_ctag(Tag(suffix=tag))
+    return scalar
+
+
 def _encode_tagged(body: Any, tag: Any) -> Any:
     """
     Re-attach a passthrough body's YAML tag (``!secret`` / ``!include`` …).
@@ -272,16 +279,14 @@ def _encode_tagged(body: Any, tag: Any) -> Any:
     would emit YAML that no longer parses. A tagged collection keeps the tag
     on its map/seq; a scalar re-wraps in a ``TaggedScalar``.
     """
-    if not (isinstance(tag, str) and len(tag) > 1 and tag.startswith("!")):
+    if not is_custom_yaml_tag(tag):
         msg = f"Invalid YAML tag in passthrough body: {tag!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    inner = encode_value(body)
-    if isinstance(inner, (CommentedMap, CommentedSeq)):
-        inner.yaml_set_ctag(Tag(suffix=tag))
-        return inner
-    scalar = TaggedScalar(value=body, style=None)
-    scalar.yaml_set_ctag(Tag(suffix=tag))
-    return scalar
+    if isinstance(body, (dict, list)):
+        collection = encode_value(body)
+        collection.yaml_set_ctag(Tag(suffix=tag))
+        return collection
+    return _tagged_scalar(str(body), tag)
 
 
 def _encode_lambda(body: str, tag: str | None) -> Any:
@@ -298,8 +303,5 @@ def _encode_lambda(body: str, tag: str | None) -> Any:
             body += "\n"
         return LiteralScalarString(body)
     if "\n" in body.rstrip("\n"):
-        scalar = TaggedScalar(value=body if body.endswith("\n") else body + "\n", style="|")
-    else:
-        scalar = TaggedScalar(value=body.rstrip("\n"), style=None)
-    scalar.yaml_set_ctag(Tag(suffix="!lambda"))
-    return scalar
+        return _tagged_scalar(body if body.endswith("\n") else body + "\n", "!lambda", style="|")
+    return _tagged_scalar(body.rstrip("\n"), "!lambda")

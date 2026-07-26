@@ -23,6 +23,20 @@ def is_lambda_sentinel(value: Any) -> bool:
     )
 
 
+def is_tagged_sentinel(value: Any) -> bool:
+    """Return True for the passthrough-body ``{_tagged, _tag}`` tag wire-sentinel.
+
+    Shape only — a malformed ``_tag`` still matches so the encoder can refuse it
+    loudly rather than emit it as a literal mapping.
+    """
+    return isinstance(value, dict) and value.keys() == {"_tagged", "_tag"}
+
+
+def is_custom_yaml_tag(tag: Any) -> bool:
+    """Return True for a non-empty ``!``-prefixed YAML tag (``!secret``, ``!include``)."""
+    return isinstance(tag, str) and len(tag) > 1 and tag.startswith("!")
+
+
 # Canonical ESPHome YAML indent: two spaces per level. Mirrors the
 # frontend's ``ESPHOME_YAML_INDENT`` (``src/util/esphome-yaml-lang.ts``)
 # so any code on either side that synthesises YAML lines uses the
