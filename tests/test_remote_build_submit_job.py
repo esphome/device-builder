@@ -27,10 +27,12 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from esphome.bundle import EsphomeError
 
-from esphome_device_builder.controllers.remote_build._extract_window import ExtractWindow
-from esphome_device_builder.controllers.remote_build.submit_job import (
+from esphome_device_builder.controllers.remote_build.submit_job import SubmitJobReceiver
+from esphome_device_builder.controllers.remote_build.submit_job._extract_window import (
+    ExtractWindow,
+)
+from esphome_device_builder.controllers.remote_build.submit_job.controller import (
     _DEVICE_DISPLAY_FIELD_MAX_LEN,
-    SubmitJobReceiver,
     _coerce_display_field,
     _PendingSubmit,
     _validate_configuration_filename,
@@ -1307,7 +1309,7 @@ async def test_cancel_extract_flagged_mid_extract_skips_the_queue(
         return "kitchen.yaml"
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.run_in_executor",
+        "esphome_device_builder.controllers.remote_build.submit_job._post_ack.run_in_executor",
         _executor_with_late_cancel,
     )
 
