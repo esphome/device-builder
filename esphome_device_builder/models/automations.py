@@ -385,13 +385,18 @@ class ActionNode(DashboardModel):
     Control-flow actions carry nested action lists under
     ``children`` (e.g. ``{"then": [...], "else": [...]}`` for
     ``if``). ``conditions`` is the boolean gate, populated only for
-    ``if`` / ``wait_until``.
+    ``if`` / ``wait_until``. ``unknown`` marks an uncatalogued action
+    (an external component's, or a typo): ``raw_body`` holds its
+    verbatim body so the emitter round-trips it while its siblings stay
+    editable, and the frontend renders it read-only in place.
     """
 
     action_id: str
     params: dict[str, Any] = field(default_factory=dict)
     children: dict[str, list[ActionNode]] = field(default_factory=dict)
     conditions: list[ConditionNode] = field(default_factory=list)
+    unknown: bool = False
+    raw_body: Any = None
 
 
 @dataclass

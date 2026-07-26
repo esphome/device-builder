@@ -998,20 +998,22 @@ async def test_parse_surfaces_api_actions(tmp_path: Path) -> None:
     assert api_entries[1]["automation"]["trigger_params"]["variables"] == {"name": "string"}
 
 
-async def test_parse_isolates_unknown_action_id(tmp_path: Path) -> None:
-    """An unknown action id flags its own automation; parse still returns it (#1050)."""
+async def test_parse_keeps_uncatalogued_action_as_passthrough(tmp_path: Path) -> None:
+    """An uncatalogued action decomposes to a passthrough node, not a whole-automation error."""
     config = tmp_path / "x.yaml"
     config.write_text(
-        "esphome:\n  name: x\n  on_boot:\n    then:\n      - made_up_action: foo\n",
+        "esphome:\n  name: x\n  on_boot:\n    then:\n      - made_up.action: foo\n",
         encoding="utf-8",
     )
     controller = _make_controller(tmp_path)
 
     result = await controller.parse(configuration="x.yaml")
     assert len(result) == 1
-    assert result[0]["error"] is not None
-    assert "made_up_action" in result[0]["error"]
-    assert result[0]["automation"]["actions"] == []
+    assert result[0]["error"] is None
+    action = result[0]["automation"]["actions"][0]
+    assert action["action_id"] == "made_up.action"
+    assert action["unknown"] is True
+    assert action["raw_body"] == "foo"
 
 
 def test_decode_location_compiles_unpacker_once_per_kind() -> None:

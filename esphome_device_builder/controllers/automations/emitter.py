@@ -139,6 +139,12 @@ def _shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str 
 
 def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
+    if node.unknown:
+        # Opaque passthrough (external / uncatalogued action): re-emit the
+        # verbatim body so an unedited round-trip is byte-faithful.
+        out = CommentedMap()
+        out[node.action_id] = encode_value(node.raw_body)
+        return out
     body = CommentedMap()
     # Condition gate leads the body: ``if`` / ``while`` want it before
     # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.

@@ -5,8 +5,9 @@ pins the structural-decomposition behaviour of the round-trip
 parser: device-level vs inline component triggers, both YAML
 shortcut forms, top-level script + interval blocks, recursive
 ``then`` / ``else`` decomposition, the condition gate, lambdas as
-the ``{"_lambda": ...}`` sentinel, light effects, and per-automation
-error isolation (one unknown id flags its own entry, not the parse).
+the ``{"_lambda": ...}`` sentinel, light effects, uncatalogued
+actions as opaque passthrough nodes, and per-automation error
+isolation (one fatal fault flags its own entry, not the parse).
 """
 
 from __future__ import annotations
@@ -306,20 +307,25 @@ def test_parse_small_lvgl_action_stays_editable() -> None:
     assert [a.action_id for a in parsed[0].automation.actions] == ["lvgl.pause"]
 
 
-def test_parse_unknown_action_id_is_not_flagged_unsupported() -> None:
-    """A genuine typo keeps ``unsupported=False`` so the editor shows the error."""
+def test_parse_uncatalogued_action_becomes_passthrough_node() -> None:
+    """An uncatalogued action decomposes to an opaque node, not a whole-automation error."""
     yaml = (
         "esphome:\n"
         "  name: x\n"
         "  on_boot:\n"
         "    then:\n"
+        "      - logger.log: hi\n"
         "      - not_a_real.action:\n"
         "          foo: bar\n"
     )
     parsed = parse_device_yaml(yaml)
     assert len(parsed) == 1
-    assert parsed[0].error is not None
-    assert parsed[0].unsupported is False
+    assert parsed[0].error is None
+    actions = parsed[0].automation.actions
+    assert [a.action_id for a in actions] == ["logger.log", "not_a_real.action"]
+    assert actions[0].unknown is False
+    assert actions[1].unknown is True
+    assert actions[1].raw_body == {"foo": "bar"}
 
 
 def test_parse_oversized_lvgl_shorthand_is_flagged_unsupported() -> None:
@@ -620,10 +626,8 @@ def test_parse_light_effects_emits_one_entry_per_list_item() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_parse_isolates_unknown_action_id() -> None:
-    """An unknown action id flags only its own automation; siblings parse (#1050)."""
-    # A clearly-unknown action id (not a real trigger that decompose
-    # might learn to handle later) pins the isolation behaviour itself.
+def test_parse_isolates_unknown_condition_id() -> None:
+    """A still-fatal fault (unknown condition) flags only its automation; siblings parse (#1050)."""
     yaml = (
         "esphome:\n  name: x\n"
         "switch:\n"
@@ -635,16 +639,45 @@ def test_parse_isolates_unknown_action_id() -> None:
         "            format: ok\n"
         "    on_turn_off:\n"
         "      then:\n"
-        "        - not_a_real_action: 5\n"
+        "        - if:\n"
+        "            condition:\n"
+        "              - not_a_real_condition:\n"
+        "            then:\n"
+        "              - logger.log: x\n"
     )
     parsed = parse_device_yaml(yaml)
     good = next(p for p in parsed if p.location.trigger == "on_turn_on")
     bad = next(p for p in parsed if p.location.trigger == "on_turn_off")
     # The broken entry carries its error and an empty tree...
     assert bad.error is not None
-    assert "not_a_real_action" in bad.error
+    assert "not_a_real_condition" in bad.error
     assert bad.automation.actions == []
     # ...while the sibling automation parses normally.
+    assert good.error is None
+    assert [a.action_id for a in good.automation.actions] == ["logger.log"]
+
+
+def test_parse_isolates_passthrough_action_from_editable_sibling() -> None:
+    """An uncatalogued action is a passthrough node; the sibling automation is untouched."""
+    yaml = (
+        "esphome:\n  name: x\n"
+        "switch:\n"
+        "  - platform: gpio\n"
+        "    id: sw\n"
+        "    on_turn_on:\n"
+        "      then:\n"
+        "        - logger.log:\n"
+        "            format: ok\n"
+        "    on_turn_off:\n"
+        "      then:\n"
+        "        - not_a_real.action: 5\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    good = next(p for p in parsed if p.location.trigger == "on_turn_on")
+    passthrough = next(p for p in parsed if p.location.trigger == "on_turn_off")
+    assert passthrough.error is None
+    assert [a.action_id for a in passthrough.automation.actions] == ["not_a_real.action"]
+    assert passthrough.automation.actions[0].unknown is True
     assert good.error is None
     assert [a.action_id for a in good.automation.actions] == ["logger.log"]
 
@@ -709,20 +742,20 @@ def test_parse_on_time_single_mapping_uses_index_none() -> None:
     assert parsed[0].automation.trigger_params == {"seconds": 0, "hours": 8}
 
 
-def test_parse_on_time_list_isolates_one_bad_entry() -> None:
-    """An unknown action in one on_time entry flags only that entry."""
+def test_parse_on_time_list_passthrough_action_in_one_entry() -> None:
+    """An uncatalogued action in one on_time entry stays a passthrough node, not an error."""
     yaml = (
         "time:\n  - platform: sntp\n    id: my_time\n"
         "    on_time:\n"
         "      - seconds: 0\n        then:\n          - logger.log: ok\n"
-        "      - hours: 8\n        then:\n          - not_a_real_action: 5\n"
+        "      - hours: 8\n        then:\n          - not_a_real.action: 5\n"
     )
     parsed = parse_device_yaml(yaml)
     assert len(parsed) == 2
     assert parsed[0].error is None
-    assert parsed[1].error is not None
-    assert "not_a_real_action" in parsed[1].error
-    assert parsed[1].automation.actions == []
+    assert parsed[1].error is None
+    assert parsed[1].automation.actions[0].unknown is True
+    assert parsed[1].automation.actions[0].raw_body == 5
 
 
 def test_parse_bare_action_list_is_not_list_form() -> None:
@@ -732,17 +765,17 @@ def test_parse_bare_action_list_is_not_list_form() -> None:
     assert all(p.location.index is None for p in component_on)
 
 
-def test_parse_unknown_action_in_list_surfaces_as_error() -> None:
-    """A bare action list with an unknown id stays one entry with its error set."""
+def test_parse_unknown_action_in_bare_list_is_passthrough() -> None:
+    """A bare action list with an uncatalogued id stays one editable entry, not an error."""
     yaml = (
         "binary_sensor:\n  - platform: gpio\n    id: btn\n"
-        "    on_press:\n      - not_a_real_action: 5\n"
+        "    on_press:\n      - not_a_real.action: 5\n"
     )
     parsed = parse_device_yaml(yaml)
     assert len(parsed) == 1
     assert parsed[0].location.index is None
-    assert parsed[0].error is not None
-    assert "not_a_real_action" in parsed[0].error
+    assert parsed[0].error is None
+    assert parsed[0].automation.actions[0].unknown is True
 
 
 def test_parse_returns_empty_for_minimal_yaml() -> None:

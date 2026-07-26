@@ -2,9 +2,11 @@
 Trigger-handler body → :class:`AutomationTree` decomposition.
 
 Turns a ruamel-parsed handler body (bare action list, single bare
-action, or explicit ``then:``) into the typed tree the frontend edits,
-normalising every per-automation fault (unknown action / condition id)
-to :class:`CommandError` so the collector can contain it to one entry.
+action, or explicit ``then:``) into the typed tree the frontend edits.
+An uncatalogued action becomes an opaque passthrough node (its
+siblings stay editable); a still-fatal per-automation fault (unknown
+condition id, malformed entry) normalises to :class:`CommandError` so
+the collector can contain it to one entry.
 """
 
 from __future__ import annotations
@@ -45,12 +47,14 @@ def _safe_tree(
     """
     Run *build*, isolating a per-automation decompose failure.
 
-    The decompose helpers normalise every per-automation fault to
-    ``CommandError`` (unknown action / condition id), so catching it
-    here contains the fault to this one entry — it comes back with an
-    empty tree plus the message while its siblings parse. A document
-    that won't load at all is the separate whole-file failure raised by
-    :func:`parse_device_yaml` upstream. The third tuple field flags an
+    The decompose helpers normalise a still-fatal per-automation fault
+    to ``CommandError`` (unknown condition id, malformed entry), so
+    catching it here contains the fault to this one entry — it comes
+    back with an empty tree plus the message while its siblings parse.
+    (An uncatalogued action no longer faults — it decomposes to an
+    opaque passthrough node.) A document that won't load at all is the
+    separate whole-file failure raised by :func:`parse_device_yaml`
+    upstream. The third tuple field flags an
     :class:`UnsupportedActionError` — a known action with no form.
     """
     try:
@@ -145,8 +149,11 @@ def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
         if catalog.is_known_action(action_id):
             msg = f"No structured editor for action {action_id!r}"
             raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
-        msg = f"Unknown action id: {action_id!r}"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        # Uncatalogued id (an external component's action, or a typo): keep it
+        # as an opaque passthrough node so its siblings stay editable rather
+        # than collapsing the whole automation to read-only. ``raw_body`` round-
+        # trips verbatim through the emitter; the frontend shows it read-only.
+        return ActionNode(action_id=action_id, unknown=True, raw_body=_render_value(raw_params))
     children: dict[str, list[ActionNode]] = {}
     conditions: list[ConditionNode] = []
 

@@ -838,6 +838,45 @@ def test_if_emits_condition_before_then_else() -> None:
     assert body.index("condition:") < body.index("then:") < body.index("else:")
 
 
+def test_unknown_action_node_round_trips_its_raw_body() -> None:
+    """An opaque passthrough node re-emits ``{action_id: <raw_body>}`` faithfully."""
+    for raw_body, expected in (
+        ({"path": "/data/x.log", "format": "hi"}, "storage.file_append:"),
+        ("scalar", "storage.file_append: scalar"),
+        (None, "storage.file_append:"),
+        ([{"a": 1}, {"b": 2}], "storage.file_append:"),
+    ):
+        node = ActionNode(action_id="storage.file_append", unknown=True, raw_body=raw_body)
+        text = dump(emit_action_node(node))
+        assert text.startswith(expected)
+
+
+def test_round_trip_preserves_external_action_while_editing_a_sibling() -> None:
+    """Editing a known sibling keeps the uncatalogued action's body intact."""
+    text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - logger.log: hi\n"
+        "      - storage.file_append:\n"
+        "          path: /data/my.log\n"
+        "          format: hello\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    assert parsed.error is None
+    tree = parsed.automation
+    tree.actions[0].params["format"] = "edited"
+    new_text, _diff = render_upsert(text, tree=tree, location=parsed.location)
+    assert "storage.file_append:" in new_text
+    assert "path: /data/my.log" in new_text
+    assert "format: hello" in new_text
+    assert "logger.log: edited" in new_text
+    reparsed = parse_device_yaml(new_text)[0]
+    assert reparsed.error is None
+    assert reparsed.automation.actions[1].raw_body == {"path": "/data/my.log", "format": "hello"}
+
+
 def test_while_emits_condition_before_then() -> None:
     """``while`` emits ``condition:`` ahead of its ``then:`` branch."""
     node = ActionNode(
