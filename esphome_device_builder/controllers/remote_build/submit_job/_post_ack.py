@@ -334,11 +334,9 @@ def _validate_write_extract_bundle(
     the caller can distinguish bad input shape from an extract failure;
     ``EsphomeError`` / ``OSError`` propagate untouched.
     """
-    # The upstream filename validator catches separator / ``..``
-    # in ``configuration_filename`` upfront, but ``dashboard_id``
-    # flows through unvalidated from the Noise handshake /
-    # receiver-side registration; this gate catches anything an
-    # exotic ``dashboard_id`` shape would slip past.
+    # Defence-in-depth re-check of the pre-ack header gate: the
+    # header-time resolve can be invalidated by a symlink created
+    # under the remote-builds root between ack and extract.
     resolve_under_root(target_dir, remote_builds_root)
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_path.write_bytes(bundle_bytes)

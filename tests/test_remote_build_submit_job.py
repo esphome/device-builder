@@ -38,6 +38,7 @@ from esphome_device_builder.controllers.remote_build.submit_job.controller impor
     _validate_configuration_filename,
 )
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.paths import PathEscapeError
 from esphome_device_builder.helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
     BUNDLE_MAX_TOTAL_BYTES,
@@ -1019,28 +1020,55 @@ async def test_submit_job_intermediate_chunk_no_ack(tmp_path: Path) -> None:
     session.terminate.assert_not_called()
 
 
-async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A malicious ``dashboard_id`` shape escapes the filename validator but is caught at extract.
+async def test_submit_job_path_traversal_dashboard_id_rejected_at_header(tmp_path: Path) -> None:
+    """A malicious ``dashboard_id`` shape is refused pre-ack, before any chunk streams.
 
-    Pins the defence-in-depth resolve-and-stay-under-root check
-    inside ``_extract_and_queue``. The filename validator
-    catches separators / ``..`` in ``configuration_filename``,
-    but ``dashboard_id`` flows through unvalidated from the
-    Noise handshake / receiver-side registration. A future
-    regression there would hit this gate.
+    The filename validator catches separators / ``..`` in
+    ``configuration_filename``, but ``dashboard_id`` flows
+    through unvalidated from the Noise handshake; the header-time
+    resolve-and-stay-under-root gate is what refuses it.
     """
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
-    # Climbing dashboard_id; the resolve-and-relative-to defense
-    # rejects because the resulting target_dir resolves outside
+    # Climbing dashboard_id; the resulting target_dir resolves outside
     # ``<config>/.esphome/.remote_builds/``.
     session = _make_session(dashboard_id="../../escape")
+
+    await receiver.handle_submit_job(session, _header())
+
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "invalid_header"
+    session.terminate.assert_not_called()
+    assert session.dashboard_id not in receiver._inflight
+    firmware._enqueue.assert_not_called()
+
+
+async def test_extract_recheck_catches_an_escape_appearing_post_ack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The in-executor under-root re-check still guards a post-header escape."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
     bundle = b"hello"
+    checks: list[None] = []
+
+    def _escape_on_recheck(target: Path, root: Path) -> Path:
+        # First call is the pre-ack header gate; the re-check runs in
+        # the executor hop, after e.g. a symlink swap under the root.
+        if checks:
+            raise PathEscapeError(str(target))
+        checks.append(None)
+        return target
+
     monkeypatch.setattr(
-        "esphome.bundle.prepare_bundle_for_compile",
-        lambda _bundle, _target: tmp_path / "kitchen.yaml",
+        "esphome_device_builder.controllers.remote_build.submit_job.controller.resolve_under_root",
+        _escape_on_recheck,
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job._post_ack.resolve_under_root",
+        _escape_on_recheck,
     )
 
     await receiver.handle_submit_job(session, _header(bundle=bundle))
@@ -1049,7 +1077,6 @@ async def test_submit_job_path_traversal_dashboard_id_caught_at_extract(
     await _drain_extracts(receiver)
 
     frames = _sent_frames(session)
-    # The escape is caught post-ack, during extract.
     assert frames[0]["type"] == "submit_job_ack"
     assert frames[0]["accepted"] is True
     assert frames[-1]["type"] == "job_state_changed"

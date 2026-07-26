@@ -37,6 +37,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from ....helpers.async_ import run_in_executor
+from ....helpers.paths import PathEscapeError, resolve_under_root
 from ....helpers.peer_link_bundle import (
     BundleAssembler,
     BundleAssemblerError,
@@ -44,6 +46,7 @@ from ....helpers.peer_link_bundle import (
     decode_chunk,
 )
 from ....helpers.peer_link_frames import frame_schema, is_valid_frame, safe_job_id
+from ....helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 from ....helpers.version_compat import coerce_pep440_version
 from ....models import (
     PAIRING_VERSION_MAX_LEN,
@@ -330,7 +333,7 @@ class SubmitJobReceiver:
         # An unvalidated separator / ``..`` here would let a
         # malicious offloader write the assembled tarball
         # outside the intended subtree.
-        device_stem = _validate_configuration_filename(frame["configuration_filename"])
+        device_stem = await self._resolve_device_stem(session, frame)
         if device_stem is None:
             await self._reject(session, job_id=job_id, reason=REASON_INVALID_HEADER)
             return
@@ -443,6 +446,36 @@ class SubmitJobReceiver:
                 self, session=session, pending=pending, bundle_bytes=assembled
             ),
         )
+
+    async def _resolve_device_stem(
+        self, session: PeerLinkSession, frame: SubmitJobFrameData
+    ) -> str | None:
+        """
+        Return the validated YAML stem for *frame*, or ``None`` to reject.
+
+        Combines the filename gate with the resolve-and-stay-under-root check
+        on the derived extract dir, so a traversing ``configuration_filename``
+        or ``dashboard_id`` is refused pre-ack, before any bundle bytes stream.
+        """
+        device_stem = _validate_configuration_filename(frame["configuration_filename"])
+        if device_stem is None:
+            return None
+        key = RemoteBuildPath(dashboard_id=session.dashboard_id, device_name=device_stem)
+        try:
+            # ``Path.resolve`` walks the filesystem; keep it off the loop.
+            await run_in_executor(
+                resolve_under_root,
+                key.subtree(self._config_dir),
+                self._config_dir / REMOTE_BUILDS_SUBDIR,
+            )
+        except PathEscapeError:
+            _LOGGER.warning(
+                "submit_job from %s: target dir for %r escapes the remote-builds root; rejecting",
+                session.dashboard_id,
+                frame["configuration_filename"],
+            )
+            return None
+        return device_stem
 
     async def _reject_assembler(
         self,
