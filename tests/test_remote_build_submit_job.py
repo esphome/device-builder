@@ -1021,13 +1021,7 @@ async def test_submit_job_intermediate_chunk_no_ack(tmp_path: Path) -> None:
 
 
 async def test_submit_job_path_traversal_dashboard_id_rejected_at_header(tmp_path: Path) -> None:
-    """A malicious ``dashboard_id`` shape is refused pre-ack, before any chunk streams.
-
-    The filename validator catches separators / ``..`` in
-    ``configuration_filename``, but ``dashboard_id`` flows
-    through unvalidated from the Noise handshake; the header-time
-    resolve-and-stay-under-root gate is what refuses it.
-    """
+    """A traversing ``dashboard_id`` is refused pre-ack with ``invalid_header``."""
     firmware = _make_firmware_controller()
     receiver = _make_receiver(tmp_path, firmware)
     # Climbing dashboard_id; the resulting target_dir resolves outside

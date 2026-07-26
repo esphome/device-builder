@@ -453,9 +453,8 @@ class SubmitJobReceiver:
         """
         Return the validated YAML stem for *frame*, or ``None`` to reject.
 
-        Combines the filename gate with the resolve-and-stay-under-root check
-        on the derived extract dir, so a traversing ``configuration_filename``
-        or ``dashboard_id`` is refused pre-ack, before any bundle bytes stream.
+        Runs the filename gate plus the under-root resolve on the derived
+        extract dir.
         """
         device_stem = _validate_configuration_filename(frame["configuration_filename"])
         if device_stem is None:
