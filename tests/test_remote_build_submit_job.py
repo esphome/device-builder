@@ -34,12 +34,14 @@ from esphome_device_builder.controllers.remote_build.submit_job import (
     _PendingSubmit,
     _validate_configuration_filename,
 )
+from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
     BUNDLE_MAX_TOTAL_BYTES,
 )
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath
 from esphome_device_builder.models import (
+    ErrorCode,
     JobType,
     SubmitJobChunkFrameData,
     SubmitJobFrameData,
@@ -112,7 +114,7 @@ def _header(
 
 async def _drain_extracts(receiver: SubmitJobReceiver) -> None:
     """Await the off-loop post-ack extract tasks so assertions see their effects."""
-    await asyncio.gather(*receiver._extract_tasks, return_exceptions=True)
+    await asyncio.gather(*receiver._extracts._tasks, return_exceptions=True)
 
 
 def _frame_chunks(job_id: str, bundle: bytes) -> list[SubmitJobChunkFrameData]:
@@ -1185,7 +1187,7 @@ async def test_cancel_extract_in_the_window_skips_queue_and_reports_cancelled(
     assert frames[-1]["status"] == "cancelled"
     assert frames[-1]["job_id"] == "job-1"
     firmware._enqueue.assert_not_called()
-    assert not receiver._extract_cancels
+    assert not receiver._extracts._cancels
 
 
 async def test_cancel_extract_flagged_mid_enqueue_routes_a_firmware_cancel(
@@ -1220,6 +1222,68 @@ async def test_cancel_extract_flagged_mid_enqueue_routes_a_firmware_cancel(
     assert not receiver.cancel_extract(session.dashboard_id, "job-1")
 
 
+async def test_cancel_extract_flagged_mid_extract_skips_the_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancel landing during the executor hop is caught before the job is created."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+
+    async def _executor_with_late_cancel(func: Any, *args: Any) -> str:
+        assert receiver.cancel_extract(session.dashboard_id, "job-1")
+        return "kitchen.yaml"
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.submit_job.run_in_executor",
+        _executor_with_late_cancel,
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
+
+    frames = _sent_frames(session)
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "cancelled"
+    firmware._create_job.assert_not_called()
+    firmware._enqueue.assert_not_called()
+
+
+async def test_post_enqueue_cancel_tolerates_a_firmware_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``CommandError`` from the queue cancel (already-terminal race) is swallowed."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    monkeypatch.setattr(
+        "esphome.bundle.prepare_bundle_for_compile",
+        lambda _bundle, target: target / "kitchen.yaml",
+    )
+
+    async def _enqueue_with_late_cancel(job: Any) -> Any:
+        assert receiver.cancel_extract(session.dashboard_id, "job-1")
+        return job
+
+    firmware._enqueue = AsyncMock(side_effect=_enqueue_with_late_cancel)
+    firmware.cancel = AsyncMock(
+        side_effect=CommandError(ErrorCode.INVALID_ARGS, "job already terminal")
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
+
+    firmware.cancel.assert_awaited_once_with(job_id="local-0")
+    # Refusal means the job already went terminal; no failure frame follows.
+    assert all(f["type"] != "job_state_changed" for f in _sent_frames(session))
+
+
 async def test_cancel_extract_without_a_live_task_returns_false(tmp_path: Path) -> None:
     """No live extract for the correlation: the caller falls through to its drop path."""
     receiver = _make_receiver(tmp_path)
@@ -1237,7 +1301,7 @@ async def test_no_extract_spawns_after_stop(tmp_path: Path) -> None:
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
 
-    assert not receiver._extract_tasks
+    assert not receiver._extracts._tasks
     assert all(f["type"] != "submit_job_ack" or not f["accepted"] for f in _sent_frames(session))
 
 
@@ -1257,10 +1321,10 @@ async def test_stop_cancels_a_parked_extract(
     await receiver.handle_submit_job(session, _header(bundle=bundle))
     for chunk in _frame_chunks("job-1", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
-    assert receiver._extract_tasks
+    assert receiver._extracts._tasks
 
     await receiver.stop()
-    assert not receiver._extract_tasks
+    assert not receiver._extracts._tasks
 
 
 async def test_submit_landing_mid_drain_spawns_nothing(
@@ -1289,10 +1353,10 @@ async def test_submit_landing_mid_drain_spawns_nothing(
     )
     for chunk in _frame_chunks("job-2", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
-    assert not receiver._extract_tasks
+    assert not receiver._extracts._tasks
 
     await stop_task
-    assert not receiver._extract_tasks
+    assert not receiver._extracts._tasks
 
 
 async def test_submit_job_enqueue_failure_reports_failed_after_ack(
