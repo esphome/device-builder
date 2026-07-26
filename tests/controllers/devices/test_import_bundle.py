@@ -77,6 +77,17 @@ def _bundle_storage_under_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     )
 
 
+async def test_import_bundle_token_mints_a_consumable_token(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The WS command mints a single-use token the HTTP route can consume."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+
+    result = await ctrl.import_bundle_token()
+
+    assert ctrl.import_tokens.consume(result["token"]) is True
+
+
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
 async def test_import_bundle_lands_full_tree(
     tmp_path: Path, make_controller: MakeControllerFactory

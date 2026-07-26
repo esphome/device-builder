@@ -31,6 +31,7 @@ from esphome_device_builder.controllers.devices._metadata_store import DeviceMet
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
+from esphome_device_builder.controllers.devices.import_upload import UploadTokens
 from esphome_device_builder.helpers.device_yaml import configuration_stem
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.hostname import normalize_hostname
@@ -505,6 +506,7 @@ def make_controller() -> MakeControllerFactory:
         controller = DevicesController.__new__(DevicesController)
         controller._db = MagicMock()
         controller.state = DevicesState()
+        controller.import_tokens = UploadTokens()
         controller._yaml_write_locks = {}
         controller._db.secrets_write_lock = asyncio.Lock()
         wire_secrets_writer(controller._db)
