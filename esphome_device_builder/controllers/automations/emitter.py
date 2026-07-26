@@ -274,19 +274,27 @@ def _encode_tagged(body: Any, tag: Any) -> Any:
     """
     Re-attach a passthrough body's YAML tag (``!secret`` / ``!include`` …).
 
-    ``tag`` is client-supplied via the ``{"_tagged", "_tag"}`` wire sentinel,
-    so validate it before it reaches ``Tag(suffix=...)`` — a malformed tag
-    would emit YAML that no longer parses. A tagged collection keeps the tag
-    on its map/seq; a scalar re-wraps in a ``TaggedScalar``.
+    Both halves of the ``{"_tagged", "_tag"}`` wire sentinel are client-
+    supplied, so validate before either reaches ruamel — a malformed tag emits
+    unparseable YAML, and a non-``str``/dict/list body would blow up as a
+    generic error mid-dump. A tagged collection keeps the tag on its map/seq;
+    a scalar re-wraps in a ``TaggedScalar``.
     """
     if not is_custom_yaml_tag(tag):
         msg = f"Invalid YAML tag in passthrough body: {tag!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    if isinstance(body, str):
+        return _tagged_scalar(body, tag)
     if isinstance(body, (dict, list)):
-        collection = encode_value(body)
-        collection.yaml_set_ctag(Tag(suffix=tag))
-        return collection
-    return _tagged_scalar(str(body), tag)
+        inner = encode_value(body)
+        # A body that is itself a lambda sentinel encodes to a scalar, not a
+        # collection — re-wrap it as a tagged scalar rather than set a ctag on it.
+        if isinstance(inner, (CommentedMap, CommentedSeq)):
+            inner.yaml_set_ctag(Tag(suffix=tag))
+            return inner
+        return _tagged_scalar(str(inner), tag)
+    msg = f"Invalid passthrough body under tag {tag!r}: {type(body).__name__}"
+    raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
 
 def _encode_lambda(body: str, tag: str | None) -> Any:

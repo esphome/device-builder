@@ -942,6 +942,28 @@ def test_emit_passthrough_body_rejects_a_malformed_tag(bad_tag: object) -> None:
         emit_action_node(node)
 
 
+@pytest.mark.parametrize("bad_body", [5, None, True])
+def test_emit_passthrough_body_rejects_a_non_scalar_collection_payload(bad_body: object) -> None:
+    """A ``_tagged`` payload that isn't a str/dict/list is a typed refusal, not INTERNAL_ERROR."""
+    node = ActionNode(
+        action_id="ext.upload",
+        unknown=True,
+        raw_body={"k": {"_tagged": bad_body, "_tag": "!secret"}},
+    )
+    with pytest.raises(CommandError, match="Invalid passthrough body"):
+        emit_action_node(node)
+
+
+def test_emit_passthrough_lambda_sentinel_under_a_tag_does_not_crash() -> None:
+    """A tagged body that collides with the lambda sentinel re-emits without blowing up."""
+    node = ActionNode(
+        action_id="ext.a",
+        unknown=True,
+        raw_body={"_tagged": {"_lambda": "foo"}, "_tag": "!include"},
+    )
+    assert dump(emit_action_node(node)).startswith("ext.a: !include")
+
+
 def test_round_trip_preserves_external_action_while_editing_a_sibling() -> None:
     """Editing a known sibling keeps the uncatalogued action's body intact."""
     text = (
