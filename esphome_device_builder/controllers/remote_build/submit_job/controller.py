@@ -153,11 +153,7 @@ def _coerce_display_field(value: Any) -> str:
 
 
 def _coerce_version_field(value: Any) -> str:
-    """
-    Coerce the peer-supplied ``target_esphome_version`` to a PEP 440 string or ``""``.
-
-    The value becomes a ``pip install`` argument; ``""`` means no provisioning.
-    """
+    """Coerce the peer-supplied ``target_esphome_version`` to a PEP 440 string or ``""``."""
     return coerce_pep440_version(value, max_len=PAIRING_VERSION_MAX_LEN)
 
 
