@@ -4,53 +4,30 @@ Receiver-side ``submit_job`` flow for the remote-build peer-link.
 Drives the post-handshake ``submit_job`` header +
 ``submit_job_chunk`` stream from the peer-link receive loop into
 a queued :class:`FirmwareJob` carrying the offloader's
-``dashboard_id`` in :attr:`FirmwareJob.remote_peer`. This module
-ends at "ack the bundle and queue the job"; the lifecycle
-fan-out the other direction — pushing ``job_state_changed`` /
-``job_output`` frames over the submitting session — lives in
-:mod:`.job_fanout`.
+``dashboard_id`` in :attr:`FirmwareJob.remote_peer`. The
+lifecycle fan-out the other direction lives in
+:mod:`..job_fanout`.
 
 Flow:
 
-1. Offloader sends a ``submit_job`` header
-   (``job_id`` / ``configuration_filename`` / ``target`` /
-   ``total_bundle_bytes`` / ``num_chunks`` / ``bundle_sha256``).
-   The receive loop forwards it to
-   :meth:`SubmitJobReceiver.handle_submit_job`.
-2. We construct a :class:`BundleAssembler` against the announced
-   sizes / digest and store it in ``_inflight`` keyed on the
-   session's ``dashboard_id``. One concurrent submit per session.
-3. Offloader streams ``submit_job_chunk`` frames; the receive
-   loop forwards each to
-   :meth:`SubmitJobReceiver.handle_submit_job_chunk`. We
-   base64-decode and feed the assembler. On the chunk that
-   carries ``is_last=True`` we finalise (validates byte count
-   + sha256), write the assembled tarball to
-   ``<config>/.esphome/.remote_builds/<dashboard_id>/<device_name>.tar.gz``
-   (sibling of the per-device subtree, not child — see
-   :class:`helpers.remote_build_layout.RemoteBuildPath` for the
-   canonical layout),
-   extract via :func:`esphome.bundle.prepare_bundle_for_compile`
-   (which preserves ``.esphome/`` / ``.pioenvs/`` for incremental
-   builds — the load-bearing reason for the stable per-peer
-   per-device subtree), and queue a :class:`FirmwareJob` with
-   ``remote_peer=session.dashboard_id``.
-4. We send a typed :class:`SubmitJobAckFrameData` — accepted on
-   success, accepted=False with a structured ``reason`` on any
-   of the rejection paths. Bundle-assembler errors that signal
-   wire-level misbehaviour
-   (:class:`BundleAssemblerError` outside the fix-with-retry set)
-   also trigger ``terminate{reason: malformed_frame}`` because
-   the offloader has already wandered off the wire format and
-   continuing the session would only invite more corruption.
+1. A ``submit_job`` header lands in
+   :meth:`SubmitJobReceiver.handle_submit_job`, which validates
+   it and registers a :class:`BundleAssembler` in ``_inflight``
+   keyed on the session's ``dashboard_id``. One concurrent
+   submit per session.
+2. ``submit_job_chunk`` frames feed the assembler via
+   :meth:`SubmitJobReceiver.handle_submit_job_chunk`. The
+   ``is_last=True`` chunk finalises (byte count + sha256) and
+   sends the accepted :class:`SubmitJobAckFrameData`; rejects
+   carry a structured ``reason``, and wire-level misbehaviour
+   also terminates with ``malformed_frame``.
+3. The write + extract + enqueue runs off the receive loop in
+   :mod:`._post_ack`, serialized per peer by
+   :mod:`._extract_window`; post-ack failures surface as
+   terminal ``job_state_changed`` frames.
 
-Per-peer per-device subtree: ``<dashboard_id>/<device_name>``.
-The two-segment key dedupes correctly across multi-offloader
-fleets (two HA Greens both shipping a "kitchen" device land in
-distinct subtrees) without colliding within one offloader's
-pool. PlatformIO's incremental-compile cache then sees stable
-source paths between submissions and skips the cold-rebuild
-hit. Phase-6 24h TTL sweeps cold subtrees later.
+On-disk layout (per-peer per-device subtree, sibling tarball) is
+owned by :class:`helpers.remote_build_layout.RemoteBuildPath`.
 """
 
 from __future__ import annotations
@@ -141,13 +118,6 @@ _SUBMIT_JOB_CHUNK_SCHEMA = frame_schema(
     }
 )
 
-# Layout for the per-dashboard / per-device subtree + sibling
-# bundle tarball lives in :mod:`helpers.remote_build_layout` so
-# the writer here, the 6c TTL sweep, and the controller's
-# in-flight-key derivation all flow through one source of
-# truth. See that module's :class:`RemoteBuildPath` for the
-# canonical key shape.
-
 # Bundle-assembler error codes that map to a clean
 # ``submit_job_ack`` rejection (the offloader can fix-and-retry
 # on a fresh session). Anything outside this set is wire-level
@@ -174,30 +144,7 @@ _FORBIDDEN_FILENAME_CHARS: frozenset[str] = frozenset({"/", "\\", "\x00"})
 
 
 def _coerce_display_field(value: Any) -> str:
-    """Coerce a peer-supplied display string to a safe, bounded ``str``.
-
-    The ``NotRequired`` ``device_name`` / ``device_friendly_name``
-    fields on :class:`SubmitJobFrameData` bypass the schema gate
-    (the gate validates a known-keys subset; extras pass
-    through), so a non-``str`` value or a multi-megabyte string
-    from a malicious / buggy offloader would otherwise reach
-    the in-flight :class:`_PendingSubmit` and land on the
-    :class:`FirmwareJob` we replay through the firmware-tasks
-    WS stream. Soft-coerce rather than reject:
-
-    * Non-``str`` → ``""``. The display surface treats empty as
-      "fall back to the configuration path" — a clear UI signal
-      vs. a hard reject the operator can't recover from.
-    * Length > :data:`_DEVICE_DISPLAY_FIELD_MAX_LEN` → ``""``,
-      same rationale. The cap is well above any legitimate
-      device / friendly name; values past it are signalling
-      abuse, not a long but legitimate string.
-
-    The display fields are UI plumbing, not load-bearing for the
-    build (the path-level gates in
-    :func:`_validate_configuration_filename` are what keep the
-    extract step safe). Empty fallback is the safe default.
-    """
+    """Return *value* if it is a ``str`` within the display cap, else ``""``."""
     if not isinstance(value, str):
         return ""
     if len(value) > _DEVICE_DISPLAY_FIELD_MAX_LEN:
@@ -206,41 +153,22 @@ def _coerce_display_field(value: Any) -> str:
 
 
 def _coerce_version_field(value: Any) -> str:
-    """Coerce the peer-supplied ``target_esphome_version`` to a PEP 440 string or ``""``.
+    """
+    Coerce the peer-supplied ``target_esphome_version`` to a PEP 440 string or ``""``.
 
-    ``NotRequired`` on the wire, so a non-str / malformed / oversized / injected
-    value would otherwise reach the provisioner's ``pip install`` argument; soft
-    coerce to ``""`` (no provisioning, compile with the installed esphome).
+    The value becomes a ``pip install`` argument; ``""`` means no provisioning.
     """
     return coerce_pep440_version(value, max_len=PAIRING_VERSION_MAX_LEN)
 
 
 def _validate_configuration_filename(filename: str) -> str | None:
-    r"""Return the device-name segment if *filename* is a safe leaf YAML, else ``None``.
+    r"""
+    Return the device-name segment if *filename* is a safe leaf YAML, else ``None``.
 
-    Peer-supplied input. The receiver uses the device-name
-    segment (``filename`` minus its ``.yaml`` / ``.yml``
-    extension) as the second path component under
-    ``<config>/.esphome/.remote_builds/<dashboard_id>/<device>/``;
-    a malicious offloader sending ``../foo.yaml`` could escape
-    that subtree without this gate. Returning ``None`` signals
-    the caller should reject with ``invalid_header``.
-
-    Rejects:
-
-    * Empty / non-string input.
-    * Path separators (``/`` or ``\\``) or NUL bytes.
-    * Reserved names ``"."`` / ``".."`` (with or without
-      extension — ``..yaml`` is still a leading-dot escape
-      attempt).
-    * Anything that doesn't end in ``.yaml`` / ``.yml``
-      (case-insensitive). The bundle the receiver extracts is
-      an ESPHome YAML config; non-YAML extensions don't have a
-      legitimate use here and let a misbehaving offloader
-      write arbitrary suffixes into the per-peer subtree.
-
-    Returns the bare device name (``"kitchen.yaml"`` →
-    ``"kitchen"``) on success.
+    The segment becomes a path component of the extract subtree, so this is a
+    security gate: rejects empty input, ``/`` ``\\`` or NUL characters, ``.`` /
+    ``..`` stems, and any extension other than ``.yaml`` / ``.yml``
+    (case-insensitive). ``"kitchen.yaml"`` → ``"kitchen"``.
     """
     if not filename:
         return None
@@ -263,15 +191,11 @@ def _validate_configuration_filename(filename: str) -> str | None:
 
 @dataclass
 class _PendingSubmit:
-    """Per-session in-flight bundle reception state.
+    """
+    Per-session in-flight bundle reception state.
 
-    Constructed on a valid :class:`SubmitJobFrameData` header,
-    fed chunk-by-chunk from
-    :meth:`SubmitJobReceiver.handle_submit_job_chunk`, and
-    discarded once the submit completes or the session ends.
-    Only one :class:`_PendingSubmit` exists per session at a
-    time; a second header from the same session before the
-    first completes is rejected as ``duplicate_submit``.
+    Constructed on a valid header, fed chunk-by-chunk, discarded when the
+    submit completes or the session ends. One per session at a time.
     """
 
     job_id: str
@@ -281,16 +205,9 @@ class _PendingSubmit:
     # Validated YAML stem off ``configuration_filename``; keys the
     # on-disk extract subtree.
     device_stem: str
-    # Display strings carried on the SUBMIT_JOB header; empty
-    # for older offloaders that don't set the (NotRequired)
-    # wire fields. The receiver stamps both onto the
-    # :class:`FirmwareJob` so the firmware-tasks UI renders the
-    # device's actual name + friendly name instead of the
-    # ``.esphome/.remote_builds/<id>/<device>/<device>.yaml``
-    # path. No semantic meaning beyond display: the path-level
-    # security gate (``_validate_configuration_filename``) is
-    # what keeps the receiver safe; these fields are purely UI
-    # plumbing.
+    # Display strings off the SUBMIT_JOB header, stamped onto the
+    # FirmwareJob for the firmware-tasks UI; empty for older
+    # offloaders. Display-only, never path-bearing.
     device_name: str = ""
     device_friendly_name: str = ""
     # Offloader's esphome version off the SUBMIT_JOB header; empty for
@@ -372,11 +289,9 @@ class SubmitJobReceiver:
           ``configuration_filename``), plus the explicit
           ``upload_unsupported`` reject.
         * Assembler-construction validation (oversized total,
-          empty bundle, etc.) — these come from the announced
-          header values, so they map to a ``submit_job_ack``
-          rejection rather than a ``terminate{malformed_frame}``;
-          the chunk stream hasn't started yet, the wire is still
-          intact.
+          empty bundle, etc.) — a ``submit_job_ack`` rejection,
+          not a ``terminate``: the chunk stream hasn't started,
+          the wire is still intact.
         """
         # Validate the wire-frame shape before indexing
         # peer-controlled fields. A malformed frame is wire-
@@ -455,15 +370,11 @@ class SubmitJobReceiver:
     async def handle_submit_job_chunk(
         self, session: PeerLinkSession, frame: SubmitJobChunkFrameData
     ) -> None:
-        """Feed *frame* into the in-flight assembler. On final chunk: queue + ack.
+        """
+        Feed *frame* into the in-flight assembler. On final chunk: ack + queue.
 
-        Reject branches all flow through :meth:`_reject` with a
-        ``reason`` code; the helper drops in-flight state and
-        optionally fires ``terminate{malformed_frame}`` based on
-        whether the failure is wire-level (offloader corrupted
-        the stream — close the session) or recoverable (offloader
-        can retry on a fresh submit). Happy-path completion
-        flows through :meth:`_finalise_and_queue`.
+        Reject branches flow through :meth:`_reject`; happy-path completion
+        through :meth:`_finalise_and_queue`.
         """
         # Same shape gate as the header path: peer-controlled
         # fields must be present and correctly typed before any
@@ -513,10 +424,8 @@ class SubmitJobReceiver:
         """
         Pull the in-flight entry, finalise the bundle, ack, then extract + queue.
 
-        The ack precedes the write + extract (which can span the offloader's
-        ack timeout on a slow disk); a post-ack failure is reported as a
-        terminal ``failed`` job-state frame. Drops the in-flight entry first
-        so a later failure can't leave a closed assembler dangling.
+        The ack precedes the off-loop write + extract; a post-ack failure is
+        reported as a terminal ``failed`` job-state frame.
         """
         self._inflight.pop(session.dashboard_id, None)
         if self._extracts.stopped:
@@ -546,15 +455,11 @@ class SubmitJobReceiver:
         pending: _PendingSubmit,
         exc: BundleAssemblerError,
     ) -> None:
-        """Reject helper for assembler errors — terminates on wire-level codes only.
+        """
+        Reject helper for assembler errors.
 
-        Codes in :data:`_RECOVERABLE_ASSEMBLER_ERRORS`
-        (``oversized`` / ``undersized`` / ``hash_mismatch`` /
-        ``empty_bundle``) ack-and-stay so the offloader can
-        retry on a fresh submit. Anything else (out-of-order,
-        post-completion, chunk-count-mismatched) is wire-level
-        misbehaviour and triggers a
-        ``terminate{malformed_frame}`` close after the ack.
+        Codes in :data:`_RECOVERABLE_ASSEMBLER_ERRORS` ack-and-stay; anything
+        else terminates the session with ``malformed_frame`` after the ack.
         """
         await self._reject(
             session,
@@ -595,26 +500,12 @@ class SubmitJobReceiver:
         drop_inflight: bool = False,
         terminate_session: bool = False,
     ) -> None:
-        """Single chokepoint for every reject path.
+        """
+        Single chokepoint for every reject path.
 
-        Drops the in-flight entry when *drop_inflight* is true
-        (the failure leaves no recoverable in-flight state, e.g.
-        decode / assembler errors mid-stream), sends a typed
-        ``submit_job_ack`` with ``accepted=False`` + the given
-        *reason*, then optionally fires
-        ``terminate{malformed_frame}`` on the session when the
-        failure was wire-level misbehaviour (out-of-order
-        chunks, base64 garbage). Header-validation reasons and
-        recoverable assembler codes leave the session intact so
-        the offloader can retry on a fresh submit. (Post-ack
-        extract / queue failures don't reach here — they surface
-        as a ``failed`` job-state frame via
-        :meth:`_report_post_ack_failure`.)
-
-        Failures from ``send_app_frame`` are logged at the
-        channel layer and don't propagate here — the session
-        is already closing or gone, the ack going missing
-        isn't actionable.
+        Drops the in-flight entry when *drop_inflight* is true, sends
+        ``submit_job_ack{accepted: False, reason}``, then terminates the
+        session with ``malformed_frame`` when *terminate_session* is true.
         """
         # Local import sidesteps the circular dep:
         # ``remote_build_peer_link`` imports symbols from this
