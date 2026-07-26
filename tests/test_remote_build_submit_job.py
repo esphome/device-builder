@@ -1063,11 +1063,7 @@ async def test_extract_recheck_catches_an_escape_appearing_post_ack(
         return target
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job.controller.resolve_under_root",
-        _escape_on_recheck,
-    )
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.submit_job._post_ack.resolve_under_root",
+        "esphome_device_builder.helpers.remote_build_layout.resolve_under_root",
         _escape_on_recheck,
     )
 

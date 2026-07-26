@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from .paths import resolve_under_root
+
 # Leading-dot hides the directory from a casual ``ls`` of the
 # parent tree, alongside the user's own files.
 REMOTE_BUILDS_NAME = ".remote_builds"
@@ -83,6 +85,15 @@ class RemoteBuildPath:
     def subtree(self, config_dir: Path) -> Path:
         """Return the absolute extract directory under *config_dir*."""
         return config_dir / REMOTE_BUILDS_SUBDIR / self.dir_id / self.device_name
+
+    def resolved_subtree(self, config_dir: Path) -> Path:
+        """
+        Resolve :meth:`subtree` and require it stays under the remote-builds root.
+
+        Raises :class:`.paths.PathEscapeError` on escape. Blocking
+        (``Path.resolve`` walks the filesystem); call from executor threads.
+        """
+        return resolve_under_root(self.subtree(config_dir), config_dir / REMOTE_BUILDS_SUBDIR)
 
     def bundle(self, config_dir: Path) -> Path:
         """Return the absolute bundle tarball path, sibling to :meth:`subtree`."""

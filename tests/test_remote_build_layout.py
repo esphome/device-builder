@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from esphome_device_builder.helpers.paths import PathEscapeError
 from esphome_device_builder.helpers.remote_build_layout import (
     BUNDLE_SUFFIX,
     REMOTE_BUILDS_SUBDIR,
@@ -25,6 +26,19 @@ def test_subtree_builds_dashboard_device_path(tmp_path: Path) -> None:
     """Subtree path is ``<config>/.esphome/.remote_builds/<dashboard>/<device>/``."""
     key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
     assert key.subtree(tmp_path) == (tmp_path / ".esphome" / ".remote_builds" / "alpha" / "kitchen")
+
+
+def test_resolved_subtree_accepts_a_contained_key(tmp_path: Path) -> None:
+    """A well-formed key resolves to its subtree under the remote-builds root."""
+    key = RemoteBuildPath(dashboard_id="alpha", device_name="kitchen")
+    assert key.resolved_subtree(tmp_path).name == "kitchen"
+
+
+def test_resolved_subtree_rejects_a_climbing_dashboard_id(tmp_path: Path) -> None:
+    """A traversing ``dashboard_id`` resolves outside the root and raises."""
+    key = RemoteBuildPath(dashboard_id="../../escape", device_name="kitchen")
+    with pytest.raises(PathEscapeError):
+        key.resolved_subtree(tmp_path)
 
 
 def test_bundle_sits_as_sibling_of_subtree(tmp_path: Path) -> None:

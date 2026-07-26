@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Literal
 from ....helpers.api import CommandError
 from ....helpers.async_ import run_in_executor
 from ....helpers.lazy_module import async_import_module
-from ....helpers.paths import PathEscapeError, resolve_under_root
-from ....helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
+from ....helpers.paths import PathEscapeError
+from ....helpers.remote_build_layout import RemoteBuildPath
 from ....models import ErrorCode, JobStateChangedFrameData
 from .const import (
     REASON_EXTRACT_FAILED,
@@ -88,18 +88,7 @@ async def extract_and_queue(
     all disk I/O runs in a single executor hop.
     """
     _raise_if_cancel_flagged(receiver._extracts, cancel_key)
-    # Subtree (extract target) + bundle (sibling tarball)
-    # flow through the layout helper so the writer here and
-    # the 6c sweeper read one source of truth for the
-    # on-disk shape. Sibling-not-child is load-bearing:
-    # upstream prepare_bundle_for_compile wipes target_dir
-    # before extract_bundle reads from bundle_path, so a
-    # bundle inside target_dir would be deleted mid-flow
-    # (PR #552).
     key = RemoteBuildPath(dashboard_id=session.dashboard_id, device_name=pending.device_stem)
-    target_dir = key.subtree(receiver._config_dir)
-    bundle_path = key.bundle(receiver._config_dir)
-    remote_builds_root = receiver._config_dir / REMOTE_BUILDS_SUBDIR
 
     # ``esphome.bundle`` is ~1 MB of upstream code; load it through
     # the shared lazy-import executor so the receiver's idle resident
@@ -111,10 +100,8 @@ async def extract_and_queue(
     try:
         configuration = await run_in_executor(
             _validate_write_extract_bundle,
-            bundle_path,
+            key,
             bundle_bytes,
-            target_dir,
-            remote_builds_root,
             receiver._config_dir,
             prepare,
         )
@@ -123,9 +110,9 @@ async def extract_and_queue(
         # / ``dashboard_id``), not a receiver-side I/O failure — maps
         # to ``invalid_header``, distinct from ``extract_failed``.
         _LOGGER.warning(
-            "submit_job from %s: target_dir %s escaped remote-builds root; rejecting",
+            "submit_job from %s: target dir for %r escaped remote-builds root; rejecting",
             session.dashboard_id,
-            target_dir,
+            pending.configuration_filename,
         )
         raise _SubmitJobRejectionError(REASON_INVALID_HEADER) from exc
     except (bundle.EsphomeError, OSError) as exc:
@@ -318,10 +305,8 @@ def _raise_if_cancel_flagged(extracts: ExtractWindow, key: tuple[str, str]) -> N
 
 
 def _validate_write_extract_bundle(
-    bundle_path: Path,
+    key: RemoteBuildPath,
     bundle_bytes: bytes,
-    target_dir: Path,
-    remote_builds_root: Path,
     config_dir: Path,
     prepare_bundle_for_compile: Callable[[Path, Path], Path],
 ) -> str:
@@ -337,7 +322,13 @@ def _validate_write_extract_bundle(
     # Defence-in-depth re-check of the pre-ack header gate: the
     # header-time resolve can be invalidated by a symlink created
     # under the remote-builds root between ack and extract.
-    resolve_under_root(target_dir, remote_builds_root)
+    key.resolved_subtree(config_dir)
+    target_dir = key.subtree(config_dir)
+    # Sibling-not-child is load-bearing: upstream
+    # prepare_bundle_for_compile wipes target_dir before
+    # extract_bundle reads from bundle_path, so a bundle inside
+    # target_dir would be deleted mid-flow (PR #552).
+    bundle_path = key.bundle(config_dir)
     bundle_path.parent.mkdir(parents=True, exist_ok=True)
     bundle_path.write_bytes(bundle_bytes)
     extracted: Path = prepare_bundle_for_compile(bundle_path, target_dir)

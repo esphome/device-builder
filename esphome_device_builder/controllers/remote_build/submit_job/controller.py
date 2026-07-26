@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from ....helpers.async_ import run_in_executor
-from ....helpers.paths import PathEscapeError, resolve_under_root
+from ....helpers.paths import PathEscapeError
 from ....helpers.peer_link_bundle import (
     BundleAssembler,
     BundleAssemblerError,
@@ -46,7 +46,7 @@ from ....helpers.peer_link_bundle import (
     decode_chunk,
 )
 from ....helpers.peer_link_frames import frame_schema, is_valid_frame, safe_job_id
-from ....helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
+from ....helpers.remote_build_layout import RemoteBuildPath
 from ....helpers.version_compat import coerce_pep440_version
 from ....models import (
     PAIRING_VERSION_MAX_LEN,
@@ -463,11 +463,7 @@ class SubmitJobReceiver:
         key = RemoteBuildPath(dashboard_id=session.dashboard_id, device_name=device_stem)
         try:
             # ``Path.resolve`` walks the filesystem; keep it off the loop.
-            await run_in_executor(
-                resolve_under_root,
-                key.subtree(self._config_dir),
-                self._config_dir / REMOTE_BUILDS_SUBDIR,
-            )
+            await run_in_executor(key.resolved_subtree, self._config_dir)
         except PathEscapeError:
             _LOGGER.warning(
                 "submit_job from %s: target dir for %r escapes the remote-builds root; rejecting",
