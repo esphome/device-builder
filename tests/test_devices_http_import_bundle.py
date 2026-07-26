@@ -1,19 +1,4 @@
-"""End-to-end coverage for the ``POST /api/devices/import_bundle`` HTTP route.
-
-Bundle uploads move to HTTP (not the WebSocket) so a large image/font-heavy
-bundle isn't capped by a proxy's WebSocket ``max_msg_size``. The route carries
-its own single-use capability token (minted over the authenticated WS by
-``devices/import_bundle_token``) instead of a bearer header, so it's in
-``auth_middleware``'s public allowlist and the handler validates the token.
-
-This drives the real ``auth_middleware`` + the real ``http_import_bundle``
-handler (+ ``UploadTokens``) through an aiohttp test client with a stub that
-records the decoded bytes. Pins: a valid token imports even with a password set
-(proving the allowlist); the streaming read bypasses aiohttp's 1 MiB
-``client_max_size``; a body over the shared cap is a clean 413; a missing /
-unknown / reused / expired token is a 404; and a staging ``CommandError`` maps
-to a JSON 400.
-"""
+"""Coverage for the ``POST /api/devices/import_bundle`` HTTP route + ``UploadTokens``."""
 
 from __future__ import annotations
 

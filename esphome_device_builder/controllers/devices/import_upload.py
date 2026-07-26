@@ -17,12 +17,7 @@ _UPLOAD_CHUNK_BYTES = 64 * 1024
 
 
 class UploadTokens(CapabilityTokens[bool]):
-    """Capability tokens authorizing an HTTP bundle upload (bound to nothing).
-
-    Minted over the authenticated WebSocket (``devices/import_bundle_token``)
-    and consumed by ``POST /api/devices/import_bundle``; a ``fetch`` POST can't
-    easily carry the session bearer, so the token is the route's authorization.
-    """
+    """Capability tokens authorizing an HTTP bundle upload (bound to nothing)."""
 
     def create(self) -> str:
         # The payload is a bare presence sentinel — the token binds no resource.
