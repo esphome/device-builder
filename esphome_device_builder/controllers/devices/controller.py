@@ -84,6 +84,7 @@ from .helpers import (
     _build_address_cache_args,
     raise_device_not_found,
 )
+from .import_upload import UploadTokens
 from .metadata import DeviceMetadataBase
 
 if TYPE_CHECKING:
@@ -113,6 +114,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     def __init__(self, device_builder: DeviceBuilder) -> None:
         super().__init__(device_builder)
         self.state = DevicesState()
+        # Capability tokens for the HTTP bundle-upload route.
+        self.import_tokens = UploadTokens()
         # Unsubscribe handle for the firmware-job-completion listener
         # wired up in start(); held so stop() can detach cleanly.
         self._unsub_job_completed: Any = None
@@ -460,18 +463,21 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             overwrite=overwrite,
         )
 
-    @api_command("devices/import_bundle")
+    @api_command("devices/import_bundle_token")
+    async def import_bundle_token(self, **kwargs: Any) -> dict[str, str]:
+        """Mint a single-use token authorizing an HTTP bundle upload."""
+        return {"token": self.import_tokens.create()}
+
     async def import_bundle(
         self,
         *,
-        file_content_b64: str,
+        bundle_bytes: bytes,
         overwrite: list[str] | None = None,
-        **kwargs: Any,
     ) -> ImportBundleResponse:
-        """Import an ``esphome bundle`` archive as a device."""
+        """Import an ``esphome bundle`` archive uploaded over HTTP."""
         return await mutations_import_bundle.import_bundle(
             self,
-            file_content_b64=file_content_b64,
+            bundle_bytes=bundle_bytes,
             overwrite=overwrite,
         )
 

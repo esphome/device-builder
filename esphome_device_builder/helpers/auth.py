@@ -310,15 +310,24 @@ def parse_basic_auth(authorization: str) -> tuple[str, str] | None:
 # /ws bypasses the gate because auth happens in-band on the WebSocket —
 # browsers can't set Authorization headers on `new WebSocket(...)`.
 # Frontend assets are public so the login page can load before login.
-# /api/firmware/download bypasses too because a plain navigation can't send a
-# bearer header; it carries its own single-use capability token instead, minted
-# over the authenticated WS (see firmware/download_token) and validated by the
+# /api/firmware/download and /api/devices/import_bundle bypass too because a
+# plain navigation / fetch POST can't send a bearer header; each carries its own
+# single-use capability token instead, minted over the authenticated WS (see
+# firmware/download_token, devices/import_bundle_token) and validated by the
 # handler — the token is the authorization.
 # /version is public so the upstream Docker image's HEALTHCHECK
 # (curl --fail .../version) keeps passing when a password is set; it
 # exposes only the esphome version, matching the legacy dashboard.
 _PUBLIC_PATHS = frozenset(
-    {"/", "/ws", "/favicon.ico", "/manifest.json", "/version", "/api/firmware/download"}
+    {
+        "/",
+        "/ws",
+        "/favicon.ico",
+        "/manifest.json",
+        "/version",
+        "/api/firmware/download",
+        "/api/devices/import_bundle",
+    }
 )
 _PUBLIC_PREFIXES = ("/assets/", "/boards/images/")
 

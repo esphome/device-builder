@@ -1,16 +1,14 @@
-"""``devices/import_bundle`` WS command body.
+"""Bundle-import staging for the ``POST /api/devices/import_bundle`` route.
 
 Lands an ``esphome bundle`` archive (``.esphomebundle.tar.gz``) as a
 device: the main YAML plus its ``!include``s, local external components,
 and a merged ``secrets.yaml``. Two-phase by design: the first call
 reports any on-disk files the bundle would overwrite so the user picks
-which to replace, then re-submits with ``overwrite`` set.
+which to replace, then re-uploads with ``overwrite`` set.
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
 import logging
 import tempfile
 from dataclasses import dataclass, field
@@ -38,26 +36,24 @@ _LOGGER = logging.getLogger(__name__)
 async def import_bundle(
     controller: DevicesController,
     *,
-    file_content_b64: str,
+    bundle_bytes: bytes,
     overwrite: list[str] | None = None,
 ) -> ImportBundleResponse:
     """
     Import an ``esphome bundle`` archive as a device.
 
     Returns ``status="conflicts"`` (nothing written) when bundle files
-    already exist and *overwrite* is ``None``; the caller re-submits the
+    already exist and *overwrite* is ``None``; the caller re-uploads the
     same bytes with the chosen paths in *overwrite*. ``secrets.yaml`` is
     always merged, never reported as a conflict. On ``status="imported"``
     the response carries ``written`` (files placed) and ``kept`` (existing
     files the caller left untouched), so a partial import is never masked
     as a full one.
     """
+    _validate_raw_bundle(bundle_bytes)
     if overwrite is not None and (
         not isinstance(overwrite, list) or not all(isinstance(p, str) for p in overwrite)
     ):
-        # The WS layer doesn't coerce JSON types, so a malformed
-        # ``overwrite`` would otherwise reach ``set(...)`` and corrupt the
-        # keep/replace decision.
         raise CommandError(ErrorCode.INVALID_ARGS, "overwrite must be a list of strings")
 
     config_dir = controller._db.settings.config_dir
@@ -65,7 +61,7 @@ async def import_bundle(
     # external_components). Funnel through the shared lock + editor-cache drop so
     # any of those overwrites refreshes an open editor's lint, not just secrets.
     outcome = await controller._db.write_secrets_locked(
-        _stage_bundle, file_content_b64, config_dir, overwrite
+        _stage_bundle, bundle_bytes, config_dir, overwrite
     )
     if outcome.conflicts is not None:
         return ImportBundleResponse(
@@ -116,8 +112,8 @@ class _Outcome:
     kept: list[str] = field(default_factory=list)
 
 
-def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
-    """Decode, extract to a temp dir, then plan or place the files (blocking)."""
+def _stage_bundle(bundle_bytes: bytes, config_dir: Path, overwrite: list[str] | None) -> _Outcome:
+    """Extract the bundle to a temp dir, then plan or place the files (blocking)."""
     # Lazy: keeps esphome.bundle off cold import.
     from esphome.bundle import (  # noqa: PLC0415
         MANIFEST_FILENAME,
@@ -125,7 +121,6 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
         read_bundle_manifest,
     )
 
-    bundle_bytes = _decode_bundle(file_content_b64)
     overwrite_set = set(overwrite or [])
 
     with tempfile.TemporaryDirectory(prefix="esphb-import-") as tmp:
@@ -209,30 +204,22 @@ def _stage_bundle(file_content_b64: str, config_dir: Path, overwrite: list[str] 
         )
 
 
-def _decode_bundle(file_content_b64: str) -> bytes:
-    """Base64-decode the upload; reject non-base64, oversize, or non-gzip."""
+def _validate_raw_bundle(raw: bytes) -> None:
+    """Reject an oversize or non-gzip bundle."""
     # Caps the compressed payload only; extract_bundle enforces the 500 MB
     # decompressed cap.
-    limit_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
-    oversize = CommandError(
-        ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit."
-    )
-    # base64 inflates ~4/3, so reject an obviously-oversize payload by its
-    # encoded length before materialising the decoded bytes in memory.
-    if len(file_content_b64) > (BUNDLE_MAX_TOTAL_BYTES // 3 + 1) * 4:
-        raise oversize
-    try:
-        raw = base64.b64decode(file_content_b64, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise CommandError(ErrorCode.INVALID_ARGS, "Bundle upload isn't valid base64.") from exc
     if len(raw) > BUNDLE_MAX_TOTAL_BYTES:
-        raise oversize
+        raise _oversize_error()
     if raw[:2] != b"\x1f\x8b":
         raise CommandError(
             ErrorCode.INVALID_ARGS,
             "Upload isn't a .tar.gz bundle (missing gzip header).",
         )
-    return raw
+
+
+def _oversize_error() -> CommandError:
+    limit_mb = BUNDLE_MAX_TOTAL_BYTES // (1024 * 1024)
+    return CommandError(ErrorCode.INVALID_ARGS, f"Bundle exceeds the {limit_mb} MB upload limit.")
 
 
 def _init_bundle_storage(config_dir: Path, config_filename: str) -> None:

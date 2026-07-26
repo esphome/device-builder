@@ -35,6 +35,7 @@ from .controllers.config import (
 )
 from .controllers.desktop import DesktopController
 from .controllers.devices import DevicesController
+from .controllers.devices.import_upload import http_import_bundle as devices_http_import_bundle
 from .controllers.editor import EditorController
 from .controllers.firmware import FirmwareController
 from .controllers.firmware.download import http_download as firmware_http_download
@@ -801,6 +802,11 @@ class DeviceBuilder:
         # the ingress site). HTTP, not WS, so a large firmware.elf isn't capped
         # by a proxy's WebSocket max_msg_size.
         app.router.add_get("/api/firmware/download", firmware_http_download)
+
+        # HTTP bundle upload. HTTP, not WS, so a large bundle isn't capped by a
+        # proxy's WebSocket max_msg_size; its capability token is the auth (see
+        # auth._PUBLIC_PATHS). Registered before the SPA catch-all.
+        app.router.add_post("/api/devices/import_bundle", devices_http_import_bundle)
 
         # Health/version endpoint. Public (see auth._PUBLIC_PATHS) and
         # registered before the SPA catch-all so the upstream Docker image's

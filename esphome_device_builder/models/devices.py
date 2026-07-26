@@ -311,11 +311,11 @@ class WizardResponse(DashboardModel):
 @dataclass
 class ImportBundleResponse(DashboardModel):
     """
-    Result of a ``devices/import_bundle`` call.
+    Result of a ``POST /api/devices/import_bundle`` upload.
 
     ``status="conflicts"`` means nothing was written: *conflicts*
     lists the bundle files that already exist on disk so the user
-    can pick which to overwrite and re-submit. ``status="imported"``
+    can pick which to overwrite and re-upload. ``status="imported"``
     means the tree landed; *configuration* is the device's YAML, and
     *written* / *kept* report which files were placed vs left untouched
     (a non-empty *kept* means a partial import). ``secrets.yaml`` is

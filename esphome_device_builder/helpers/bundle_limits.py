@@ -3,9 +3,9 @@
 One number, referenced by every path that materialises a whole config
 bundle in memory, so the limits can't drift apart: the peer-link
 remote-build receiver (assembles the uploaded bundle) and the UI
-``import_bundle`` path (decodes the uploaded bundle). Because they share
-this constant, a config small enough to remote-build is always small
-enough to import, and vice versa.
+``import_bundle`` HTTP upload (streams the uploaded bundle). Because they
+share this constant, a config small enough to remote-build is always
+small enough to import, and vice versa.
 """
 
 from __future__ import annotations

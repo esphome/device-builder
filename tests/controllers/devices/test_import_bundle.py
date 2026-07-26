@@ -1,9 +1,8 @@
-"""Tests for the ``devices/import_bundle`` command path."""
+"""Tests for the bundle-import staging path."""
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import gzip
 import io
 import json
@@ -64,10 +63,6 @@ def _make_bundle(
     return buf.getvalue()
 
 
-def _b64(data: bytes) -> str:
-    return base64.b64encode(data).decode("ascii")
-
-
 @pytest.fixture
 def _bundle_storage_under_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the StorageJSON sidecar under ``tmp_path`` instead of CORE.data_dir."""
@@ -98,7 +93,7 @@ async def test_import_bundle_lands_full_tree(
         has_secrets=True,
     )
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+    result = await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert result.status == "imported"
     assert result.configuration == "kitchen.yaml"
@@ -124,7 +119,7 @@ async def test_import_bundle_reports_conflicts_without_writing(
         config_filename="kitchen.yaml",
     )
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+    result = await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert result.status == "conflicts"
     assert result.conflicts == ["kitchen.yaml"]
@@ -148,7 +143,7 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
         config_filename="kitchen.yaml",
     )
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=["kitchen.yaml"])
+    result = await ctrl.import_bundle(bundle_bytes=bundle, overwrite=["kitchen.yaml"])
 
     assert result.status == "imported"
     # kitchen.yaml was chosen for overwrite; the include was not.
@@ -172,7 +167,7 @@ async def test_import_bundle_overwrite_preserves_operator_mode(
     target.chmod(0o600)
     bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=["kitchen.yaml"])
+    result = await ctrl.import_bundle(bundle_bytes=bundle, overwrite=["kitchen.yaml"])
 
     assert result.status == "imported"
     assert target.read_text("utf-8") == MAIN_YAML
@@ -191,7 +186,7 @@ async def test_import_bundle_empty_overwrite_keeps_all_and_reports_it(
         config_filename="kitchen.yaml",
     )
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=[])
+    result = await ctrl.import_bundle(bundle_bytes=bundle, overwrite=[])
 
     assert result.status == "imported"
     # The existing main config was kept (not silently masked as a full import).
@@ -220,7 +215,7 @@ async def test_import_bundle_overwrite_main_preserves_metadata(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     bundle = _make_bundle({"kitchen.yaml": MAIN_YAML}, config_filename="kitchen.yaml")
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle), overwrite=["kitchen.yaml"])
+    result = await ctrl.import_bundle(bundle_bytes=bundle, overwrite=["kitchen.yaml"])
 
     assert result.status == "imported"
     assert (config_dir / "kitchen.yaml").read_text("utf-8") == MAIN_YAML
@@ -247,7 +242,7 @@ async def test_import_bundle_merges_secrets_keeping_existing(
         has_secrets=True,
     )
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+    result = await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert result.status == "imported"
     merged = (tmp_path / "secrets.yaml").read_text("utf-8")
@@ -271,7 +266,7 @@ async def test_import_bundle_secrets_merge_preserves_comments(
         has_secrets=True,
     )
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+    result = await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert result.status == "imported"
     merged = (tmp_path / "secrets.yaml").read_text("utf-8")
@@ -280,43 +275,31 @@ async def test_import_bundle_secrets_merge_preserves_comments(
     assert "api_key: new_key" in merged  # absent key appended
 
 
-def test_decode_bundle_rejects_oversize_before_decode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An over-long base64 payload is rejected by encoded length, pre-decode."""
-    monkeypatch.setattr(mutations_import_bundle, "BUNDLE_MAX_TOTAL_BYTES", 16)
-
-    with pytest.raises(CommandError) as excinfo:
-        mutations_import_bundle._decode_bundle("A" * 200)
-
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "exceeds" in excinfo.value.message
-
-
 async def test_import_bundle_rejects_non_gzip(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A plain-text payload (no gzip header) is refused."""
+    """A payload without the gzip header is refused before staging."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_bundle(file_content_b64=_b64(b"esphome:\n  name: x\n"))
+        await ctrl.import_bundle(bundle_bytes=b"esphome:\n  name: x\n")
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "gzip" in excinfo.value.message
 
 
-async def test_import_bundle_rejects_bad_base64(
-    tmp_path: Path, make_controller: MakeControllerFactory
+async def test_import_bundle_rejects_oversize(
+    tmp_path: Path, make_controller: MakeControllerFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A non-base64 payload is refused before any extraction."""
+    """A bundle over the shared byte cap is rejected before staging."""
+    monkeypatch.setattr(mutations_import_bundle, "BUNDLE_MAX_TOTAL_BYTES", 4)
     ctrl = make_controller(tmp_path, with_state_monitor=True)
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_bundle(file_content_b64="this is not base64 !!!")
+        await ctrl.import_bundle(bundle_bytes=b"\x1f\x8b" + b"x" * 100)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "base64" in excinfo.value.message
+    assert "exceeds" in excinfo.value.message
 
 
 async def test_import_bundle_rejects_malformed_tar(
@@ -326,7 +309,7 @@ async def test_import_bundle_rejects_malformed_tar(
     ctrl = make_controller(tmp_path, with_state_monitor=True)
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_bundle(file_content_b64=_b64(gzip.compress(b"not a tar")))
+        await ctrl.import_bundle(bundle_bytes=gzip.compress(b"not a tar"))
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert ctrl._scanner.calls == []
@@ -341,7 +324,7 @@ async def test_import_bundle_rejects_non_list_overwrite(
 
     with pytest.raises(CommandError) as excinfo:
         await ctrl.import_bundle(
-            file_content_b64=_b64(bundle),
+            bundle_bytes=bundle,
             overwrite="kitchen.yaml",  # type: ignore[arg-type]
         )
 
@@ -360,7 +343,7 @@ async def test_import_bundle_rejects_non_utf8_main_config(
     )
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_bundle(file_content_b64=_b64(bundle))
+        await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert "UTF-8" in excinfo.value.message
@@ -381,23 +364,10 @@ async def test_import_bundle_rejects_path_traversal(
     )
 
     with pytest.raises(CommandError) as excinfo:
-        await ctrl.import_bundle(file_content_b64=_b64(bundle))
+        await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
     assert ctrl._scanner.calls == []
-
-
-def test_decode_bundle_rejects_oversize_after_decode(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A payload that clears the encoded pre-check but decodes over the cap is rejected."""
-    monkeypatch.setattr(mutations_import_bundle, "BUNDLE_MAX_TOTAL_BYTES", 16)
-    # 24 base64 chars equal the encoded-length ceiling but decode to 18 bytes.
-    with pytest.raises(CommandError) as excinfo:
-        mutations_import_bundle._decode_bundle("A" * 24)
-
-    assert excinfo.value.code == ErrorCode.INVALID_ARGS
-    assert "exceeds" in excinfo.value.message
 
 
 @pytest.mark.usefixtures("_bundle_storage_under_tmp")
@@ -428,7 +398,7 @@ async def test_import_bundle_substitution_friendly_name(
     main = "esphome:\n  name: kitchen\n  friendly_name: ${fn}\nesp32:\n  board: nodemcu-32s\n"
     bundle = _make_bundle({"kitchen.yaml": main}, config_filename="kitchen.yaml")
 
-    result = await ctrl.import_bundle(file_content_b64=_b64(bundle))
+    result = await ctrl.import_bundle(bundle_bytes=bundle)
 
     assert result.status == "imported"
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == main
