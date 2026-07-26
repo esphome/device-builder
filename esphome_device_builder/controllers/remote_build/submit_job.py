@@ -63,6 +63,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from ...helpers.api import CommandError
 from ...helpers.async_ import drain_tasks, log_task_exit, run_in_executor
 from ...helpers.lazy_module import async_import_module
 from ...helpers.paths import PathEscapeError, resolve_under_root
@@ -364,6 +365,12 @@ class SubmitJobReceiver:
         self._inflight: dict[str, _PendingSubmit] = {}
         self._extract_tasks: set[asyncio.Task[None]] = set()
         self._extract_locks: dict[str, asyncio.Lock] = {}
+        # Cancellable extract window, keyed (dashboard_id, remote job_id):
+        # a live task per key until the enqueue handoff, plus the pending
+        # cancel flags cancel_extract sets and the task consumes.
+        self._extract_index: dict[tuple[str, str], asyncio.Task[None]] = {}
+        self._extract_cancels: set[tuple[str, str]] = set()
+        self._stopped = False
 
     def has_any_inflight(self) -> bool:
         """Whether any offloader has a bundle mid-upload (the reset busy gate)."""
@@ -371,6 +378,7 @@ class SubmitJobReceiver:
 
     async def stop(self) -> None:
         """Cancel and drain post-ack extract tasks, including any spawned mid-drain."""
+        self._stopped = True
         # Sessions are still live while this runs, so a final chunk can
         # spawn a new task during the drain await; loop until none remain.
         while self._extract_tasks:
@@ -378,6 +386,24 @@ class SubmitJobReceiver:
             self._extract_tasks.difference_update(tasks)
             await drain_tasks(tasks)
         self._extract_locks.clear()
+        self._extract_index.clear()
+        self._extract_cancels.clear()
+
+    def cancel_extract(self, dashboard_id: str, job_id: str) -> bool:
+        """
+        Flag a mid-extract submit for cancellation.
+
+        True when a live extract holds the (*dashboard_id*, *job_id*)
+        correlation and will report the terminal ``cancelled`` frame (or
+        route a firmware cancel if it already queued); False once the
+        enqueue handoff has made the job resolvable through the fan-out.
+        """
+        key = (dashboard_id, job_id)
+        task = self._extract_index.get(key)
+        if task is None or task.done():
+            return False
+        self._extract_cancels.add(key)
+        return True
 
     def discard_session(self, dashboard_id: str) -> None:
         """Drop any in-flight submit state for *dashboard_id*.
@@ -542,6 +568,8 @@ class SubmitJobReceiver:
         terminal ``failed`` job-state frame. Drops the in-flight entry first
         so a later failure can't leave a closed assembler dangling.
         """
+        if self._stopped:
+            return
         self._inflight.pop(session.dashboard_id, None)
         try:
             assembled = pending.assembler.finalise()
@@ -558,35 +586,49 @@ class SubmitJobReceiver:
             self._run_post_ack_extract(session=session, pending=pending, bundle_bytes=assembled),
             name=f"submit-job-extract-{pending.job_id}",
         )
+        key = (session.dashboard_id, pending.job_id)
         self._extract_tasks.add(task)
+        self._extract_index[key] = task
         task.add_done_callback(self._extract_tasks.discard)
+        task.add_done_callback(partial(self._drop_extract_index, key))
         task.add_done_callback(partial(log_task_exit, f"submit-job extract {pending.job_id}"))
 
     async def _run_post_ack_extract(
         self, *, session: PeerLinkSession, pending: _PendingSubmit, bundle_bytes: bytes
     ) -> None:
         """Extract + queue one accepted bundle, serialized per peer."""
-        # The (FIFO) lock keeps per-peer enqueue order and keeps a
-        # same-configuration resubmit off a target dir mid-extract.
-        async with self._extract_locks.setdefault(session.dashboard_id, asyncio.Lock()):
-            try:
-                await self._extract_and_queue(
-                    session=session, pending=pending, bundle_bytes=bundle_bytes
-                )
-            except _SubmitJobRejectionError as exc:
-                reason = exc.reason
-            except Exception:
-                # The offloader already got ``accepted`` and is waiting on
-                # job-state events; an unreported crash strands it forever.
-                _LOGGER.exception(
-                    "submit_job from %s: unexpected extract failure for job %s",
-                    session.dashboard_id,
-                    pending.job_id,
-                )
-                reason = _REASON_EXTRACT_FAILED
-            else:
-                return
-            await self._report_post_ack_failure(session, pending=pending, reason=reason)
+        try:
+            # The (FIFO) lock keeps per-peer enqueue order and keeps a
+            # same-configuration resubmit off a target dir mid-extract.
+            async with self._extract_locks.setdefault(session.dashboard_id, asyncio.Lock()):
+                try:
+                    await self._extract_and_queue(
+                        session=session, pending=pending, bundle_bytes=bundle_bytes
+                    )
+                except _SubmitJobRejectionError as exc:
+                    reason = exc.reason
+                except _ExtractCancelledError:
+                    await self._send_job_cancelled(session, job_id=pending.job_id)
+                    return
+                except Exception:
+                    # The offloader already got ``accepted`` and is waiting on
+                    # job-state events; an unreported crash strands it forever.
+                    _LOGGER.exception(
+                        "submit_job from %s: unexpected extract failure for job %s",
+                        session.dashboard_id,
+                        pending.job_id,
+                    )
+                    reason = _REASON_EXTRACT_FAILED
+                else:
+                    return
+                await self._report_post_ack_failure(session, pending=pending, reason=reason)
+        finally:
+            self._extract_cancels.discard((session.dashboard_id, pending.job_id))
+
+    def _drop_extract_index(self, key: tuple[str, str], task: asyncio.Task[None]) -> None:
+        """Done-callback backstop for extracts that never reached the enqueue handoff."""
+        if self._extract_index.get(key) is task:
+            del self._extract_index[key]
 
     async def _reject_assembler(
         self,
@@ -638,6 +680,9 @@ class SubmitJobReceiver:
         ``run_in_executor`` keeps the receiver's WS dispatch
         coroutine non-blocking through a multi-MB write.
         """
+        cancel_key = (session.dashboard_id, pending.job_id)
+        if cancel_key in self._extract_cancels:
+            raise _ExtractCancelledError
         # ``device_name`` is guaranteed non-None here:
         # :meth:`handle_submit_job` rejected the header upfront
         # if validation failed, so a ``_PendingSubmit`` exists
@@ -708,6 +753,8 @@ class SubmitJobReceiver:
         if receiver is not None:
             remote_peer_label = receiver.approved_peer_label(session.dashboard_id)
 
+        if cancel_key in self._extract_cancels:
+            raise _ExtractCancelledError
         try:
             job = self._firmware._create_job(
                 configuration=configuration,
@@ -737,6 +784,22 @@ class SubmitJobReceiver:
             )
             raise _SubmitJobRejectionError(_REASON_QUEUE_REJECTED) from exc
 
+        # Queued: the fan-out cached the correlation during the enqueue
+        # fire, so cancels resolve there from now on. Dropping the index
+        # entry in the same sync block leaves no unroutable window; a
+        # cancel that was flagged mid-enqueue routes through the queue.
+        self._extract_index.pop(cancel_key, None)
+        if cancel_key in self._extract_cancels:
+            try:
+                await self._firmware.cancel(job_id=job.job_id)
+            except CommandError as exc:
+                _LOGGER.debug(
+                    "submit_job from %s: firmware refused post-enqueue cancel for job %s: %s",
+                    session.dashboard_id,
+                    job.job_id,
+                    exc.message,
+                )
+
         _LOGGER.info(
             "submit_job from %s: queued job %s (%s, target=%s)",
             session.dashboard_id,
@@ -749,6 +812,21 @@ class SubmitJobReceiver:
         """Send the success-path ``submit_job_ack`` (no ``reason`` field)."""
         payload = SubmitJobAckFrameData(type="submit_job_ack", job_id=job_id, accepted=True)
         await session.send_app_frame(dict(payload))
+
+    async def _send_job_cancelled(self, session: PeerLinkSession, *, job_id: str) -> None:
+        """Report a peer-cancelled extract as a terminal ``cancelled`` frame."""
+        _LOGGER.info(
+            "submit_job from %s: job %s cancelled mid-extract",
+            session.dashboard_id,
+            job_id,
+        )
+        frame = JobStateChangedFrameData(
+            type="job_state_changed",
+            job_id=job_id,
+            status="cancelled",
+            error_message="cancelled by the offloader before the build was queued",
+        )
+        await session.send_app_frame(dict(frame))
 
     async def _report_post_ack_failure(
         self, session: PeerLinkSession, *, pending: _PendingSubmit, reason: str
@@ -833,6 +911,10 @@ class _SubmitJobRejectionError(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+
+
+class _ExtractCancelledError(Exception):
+    """Internal: a peer ``cancel_job`` hit the post-ack extract window."""
 
 
 def _validate_write_extract_bundle(

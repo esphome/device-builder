@@ -1159,6 +1159,88 @@ async def test_unexpected_extract_crash_reports_failed_instead_of_stranding(
     session.terminate.assert_not_called()
 
 
+async def test_cancel_extract_in_the_window_skips_queue_and_reports_cancelled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``cancel_job`` flagged before the extract runs never queues; terminal frame sent."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    monkeypatch.setattr(
+        "esphome.bundle.prepare_bundle_for_compile",
+        lambda _bundle, target: target / "kitchen.yaml",
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    assert receiver.cancel_extract(session.dashboard_id, "job-1")
+    await _drain_extracts(receiver)
+
+    frames = _sent_frames(session)
+    assert frames[0]["type"] == "submit_job_ack"
+    assert frames[0]["accepted"] is True
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "cancelled"
+    assert frames[-1]["job_id"] == "job-1"
+    firmware._enqueue.assert_not_called()
+    assert not receiver._extract_cancels
+
+
+async def test_cancel_extract_flagged_mid_enqueue_routes_a_firmware_cancel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancel landing during the enqueue await cancels through the firmware queue."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    monkeypatch.setattr(
+        "esphome.bundle.prepare_bundle_for_compile",
+        lambda _bundle, target: target / "kitchen.yaml",
+    )
+
+    async def _enqueue_with_late_cancel(job: Any) -> Any:
+        assert receiver.cancel_extract(session.dashboard_id, "job-1")
+        return job
+
+    firmware._enqueue = AsyncMock(side_effect=_enqueue_with_late_cancel)
+    firmware.cancel = AsyncMock()
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
+
+    firmware.cancel.assert_awaited_once_with(job_id="local-0")
+    # The fan-out owns the terminal frame on this path; none is sent here.
+    assert all(f["type"] != "job_state_changed" for f in _sent_frames(session))
+    # Post-handoff the extract window no longer claims the correlation.
+    assert not receiver.cancel_extract(session.dashboard_id, "job-1")
+
+
+async def test_cancel_extract_without_a_live_task_returns_false(tmp_path: Path) -> None:
+    """No live extract for the correlation: the caller falls through to its drop path."""
+    receiver = _make_receiver(tmp_path)
+    assert not receiver.cancel_extract("dash-1", "job-1")
+
+
+async def test_no_extract_spawns_after_stop(tmp_path: Path) -> None:
+    """A final chunk landing after ``stop()`` neither acks nor spawns a task."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"hello"
+
+    await receiver.stop()
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+
+    assert not receiver._extract_tasks
+    assert all(f["type"] != "submit_job_ack" or not f["accepted"] for f in _sent_frames(session))
+
+
 async def test_stop_cancels_a_parked_extract(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1181,10 +1263,10 @@ async def test_stop_cancels_a_parked_extract(
     assert not receiver._extract_tasks
 
 
-async def test_stop_drains_an_extract_spawned_mid_drain(
+async def test_submit_landing_mid_drain_spawns_nothing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A task spawned while ``stop()`` awaits its drain is still cancelled."""
+    """A final chunk arriving while ``stop()`` awaits its drain spawns no task."""
     receiver = _make_receiver(tmp_path)
     session = _make_session()
     bundle = b"hello"
@@ -1201,16 +1283,15 @@ async def test_stop_drains_an_extract_spawned_mid_drain(
 
     stop_task = asyncio.ensure_future(receiver.stop())
     await asyncio.sleep(0)  # stop() is now awaiting the first drain
-    # The session is still live mid-drain; a second submit spawns a task.
+    # The session is still live mid-drain; the stopped gate refuses the submit.
     await receiver.handle_submit_job(
         session, _header(job_id="job-2", configuration_filename="other.yaml", bundle=bundle)
     )
     for chunk in _frame_chunks("job-2", bundle):
         await receiver.handle_submit_job_chunk(session, chunk)
-    late_task = next(iter(receiver._extract_tasks))
+    assert not receiver._extract_tasks
 
     await stop_task
-    assert late_task.cancelled()
     assert not receiver._extract_tasks
 
 

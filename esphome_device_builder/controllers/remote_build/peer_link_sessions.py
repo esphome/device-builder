@@ -207,7 +207,9 @@ async def handle_cancel_job(
     :class:`FirmwareJob` via :class:`JobFanout` and routes
     through :meth:`FirmwareController.cancel` — same path as
     an operator-driven cancel. No wire ack; the fan-out's
-    ``job_state_changed{cancelled}`` carries the result.
+    ``job_state_changed{cancelled}`` carries the result. A job
+    still in the post-ack extract window (no firmware job yet)
+    routes through :meth:`SubmitJobReceiver.cancel_extract`.
 
     Silent debug-log drops for malformed frames, unknown
     correlations (race with a terminal transition), and
@@ -231,6 +233,11 @@ async def handle_cancel_job(
         session.dashboard_id, remote_job_id
     )
     if firmware_job_id is None:
+        submit_receiver = controller.state.submit_job_receiver
+        if submit_receiver is not None and submit_receiver.cancel_extract(
+            session.dashboard_id, remote_job_id
+        ):
+            return
         _LOGGER.debug(
             "peer-link cancel_job from %s: no firmware job for remote_job_id=%r; dropping",
             session.dashboard_id,

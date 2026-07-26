@@ -2426,6 +2426,22 @@ async def test_handle_cancel_job_unknown_remote_job_drops_silently(tmp_path: Pat
     controller.offloader._db.firmware.cancel.assert_not_called()
 
 
+async def test_handle_cancel_job_mid_extract_routes_to_cancel_extract(tmp_path: Path) -> None:
+    """An unresolvable job_id with a live extract flags the extract window instead of dropping."""
+    controller = _make_receiver_with_fanout(tmp_path)
+    submit_receiver = MagicMock()
+    submit_receiver.cancel_extract = MagicMock(return_value=True)
+    controller.receiver.state.submit_job_receiver = submit_receiver
+
+    await controller.receiver.handle_cancel_job(
+        _cancel_session(dashboard_id="offloader-1"),
+        {"type": "cancel_job", "job_id": "remote-xyz"},
+    )
+
+    submit_receiver.cancel_extract.assert_called_once_with("offloader-1", "remote-xyz")
+    controller.offloader._db.firmware.cancel.assert_not_called()
+
+
 async def test_handle_cancel_job_pin_to_wrong_session_no_cancel(tmp_path: Path) -> None:
     """A cancel_job arriving on a different session than the submit-time peer is dropped.
 
