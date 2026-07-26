@@ -395,15 +395,10 @@ async def test_post_ack_extract_failure_finalises_offloader_job_failed(
         raise EsphomeError("bundle invalid: simulated extract failure")
 
     monkeypatch.setattr("esphome.bundle.prepare_bundle_for_compile", _exploding_prepare)
-    # Skip the esphome-CLI bundle subprocess on the offloader side
-    # (upstream contract, covered by tests on build_yaml_bundle).
     monkeypatch.setattr(
         remote_runner, "run_bundle_phase", AsyncMock(return_value=make_real_bundle())
     )
 
-    # Minimal-real offloader firmware controller for the runner: the
-    # real bus and peer-link lookup, real cancel-state containers,
-    # recordable finalisers.
     controller = MagicMock()
     controller.bus = paired_instances.offloader_bus
     controller.state.cancel_events = {}
@@ -428,8 +423,9 @@ async def test_post_ack_extract_failure_finalises_offloader_job_failed(
         paired_instances.offloader_bus, EventType.OFFLOADER_JOB_STATE_CHANGED
     )
 
-    # No RemoteServerLostError / ProvisionUnavailableError may escape:
-    # an ordinary extract failure finalises, never re-routes.
+    # retry_on_server_loss is on: an ordinary extract failure must
+    # finalise, never raise ProvisionUnavailableError into the pool's
+    # re-route path (reserved for failure_reason: provision).
     await asyncio.wait_for(
         remote_runner.run_remote_job(controller, job, retry_on_server_loss=True),
         timeout=5.0,
