@@ -1274,6 +1274,96 @@ def test_cancel_extract_without_a_live_task_returns_false(tmp_path: Path) -> Non
     assert not receiver.cancel_extract("dash-1", "job-1")
 
 
+async def test_mid_extract_job_holds_the_reset_busy_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A live extract counts as in-flight so ``reset_build_env`` can't wipe under it."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"hello"
+    release = asyncio.Event()
+
+    async def _parked_extract(**_kwargs: object) -> None:
+        await release.wait()
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    assert receiver.has_any_inflight()
+
+    release.set()
+    await _drain_extracts(receiver)
+    assert not receiver.has_any_inflight()
+
+
+async def test_cancel_flagged_before_the_task_starts_reports_without_extracting(
+    tmp_path: Path,
+) -> None:
+    """A cancel consumed at the pre-lock checkpoint never touches the extract path."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    # Flag before the spawned task first runs.
+    assert receiver.cancel_extract(session.dashboard_id, "job-1")
+    await _drain_extracts(receiver)
+
+    frames = _sent_frames(session)
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "cancelled"
+    firmware._create_job.assert_not_called()
+
+
+async def test_cancel_while_parked_behind_a_predecessor_skips_its_extract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cancel landing while an extract waits on the per-peer lock is honoured at the lock."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    release = asyncio.Event()
+
+    original = receiver._extract_and_queue
+
+    async def _slow_first_extract(*, pending: _PendingSubmit, **kwargs: Any) -> None:
+        if pending.job_id == "job-1":
+            await release.wait()
+            return
+        await original(pending=pending, **kwargs)
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _slow_first_extract)
+
+    await receiver.handle_submit_job(session, _header(job_id="job-1", bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await receiver.handle_submit_job(
+        session, _header(job_id="job-2", configuration_filename="other.yaml", bundle=bundle)
+    )
+    for chunk in _frame_chunks("job-2", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await asyncio.sleep(0)  # job-2's task passes its pre-lock check and parks
+    assert receiver.cancel_extract(session.dashboard_id, "job-2")
+
+    release.set()
+    await _drain_extracts(receiver)
+
+    frames = _sent_frames(session)
+    assert frames[-1] == {
+        "type": "job_state_changed",
+        "job_id": "job-2",
+        "status": "cancelled",
+        "error_message": "cancelled by the offloader before the build was queued",
+    }
+    firmware._create_job.assert_not_called()
+
+
 async def test_spawn_refuses_after_stop() -> None:
     """The window itself gates spawning, independent of the receiver's early return."""
     window = ExtractWindow()

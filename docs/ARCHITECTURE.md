@@ -560,8 +560,8 @@ Once an offloader and receiver are paired (APPROVED on both sides), the offloade
 
 *Inbound dispatch:*
 
-* `submit_job` / `submit_job_chunk` → `SubmitJobReceiver` drives `BundleAssembler`; on completion writes the assembled tarball + queues a `FirmwareJob` carrying `remote_peer` + `remote_job_id` correlation.
-* `cancel_job` → `RemoteBuildController.handle_cancel_job` reverse-lookups the offloader-supplied id via `JobFanout.resolve_firmware_job_id` and calls `FirmwareController.cancel`, same primitive as a local operator-driven cancel.
+* `submit_job` / `submit_job_chunk` → `SubmitJobReceiver` drives `BundleAssembler`; on completion acks acceptance, then writes + extracts the assembled tarball off the receive loop (per-peer serialized `ExtractWindow` task, so heartbeats and `cancel_job` stay serviced) and queues a `FirmwareJob` carrying `remote_peer` + `remote_job_id` correlation. A post-ack failure surfaces as a terminal `job_state_changed{failed}`.
+* `cancel_job` → `RemoteBuildController.handle_cancel_job` reverse-lookups the offloader-supplied id via `JobFanout.resolve_firmware_job_id` and calls `FirmwareController.cancel`, same primitive as a local operator-driven cancel. An id the fan-out can't resolve may still be in the post-ack extract window; `SubmitJobReceiver.cancel_extract` flags the in-flight extract, which skips the enqueue and reports the terminal `cancelled` frame directly.
 * `download_artifacts` → `ArtifactsDownloadSender` reads `idedata.json` + flash images via the shared `helpers/build_artifacts.py` discovery helper, packs them into a gzipped tarball off the event loop, and streams the bytes back as `artifacts_start` → `artifacts_chunk` → `artifacts_end`. `firmware_offset` rides on the start frame so the offloader doesn't duplicate platform-detection logic.
 
 *Outbound:*

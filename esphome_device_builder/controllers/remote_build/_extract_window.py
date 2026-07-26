@@ -27,6 +27,11 @@ class ExtractWindow:
         self._index: dict[_Key, asyncio.Task[None]] = {}
         self._cancel_requested: set[_Key] = set()
 
+    @property
+    def active(self) -> bool:
+        """Whether any extract task is live."""
+        return bool(self._tasks)
+
     def spawn(self, key: _Key, coro: Coroutine[Any, Any, None]) -> None:
         """Run *coro* as the tracked extract task for *key*; refused once stopped."""
         if self.stopped:

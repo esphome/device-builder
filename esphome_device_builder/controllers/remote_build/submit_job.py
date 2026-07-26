@@ -368,11 +368,11 @@ class SubmitJobReceiver:
         self._extracts = ExtractWindow()
 
     def has_any_inflight(self) -> bool:
-        """Whether any offloader has a bundle mid-upload (the reset busy gate)."""
-        return bool(self._inflight)
+        """Whether any offloader has a bundle mid-upload or mid-extract (the reset busy gate)."""
+        return bool(self._inflight) or self._extracts.active
 
     async def stop(self) -> None:
-        """Cancel and drain post-ack extract tasks, including any spawned mid-drain."""
+        """Refuse new post-ack extracts, then cancel and drain the in-flight ones."""
         await self._extracts.stop()
 
     def cancel_extract(self, dashboard_id: str, job_id: str) -> bool:
@@ -576,6 +576,9 @@ class SubmitJobReceiver:
         """Extract + queue one accepted bundle, serialized per peer."""
         key = (session.dashboard_id, pending.job_id)
         try:
+            if self._extracts.consume(key):
+                await self._send_job_cancelled(session, job_id=pending.job_id)
+                return
             # The (FIFO) lock keeps per-peer enqueue order and keeps a
             # same-configuration resubmit off a target dir mid-extract.
             async with self._extracts.lock(session.dashboard_id):
