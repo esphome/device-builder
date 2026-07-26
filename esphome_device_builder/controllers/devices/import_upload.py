@@ -45,8 +45,9 @@ async def http_import_bundle(request: web.Request) -> web.StreamResponse:
     if not db.devices.import_tokens.consume(request.query.get("token", "")):
         _LOGGER.debug("Bundle upload rejected: missing, unknown, reused, or expired token")
         raise web.HTTPNotFound
-    # Reject an unknown mode (or overwrite params without mode=resolve) up front
-    # rather than silently detecting and burning the single-use token.
+    # Reject an unknown mode (or overwrite params without mode=resolve) with a
+    # clear 400 instead of silently falling back to detect and dropping the
+    # caller's overwrite choices.
     mode = request.query.get("mode")
     if mode not in (None, "detect", "resolve"):
         return _reject(f"Unknown import mode {mode!r} (expected 'detect' or 'resolve').")
