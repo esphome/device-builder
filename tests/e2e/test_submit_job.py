@@ -385,19 +385,8 @@ async def test_post_ack_extract_failure_finalises_offloader_job_failed(
 ) -> None:
     """An accepted ack followed by a receiver extract failure fails the mirror job.
 
-    The seam nothing else exercises end to end: the offloader's
-    :func:`remote_runner.run_remote_job` has already returned from
-    ``_submit_job_to_receiver`` with ``accepted=True`` when the
-    receiver's off-loop extract raises; the receiver reports the
-    terminal ``job_state_changed{failed}`` from
-    ``SubmitJobReceiver`` itself (no :class:`FirmwareJob` reached
-    the queue, so :class:`JobFanout` never sees it), and the
-    runner's ``_await_terminal`` must catch that frame over the
-    live Noise session and finalise the mirror job FAILED with the
-    receiver's message. Runs with ``retry_on_server_loss=True`` to
-    pin that an ordinary extract failure never triggers the
-    dispatch pool's local-rebuild fallback (reserved for
-    ``failure_reason: provision``).
+    Runs with ``retry_on_server_loss=True``: an ordinary extract failure
+    finalises FAILED with the receiver's message, never the pool's re-route.
     """
     await paired_instances.wait_until_session_opened()
 
