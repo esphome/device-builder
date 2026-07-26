@@ -574,7 +574,7 @@ Once an offloader and receiver are paired (APPROVED on both sides), the offloade
 *Inbound dispatch:*
 
 * `queue_status` → fires `OFFLOADER_QUEUE_STATUS_CHANGED`.
-* `submit_job_ack` → resolves the matching ack future on `_submit_job_acks`.
+* `submit_job_ack` → resolves the matching ack future on `_submit_job_acks`. An accepted ack means assembled + hash-validated only; the build's fate (including a post-ack extract or enqueue failure) arrives via `job_state_changed`.
 * `job_state_changed` → fires `OFFLOADER_JOB_STATE_CHANGED`, maintained as RAM cache in `_offloader_remote_jobs` keyed on offloader-local `job_id`; terminal rows drop on transition.
 * `job_output` → fires `OFFLOADER_JOB_OUTPUT`, no cache; high-rate live stream only.
 * `artifacts_start` / `artifacts_chunk` / `artifacts_end` → drives a per-job `BundleAssembler` capped at `FIRMWARE_MAX_TOTAL_BYTES` = 16 MiB. The start frame's `firmware_offset` rides through to the resolved `DownloadArtifactsResult` so the WS layer's unpacker can stitch it back into the response without re-deriving.
