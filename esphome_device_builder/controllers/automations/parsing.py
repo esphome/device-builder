@@ -12,11 +12,13 @@ walks five shapes:
 - Configured component instances with inline ``on_*:`` handlers.
 - Light ``effects:`` lists.
 
-An unknown action / condition id fails only the automation that
-carries it: that entry comes back with ``error`` set and an empty
-tree (the frontend renders it read-only as "edit raw YAML"), while
-every sibling parses normally. A YAML that won't load at all is the
-one whole-document failure that still raises.
+A fatal per-automation fault (unknown condition id, misrouted body)
+fails only the automation that carries it: that entry comes back with
+``error`` set and an empty tree (the frontend renders it read-only as
+"edit raw YAML"), while every sibling parses normally. An uncatalogued
+single-key action instead decomposes to an opaque passthrough node, so
+its siblings stay editable. A YAML that won't load at all is the one
+whole-document failure that still raises.
 
 Body decomposition (handler body → tree) lives in :mod:`._decompose`;
 source-line mapping in :mod:`._ranges`; the shared YAML factory in
@@ -654,8 +656,9 @@ def is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
     Report whether *item* looks like one entry of a list-shaped trigger.
 
     Requires a ``then:`` or one of the trigger's own config keys — a bare
-    action item (including an unknown action id) is *not* an entry, so it
-    stays a bare action list and its parse error still surfaces.
+    action item is *not* an entry, so it stays a bare action list. A
+    single-key uncatalogued action there passes through as a read-only
+    node; a multi-key (misrouted) mapping still faults.
     """
     if not isinstance(item, dict) or not item:
         return False

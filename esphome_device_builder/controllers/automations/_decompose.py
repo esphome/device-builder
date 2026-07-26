@@ -137,23 +137,40 @@ def _decompose_action_list(body: Any) -> list[ActionNode]:
     for item in items:
         if not isinstance(item, dict) or not item:
             continue
+        # A registry-shape action is a single-key ``{id: params}`` mapping. A
+        # multi-key item is a misrouted / malformed body (a typo'd trigger
+        # entry that fell through to the action-list path), so an uncatalogued
+        # id there must fault rather than pass through — see _decompose_action.
+        multi_key = len(item) > 1
         for action_id, params in item.items():
-            out.append(_decompose_action(str(action_id), params))
+            out.append(_decompose_action(str(action_id), params, multi_key=multi_key))
     return out
 
 
-def _decompose_action(action_id: str, raw_params: Any) -> ActionNode:
+def _uncatalogued_action(action_id: str, raw_params: Any, *, multi_key: bool) -> ActionNode:
+    """Handle an id with no catalog entry: passthrough node, or fault."""
+    if catalog.is_known_action(action_id):
+        msg = f"No structured editor for action {action_id!r}"
+        raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
+    if multi_key:
+        # Uncatalogued id sharing a mapping with other keys: a real external
+        # action is always a one-key entry, so this is a misrouted body.
+        # Fault so a save can't silently restructure it.
+        msg = f"Unknown action id: {action_id!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    # Uncatalogued single-key id (an external component's action, or a typo):
+    # keep it as an opaque passthrough node so its siblings stay editable
+    # rather than collapsing the whole automation to read-only. ``raw_body``
+    # round-trips through the emitter (bar comments and any non-``!lambda``
+    # tag, which ruamel drops); the frontend shows it read-only.
+    return ActionNode(action_id=action_id, unknown=True, raw_body=_render_value(raw_params))
+
+
+def _decompose_action(action_id: str, raw_params: Any, *, multi_key: bool = False) -> ActionNode:
     """Build one :class:`ActionNode` from a registry-shaped mapping entry."""
     action = catalog.action_by_id(action_id)
     if action is None:
-        if catalog.is_known_action(action_id):
-            msg = f"No structured editor for action {action_id!r}"
-            raise UnsupportedActionError(ErrorCode.INVALID_ARGS, msg)
-        # Uncatalogued id (an external component's action, or a typo): keep it
-        # as an opaque passthrough node so its siblings stay editable rather
-        # than collapsing the whole automation to read-only. ``raw_body`` round-
-        # trips verbatim through the emitter; the frontend shows it read-only.
-        return ActionNode(action_id=action_id, unknown=True, raw_body=_render_value(raw_params))
+        return _uncatalogued_action(action_id, raw_params, multi_key=multi_key)
     children: dict[str, list[ActionNode]] = {}
     conditions: list[ConditionNode] = []
 

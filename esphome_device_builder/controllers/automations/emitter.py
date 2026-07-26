@@ -31,7 +31,9 @@ from ruamel.yaml.comments import CommentedMap, CommentedSeq, TaggedScalar
 from ruamel.yaml.scalarstring import LiteralScalarString
 from ruamel.yaml.tag import Tag
 
+from ...helpers.api import CommandError
 from ...helpers.yaml.scalar import is_lambda_sentinel
+from ...models.api import ErrorCode
 from ...models.automations import (
     ActionNode,
     AutomationAction,
@@ -141,10 +143,16 @@ def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
     if node.unknown:
         # Opaque passthrough (external / uncatalogued action): re-emit the
-        # verbatim body so an unedited round-trip is byte-faithful.
+        # body as-is (bar comments / non-``!lambda`` tags ruamel can't carry).
         out = CommentedMap()
         out[node.action_id] = encode_value(node.raw_body)
         return out
+    if not catalog.is_known_action(node.action_id):
+        # A structured node (``unknown`` unset) for an id we have no schema
+        # for can only be a lossy client echo — the normal path would emit a
+        # null / stripped body and wipe the real params. Fail loud instead.
+        msg = f"Cannot write uncatalogued action {node.action_id!r} as a structured node"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     body = CommentedMap()
     # Condition gate leads the body: ``if`` / ``while`` want it before
     # ``then`` / ``else``, ``wait_until`` before its ``timeout:`` param.

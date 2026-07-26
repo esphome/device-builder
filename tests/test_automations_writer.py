@@ -838,17 +838,39 @@ def test_if_emits_condition_before_then_else() -> None:
     assert body.index("condition:") < body.index("then:") < body.index("else:")
 
 
-def test_unknown_action_node_round_trips_its_raw_body() -> None:
-    """An opaque passthrough node re-emits ``{action_id: <raw_body>}`` faithfully."""
-    for raw_body, expected in (
-        ({"path": "/data/x.log", "format": "hi"}, "storage.file_append:"),
-        ("scalar", "storage.file_append: scalar"),
-        (None, "storage.file_append:"),
-        ([{"a": 1}, {"b": 2}], "storage.file_append:"),
-    ):
-        node = ActionNode(action_id="storage.file_append", unknown=True, raw_body=raw_body)
-        text = dump(emit_action_node(node))
-        assert text.startswith(expected)
+@pytest.mark.parametrize(
+    ("raw_body", "expected"),
+    [
+        pytest.param(
+            {"path": "/data/x.log", "format": "hi"},
+            "storage.file_append:\n  path: /data/x.log\n  format: hi\n",
+            id="mapping",
+        ),
+        pytest.param("scalar", "storage.file_append: scalar\n", id="scalar"),
+        pytest.param(None, "storage.file_append:\n", id="none"),
+        pytest.param(
+            [{"a": 1}, {"b": 2}],
+            "storage.file_append:\n  - a: 1\n  - b: 2\n",
+            id="list",
+        ),
+        pytest.param(
+            {"fmt": {"_lambda": "return 0;", "_tag": "!lambda"}},
+            "storage.file_append:\n  fmt: !lambda return 0;\n",
+            id="lambda",
+        ),
+    ],
+)
+def test_unknown_action_node_round_trips_its_raw_body(raw_body: object, expected: str) -> None:
+    """An opaque passthrough node re-emits ``{action_id: <raw_body>}`` in full, tags kept."""
+    node = ActionNode(action_id="storage.file_append", unknown=True, raw_body=raw_body)
+    assert dump(emit_action_node(node)) == expected
+
+
+def test_emit_uncatalogued_structured_node_fails_loud() -> None:
+    """A non-``unknown`` node for an uncatalogued id is a lossy echo — refuse it."""
+    node = ActionNode(action_id="ext.action", params={"token": "secret"})
+    with pytest.raises(CommandError, match="uncatalogued action"):
+        emit_action_node(node)
 
 
 def test_round_trip_preserves_external_action_while_editing_a_sibling() -> None:

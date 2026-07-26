@@ -778,6 +778,24 @@ def test_parse_unknown_action_in_bare_list_is_passthrough() -> None:
     assert parsed[0].automation.actions[0].unknown is True
 
 
+def test_parse_misrouted_multikey_body_still_errors() -> None:
+    """A typo'd trigger entry (multi-key mapping) faults instead of restructuring on save."""
+    # ``xseconds`` / ``xthen`` are typos, so the item isn't a valid on_time
+    # entry and falls to the bare-action-list path as one multi-key mapping.
+    # A single external action is always one key, so this must not pass through.
+    yaml = (
+        "time:\n  - platform: sntp\n    id: my_time\n"
+        "    on_time:\n"
+        "      - xseconds: 0\n"
+        "        xthen:\n"
+        "          - logger.log: hi\n"
+    )
+    parsed = parse_device_yaml(yaml)
+    assert len(parsed) == 1
+    assert parsed[0].error is not None
+    assert parsed[0].automation.actions == []
+
+
 def test_parse_returns_empty_for_minimal_yaml() -> None:
     """A YAML without any recognised automation shape parses to empty list."""
     assert parse_device_yaml("esphome:\n  name: x\n") == []

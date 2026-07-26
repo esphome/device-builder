@@ -209,8 +209,8 @@ def test_is_list_form_trigger_discriminates_cron_vs_bare_actions() -> None:
     assert _is_list_form_trigger([{"then": []}], on_press) is True
     assert _is_list_form_trigger([{"seconds": 0}], on_time) is True
     assert _is_list_form_trigger([{"switch.toggle": "relay"}], on_press) is False
-    # An unknown action id is a bare action, not a trigger entry — so its
-    # parse error still surfaces instead of being read as trigger params.
+    # An uncatalogued action id is a bare action, not a trigger entry — so it
+    # decomposes as an action (a passthrough node) rather than trigger params.
     assert _is_list_form_trigger([{"not_a_real_action": 5}], on_press) is False
     assert _is_list_form_trigger(["bare-scalar"], on_time) is False
     assert _is_list_form_trigger([], on_time) is False
@@ -411,12 +411,11 @@ def test_emit_action_bare_scalar_action_collapses_synthetic_id() -> None:
     assert dump([emit_action_node(node)]).strip() == "- delay: 1s"
 
 
-def test_emit_action_unknown_id_does_not_collapse() -> None:
-    """An id absent from the catalog has no known shorthand, so it stays a mapping."""
+def test_emit_uncatalogued_structured_node_is_refused() -> None:
+    """An id absent from the catalog can't emit as a structured node — it's a lossy echo."""
     node = ActionNode(action_id="not.a_real_action", params={"id": "x"})
-    out = dump([emit_action_node(node)])
-    assert "id: x" in out
-    assert "not.a_real_action: x" not in out
+    with pytest.raises(CommandError, match="uncatalogued action"):
+        emit_action_node(node)
 
 
 def test_decompose_action_with_children_and_conditions() -> None:
