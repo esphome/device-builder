@@ -142,8 +142,14 @@ def _shorthand_key(entry: AutomationAction | AutomationCondition | None) -> str 
 def emit_action_node(node: ActionNode) -> CommentedMap:
     """Build one ``{<action_id>: <body>}`` mapping for an action node."""
     if node.unknown:
-        # Opaque passthrough (external / uncatalogued action): re-emit the
-        # body as-is (bar comments / non-``!lambda`` tags ruamel can't carry).
+        if catalog.is_known_action(node.action_id):
+            # A passthrough node can only ever be uncatalogued; ``unknown`` on a
+            # catalogued id is a mislabelled echo whose null body would wipe the
+            # real params. Fail loud, mirroring the guard below.
+            msg = f"Catalogued action {node.action_id!r} flagged as an unknown passthrough"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+        # Opaque passthrough (external / uncatalogued action): re-emit the body
+        # as-is (bar comments and exact formatting; YAML tags are preserved).
         out = CommentedMap()
         out[node.action_id] = encode_value(node.raw_body)
         return out
@@ -235,11 +241,7 @@ def encode_value(value: Any) -> Any:
     if is_lambda_sentinel(value):
         return _encode_lambda(value["_lambda"], value.get("_tag"))
     if isinstance(value, dict) and value.keys() == {"_tagged", "_tag"}:
-        # Passthrough-body tag sentinel (`!secret` / `!include` inside an
-        # uncatalogued action) — re-attach the original tag.
-        scalar = TaggedScalar(value=value["_tagged"], style=None)
-        scalar.yaml_set_ctag(Tag(suffix=value["_tag"]))
-        return scalar
+        return _encode_tagged(value["_tagged"], value["_tag"])
     if isinstance(value, dict):
         out = CommentedMap()
         for k, v in value.items():
@@ -259,6 +261,27 @@ def dump(value: Any) -> str:
     buf = StringIO()
     yaml.dump(value, buf)
     return buf.getvalue()
+
+
+def _encode_tagged(body: Any, tag: Any) -> Any:
+    """
+    Re-attach a passthrough body's YAML tag (``!secret`` / ``!include`` …).
+
+    ``tag`` is client-supplied via the ``{"_tagged", "_tag"}`` wire sentinel,
+    so validate it before it reaches ``Tag(suffix=...)`` — a malformed tag
+    would emit YAML that no longer parses. A tagged collection keeps the tag
+    on its map/seq; a scalar re-wraps in a ``TaggedScalar``.
+    """
+    if not (isinstance(tag, str) and len(tag) > 1 and tag.startswith("!")):
+        msg = f"Invalid YAML tag in passthrough body: {tag!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    inner = encode_value(body)
+    if isinstance(inner, (CommentedMap, CommentedSeq)):
+        inner.yaml_set_ctag(Tag(suffix=tag))
+        return inner
+    scalar = TaggedScalar(value=body, style=None)
+    scalar.yaml_set_ctag(Tag(suffix=tag))
+    return scalar
 
 
 def _encode_lambda(body: str, tag: str | None) -> Any:

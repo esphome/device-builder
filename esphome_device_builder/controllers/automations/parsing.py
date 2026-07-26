@@ -658,7 +658,10 @@ def is_trigger_entry(item: Any, trigger: AutomationTrigger) -> bool:
     Requires a ``then:`` or one of the trigger's own config keys — a bare
     action item is *not* an entry, so it stays a bare action list. A
     single-key uncatalogued action there passes through as a read-only
-    node; a multi-key (misrouted) mapping still faults.
+    node; a multi-key (misrouted) mapping still faults. Residual: a
+    single-key misroute (a typo'd ``then:``) in a list position passes
+    through, so a save restructures the list form into ``then:`` — the
+    input is already invalid ESPHome and no content is lost.
     """
     if not isinstance(item, dict) or not item:
         return False

@@ -387,9 +387,9 @@ class ActionNode(DashboardModel):
     ``if``). ``conditions`` is the boolean gate, populated only for
     ``if`` / ``wait_until``. ``unknown`` marks an uncatalogued action
     (an external component's, or a typo): ``raw_body`` holds its body so
-    the emitter re-emits it (bar comments / non-``!lambda`` tags ruamel
-    drops) while its siblings stay editable, and the frontend renders it
-    read-only in place.
+    the emitter re-emits it (YAML tags preserved; comments and exact
+    formatting are not) while its siblings stay editable, and the
+    frontend renders it read-only in place.
     """
 
     action_id: str

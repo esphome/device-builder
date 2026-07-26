@@ -900,6 +900,48 @@ def test_passthrough_body_preserves_secret_tag_through_round_trip() -> None:
     assert "token: !secret api_token" in new_text
 
 
+def test_passthrough_body_preserves_tagged_collection_through_round_trip() -> None:
+    """A tagged *collection* (``!include {file, vars}``) keeps its tag on re-emit."""
+    text = (
+        "esphome:\n"
+        "  name: x\n"
+        "  on_boot:\n"
+        "    then:\n"
+        "      - logger.log: hi\n"
+        "      - ext.upload: !include {file: body.yaml, vars: {a: 1}}\n"
+    )
+    parsed = parse_device_yaml(text)[0]
+    assert parsed.error is None
+    assert parsed.automation.actions[1].raw_body == {
+        "_tagged": {"file": "body.yaml", "vars": {"a": 1}},
+        "_tag": "!include",
+    }
+    tree = parsed.automation
+    tree.actions[0].params["format"] = "edited"
+    new_text, _diff = render_upsert(text, tree=tree, location=parsed.location)
+    assert "!include" in new_text
+    assert "file: body.yaml" in new_text
+
+
+def test_emit_unknown_flag_on_catalogued_id_fails_loud() -> None:
+    """``unknown`` on a catalogued id is a mislabelled echo — refuse it, not blank the body."""
+    node = ActionNode(action_id="logger.log", unknown=True, raw_body=None)
+    with pytest.raises(CommandError, match="unknown passthrough"):
+        emit_action_node(node)
+
+
+@pytest.mark.parametrize("bad_tag", ["not a tag", "", "noexcl", 5])
+def test_emit_passthrough_body_rejects_a_malformed_tag(bad_tag: object) -> None:
+    """A client-supplied ``_tag`` that isn't a ``!``-prefixed string is refused."""
+    node = ActionNode(
+        action_id="ext.upload",
+        unknown=True,
+        raw_body={"k": {"_tagged": "v", "_tag": bad_tag}},
+    )
+    with pytest.raises(CommandError, match="Invalid YAML tag"):
+        emit_action_node(node)
+
+
 def test_round_trip_preserves_external_action_while_editing_a_sibling() -> None:
     """Editing a known sibling keeps the uncatalogued action's body intact."""
     text = (
