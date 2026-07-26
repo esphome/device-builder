@@ -134,6 +134,37 @@ async def test_resolve_mode_with_no_overwrite_is_empty_list(aiohttp_client: Any)
     assert db.devices.calls == [(b"\x1f\x8b", [])]
 
 
+async def test_unknown_mode_is_400_without_consuming_the_body(aiohttp_client: Any) -> None:
+    db = _StubDeviceBuilder()
+    token = db.devices.import_tokens.create()
+    client = await aiohttp_client(_make_app(db))
+
+    resp = await client.post(
+        "/api/devices/import_bundle",
+        params={"token": token, "mode": "Resolve"},  # wrong case
+        data=b"\x1f\x8b",
+    )
+
+    assert resp.status == 400
+    assert (await resp.json())["error_code"] == "invalid_args"
+    assert db.devices.calls == []
+
+
+async def test_overwrite_without_resolve_mode_is_400(aiohttp_client: Any) -> None:
+    db = _StubDeviceBuilder()
+    token = db.devices.import_tokens.create()
+    client = await aiohttp_client(_make_app(db))
+
+    resp = await client.post(
+        "/api/devices/import_bundle",
+        params=[("token", token), ("overwrite", "a.yaml")],  # no mode=resolve
+        data=b"\x1f\x8b",
+    )
+
+    assert resp.status == 400
+    assert db.devices.calls == []
+
+
 async def test_body_over_client_max_size_reaches_handler(aiohttp_client: Any) -> None:
     """A >1 MiB body streams to the handler, not pre-rejected by client_max_size."""
     db = _StubDeviceBuilder()

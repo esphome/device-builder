@@ -10,10 +10,15 @@ from ...helpers.api import CommandError
 from ...helpers.bundle_limits import BUNDLE_MAX_TOTAL_BYTES
 from ...helpers.capability_tokens import CapabilityTokens
 from ...helpers.json import json_response
+from ...models import ErrorCode
 
 _LOGGER = logging.getLogger(__name__)
 
 _UPLOAD_CHUNK_BYTES = 64 * 1024
+
+
+def _reject(details: str, *, code: ErrorCode = ErrorCode.INVALID_ARGS) -> web.Response:
+    return json_response({"error_code": str(code), "details": details}, status=400)
 
 
 class UploadTokens(CapabilityTokens[bool]):
@@ -33,12 +38,25 @@ async def http_import_bundle(request: web.Request) -> web.StreamResponse:
 
     HTTP (not WebSocket) so a large bundle isn't capped by a proxy's WebSocket
     ``max_msg_size``. The body streams straight in; ``mode=resolve`` with
-    repeated ``overwrite`` params resolves conflicts, anything else detects
-    them. Returns an ``ImportBundleResponse`` as JSON.
+    repeated ``overwrite`` params resolves conflicts, ``detect`` (or an absent
+    mode) reports them. Returns an ``ImportBundleResponse`` as JSON.
     """
     db = request.app["device_builder"]
     if not db.devices.import_tokens.consume(request.query.get("token", "")):
+        _LOGGER.debug("Bundle upload rejected: missing, unknown, reused, or expired token")
         raise web.HTTPNotFound
+    # Reject an unknown mode (or overwrite params without mode=resolve) up front
+    # rather than silently detecting and burning the single-use token.
+    mode = request.query.get("mode")
+    if mode not in (None, "detect", "resolve"):
+        return _reject(f"Unknown import mode {mode!r} (expected 'detect' or 'resolve').")
+    overwrite_params = request.query.getall("overwrite", [])
+    if mode == "resolve":
+        overwrite: list[str] | None = overwrite_params
+    elif overwrite_params:
+        return _reject("overwrite params require mode=resolve.")
+    else:
+        overwrite = None
     # Stream the raw body rather than request.read(), which would enforce the
     # app-wide 1 MiB client_max_size; cap it ourselves against the shared limit.
     buf = bytearray()
@@ -51,11 +69,9 @@ async def http_import_bundle(request: web.Request) -> web.StreamResponse:
                 actual_size=len(buf),
                 text=f"Bundle exceeds the {limit_mb} MB upload limit.",
             )
-    overwrite = (
-        request.query.getall("overwrite", []) if request.query.get("mode") == "resolve" else None
-    )
     try:
         result = await db.devices.import_bundle(bundle_bytes=buf, overwrite=overwrite)
     except CommandError as err:
-        return json_response({"error_code": str(err.code), "details": err.message}, status=400)
+        _LOGGER.warning("Bundle import rejected: %s", err.message)
+        return _reject(err.message, code=err.code)
     return json_response(result)
