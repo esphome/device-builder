@@ -140,9 +140,9 @@ _RECOVERABLE_ASSEMBLER_ERRORS: frozenset[BundleAssemblerErrorCode] = frozenset(
 # ``configuration_filename``. Path separators (both flavours so
 # the rule holds across receiver platforms) and the NUL byte.
 # The rule's job is to catch obviously-malicious shapes early;
-# the resolve-and-stay-under-root check at extract time is the
-# defence-in-depth gate that catches anything an exotic filename
-# would slip past this.
+# the header-time resolve-and-stay-under-root check (re-run at
+# extract) catches anything an exotic filename would slip past
+# this.
 _FORBIDDEN_FILENAME_CHARS: frozenset[str] = frozenset({"/", "\\", "\x00"})
 
 
@@ -285,8 +285,8 @@ class SubmitJobReceiver:
         * Header field shapes the wire-format TypedDict can't
           enforce at runtime (target outside the
           ``compile`` / ``clean`` set, malformed
-          ``configuration_filename``), plus the explicit
-          ``upload_unsupported`` reject.
+          ``configuration_filename``, a path-escaping extract
+          dir), plus the explicit ``upload_unsupported`` reject.
         * Assembler-construction validation (oversized total,
           empty bundle, etc.) — a ``submit_job_ack`` rejection,
           not a ``terminate``: the chunk stream hasn't started,
@@ -311,6 +311,17 @@ class SubmitJobReceiver:
             )
             return
         job_id = frame["job_id"]
+        # Validate the peer-supplied filename and the derived extract dir —
+        # the stem becomes the second path segment under
+        # ``.esphome/.remote_builds/<dashboard_id>/<device_name>/``, so a
+        # separator / ``..`` / escaping resolve would let a malicious
+        # offloader write outside the intended subtree. Runs before the
+        # duplicate gate: its executor hop is the only await here, keeping
+        # the check-then-register region below atomic on the loop.
+        device_stem = await self._resolve_device_stem(session, frame)
+        if device_stem is None:
+            await self._reject(session, job_id=job_id, reason=REASON_INVALID_HEADER)
+            return
         # A resubmit of a job_id whose accepted bundle is still mid-extract
         # would overwrite the extract index and mis-route a cancel.
         if session.dashboard_id in self._inflight or self._extracts.is_tracked(
@@ -325,16 +336,6 @@ class SubmitJobReceiver:
             await self._reject(session, job_id=job_id, reason=REASON_UPLOAD_UNSUPPORTED)
             return
         if target not in TARGET_TO_JOB_TYPE:
-            await self._reject(session, job_id=job_id, reason=REASON_INVALID_HEADER)
-            return
-        # Validate the peer-supplied filename — it becomes the
-        # second path segment under
-        # ``.esphome/.remote_builds/<dashboard_id>/<device_name>/``.
-        # An unvalidated separator / ``..`` here would let a
-        # malicious offloader write the assembled tarball
-        # outside the intended subtree.
-        device_stem = await self._resolve_device_stem(session, frame)
-        if device_stem is None:
             await self._reject(session, job_id=job_id, reason=REASON_INVALID_HEADER)
             return
         try:
