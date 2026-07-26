@@ -328,6 +328,16 @@ def test_parse_uncatalogued_action_becomes_passthrough_node() -> None:
     assert actions[1].raw_body == {"foo": "bar"}
 
 
+def test_parse_passthrough_body_with_a_standard_tag_stays_json_safe() -> None:
+    """A ``!!binary`` in a passthrough body is coerced to a str so the parse response encodes."""
+    yaml = "esphome:\n  name: x\n  on_boot:\n    then:\n      - ext.do: !!binary aGk=\n"
+    parsed = parse_device_yaml(yaml)
+    assert parsed[0].error is None
+    assert isinstance(parsed[0].automation.actions[0].raw_body, str)
+    # The whole parse response must be orjson-serialisable — no non-JSON leaf.
+    orjson.dumps([p.to_dict() for p in parsed])
+
+
 def test_parse_oversized_lvgl_shorthand_is_flagged_unsupported() -> None:
     """The single-action shorthand form also flags a known-but-unsupported action."""
     yaml = (

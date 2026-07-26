@@ -319,10 +319,22 @@ def _render_value(value: Any, *, preserve_tags: bool = False) -> Any:
     if isinstance(value, list):
         items = [_render_value(v, preserve_tags=preserve_tags) for v in value]
         return _maybe_tagged(value, items, preserve_tags=preserve_tags)
+    return _render_scalar_leaf(value, preserve_tags=preserve_tags)
+
+
+def _render_scalar_leaf(value: Any, *, preserve_tags: bool) -> Any:
+    """Coerce a scalar leaf to a JSON-wire value (see :func:`_render_value`)."""
     # ruamel round-trip mode wraps floats in ScalarFloat (a float subclass);
     # orjson serialises int/bool subclasses but refuses float subclasses, so
     # coerce to a plain float for the wire.
-    return float(value) if isinstance(value, ScalarFloat) else value
+    if isinstance(value, ScalarFloat):
+        return float(value)
+    if preserve_tags and not isinstance(value, (str, int, float, type(None))):
+        # A standard-tag scalar (``!!binary`` → bytes, ``!!set`` → a set) would
+        # otherwise ride into raw_body and make orjson refuse the whole parse
+        # response. Keep it JSON-safe. (bool is an int subclass, so it stays.)
+        return str(value)
+    return value
 
 
 def _render_tagged_scalar(value: TaggedScalar, *, preserve_tags: bool) -> Any:
