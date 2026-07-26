@@ -50,6 +50,10 @@ class ExtractWindow:
             lock = self._locks[dashboard_id] = asyncio.Lock()
         return lock
 
+    def is_tracked(self, key: _Key) -> bool:
+        """Whether *key* has an extract task that has not reached the enqueue handoff."""
+        return key in self._index
+
     def cancel(self, key: _Key) -> bool:
         """Flag *key* for cancellation; True when a live extract will honour it."""
         task = self._index.get(key)

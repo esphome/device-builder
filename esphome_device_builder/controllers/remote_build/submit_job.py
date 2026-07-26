@@ -76,6 +76,7 @@ from ...helpers.remote_build_layout import REMOTE_BUILDS_SUBDIR, RemoteBuildPath
 from ...helpers.version_compat import coerce_pep440_version
 from ...models import (
     PAIRING_VERSION_MAX_LEN,
+    ErrorCode,
     JobStateChangedFrameData,
     JobType,
     SubmitJobAckFrameData,
@@ -87,6 +88,7 @@ from ._extract_window import ExtractWindow
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from ...models import FirmwareJob
     from ..firmware import FirmwareController
     from .peer_link import PeerLinkSession
 
@@ -403,7 +405,8 @@ class SubmitJobReceiver:
         Rejects (with a typed ``submit_job_ack``) on:
 
         * Duplicate submit while a previous one is still in
-          flight on the same session.
+          flight on the same session, or while the same
+          ``job_id``'s accepted bundle is still mid-extract.
         * Header field shapes the wire-format TypedDict can't
           enforce at runtime (target outside the
           ``compile`` / ``clean`` set, malformed
@@ -434,7 +437,11 @@ class SubmitJobReceiver:
                 terminate_session=True,
             )
             return
-        if session.dashboard_id in self._inflight:
+        # A resubmit of a job_id whose accepted bundle is still mid-extract
+        # would overwrite the extract index and mis-route a cancel.
+        if session.dashboard_id in self._inflight or self._extracts.is_tracked(
+            (session.dashboard_id, frame["job_id"])
+        ):
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_DUPLICATE_SUBMIT)
             return
         target = frame["target"]
@@ -551,9 +558,9 @@ class SubmitJobReceiver:
         terminal ``failed`` job-state frame. Drops the in-flight entry first
         so a later failure can't leave a closed assembler dangling.
         """
+        self._inflight.pop(session.dashboard_id, None)
         if self._extracts.stopped:
             return
-        self._inflight.pop(session.dashboard_id, None)
         try:
             assembled = pending.assembler.finalise()
         except BundleAssemblerError as exc:
@@ -583,7 +590,7 @@ class SubmitJobReceiver:
             # same-configuration resubmit off a target dir mid-extract.
             async with self._extracts.lock(session.dashboard_id):
                 try:
-                    await self._extract_and_queue(
+                    job = await self._extract_and_queue(
                         session=session, pending=pending, bundle_bytes=bundle_bytes, cancel_key=key
                     )
                 except _SubmitJobRejectionError as exc:
@@ -601,6 +608,15 @@ class SubmitJobReceiver:
                     await self._report_post_ack_failure(
                         session, pending=pending, reason=_REASON_EXTRACT_FAILED
                     )
+                else:
+                    # Queued: the fan-out cached the correlation during the
+                    # enqueue fire, and the return reached this block with no
+                    # intervening await, so dropping the index here leaves no
+                    # unroutable window. From now on the job is live in the
+                    # queue; nothing past this point may report ``failed``.
+                    self._extracts.handoff(key)
+                    if self._extracts.consume(key):
+                        await self._cancel_queued_job(session, pending=pending, job=job)
         finally:
             self._extracts.consume(key)
 
@@ -636,8 +652,8 @@ class SubmitJobReceiver:
         pending: _PendingSubmit,
         bundle_bytes: bytes,
         cancel_key: tuple[str, str],
-    ) -> None:
-        """Write the tarball, extract it, queue a :class:`FirmwareJob`.
+    ) -> FirmwareJob:
+        """Write the tarball, extract it, queue and return the :class:`FirmwareJob`.
 
         Raises :class:`_SubmitJobRejectionError` on any failure
         with a reason code; the caller has already acked
@@ -752,23 +768,6 @@ class SubmitJobReceiver:
             )
             raise _SubmitJobRejectionError(_REASON_QUEUE_REJECTED) from exc
 
-        # Queued: the fan-out cached the correlation during the enqueue
-        # fire, so cancels resolve there from now on. The handoff drops
-        # the index entry in the same sync block, leaving no unroutable
-        # window; a cancel that was flagged mid-enqueue routes through
-        # the queue.
-        self._extracts.handoff(cancel_key)
-        if self._extracts.consume(cancel_key):
-            try:
-                await self._firmware.cancel(job_id=job.job_id)
-            except CommandError as exc:
-                _LOGGER.debug(
-                    "submit_job from %s: firmware refused post-enqueue cancel for job %s: %s",
-                    session.dashboard_id,
-                    job.job_id,
-                    exc.message,
-                )
-
         _LOGGER.info(
             "submit_job from %s: queued job %s (%s, target=%s)",
             session.dashboard_id,
@@ -776,6 +775,45 @@ class SubmitJobReceiver:
             configuration,
             pending.target,
         )
+        return job
+
+    async def _cancel_queued_job(
+        self, session: PeerLinkSession, *, pending: _PendingSubmit, job: FirmwareJob
+    ) -> None:
+        """
+        Route a cancel flagged in the enqueue window through the firmware queue.
+
+        An already-terminal refusal is fan-out-owned (its terminal frame was
+        emitted on the transition); any other failure must not report
+        ``failed`` for a job that is live in the queue, but a vanished job
+        gets the terminal ``cancelled`` frame directly so the offloader is
+        never stranded.
+        """
+        try:
+            await self._firmware.cancel(job_id=job.job_id)
+        except CommandError as exc:
+            if exc.code is ErrorCode.INVALID_ARGS:
+                _LOGGER.debug(
+                    "submit_job from %s: firmware refused post-enqueue cancel for job %s: %s",
+                    session.dashboard_id,
+                    job.job_id,
+                    exc.message,
+                )
+                return
+            _LOGGER.warning(
+                "submit_job from %s: post-enqueue cancel for job %s failed (%s): %s",
+                session.dashboard_id,
+                job.job_id,
+                exc.code,
+                exc.message,
+            )
+            await self._send_job_cancelled(session, job_id=pending.job_id)
+        except Exception:
+            _LOGGER.exception(
+                "submit_job from %s: post-enqueue cancel for job %s crashed; job remains queued",
+                session.dashboard_id,
+                job.job_id,
+            )
 
     async def _send_ack_accepted(self, session: PeerLinkSession, *, job_id: str) -> None:
         """Send the success-path ``submit_job_ack`` (no ``reason`` field)."""

@@ -1238,6 +1238,98 @@ async def test_cancel_extract_flagged_mid_enqueue_routes_a_firmware_cancel(
     assert not receiver.cancel_extract(session.dashboard_id, "job-1")
 
 
+async def test_post_enqueue_cancel_not_found_still_sends_the_terminal_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A vanished job (``NOT_FOUND``) gets the terminal ``cancelled`` frame directly."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    monkeypatch.setattr(
+        "esphome.bundle.prepare_bundle_for_compile",
+        _passthrough_prepare,
+    )
+
+    async def _enqueue_with_late_cancel(job: Any) -> Any:
+        assert receiver.cancel_extract(session.dashboard_id, "job-1")
+        return job
+
+    firmware._enqueue = AsyncMock(side_effect=_enqueue_with_late_cancel)
+    firmware.cancel = AsyncMock(
+        side_effect=CommandError(ErrorCode.NOT_FOUND, "Job not found: local-0")
+    )
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
+
+    frames = _sent_frames(session)
+    assert frames[-1]["type"] == "job_state_changed"
+    assert frames[-1]["status"] == "cancelled"
+    assert frames[-1]["job_id"] == "job-1"
+
+
+async def test_post_enqueue_cancel_crash_never_reports_failed_for_a_queued_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unexpected cancel crash after a successful enqueue sends no terminal frame."""
+    firmware = _make_firmware_controller()
+    receiver = _make_receiver(tmp_path, firmware)
+    session = _make_session()
+    bundle = b"hello"
+    monkeypatch.setattr(
+        "esphome.bundle.prepare_bundle_for_compile",
+        _passthrough_prepare,
+    )
+
+    async def _enqueue_with_late_cancel(job: Any) -> Any:
+        assert receiver.cancel_extract(session.dashboard_id, "job-1")
+        return job
+
+    firmware._enqueue = AsyncMock(side_effect=_enqueue_with_late_cancel)
+    firmware.cancel = AsyncMock(side_effect=RuntimeError("state out of sync"))
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await _drain_extracts(receiver)
+
+    assert all(f["type"] != "job_state_changed" for f in _sent_frames(session))
+
+
+async def test_resubmit_of_a_mid_extract_job_id_is_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A same-``job_id`` resubmit while its extract runs rejects instead of re-indexing."""
+    receiver = _make_receiver(tmp_path)
+    session = _make_session()
+    bundle = b"hello"
+    release = asyncio.Event()
+
+    async def _parked_extract(**_kwargs: object) -> None:
+        await release.wait()
+
+    monkeypatch.setattr(receiver, "_extract_and_queue", _parked_extract)
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    for chunk in _frame_chunks("job-1", bundle):
+        await receiver.handle_submit_job_chunk(session, chunk)
+    await asyncio.sleep(0)  # extract parked, in-flight entry cleared
+    first_task = next(iter(receiver._extracts._tasks))
+
+    await receiver.handle_submit_job(session, _header(bundle=bundle))
+    payload = _ack_payload(session)
+    assert payload["accepted"] is False
+    assert payload["reason"] == "duplicate_submit"
+    # The original extract task still owns the correlation.
+    assert receiver._extracts._index[(session.dashboard_id, "job-1")] is first_task
+
+    release.set()
+    await _drain_extracts(receiver)
+
+
 async def test_cancel_extract_flagged_mid_extract_skips_the_queue(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1389,6 +1481,9 @@ async def test_no_extract_spawns_after_stop(tmp_path: Path) -> None:
 
     assert not receiver._extracts._tasks
     assert not _sent_frames(session)
+    # The dropped submit leaves no residue that would wedge the reset busy gate.
+    assert not receiver._inflight
+    assert not receiver.has_any_inflight()
 
 
 async def test_stop_cancels_a_parked_extract(
