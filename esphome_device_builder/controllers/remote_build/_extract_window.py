@@ -25,10 +25,13 @@ class ExtractWindow:
         self._tasks: set[asyncio.Task[None]] = set()
         self._locks: dict[str, asyncio.Lock] = {}
         self._index: dict[_Key, asyncio.Task[None]] = {}
-        self._cancels: set[_Key] = set()
+        self._cancel_requested: set[_Key] = set()
 
     def spawn(self, key: _Key, coro: Coroutine[Any, Any, None]) -> None:
-        """Run *coro* as the tracked extract task for *key*."""
+        """Run *coro* as the tracked extract task for *key*; refused once stopped."""
+        if self.stopped:
+            coro.close()
+            return
         task = asyncio.create_task(coro, name=f"submit-job-extract-{key[1]}")
         self._tasks.add(task)
         self._index[key] = task
@@ -38,39 +41,34 @@ class ExtractWindow:
 
     def lock(self, dashboard_id: str) -> asyncio.Lock:
         """Per-peer FIFO lock serializing extracts."""
-        return self._locks.setdefault(dashboard_id, asyncio.Lock())
+        if (lock := self._locks.get(dashboard_id)) is None:
+            lock = self._locks[dashboard_id] = asyncio.Lock()
+        return lock
 
     def cancel(self, key: _Key) -> bool:
         """Flag *key* for cancellation; True when a live extract will honour it."""
         task = self._index.get(key)
         if task is None or task.done():
             return False
-        self._cancels.add(key)
+        self._cancel_requested.add(key)
         return True
 
-    def cancelled(self, key: _Key) -> bool:
-        """Whether *key* has been flagged for cancellation."""
-        return key in self._cancels
+    def consume(self, key: _Key) -> bool:
+        """Discard and report any cancellation flag for *key*."""
+        flagged = key in self._cancel_requested
+        self._cancel_requested.discard(key)
+        return flagged
 
-    def handoff(self, key: _Key) -> bool:
-        """Drop *key* from the index (its job is queued); True when it was flagged."""
+    def handoff(self, key: _Key) -> None:
+        """Drop *key* from the index; its queued job now resolves through the fan-out."""
         self._index.pop(key, None)
-        return key in self._cancels
-
-    def clear_flag(self, key: _Key) -> None:
-        """Drop any cancellation flag for *key*."""
-        self._cancels.discard(key)
 
     async def stop(self) -> None:
-        """Refuse new spawns, then cancel and drain every task, including mid-drain arrivals."""
+        """Refuse new spawns, then cancel and drain every task."""
         self.stopped = True
-        while self._tasks:
-            tasks = list(self._tasks)
-            self._tasks.difference_update(tasks)
-            await drain_tasks(tasks)
+        await drain_tasks(self._tasks)
+        self._tasks.clear()
         self._locks.clear()
-        self._index.clear()
-        self._cancels.clear()
 
     def _drop_index(self, key: _Key, task: asyncio.Task[None]) -> None:
         """Done-callback backstop for tasks that never reached the enqueue handoff."""

@@ -59,7 +59,7 @@ import binascii
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
@@ -316,6 +316,9 @@ class _PendingSubmit:
     configuration_filename: str
     target: str
     assembler: BundleAssembler
+    # Validated YAML stem off ``configuration_filename``; keys the
+    # on-disk extract subtree.
+    device_stem: str
     # Display strings carried on the SUBMIT_JOB header; empty
     # for older offloaders that don't set the (NotRequired)
     # wire fields. The receiver stamps both onto the
@@ -449,7 +452,8 @@ class SubmitJobReceiver:
         # An unvalidated separator / ``..`` here would let a
         # malicious offloader write the assembled tarball
         # outside the intended subtree.
-        if _validate_configuration_filename(frame["configuration_filename"]) is None:
+        device_stem = _validate_configuration_filename(frame["configuration_filename"])
+        if device_stem is None:
             await self._reject(session, job_id=frame["job_id"], reason=_REASON_INVALID_HEADER)
             return
         try:
@@ -467,6 +471,7 @@ class SubmitJobReceiver:
             configuration_filename=frame["configuration_filename"],
             target=target,
             assembler=assembler,
+            device_stem=device_stem,
             # Coerce + cap the peer-controlled display strings.
             # The schema gate leaves these ``NotRequired`` fields
             # untyped at the wire boundary, so a non-string or an
@@ -569,19 +574,19 @@ class SubmitJobReceiver:
         self, *, session: PeerLinkSession, pending: _PendingSubmit, bundle_bytes: bytes
     ) -> None:
         """Extract + queue one accepted bundle, serialized per peer."""
+        key = (session.dashboard_id, pending.job_id)
         try:
             # The (FIFO) lock keeps per-peer enqueue order and keeps a
             # same-configuration resubmit off a target dir mid-extract.
             async with self._extracts.lock(session.dashboard_id):
                 try:
                     await self._extract_and_queue(
-                        session=session, pending=pending, bundle_bytes=bundle_bytes
+                        session=session, pending=pending, bundle_bytes=bundle_bytes, cancel_key=key
                     )
                 except _SubmitJobRejectionError as exc:
-                    reason = exc.reason
+                    await self._report_post_ack_failure(session, pending=pending, reason=exc.reason)
                 except _ExtractCancelledError:
                     await self._send_job_cancelled(session, job_id=pending.job_id)
-                    return
                 except Exception:
                     # The offloader already got ``accepted`` and is waiting on
                     # job-state events; an unreported crash strands it forever.
@@ -590,12 +595,11 @@ class SubmitJobReceiver:
                         session.dashboard_id,
                         pending.job_id,
                     )
-                    reason = _REASON_EXTRACT_FAILED
-                else:
-                    return
-                await self._report_post_ack_failure(session, pending=pending, reason=reason)
+                    await self._report_post_ack_failure(
+                        session, pending=pending, reason=_REASON_EXTRACT_FAILED
+                    )
         finally:
-            self._extracts.clear_flag((session.dashboard_id, pending.job_id))
+            self._extracts.consume(key)
 
     async def _reject_assembler(
         self,
@@ -628,6 +632,7 @@ class SubmitJobReceiver:
         session: PeerLinkSession,
         pending: _PendingSubmit,
         bundle_bytes: bytes,
+        cancel_key: tuple[str, str],
     ) -> None:
         """Write the tarball, extract it, queue a :class:`FirmwareJob`.
 
@@ -647,15 +652,8 @@ class SubmitJobReceiver:
         ``run_in_executor`` keeps the receiver's WS dispatch
         coroutine non-blocking through a multi-MB write.
         """
-        cancel_key = (session.dashboard_id, pending.job_id)
-        if self._extracts.cancelled(cancel_key):
+        if self._extracts.consume(cancel_key):
             raise _ExtractCancelledError
-        # ``device_name`` is guaranteed non-None here:
-        # :meth:`handle_submit_job` rejected the header upfront
-        # if validation failed, so a ``_PendingSubmit`` exists
-        # only for filenames that already passed the gate.
-        device_name = _validate_configuration_filename(pending.configuration_filename)
-        assert device_name is not None  # narrowed by the upstream reject
         # Subtree (extract target) + bundle (sibling tarball)
         # flow through the layout helper so the writer here and
         # the 6c sweeper read one source of truth for the
@@ -664,7 +662,7 @@ class SubmitJobReceiver:
         # before extract_bundle reads from bundle_path, so a
         # bundle inside target_dir would be deleted mid-flow
         # (PR #552).
-        key = RemoteBuildPath(dashboard_id=session.dashboard_id, device_name=device_name)
+        key = RemoteBuildPath(dashboard_id=session.dashboard_id, device_name=pending.device_stem)
         target_dir = key.subtree(self._config_dir)
         bundle_path = key.bundle(self._config_dir)
         remote_builds_root = self._config_dir / REMOTE_BUILDS_SUBDIR
@@ -720,7 +718,7 @@ class SubmitJobReceiver:
         if receiver is not None:
             remote_peer_label = receiver.approved_peer_label(session.dashboard_id)
 
-        if self._extracts.cancelled(cancel_key):
+        if self._extracts.consume(cancel_key):
             raise _ExtractCancelledError
         try:
             job = self._firmware._create_job(
@@ -756,7 +754,8 @@ class SubmitJobReceiver:
         # the index entry in the same sync block, leaving no unroutable
         # window; a cancel that was flagged mid-enqueue routes through
         # the queue.
-        if self._extracts.handoff(cancel_key):
+        self._extracts.handoff(cancel_key)
+        if self._extracts.consume(cancel_key):
             try:
                 await self._firmware.cancel(job_id=job.job_id)
             except CommandError as exc:
@@ -787,11 +786,27 @@ class SubmitJobReceiver:
             session.dashboard_id,
             job_id,
         )
-        frame = JobStateChangedFrameData(
-            type="job_state_changed",
+        await self._send_terminal_state(
+            session,
             job_id=job_id,
             status="cancelled",
             error_message="cancelled by the offloader before the build was queued",
+        )
+
+    async def _send_terminal_state(
+        self,
+        session: PeerLinkSession,
+        *,
+        job_id: str,
+        status: Literal["failed", "cancelled"],
+        error_message: str,
+    ) -> None:
+        """Send a terminal ``job_state_changed`` frame keyed on the offloader's *job_id*."""
+        frame = JobStateChangedFrameData(
+            type="job_state_changed",
+            job_id=job_id,
+            status=status,
+            error_message=error_message,
         )
         await session.send_app_frame(dict(frame))
 
@@ -811,13 +826,12 @@ class SubmitJobReceiver:
             pending.job_id,
             reason,
         )
-        frame = JobStateChangedFrameData(
-            type="job_state_changed",
+        await self._send_terminal_state(
+            session,
             job_id=pending.job_id,
             status="failed",
             error_message=f"receiver could not process the bundle: {reason}",
         )
-        await session.send_app_frame(dict(frame))
 
     async def _reject(
         self,

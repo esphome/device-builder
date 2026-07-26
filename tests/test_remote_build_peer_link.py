@@ -2430,7 +2430,7 @@ async def test_handle_cancel_job_mid_extract_routes_to_cancel_extract(tmp_path: 
     """An unresolvable job_id with a live extract flags the extract window instead of dropping."""
     controller = _make_receiver_with_fanout(tmp_path)
     submit_receiver = MagicMock()
-    submit_receiver.cancel_extract = MagicMock(return_value=True)
+    submit_receiver.cancel_extract.return_value = True
     controller.receiver.state.submit_job_receiver = submit_receiver
 
     await controller.receiver.handle_cancel_job(
