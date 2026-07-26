@@ -81,23 +81,11 @@ async def extract_and_queue(
     bundle_bytes: bytes,
     cancel_key: tuple[str, str],
 ) -> FirmwareJob:
-    """Write the tarball, extract it, queue and return the :class:`FirmwareJob`.
+    """
+    Write the tarball, extract it, queue and return the :class:`FirmwareJob`.
 
-    Raises :class:`_SubmitJobRejectionError` on any failure
-    with a reason code; the caller has already acked
-    acceptance, so it converts the raise into a terminal
-    ``failed`` job-state frame (extract / queue failures are
-    receiver-side problems, not wire-level misbehaviour). The receiver-side
-    job id is captured in :attr:`FirmwareJob.remote_peer` for
-    the fan-out path; the offloader echoes against its
-    own submit-tagged ``job_id`` rather than the receiver's
-    local one.
-
-    Disk I/O hops to the executor:
-    ``prepare_bundle_for_compile`` walks the tar, validates
-    members, writes to disk; bundling that into one
-    ``run_in_executor`` keeps the receiver's WS dispatch
-    coroutine non-blocking through a multi-MB write.
+    Raises :class:`_SubmitJobRejectionError` with a reason code on failure;
+    all disk I/O runs in a single executor hop.
     """
     _raise_if_cancel_flagged(receiver._extracts, cancel_key)
     # Subtree (extract target) + bundle (sibling tarball)
@@ -287,12 +275,10 @@ async def send_terminal_state(
 async def report_post_ack_failure(
     session: PeerLinkSession, *, pending: _PendingSubmit, reason: str
 ) -> None:
-    """Surface a post-ack extract/queue failure as a terminal ``failed`` frame.
+    """
+    Surface a post-ack extract/queue failure as a terminal ``failed`` frame.
 
-    The offloader already got ``accepted`` and is waiting on job-state
-    events, but no :class:`FirmwareJob` reached the queue so the
-    :class:`JobFanout` won't emit one; send the ``failed`` frame here,
-    keyed on the offloader's ``job_id``.
+    No :class:`FirmwareJob` reached the queue, so the fan-out won't emit one.
     """
     _LOGGER.warning(
         "submit_job from %s: job %s failed after accept (%s)",
@@ -309,12 +295,11 @@ async def report_post_ack_failure(
 
 
 class _SubmitJobRejectionError(Exception):
-    """Internal: surface a typed rejection reason out of :func:`extract_and_queue`.
+    """
+    Internal: surface a typed rejection reason out of :func:`extract_and_queue`.
 
-    Carries a :class:`SubmitJobAckFrameData.reason`-shaped
-    string. Caught by :func:`run_post_ack_extract` and converted
-    to a terminal ``failed`` frame; never leaks past that
-    boundary.
+    Caught by :func:`run_post_ack_extract` and converted to a terminal
+    ``failed`` frame; never leaks past that boundary.
     """
 
     def __init__(self, reason: str) -> None:
@@ -340,33 +325,14 @@ def _validate_write_extract_bundle(
     config_dir: Path,
     prepare_bundle_for_compile: Callable[[Path, Path], Path],
 ) -> str:
-    """Sync helper: validate path, write tarball, extract, return wire-shape ``configuration``.
+    """
+    Sync helper: validate path, write tarball, extract, return wire-shape ``configuration``.
 
-    All four steps run in the executor so the receiver's WS
-    dispatch coroutine stays non-blocking through every
-    ``Path.resolve`` walk (which calls ``os.path.realpath``,
-    which calls the blocking ``os.path.abspath`` syscall) and
-    the multi-MB tarball write. ``Path.resolve`` is a stat-y
-    syscall; it has to run in a thread.
-
-    Validation order: (1) resolve-and-stay-under-root check
-    *before* writing anything to disk so a malicious
-    ``configuration_filename`` or ``dashboard_id`` can't
-    materialise even an empty tarball outside the remote-builds
-    subtree. (2) Write the tarball. (3) Extract via
-    ``prepare_bundle_for_compile`` (preserves ``.esphome`` /
-    ``.pioenvs`` for incremental compiles). (4) Compute the
-    POSIX-relative ``configuration`` string for the
-    :class:`FirmwareJob` wire field, resolving *config_dir* so a
-    receiver started with a relative configuration arg
-    (#678) still produces an absolute-vs-absolute
-    ``relative_to`` pair.
-
-    Raises :class:`PathEscapeError` on the path-escape branch
-    so the caller can distinguish "bad input shape" from
-    "extract failed". Raises
-    :class:`esphome.bundle.EsphomeError` / :class:`OSError`
-    untouched for the extract / write paths.
+    The under-root check runs before anything touches disk, so a malicious
+    path shape can't materialise even an empty file outside the
+    remote-builds subtree. Raises :class:`PathEscapeError` on that branch so
+    the caller can distinguish bad input shape from an extract failure;
+    ``EsphomeError`` / ``OSError`` propagate untouched.
     """
     # The upstream filename validator catches separator / ``..``
     # in ``configuration_filename`` upfront, but ``dashboard_id``
