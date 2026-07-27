@@ -407,9 +407,11 @@ def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
     emitted manifest and the ownership check can't disagree. Skips with a
     warning when the target already holds a manifest this source doesn't
     own — a hand-curated board (no ``source.type``) or another import
-    source's output. Images are referenced as upstream URLs in the
-    manifest itself; any pre-existing local ``images/`` subdir from older
-    syncs is removed so the wheel doesn't carry stale mirrors.
+    source's output. Curated ``locked`` flags on featured-component
+    fields carry across re-imports; values still come from upstream.
+    Images are referenced as upstream URLs in the manifest itself; any
+    pre-existing local ``images/`` subdir from older syncs is removed so
+    the wheel doesn't carry stale mirrors.
     """
     source_type = record["source"]["type"]
     target_dir = boards_dir / record["id"]
@@ -426,6 +428,8 @@ def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
         )
         return None
     target_dir.mkdir(parents=True, exist_ok=True)
+
+    record = _carry_curated_locks(prior, record)
 
     # Carry a hand-curated ``full_config`` opt-out/opt-in across re-imports —
     # the importer never sets it (imports derive ``full_config`` from
@@ -446,6 +450,76 @@ def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
 
     manifest_path.write_text(dump_manifest(record), encoding="utf-8")
     return target_dir
+
+
+def _carry_curated_locks(prior: dict[str, Any] | None, record: dict[str, Any]) -> dict[str, Any]:
+    """
+    Re-lock featured-component fields the prior manifest locked.
+
+    Matched by entry ``id`` + field name; values come from the fresh
+    record. Returns a rebuilt record; never mutates the input.
+    """
+    prior_featured = prior.get("featured_components") if prior is not None else None
+    new_featured = record.get("featured_components")
+    if not isinstance(prior_featured, list) or not isinstance(new_featured, list):
+        return record
+
+    prior_locks = _collect_locked_fields(prior_featured)
+    rebuilt_featured: list[Any] = []
+    featured_changed = False
+    for entry in new_featured:
+        locked_keys = prior_locks.get(entry.get("id", "")) if isinstance(entry, dict) else None
+        rebuilt_entry, changed = _relock_entry(entry, locked_keys)
+        featured_changed = featured_changed or changed
+        rebuilt_featured.append(rebuilt_entry)
+
+    if not featured_changed:
+        return record
+    return {
+        key: rebuilt_featured if key == "featured_components" else value
+        for key, value in record.items()
+    }
+
+
+def _collect_locked_fields(featured: list[Any]) -> dict[str, set[str]]:
+    """Map each featured entry's ``id`` to its ``locked: true`` field names."""
+    out: dict[str, set[str]] = {}
+    for entry in featured:
+        if not isinstance(entry, dict) or not isinstance(entry.get("fields"), dict):
+            continue
+        locked = {
+            fkey
+            for fkey, fval in entry["fields"].items()
+            if isinstance(fval, dict) and fval.get("locked") is True
+        }
+        if locked and isinstance(entry.get("id"), str):
+            out[entry["id"]] = locked
+    return out
+
+
+def _relock_entry(entry: Any, locked_keys: set[str] | None) -> tuple[Any, bool]:
+    """Return *entry* with every field in *locked_keys* locked, plus a changed flag."""
+    fields = entry.get("fields") if isinstance(entry, dict) else None
+    if not locked_keys or not isinstance(fields, dict):
+        return entry, False
+    rebuilt_fields: dict[str, Any] = {}
+    changed = False
+    for fkey, fval in fields.items():
+        preset, preset_changed = _lock_preset(fval) if fkey in locked_keys else (fval, False)
+        changed = changed or preset_changed
+        rebuilt_fields[fkey] = preset
+    if not changed:
+        return entry, False
+    return {**entry, "fields": rebuilt_fields}, True
+
+
+def _lock_preset(fval: Any) -> tuple[Any, bool]:
+    """Return the ``locked: true`` form of a field preset, plus a changed flag."""
+    if isinstance(fval, dict):
+        if fval.get("locked"):
+            return fval, False
+        return {**fval, "locked": True}, True
+    return {"value": fval, "locked": True}, True
 
 
 def prune_removed(active_remote_ids: set[str], *, source_type: str, boards_dir: Path) -> list[str]:

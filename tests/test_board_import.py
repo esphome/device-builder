@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from script._board_import import (
     emit_manifest,
@@ -78,6 +79,56 @@ def test_emit_manifest_preserves_full_config_override(tmp_path: Path) -> None:
     assert "full_config: false" in text
     # Re-inserted right after the esphome block, keeping key order stable.
     assert text.index("esphome:") < text.index("full_config: false") < text.index("source:")
+
+
+def test_emit_manifest_preserves_curated_locks(tmp_path: Path) -> None:
+    path = _write_manifest(tmp_path, "some_board", "source-a")
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + (
+            "featured_components:\n"
+            "- id: strip_1\n"
+            "  component_id: light.esp32_rmt_led_strip\n"
+            "  fields:\n"
+            "    chipset:\n"
+            "      value: ws2812\n"
+            "      locked: true\n"
+            "    num_leds:\n"
+            "      value: 4\n"
+            "      locked: true\n"
+            "    pin:\n"
+            "      value: 32\n"
+            "      locked: true\n"
+        ),
+        encoding="utf-8",
+    )
+    fresh_fields = {
+        "chipset": "ws2812",
+        "num_leds": 5,
+        "pin": {"value": 32, "locked": True},
+        "rgb_order": "GRB",
+    }
+    record = {
+        **_RECORD,
+        "featured_components": [
+            {
+                "id": "strip_1",
+                "component_id": "light.esp32_rmt_led_strip",
+                "fields": fresh_fields,
+            },
+            {"id": "other", "component_id": "psram", "fields": {"mode": "octal"}},
+        ],
+    }
+    assert emit_manifest(record, boards_dir=tmp_path) is not None
+    emitted = yaml.safe_load(path.read_text(encoding="utf-8"))
+    strip, other = emitted["featured_components"]
+    assert strip["fields"]["chipset"] == {"value": "ws2812", "locked": True}
+    assert strip["fields"]["num_leds"] == {"value": 5, "locked": True}
+    assert strip["fields"]["pin"] == {"value": 32, "locked": True}
+    assert strip["fields"]["rgb_order"] == "GRB"
+    assert other["fields"] == {"mode": "octal"}
+    assert fresh_fields["chipset"] == "ws2812"
+    assert fresh_fields["num_leds"] == 5
 
 
 def test_prune_removed_only_touches_own_source_type(tmp_path: Path) -> None:
