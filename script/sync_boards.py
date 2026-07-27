@@ -1038,7 +1038,7 @@ def _canonical_pin(value: Any) -> int | str | None:
     if isinstance(value, dict):
         expander = value.keys() - BOARD_PIN_KEYS
         if expander:
-            provider = sorted(expander)[0]
+            provider = min(expander)
             hub = value.get(provider)
             channel = value.get("number")
             if isinstance(hub, str) and isinstance(channel, int) and not isinstance(channel, bool):

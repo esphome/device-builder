@@ -90,7 +90,7 @@ def finalize_unexpected_error(
         _LOGGER.info("Job %s cancelled before completion: %s", job.job_id, exc)
     else:
         controller._finalize_terminal(job, JobStatus.FAILED, error=str(exc))
-        _LOGGER.exception("Job %s failed", job.job_id)
+        _LOGGER.error("Job %s failed", job.job_id, exc_info=exc)
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:

@@ -804,10 +804,12 @@ async def test_edit_friendly_name_preserves_unrelated_lines(
         # User-visible symptom: dashboard keeps showing the old
         # filename-stem fallback instead of the new label.
         (
-            "# Board: Generic ESP32-H2 Board (Generic)\n"
-            "# Definition: definitions/boards/generic-esp32h2/manifest.yaml\n"
-            "\n"
-            "esp32:\n  variant: esp32h2\n",
+            (
+                "# Board: Generic ESP32-H2 Board (Generic)\n"
+                "# Definition: definitions/boards/generic-esp32h2/manifest.yaml\n"
+                "\n"
+                "esp32:\n  variant: esp32h2\n"
+            ),
             "brandnew",
             "The BRAND NEW",
         ),

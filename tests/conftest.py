@@ -1211,11 +1211,13 @@ def record_argv_esphome(state: Any, argv_log: Path) -> None:
     state.esphome_cmd = [
         sys.executable,
         "-c",
-        "import json, sys\n"
-        f"with open({str(argv_log)!r}, 'a') as fh:\n"
-        "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "print('INFO ok')\n"
-        "sys.exit(0)\n",
+        (
+            "import json, sys\n"
+            f"with open({str(argv_log)!r}, 'a') as fh:\n"
+            "    fh.write(json.dumps(sys.argv[1:]) + '\\n')\n"
+            "print('INFO ok')\n"
+            "sys.exit(0)\n"
+        ),
     ]
 
 

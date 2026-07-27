@@ -140,6 +140,7 @@ ignore = [
   "D213", # conflicts with D212
   "D417", # false positives
   "PLR0913", # too many arguments — not a useful constraint here
+  "PLR0917", # too many positional arguments — same family as PLR0913
   "PLR2004", # magic value comparison — too noisy for status codes / structural checks
   # RUF001 / RUF002 / RUF003 flag U+00B5 (MICRO SIGN) as "ambiguous" against
   # U+03BC (GREEK SMALL LETTER MU). U+00B5 is the canonical SI micro-prefix

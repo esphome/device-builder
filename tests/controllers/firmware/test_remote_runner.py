@@ -1827,8 +1827,10 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     controller.state.esphome_cmd = [
         sys.executable,
         "-c",
-        "import sys, time; sys.stdout.write('starting upload\\n'); "
-        "sys.stdout.flush(); time.sleep(30)",
+        (
+            "import sys, time; sys.stdout.write('starting upload\\n'); "
+            "sys.stdout.flush(); time.sleep(30)"
+        ),
     ]
 
     async def _terminate(target: FirmwareJob) -> None:

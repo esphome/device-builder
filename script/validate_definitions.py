@@ -266,20 +266,26 @@ def _validate_variant_vocabulary(board_id: str, data: dict) -> list[str]:
     # lowercasing round-trip.
     if not canonical.startswith("esp32"):
         return [
-            f"{board_id}: esphome.variant '{declared}' must be an esp32-family variant "
-            "(e.g. esp32c3)"
+            (
+                f"{board_id}: esphome.variant '{declared}' must be an esp32-family variant "
+                "(e.g. esp32c3)"
+            )
         ]
     # Vocabulary before spelling: the spelling message proposes the folded
     # value, so it must only fire when that value is actually accepted.
     if _ESP32_VARIANTS and canonical not in _ESP32_VARIANTS:
         return [
-            f"{board_id}: esphome.variant '{declared}' is not a known esp32 variant "
-            "(vocabulary: esp32_variants in platform_capabilities.index.json)"
+            (
+                f"{board_id}: esphome.variant '{declared}' is not a known esp32 variant "
+                "(vocabulary: esp32_variants in platform_capabilities.index.json)"
+            )
         ]
     if declared != canonical:
         return [
-            f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
-            f"spelling '{canonical}'"
+            (
+                f"{board_id}: esphome.variant '{declared}' must be the canonical lowercase "
+                f"spelling '{canonical}'"
+            )
         ]
     return []
 
@@ -566,10 +572,12 @@ def _validate_wifi_radio_claim(board_id: str, data: dict) -> list[str]:
         if featured.get(ref, ref) in _WIFI_RADIO_COMPONENT_IDS:
             return []
     return [
-        f"{board_id}: claims 'wifi' connectivity on no-native-wifi variant "
-        f"'{variant}' without a default component providing a Wi-Fi radio "
-        f"({', '.join(sorted(_WIFI_RADIO_COMPONENT_IDS))}) — the generator "
-        "would emit a wifi block the chip cannot validate"
+        (
+            f"{board_id}: claims 'wifi' connectivity on no-native-wifi variant "
+            f"'{variant}' without a default component providing a Wi-Fi radio "
+            f"({', '.join(sorted(_WIFI_RADIO_COMPONENT_IDS))}) — the generator "
+            "would emit a wifi block the chip cannot validate"
+        )
     ]
 
 

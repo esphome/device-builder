@@ -94,8 +94,10 @@ class PairLabelField(StrEnum):
 _INTENT_RESPONSE_ERRORS: dict[IntentResponse, tuple[ErrorCode, str]] = {
     IntentResponse.NO_PAIRING_WINDOW: (
         ErrorCode.NO_PAIRING_WINDOW,
-        "receiver pairing window closed; ask the receiver-side admin to "
-        "open Settings → Build server → Pairing requests, then retry",
+        (
+            "receiver pairing window closed; ask the receiver-side admin to "
+            "open Settings → Build server → Pairing requests, then retry"
+        ),
     ),
     IntentResponse.REJECTED: (
         ErrorCode.PRECONDITION_FAILED,

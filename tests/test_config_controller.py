@@ -1805,8 +1805,10 @@ async def test_detect_chip_surfaces_permission_denied_message(
         monkeypatch,
         lambda args: (
             1,
-            b"[Errno 13] could not open port /dev/ttyUSB0: "
-            b"PermissionError(13, 'Permission denied')",
+            (
+                b"[Errno 13] could not open port /dev/ttyUSB0: "
+                b"PermissionError(13, 'Permission denied')"
+            ),
         ),
     )
     controller = _make_controller(tmp_path)

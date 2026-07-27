@@ -268,7 +268,7 @@ def _isolated_logging_globals() -> Generator[None]:
 def test_setup_logging_routes_uncaught_main_thread_exception_through_logger(
     _isolated_logging_globals: None,
 ) -> None:
-    """``sys.excepthook`` forwards ``(type, value, tb)`` to ``logger.exception``."""
+    """``sys.excepthook`` forwards ``(type, value, tb)`` to ``logger.error``."""
     main_module._setup_logging("info")
 
     # ``_setup_logging`` replaces the default — the new hook must
@@ -285,7 +285,7 @@ def test_setup_logging_routes_uncaught_main_thread_exception_through_logger(
         sys.excepthook(*exc_info)
 
     mock_get_logger.assert_called_once_with()
-    mock_get_logger.return_value.exception.assert_called_once_with(
+    mock_get_logger.return_value.error.assert_called_once_with(
         "Uncaught exception", exc_info=exc_info
     )
 
@@ -308,7 +308,7 @@ def test_setup_logging_routes_uncaught_thread_exception_through_logger(
         threading.excepthook(args)
 
     mock_get_logger.assert_called_once_with()
-    mock_get_logger.return_value.exception.assert_called_once_with(
+    mock_get_logger.return_value.error.assert_called_once_with(
         "Uncaught thread exception",
         exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
     )

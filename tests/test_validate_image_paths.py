@@ -29,8 +29,10 @@ def test_escaping_featured_image_url_rejected() -> None:
     }
     errors = _validate_image_paths("demo", data)
     assert errors == [
-        "demo: featured_components image_url '../other/x.png' must be a relative "
-        "path inside the board dir",
+        (
+            "demo: featured_components image_url '../other/x.png' must be a relative "
+            "path inside the board dir"
+        ),
         "demo: featured_bundles image_url '/abs.png' must be a relative path inside the board dir",
     ]
 

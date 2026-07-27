@@ -172,8 +172,10 @@ def test_three_digit_within_range() -> None:
     ("line", "expected"),
     [
         (
-            "[907/1424] Building C object esp-idf/bt/CMakeFiles/__idf_bt.dir/"
-            "host/bluedroid/bta/av/bta_av_cfg.c.obj",
+            (
+                "[907/1424] Building C object esp-idf/bt/CMakeFiles/__idf_bt.dir/"
+                "host/bluedroid/bta/av/bta_av_cfg.c.obj"
+            ),
             (907, 1424),
         ),
         ("[1424/1424] Linking .pioenvs/firmware.elf", (1424, 1424)),

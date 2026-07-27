@@ -149,6 +149,7 @@ The subscriber narrows by typing its callback's `event` parameter:
 def _on_pair_status(event: Event[RemoteBuildPairStatusChangedData]) -> None:
     status = event.data["status"]  # mypy: Literal['approved'] | Literal['removed']
 
+
 bus.add_listener(EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED, _on_pair_status)
 ```
 

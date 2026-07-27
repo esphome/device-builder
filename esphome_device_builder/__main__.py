@@ -471,23 +471,23 @@ def _log_uncaught_exception(
     exc_value: BaseException,
     exc_traceback: TracebackType | None,
 ) -> None:
-    """Forward an uncaught main-thread exception into ``logger.exception``."""
-    logging.getLogger().exception(
+    """Log an uncaught main-thread exception with its traceback."""
+    logging.getLogger().error(
         "Uncaught exception",
         exc_info=(exc_type, exc_value, exc_traceback),
     )
 
 
 def _log_uncaught_thread_exception(args: threading.ExceptHookArgs) -> None:
-    """Forward an uncaught worker-thread exception into ``logger.exception``."""
+    """Log an uncaught worker-thread exception with its traceback."""
     # ``threading.ExceptHookArgs.exc_value`` is typed
     # ``BaseException | None`` (the docs note threads can be killed
-    # without an exception object), but ``logger.exception``'s
+    # without an exception object), but ``logger.error``'s
     # exc_info-triple form rejects ``None`` for the value slot. The
     # runtime accepts the malformed-but-documented shape and renders
     # "no exception" cleanly; ``# type: ignore[arg-type]`` keeps the
     # typeshed strictness while preserving the runtime behaviour.
-    logging.getLogger().exception(
+    logging.getLogger().error(
         "Uncaught thread exception",
         exc_info=(args.exc_type, args.exc_value, args.exc_traceback),  # type: ignore[arg-type]
     )

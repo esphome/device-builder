@@ -330,11 +330,12 @@ class DeviceMqttMonitor:
                 delay,
             )
             return
-        _LOGGER.exception(
+        _LOGGER.error(
             "MQTT broker %s:%s error — reconnecting in %ss",
             self._broker.host,
             self._broker.port,
             delay,
+            exc_info=err,
         )
         self._unexpected_error_logged = True
 
