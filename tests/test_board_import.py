@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -127,8 +128,47 @@ def test_emit_manifest_preserves_curated_locks(tmp_path: Path) -> None:
     assert strip["fields"]["pin"] == {"value": 32, "locked": True}
     assert strip["fields"]["rgb_order"] == "GRB"
     assert other["fields"] == {"mode": "octal"}
-    assert fresh_fields["chipset"] == "ws2812"
     assert fresh_fields["num_leds"] == 5
+    assert fresh_fields["pin"] == {"value": 32, "locked": True}
+
+
+def test_emit_manifest_warns_when_prior_lock_has_no_match(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = _write_manifest(tmp_path, "some_board", "source-a")
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + (
+            "featured_components:\n"
+            "- id: strip_gone\n"
+            "  component_id: light.esp32_rmt_led_strip\n"
+            "  fields:\n"
+            "    chipset:\n"
+            "      value: ws2812\n"
+            "      locked: true\n"
+            "- id: strip_1\n"
+            "  component_id: light.esp32_rmt_led_strip\n"
+            "  fields:\n"
+            "    num_leds:\n"
+            "      value: 4\n"
+            "      locked: true\n"
+        ),
+        encoding="utf-8",
+    )
+    record = {
+        **_RECORD,
+        "featured_components": [
+            {"id": "strip_1", "component_id": "light.esp32_rmt_led_strip", "fields": {"pin": 32}},
+        ],
+    }
+    with caplog.at_level(logging.WARNING):
+        assert emit_manifest(record, boards_dir=tmp_path) is not None
+    assert "strip_gone.chipset" in caplog.text
+    assert "strip_1.num_leds" in caplog.text
+    emitted = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert emitted["featured_components"] == [
+        {"id": "strip_1", "component_id": "light.esp32_rmt_led_strip", "fields": {"pin": 32}},
+    ]
 
 
 def test_prune_removed_only_touches_own_source_type(tmp_path: Path) -> None:
