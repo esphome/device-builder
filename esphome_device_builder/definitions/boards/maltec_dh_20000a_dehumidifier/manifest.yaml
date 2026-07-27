@@ -133,5 +133,5 @@ source:
   type: esphome-devices
   remote_id: Maltec-DH-20000A-Dehumidifier
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Maltec-DH-20000A-Dehumidifier/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 35ad032827095d82ea8a4209b5a6193ba5b51567bc10bfd067a5b3eb18e41fed

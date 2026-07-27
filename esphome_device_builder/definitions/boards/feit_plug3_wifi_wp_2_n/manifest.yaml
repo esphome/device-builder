@@ -58,5 +58,5 @@ source:
   type: esphome-devices
   remote_id: Feit-PLUG3-WIFI-WP-2-N
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Feit-PLUG3-WIFI-WP-2-N/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 6c44edc985a84e042c3bd3090479db39d123ca7a39a6a5f721b3e7c89a92b52d

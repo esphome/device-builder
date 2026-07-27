@@ -124,5 +124,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-i4-Gen3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-i4-Gen3/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 984376a41c1fbb71ce1b1d5201ba13ad8db30cebaac8d318cfca731f19a003a7

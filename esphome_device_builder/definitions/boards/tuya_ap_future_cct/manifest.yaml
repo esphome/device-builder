@@ -52,5 +52,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-AP-Future-CCT
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-AP-Future-CCT/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: e97c0a4e1d70c69fbea85259cc7d7ea4a401b394f9eb9f08ed3f1fb97d0bf6c7

@@ -79,5 +79,5 @@ source:
   type: esphome-devices
   remote_id: Topeler-YSW102-Wall-Outlet
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Topeler-YSW102-Wall-Outlet/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: ac3b103123e72f7452a27affb49b2ee5b962b4a86b43a9f4ccc34e62b97c80c0

@@ -131,5 +131,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Plus-1PM
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Plus-1PM/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: f27f751d688e2f5f3333007c620b62c13af34c5dee1b163285563a0eaf5e8c44

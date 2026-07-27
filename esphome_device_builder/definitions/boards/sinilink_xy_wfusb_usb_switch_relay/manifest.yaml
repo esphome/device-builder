@@ -65,5 +65,5 @@ source:
   type: esphome-devices
   remote_id: Sinilink-XY-WFUSB-USB-Switch-Relay
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sinilink-XY-WFUSB-USB-Switch-Relay/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 7df574f2097b9ea9afabd1372f525c4be48aea5d6234453b0c7bde098f13b85a

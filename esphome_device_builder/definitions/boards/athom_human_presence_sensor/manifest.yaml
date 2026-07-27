@@ -131,5 +131,5 @@ source:
   type: esphome-devices
   remote_id: Athom-Human-Presence-Sensor
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Human-Presence-Sensor/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 1d88ce5c5392f31ee0bb1ee51f84057b890f2922ead6a9a5d9b763ab0edc8b55

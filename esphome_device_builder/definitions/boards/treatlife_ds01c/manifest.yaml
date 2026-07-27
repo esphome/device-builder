@@ -42,5 +42,5 @@ source:
   type: esphome-devices
   remote_id: Treatlife-DS01C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Treatlife-DS01C/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: fdffa2378bb12619d027f106ade75ff4179a01fd11ea515af87db90ddd243ccc

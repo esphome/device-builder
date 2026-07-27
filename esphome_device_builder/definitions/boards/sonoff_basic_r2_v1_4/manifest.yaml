@@ -62,5 +62,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-BASIC-R2-v1.4
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-BASIC-R2-v1.4/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: f4a78fada84f8b5d02ba0f17b8a04ab5852d2eb93410d195fd47b0cc864e393c

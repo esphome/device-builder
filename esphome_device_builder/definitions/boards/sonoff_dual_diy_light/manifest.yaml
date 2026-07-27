@@ -51,5 +51,5 @@ source:
   type: esphome-devices
   remote_id: Sonoff-Dual-DIY-light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Sonoff-Dual-DIY-light/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: deb9007eb81ea0e2dace45f7dd44999cec616ad986eedb31578b61b7c5dad62a

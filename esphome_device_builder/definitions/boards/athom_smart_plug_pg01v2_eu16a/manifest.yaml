@@ -66,5 +66,5 @@ source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-PG01V2-EU16A
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Smart-Plug-PG01V2-EU16A/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: e3b378aa43e9835fd86315ae0d6a912ba5c395536b7ffb7da2fef36253e0ddcf
