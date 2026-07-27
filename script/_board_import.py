@@ -452,12 +452,41 @@ def emit_manifest(record: dict[str, Any], *, boards_dir: Path) -> Path | None:
     return target_dir
 
 
+def prune_removed(active_remote_ids: set[str], *, source_type: str, boards_dir: Path) -> list[str]:
+    """Delete boards/<id>/ for any manifest this source owns that's no longer upstream."""
+    removed: list[str] = []
+    if not boards_dir.is_dir():
+        return removed
+    for child in sorted(boards_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        manifest = child / "manifest.yaml"
+        if not manifest.is_file():
+            continue
+        is_imported, remote_id = is_imported_manifest(manifest, source_type=source_type)
+        if not is_imported:
+            continue
+        if remote_id and remote_id in active_remote_ids:
+            continue
+        shutil.rmtree(child)
+        removed.append(child.name)
+    return removed
+
+
+def load_components_index() -> dict[str, dict[str, Any]]:
+    """Join the slim component index with each per-id body, keyed by component id."""
+    if not _COMPONENTS_INDEX_JSON.is_file():
+        raise SystemExit(
+            f"{_COMPONENTS_INDEX_JSON} not found — run script/sync_components.py first."
+        )
+    return load_component_catalog(_COMPONENTS_INDEX_JSON, _COMPONENTS_BODIES_DIR)
+
+
 def _carry_curated_locks(prior: dict[str, Any] | None, record: dict[str, Any]) -> dict[str, Any]:
     """
-    Re-lock featured-component fields the prior manifest locked.
+    Re-lock fields the prior manifest locked, keyed by entry ``id`` + field name.
 
-    Matched by entry ``id`` + field name; values come from the fresh
-    record. Returns a rebuilt record; never mutates the input.
+    Values come from the fresh record; the record is rebuilt, never mutated.
     """
     prior_featured = prior.get("featured_components") if prior is not None else None
     new_featured = record.get("featured_components")
@@ -516,37 +545,7 @@ def _relock_entry(entry: Any, locked_keys: set[str] | None) -> tuple[Any, bool]:
 def _lock_preset(fval: Any) -> tuple[Any, bool]:
     """Return the ``locked: true`` form of a field preset, plus a changed flag."""
     if isinstance(fval, dict):
-        if fval.get("locked"):
+        if fval.get("locked") is True:
             return fval, False
         return {**fval, "locked": True}, True
     return {"value": fval, "locked": True}, True
-
-
-def prune_removed(active_remote_ids: set[str], *, source_type: str, boards_dir: Path) -> list[str]:
-    """Delete boards/<id>/ for any manifest this source owns that's no longer upstream."""
-    removed: list[str] = []
-    if not boards_dir.is_dir():
-        return removed
-    for child in sorted(boards_dir.iterdir()):
-        if not child.is_dir():
-            continue
-        manifest = child / "manifest.yaml"
-        if not manifest.is_file():
-            continue
-        is_imported, remote_id = is_imported_manifest(manifest, source_type=source_type)
-        if not is_imported:
-            continue
-        if remote_id and remote_id in active_remote_ids:
-            continue
-        shutil.rmtree(child)
-        removed.append(child.name)
-    return removed
-
-
-def load_components_index() -> dict[str, dict[str, Any]]:
-    """Join the slim component index with each per-id body, keyed by component id."""
-    if not _COMPONENTS_INDEX_JSON.is_file():
-        raise SystemExit(
-            f"{_COMPONENTS_INDEX_JSON} not found — run script/sync_components.py first."
-        )
-    return load_component_catalog(_COMPONENTS_INDEX_JSON, _COMPONENTS_BODIES_DIR)
