@@ -37,18 +37,12 @@ featured_components:
 - id: led_rgb
   component_id: light.esp32_rmt_led_strip
   fields:
-    rgb_order:
-      value: GRB
-      locked: true
-    chipset:
-      value: ws2812
-      locked: true
+    rgb_order: GRB
+    chipset: ws2812
     pin:
       value: 40
       locked: true
-    num_leds:
-      value: 1
-      locked: true
+    num_leds: 1
     id: led_rgb
     name: NeoPixel Light
   requires:
@@ -81,5 +75,5 @@ source:
   type: esphome-devices
   remote_id: UnexpectedMaker-FeatherS3D
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/UnexpectedMaker-FeatherS3D/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 97df3f4c8bbc734c8049403f0ae641f89475ad42b08b8deaff7253f62e0e1460

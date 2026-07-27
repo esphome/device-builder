@@ -28,18 +28,12 @@ featured_components:
 - id: status_light
   component_id: light.esp32_rmt_led_strip
   fields:
-    chipset:
-      value: WS2812
-      locked: true
+    chipset: WS2812
     pin:
       value: 48
       locked: true
-    num_leds:
-      value: 1
-      locked: true
-    rgb_order:
-      value: GRB
-      locked: true
+    num_leds: 1
+    rgb_order: GRB
     restore_mode: ALWAYS_ON
     id: status_light
     name: WS2812B Light
@@ -49,5 +43,5 @@ source:
   type: esphome-devices
   remote_id: TENSTAR-ROBOT-ESP32-S3-SuperMini
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/TENSTAR-ROBOT-ESP32-S3-SuperMini/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: be73ebde450dfb159f65d31908fadcd8897428501aa73427334ec0f6457b7523

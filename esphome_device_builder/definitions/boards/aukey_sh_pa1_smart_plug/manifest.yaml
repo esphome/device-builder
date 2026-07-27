@@ -76,5 +76,5 @@ source:
   type: esphome-devices
   remote_id: Aukey-SH-PA1-Smart-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Aukey-SH-PA1-Smart-Plug/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: a78834c0d3e2b062ee3bd421d5749ea2ac7f83e796239674d966ed7f01807640

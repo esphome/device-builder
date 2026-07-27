@@ -33,5 +33,5 @@ source:
   type: esphome-devices
   remote_id: Mirabella-Door-Window-Sensor
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Mirabella-Door-Window-Sensor/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: b771c92a25d45718c78cf9106df6d3a49e67ff153257fc947152aa1dee3f83e9

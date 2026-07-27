@@ -103,5 +103,5 @@ source:
   type: esphome-devices
   remote_id: Kogan-RGB-Cool-Warm-White-2m-LED-Strip
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-RGB-Cool-Warm-White-2m-LED-Strip/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 72af818b20d19a96e1132af9a7677e8246395a248b0560e2c8a26073a8d1ef98

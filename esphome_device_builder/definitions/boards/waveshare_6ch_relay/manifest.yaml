@@ -81,18 +81,12 @@ featured_components:
 - id: rgb_led
   component_id: light.esp32_rmt_led_strip
   fields:
-    chipset:
-      value: ws2812
-      locked: true
+    chipset: ws2812
     pin:
       value: 38
       locked: true
-    num_leds:
-      value: 1
-      locked: true
-    rgb_order:
-      value: RGB
-      locked: true
+    num_leds: 1
+    rgb_order: RGB
     id: rgb_led
     name: RGB LED
 - id: buzzer_output
@@ -164,5 +158,5 @@ source:
   type: esphome-devices
   remote_id: waveshare-6ch-relay
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/waveshare-6ch-relay/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 4c2219eb416df132e458c20e58399d5cec7b27f92c65ab8ffe311fb4a8342e81

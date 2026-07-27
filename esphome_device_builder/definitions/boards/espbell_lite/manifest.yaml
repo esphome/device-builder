@@ -45,5 +45,5 @@ source:
   type: esphome-devices
   remote_id: ESPBell-LITE
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/ESPBell-LITE/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: d6541565ad81645ed51f470fc7afd7226e14e80d27d85bff3f79bad1d5e654b3

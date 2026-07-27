@@ -95,5 +95,5 @@ source:
   type: esphome-devices
   remote_id: EKF-RCS-2-WF
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/EKF-RCS-2-WF/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 3019789105f2900d6086843ae567f8e66aea2c6088558ac1874b024e33729701

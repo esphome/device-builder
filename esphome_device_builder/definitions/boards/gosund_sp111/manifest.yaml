@@ -120,5 +120,5 @@ source:
   type: esphome-devices
   remote_id: Gosund-SP111
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Gosund-SP111/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 928ac63f79407a1657399a7b792c815d99140264edaaf0b017828923c2b07d23

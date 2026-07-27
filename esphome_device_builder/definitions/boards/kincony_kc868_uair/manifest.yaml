@@ -52,18 +52,12 @@ featured_components:
 - id: light_esp32_rmt_led_strip_1
   component_id: light.esp32_rmt_led_strip
   fields:
-    chipset:
-      value: ws2812
-      locked: true
+    chipset: ws2812
     pin:
       value: 32
       locked: true
-    num_leds:
-      value: 4
-      locked: true
-    rgb_order:
-      value: GRB
-      locked: true
+    num_leds: 4
+    rgb_order: GRB
     effects:
       value:
       - addressable_rainbow: null
@@ -79,18 +73,12 @@ featured_components:
 - id: light_esp32_rmt_led_strip_2
   component_id: light.esp32_rmt_led_strip
   fields:
-    chipset:
-      value: ws2812
-      locked: true
+    chipset: ws2812
     pin:
       value: 33
       locked: true
-    num_leds:
-      value: 1
-      locked: true
-    rgb_order:
-      value: RGB
-      locked: true
+    num_leds: 1
+    rgb_order: RGB
     effects:
       value:
       - addressable_rainbow: null
@@ -123,5 +111,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-KC868-Uair
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-KC868-Uair/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 2ef361ba63f8c1ee72ce3a6fe2e2114d0149ca6d0bfc03553aee5cc68b73dc3f

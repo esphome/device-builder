@@ -30,18 +30,12 @@ featured_components:
 - id: led_ww
   component_id: light.esp32_rmt_led_strip
   fields:
-    rgb_order:
-      value: RGB
-      locked: true
+    rgb_order: RGB
     pin:
       value: 16
       locked: true
-    num_leds:
-      value: 1
-      locked: true
-    chipset:
-      value: ws2812
-      locked: true
+    num_leds: 1
+    chipset: ws2812
     effects:
       value:
       - pulse: null
@@ -60,5 +54,5 @@ source:
   type: esphome-devices
   remote_id: KinCony-AS
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/KinCony-AS/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 07941fce5c65cac09a8ef83b9d23db6c77a9917718e82532b261e15579886e33

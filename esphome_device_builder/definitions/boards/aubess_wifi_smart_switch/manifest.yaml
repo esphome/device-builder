@@ -86,5 +86,5 @@ source:
   type: esphome-devices
   remote_id: Aubess-WiFi-Smart-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Aubess-WiFi-Smart-Switch/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 3a77d5dc6e3a2add815606648b571e6502518c8588152ece6177e7fcad72f212

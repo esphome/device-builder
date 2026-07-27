@@ -113,12 +113,8 @@ featured_components:
 - id: light_spi_led_strip_1
   component_id: light.spi_led_strip
   fields:
-    num_leds:
-      value: 1
-      locked: true
-    data_rate:
-      value: 1MHz
-      locked: true
+    num_leds: 1
+    data_rate: 1MHz
     id: light_spi_led_strip_1
     name: FastLED SPI Light
     spi_id:
@@ -147,5 +143,5 @@ source:
   type: esphome-devices
   remote_id: Lilygo-TDongle-S3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Lilygo-TDongle-S3/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 2578dd2c50849ccba6759f9d216a80a29345a34a55fc6e8aabfd65f14294a4cb

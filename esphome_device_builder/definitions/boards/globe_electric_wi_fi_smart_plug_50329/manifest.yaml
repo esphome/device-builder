@@ -81,5 +81,5 @@ source:
   type: esphome-devices
   remote_id: Globe-Electric-Wi-Fi-Smart-Plug-50329
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Globe-Electric-Wi-Fi-Smart-Plug-50329/index.md
-  upstream_revision: cdaade7889f0c6892197672dfd971a73245bafcf
+  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
   content_hash: 1253d49929d20ed426586cbdcb92cdf105070a83deda19d5c2c17757fed33df1
