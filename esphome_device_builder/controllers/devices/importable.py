@@ -153,9 +153,9 @@ async def import_device(
     # rather than blinking through OFFLINE for ~10s waiting on
     # the next ping sweep. Seeded under ``ping`` — for a
     # rename-during-adopt no PTR exists under *name*, so an mdns
-    # claim would have no ``Removed`` to withdraw it (#2389); the
-    # sweep keeps arbitrating until the flashed firmware announces
-    # and mdns takes over. Probe esphomelib too so version /
+    # claim would have no ``Removed`` to withdraw it; the sweep
+    # keeps arbitrating until the flashed firmware announces and
+    # mdns takes over. Probe esphomelib too so version /
     # config_hash / api_encryption land alongside the IP.
     controller._state_monitor.apply(name, DeviceState.ONLINE, "ping")
     cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
