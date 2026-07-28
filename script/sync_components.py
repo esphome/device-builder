@@ -5805,11 +5805,15 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
         by_name[name] = refined
         for a in attrs:
             obj = getattr(cv, a, None)
-            if obj is not None:
-                by_identity[id(obj)] = refined
+            if obj is None:
+                raise SystemExit(
+                    f"refined-type validator cv.{a} is gone — renamed upstream? "
+                    "Update _refined_type_tables."
+                )
+            by_identity[id(obj)] = refined
 
     add("boolean", RefinedType("boolean"), "boolean")
-    add("float_", RefinedType("float"), "float_", "positive_float", "negative_float")
+    add("float_", RefinedType("float"), "float_", "positive_float")
     add("float_range", RefinedType("float"), "float_range")
     # Non-closure unit validators only; real float_with_unit ones are
     # discovered in ``classify`` via ``__qualname__``.
@@ -5842,10 +5846,7 @@ def _collect_refined_types(  # noqa: C901
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
-    try:
-        from esphome import config_validation as cv
-    except Exception:
-        return {}
+    from esphome import config_validation as cv
 
     by_identity, by_name = _refined_type_tables(cv)
 
@@ -6568,10 +6569,24 @@ def _apply_refined_types(
                 _merge_boolean_union_options(entry)
             else:
                 entry["type"] = new_type.type
-                if new_type.display_format is not None:
-                    entry["display_format"] = new_type.display_format
+                _stamp_display_format(entry, new_type)
 
     _walk_catalog_entries(entries, visit)
+
+
+def _stamp_display_format(entry: dict, new_type: RefinedType) -> None:
+    """Stamp a refined ``display_format`` unless the entry can't render it.
+
+    An options-backed entry renders a select whose values come from the
+    bundle in decimal; a hex stamp would desync the two. The static
+    ``data_type`` stamp wins when already present.
+    """
+    if (
+        new_type.display_format is not None
+        and not entry.get("options")
+        and not entry.get("display_format")
+    ):
+        entry["display_format"] = new_type.display_format
 
 
 def _merge_boolean_union_options(entry: dict) -> None:

@@ -27,6 +27,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _apply_refined_types,
     _collect_refined_types,
     _convert_field,
+    _refined_type_tables,
 )
 
 
@@ -180,3 +181,37 @@ def test_shipped_catalog_micronova_memory_fields_are_hex_integers() -> None:
     assert entries["memory_location"]["display_format"] == "hex"
     assert entries["memory_location"]["range"] == [0, 121]
     assert entries["memory_address"]["range"] == [0, 255]
+
+
+def test_bare_hex_int_refines_to_hex_integer() -> None:
+    """A bare ``cv.hex_int`` field (openthread's network key shape) refines to hex."""
+    schema = cv.Schema({cv.Optional("network_key"): cv.hex_int})
+    refined = _collect_refined_types(SimpleNamespace(config_schema=schema))
+    assert refined[("network_key",)].type == "integer"
+    assert refined[("network_key",)].display_format == "hex"
+
+
+def test_hex_stamp_suppressed_on_options_entries() -> None:
+    """An options-backed enum keeps decimal option values, no hex stamp."""
+    entries = [
+        {
+            "key": "preamble_polarity",
+            "type": "string",
+            "display_format": None,
+            "options": [{"label": "170", "value": "170"}, {"label": "85", "value": "85"}],
+        },
+    ]
+    refined = {("preamble_polarity",): RefinedType("integer", display_format="hex")}
+    _apply_refined_types(entries, refined)
+    assert entries[0]["type"] == "integer"
+    assert entries[0]["display_format"] is None
+
+
+def test_missing_refined_type_validator_fails_the_sync() -> None:
+    """A registered validator name absent from cv raises instead of silently skipping."""
+
+    class _StubCV:
+        pass
+
+    with pytest.raises(SystemExit, match="boolean"):
+        _refined_type_tables(_StubCV())
