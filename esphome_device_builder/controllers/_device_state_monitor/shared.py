@@ -8,6 +8,7 @@ sources are reached through ``state`` and the monitor's public
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.hostname import is_local_hostname
@@ -16,6 +17,8 @@ from ...models import Device, DeviceState, ReachabilitySource
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
+
+_LOGGER = logging.getLogger(__name__)
 
 
 # Source-precedence ledger. An observation can only override the
@@ -110,6 +113,8 @@ def apply_resolved_addresses(
     # liveness stays with ping.
     if monitor.mdns.has_live_anchor_ptr(name):
         monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+    else:
+        _LOGGER.debug("mDNS resolve for %s applied addresses only (no live anchor PTR)", name)
     monitor.apply_ip_addresses(name, usable)
 
 

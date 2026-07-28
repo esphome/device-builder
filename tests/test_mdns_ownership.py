@@ -81,6 +81,13 @@ def _prime_removed(monitor: Any) -> None:
     monitor.ping.wake = MagicMock()
 
 
+def _stub_no_live_ptrs(monitor: Any) -> None:
+    """Wire a zeroconf whose cache holds no live PTR for any service type."""
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
+    monitor.mdns._zeroconf = zc
+
+
 async def test_removed_marks_unknown_and_wakes_the_ping_sweep() -> None:
     """A ``Removed`` drops to UNKNOWN, releases every ledger, and nudges the ICMP sweep."""
     device = make_online_api_device()
@@ -406,6 +413,7 @@ async def test_http_removed_withdraws_a_non_api_bucket() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
+    _stub_no_live_ptrs(monitor)
 
     _dispatch_http_removed(monitor)
 
@@ -440,6 +448,7 @@ async def test_http_removed_withdraws_when_yaml_gained_api_but_firmware_lacks_it
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
+    _stub_no_live_ptrs(monitor)
 
     _dispatch_http_removed(monitor)
 
@@ -509,6 +518,7 @@ async def test_http_removed_leaves_an_mqtt_owned_name_alone() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MQTT
     _prime_removed(monitor)
+    _stub_no_live_ptrs(monitor)
 
     _dispatch_http_removed(monitor)
 

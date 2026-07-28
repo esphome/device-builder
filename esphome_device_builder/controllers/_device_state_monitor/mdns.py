@@ -231,17 +231,24 @@ class MdnsSource:
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
-        # Decode TXT per service, esphomelib first — one freshest-of-both
-        # pick could surface web_server's contentless TXT over the
-        # identity TXT on an api+web_server device.
-        txt_dns_records: list[DNSRecord] = []
+        # Decode TXT per service, live esphomelib first — one
+        # freshest-of-both pick could surface web_server's contentless
+        # TXT over the identity TXT on an api+web_server device, while
+        # an expired esphomelib TXT (a device recompiled without
+        # ``api:``) must not shadow a live http identity TXT.
+        now_ms = current_time_millis()
+        txt_by_service: dict[str, list[DNSRecord]] = {}
         records: list[DNSRecord] = [*self._get_address_records(name)]
         for service_type in (_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE):
             service_name = f"{name}.{service_type}"
             txts = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
-            txt_dns_records = txt_dns_records or txts
+            txt_by_service[service_type] = txts
             records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
             records.extend(txts)
+        esphomelib_txts = txt_by_service[_ESPHOME_SERVICE_TYPE]
+        if not any(txt.get_remaining_ttl(now_ms) for txt in esphomelib_txts):
+            esphomelib_txts = []
+        txt_dns_records = esphomelib_txts or txt_by_service[_HTTP_SERVICE_TYPE]
         # The expiry countdown rides the ownership anchor.
         ptr = self._anchor_ptr(name)
         if ptr is not None:

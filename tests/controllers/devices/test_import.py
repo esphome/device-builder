@@ -558,15 +558,7 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A freshly-adopted device should land ONLINE without waiting for ping.
-
-    The device was advertising on mDNS milliseconds ago — that's how
-    it ended up on the discovery banner — so we already know it's
-    reachable. ``import_device`` claims ONLINE via the state monitor
-    (``mdns`` priority + ``claim=True`` so a later ping observation
-    can't clobber it) and pulls the cached IP out of zeroconf so the
-    new card has an address right away.
-    """
+    """A freshly-adopted device lands ONLINE under ``ping`` with the cached IP, no mdns claim."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor(
@@ -586,6 +578,41 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
         ("get_cached_addresses", "kitchen.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
         ("probe_device", "kitchen", "kitchen"),
+    ]
+
+
+async def test_import_device_rename_seeds_ping_with_the_factory_broadcast(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A rename-during-adopt seeds under ``ping`` off the factory name's cache."""
+    ctrl = make_controller(tmp_path)
+    _seed_import_state(ctrl)
+    ctrl.state.import_result["apollo-plt-1-983300"] = AdoptableDevice(
+        name="apollo-plt-1-983300",
+        friendly_name="Apollo PLT-1",
+        package_import_url="github://apollo/plt-1.yaml",
+        project_name="apollo.plt-1",
+        project_version="26.3.2.1",
+        network="wifi",
+        ignored=False,
+    )
+    ctrl._state_monitor = RecordingStateMonitor(
+        cached_addresses={"apollo-plt-1-983300.local": ["192.168.1.77"]}
+    )
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    assert ctrl._state_monitor.calls == [
+        ("apply", "kitchen", DeviceState.ONLINE, "ping", False),
+        ("get_cached_addresses", "apollo-plt-1-983300.local"),
+        ("apply_ip_addresses", "kitchen", ["192.168.1.77"]),
+        ("probe_device", "kitchen", "apollo-plt-1-983300"),
     ]
 
 

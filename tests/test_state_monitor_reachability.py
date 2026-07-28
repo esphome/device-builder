@@ -806,6 +806,38 @@ def test_get_mdns_cache_info_prefers_the_esphomelib_txt_over_a_fresher_http_txt(
         zc.close()
 
 
+def test_get_mdns_cache_info_expired_esphomelib_txt_yields_to_a_live_http_txt() -> None:
+    """A dead esphomelib TXT (device recompiled without api) can't shadow live http identity."""
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        expired_esphomelib_txt = DNSText(
+            name="kitchen._esphomelib._tcp.local.",
+            type_=_TYPE_TXT,
+            class_=_CLASS_IN,
+            ttl=120,
+            text=bytes([len(b"version=2025.4.0")]) + b"version=2025.4.0",
+            created=current_time_millis() - 500_000,
+        )
+        live_http_txt = DNSText(
+            name="kitchen._http._tcp.local.",
+            type_=_TYPE_TXT,
+            class_=_CLASS_IN,
+            ttl=4500,
+            text=bytes([len(b"version=2026.7.2")]) + b"version=2026.7.2",
+            created=current_time_millis() - 2_000,
+        )
+        zc.cache.async_add_records([expired_esphomelib_txt, live_http_txt])
+
+        monitor = _make_monitor([_make_device()], None)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
+        assert info is not None
+        assert info.txt_records == {"version": "2026.7.2"}
+    finally:
+        zc.close()
+
+
 def test_get_mdns_cache_info_sorts_txt_records_for_wire_stability() -> None:
     """
     Identical TXT content in any input order produces the same dict.
