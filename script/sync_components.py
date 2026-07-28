@@ -2605,15 +2605,18 @@ def build_component_entry(
     _apply_platform_defaults(config_entries, introspection.get("platform_defaults") or {})
     _apply_platform_constraints(config_entries, introspection.get("platform_constraints") or {})
     field_ranges = introspection.get("field_ranges") or {}
+    refined_types = introspection.get("refined_types") or {}
     if domain:
-        # Platform build: drop hub-bounded ranges that bleed onto a
-        # platform field this domain redefines unbounded (e.g. the
-        # modbus_controller item ``address``). Hub builds keep them.
+        # Platform build: drop hub-derived signals that bleed onto a
+        # platform field this domain redefines (e.g. the modbus_controller
+        # item ``address``). Hub builds keep them.
         bleed = (introspection.get("field_range_bleed_keys") or {}).get(domain, set())
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
+        refined_bleed = (introspection.get("refined_bleed_keys") or {}).get(domain, set())
+        refined_types = {k: v for k, v in refined_types.items() if k not in refined_bleed}
     # Refined types first: the range gate reads the entry's final type,
     # and a field promoted to float_with_unit must keep its bounds.
-    _apply_refined_types(config_entries, introspection.get("refined_types") or {})
+    _apply_refined_types(config_entries, refined_types)
     _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
@@ -4725,6 +4728,38 @@ def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in seen))
 
 
+def _collect_bleed_keys(
+    manifest: Any,
+    platform_manifests_by_domain: list[tuple[str, Any]],
+) -> tuple[dict[str, set[tuple[str, ...]]], dict[str, set[tuple[str, ...]]]]:
+    """Per-domain hub signals a platform schema redefines, for platform builds to shed.
+
+    Ranges shed when the platform redefines the key unbounded; refined
+    types shed when the platform's own refinement differs (the
+    modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
+    item's plain ``cv.positive_int``).
+    """
+    hub_ranges = _collect_field_ranges(manifest)
+    hub_refined = _collect_refined_types(manifest)
+    range_bleed: dict[str, set[tuple[str, ...]]] = {}
+    refined_bleed: dict[str, set[tuple[str, ...]]] = {}
+    for domain, platform_manifest in platform_manifests_by_domain:
+        keys = _platform_field_keys([platform_manifest])
+        bounded = set(_collect_field_ranges(platform_manifest))
+        bled = {path for path in hub_ranges if path in keys and path not in bounded}
+        if bled:
+            range_bleed[domain] = bled
+        platform_refined = _collect_refined_types(platform_manifest)
+        refined_bled = {
+            path
+            for path in hub_refined
+            if path in keys and platform_refined.get(path) != hub_refined[path]
+        }
+        if refined_bled:
+            refined_bleed[domain] = refined_bled
+    return range_bleed, refined_bleed
+
+
 def introspect_component(component_id: str) -> dict[str, Any]:
     """
     Return ``{multi_conf, is_target_platform, platform_defaults, refined_types, auto_load}``.
@@ -4803,14 +4838,9 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     # differently would still inherit the hub's bound, since
     # ``merge_from_platforms`` is keep-first on the hub's field_ranges;
     # no catalog component hits that case today.
-    hub_ranges = _collect_field_ranges(manifest)
-    field_range_bleed_keys: dict[str, set[tuple[str, ...]]] = {}
-    for domain, platform_manifest in platform_manifests_by_domain:
-        keys = _platform_field_keys([platform_manifest])
-        bounded = set(_collect_field_ranges(platform_manifest))
-        bled = {path for path in hub_ranges if path in keys and path not in bounded}
-        if bled:
-            field_range_bleed_keys[domain] = bled
+    field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
+        manifest, platform_manifests_by_domain
+    )
 
     return {
         "multi_conf": bool(getattr(manifest, "multi_conf", False)),
@@ -4819,6 +4849,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "platform_constraints": platform_constraints,
         "field_ranges": field_ranges,
         "field_range_bleed_keys": field_range_bleed_keys,
+        "refined_bleed_keys": refined_bleed_keys,
         "refined_types": refined_types,
         "component_gates": component_gates,
         "inclusive_groups": inclusive_groups,
@@ -6593,6 +6624,8 @@ def _apply_refined_types(
             else:
                 entry["type"] = new_type.type
                 _stamp_display_format(entry, new_type)
+        elif entry.get("type") == "integer":
+            _stamp_display_format(entry, new_type)
 
     _walk_catalog_entries(entries, visit)
 

@@ -215,3 +215,29 @@ def test_missing_refined_type_validator_fails_the_sync() -> None:
 
     with pytest.raises(SystemExit, match=r"refined-type validator cv\."):
         _refined_type_tables(_StubCV())
+
+
+def test_hub_refinement_bleed_is_shed_for_platform_builds() -> None:
+    """A hub hex refinement is shed for a platform that redefines the key differently."""
+    from script.sync_components import introspect_component  # noqa: PLC0415
+
+    introspection = introspect_component("modbus_controller")
+    assert ("address",) in introspection.get("refined_bleed_keys", {}).get("sensor", set())
+
+
+def test_shipped_catalog_modbus_platform_address_stays_decimal() -> None:
+    """The platform item address keeps decimal display; the hub's hex does not bleed."""
+    body_path = _OUTPUT_BODIES_DIR / "sensor.modbus_controller.json"
+    body = json.loads(body_path.read_text(encoding="utf-8"))
+    entry = next(e for e in body["config_entries"] if e["key"] == "address")
+    assert entry["display_format"] is None
+
+
+def test_shipped_catalog_bundle_typed_hex_fields_gain_display() -> None:
+    """Hex-validated fields the bundle types integer now render hex."""
+    body = json.loads((_OUTPUT_BODIES_DIR / "sensor.ade7953_i2c.json").read_text(encoding="utf-8"))
+    entries = {e["key"]: e for e in body["config_entries"]}
+    assert entries["voltage_gain"]["display_format"] == "hex"
+    body = json.loads((_OUTPUT_BODIES_DIR / "uponor_smatrix.json").read_text(encoding="utf-8"))
+    entries = {e["key"]: e for e in body["config_entries"]}
+    assert entries["time_device_address"]["display_format"] == "hex"
