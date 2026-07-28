@@ -644,20 +644,21 @@ against legacy behaviour before assuming the simpler version suffices.
     PTR; a `Removed` of the winner re-opens the election on the next
     read, and both browser `Removed` branches defer to the surviving
     sibling anchor — withdrawal happens only when no anchor remains.
-    Every claim path enforces the invariant: a cache hit claims only
-    behind a live PTR (`cache_apply_or_resolve`), `_apply_service_info`
-    skips the ONLINE claim for a PTR-less wire answer (a `probe_device`
-    resolve applies its data, takes no ownership — no `Removed` could
-    ever withdraw it; in an ICMP-unavailable deployment no arbiter
+    Every claim path enforces the invariant: a cache hit claims
+    only behind a live PTR (`cache_apply_or_resolve`),
+    `_apply_service_info` claims only behind the live PTR of the
+    *device-named* service — the one whose `Removed` maps back to the
+    device — so a PTR-less wire answer and a cross-name resolve (the
+    adopt probe riding the factory service) apply their data but take
+    no ownership (in an ICMP-unavailable deployment no arbiter
     replaces the skipped claim, so such a device waits for its
-    announce), and the active resolve claims only behind the live
-    anchor PTR — a gate `refresh_mdns`'s drawer re-resolves share via
-    `apply_resolved_addresses`. One PTR-less carve-out remains, with a
-    known latch tracked for a fix: the importable adopt seed
-    (`devices/importable.py`), a UX seed under the chosen YAML name
-    while the device still broadcasts under its factory name; the
-    post-flash announce replaces it, but a renamed adopt that never
-    flashes is un-withdrawable (#2389). There is
+    announce), and the non-API active resolve claims only behind the
+    live anchor PTR — a gate `refresh_mdns`'s drawer re-resolves share
+    via `apply_resolved_addresses`. The importable adopt seed
+    (`devices/importable.py`) rides the `ping` source — a
+    rename-during-adopt has no PTR under the chosen name, so the
+    sweep arbitrates until the flashed firmware announces and mdns
+    takes over. There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A
     resolves (the #1999 resolve-first sweep manufactured un-demotable
     PTR-less claims): a PTR-lost device stays ONLINE via ping, and the

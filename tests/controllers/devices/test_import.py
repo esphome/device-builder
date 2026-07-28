@@ -582,7 +582,7 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
     # Full call sequence — includes the post-apply probe_device the
     # previous MagicMock-based assertion silently let through.
     assert ctrl._state_monitor.calls == [
-        ("apply", "kitchen", DeviceState.ONLINE, "mdns", True),
+        ("apply", "kitchen", DeviceState.ONLINE, "ping", False),
         ("get_cached_addresses", "kitchen.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
         ("probe_device", "kitchen", "kitchen"),
@@ -606,7 +606,7 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     )
 
     assert ctrl._state_monitor.calls == [
-        ("apply", "kitchen", DeviceState.ONLINE, "mdns", True),
+        ("apply", "kitchen", DeviceState.ONLINE, "ping", False),
         ("get_cached_addresses", "kitchen.local"),
         ("probe_device", "kitchen", "kitchen"),
     ]

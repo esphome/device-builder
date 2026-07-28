@@ -537,11 +537,12 @@ class MdnsSource:
         # the active-resolve path: a resolved service is liveness evidence
         # on its own (already claimed even when addressless), and the
         # browser's ``Removed`` lifecycle withdraws the claim so ping
-        # decides — no permanent latch. The claim rides a live PTR: a
-        # PTR-less wire answer (a ``probe_device`` resolve) applies its
-        # data below but takes no ownership, since no ``Removed`` could
-        # ever withdraw it.
-        if self._cached_ptr(info.name, info.type) is not None:
+        # decides — no permanent latch. The claim rides the live PTR of
+        # the *device-named* service — the one whose ``Removed`` maps
+        # back to *device_name*: a PTR-less wire answer and a cross-name
+        # resolve (the adopt probe riding the factory service, #2389)
+        # apply their data below but take no ownership.
+        if self._cached_ptr(f"{device_name}.{info.type}", info.type) is not None:
             monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``
