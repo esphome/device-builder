@@ -381,3 +381,58 @@ async def test_wire_resolve_without_live_ptr_applies_data_but_takes_no_ownership
     assert device.runtime_state.state == DeviceState.UNKNOWN
     assert "kitchen" not in monitor.state.state_source
     assert device.runtime_state.deployed_version == "2026.7.0"
+
+
+def _dispatch_http_removed(monitor: Any) -> None:
+    monitor.mdns._on_http_service_state_change(
+        MagicMock(),
+        "_http._tcp.local.",
+        "kitchen._http._tcp.local.",
+        mdns_module.ServiceStateChange.Removed,
+    )
+
+
+async def test_http_removed_withdraws_a_non_api_bucket() -> None:
+    """The ``_http._tcp`` PTR anchors non-API ownership; its Removed withdraws (#2388)."""
+    device = make_online_api_device(api_enabled=False, loaded_integrations=["web_server", "wifi"])
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+
+    _dispatch_http_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+    monitor.ping.wake.assert_called_once()
+
+
+async def test_http_removed_ignored_for_an_all_api_bucket() -> None:
+    """API devices' reachability rides esphomelib; the http lifecycle stays identity-only."""
+    device = make_online_api_device()
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+
+    _dispatch_http_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+    assert callbacks.calls_for("on_state_change") == []
+
+
+def test_has_any_live_ptr_accepts_either_service_type() -> None:
+    """Either service type's unexpired PTR is sufficient proof of PTR."""
+    monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
+    zc = MagicMock()
+    monitor.mdns._zeroconf = zc
+    lookup = zc.zeroconf.cache.current_entry_with_name_and_alias
+
+    for live_types, expected in [
+        ({"_esphomelib._tcp.local."}, True),
+        ({"_http._tcp.local."}, True),
+        (set(), False),
+    ]:
+        lookup.side_effect = lambda type_, _alias, _live=live_types: (
+            MagicMock() if type_ in _live else None
+        )
+        assert monitor.mdns.has_any_live_ptr("kitchen") is expected, live_types

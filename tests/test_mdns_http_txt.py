@@ -38,6 +38,10 @@ def _make_monitor(*devices: Device) -> DeviceStateMonitor:
     monitor.state.reachability = None
     monitor._get_devices = lambda: list(devices)
     monitor._get_devices_by_name = lambda name: [d for d in devices if d.name == name]
+    monitor._on_state_change = lambda _n, _s, _src: None
+    monitor._on_source_change = None
+    monitor._on_resolved_addresses_cleared = None
+    monitor._on_deployed_identity_live_change = None
     return monitor
 
 
@@ -154,18 +158,22 @@ def test_http_skips_unconfigured_device(monkeypatch: pytest.MonkeyPatch) -> None
     assert calls == []
 
 
-def test_http_removed_is_a_noop(monkeypatch: pytest.MonkeyPatch) -> None:
-    """We never drive state off an HTTP ``Removed``; the sweep's level-sync owns freshness."""
+def test_http_removed_withdraws_but_keeps_identity_freshness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An HTTP ``Removed`` withdraws the mdns claim; the sweep's level-sync owns freshness."""
     device = _mqtt_device()
     device.runtime_state.deployed_identity_live = True
     monitor = _make_monitor(device)
     calls = _capture_apply(monitor, monkeypatch)
+    monitor.state.state_source["klo"] = "mdns"
 
     monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Removed
     )
 
     assert calls == []
+    assert "klo" not in monitor.state.state_source
     assert device.runtime_state.deployed_identity_live is True
 
 

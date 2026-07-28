@@ -565,7 +565,10 @@ against legacy behaviour before assuming the simpler version suffices.
   - **One-off active resolve** (`_resolve_non_api_mdns_targets`, for
     non-API devices not on `_esphomelib._tcp.local.`). Trust mDNS for
     **ONLINE only** (priority 3, locks out ICMP — once mDNS answers,
-    repeat-pinging is redundant noise). A miss is **deliberately
+    repeat-pinging is redundant noise). The claim rides the device's
+    live `_http._tcp` PTR (`has_any_live_ptr`), whose browser
+    `Removed` withdraws it; a PTR-less resolve applies the addresses
+    only and ping keeps arbitrating. A miss is **deliberately
     silent**: a single active query that didn't reply conflates "gone",
     "slow", and "packet loss", and there's no subscription delivering
     TTL-expiry here. Wait for the ICMP sweep in the same loop to decide
@@ -589,12 +592,13 @@ against legacy behaviour before assuming the simpler version suffices.
     identity keys through the shared `_apply_identity_txt` (each key
     tolerates absence) and **nothing else** — never api-encryption: the
     absent-key-means-plaintext rule from the esphomelib path would stamp
-    a false confirmation on a device with no API. Drive **no** reachability
-    off it (no ONLINE claim, `Removed` ignored): the same shared browser
-    watches `_http._tcp`, but reachability stays owned by the
-    active-resolve / MQTT / ping paths, so an all-API name bucket is
-    skipped (a device broadcasting the API gets its identity from the
-    esphomelib path). The level-triggered repair (`reconcile_from_cache`)
+    a false confirmation on a device with no API. Drive **no** ONLINE
+    claim off it, but its `Removed` withdraws a non-API bucket's mdns
+    claim — this PTR is the ownership anchor for non-API devices
+    (#2388) — while promotion stays owned by the active-resolve /
+    MQTT / ping paths; an all-API name bucket is skipped entirely
+    (a device broadcasting the API gets its identity and its
+    `Removed` lifecycle from the esphomelib path). The level-triggered repair (`reconcile_from_cache`)
     reads both services' cached TXT. The one state the path does drive is
     the non-API side of `runtime_state.deployed_identity_live` — the
     session-only freshness bit the frontend gates the deployed identity
@@ -619,20 +623,19 @@ against legacy behaviour before assuming the simpler version suffices.
     live device under browser ownership never expires — a `Removed`
     means a goodbye or repeated direct-query failures, and the
     withdrawal above hands the device to ping until its next announce.
-    Every esphomelib claim path enforces the invariant: a cache hit
-    claims only behind a live PTR (`cache_apply_or_resolve`), and
-    `_apply_service_info` skips the ONLINE claim for a PTR-less wire
-    answer (a `probe_device` resolve applies its data, takes no
-    ownership — no `Removed` could ever withdraw it; in an
-    ICMP-unavailable deployment no arbiter replaces the skipped claim,
-    so such a device waits for its announce). Two PTR-less
-    carve-outs remain, each with a known latch tracked for a fix: the
-    non-API active-resolve claim (`apply_resolved_addresses`) — those
-    devices publish no esphomelib PTR, and a dead claimed device never
-    demotes; the fix direction is accepting their `_http._tcp` PTR as
-    the ownership anchor instead (#2388) — and the importable adopt
-    seed (`devices/importable.py`), a UX seed under the chosen YAML
-    name while the device still broadcasts under its factory name; the
+    Proof of PTR is **either service type's** live PTR: esphomelib for
+    api devices, `_http._tcp` for non-API (`has_any_live_ptr`). Every
+    claim path enforces the invariant: a cache hit claims only behind
+    a live PTR (`cache_apply_or_resolve`), `_apply_service_info` skips
+    the ONLINE claim for a PTR-less wire answer (a `probe_device`
+    resolve applies its data, takes no ownership — no `Removed` could
+    ever withdraw it; in an ICMP-unavailable deployment no arbiter
+    replaces the skipped claim, so such a device waits for its
+    announce), and the non-API active resolve claims only behind the
+    live `_http._tcp` PTR. One PTR-less carve-out remains, with a
+    known latch tracked for a fix: the importable adopt seed
+    (`devices/importable.py`), a UX seed under the chosen YAML name
+    while the device still broadcasts under its factory name; the
     post-flash announce replaces it, but a renamed adopt that never
     flashes is un-withdrawable (#2389). There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A

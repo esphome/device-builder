@@ -105,11 +105,11 @@ def apply_resolved_addresses(
     usable = drop_unspecified_addresses(addresses)
     if not usable:
         return
-    # Non-API devices publish no esphomelib PTR, so this claim
-    # deliberately rides none — the live-PTR ownership invariant is
-    # scoped to the esphomelib browser lifecycle (the active-resolve
-    # asymmetry in CLAUDE.md).
-    monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+    # The claim rides a live PTR (#2384): the ``_http._tcp`` PTR is
+    # the non-API anchor, and its ``Removed`` withdraws (#2388). With
+    # no live PTR the addresses still apply; liveness stays with ping.
+    if monitor.mdns.has_any_live_ptr(name):
+        monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
     monitor.apply_ip_addresses(name, usable)
 
 
@@ -147,9 +147,9 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
         return_exceptions=True,
     )
     for device, addresses in zip(candidates, results, strict=True):
-        # Claim under the ``mdns`` source so the subsequent ICMP
-        # sweep skips this device entirely — mDNS is the single
-        # source of truth for devices that respond to it.
+        # A live ``_http._tcp`` PTR anchors the ``mdns`` claim and the
+        # subsequent ICMP sweep skips the device; a PTR-less resolve
+        # applies addresses only and ping keeps arbitrating.
         apply_resolved_addresses(monitor, device.name, addresses)
         # No OFFLINE branch — deliberate. A one-off active resolve
         # has no ``Removed``-delivering subscription, so a miss

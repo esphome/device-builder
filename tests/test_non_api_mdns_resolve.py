@@ -357,3 +357,17 @@ async def test_multiple_devices_resolve_in_parallel(monkeypatch: Any) -> None:
     await shared.resolve_non_api_mdns_targets(monitor)
 
     assert max_concurrent == 3
+
+
+async def test_resolve_without_live_http_ptr_applies_addresses_only() -> None:
+    """A PTR-less resolve fills the addresses but takes no mdns ownership."""
+    devices = [_device(loaded_integrations=["web_server"])]
+    monitor, _resolver = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
+    cache = monitor.mdns._zeroconf.zeroconf.cache
+    cache.current_entry_with_name_and_alias.return_value = None
+
+    await shared.resolve_non_api_mdns_targets(monitor)
+
+    assert devices[0].runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+    assert devices[0].ip == "192.168.1.42"

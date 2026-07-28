@@ -316,6 +316,13 @@ class MdnsSource:
         if props := self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}"):
             self._apply_http_identity_props(device_name, props)
 
+    def has_any_live_ptr(self, device_name: str) -> bool:
+        """Whether either service type holds an unexpired PTR for *device_name*."""
+        return any(
+            self._cached_ptr(f"{device_name}.{service_type}", service_type) is not None
+            for service_type in (_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE)
+        )
+
     def has_live_http_identity_txt(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired ``_http._tcp`` TXT carrying identity keys."""
         return _has_identity_keys(
@@ -577,12 +584,13 @@ class MdnsSource:
         fallback and web_server's service when the API is absent;
         older firmware carries ``version`` only.
         Skipped when every config for the name exposes the API (the
-        esphomelib path carries their identity, and the ``_http`` TXT
-        isn't published with the API on). No ONLINE claim; reachability
-        stays owned by the active-resolve / MQTT / ping paths.
+        esphomelib path carries their identity and reachability, and
+        the ``_http`` TXT isn't published with the API on). No ONLINE
+        claim; a ``Removed`` withdraws the bucket's mdns claim — this
+        PTR is the ownership anchor for non-API devices (#2388) —
+        while promotion stays owned by the active-resolve / MQTT /
+        ping paths.
         """
-        if state_change == ServiceStateChange.Removed:
-            return
         monitor = self._monitor
         device_name = device_name_from_service(name)
         # Look at the whole name bucket, not just bucket[0]: sibling
@@ -590,6 +598,9 @@ class MdnsSource:
         # copy), and an all-API bucket is the only one to skip.
         bucket = monitor._get_devices_by_name(device_name)
         if not bucket or all(device.api_enabled for device in bucket):
+            return
+        if state_change == ServiceStateChange.Removed:
+            self._on_service_removed(name, device_name)
             return
         info = AsyncServiceInfo(service_type, name)
         self.cache_apply_or_resolve(zeroconf, info, device_name, self._apply_http_txt)
