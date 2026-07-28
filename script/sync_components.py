@@ -46,6 +46,7 @@ import shutil
 import sys
 import textwrap
 import time
+import types
 import unicodedata
 import urllib.request
 import zipfile
@@ -994,6 +995,7 @@ def main() -> int:
         schema_dir=schema_dir,
         component_ids=component_ids,
         registry_groups=_collect_automation_registry_groups(),
+        registry_refined=_collect_automation_refined_types(),
     )
     _LOGGER.info(
         "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
@@ -5818,6 +5820,19 @@ def _collect_refined_types(  # noqa: C901
 
     out: dict[tuple[str, ...], RefinedType] = {}
 
+    def classify_branches(validator: Any, inner: tuple[Any, ...]) -> RefinedType | None:
+        for v in inner:
+            t = classify(v)
+            if t is None:
+                continue
+            # A lambda branch in a value union (``cv.Any(returning_lambda,
+            # date_time)``) must not claim the field — the plain form is
+            # the primary YAML shape and a lambda editor would hide it.
+            if t.type == "lambda" and isinstance(validator, vol.Any) and len(inner) > 1:
+                continue
+            return t
+        return None
+
     def classify(validator: Any) -> RefinedType | None:
         # An enum whose live mapping keys / one_of values are all real
         # ints validates the bare-int YAML form; the bundle stringifies
@@ -5831,10 +5846,9 @@ def _collect_refined_types(  # noqa: C901
         # peel down to find the inner.
         inner = getattr(validator, "validators", None)
         if inner:
-            for v in inner:
-                t = classify(v)
-                if t is not None:
-                    return t
+            t = classify_branches(validator, inner)
+            if t is not None:
+                return t
         # ``cv.float_with_unit`` returns a closure whose ``__name__``
         # is the generic ``"validator"`` (too noisy to substring-
         # match) but whose ``__qualname__`` carries the factory
@@ -7394,6 +7408,45 @@ def _collect_automation_registry_groups() -> dict[str, dict[str, list[dict[str, 
     return out
 
 
+def _registry_entry_schema(entry: Any) -> Any | None:
+    """
+    Return a registry entry's walkable schema.
+
+    A ``maybe_simple_value`` registration extracts to ``(validator, key)``;
+    the validator half carries the fields.
+    """
+    schema = getattr(entry, "raw_schema", None)
+    hidden = _hidden_schema(schema)
+    if isinstance(hidden, tuple) and len(hidden) == 2 and callable(hidden[0]):
+        return hidden[0]
+    return schema
+
+
+def _collect_automation_refined_types() -> dict[str, dict[str, dict[tuple[str, ...], RefinedType]]]:
+    """
+    Collect ``{registry_id: {path: RefinedType}}`` per registry type from live esphome.
+
+    Same fill timing as :func:`_collect_automation_registry_groups` — call
+    after :func:`build_catalog`'s import sweep.
+    """
+    try:
+        automation = importlib.import_module("esphome.automation")
+        registries = {
+            "action": automation.ACTION_REGISTRY,
+            "condition": automation.CONDITION_REGISTRY,
+        }
+    except Exception:
+        _LOGGER.debug("automation registries unavailable", exc_info=True)
+        return {}
+    out: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] = {}
+    for registry_type, registry in registries.items():
+        for registry_id, entry in registry.items():
+            manifest = types.SimpleNamespace(config_schema=_registry_entry_schema(entry))
+            if refined := _collect_refined_types(manifest):
+                out.setdefault(registry_type, {})[registry_id] = refined
+    return out
+
+
 def _apply_inclusive_groups(
     entries: list[dict],
     groups: dict[tuple[str, ...], str],
@@ -8040,6 +8093,7 @@ def build_automations(  # noqa: C901
     schema_dir: Path,
     component_ids: set[str],
     registry_groups: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
+    registry_refined: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] | None = None,
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
@@ -8060,6 +8114,10 @@ def build_automations(  # noqa: C901
     *registry_groups* is :func:`_collect_automation_registry_groups`
     output; matching actions / conditions gain ``required_groups``
     and their group members are promoted off ``advanced``.
+
+    *registry_refined* is :func:`_collect_automation_refined_types`
+    output; matching actions / conditions get their entry types
+    promoted from the live registry schemas.
     """
     triggers: list[dict] = []
     actions: list[dict] = []
@@ -8151,6 +8209,9 @@ def build_automations(  # noqa: C901
 
     actions = _dedupe_by_id(actions)
     conditions = _dedupe_by_id(conditions)
+    refined_by_type = registry_refined or {}
+    _apply_automation_refined_types(actions, refined_by_type.get("action"))
+    _apply_automation_refined_types(conditions, refined_by_type.get("condition"))
     groups_by_type = registry_groups or {}
     _apply_automation_required_groups(actions, groups_by_type.get("action"))
     _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
@@ -8251,6 +8312,17 @@ def _apply_automation_required_groups(
         entry["config_entries"] = [_strip_entry_defaults(e) for e in promoted]
         entry["required_groups"] = groups
         _annotate_constraint_descriptions(entry)
+
+
+def _apply_automation_refined_types(
+    entries: list[dict],
+    refined_index: dict[str, dict[tuple[str, ...], RefinedType]] | None,
+) -> None:
+    """Promote action / condition entry types from the live registry schemas."""
+    for entry in entries:
+        refined = (refined_index or {}).get(entry["id"])
+        if refined:
+            _apply_refined_types(entry["config_entries"], refined)
 
 
 def _convert_automation_action(

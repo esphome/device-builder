@@ -21,15 +21,18 @@ import orjson
 import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _AUTOMATIONS_BODIES_DIR,
     _OUTPUT_BODIES_DIR,
     _SUFFIX_UNIT_RE,
     _audit_catalog_for_unit_mismatches,
+    _collect_automation_refined_types,
     _collect_refined_types,
     _delegated_schema,
     _derive_suffix_units,
     _enumerate_platform_manifests,
     _extract_validator_units,
     _hidden_schema,
+    _registry_entry_schema,
     _require_non_introspectable_units,
     _walk_schema_keys,
 )
@@ -480,6 +483,47 @@ def test_walk_peels_delegating_wrapper(cv) -> None:
         lambda _k, key_name, _v, _path: keys.add(key_name),
     )
     assert "after" in keys
+
+
+def test_registry_entry_schema_unwraps_maybe(cv) -> None:
+    """A ``maybe_simple_value`` registration peels to its validator half."""
+    wrapper = cv.maybe_simple_value(cv.Schema({cv.Optional("x"): cv.boolean}), key="x")
+    entry = types.SimpleNamespace(raw_schema=wrapper)
+    peeled = _registry_entry_schema(entry)
+    assert peeled is not wrapper
+    assert callable(peeled)
+
+
+def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
+    """The live action registry yields byte units for max_response_buffer_size."""
+    loader.get_component("http_request")
+    refined = _collect_automation_refined_types()
+    action = refined["action"]["http_request.send"]
+    assert action[("max_response_buffer_size",)].type == "float_with_unit"
+    assert action[("max_response_buffer_size",)].unit_options == ["B", "kB", "MB", "GB"]
+
+
+def test_shipped_automations_http_request_carries_byte_units() -> None:
+    """The generated http_request action bodies render the buffer with a byte picker."""
+    for action_id in ("http_request.send", "http_request.get", "http_request.post"):
+        body = orjson.loads(
+            (_AUTOMATIONS_BODIES_DIR / "actions" / f"{action_id}.json").read_bytes()
+        )
+        entry = {e["key"]: e for e in body["config_entries"]}["max_response_buffer_size"]
+        assert entry["type"] == "float_with_unit"
+        assert entry["unit_options"] == ["B", "kB", "MB", "GB"]
+
+
+def test_shipped_automations_datetime_set_stays_plain(loader) -> None:
+    """A lambda-or-plain union field keeps its plain type, live and shipped."""
+    loader.get_component("datetime")
+    refined = _collect_automation_refined_types()
+    assert ("date",) not in refined.get("action", {}).get("datetime.date.set", {})
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "datetime.date.set.json").read_bytes()
+    )
+    entry = {e["key"]: e for e in body["config_entries"]}["date"]
+    assert entry["type"] == "string"
 
 
 def test_delegated_schema_rejects_ambiguous_wrappers(cv) -> None:
