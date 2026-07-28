@@ -536,12 +536,14 @@ against legacy behaviour before assuming the simpler version suffices.
 - **Two mDNS paths with different OFFLINE semantics:**
   - **Browser callback** (`_on_service_state_change`) — passively
     subscribed to `_esphomelib._tcp.local.`. ONLINE → mdns; a `Removed`
-    (goodbye or TTL expiry) is a **withdrawal, not an OFFLINE verdict**:
-    `_on_service_removed` marks the device UNKNOWN, releases the
-    precedence ledger (without ever stamping transient mdns ownership),
-    and wakes the ICMP sweep — ping settles ONLINE/OFFLINE within
-    seconds, and mdns ownership returns only via the device's next
-    announce. With ICMP unavailable the withdrawal itself
+    (goodbye or TTL expiry) is a **withdrawal, not an OFFLINE verdict**,
+    and a conditional one — it defers to a surviving sibling anchor PTR
+    (the election below), and `source_withdrawn` releases only a claim
+    mdns holds: `_on_service_removed` marks the device UNKNOWN, releases
+    the precedence ledger (without ever stamping transient mdns
+    ownership), and wakes the ICMP sweep — ping settles ONLINE/OFFLINE
+    within seconds, and mdns ownership returns only via the device's
+    next announce. With ICMP unavailable the withdrawal itself
     demotes to OFFLINE (no arbiter will ever run); an already-OFFLINE
     bucket keeps its confirmed verdict; other channels' freshness
     stamps survive the withdrawal. Never verify-resolve a
@@ -555,8 +557,9 @@ against legacy behaviour before assuming the simpler version suffices.
     a goodbye the lingering SRV/A still satisfy `load_from_cache`, and
     resolving is no escape since `async_request` short-circuits on the
     same cached records, so a PTR-less cache hit claims nothing. A
-    resolve that overlapped a withdrawal discards its apply
-    (`_withdrawal_epochs`) — its answer may predate the goodbye. An announce whose
+    resolve that overlapped a `Removed` — deferred or not — discards
+    its apply (`_withdrawal_epochs`); its answer may predate the
+    goodbye. An announce whose
     SRV/A won't resolve (a node that died mid-handshake, a reflector
     re-serving a stale PTR for a long-gone device) claims nothing and
     falls through to the ICMP sweep, same as the active-resolve path

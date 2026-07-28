@@ -231,12 +231,15 @@ class MdnsSource:
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
+        # Decode TXT per service, esphomelib first — one freshest-of-both
+        # pick could surface web_server's contentless TXT over the
+        # identity TXT on an api+web_server device.
         txt_dns_records: list[DNSRecord] = []
         records: list[DNSRecord] = [*self._get_address_records(name)]
         for service_type in (_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE):
             service_name = f"{name}.{service_type}"
             txts = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
-            txt_dns_records.extend(txts)
+            txt_dns_records = txt_dns_records or txts
             records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
             records.extend(txts)
         # The expiry countdown rides the ownership anchor.
@@ -473,13 +476,16 @@ class MdnsSource:
             return
 
         if state_change == ServiceStateChange.Removed:
+            # Deferred or not, an in-flight resolve of this service
+            # must discard records that predate the goodbye.
+            self._bump_withdrawal_epoch(name)
             # A live ``_http._tcp`` PTR re-anchors the election (an
             # api+web_server bucket losing only its esphomelib PTR);
             # withdraw only when no anchor remains. A goodbye burst
             # byes both services in one packet, so a sleeper's first
             # Removed already sees the sibling PTR evicted.
             if not self._has_live_ptr(device_name, _HTTP_SERVICE_TYPE):
-                self._on_service_removed(name, device_name)
+                self._on_service_removed(device_name)
             return
 
         # Don't claim ONLINE off a bare PTR — only once the service
@@ -506,13 +512,16 @@ class MdnsSource:
             self._on_http_service_state_change(zeroconf, service_type, name, state_change)
             importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
-    def _on_service_removed(self, name: str, device_name: str) -> None:
+    def _bump_withdrawal_epoch(self, name: str) -> None:
+        """Invalidate in-flight resolves of service *name* after a ``Removed``."""
+        self._withdrawal_epochs[name] = self._withdrawal_epochs.get(name, 0) + 1
+
+    def _on_service_removed(self, device_name: str) -> None:
         """Withdraw the mDNS claim and wake the ping sweep to decide."""
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
         # here would vouch for a sleeping device straight off the cache
         # and latch it ONLINE (#2369, #1776).
-        self._withdrawal_epochs[name] = self._withdrawal_epochs.get(name, 0) + 1
         monitor = self._monitor
         monitor.source_withdrawn(device_name, "mdns")
         monitor.probe_device_ping(device_name)
@@ -606,6 +615,7 @@ class MdnsSource:
         if not bucket:
             return
         if state_change == ServiceStateChange.Removed:
+            self._bump_withdrawal_epoch(name)
             # Keyed on the evidence, not the YAML: the ``api_enabled``
             # union reads raw YAML text while the claim gates on the
             # last compile's ``loaded_integrations``, and a
@@ -614,7 +624,7 @@ class MdnsSource:
             # name while its PTR is live; ``source_withdrawn`` itself
             # no-ops for a name mdns doesn't own.
             if not self._has_live_ptr(device_name, _ESPHOME_SERVICE_TYPE):
-                self._on_service_removed(name, device_name)
+                self._on_service_removed(device_name)
             return
         if all(device.api_enabled for device in bucket):
             return

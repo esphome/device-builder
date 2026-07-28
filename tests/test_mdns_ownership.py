@@ -466,6 +466,43 @@ async def test_esphomelib_removed_defers_to_a_live_http_ptr() -> None:
     assert callbacks.calls_for("on_state_change") == []
 
 
+async def test_deferred_removed_still_discards_an_overlapping_resolve() -> None:
+    """A ``Removed`` bumps the withdrawal epoch even when the sibling anchor defers it."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.side_effect = lambda type_, _alias: (
+        MagicMock() if type_ == "_http._tcp.local." else None
+    )
+    monitor.mdns._zeroconf = zc
+    gate = asyncio.Event()
+    info = MagicMock()
+    info.name = _SERVICE_NAME
+    info.type = "_esphomelib._tcp.local."
+
+    async def slow_request(*_args: Any, **_kwargs: Any) -> bool:
+        await gate.wait()
+        return True
+
+    info.async_request = slow_request
+    applied: list[str] = []
+    task = asyncio.ensure_future(
+        monitor.mdns.resolve_then(
+            MagicMock(), info, "kitchen", lambda name, _info: applied.append(name)
+        )
+    )
+    await asyncio.sleep(0)
+
+    _dispatch_removed(monitor)
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+    gate.set()
+
+    assert await task is None
+    assert applied == []
+
+
 async def test_http_removed_leaves_an_mqtt_owned_name_alone() -> None:
     """A name mdns doesn't own has nothing to withdraw; the broker's vouch stands."""
     device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
