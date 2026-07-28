@@ -32,7 +32,7 @@ from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
 from ...helpers.ip import drop_unspecified_addresses
-from ...models import DeviceState, ReachabilitySource
+from ...models import DeviceState
 from .._reachability_tracker import MdnsCacheInfo
 from .helpers import (
     _ESPHOME_SERVICE_TYPE,
@@ -364,8 +364,8 @@ class MdnsSource:
         """
         Whether the cache holds any record for *name*, expired included.
 
-        Same record buckets as :meth:`get_mdns_cache_info`; keep the
-        two in lockstep. Sweep-side verify resolves gate on it: an
+        Same per-service record buckets as :meth:`get_mdns_cache_info`
+        (which walks both service types). Sweep-side verify resolves gate on it: an
         mDNS-dark deployment leaves no trace, and a wire miss there
         proves nothing. *service_type* narrows only the
         service-instance buckets — cached A/AAAA records count as a
@@ -606,20 +606,14 @@ class MdnsSource:
         if not bucket:
             return
         if state_change == ServiceStateChange.Removed:
-            # Withdraw only a claim this PTR anchored — keyed on the
-            # evidence, not the YAML: the ``api_enabled`` union reads
-            # raw YAML text while the claim gates on the last compile's
-            # ``loaded_integrations``, and a compiled-without-api
-            # device whose YAML gained ``api:`` must still withdraw.
-            # The esphomelib lifecycle owns the name while its PTR is
-            # live, and a name mdns doesn't own has nothing to release
-            # (popping an MQTT-owned claim would flap a device the
-            # broker still vouches for).
-            if monitor.priority_for(
-                device_name
-            ) is ReachabilitySource.MDNS and not self._has_live_ptr(
-                device_name, _ESPHOME_SERVICE_TYPE
-            ):
+            # Keyed on the evidence, not the YAML: the ``api_enabled``
+            # union reads raw YAML text while the claim gates on the
+            # last compile's ``loaded_integrations``, and a
+            # compiled-without-api device whose YAML gained ``api:``
+            # must still withdraw. The esphomelib lifecycle owns the
+            # name while its PTR is live; ``source_withdrawn`` itself
+            # no-ops for a name mdns doesn't own.
+            if not self._has_live_ptr(device_name, _ESPHOME_SERVICE_TYPE):
                 self._on_service_removed(name, device_name)
             return
         if all(device.api_enabled for device in bucket):

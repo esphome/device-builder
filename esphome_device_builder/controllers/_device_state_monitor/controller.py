@@ -286,13 +286,20 @@ class DeviceStateMonitor(TaskControllerBase):
         """
         Release every per-name claim after *source* withdrew.
 
-        An already-OFFLINE bucket keeps its state; the ledger is never
-        stamped, so the withdrawal emits a single source change. With
-        no ICMP arbiter the withdrawal demotes to OFFLINE instead of
-        parking on UNKNOWN. An api bucket with known identity gets
+        A no-op unless *source* currently owns the ledger — a source
+        releases only a claim it holds. An already-OFFLINE bucket
+        keeps its state; the ledger is never stamped, so the
+        withdrawal emits a single source change. With no ICMP arbiter
+        the withdrawal demotes to OFFLINE instead of parking on
+        UNKNOWN. An api bucket with known identity gets
         ``deployed_identity_live`` stamped back — the announce
         lifecycle stops vouching the moment ownership is released.
         """
+        # A late Removed for a name another source owns adds nothing,
+        # and popping an MQTT-owned claim would flap a device the
+        # broker still vouches for.
+        if self.priority_for(name) is not ReachabilitySource(source):
+            return
         # UNKNOWN only under a confirmed arbiter: a pre-probe (None)
         # withdrawal on a host whose probe then fails would park
         # UNKNOWN with no sweep ever running. Demoting instead always

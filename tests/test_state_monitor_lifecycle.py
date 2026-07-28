@@ -1882,13 +1882,26 @@ def test_source_withdrawn_skips_the_state_apply_for_a_confirmed_offline_bucket()
     """An already-OFFLINE device keeps its verdict; only the ledger is released."""
     device = _device(state=DeviceState.OFFLINE, ip="10.0.0.1", ip_addresses=["10.0.0.1"])
     monitor, callbacks = _make_monitor([device])
-    monitor.state.state_source["kitchen"] = "ping"
+    monitor.state.state_source["kitchen"] = "mdns"
 
     monitor.source_withdrawn("kitchen", "mdns")
 
     assert device.runtime_state.state is DeviceState.OFFLINE
     assert callbacks.calls_for("on_state_change") == []
     assert monitor.state.state_source == {}
+
+
+def test_source_withdrawn_is_a_no_op_for_a_source_that_does_not_own_the_name() -> None:
+    """A source releases only a claim it holds."""
+    device = _device(state=DeviceState.ONLINE, ip="10.0.0.1", ip_addresses=["10.0.0.1"])
+    monitor, callbacks = _make_monitor([device])
+    monitor.state.state_source["kitchen"] = "mqtt"
+
+    monitor.source_withdrawn("kitchen", "mdns")
+
+    assert device.runtime_state.state is DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == "mqtt"
+    assert callbacks.calls == []
 
 
 @pytest.mark.parametrize(

@@ -183,8 +183,8 @@ async def test_removed_before_the_icmp_probe_demotes_offline() -> None:
     assert "kitchen" not in monitor.state.state_source
 
 
-async def test_removed_on_an_offline_device_keeps_the_confirmed_state() -> None:
-    """A late PTR expiry can't un-confirm a ping-settled OFFLINE."""
+async def test_removed_on_a_ping_settled_device_is_a_no_op() -> None:
+    """A late PTR expiry can't un-confirm a ping-settled OFFLINE or touch its ledger."""
     device = make_online_api_device(state=DeviceState.OFFLINE)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
@@ -194,11 +194,11 @@ async def test_removed_on_an_offline_device_keeps_the_confirmed_state() -> None:
 
     assert device.runtime_state.state == DeviceState.OFFLINE
     assert callbacks.calls_for("on_state_change") == []
-    assert "kitchen" not in monitor.state.state_source
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
 
 
-async def test_removed_with_a_lower_priority_owner_emits_one_source_change() -> None:
-    """The withdrawal never stamps transient mdns ownership over a ping-owned ledger."""
+async def test_removed_leaves_a_ping_owned_online_device_alone() -> None:
+    """MDNS withdraws only a claim it holds; a ping-owned device keeps its state."""
     device = make_online_api_device()
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.PING
@@ -206,10 +206,9 @@ async def test_removed_with_a_lower_priority_owner_emits_one_source_change() -> 
 
     _dispatch_removed(monitor)
 
-    assert device.runtime_state.state == DeviceState.UNKNOWN
-    assert callbacks.calls_for("on_source_change") == [
-        ("on_source_change", "kitchen", ReachabilitySource.UNKNOWN),
-    ]
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
+    assert callbacks.calls_for("on_source_change") == []
 
 
 async def test_resolve_overlapping_a_withdrawal_does_not_reclaim(
