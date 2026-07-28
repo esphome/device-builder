@@ -7796,13 +7796,24 @@ def _apply_field_ranges(
     """
     if not ranges:
         return
+    dropped: list[str] = []
 
     def visit(entry: dict, path: tuple[str, ...]) -> None:
         bounds = ranges.get(path)
-        if bounds is not None and entry.get("type") in _RANGE_ENTRY_TYPES:
+        if bounds is None:
+            return
+        if entry.get("type") in _RANGE_ENTRY_TYPES:
             entry["range"] = list(bounds)
+        else:
+            dropped.append(f"{'.'.join(path)} ({entry.get('type')})")
 
     _walk_catalog_entries(entries, visit)
+    if dropped:
+        # The dropped bound is often the only visible symptom of a
+        # mistyped field (a hex or percentage validator landing string).
+        _LOGGER.warning(
+            "range dropped from %d non-numeric entries: %s", len(dropped), ", ".join(dropped)
+        )
 
 
 def _list_fields_in_schema(schema: Any) -> dict[tuple[str, ...], bool]:

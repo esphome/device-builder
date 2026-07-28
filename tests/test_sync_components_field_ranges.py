@@ -395,7 +395,27 @@ def test_committed_catalog_ships_machine_derived_fields_unbounded() -> None:
 
 def test_shipped_catalog_mipi_spi_buffer_size_has_no_range() -> None:
     """The rescaling ``cv.percentage`` field ships rangeless on its string entry."""
-    body = json.loads((_BODIES_DIR / "display.mipi_spi.json").read_text())
+    body = json.loads((_BODIES_DIR / "display.mipi_spi.json").read_text(encoding="utf-8"))
     entry = next(e for e in body["config_entries"] if e["key"] == "buffer_size")
     assert entry["type"] == "string"
     assert entry.get("range") is None
+
+
+def test_shipped_catalog_ranges_only_on_numeric_entries() -> None:
+    """No shipped entry carries a ``range`` its input type can't render."""
+    violations = []
+
+    def walk(entries, name):
+        for entry in entries or []:
+            if entry.get("range") is not None and entry.get("type") not in (
+                "integer",
+                "float",
+                "float_with_unit",
+            ):
+                violations.append((name, entry.get("key"), entry.get("type")))
+            walk(entry.get("config_entries"), name)
+
+    for body_path in sorted(_BODIES_DIR.glob("*.json")):
+        body = json.loads(body_path.read_text(encoding="utf-8"))
+        walk(body.get("config_entries"), body_path.name)
+    assert not violations
