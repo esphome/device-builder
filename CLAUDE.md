@@ -565,11 +565,11 @@ against legacy behaviour before assuming the simpler version suffices.
   - **One-off active resolve** (`_resolve_non_api_mdns_targets`, for
     non-API devices not on `_esphomelib._tcp.local.`). Trust mDNS for
     **ONLINE only** (priority 3, locks out ICMP — once mDNS answers,
-    repeat-pinging is redundant noise). The claim rides a live PTR on
-    either service type (`has_any_live_ptr`) — in practice
-    `_http._tcp` for these devices — whose browser `Removed`
-    withdraws it; a PTR-less resolve applies the addresses only and
-    ping keeps arbitrating. The `_http._tcp` fallback is suppressed
+    repeat-pinging is redundant noise). The claim rides the live
+    anchor PTR (`has_live_anchor_ptr`) — in practice `_http._tcp`
+    for these devices — whose browser `Removed` withdraws it; a
+    PTR-less resolve applies the addresses only and ping keeps
+    arbitrating. The `_http._tcp` fallback is suppressed
     by `USE_PROMETHEUS` / `USE_SENDSPIN` / `USE_MDNS_EXTRA_SERVICES`
     in firmware, so a non-API device with those components and no
     `web_server:` publishes no PTR at all and never claims mdns —
@@ -633,9 +633,11 @@ against legacy behaviour before assuming the simpler version suffices.
     live device under browser ownership never expires — a `Removed`
     means a goodbye or repeated direct-query failures, and the
     withdrawal above hands the device to ping until its next announce.
-    Proof of PTR is **either service type's** live PTR: esphomelib for
-    api devices, `_http._tcp` for non-API (`has_any_live_ptr`). Every
-    claim path enforces the invariant: a cache hit claims only behind
+    The anchor PTR is **elected by evidence** (`_anchor_ptr`): the
+    esphomelib PTR wins while it is live — the broadcast, not the
+    YAML, proves the firmware has the API — else the `_http._tcp`
+    PTR; a `Removed` of the winner re-opens the election on the next
+    read. Every claim path enforces the invariant: a cache hit claims only behind
     a live PTR (`cache_apply_or_resolve`), `_apply_service_info` skips
     the ONLINE claim for a PTR-less wire answer (a `probe_device`
     resolve applies its data, takes no ownership — no `Removed` could

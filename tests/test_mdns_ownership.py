@@ -451,19 +451,22 @@ async def test_http_removed_leaves_an_mqtt_owned_name_alone() -> None:
     assert callbacks.calls_for("on_state_change") == []
 
 
-def test_has_any_live_ptr_accepts_either_service_type() -> None:
-    """Either service type's unexpired PTR is sufficient proof of PTR."""
+def test_anchor_ptr_elects_esphomelib_first_then_http() -> None:
+    """The anchor election: esphomelib wins while live, else http, else nothing."""
     monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
     zc = MagicMock()
     monitor.mdns._zeroconf = zc
     lookup = zc.zeroconf.cache.current_entry_with_name_and_alias
+    esphomelib_ptr = MagicMock()
+    http_ptr = MagicMock()
 
-    for live_types, expected in [
-        ({"_esphomelib._tcp.local."}, True),
-        ({"_http._tcp.local."}, True),
-        (set(), False),
+    both = {"_esphomelib._tcp.local.": esphomelib_ptr, "_http._tcp.local.": http_ptr}
+    for live, winner in [
+        (both, esphomelib_ptr),
+        ({"_http._tcp.local.": http_ptr}, http_ptr),
+        ({"_esphomelib._tcp.local.": esphomelib_ptr}, esphomelib_ptr),
+        ({}, None),
     ]:
-        lookup.side_effect = lambda type_, _alias, _live=live_types: (
-            MagicMock() if type_ in _live else None
-        )
-        assert monitor.mdns.has_any_live_ptr("kitchen") is expected, live_types
+        lookup.side_effect = lambda type_, _alias, _live=live: _live.get(type_)
+        assert monitor.mdns._anchor_ptr("kitchen") is winner, live
+        assert monitor.mdns.has_live_anchor_ptr("kitchen") is (winner is not None), live

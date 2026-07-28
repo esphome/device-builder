@@ -105,10 +105,10 @@ def apply_resolved_addresses(
     usable = drop_unspecified_addresses(addresses)
     if not usable:
         return
-    # The claim rides a live PTR: the ``_http._tcp`` PTR is the
-    # non-API anchor, and its ``Removed`` withdraws. With no live PTR
-    # the addresses still apply; liveness stays with ping.
-    if monitor.mdns.has_any_live_ptr(name):
+    # The claim rides the live anchor PTR, whose ``Removed``
+    # withdraws. With no live PTR the addresses still apply;
+    # liveness stays with ping.
+    if monitor.mdns.has_live_anchor_ptr(name):
         monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
     monitor.apply_ip_addresses(name, usable)
 

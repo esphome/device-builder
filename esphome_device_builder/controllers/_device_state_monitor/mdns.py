@@ -239,11 +239,8 @@ class MdnsSource:
             txt_dns_records.extend(txts)
             records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
             records.extend(txts)
-        # The expiry countdown rides the ownership anchor: the
-        # esphomelib PTR while it is live, else the http PTR.
-        ptr = self._cached_ptr(f"{name}.{_ESPHOME_SERVICE_TYPE}") or self._cached_ptr(
-            f"{name}.{_HTTP_SERVICE_TYPE}", _HTTP_SERVICE_TYPE
-        )
+        # The expiry countdown rides the ownership anchor.
+        ptr = self._anchor_ptr(name)
         if ptr is not None:
             records.append(ptr)
         if not records:
@@ -321,14 +318,9 @@ class MdnsSource:
         if props := self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}"):
             self._apply_http_identity_props(device_name, props)
 
-    def has_any_live_ptr(self, device_name: str) -> bool:
-        """Whether either service type holds an unexpired PTR for *device_name*."""
-        # http first: the hot caller is the non-API resolve, whose
-        # esphomelib lookup always misses.
-        return any(
-            self._has_live_ptr(device_name, service_type)
-            for service_type in (_HTTP_SERVICE_TYPE, _ESPHOME_SERVICE_TYPE)
-        )
+    def has_live_anchor_ptr(self, device_name: str) -> bool:
+        """Whether a PTR that can anchor *device_name*'s mdns claim is unexpired."""
+        return self._anchor_ptr(device_name) is not None
 
     def has_live_http_identity_txt(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired ``_http._tcp`` TXT carrying identity keys."""
@@ -636,6 +628,19 @@ class MdnsSource:
         self._apply_identity_txt(device_name, props)
         if _has_identity_keys(props):
             self._monitor.apply_deployed_identity_live(device_name, live=True)
+
+    def _anchor_ptr(self, device_name: str) -> DNSRecord | None:
+        """
+        Return the PTR anchoring *device_name*'s mdns claim, if live.
+
+        The esphomelib PTR wins while it is live — the broadcast, not
+        the YAML, proves the firmware has the API — else the
+        ``_http._tcp`` PTR. A ``Removed`` of the winner re-opens the
+        election on the next read.
+        """
+        return self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}") or self._cached_ptr(
+            f"{device_name}.{_HTTP_SERVICE_TYPE}", _HTTP_SERVICE_TYPE
+        )
 
     def _has_live_ptr(self, device_name: str, service_type: str) -> bool:
         """Whether the cache holds an unexpired *service_type* PTR for *device_name*."""
