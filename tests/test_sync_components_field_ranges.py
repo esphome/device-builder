@@ -419,3 +419,14 @@ def test_shipped_catalog_ranges_only_on_numeric_entries() -> None:
         body = json.loads(body_path.read_text(encoding="utf-8"))
         walk(body.get("config_entries"), body_path.name)
     assert not violations
+
+
+def test_apply_warns_on_dropped_bounds(caplog: pytest.LogCaptureFixture) -> None:
+    """A dropped bound names the component and field — the mistype signal."""
+    entries = [
+        {"key": "memory_address", "type": "string", "range": None, "config_entries": []},
+    ]
+    with caplog.at_level("WARNING"):
+        _apply_field_ranges(entries, {("memory_address",): (0, 255)}, "sensor.micronova")
+    assert "sensor.micronova" in caplog.text
+    assert "memory_address (string)" in caplog.text

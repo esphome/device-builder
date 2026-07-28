@@ -2614,7 +2614,7 @@ def build_component_entry(
     # Refined types first: the range gate reads the entry's final type,
     # and a field promoted to float_with_unit must keep its bounds.
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
-    _apply_field_ranges(config_entries, field_ranges)
+    _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
@@ -7786,6 +7786,7 @@ _RANGE_ENTRY_TYPES = frozenset({"integer", "float", "float_with_unit"})
 def _apply_field_ranges(
     entries: list[dict],
     ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+    component_id: str = "",
 ) -> None:
     """Overlay schema-derived ``range`` bounds onto matching numeric entries.
 
@@ -7812,7 +7813,10 @@ def _apply_field_ranges(
         # The dropped bound is often the only visible symptom of a
         # mistyped field (a hex or percentage validator landing string).
         _LOGGER.warning(
-            "range dropped from %d non-numeric entries: %s", len(dropped), ", ".join(dropped)
+            "%s: range dropped from %d non-numeric entries: %s",
+            component_id or "<unknown>",
+            len(dropped),
+            ", ".join(dropped),
         )
 
 
