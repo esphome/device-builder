@@ -167,6 +167,8 @@ def test_http_removed_withdraws_but_keeps_identity_freshness(
     monitor = _make_monitor(device)
     calls = _capture_apply(monitor, monkeypatch)
     monitor.state.state_source["klo"] = "mdns"
+    # No live esphomelib PTR — the http PTR anchored this claim.
+    monitor.mdns._zeroconf.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
 
     monitor.mdns._on_http_service_state_change(
         MagicMock(), _HTTP, f"klo.{_HTTP}", ServiceStateChange.Removed

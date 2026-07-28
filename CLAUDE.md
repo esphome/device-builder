@@ -565,10 +565,16 @@ against legacy behaviour before assuming the simpler version suffices.
   - **One-off active resolve** (`_resolve_non_api_mdns_targets`, for
     non-API devices not on `_esphomelib._tcp.local.`). Trust mDNS for
     **ONLINE only** (priority 3, locks out ICMP — once mDNS answers,
-    repeat-pinging is redundant noise). The claim rides the device's
-    live `_http._tcp` PTR (`has_any_live_ptr`), whose browser
-    `Removed` withdraws it; a PTR-less resolve applies the addresses
-    only and ping keeps arbitrating. A miss is **deliberately
+    repeat-pinging is redundant noise). The claim rides a live PTR on
+    either service type (`has_any_live_ptr`) — in practice
+    `_http._tcp` for these devices — whose browser `Removed`
+    withdraws it; a PTR-less resolve applies the addresses only and
+    ping keeps arbitrating. The `_http._tcp` fallback is suppressed
+    by `USE_PROMETHEUS` / `USE_SENDSPIN` / `USE_MDNS_EXTRA_SERVICES`
+    in firmware, so a non-API device with those components and no
+    `web_server:` publishes no PTR at all and never claims mdns —
+    honest UNKNOWN on an ICMP-filtered network instead of an
+    un-demotable ONLINE. A miss is **deliberately
     silent**: a single active query that didn't reply conflates "gone",
     "slow", and "packet loss", and there's no subscription delivering
     TTL-expiry here. Wait for the ICMP sweep in the same loop to decide
@@ -593,12 +599,16 @@ against legacy behaviour before assuming the simpler version suffices.
     tolerates absence) and **nothing else** — never api-encryption: the
     absent-key-means-plaintext rule from the esphomelib path would stamp
     a false confirmation on a device with no API. Drive **no** ONLINE
-    claim off it, but its `Removed` withdraws a non-API bucket's mdns
-    claim — this PTR is the ownership anchor for non-API devices
-    (#2388) — while promotion stays owned by the active-resolve /
-    MQTT / ping paths; an all-API name bucket is skipped entirely
-    (a device broadcasting the API gets its identity and its
-    `Removed` lifecycle from the esphomelib path). The level-triggered repair (`reconcile_from_cache`)
+    claim off it, but its `Removed` withdraws an mdns claim this PTR
+    anchored (#2388) — keyed on evidence, not the YAML: skipped while
+    a live esphomelib PTR owns the name (the `api_enabled` union
+    reads raw YAML text, so a compiled-without-api device whose YAML
+    gained `api:` must still withdraw) and when mdns doesn't own the
+    name at all (popping an MQTT-owned claim would flap a device the
+    broker still vouches for). Promotion stays owned by the
+    active-resolve / MQTT / ping paths; an all-API name bucket skips
+    the identity path (a device broadcasting the API gets its
+    identity and its `Removed` lifecycle from the esphomelib path). The level-triggered repair (`reconcile_from_cache`)
     reads both services' cached TXT. The one state the path does drive is
     the non-API side of `runtime_state.deployed_identity_live` — the
     session-only freshness bit the frontend gates the deployed identity

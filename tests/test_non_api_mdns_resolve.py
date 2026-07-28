@@ -371,3 +371,18 @@ async def test_resolve_without_live_http_ptr_applies_addresses_only() -> None:
     assert devices[0].runtime_state.state == DeviceState.UNKNOWN
     assert "kitchen" not in monitor.state.state_source
     assert devices[0].ip == "192.168.1.42"
+
+
+async def test_resolve_claims_behind_an_http_only_ptr() -> None:
+    """The http PTR alone anchors the claim; no esphomelib PTR exists for these devices."""
+    devices = [_device(loaded_integrations=["web_server"])]
+    monitor, _resolver = _make_monitor(devices, resolved={"kitchen.local": ["192.168.1.42"]})
+    cache = monitor.mdns._zeroconf.zeroconf.cache
+    cache.current_entry_with_name_and_alias.side_effect = lambda type_, _alias: (
+        MagicMock() if type_ == "_http._tcp.local." else None
+    )
+
+    await shared.resolve_non_api_mdns_targets(monitor)
+
+    assert devices[0].runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == "mdns"

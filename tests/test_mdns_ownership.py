@@ -406,17 +406,49 @@ async def test_http_removed_withdraws_a_non_api_bucket() -> None:
     monitor.ping.wake.assert_called_once()
 
 
-async def test_http_removed_ignored_for_an_all_api_bucket() -> None:
-    """API devices' reachability rides esphomelib; the http lifecycle stays identity-only."""
+async def test_http_removed_defers_to_a_live_esphomelib_ptr() -> None:
+    """The esphomelib lifecycle owns the name while its PTR is live."""
     device = make_online_api_device()
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.side_effect = lambda type_, _alias: (
+        MagicMock() if type_ == "_esphomelib._tcp.local." else None
+    )
+    monitor.mdns._zeroconf = zc
 
     _dispatch_http_removed(monitor)
 
     assert device.runtime_state.state == DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+    assert callbacks.calls_for("on_state_change") == []
+
+
+async def test_http_removed_withdraws_when_yaml_gained_api_but_firmware_lacks_it() -> None:
+    """The withdrawal keys on evidence, not the ``api_enabled`` YAML union."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+
+    _dispatch_http_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+
+
+async def test_http_removed_leaves_an_mqtt_owned_name_alone() -> None:
+    """A name mdns doesn't own has nothing to withdraw; the broker's vouch stands."""
+    device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MQTT
+    _prime_removed(monitor)
+
+    _dispatch_http_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MQTT
     assert callbacks.calls_for("on_state_change") == []
 
 

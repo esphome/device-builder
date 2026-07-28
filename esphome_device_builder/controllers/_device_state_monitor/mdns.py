@@ -32,7 +32,7 @@ from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
 from ...helpers.ip import drop_unspecified_addresses
-from ...models import DeviceState
+from ...models import DeviceState, ReachabilitySource
 from .._reachability_tracker import MdnsCacheInfo
 from .helpers import (
     _ESPHOME_SERVICE_TYPE,
@@ -588,9 +588,9 @@ class MdnsSource:
         Skipped when every config for the name exposes the API (the
         esphomelib path carries their identity and reachability, and
         the ``_http`` TXT isn't published with the API on). No ONLINE
-        claim; a ``Removed`` withdraws the bucket's mdns claim, and
-        promotion stays owned by the active-resolve / MQTT / ping
-        paths.
+        claim; a ``Removed`` withdraws an mdns claim this PTR
+        anchored, and promotion stays owned by the active-resolve /
+        MQTT / ping paths.
         """
         monitor = self._monitor
         device_name = device_name_from_service(name)
@@ -598,10 +598,26 @@ class MdnsSource:
         # YAMLs can share an ``esphome.name`` (a config + a ``foo (1)``
         # copy), and an all-API bucket is the only one to skip.
         bucket = monitor._get_devices_by_name(device_name)
-        if not bucket or all(device.api_enabled for device in bucket):
+        if not bucket:
             return
         if state_change == ServiceStateChange.Removed:
-            self._on_service_removed(name, device_name)
+            # Withdraw only a claim this PTR anchored — keyed on the
+            # evidence, not the YAML: the ``api_enabled`` union reads
+            # raw YAML text while the claim gates on the last compile's
+            # ``loaded_integrations``, and a compiled-without-api
+            # device whose YAML gained ``api:`` must still withdraw.
+            # The esphomelib lifecycle owns the name while its PTR is
+            # live, and a name mdns doesn't own has nothing to release
+            # (popping an MQTT-owned claim would flap a device the
+            # broker still vouches for).
+            if monitor.priority_for(
+                device_name
+            ) is ReachabilitySource.MDNS and not self._has_live_ptr(
+                device_name, _ESPHOME_SERVICE_TYPE
+            ):
+                self._on_service_removed(name, device_name)
+            return
+        if all(device.api_enabled for device in bucket):
             return
         info = AsyncServiceInfo(service_type, name)
         self.cache_apply_or_resolve(zeroconf, info, device_name, self._apply_http_txt)
