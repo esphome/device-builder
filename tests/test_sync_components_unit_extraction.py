@@ -22,6 +22,7 @@ import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
+    _SUFFIX_UNIT_RE,
     _audit_catalog_for_unit_mismatches,
     _collect_refined_types,
     _derive_suffix_units,
@@ -147,9 +148,18 @@ def test_extract_units_for_angle(cv) -> None:
     assert set(units) == {"°", "deg"}
 
 
-def test_extract_units_returns_none_for_unitless_validator(cv) -> None:
-    """An empty-unit `float_with_unit` yields no units, not mantissa regex fragments."""
-    assert _extract_validator_units(cv.float_with_unit("device factor", "")) is None
+def test_extract_units_returns_none_for_unitless_validator(cv, caplog) -> None:
+    """An empty-unit `float_with_unit` yields no units and drops without a warning."""
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        assert _extract_validator_units(cv.float_with_unit("device factor", "")) is None
+    assert "picker dropped" not in caplog.text
+
+
+def test_extract_units_warns_on_non_unit_alternation(cv, caplog) -> None:
+    """An alternation with no unit-shaped spelling warns instead of vanishing."""
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        assert _extract_validator_units(cv.float_with_unit("volume", "(m³)")) is None
+    assert "no unit-shaped spelling" in caplog.text
 
 
 def test_shipped_catalog_tsl2591_factors_stay_plain_float() -> None:
@@ -159,6 +169,24 @@ def test_shipped_catalog_tsl2591_factors_stay_plain_float() -> None:
     for key in ("device_factor", "glass_attenuation_factor"):
         assert entries[key]["type"] == "float"
         assert not entries[key].get("unit_options")
+
+
+def test_shipped_catalog_unit_options_are_unit_shaped() -> None:
+    """Every shipped ``unit_options`` value matches the unit-shape gate."""
+    violations = []
+
+    def walk(entries, name):
+        for entry in entries or []:
+            violations.extend(
+                (name, entry.get("key"), unit)
+                for unit in entry.get("unit_options") or []
+                if not _SUFFIX_UNIT_RE.match(unit)
+            )
+            walk(entry.get("config_entries"), name)
+
+    for body_path in sorted(_OUTPUT_BODIES_DIR.glob("*.json")):
+        walk(orjson.loads(body_path.read_bytes()).get("config_entries"), body_path.name)
+    assert not violations
 
 
 def test_extract_units_returns_none_for_non_closure() -> None:

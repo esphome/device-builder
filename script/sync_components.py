@@ -5573,11 +5573,7 @@ def _extract_validator_units(validator: Any) -> list[str] | None:
     raw_alternatives = [
         unicodedata.normalize(_UNIT_NORMALIZATION, alt) for alt in match.group(1).split("|") if alt
     ]
-    # A unitless validator (``cv.float_with_unit("device factor", "")``) has
-    # no unit group, so the search lands on the mantissa's ``(\w*?)``
-    # fragment; keep only unit-shaped alternatives so such fields stay
-    # plain floats.
-    raw_alternatives = [a for a in raw_alternatives if _SUFFIX_UNIT_RE.match(a)]
+    raw_alternatives = _unit_shaped_alternatives(raw_alternatives, match.group(1))
     if not raw_alternatives:
         return None
     # Prefer an alternative containing uppercase letters when one
@@ -5611,6 +5607,20 @@ def _extract_validator_units(validator: Any) -> list[str] | None:
     return [
         f"{prefix}{base_unit}" for prefix in _COMMON_METRIC_PREFIXES if prefix in metric_suffixes
     ]
+
+
+def _unit_shaped_alternatives(alternatives: list[str], group: str) -> list[str]:
+    r"""
+    Filter *alternatives* to unit-shaped spellings, warning when all are dropped.
+
+    A unitless validator (``cv.float_with_unit("device factor", "")``) has no
+    unit group, so the regex search lands on the mantissa's ``(\w*?)``
+    fragment; that known signature drops silently, anything else warns.
+    """
+    unit_shaped = [a for a in alternatives if _SUFFIX_UNIT_RE.match(a)]
+    if not unit_shaped and alternatives != [r"\w*?"]:
+        _LOGGER.warning("unit alternation %r has no unit-shaped spelling; picker dropped", group)
+    return unit_shaped
 
 
 # What a unit symbol may look like: short, no whitespace, unit charset
