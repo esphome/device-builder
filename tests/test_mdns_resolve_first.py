@@ -278,12 +278,18 @@ def _dispatch_removed(monitor: Any) -> None:
     )
 
 
+def _prime_removed(monitor: Any) -> None:
+    """Give the Removed path a live ICMP arbiter and a stubbed sweep wake."""
+    monitor.ping.icmp_available = True
+    monitor.ping.wake = MagicMock()
+
+
 async def test_removed_marks_unknown_and_wakes_the_ping_sweep() -> None:
     """A ``Removed`` drops to UNKNOWN, releases every ledger, and nudges the ICMP sweep."""
     device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    _prime_removed(monitor)
 
     _dispatch_removed(monitor)
 
@@ -292,6 +298,9 @@ async def test_removed_marks_unknown_and_wakes_the_ping_sweep() -> None:
     assert device.runtime_state.ip_addresses == []
     assert device.ip == "192.168.1.50"
     monitor.ping.wake.assert_called_once()
+    assert callbacks.calls_for("on_source_change") == [
+        ("on_source_change", "kitchen", ReachabilitySource.UNKNOWN),
+    ]
 
 
 async def test_removed_then_ping_miss_goes_offline() -> None:
@@ -299,7 +308,7 @@ async def test_removed_then_ping_miss_goes_offline() -> None:
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    _prime_removed(monitor)
 
     _dispatch_removed(monitor)
     shared.apply_ping_result(monitor, "kitchen", None)
@@ -313,7 +322,7 @@ async def test_removed_then_ping_answer_comes_back_online_via_ping() -> None:
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    _prime_removed(monitor)
 
     _dispatch_removed(monitor)
     shared.apply_ping_result(monitor, "kitchen", 2.5)
@@ -329,7 +338,7 @@ async def test_added_after_removed_reclaims_mdns_and_outranks_a_late_ping_miss(
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    _prime_removed(monitor)
     stub_async_service_info(monkeypatch, cached=True)
 
     _dispatch_removed(monitor)
@@ -344,3 +353,47 @@ async def test_added_after_removed_reclaims_mdns_and_outranks_a_late_ping_miss(
     shared.apply_ping_result(monitor, "kitchen", None)
     assert device.runtime_state.state == DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+
+
+async def test_removed_without_icmp_goes_offline_directly() -> None:
+    """With no ICMP arbiter the withdrawal itself demotes instead of parking on UNKNOWN."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    assert monitor.ping.icmp_available is False
+
+    _dispatch_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.OFFLINE
+    assert "kitchen" not in monitor.state.state_source
+    assert device.ip == "192.168.1.50"
+
+
+async def test_removed_on_an_offline_device_keeps_the_confirmed_state() -> None:
+    """A late PTR expiry can't un-confirm a ping-settled OFFLINE."""
+    device = make_online_api_device(state=DeviceState.OFFLINE)
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    _prime_removed(monitor)
+
+    _dispatch_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.OFFLINE
+    assert callbacks.calls_for("on_state_change") == []
+    assert "kitchen" not in monitor.state.state_source
+
+
+async def test_removed_with_a_lower_priority_owner_emits_one_source_change() -> None:
+    """The withdrawal never stamps transient mdns ownership over a ping-owned ledger."""
+    device = make_online_api_device()
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
+    _prime_removed(monitor)
+
+    _dispatch_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert callbacks.calls_for("on_source_change") == [
+        ("on_source_change", "kitchen", ReachabilitySource.UNKNOWN),
+    ]

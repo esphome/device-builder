@@ -535,9 +535,13 @@ against legacy behaviour before assuming the simpler version suffices.
     subscribed to `_esphomelib._tcp.local.`. ONLINE → mdns; a `Removed`
     (goodbye or TTL expiry) is a **withdrawal, not an OFFLINE verdict**:
     `_on_service_removed` marks the device UNKNOWN, releases the
-    precedence ledger, and wakes the ICMP sweep — ping settles
-    ONLINE/OFFLINE within seconds, and mdns ownership returns via the
-    announce or the resolve-first sweep. Never verify-resolve a
+    precedence ledger (without ever stamping transient mdns ownership),
+    and wakes the ICMP sweep — ping settles ONLINE/OFFLINE within
+    seconds, and mdns ownership returns via the announce or the
+    resolve-first sweep. With ICMP unavailable the withdrawal itself
+    demotes to OFFLINE (no arbiter will ever run); an already-OFFLINE
+    bucket keeps its confirmed verdict; other channels' freshness
+    stamps survive the withdrawal. Never verify-resolve a
     `Removed`: a goodbye withdraws only the PTR (firmware never byes
     SRV/A, which stay cached for their full TTLs), so the resolve
     vouches for a sleeping device straight off the cache and latches it

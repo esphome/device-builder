@@ -100,11 +100,12 @@ class ReachabilityTracker:
         # when zeroconf suppresses ``Updated`` callbacks for
         # same-content TTL refreshes.
         #
-        # ``clear(name)`` is the only pruner (mDNS browser's
-        # ``Removed`` + ``DevicesController`` YAML-delete). An
-        # OFFLINE state from ping / MQTT timeout deliberately
-        # does *not* clear — the drawer wants "we last heard
-        # on MQTT 8 min ago" after the channel goes silent.
+        # ``clear(name)`` is the only pruner (the
+        # ``DevicesController`` YAML-delete). An OFFLINE state
+        # from ping / MQTT timeout — and an mDNS ``Removed``
+        # withdrawal — deliberately does *not* clear: the drawer
+        # wants "we last heard on MQTT 8 min ago" after the
+        # channel goes silent.
         self._ping_last_seen: dict[str, float] = {}
         self._mqtt_last_seen: dict[str, float] = {}
         self._ping_rtt_ms: dict[str, float] = {}

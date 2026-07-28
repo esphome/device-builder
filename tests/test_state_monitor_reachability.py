@@ -9,9 +9,9 @@ These tests pin the four hand-offs the monitor makes to the tracker:
 2. ``apply(name, OFFLINE, source)`` does *not* record — an OFFLINE
    transition isn't a freshness signal, the channel stopped hearing
    from the device.
-3. mDNS browser ``Removed`` clears every signal for the device — the
-   intent is "we lost the device", a re-announce should start with
-   fresh timestamps not stale-by-hours ones.
+3. mDNS browser ``Removed`` withdraws the mDNS claim but leaves the
+   other channels' freshness stamps alone — a withdrawal says nothing
+   about what ping / MQTT last heard.
 4. The ping path captures ``Host.min_rtt`` and pairs it with the
    apply call — the "Round trip 4 ms" line in the drawer comes from
    here.
@@ -530,13 +530,15 @@ def test_forget_drops_source_ledger() -> None:
     assert "kitchen" not in monitor.state.state_source
 
 
-async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
-    """The real browser-callback Removed path routes through to ``clear``."""
+async def test_mdns_removed_via_dispatch_keeps_channel_freshness() -> None:
+    """The real browser-callback Removed path leaves ping / MQTT stamps alone."""
     devices = [_make_device(state=DeviceState.ONLINE)]
     tracker = ReachabilityTracker()
-    tracker.observe("kitchen", "mdns")
+    tracker.observe("kitchen", "ping")
+    tracker.observe("kitchen", "mqtt")
 
     monitor = _make_monitor(devices, tracker)
+    monitor.ping.icmp_available = True
 
     monitor.mdns._on_esphomelib_service_state_change(
         MagicMock(),
@@ -546,7 +548,8 @@ async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
     )
 
     snap = tracker.snapshot("kitchen", state=DeviceState.UNKNOWN, active_source="unknown", ip="")
-    assert snap["mdns_last_seen_seconds_ago"] is None
+    assert snap["ping_last_seen_seconds_ago"] is not None
+    assert snap["mqtt_last_seen_seconds_ago"] is not None
 
 
 def test_get_mdns_cache_info_no_zeroconf_returns_none() -> None:

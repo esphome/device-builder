@@ -519,9 +519,13 @@ class MdnsSource:
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
         # here would vouch for a sleeping device straight off the cache
-        # and latch it ONLINE (#2369, #1776).
+        # and latch it ONLINE (#2369, #1776). With ICMP unavailable no
+        # arbiter will ever run, so the withdrawal itself demotes.
         monitor = self._monitor
-        monitor.source_withdrawn(device_name, "mdns")
+        withdrawn_state = (
+            DeviceState.UNKNOWN if monitor.ping.icmp_available else DeviceState.OFFLINE
+        )
+        monitor.source_withdrawn(device_name, "mdns", state=withdrawn_state)
         monitor.probe_device_ping(device_name)
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
