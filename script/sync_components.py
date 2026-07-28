@@ -5525,18 +5525,18 @@ _UNIT_NORMALIZATION: Literal["NFC"] = "NFC"
 
 @cache
 def _present_non_introspectable_units(cv: Any) -> dict[str, list[str]]:
-    """``_NON_INTROSPECTABLE_UNITS`` entries still present in *cv*; warn on any gone.
+    """``_NON_INTROSPECTABLE_UNITS`` entries resolved against *cv*; any gone fails the sync.
 
-    A renamed/removed validator can't be rediscovered (no regex), so surface
-    it as sync-time telemetry rather than a silently missing picker.
+    A renamed/removed validator can't be rediscovered (no regex), and a
+    warning shipped a silent picker loss once (cv.data_size, 2026.7).
     """
-    present: dict[str, list[str]] = {}
-    for name, units in _NON_INTROSPECTABLE_UNITS.items():
-        if getattr(cv, name, None) is None:
-            _LOGGER.warning("hand-maintained unit validator cv.%s is gone; picker dropped", name)
-        else:
-            present[name] = units
-    return present
+    missing = [name for name in _NON_INTROSPECTABLE_UNITS if getattr(cv, name, None) is None]
+    if missing:
+        raise RuntimeError(
+            f"hand-maintained unit validators gone from esphome: {missing}; "
+            "renamed upstream? Update _NON_INTROSPECTABLE_UNITS."
+        )
+    return dict(_NON_INTROSPECTABLE_UNITS)
 
 
 def _extract_validator_units(validator: Any) -> list[str] | None:

@@ -387,8 +387,8 @@ def test_rgbww_color_temperature_refines_to_float_with_unit(loader) -> None:
     assert warm.unit_options == ["mireds", "K"]
 
 
-def test_missing_non_introspectable_validator_warns(caplog) -> None:
-    """A removed hand-maintained validator warns and is dropped, not silently missing."""
+def test_missing_non_introspectable_validator_fails_the_sync() -> None:
+    """A removed hand-maintained validator raises instead of silently dropping a picker."""
 
     class _StubCV:
         validate_bytes = object()
@@ -397,11 +397,8 @@ def test_missing_non_introspectable_validator_warns(caplog) -> None:
         percentage_int = object()
         # temperature_delta removed
 
-    with caplog.at_level(logging.WARNING, logger="sync_components"):
-        present = _present_non_introspectable_units(_StubCV())
-    assert "temperature_delta" in caplog.text
-    assert "temperature_delta" not in present
-    assert {"validate_bytes", "temperature", "color_temperature"} <= present.keys()
+    with pytest.raises(RuntimeError, match="temperature_delta"):
+        _present_non_introspectable_units(_StubCV())
 
 
 def test_walk_descends_typed_schema_branches(cv) -> None:
