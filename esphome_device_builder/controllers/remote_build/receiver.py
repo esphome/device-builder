@@ -18,6 +18,7 @@ reference passed to both at construction.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Hashable
 from typing import TYPE_CHECKING, Any, Literal
@@ -125,10 +126,15 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
         if self.state.job_fanout is not None:
             self.state.job_fanout.stop()
             self.state.job_fanout = None
-        if self.state.submit_job_receiver is not None:
-            await self.state.submit_job_receiver.stop()
-        if self.state.artifacts_download_sender is not None:
-            await self.state.artifacts_download_sender.stop()
+        # Both stop() bodies flip their refuse-new flag first, so
+        # the drains can overlap; a parked executor pack and a
+        # parked extract then cost max, not sum, of their waits.
+        if stoppers := [
+            handler.stop()
+            for handler in (self.state.submit_job_receiver, self.state.artifacts_download_sender)
+            if handler is not None
+        ]:
+            await asyncio.gather(*stoppers)
         # Drop the receiver-side handler refs so a subsequent
         # ``get_*`` call after ``stop()`` fails its
         # ``RuntimeError`` guard cleanly instead of returning a

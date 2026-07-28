@@ -589,8 +589,9 @@ class PeerLinkClient:
         ``HEARTBEAT_TIMEOUT`` so the reason reflects the real
         cause.
         """
+        loop = asyncio.get_running_loop()
         state = _SessionLoopState(
-            last_inbound_at=asyncio.get_running_loop().time(),
+            last_inbound_at=loop.time(),
             close_reason=_LOCAL_CLOSE_PEER_HUNG_UP,
         )
 
@@ -639,11 +640,7 @@ class PeerLinkClient:
                     # context for the malformed-frame case.
                     state.close_reason = _LOCAL_CLOSE_TRANSPORT_ERROR
                     break
-                # Any authenticated frame is liveness — a receiver
-                # streaming artifact chunks is alive even when its
-                # pong is serialized behind them on the shared WS
-                # (#2377).
-                state.last_inbound_at = asyncio.get_running_loop().time()
+                state.last_inbound_at = loop.time()
                 msg_type = parsed.get("type")
                 if msg_type == AppMessageType.PING.value:
                     nonce = parsed.get("nonce")

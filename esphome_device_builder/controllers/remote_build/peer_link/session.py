@@ -268,9 +268,6 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
         if parsed is None:
             await session.terminate(TerminateReason.MALFORMED_FRAME)
             return
-        # Any authenticated frame is liveness — a peer streaming
-        # chunks is alive even when its pong is serialized behind
-        # them on the shared WS (#2377).
         session.last_inbound_at = _monotonic()
         msg_type = parsed.get("type")
         if msg_type == AppMessageType.PONG.value:
