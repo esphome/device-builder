@@ -5222,21 +5222,50 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
+# id-keyed with the node held alive: a wrapper closure builds a FRESH
+# schema per call (validate_triggers extends its base each time), which
+# defeats the walker's (id, path) dedupe and re-expands recursive
+# schemas (lvgl) combinatorially unless every probe returns one object.
+_HIDDEN_SCHEMA_CACHE: dict[int, tuple[Any, Any]] = {}
+
+
 def _hidden_schema(node: Any) -> Any | None:
     """
     Return the schema a ``@schema_extractor`` closure yields for ``SCHEMA_EXTRACT``, else None.
 
-    Only callables whose code references ``SCHEMA_EXTRACT`` are probed.
+    Only callables whose code references ``SCHEMA_EXTRACT`` are probed;
+    repeated probes of one closure return one object.
     """
     code = getattr(node, "__code__", None)
     if code is None or "SCHEMA_EXTRACT" not in code.co_names:
         return None
+    cached = _HIDDEN_SCHEMA_CACHE.get(id(node))
+    if cached is not None:
+        return cached[1]
     from esphome.schema_extractors import SCHEMA_EXTRACT
 
     try:
-        return node(SCHEMA_EXTRACT)
+        result = node(SCHEMA_EXTRACT)
     except Exception:
+        result = None
+    _HIDDEN_SCHEMA_CACHE[id(node)] = (node, result)
+    return result
+
+
+def _delegated_schema(node: Any) -> Any | None:
+    """Return the sole module-level ``vol.Schema`` a plain wrapper references, else None."""
+    code = getattr(node, "__code__", None)
+    if code is None:
         return None
+    globs = getattr(node, "__globals__", None) or {}
+    schemas = {
+        id(value): value
+        for name in code.co_names
+        if isinstance((value := globs.get(name)), vol.Schema)
+    }
+    if len(schemas) == 1:
+        return next(iter(schemas.values()))
+    return None
 
 
 def _unwrap_schema_to_dict(node: Any) -> dict | None:
@@ -5251,6 +5280,9 @@ def _unwrap_schema_to_dict(node: Any) -> dict | None:
     stops descending into nested ``vol.All`` values like ``wifi.eap``.
     Prefer the ``validators`` tuple (the source of truth on compound
     validators), falling back to ``.schema`` for plain ``vol.Schema``.
+    Wrapper closures peel only to a ``vol.Schema`` result — a hidden
+    extract can be a non-schema (cv.enum yields its bare value mapping,
+    which would walk enum values as config keys).
     """
     for _ in range(8):
         if isinstance(node, dict):
@@ -5267,6 +5299,14 @@ def _unwrap_schema_to_dict(node: Any) -> dict | None:
             continue
         if hasattr(node, "schema"):
             node = node.schema
+            continue
+        hidden = _hidden_schema(node)
+        if isinstance(hidden, vol.Schema):
+            node = hidden
+            continue
+        delegated = _delegated_schema(node)
+        if delegated is not None:
+            node = delegated
             continue
         return None
     return None
@@ -5349,13 +5389,6 @@ def _walk_schema_keys(
             sub_path = (*path, key_name)
             visit(key, key_name, val, sub_path)
             walk(val, sub_path, depth + 1)
-
-    # Top-level only: a nested peel explodes on recursive closure-built
-    # schemas (lvgl) — each call constructs fresh objects, so the
-    # (id, path) dedupe never hits and the walk grows combinatorially.
-    # It also mis-reads non-schema extracts: cv.enum yields its bare
-    # value mapping, which would walk enum values as config keys.
-    schema = _hidden_schema(schema) or schema
 
     # Best-effort: don't tank the whole sync if one component
     # manifest's schema is misshapen. Log at debug level so we can
@@ -6066,7 +6099,7 @@ def _collect_typed_defaults(manifest: Any) -> dict[tuple[str, ...], Any]:
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
-    found = _typed_default_of(schema)
+    found = _typed_default_of(_hidden_schema(schema) or schema)
     if found is None:
         return {}
     typed_key, default = found

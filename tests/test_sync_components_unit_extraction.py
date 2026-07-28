@@ -28,6 +28,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _derive_suffix_units,
     _enumerate_platform_manifests,
     _extract_validator_units,
+    _hidden_schema,
     _require_non_introspectable_units,
     _walk_schema_keys,
 )
@@ -445,6 +446,55 @@ def test_walk_does_not_call_plain_validators(cv) -> None:
     assert calls == []
 
 
+def test_walk_peels_nested_wrapper_values(cv) -> None:
+    """A wrapped nested value's fields are visited; an enum value's mapping is not."""
+    from esphome import schema_extractors  # noqa: PLC0415
+
+    inner = cv.Schema({cv.Optional("bytes"): cv.percentage_int})
+
+    def wrapped(config):
+        if config == schema_extractors.SCHEMA_EXTRACT:
+            return inner
+        return inner(config)
+
+    schema = cv.Schema(
+        {
+            cv.Optional("debug"): wrapped,
+            cv.Optional("direction"): cv.enum({"RX": 1, "TX": 2}, upper=True),
+        }
+    )
+    keys: set[str] = set()
+    _walk_schema_keys(schema, lambda _k, key_name, _v, _path: keys.add(key_name))
+    assert "bytes" in keys
+    assert not {"RX", "TX"} & keys
+
+
+def test_walk_peels_delegating_wrapper(cv) -> None:
+    """A plain wrapper delegating to one module-level schema is peeled."""
+    namespace = {"DEBUG_SCHEMA": cv.Schema({cv.Optional("after"): cv.percentage_int})}
+    exec("def wrapper(value):\n    return DEBUG_SCHEMA(value)", namespace)  # noqa: S102
+    keys: set[str] = set()
+    _walk_schema_keys(
+        cv.Schema({cv.Optional("debug"): namespace["wrapper"]}),
+        lambda _k, key_name, _v, _path: keys.add(key_name),
+    )
+    assert "after" in keys
+
+
+def test_hidden_schema_probe_is_memoized(cv) -> None:
+    """Repeated probes of one closure return one schema object."""
+    from esphome import schema_extractors  # noqa: PLC0415
+
+    base = cv.Schema({cv.Optional("x"): cv.percentage_int})
+
+    def wrapped(config):
+        if config == schema_extractors.SCHEMA_EXTRACT:
+            return base.extend({})
+        return base(config)
+
+    assert _hidden_schema(wrapped) is _hidden_schema(wrapped)
+
+
 def test_shipped_catalog_remote_receiver_carries_introspection() -> None:
     """The generated remote_receiver body is enriched through its trigger wrapper."""
     body = orjson.loads((_OUTPUT_BODIES_DIR / "remote_receiver.json").read_bytes())
@@ -594,6 +644,24 @@ def test_shipped_catalog_buffer_size_carries_byte_units() -> None:
     entries = {e["key"]: e for e in body["config_entries"]}
     assert entries["buffer_size"]["type"] == "float_with_unit"
     assert entries["buffer_size"]["unit_options"] == ["B", "kB", "MB", "GB"]
+
+
+def test_uart_debug_after_bytes_refines_through_wrapper(loader) -> None:
+    """`uart.debug.after.bytes` refines through the `maybe_empty_debug` wrapper."""
+    refined = _collect_refined_types(loader.get_component("uart"))
+    after_bytes = refined[("debug", "after", "bytes")]
+    assert after_bytes.type == "float_with_unit"
+    assert after_bytes.unit_options == ["B", "kB", "MB", "GB"]
+
+
+def test_shipped_catalog_debug_after_bytes_carries_byte_units() -> None:
+    """The generated uart body renders the nested debug.after.bytes with a byte picker."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "uart.json").read_bytes())
+    entries = {e["key"]: e for e in body["config_entries"]}
+    after = {e["key"]: e for e in entries["debug"]["config_entries"]}["after"]
+    bytes_entry = {e["key"]: e for e in after["config_entries"]}["bytes"]
+    assert bytes_entry["type"] == "float_with_unit"
+    assert bytes_entry["unit_options"] == ["B", "kB", "MB", "GB"]
 
 
 def test_collect_refined_types_percentage_int(cv) -> None:
