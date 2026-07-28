@@ -393,7 +393,7 @@ def _dispatch_http_removed(monitor: Any) -> None:
 
 
 async def test_http_removed_withdraws_a_non_api_bucket() -> None:
-    """The ``_http._tcp`` PTR anchors non-API ownership; its Removed withdraws (#2388)."""
+    """The ``_http._tcp`` PTR anchors non-API ownership; its Removed withdraws."""
     device = make_online_api_device(api_enabled=False, loaded_integrations=["web_server", "wifi"])
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
