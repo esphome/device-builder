@@ -231,11 +231,13 @@ class MdnsSource:
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
-        # Decode TXT per service, live esphomelib first — one
+        # Decode TXT per service: live esphomelib wins (one
         # freshest-of-both pick could surface web_server's contentless
-        # TXT over the identity TXT on an api+web_server device, while
-        # an expired esphomelib TXT (a device recompiled without
-        # ``api:``) must not shadow a live http identity TXT.
+        # TXT over the identity TXT on an api+web_server device), then
+        # a live http TXT (an expired esphomelib TXT — a device
+        # recompiled without ``api:`` — must not shadow it), then the
+        # aged records, so the panel keeps the last-known identity the
+        # unfiltered ``records`` below deliberately preserve.
         now_ms = current_time_millis()
         txt_by_service: dict[str, list[DNSRecord]] = {}
         records: list[DNSRecord] = [*self._get_address_records(name)]
@@ -246,9 +248,10 @@ class MdnsSource:
             records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
             records.extend(txts)
         esphomelib_txts = txt_by_service[_ESPHOME_SERVICE_TYPE]
-        if all(txt.is_expired(now_ms) for txt in esphomelib_txts):
-            esphomelib_txts = []
-        txt_dns_records = esphomelib_txts or txt_by_service[_HTTP_SERVICE_TYPE]
+        http_txts = txt_by_service[_HTTP_SERVICE_TYPE]
+        live_esphomelib = [r for r in esphomelib_txts if not r.is_expired(now_ms)]
+        live_http = [r for r in http_txts if not r.is_expired(now_ms)]
+        txt_dns_records = live_esphomelib or live_http or esphomelib_txts or http_txts
         # The expiry countdown rides the ownership anchor.
         ptr = self._anchor_ptr(name)
         if ptr is not None:
@@ -550,6 +553,12 @@ class MdnsSource:
         # their data below but take no ownership.
         if self._has_live_ptr(device_name, info.type):
             monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
+        else:
+            _LOGGER.debug(
+                "mDNS resolve of %s (%s) applied data only (no live device-named PTR)",
+                device_name,
+                info.name,
+            )
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``
         # suffix). ``apply_ip_addresses`` picks the IPv4 primary
