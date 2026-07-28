@@ -20,12 +20,13 @@ harness stays visible:
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import tarfile
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -49,6 +50,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 )
 from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
+from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
 from esphome_device_builder.helpers.storage_path import (
     resolve_compiled_config_path,
     resolve_idedata_path,
@@ -57,6 +59,7 @@ from esphome_device_builder.helpers.storage_path import (
 from esphome_device_builder.models import (
     DownloadArtifactsFrameData,
     JobStatus,
+    JobType,
 )
 
 from .conftest import make_peer_link_session as _make_session
@@ -72,6 +75,7 @@ def _make_firmware_with_job(
     remote_job_id: str = "remote-1",
     status: JobStatus = JobStatus.COMPLETED,
     configuration: str = "kitchen.yaml",
+    active_jobs: list[Any] | None = None,
 ) -> Any:
     """Stub ``FirmwareController`` exposing one matching job via the public API."""
     job = MagicMock()
@@ -91,11 +95,46 @@ def _make_firmware_with_job(
     firmware.remote_peer_job_ids.side_effect = lambda *, remote_peer: (
         [job.remote_job_id] if job.remote_peer == remote_peer else []
     )
+    firmware.state.active_jobs.side_effect = lambda: iter(active_jobs or [])
     return firmware
 
 
 def _make_sender(firmware: Any | None = None) -> ArtifactsDownloadSender:
     return ArtifactsDownloadSender(firmware_controller=firmware or _make_firmware_with_job())
+
+
+async def _drain_download(sender: ArtifactsDownloadSender) -> None:
+    """Await the off-loop pack + stream task spawned by ``handle_download_artifacts``."""
+    await sender._downloads.wait_idle()
+
+
+_PACK_TARGET = (
+    "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts"
+)
+
+
+def _patch_pack(
+    monkeypatch: pytest.MonkeyPatch,
+    tarball: bytes = b"x" * 10,
+    firmware_offset: str = "0x0",
+) -> None:
+    monkeypatch.setattr(
+        _PACK_TARGET,
+        lambda _configuration: PackedArtifacts(tarball=tarball, firmware_offset=firmware_offset),
+    )
+
+
+def _parked_session(release: asyncio.Event | None = None) -> Any:
+    """Session stub whose ``send_app_frame`` parks until *release* is set (forever when omitted)."""
+    session = _make_session()
+    gate = release or asyncio.Event()
+
+    async def _parked_send(_payload: dict[str, Any]) -> bool:
+        await gate.wait()
+        return True
+
+    session.send_app_frame = AsyncMock(side_effect=_parked_send)
+    return session
 
 
 def _last_app_frame(session: Any) -> dict[str, Any]:
@@ -227,7 +266,7 @@ async def test_download_artifacts_build_dir_missing_rejected(
         raise FileNotFoundError("StorageJSON sidecar missing for kitchen.yaml")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
+        _PACK_TARGET,
         _raise_missing,
     )
     sender = _make_sender(_make_firmware_with_job(configuration="kitchen.yaml"))
@@ -236,6 +275,7 @@ async def test_download_artifacts_build_dir_missing_rejected(
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     with caplog.at_level("WARNING"):
         await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+        await _drain_download(sender)
 
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
@@ -259,7 +299,7 @@ async def test_download_artifacts_reject_detail_capped(
         raise FileNotFoundError("x" * 1000)
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
+        _PACK_TARGET,
         _raise_long,
     )
     sender = _make_sender(_make_firmware_with_job(configuration="kitchen.yaml"))
@@ -267,6 +307,7 @@ async def test_download_artifacts_reject_detail_capped(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     payload = _last_app_frame(session)
     assert payload["reason"] == "build_dir_missing"
@@ -282,7 +323,7 @@ async def test_download_artifacts_pack_failed_rejected(
         raise RuntimeError("size cap")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
+        _PACK_TARGET,
         _raise,
     )
     sender = _make_sender()
@@ -290,6 +331,7 @@ async def test_download_artifacts_pack_failed_rejected(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
@@ -301,20 +343,13 @@ async def test_download_artifacts_happy_path_streams_start_chunk_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Happy path sends ``artifacts_start`` → chunk(s) → ``artifacts_end{accepted: true}``."""
-    tarball = b"x" * 200
-
-    def _fake_pack(_configuration: str) -> PackedArtifacts:
-        return PackedArtifacts(tarball=tarball, firmware_offset="0x10000")
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
-        _fake_pack,
-    )
+    _patch_pack(monkeypatch, tarball=b"x" * 200, firmware_offset="0x10000")
     sender = _make_sender()
     session = _make_session()
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     frames = _all_app_frames(session)
     assert frames[0]["type"] == "artifacts_start"
@@ -340,7 +375,7 @@ async def test_download_artifacts_clears_inflight_on_reject(
         raise RuntimeError("boom")
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
+        _PACK_TARGET,
         _raise,
     )
     sender = _make_sender()
@@ -348,8 +383,216 @@ async def test_download_artifacts_clears_inflight_on_reject(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     assert session.dashboard_id not in sender._inflight
+
+
+# ---------------------------------------------------------------------------
+# handle_download_artifacts — off-loop streaming
+# ---------------------------------------------------------------------------
+
+
+async def test_download_artifacts_streams_off_the_receive_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``handle_download_artifacts`` returns while the stream is still parked on a send."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    release = asyncio.Event()
+    session = _parked_session(release)
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    assert session.dashboard_id in sender._inflight
+    assert sender.active
+
+    release.set()
+    await _drain_download(sender)
+    assert not sender.active
+    assert session.dashboard_id not in sender._inflight
+    assert _all_app_frames(session)[-1]["type"] == "artifacts_end"
+
+
+async def test_discard_session_cancels_the_inflight_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``discard_session`` cancels a mid-stream download and frees the slot."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _parked_session(asyncio.Event())
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    task = sender._inflight[session.dashboard_id]
+
+    sender.discard_session(session.dashboard_id)
+    await asyncio.gather(task, return_exceptions=True)
+
+    assert task.cancelled()
+    assert not sender.active
+    assert session.dashboard_id not in sender._inflight
+
+
+async def test_cancelled_stream_leaves_a_successor_slot_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled stream's cleanup doesn't pop a reconnected session's fresh slot."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    old_session = _parked_session(asyncio.Event())
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(old_session, cast(dict[str, Any], frame))
+    old_task = sender._inflight[old_session.dashboard_id]
+    sender.discard_session(old_session.dashboard_id)
+
+    release = asyncio.Event()
+    new_session = _parked_session(release)
+    await sender.handle_download_artifacts(new_session, cast(dict[str, Any], frame))
+
+    # The cancelled task's guarded pop must not evict the fresh slot.
+    await asyncio.gather(old_task, return_exceptions=True)
+    assert new_session.dashboard_id in sender._inflight
+
+    release.set()
+    await _drain_download(sender)
+    assert new_session.dashboard_id not in sender._inflight
+    assert _all_app_frames(new_session)[-1]["accepted"] is True
+
+
+async def test_stream_crash_sends_terminal_stream_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected send crash still resolves the offloader with ``stream_failed``."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[RuntimeError("boom"), True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    payload = _last_app_frame(session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "stream_failed"
+    assert payload["detail"] == "RuntimeError: boom"
+    assert session.dashboard_id not in sender._inflight
+
+
+async def test_download_artifacts_rejected_busy_during_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An active build-env reset rejects the download ``busy``."""
+    _patch_pack(monkeypatch)
+    reset_job = MagicMock()
+    reset_job.job_type = JobType.RESET_BUILD_ENV
+    sender = _make_sender(_make_firmware_with_job(active_jobs=[reset_job]))
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    assert not sender.active
+    payload = _last_app_frame(session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "busy"
+
+
+async def test_stream_aborts_on_first_failed_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A send reporting failure stops the chunk loop and best-effort rejects."""
+    _patch_pack(monkeypatch, tarball=b"x" * (BUNDLE_CHUNK_SIZE_BYTES * 2 + 1))
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[True, True, False, True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    frames = _all_app_frames(session)
+    assert [f["type"] for f in frames] == [
+        "artifacts_start",
+        "artifacts_chunk",
+        "artifacts_chunk",
+        "artifacts_end",
+    ]
+    assert frames[-1]["accepted"] is False
+    assert frames[-1]["reason"] == "stream_failed"
+    assert frames[-1]["detail"] == "send failed at chunk 2/3"
+    assert session.dashboard_id not in sender._inflight
+
+
+async def test_stream_aborts_on_failed_start_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed ``artifacts_start`` send skips the chunks and best-effort rejects."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[False, True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    frames = _all_app_frames(session)
+    assert [f["type"] for f in frames] == ["artifacts_start", "artifacts_end"]
+    assert frames[-1]["accepted"] is False
+    assert frames[-1]["detail"] == "send failed at start"
+
+
+async def test_stream_aborts_on_failed_end_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed terminal send still attempts the best-effort reject."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[True, True, False, True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    frames = _all_app_frames(session)
+    assert [f["type"] for f in frames[:3]] == [
+        "artifacts_start",
+        "artifacts_chunk",
+        "artifacts_end",
+    ]
+    assert frames[-1]["accepted"] is False
+    assert frames[-1]["detail"] == "send failed at end"
+
+
+async def test_stop_drains_and_refuses_new_downloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stop()`` cancels the in-flight stream and refuses later requests."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _parked_session(asyncio.Event())
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await sender.stop()
+
+    assert not sender.active
+    assert not sender._inflight
+
+    late_session = _make_session()
+    await sender.handle_download_artifacts(late_session, cast(dict[str, Any], frame))
+    assert not sender.active
+    payload = _last_app_frame(late_session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "shutting_down"
 
 
 # ---------------------------------------------------------------------------
@@ -794,16 +1037,6 @@ def test_render_tarball_rejects_oversized_on_the_wire(
 
     with pytest.raises(RuntimeError, match=r"would exceed FIRMWARE_MAX_TOTAL_BYTES on the wire"):
         _render_tarball([("tiny.bin", payload)], configuration="kitchen.yaml")
-
-
-def test_artifacts_download_sender_discard_session_clears_inflight() -> None:
-    """``discard_session`` removes the inflight slot for *dashboard_id*."""
-    sender = _make_sender()
-    sender._inflight["alpha"] = MagicMock()
-
-    sender.discard_session("alpha")
-
-    assert "alpha" not in sender._inflight
 
 
 def test_unpack_artifacts_response_round_trip(tmp_path: Path) -> None:

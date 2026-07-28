@@ -2611,8 +2611,10 @@ def build_component_entry(
         # modbus_controller item ``address``). Hub builds keep them.
         bleed = (introspection.get("field_range_bleed_keys") or {}).get(domain, set())
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
-    _apply_field_ranges(config_entries, field_ranges)
+    # Refined types first: the range gate reads the entry's final type,
+    # and a field promoted to float_with_unit must keep its bounds.
     _apply_refined_types(config_entries, introspection.get("refined_types") or {})
+    _apply_field_ranges(config_entries, field_ranges, component_id)
     _apply_component_gates(config_entries, introspection.get("component_gates") or {})
     _apply_typed_defaults(config_entries, introspection.get("typed_defaults") or {})
     _apply_inclusive_groups(config_entries, introspection.get("inclusive_groups") or {})
@@ -7775,11 +7777,18 @@ def _platform_field_keys(platform_manifests: list[Any]) -> set[tuple[str, ...]]:
     return keys
 
 
+# Entry types whose input renders the ``range`` bound. Non-numeric
+# entries never get one: a rescaling validator's bounds live in a
+# space the typed form doesn't share (cv.percentage's 0-1 vs "50%").
+_RANGE_ENTRY_TYPES = frozenset({"integer", "float", "float_with_unit"})
+
+
 def _apply_field_ranges(
     entries: list[dict],
     ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+    component_id: str = "",
 ) -> None:
-    """Overlay schema-derived ``range`` bounds onto matching entries.
+    """Overlay schema-derived ``range`` bounds onto matching numeric entries.
 
     Live-introspected bounds are more specific than the static
     ``data_type`` defaults (e.g. ``uint8_t``'s ``[0, 255]``), so
@@ -7788,13 +7797,27 @@ def _apply_field_ranges(
     """
     if not ranges:
         return
+    dropped: list[str] = []
 
     def visit(entry: dict, path: tuple[str, ...]) -> None:
         bounds = ranges.get(path)
-        if bounds is not None:
+        if bounds is None:
+            return
+        if entry.get("type") in _RANGE_ENTRY_TYPES:
             entry["range"] = list(bounds)
+        else:
+            dropped.append(f"{'.'.join(path)} ({entry.get('type')})")
 
     _walk_catalog_entries(entries, visit)
+    if dropped:
+        # The dropped bound is often the only visible symptom of a
+        # mistyped field (a hex or percentage validator landing string).
+        _LOGGER.warning(
+            "%s: range dropped from %d non-numeric entries: %s",
+            component_id or "<unknown>",
+            len(dropped),
+            ", ".join(dropped),
+        )
 
 
 def _list_fields_in_schema(schema: Any) -> dict[tuple[str, ...], bool]:

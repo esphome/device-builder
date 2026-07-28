@@ -7,12 +7,12 @@ from collections.abc import Coroutine
 from functools import partial
 from typing import Any
 
-from ....helpers.async_ import drain_tasks, log_task_exit
+from .._task_window import TaskWindow
 
 _Key = tuple[str, str]
 
 
-class ExtractWindow:
+class ExtractWindow(TaskWindow):
     """
     Post-ack extract tasks: per-peer FIFO serialization, cancel flags, drain.
 
@@ -21,28 +21,22 @@ class ExtractWindow:
     """
 
     def __init__(self) -> None:
-        self.stopped = False
-        self._tasks: set[asyncio.Task[None]] = set()
+        super().__init__()
         self._locks: dict[str, asyncio.Lock] = {}
         self._index: dict[_Key, asyncio.Task[None]] = {}
         self._cancel_requested: set[_Key] = set()
 
-    @property
-    def active(self) -> bool:
-        """Whether any extract task is live."""
-        return bool(self._tasks)
-
     def spawn(self, key: _Key, coro: Coroutine[Any, Any, None]) -> None:
         """Run *coro* as the tracked extract task for *key*; refused once stopped."""
-        if self.stopped:
-            coro.close()
+        task = self.track(
+            coro,
+            name=f"submit-job-extract-{key[1]}",
+            label=f"submit-job extract {key[1]}",
+        )
+        if task is None:
             return
-        task = asyncio.create_task(coro, name=f"submit-job-extract-{key[1]}")
-        self._tasks.add(task)
         self._index[key] = task
-        task.add_done_callback(self._tasks.discard)
         task.add_done_callback(partial(self._drop_index, key))
-        task.add_done_callback(partial(log_task_exit, f"submit-job extract {key[1]}"))
 
     def lock(self, dashboard_id: str) -> asyncio.Lock:
         """Per-peer FIFO lock serializing extracts."""
@@ -74,9 +68,7 @@ class ExtractWindow:
 
     async def stop(self) -> None:
         """Refuse new spawns, then cancel and drain every task."""
-        self.stopped = True
-        await drain_tasks(self._tasks)
-        self._tasks.clear()
+        await super().stop()
         self._locks.clear()
 
     def _drop_index(self, key: _Key, task: asyncio.Task[None]) -> None:

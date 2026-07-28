@@ -112,6 +112,23 @@ async def test_reset_refused_busy_while_bundle_inflight(tmp_path: Path) -> None:
     firmware._create_job.assert_not_called()
 
 
+async def test_reset_refused_busy_while_download_streaming(tmp_path: Path) -> None:
+    """A mid-stream artifacts download from any offloader refuses the reset."""
+    handles = _make_handles(tmp_path)
+    firmware = _wire_firmware(handles, active_jobs=[])
+    sender_stub = MagicMock()
+    sender_stub.active = True
+    handles.receiver.state.artifacts_download_sender = sender_stub
+    session = _make_session()
+
+    await reset_env.handle_reset_build_env(handles.receiver, session, _frame())
+
+    ack = _sent_ack(session)
+    assert ack["accepted"] is False
+    assert ack["reason"] == "busy"
+    firmware._create_job.assert_not_called()
+
+
 async def test_reset_without_firmware_acks_not_ready(tmp_path: Path) -> None:
     """No firmware controller wired: ack ``not_ready`` instead of raising."""
     handles = _make_handles(tmp_path)

@@ -16,11 +16,11 @@ class TerminateReason(StrEnum):
     * ``SUPERSEDED`` — a fresh peer-link connect from the same
       ``dashboard_id`` displaces this older session. Standard
       "restarted offloader" path.
-    * ``HEARTBEAT_TIMEOUT`` — three pings in a row without a
-      matching pong. The session loop closes itself; the wire
-      frame may not actually reach the peer (TCP is presumed
-      dead) but the WS close is still graceful from the
-      receiver's side.
+    * ``HEARTBEAT_TIMEOUT`` — no authenticated inbound frame
+      for three ping intervals. The session loop closes itself;
+      the wire frame may not actually reach the peer (TCP is
+      presumed dead) but the WS close is still graceful from
+      the receiver's side.
     * ``SERVER_SHUTTING_DOWN`` — the receiver controller is
       stopping. Sent to every active session before
       :meth:`ReceiverController.stop` returns.

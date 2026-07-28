@@ -28,8 +28,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Receiver-driven heartbeat: ping every 30s; three consecutive
-# missed pongs (90s of silence) close the session so a half-open
+# Receiver-driven heartbeat: ping every 30s; 90s without any
+# authenticated inbound frame closes the session so a half-open
 # TCP connection on a flaky LAN can't pin a slot indefinitely.
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 HEARTBEAT_MISS_THRESHOLD = 3
@@ -67,11 +67,11 @@ class PeerLinkSession:
     # refreshes the stored peer row from these.
     peer_friendly_name: str = ""
     peer_ha_addon: bool = False
-    # Loop-monotonic timestamp of the most recent pong (or session
-    # start if no pong has landed yet). The heartbeat loop seeds
-    # this just before its first sleep so a slow first pong
-    # doesn't trip the miss threshold instantly.
-    last_pong_at: float = 0.0
+    # Loop-monotonic timestamp of the most recent successfully
+    # decrypted inbound frame (or session start if none has landed
+    # yet). Any authenticated frame counts — a peer streaming
+    # chunks is alive even when its pong is queued behind them.
+    last_inbound_at: float = 0.0
     # Set by :meth:`terminate` when something other than the
     # session loop's natural exit (peer close, heartbeat timeout)
     # closes the session — used by the loop to skip the
@@ -163,16 +163,17 @@ def parse_app_frame(
 async def run_peer_link_heartbeat(
     *,
     send_ping: Callable[[int], Awaitable[bool]],
-    last_pong_at: Callable[[], float],
+    last_inbound_at: Callable[[], float],
     on_dead: Callable[[], Awaitable[None]],
 ) -> None:
     """
     Heartbeat loop driving either end of a peer-link session.
 
     Sleeps :data:`HEARTBEAT_INTERVAL_SECONDS`, then bails via
-    *on_dead* (no pong within :data:`HEARTBEAT_DEAD_AFTER_SECONDS`)
-    or sends a ping via *send_ping*. A ``False`` *send_ping*
-    return also triggers *on_dead* — the WS is presumed dead.
+    *on_dead* (no inbound frame within
+    :data:`HEARTBEAT_DEAD_AFTER_SECONDS`) or sends a ping via
+    *send_ping*. A ``False`` *send_ping* return also triggers
+    *on_dead* — the WS is presumed dead.
 
     Lets ``asyncio.CancelledError`` propagate out of
     ``asyncio.sleep``; callers cancel as a task under
@@ -181,9 +182,9 @@ async def run_peer_link_heartbeat(
     nonce = 0
     while True:
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
-        # Liveness check first — if we haven't heard a pong in
+        # Liveness check first — if we haven't heard anything in
         # the threshold window, bail before sending another ping.
-        if _monotonic() - last_pong_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
+        if _monotonic() - last_inbound_at() > HEARTBEAT_DEAD_AFTER_SECONDS:
             await on_dead()
             return
         nonce += 1
@@ -223,7 +224,7 @@ async def _run_peer_link_session(
     # to kick it. ``register_peer_link_session`` does the dedupe
     # synchronously, so the registration is observed atomically.
     await controller.register_peer_link_session(peer_link_session)
-    peer_link_session.last_pong_at = _monotonic()
+    peer_link_session.last_inbound_at = _monotonic()
 
     async def _send_ping(nonce: int) -> bool:
         return await peer_link_session.send_app_frame(
@@ -236,7 +237,7 @@ async def _run_peer_link_session(
     heartbeat_task = asyncio.create_task(
         run_peer_link_heartbeat(
             send_ping=_send_ping,
-            last_pong_at=lambda: peer_link_session.last_pong_at,
+            last_inbound_at=lambda: peer_link_session.last_inbound_at,
             on_dead=_on_dead,
         ),
         name=f"peer-link-heartbeat[{dashboard_id}]",
@@ -267,9 +268,9 @@ async def _receive_loop(session: PeerLinkSession, controller: ReceiverController
         if parsed is None:
             await session.terminate(TerminateReason.MALFORMED_FRAME)
             return
+        session.last_inbound_at = _monotonic()
         msg_type = parsed.get("type")
         if msg_type == AppMessageType.PONG.value:
-            session.last_pong_at = _monotonic()
             continue
         if msg_type == AppMessageType.PING.value:
             # Mirror the offloader's nonce so a peer that runs

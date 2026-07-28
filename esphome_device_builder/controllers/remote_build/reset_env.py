@@ -31,7 +31,8 @@ async def handle_reset_build_env(
 
     Acceptance means a tagged ``RESET_BUILD_ENV`` job was enqueued —
     progress and the terminal state ride the JobFanout stream, not this
-    ack. Refuses ``busy`` while any job is active or a bundle is mid-upload.
+    ack. Refuses ``busy`` while any job is active, a bundle is mid-upload,
+    or an artifact download is in flight.
     """
     if not is_valid_frame(_RESET_BUILD_ENV_SCHEMA, frame):
         _LOGGER.warning(
@@ -87,12 +88,15 @@ async def handle_reset_build_env(
 
 
 def _reset_busy(controller: ReceiverController) -> bool:
-    """Whether any job is active (any source / lane) or a bundle is mid-upload."""
+    """Whether any job is active (any source / lane) or a bundle is mid-transfer."""
     firmware = controller._db.firmware
     if firmware is not None and next(firmware.state.active_jobs(), None) is not None:
         return True
     receiver = controller.state.submit_job_receiver
-    return receiver is not None and receiver.has_any_inflight()
+    if receiver is not None and receiver.has_any_inflight():
+        return True
+    sender = controller.state.artifacts_download_sender
+    return sender is not None and sender.active
 
 
 async def _send_ack(
