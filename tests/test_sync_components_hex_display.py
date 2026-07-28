@@ -256,6 +256,39 @@ def test_refined_hex_display_stamps_integer_entries_without_retype() -> None:
 def test_refined_hex_display_never_clobbers_static_stamp() -> None:
     """A ``data_type``-stamped entry keeps its static display format."""
     entries = [{"key": "address", "type": "integer", "display_format": "hex"}]
-    refined = {("address",): RefinedType("integer", display_format="hex")}
+    refined = {("address",): RefinedType("integer", display_format="octal")}
     _apply_refined_types(entries, refined)
     assert entries[0]["display_format"] == "hex"
+
+
+def test_integer_branch_suppresses_stamp_on_options_entries() -> None:
+    """An options-backed integer enum takes no display stamp."""
+    entries = [
+        {
+            "key": "sync_value",
+            "type": "integer",
+            "display_format": None,
+            "options": [{"label": "170", "value": "170"}],
+        },
+    ]
+    refined = {("sync_value",): RefinedType("integer", display_format="hex")}
+    _apply_refined_types(entries, refined)
+    assert entries[0]["display_format"] is None
+
+
+def test_bleed_guard_sees_list_item_paths() -> None:
+    """A hub refinement inside a list item mapping is shed when a platform redefines it."""
+    from script.sync_components import _collect_bleed_keys  # noqa: PLC0415
+
+    hub = SimpleNamespace(
+        config_schema=cv.Schema(
+            {cv.Optional("items"): cv.ensure_list(cv.Schema({cv.Optional("addr"): cv.hex_int}))}
+        )
+    )
+    platform = SimpleNamespace(
+        config_schema=cv.Schema(
+            {cv.Optional("items"): cv.ensure_list(cv.Schema({cv.Optional("addr"): cv.string}))}
+        )
+    )
+    _range_bleed, refined_bleed = _collect_bleed_keys(hub, [("sensor", platform)])
+    assert ("items", "addr") in refined_bleed.get("sensor", set())
