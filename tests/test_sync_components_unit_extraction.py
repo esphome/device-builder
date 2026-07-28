@@ -455,7 +455,7 @@ def test_walk_peels_nested_wrapper_values(cv) -> None:
     def wrapped(config):
         if config == schema_extractors.SCHEMA_EXTRACT:
             return inner
-        return inner(config)
+        raise AssertionError("probed as a plain validator")
 
     schema = cv.Schema(
         {
@@ -490,7 +490,7 @@ def test_hidden_schema_probe_is_memoized(cv) -> None:
     def wrapped(config):
         if config == schema_extractors.SCHEMA_EXTRACT:
             return base.extend({})
-        return base(config)
+        raise AssertionError("probed as a plain validator")
 
     assert _hidden_schema(wrapped) is _hidden_schema(wrapped)
 

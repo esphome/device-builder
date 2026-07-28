@@ -5222,13 +5222,6 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
-# id-keyed with the node held alive: a wrapper closure builds a FRESH
-# schema per call (validate_triggers extends its base each time), which
-# defeats the walker's (id, path) dedupe and re-expands recursive
-# schemas (lvgl) combinatorially unless every probe returns one object.
-_HIDDEN_SCHEMA_CACHE: dict[int, tuple[Any, Any]] = {}
-
-
 def _hidden_schema(node: Any) -> Any | None:
     """
     Return the schema a ``@schema_extractor`` closure yields for ``SCHEMA_EXTRACT``, else None.
@@ -5239,17 +5232,25 @@ def _hidden_schema(node: Any) -> Any | None:
     code = getattr(node, "__code__", None)
     if code is None or "SCHEMA_EXTRACT" not in code.co_names:
         return None
-    cached = _HIDDEN_SCHEMA_CACHE.get(id(node))
-    if cached is not None:
-        return cached[1]
+    return _probe_hidden_schema(node)
+
+
+@cache
+def _probe_hidden_schema(node: Any) -> Any | None:
+    """
+    Probe *node* with the ``SCHEMA_EXTRACT`` sentinel, once per closure.
+
+    A wrapper closure builds a fresh schema per call (validate_triggers
+    extends its base each time), which would defeat the walker's
+    (id, path) dedupe and re-expand recursive schemas (lvgl)
+    combinatorially without the cache.
+    """
     from esphome.schema_extractors import SCHEMA_EXTRACT
 
     try:
-        result = node(SCHEMA_EXTRACT)
+        return node(SCHEMA_EXTRACT)
     except Exception:
-        result = None
-    _HIDDEN_SCHEMA_CACHE[id(node)] = (node, result)
-    return result
+        return None
 
 
 def _delegated_schema(node: Any) -> Any | None:
@@ -5257,15 +5258,16 @@ def _delegated_schema(node: Any) -> Any | None:
     code = getattr(node, "__code__", None)
     if code is None:
         return None
-    globs = getattr(node, "__globals__", None) or {}
-    schemas = {
-        id(value): value
-        for name in code.co_names
-        if isinstance((value := globs.get(name)), vol.Schema)
-    }
-    if len(schemas) == 1:
-        return next(iter(schemas.values()))
-    return None
+    globs = getattr(node, "__globals__", {})
+    found: vol.Schema | None = None
+    for name in code.co_names:
+        value = globs.get(name)
+        if not isinstance(value, vol.Schema) or value is found:
+            continue
+        if found is not None:
+            return None
+        found = value
+    return found
 
 
 def _unwrap_schema_to_dict(node: Any) -> dict | None:
@@ -5280,9 +5282,7 @@ def _unwrap_schema_to_dict(node: Any) -> dict | None:
     stops descending into nested ``vol.All`` values like ``wifi.eap``.
     Prefer the ``validators`` tuple (the source of truth on compound
     validators), falling back to ``.schema`` for plain ``vol.Schema``.
-    Wrapper closures peel only to a ``vol.Schema`` result — a hidden
-    extract can be a non-schema (cv.enum yields its bare value mapping,
-    which would walk enum values as config keys).
+    Wrapper closures peel only to a ``vol.Schema`` result.
     """
     for _ in range(8):
         if isinstance(node, dict):
@@ -5301,6 +5301,9 @@ def _unwrap_schema_to_dict(node: Any) -> dict | None:
             node = node.schema
             continue
         hidden = _hidden_schema(node)
+        # Schema-only: a hidden extract can be a non-schema — cv.enum
+        # yields its bare value mapping, which the dict branch above
+        # would walk as config keys.
         if isinstance(hidden, vol.Schema):
             node = hidden
             continue
