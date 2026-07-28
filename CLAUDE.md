@@ -623,7 +623,9 @@ against legacy behaviour before assuming the simpler version suffices.
     claims only behind a live PTR (`cache_apply_or_resolve`), and
     `_apply_service_info` skips the ONLINE claim for a PTR-less wire
     answer (a `probe_device` resolve applies its data, takes no
-    ownership — no `Removed` could ever withdraw it). Two PTR-less
+    ownership — no `Removed` could ever withdraw it; in an
+    ICMP-unavailable deployment no arbiter replaces the skipped claim,
+    so such a device waits for its announce). Two PTR-less
     carve-outs remain, each with a known latch tracked for a fix: the
     non-API active-resolve claim (`apply_resolved_addresses`) — those
     devices publish no esphomelib PTR, and a dead claimed device never

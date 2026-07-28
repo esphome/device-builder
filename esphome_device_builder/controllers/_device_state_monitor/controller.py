@@ -279,8 +279,7 @@ class DeviceStateMonitor(TaskControllerBase):
 
     def forget(self, name: str) -> None:
         """Drop the source-precedence ledger entry for *name*."""
-        old = self.state.state_source.pop(name, None)
-        if old is not None:
+        if (old := self._pop_source(name)) is not None:
             self._emit_source_change(name, old, ReachabilitySource.UNKNOWN)
 
     def source_withdrawn(self, name: str, source: str) -> None:
@@ -303,13 +302,12 @@ class DeviceStateMonitor(TaskControllerBase):
         if not already_offline and self._any_matching_device_differs(name, "state", state):
             self._on_state_change(name, state, source)
         self.clear_resolved_addresses(name)
-        # Inlined ``forget`` with the identity hand-back stamped between
-        # the ledger pop and its notification: the stamp is refused
-        # while mDNS owns the name, and stamping before the source
-        # change keeps every frame holding the frontend gate through
-        # one disjunct or the other (the clear-side ordering rule in
-        # ``_emit_source_change``).
-        old = self.state.state_source.pop(name, None)
+        # The identity hand-back stamps between the ledger pop and its
+        # notification: the stamp is refused while mDNS owns the name,
+        # and stamping before the source change keeps every frame
+        # holding the frontend gate through one disjunct or the other
+        # (the clear-side ordering rule in ``_emit_source_change``).
+        old = self._pop_source(name)
         if self._has_known_api_identity(name):
             self.apply_deployed_identity_live(name, live=True)
         if old is not None:
@@ -553,6 +551,10 @@ class DeviceStateMonitor(TaskControllerBase):
         return self._apply_observation(
             name, "deployed_identity_live", live, forward, name, live=live
         )
+
+    def _pop_source(self, name: str) -> str | None:
+        """Remove and return *name*'s ledger entry without notifying."""
+        return self.state.state_source.pop(name, None)
 
     def _has_known_api_identity(self, name: str) -> bool:
         """
