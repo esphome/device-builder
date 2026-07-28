@@ -318,9 +318,11 @@ class MdnsSource:
 
     def has_any_live_ptr(self, device_name: str) -> bool:
         """Whether either service type holds an unexpired PTR for *device_name*."""
+        # http first: the hot caller is the non-API resolve, whose
+        # esphomelib lookup always misses.
         return any(
-            self._cached_ptr(f"{device_name}.{service_type}", service_type) is not None
-            for service_type in (_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE)
+            self._has_live_ptr(device_name, service_type)
+            for service_type in (_HTTP_SERVICE_TYPE, _ESPHOME_SERVICE_TYPE)
         )
 
     def has_live_http_identity_txt(self, device_name: str) -> bool:
@@ -586,10 +588,9 @@ class MdnsSource:
         Skipped when every config for the name exposes the API (the
         esphomelib path carries their identity and reachability, and
         the ``_http`` TXT isn't published with the API on). No ONLINE
-        claim; a ``Removed`` withdraws the bucket's mdns claim — this
-        PTR is the ownership anchor for non-API devices (#2388) —
-        while promotion stays owned by the active-resolve / MQTT /
-        ping paths.
+        claim; a ``Removed`` withdraws the bucket's mdns claim, and
+        promotion stays owned by the active-resolve / MQTT / ping
+        paths.
         """
         monitor = self._monitor
         device_name = device_name_from_service(name)
@@ -620,6 +621,10 @@ class MdnsSource:
         self._apply_identity_txt(device_name, props)
         if _has_identity_keys(props):
             self._monitor.apply_deployed_identity_live(device_name, live=True)
+
+    def _has_live_ptr(self, device_name: str, service_type: str) -> bool:
+        """Whether the cache holds an unexpired *service_type* PTR for *device_name*."""
+        return self._cached_ptr(f"{device_name}.{service_type}", service_type) is not None
 
     def _cached_ptr(
         self, service_name: str, service_type: str = _ESPHOME_SERVICE_TYPE
