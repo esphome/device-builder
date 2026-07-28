@@ -286,9 +286,19 @@ async def test_probe_after_withdrawal_does_not_reclaim_off_the_cache(
     info.async_request.assert_not_called()
 
 
-async def test_withdrawal_hands_identity_back_for_known_api_device() -> None:
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        pytest.param({"deployed_version": "2026.7.0"}, id="version"),
+        pytest.param({"deployed_config_hash": "abcd1234"}, id="config_hash"),
+        pytest.param({"mac_address": "AA:BB:CC:DD:EE:FF"}, id="mac"),
+    ],
+)
+async def test_withdrawal_hands_identity_back_for_known_api_device(
+    evidence: dict[str, Any],
+) -> None:
     """Releasing mdns ownership stamps ``deployed_identity_live`` when identity is known."""
-    device = make_online_api_device(deployed_version="2026.7.0")
+    device = make_online_api_device(**evidence)
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
