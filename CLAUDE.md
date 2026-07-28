@@ -623,10 +623,16 @@ against legacy behaviour before assuming the simpler version suffices.
     claims only behind a live PTR (`cache_apply_or_resolve`), and
     `_apply_service_info` skips the ONLINE claim for a PTR-less wire
     answer (a `probe_device` resolve applies its data, takes no
-    ownership — no `Removed` could ever withdraw it). The non-API
-    active-resolve claim (`apply_resolved_addresses`) deliberately
-    rides no PTR — those devices never publish one; its regime is the
-    active-resolve asymmetry above. There is
+    ownership — no `Removed` could ever withdraw it). Two PTR-less
+    carve-outs remain, each with a known latch tracked for a fix: the
+    non-API active-resolve claim (`apply_resolved_addresses`) — those
+    devices publish no esphomelib PTR, and a dead claimed device never
+    demotes; the fix direction is accepting their `_http._tcp` PTR as
+    the ownership anchor instead (#2388) — and the importable adopt
+    seed (`devices/importable.py`), a UX seed under the chosen YAML
+    name while the device still broadcasts under its factory name; the
+    post-flash announce replaces it, but a renamed adopt that never
+    flashes is un-withdrawable (#2389). There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A
     resolves (the #1999 resolve-first sweep manufactured un-demotable
     PTR-less claims): a PTR-lost device stays ONLINE via ping, and the

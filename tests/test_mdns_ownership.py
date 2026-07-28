@@ -255,7 +255,9 @@ async def test_resolve_started_after_a_withdrawal_still_claims(
     assert device.runtime_state.state == DeviceState.UNKNOWN
 
     # The re-announce restored a live PTR before the resolve landed.
-    monitor.mdns._zeroconf = MagicMock()
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.return_value = MagicMock()
+    monitor.mdns._zeroconf = zc
     verdict = await monitor.mdns.resolve_then(
         MagicMock(), info, "kitchen", monitor.mdns._apply_service_info
     )
@@ -307,6 +309,10 @@ async def test_withdrawal_hands_identity_back_for_known_api_device(
     assert device.runtime_state.state == DeviceState.UNKNOWN
     assert ("on_deployed_identity_live_change", "kitchen", True) in callbacks.calls
     assert device.runtime_state.deployed_identity_live is True
+    # Stamped before the source-change notification: no frame shows
+    # both frontend-gate disjuncts down.
+    events = [call[0] for call in callbacks.calls]
+    assert events.index("on_deployed_identity_live_change") < events.index("on_source_change")
 
 
 @pytest.mark.parametrize(
@@ -363,6 +369,9 @@ async def test_wire_resolve_without_live_ptr_applies_data_but_takes_no_ownership
     device = make_online_api_device(state=DeviceState.UNKNOWN)
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     info = stub_async_service_info(monkeypatch, resolved=True)
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
+    monitor.mdns._zeroconf = zc
 
     verdict = await monitor.mdns.resolve_then(
         MagicMock(), info, "kitchen", monitor.mdns._apply_service_info

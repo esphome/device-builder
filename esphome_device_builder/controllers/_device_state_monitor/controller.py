@@ -303,10 +303,17 @@ class DeviceStateMonitor(TaskControllerBase):
         if not already_offline and self._any_matching_device_differs(name, "state", state):
             self._on_state_change(name, state, source)
         self.clear_resolved_addresses(name)
-        self.forget(name)
-        # After forget — the stamp is refused while mDNS owns the name.
+        # Inlined ``forget`` with the identity hand-back stamped between
+        # the ledger pop and its notification: the stamp is refused
+        # while mDNS owns the name, and stamping before the source
+        # change keeps every frame holding the frontend gate through
+        # one disjunct or the other (the clear-side ordering rule in
+        # ``_emit_source_change``).
+        old = self.state.state_source.pop(name, None)
         if self._has_known_api_identity(name):
             self.apply_deployed_identity_live(name, live=True)
+        if old is not None:
+            self._emit_source_change(name, old, ReachabilitySource.UNKNOWN)
 
     def _emit_source_change(self, name: str, old: str, new: str) -> None:
         """Notify the owner when *name*'s authoritative source actually flips."""
@@ -565,10 +572,10 @@ class DeviceStateMonitor(TaskControllerBase):
         Report whether mDNS owns *name* while the bucket has an api device.
 
         The one condition under which ``deployed_identity_live`` must
-        stay down: the announce lifecycle (``Removed`` withdraws the
-        claim) vouches for an api device's identity while mDNS owns
-        it, so a powered-off device blanks instead of a stale flag
-        resurfacing its identity. Deliberately false for non-api
+        stay down: the announce lifecycle vouches for an api device's
+        identity while mDNS owns it, so an in-flight stamp can't race
+        the transition-into-mdns clear; the withdrawal owns the
+        hand-back. Deliberately false for non-api
         buckets — their mdns ownership is a bare A-record resolve,
         reachability only, and suppressing their stamps would strand a
         post-flash stamp on firmware with no identity TXT to re-stamp
