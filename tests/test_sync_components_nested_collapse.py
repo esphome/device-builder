@@ -141,3 +141,37 @@ def test_shipped_catalog_has_no_childless_nested() -> None:
         body = json.loads(body_path.read_text(encoding="utf-8"))
         walk(body.get("config_entries"), body_path.name)
     assert not violations
+
+
+def test_overridden_field_reusing_root_ref_expands(schema_dir: Path) -> None:
+    """A locally-overridden inherited key counts as local for cycle scoping."""
+    (schema_dir / "wrap.json").write_text(
+        json.dumps(
+            {
+                "wrap": {
+                    "schemas": {
+                        "BASE": {
+                            "schema": {
+                                "config_vars": {
+                                    "slot": {"key": "Optional", "type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        )
+    )
+    node = {
+        "extends": ["wrap.BASE"],
+        "config_vars": {
+            "slot": {
+                "key": "Optional",
+                "type": "schema",
+                "schema": {"extends": ["wrap.BASE"]},
+            },
+        },
+    }
+    entries = {e["key"]: e for e in _convert_config_vars(node, schema_dir)}
+    children = {e["key"] for e in entries["slot"].get("config_entries") or []}
+    assert "slot" in children

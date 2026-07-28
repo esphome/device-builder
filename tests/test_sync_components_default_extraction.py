@@ -209,13 +209,7 @@ def test_convert_field_bare_trigger_becomes_trigger_type(schema_dir: Path) -> No
 
 
 def test_convert_field_nested_trigger_goes_yaml_only(schema_dir: Path) -> None:
-    """A var-less ``type: trigger`` field below top level is YAML-only.
-
-    The frontend's edit-action event carries only the leaf key, so a
-    nested action list (``sprinkler`` valves' ``set_action``) can't route
-    to the automation editor; ``unknown`` hands it to the YAML pane
-    instead of a childless nested group.
-    """
+    """A var-less ``type: trigger`` field below top level is YAML-only."""
     raw = {"key": "Required", "type": "trigger"}
     entry = _convert_field("set_action", raw, schema_dir, top_level=False)
     assert entry is not None

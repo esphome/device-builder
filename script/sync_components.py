@@ -2806,8 +2806,9 @@ def _merge_extends_config_vars(
     """
     Deep-merge a schema node's ``extends`` ancestry with its local config_vars.
 
-    Returns the merged fields plus the keys drawn from the ancestry, so the
-    caller can scope cycle-breaking to the inherited subtree.
+    Returns the merged fields plus the keys drawn exclusively from the
+    ancestry, so the caller can scope cycle-breaking to the inherited
+    subtree; a locally-overridden key counts as local.
 
     Per-field, not whole-field: a partial override like ``{"default": "x"}``
     keeps the base's inherited ``type`` / enum / docs. Values are usually field
@@ -2831,7 +2832,7 @@ def _merge_extends_config_vars(
             merged[key] = {**base, **local}
         else:
             merged[key] = local if local is not None else base or {}
-    return merged, frozenset(extended)
+    return merged, frozenset(set(extended) - set(config_vars))
 
 
 def _convert_config_vars(
