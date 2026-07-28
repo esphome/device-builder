@@ -608,7 +608,9 @@ against legacy behaviour before assuming the simpler version suffices.
     broker still vouches for). Promotion stays owned by the
     active-resolve / MQTT / ping paths; an all-API name bucket skips
     the identity path (a device broadcasting the API gets its
-    identity and its `Removed` lifecycle from the esphomelib path). The level-triggered repair (`reconcile_from_cache`)
+    identity from the esphomelib path, and an api+web_server bucket's
+    http `Removed` defers to its live esphomelib PTR). The
+    level-triggered repair (`reconcile_from_cache`)
     reads both services' cached TXT. The one state the path does drive is
     the non-API side of `runtime_state.deployed_identity_live` — the
     session-only freshness bit the frontend gates the deployed identity
@@ -637,14 +639,17 @@ against legacy behaviour before assuming the simpler version suffices.
     esphomelib PTR wins while it is live — the broadcast, not the
     YAML, proves the firmware has the API — else the `_http._tcp`
     PTR; a `Removed` of the winner re-opens the election on the next
-    read. Every claim path enforces the invariant: a cache hit claims only behind
-    a live PTR (`cache_apply_or_resolve`), `_apply_service_info` skips
-    the ONLINE claim for a PTR-less wire answer (a `probe_device`
+    read, and both browser `Removed` branches defer to the surviving
+    sibling anchor — withdrawal happens only when no anchor remains.
+    Every claim path enforces the invariant: a cache hit claims only
+    behind a live PTR (`cache_apply_or_resolve`), `_apply_service_info`
+    skips the ONLINE claim for a PTR-less wire answer (a `probe_device`
     resolve applies its data, takes no ownership — no `Removed` could
     ever withdraw it; in an ICMP-unavailable deployment no arbiter
     replaces the skipped claim, so such a device waits for its
-    announce), and the non-API active resolve claims only behind the
-    live `_http._tcp` PTR. One PTR-less carve-out remains, with a
+    announce), and the active resolve claims only behind the live
+    anchor PTR — a gate `refresh_mdns`'s drawer re-resolves share via
+    `apply_resolved_addresses`. One PTR-less carve-out remains, with a
     known latch tracked for a fix: the importable adopt seed
     (`devices/importable.py`), a UX seed under the chosen YAML name
     while the device still broadcasts under its factory name; the

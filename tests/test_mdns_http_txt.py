@@ -167,6 +167,10 @@ def test_http_removed_withdraws_but_keeps_identity_freshness(
     monitor = _make_monitor(device)
     calls = _capture_apply(monitor, monkeypatch)
     monitor.state.state_source["klo"] = "mdns"
+    # Wire the flag write-back so the keeps-freshness assertion can fail.
+    monitor._on_deployed_identity_live_change = lambda _n, *, live: setattr(
+        device.runtime_state, "deployed_identity_live", live
+    )
     # No live esphomelib PTR — the http PTR anchored this claim.
     monitor.mdns._zeroconf.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
 

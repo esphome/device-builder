@@ -473,7 +473,13 @@ class MdnsSource:
             return
 
         if state_change == ServiceStateChange.Removed:
-            self._on_service_removed(name, device_name)
+            # A live ``_http._tcp`` PTR re-anchors the election (an
+            # api+web_server bucket losing only its esphomelib PTR);
+            # withdraw only when no anchor remains. A goodbye burst
+            # byes both services in one packet, so a sleeper's first
+            # Removed already sees the sibling PTR evicted.
+            if not self._has_live_ptr(device_name, _HTTP_SERVICE_TYPE):
+                self._on_service_removed(name, device_name)
             return
 
         # Don't claim ONLINE off a bare PTR — only once the service
@@ -593,7 +599,9 @@ class MdnsSource:
         device_name = device_name_from_service(name)
         # Look at the whole name bucket, not just bucket[0]: sibling
         # YAMLs can share an ``esphome.name`` (a config + a ``foo (1)``
-        # copy), and an all-API bucket is the only one to skip.
+        # copy). An all-API bucket skips only the identity path below;
+        # a ``Removed`` is evidence-gated instead (an api+web_server
+        # bucket publishes both PTRs).
         bucket = monitor._get_devices_by_name(device_name)
         if not bucket:
             return

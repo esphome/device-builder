@@ -491,6 +491,8 @@ async def test_dispatch_removed_event_marks_unknown_keeps_last_known_ip(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     monkeypatch.setattr(monitor.ping, "wake", MagicMock())
     monitor.ping.icmp_available = True
+    # No live sibling PTR to defer the withdrawal to.
+    monitor.mdns._zeroconf.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
     try:
         dispatch(
             monitor.mdns._zeroconf.zeroconf,
@@ -521,6 +523,8 @@ async def test_dispatch_removed_event_keeps_channel_freshness(
     dispatch = await _start_with_captured_dispatch(monitor, monkeypatch)
     monkeypatch.setattr(monitor.ping, "wake", MagicMock())
     monitor.ping.icmp_available = True
+    # No live sibling PTR to defer the withdrawal to.
+    monitor.mdns._zeroconf.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
     try:
         dispatch(
             monitor.mdns._zeroconf.zeroconf,

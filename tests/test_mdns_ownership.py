@@ -137,8 +137,13 @@ async def test_added_after_removed_reclaims_mdns_and_outranks_a_late_ping_miss(
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
     stub_async_service_info(monkeypatch, cached=True)
-    # The re-announce lands a live PTR, opening the cache-claim gate.
-    monitor.mdns._zeroconf = MagicMock()
+    # The re-announce lands a live esphomelib PTR (no http sibling),
+    # opening the cache-claim gate without deferring the withdrawal.
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.side_effect = lambda type_, _alias: (
+        MagicMock() if type_ == "_esphomelib._tcp.local." else None
+    )
+    monitor.mdns._zeroconf = zc
 
     _dispatch_removed(monitor)
     assert device.runtime_state.state == DeviceState.UNKNOWN
@@ -347,7 +352,11 @@ async def test_readd_after_withdrawal_returns_vouching_to_the_announce(
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
     stub_async_service_info(monkeypatch, cached=True)
-    monitor.mdns._zeroconf = MagicMock()
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.side_effect = lambda type_, _alias: (
+        MagicMock() if type_ == "_esphomelib._tcp.local." else None
+    )
+    monitor.mdns._zeroconf = zc
 
     _dispatch_removed(monitor)
     assert device.runtime_state.deployed_identity_live is True
@@ -426,7 +435,8 @@ async def test_http_removed_defers_to_a_live_esphomelib_ptr() -> None:
 
 async def test_http_removed_withdraws_when_yaml_gained_api_but_firmware_lacks_it() -> None:
     """The withdrawal keys on evidence, not the ``api_enabled`` YAML union."""
-    device = make_online_api_device()
+    device = make_online_api_device(loaded_integrations=["wifi"])
+    assert device.api_enabled is True
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
@@ -435,6 +445,25 @@ async def test_http_removed_withdraws_when_yaml_gained_api_but_firmware_lacks_it
 
     assert device.runtime_state.state == DeviceState.UNKNOWN
     assert "kitchen" not in monitor.state.state_source
+
+
+async def test_esphomelib_removed_defers_to_a_live_http_ptr() -> None:
+    """Losing the esphomelib PTR re-anchors the election on a live http PTR."""
+    device = make_online_api_device()
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.side_effect = lambda type_, _alias: (
+        MagicMock() if type_ == "_http._tcp.local." else None
+    )
+    monitor.mdns._zeroconf = zc
+
+    _dispatch_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+    assert callbacks.calls_for("on_state_change") == []
 
 
 async def test_http_removed_leaves_an_mqtt_owned_name_alone() -> None:

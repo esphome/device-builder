@@ -1149,6 +1149,7 @@ def stub_async_service_info(
     """Patch ``mdns.AsyncServiceInfo`` with a stub that hits the cache, the wire, or misses."""
     info = MagicMock()
     info.name = "kitchen._esphomelib._tcp.local."
+    info.type = "_esphomelib._tcp.local."
     info.load_from_cache.return_value = cached
     info.async_request = AsyncMock(return_value=resolved)
     info.parsed_scoped_addresses.return_value = list(addresses)
