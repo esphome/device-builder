@@ -1198,7 +1198,16 @@ def test_get_mdns_cache_info_countdown_rides_the_http_ptr_for_non_api() -> None:
         zc.close()
 
 
-def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr() -> None:
+@pytest.mark.parametrize(
+    ("esphomelib_ttl", "http_ttl"),
+    [
+        pytest.param(4500, 120, id="esphomelib_longer"),
+        pytest.param(120, 4500, id="http_longer"),
+    ],
+)
+def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr(
+    esphomelib_ttl: int, http_ttl: int
+) -> None:
     """With both PTRs live the countdown rides the esphomelib ownership anchor."""
     zc = Zeroconf(interfaces=["127.0.0.1"])
     try:
@@ -1208,7 +1217,7 @@ def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr() -> None:
                     name="_esphomelib._tcp.local.",
                     type_=_TYPE_PTR,
                     class_=_CLASS_IN,
-                    ttl=4500,
+                    ttl=esphomelib_ttl,
                     alias="kitchen._esphomelib._tcp.local.",
                     created=current_time_millis(),
                 ),
@@ -1216,7 +1225,7 @@ def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr() -> None:
                     name="_http._tcp.local.",
                     type_=_TYPE_PTR,
                     class_=_CLASS_IN,
-                    ttl=120,
+                    ttl=http_ttl,
                     alias="kitchen._http._tcp.local.",
                     created=current_time_millis(),
                 ),
@@ -1228,6 +1237,7 @@ def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr() -> None:
         info = monitor.mdns.get_mdns_cache_info("kitchen")
 
         assert info is not None
-        assert info.ptr_ttl_seconds == 4500.0
+        assert info.ptr_ttl_seconds == float(esphomelib_ttl)
+        assert info.ttl_remaining_seconds == pytest.approx(float(esphomelib_ttl), abs=0.5)
     finally:
         zc.close()
