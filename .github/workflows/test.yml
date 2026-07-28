@@ -564,7 +564,7 @@ jobs:
         # worst-case (the catalog-load benchmark, which exercises
         # every BoardCatalogEntry's nested dataclass deserialisation)
         # with ~5x headroom over the observed 3-5 minute floor.
-        uses: CodSpeedHQ/action@9c498abf90f466ace8338cd5505d6ab277e1f9a3  # v4.19.0
+        uses: CodSpeedHQ/action@f22792bfac16f3e14eb9fbea76f4a48e9cc22b93  # v4.19.1
         with:
           mode: simulation
           # ``--durations 10`` prints the 10 slowest benchmark wall
