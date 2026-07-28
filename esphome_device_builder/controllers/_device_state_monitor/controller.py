@@ -548,14 +548,15 @@ class DeviceStateMonitor(TaskControllerBase):
         )
 
     def _has_known_api_identity(self, name: str) -> bool:
-        """Whether some api device named *name* already carries identity fields."""
+        """
+        Whether some api device named *name* already carries identity fields.
+
+        Version / mac only — the fields a Native API ``device_info``
+        can vouch for. ``deployed_config_hash`` is mDNS-TXT-born and
+        never arrives without ``version`` beside it.
+        """
         return any(
-            d.api_enabled
-            and (
-                d.runtime_state.deployed_version
-                or d.runtime_state.deployed_config_hash
-                or d.mac_address
-            )
+            d.api_enabled and (d.runtime_state.deployed_version or d.mac_address)
             for d in self._get_devices_by_name(name)
         )
 

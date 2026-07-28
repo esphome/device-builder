@@ -290,7 +290,6 @@ async def test_probe_after_withdrawal_does_not_reclaim_off_the_cache(
     "evidence",
     [
         pytest.param({"deployed_version": "2026.7.0"}, id="version"),
-        pytest.param({"deployed_config_hash": "abcd1234"}, id="config_hash"),
         pytest.param({"mac_address": "AA:BB:CC:DD:EE:FF"}, id="mac"),
     ],
 )
