@@ -246,7 +246,7 @@ class MdnsSource:
             records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
             records.extend(txts)
         esphomelib_txts = txt_by_service[_ESPHOME_SERVICE_TYPE]
-        if not any(txt.get_remaining_ttl(now_ms) for txt in esphomelib_txts):
+        if all(txt.is_expired(now_ms) for txt in esphomelib_txts):
             esphomelib_txts = []
         txt_dns_records = esphomelib_txts or txt_by_service[_HTTP_SERVICE_TYPE]
         # The expiry countdown rides the ownership anchor.
@@ -259,7 +259,6 @@ class MdnsSource:
         # wants the truthful "last seen" age even when the cached
         # record has aged past its TTL. (The PTR lookup alone is
         # live-only; zeroconf's alias API filters expired entries.)
-        now_ms = current_time_millis()
         latest = max(records, key=attrgetter("created"))
         # ``DNSRecord.created`` is millis; ``get_remaining_ttl``
         # already returns seconds (impl divides by 1000.0). Don't

@@ -583,7 +583,6 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
 
 async def test_import_device_rename_seeds_ping_with_the_factory_broadcast(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
     """A rename-during-adopt seeds under ``ping`` off the factory name's cache."""
