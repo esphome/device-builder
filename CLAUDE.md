@@ -532,10 +532,16 @@ against legacy behaviour before assuming the simpler version suffices.
   stamp under ownership would never see the transition-to-mdns clear).
 - **Two mDNS paths with different OFFLINE semantics:**
   - **Browser callback** (`_on_service_state_change`) — passively
-    subscribed to `_esphomelib._tcp.local.`. Trust mDNS **both
-    directions**: `AsyncServiceBrowser` delivers a `Removed` event on
-    TTL expiry, the canonical "device gone" signal. ONLINE → mdns,
-    OFFLINE → mdns, no ICMP. ONLINE is claimed **only once the service
+    subscribed to `_esphomelib._tcp.local.`. ONLINE → mdns; a `Removed`
+    (goodbye or TTL expiry) is a **withdrawal, not an OFFLINE verdict**:
+    `_on_service_removed` marks the device UNKNOWN, releases the
+    precedence ledger, and wakes the ICMP sweep — ping settles
+    ONLINE/OFFLINE within seconds, and mdns ownership returns via the
+    announce or the resolve-first sweep. Never verify-resolve a
+    `Removed`: a goodbye withdraws only the PTR (firmware never byes
+    SRV/A, which stay cached for their full TTLs), so the resolve
+    vouches for a sleeping device straight off the cache and latches it
+    ONLINE forever (#2369). ONLINE is claimed **only once the service
     resolves** (cache hit or wire resolve, both via
     `_apply_service_info`), never off a bare PTR. An announce whose
     SRV/A won't resolve (a node that died mid-handshake, a reflector
@@ -611,10 +617,7 @@ against legacy behaviour before assuming the simpler version suffices.
     ONLINE (never revive off the cache, #1776) and must have some cached
     mDNS trace (an mDNS-dark deployment gains no multicast traffic). A
     miss claims nothing; ICMP decides, same as the active-resolve path.
-    The browser `Removed` branch runs the same verify-resolve before
-    honouring the event, demoting only on a **confirmed miss** — so a
-    wake-from-suspend `Removed` storm or an OTA reboot doesn't flip
-    live devices OFFLINE. Latch guard: an mdns claim on an API device
+    Latch guard: an mdns claim on an API device
     **without a live PTR** (these resolves fetch SRV/TXT/A, not PTR)
     has no `Removed` counterpart, so `should_ping` keeps it
     sweep-eligible — the sweep is its offline-detection substitute
@@ -625,7 +628,7 @@ against legacy behaviour before assuming the simpler version suffices.
   detection without flipping the indicator red on every quiet device.
 - **Persisted-IP revival is identity-gated** (`api_reviver.py`). A
   stuck-offline `api:` device whose `.local` won't resolve and whose RAM
-  `ip_addresses` are gone (a confirmed mDNS `Removed`, or a restart) gets
+  `ip_addresses` are gone (an mDNS `Removed` withdrawal, or a restart) gets
   one last-resort repair from the last-known `Device.ip` (RAM mirrors the
   sidecar; a `Removed` clears only `ip_addresses`, #2029): ICMP first as
   a *negative* filter (silence = no dial), then a single short-lived

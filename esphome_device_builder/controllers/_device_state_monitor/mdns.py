@@ -487,7 +487,7 @@ class MdnsSource:
             return
 
         if state_change == ServiceStateChange.Removed:
-            monitor._track_task(self._verify_removed(zeroconf, name, device_name))
+            self._on_service_removed(device_name)
             return
 
         # Don't claim ONLINE off a bare PTR — only once the service
@@ -514,23 +514,18 @@ class MdnsSource:
             self._on_http_service_state_change(zeroconf, service_type, name, state_change)
             importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
-    async def _verify_removed(self, zeroconf: Any, name: str, device_name: str) -> None:
-        """Resolve before honouring a ``Removed``; only a confirmed miss applies OFFLINE."""
-        if name in self._inflight_resolves:
-            # A concurrent resolve decides; the sweep re-checks either way.
-            return
-        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, name)
-        verdict = await self.resolve_then(zeroconf, info, device_name, self._apply_service_info)
-        if verdict is None:
-            # Errored, not missed — never demote on uncertainty, and say
-            # so above DEBUG since this gates the browser's OFFLINE path.
-            _LOGGER.warning(
-                "Removed-verify resolve for %s errored; leaving state to the sweep", device_name
-            )
-            return
-        if verdict:
-            return
-        self._monitor.confirmed_offline(device_name, "mdns")
+    def _on_service_removed(self, device_name: str) -> None:
+        """Mark a withdrawn service UNKNOWN and wake the ping sweep to decide."""
+        # A goodbye withdraws only the PTR (firmware never byes SRV/A,
+        # which stay cached for their full TTLs), so a verify-resolve
+        # here would vouch for a sleeping device straight off the cache
+        # (#2369). Cached records are ping *targets*, never liveness
+        # proof (#1776): drop to UNKNOWN, release the ledger so either
+        # ping verdict can land, and let ICMP settle it. mDNS ownership
+        # returns via the announce or the sweep's resolve-first pass.
+        monitor = self._monitor
+        monitor.source_withdrawn(device_name, "mdns")
+        monitor.probe_device_ping(device_name)
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:
         """
@@ -545,7 +540,8 @@ class MdnsSource:
         # Claimed before the apply-path unspecified-address filter, unlike
         # the active-resolve path: a resolved service is liveness evidence
         # on its own (already claimed even when addressless), and the
-        # browser's ``Removed`` lifecycle demotes — no permanent latch.
+        # browser's ``Removed`` lifecycle withdraws the claim so ping
+        # decides — no permanent latch.
         monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``

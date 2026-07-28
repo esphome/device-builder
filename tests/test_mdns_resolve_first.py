@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -270,132 +269,78 @@ def test_has_cached_trace_checks_each_record_bucket() -> None:
     assert monitor.mdns.has_cached_trace("kitchen") is False
 
 
-def _gated_wire(info: MagicMock, *, result: bool) -> tuple[asyncio.Event, list[int]]:
-    """Hold the stub's wire resolve open until the returned event is set."""
-    gate = asyncio.Event()
-    calls: list[int] = []
-
-    async def _wire(*_args: Any, **_kwargs: Any) -> bool:
-        calls.append(1)
-        await gate.wait()
-        return result
-
-    info.async_request = _wire
-    return gate, calls
-
-
-async def test_added_during_removed_verify_keeps_device_online(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A device returning mid-verify (cache-hit ``Added``) stays ONLINE through both paths."""
-    device = make_online_api_device()
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    info = stub_async_service_info(monkeypatch, cached=True)
-    gate, _calls = _gated_wire(info, result=True)
-
-    verify = asyncio.create_task(
-        monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
-    )
-    await asyncio.sleep(0)
-    assert _SERVICE_NAME in monitor.mdns._inflight_resolves
-
+def _dispatch_removed(monitor: Any) -> None:
     monitor.mdns._on_esphomelib_service_state_change(
-        MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
+        MagicMock(),
+        "_esphomelib._tcp.local.",
+        _SERVICE_NAME,
+        mdns_module.ServiceStateChange.Removed,
     )
-    assert device.runtime_state.state == DeviceState.ONLINE
-
-    gate.set()
-    await verify
-    assert device.runtime_state.state == DeviceState.ONLINE
-    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
-    assert callbacks.calls_for("on_state_change") == []
 
 
-async def test_added_resolve_during_verify_defers_to_the_inflight_verify(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A cache-miss ``Added`` mid-verify spawns no second wire resolve; the verify decides."""
+async def test_removed_marks_unknown_and_wakes_the_ping_sweep() -> None:
+    """A ``Removed`` drops to UNKNOWN, releases every ledger, and nudges the ICMP sweep."""
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    info = stub_async_service_info(monkeypatch)
-    gate, calls = _gated_wire(info, result=True)
+    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
 
-    verify = asyncio.create_task(
-        monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
-    )
-    await asyncio.sleep(0)
+    _dispatch_removed(monitor)
 
-    monitor.mdns._on_esphomelib_service_state_change(
-        MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
-    )
-    gate.set()
-    await verify
-    while monitor._tasks:
-        await asyncio.gather(*list(monitor._tasks), return_exceptions=True)
-
-    assert len(calls) == 1
-    assert device.runtime_state.state == DeviceState.ONLINE
-    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
-
-
-async def test_confirmed_wire_miss_outranks_a_stale_cache_added_claim(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A cache-hit ``Added`` mid-verify can't save a device the wire says is gone."""
-    device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    info = stub_async_service_info(monkeypatch, cached=True)
-    gate, _calls = _gated_wire(info, result=False)
-
-    verify = asyncio.create_task(
-        monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
-    )
-    await asyncio.sleep(0)
-
-    monitor.mdns._on_esphomelib_service_state_change(
-        MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
-    )
-    assert device.runtime_state.state == DeviceState.ONLINE
-
-    gate.set()
-    await verify
-    assert device.runtime_state.state == DeviceState.OFFLINE
+    assert device.runtime_state.state == DeviceState.UNKNOWN
     assert "kitchen" not in monitor.state.state_source
+    assert device.runtime_state.ip_addresses == []
+    assert device.ip == "192.168.1.50"
+    monitor.ping.wake.assert_called_once()
 
 
-async def test_verify_removed_keeps_online_on_a_swallowed_resolve_error(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """An internal resolve error is not a confirmed miss — never demote on uncertainty."""
+async def test_removed_then_ping_miss_goes_offline() -> None:
+    """Goodbye then ICMP silence lands OFFLINE via ping (#2369)."""
     device = make_online_api_device()
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    info = stub_async_service_info(monkeypatch)
-    info.async_request.side_effect = OSError("socket gone")
+    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
 
-    with caplog.at_level(logging.WARNING):
-        await monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+    _dispatch_removed(monitor)
+    shared.apply_ping_result(monitor, "kitchen", None)
+
+    assert device.runtime_state.state == DeviceState.OFFLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
+
+
+async def test_removed_then_ping_answer_comes_back_online_via_ping() -> None:
+    """A live device demoted by a spurious ``Removed`` revives under the ping source."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+
+    _dispatch_removed(monitor)
+    shared.apply_ping_result(monitor, "kitchen", 2.5)
 
     assert device.runtime_state.state == DeviceState.ONLINE
-    assert callbacks.calls_for("on_state_change") == []
-    assert "Removed-verify resolve for kitchen errored" in caplog.text
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
 
 
-async def test_verify_removed_bails_when_a_resolve_is_inflight(
+async def test_added_after_removed_reclaims_mdns_and_outranks_a_late_ping_miss(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A concurrent resolve decides — the removed-verify must not demote without verifying."""
+    """A re-announce re-claims mdns ownership; a stale ping miss can't demote it."""
     device = make_online_api_device()
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor.mdns._inflight_resolves.add(_SERVICE_NAME)
-    info = stub_async_service_info(monkeypatch)
+    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    stub_async_service_info(monkeypatch, cached=True)
 
-    await monitor.mdns._verify_removed(MagicMock(), _SERVICE_NAME, "kitchen")
+    _dispatch_removed(monitor)
+    assert device.runtime_state.state == DeviceState.UNKNOWN
 
-    info.async_request.assert_not_called()
+    monitor.mdns._on_esphomelib_service_state_change(
+        MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
+    )
     assert device.runtime_state.state == DeviceState.ONLINE
-    assert callbacks.calls_for("on_state_change") == []
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+
+    shared.apply_ping_result(monitor, "kitchen", None)
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS

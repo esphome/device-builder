@@ -3,8 +3,8 @@ Last-resort revival of stuck-offline API devices from the persisted IP.
 
 When a device's mDNS goes dark and the ``.local`` won't resolve, the
 ping sweep claims OFFLINE with no target forever once its RAM
-``ip_addresses`` are gone (cleared by a confirmed ``Removed``, or empty
-after a restart) — even though the last-known IPv4 survives in
+``ip_addresses`` are gone (cleared when a ``Removed`` withdraws the mDNS
+claim, or empty after a restart) — even though the last-known IPv4 survives in
 ``Device.ip`` (RAM and sidecar, kept for the OTA cache). A bare ICMP
 reply at that
 wall-clock-old DHCP address is inadmissible as ONLINE evidence (whatever

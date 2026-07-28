@@ -227,17 +227,16 @@ async def test_cohort_skips(overrides: dict[str, Any]) -> None:
 
 
 async def test_mid_process_mdns_death_enters_the_cohort_and_revives() -> None:
-    """A confirmed ``Removed`` keeps the last-known ``ip``, so no restart is needed."""
+    """A ``Removed`` withdrawal keeps the last-known ``ip``, so no restart is needed."""
     device = make_stuck_offline_device(
         state=DeviceState.ONLINE, ip_addresses=["192.168.1.50", "fe80::1"]
     )
     monitor, callbacks, src = _reviver([device])
     monitor.apply("kitchen", DeviceState.ONLINE, "mdns", claim=True)
 
-    # The confirmed-Removed branch in ``mdns._verify_removed``.
-    monitor.apply("kitchen", DeviceState.OFFLINE, "mdns")
-    monitor.clear_resolved_addresses("kitchen")
-    monitor.forget("kitchen")
+    # The Removed path: the withdrawal, then the woken ping sweep's miss.
+    monitor.source_withdrawn("kitchen", "mdns")
+    monitor.apply("kitchen", DeviceState.OFFLINE, "ping")
     assert device.ip == "192.168.1.50"
     assert device.runtime_state.ip_addresses == []
 
