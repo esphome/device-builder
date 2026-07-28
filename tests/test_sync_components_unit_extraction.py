@@ -533,7 +533,10 @@ def test_shipped_automations_http_request_carries_byte_units() -> None:
 
 def test_datetime_set_date_stays_plain(loader) -> None:
     """A lambda branch in a value union does not claim the field."""
+    from esphome import automation  # noqa: PLC0415
+
     loader.get_component("datetime")
+    assert "datetime.date.set" in automation.ACTION_REGISTRY
     refined = _collect_automation_refined_types()
     assert ("date",) not in refined.get("action", {}).get("datetime.date.set", {})
 
