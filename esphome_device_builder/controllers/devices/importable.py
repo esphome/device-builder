@@ -157,11 +157,11 @@ async def import_device(
     cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
     if cached:
         controller._state_monitor.apply_ip_addresses(name, cached)
-    # Look up the service by ``mdns_name`` (factory firmware is
-    # still broadcasting under that) but apply against the
-    # chosen ``name``. The scan-change handler probes too but
-    # only knows the YAML name, which has no broadcast yet for
-    # the rename-during-adopt case.
+    # Both broadcast names are known here: the adoption YAML pins
+    # ``name`` with the mac suffix off, so the device broadcasts
+    # under it only after its first flash — until then the factory
+    # firmware broadcasts ``mdns_name``. Probe that service and
+    # apply against ``name``.
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
     controller._state_monitor.probe_device_ping(name)
     return {"configuration": configuration}
