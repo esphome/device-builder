@@ -5226,7 +5226,7 @@ def _hidden_schema(node: Any) -> Any | None:
     """
     Return the schema a ``@schema_extractor`` closure yields for ``SCHEMA_EXTRACT``, else None.
 
-    Ordinary validators are never invoked.
+    Only callables whose code references ``SCHEMA_EXTRACT`` are probed.
     """
     code = getattr(node, "__code__", None)
     if code is None or "SCHEMA_EXTRACT" not in code.co_names:
