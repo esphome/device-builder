@@ -5820,7 +5820,9 @@ def _collect_refined_types(  # noqa: C901
 
     out: dict[tuple[str, ...], RefinedType] = {}
 
-    def classify_branches(validator: Any, inner: tuple[Any, ...]) -> RefinedType | None:
+    def classify_branches(validator: Any) -> RefinedType | None:
+        inner = getattr(validator, "validators", None) or ()
+        is_union = isinstance(validator, vol.Any) and len(inner) > 1
         for v in inner:
             t = classify(v)
             if t is None:
@@ -5828,7 +5830,7 @@ def _collect_refined_types(  # noqa: C901
             # A lambda branch in a value union (``cv.Any(returning_lambda,
             # date_time)``) must not claim the field — the plain form is
             # the primary YAML shape and a lambda editor would hide it.
-            if t.type == "lambda" and isinstance(validator, vol.Any) and len(inner) > 1:
+            if t.type == "lambda" and is_union:
                 continue
             return t
         return None
@@ -5844,11 +5846,9 @@ def _collect_refined_types(  # noqa: C901
             return refined
         # Some validators are wrapped (vol.All chains or partials);
         # peel down to find the inner.
-        inner = getattr(validator, "validators", None)
-        if inner:
-            t = classify_branches(validator, inner)
-            if t is not None:
-                return t
+        t = classify_branches(validator)
+        if t is not None:
+            return t
         # ``cv.float_with_unit`` returns a closure whose ``__name__``
         # is the generic ``"validator"`` (too noisy to substring-
         # match) but whose ``__qualname__`` carries the factory
@@ -7383,25 +7383,29 @@ def _collect_required_groups(
     return out
 
 
-def _collect_automation_registry_groups() -> dict[str, dict[str, list[dict[str, Any]]]]:
+def _automation_registries() -> dict[str, Any]:
     """
-    Collect ``{registry_id: [{kind, keys}, ...]}`` per registry type from live esphome.
+    Return the live ``{"action": ..., "condition": ...}`` registry map.
 
-    The ``action`` / ``condition`` registries fill during :func:`build_catalog`'s
-    import sweep, so call this after it; ``--limit-component`` runs yield partial
-    data. Empty when esphome isn't importable.
+    The registries fill during :func:`build_catalog`'s import sweep, so read
+    them after it; ``--limit-component`` runs yield partial data. Empty when
+    esphome isn't importable.
     """
     try:
         automation = importlib.import_module("esphome.automation")
-        registries = {
-            "action": automation.ACTION_REGISTRY,
-            "condition": automation.CONDITION_REGISTRY,
-        }
     except Exception:
         _LOGGER.debug("automation registries unavailable", exc_info=True)
         return {}
+    return {
+        "action": automation.ACTION_REGISTRY,
+        "condition": automation.CONDITION_REGISTRY,
+    }
+
+
+def _collect_automation_registry_groups() -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Collect ``{registry_id: [{kind, keys}, ...]}`` per registry type from live esphome."""
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for registry_type, registry in registries.items():
+    for registry_type, registry in _automation_registries().items():
         for registry_id, entry in registry.items():
             if groups := _groups_in_all_chain(getattr(entry, "raw_schema", None)):
                 out.setdefault(registry_type, {})[registry_id] = groups
@@ -7423,23 +7427,9 @@ def _registry_entry_schema(entry: Any) -> Any | None:
 
 
 def _collect_automation_refined_types() -> dict[str, dict[str, dict[tuple[str, ...], RefinedType]]]:
-    """
-    Collect ``{registry_id: {path: RefinedType}}`` per registry type from live esphome.
-
-    Same fill timing as :func:`_collect_automation_registry_groups` — call
-    after :func:`build_catalog`'s import sweep.
-    """
-    try:
-        automation = importlib.import_module("esphome.automation")
-        registries = {
-            "action": automation.ACTION_REGISTRY,
-            "condition": automation.CONDITION_REGISTRY,
-        }
-    except Exception:
-        _LOGGER.debug("automation registries unavailable", exc_info=True)
-        return {}
+    """Collect ``{registry_id: {path: RefinedType}}`` per registry type from live esphome."""
     out: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] = {}
-    for registry_type, registry in registries.items():
+    for registry_type, registry in _automation_registries().items():
         for registry_id, entry in registry.items():
             manifest = types.SimpleNamespace(config_schema=_registry_entry_schema(entry))
             if refined := _collect_refined_types(manifest):
@@ -8319,8 +8309,10 @@ def _apply_automation_refined_types(
     refined_index: dict[str, dict[tuple[str, ...], RefinedType]] | None,
 ) -> None:
     """Promote action / condition entry types from the live registry schemas."""
+    if not refined_index:
+        return
     for entry in entries:
-        refined = (refined_index or {}).get(entry["id"])
+        refined = refined_index.get(entry["id"])
         if refined:
             _apply_refined_types(entry["config_entries"], refined)
 

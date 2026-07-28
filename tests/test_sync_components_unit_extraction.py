@@ -514,11 +514,15 @@ def test_shipped_automations_http_request_carries_byte_units() -> None:
         assert entry["unit_options"] == ["B", "kB", "MB", "GB"]
 
 
-def test_shipped_automations_datetime_set_stays_plain(loader) -> None:
-    """A lambda-or-plain union field keeps its plain type, live and shipped."""
+def test_datetime_set_date_stays_plain(loader) -> None:
+    """A lambda branch in a value union does not claim the field."""
     loader.get_component("datetime")
     refined = _collect_automation_refined_types()
     assert ("date",) not in refined.get("action", {}).get("datetime.date.set", {})
+
+
+def test_shipped_automations_datetime_set_stays_plain() -> None:
+    """The generated datetime.date.set body keeps the plain date type."""
     body = orjson.loads(
         (_AUTOMATIONS_BODIES_DIR / "actions" / "datetime.date.set.json").read_bytes()
     )
