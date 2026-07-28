@@ -3184,13 +3184,15 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
-    # A bare ``type: trigger`` field (cover ``open_action``, sprinkler's
-    # nested ``set_action`` …) is an action list edited in the automation
-    # editor; the default ``trigger -> nested`` map yields an empty group
-    # the frontend drops, so surface it as TRIGGER at any depth. Scoped to
-    # no-inner-config_vars (a trigger with params still wants ``nested``).
+    # A top-level bare ``type: trigger`` field (cover ``open_action`` …) is
+    # an action list edited in the automation editor; the default
+    # ``trigger -> nested`` map yields an empty group the frontend drops, so
+    # surface it as TRIGGER. Scoped to no-inner-config_vars (a trigger with
+    # params still wants ``nested``). A *nested* bare trigger (sprinkler's
+    # ``set_action``) can't route — the frontend's edit-action event carries
+    # only the leaf key — so it goes YAML-only instead of a dead-end group.
     if schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
-        entry_type = "trigger"
+        entry_type = "trigger" if top_level else "unknown"
 
     # Polymorphic registry list (#941). Two upstream shapes:
     #   1. Lights' ``effects:`` carries ``{filter: [<ids>], key:

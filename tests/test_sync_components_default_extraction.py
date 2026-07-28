@@ -208,18 +208,18 @@ def test_convert_field_bare_trigger_becomes_trigger_type(schema_dir: Path) -> No
     assert entry["config_entries"] is None
 
 
-def test_convert_field_nested_trigger_stays_nested(schema_dir: Path) -> None:
-    """A ``type: trigger`` field nested inside another mapping stays nested.
+def test_convert_field_nested_trigger_goes_yaml_only(schema_dir: Path) -> None:
+    """A var-less ``type: trigger`` field below top level is YAML-only.
 
-    The ``component_action`` location is ``(component_id, field)``, so it
-    can only address a direct component field. Nested trigger fields (e.g.
-    ``sprinkler`` valves' ``set_action``) aren't editable and must not be
-    promoted to TRIGGER — only ``top_level`` fields are.
+    The frontend's edit-action event carries only the leaf key, so a
+    nested action list (``sprinkler`` valves' ``set_action``) can't route
+    to the automation editor; ``unknown`` hands it to the YAML pane
+    instead of a childless nested group.
     """
     raw = {"key": "Required", "type": "trigger"}
     entry = _convert_field("set_action", raw, schema_dir, top_level=False)
     assert entry is not None
-    assert entry["type"] == "nested"
+    assert entry["type"] == "unknown"
 
 
 def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: Path) -> None:

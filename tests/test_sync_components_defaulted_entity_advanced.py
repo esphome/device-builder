@@ -114,13 +114,16 @@ def test_template_button_body_splits_hinted_and_heuristic_fields() -> None:
 
 
 def test_as5600_sub_readings_stay_on_main_form() -> None:
+    """With inherited children restored, every populated sub-reading is configurable."""
     config_vars = _load_config_vars("sensor.as5600")
-    for key in ("magnitude", "raw_position", "status"):
+    for key in ("magnitude", "raw_position", "status", "gain"):
         assert not config_vars[key].get("advanced"), key
-    assert config_vars["gain"].get("advanced") is True
+        assert config_vars[key].get("config_entries"), key
 
 
-def test_wifi_info_spare_address_slots_stay_promoted() -> None:
+def test_wifi_info_spare_address_slots_carry_entity_fields() -> None:
+    """Restored per-slot entity schemas render configurable, not advanced-hidden shells."""
     config_vars = _load_config_vars("text_sensor.wifi_info")
     ip_inner = {e["key"]: e for e in config_vars["ip_address"]["config_entries"]}
-    assert ip_inner["address_0"].get("advanced") is True
+    assert not ip_inner["address_0"].get("advanced")
+    assert ip_inner["address_0"].get("config_entries")
