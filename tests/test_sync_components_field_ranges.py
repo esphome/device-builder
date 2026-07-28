@@ -404,20 +404,15 @@ def test_shipped_catalog_mipi_spi_buffer_size_has_no_range() -> None:
 def test_shipped_catalog_ranges_only_on_numeric_entries() -> None:
     """No shipped entry carries a ``range`` its input type can't render."""
     violations = []
-
-    def walk(entries, name):
-        for entry in entries or []:
+    for body_path in sorted(_BODIES_DIR.glob("*.json")):
+        body = json.loads(body_path.read_text(encoding="utf-8"))
+        for path, entry in _walk_entries(body.get("config_entries") or []):
             if entry.get("range") is not None and entry.get("type") not in (
                 "integer",
                 "float",
                 "float_with_unit",
             ):
-                violations.append((name, entry.get("key"), entry.get("type")))
-            walk(entry.get("config_entries"), name)
-
-    for body_path in sorted(_BODIES_DIR.glob("*.json")):
-        body = json.loads(body_path.read_text(encoding="utf-8"))
-        walk(body.get("config_entries"), body_path.name)
+                violations.append((body_path.name, ".".join(path), entry.get("type")))
     assert not violations
 
 
