@@ -5507,7 +5507,7 @@ _NON_METRIC_UNITS = frozenset({"fps", "°", "deg", "db", "dbm"})
 # ``%``-strip in ``percentage_int``), so there's no regex to introspect; the
 # only hand-maintained unit lists.
 _NON_INTROSPECTABLE_UNITS: dict[str, list[str]] = {
-    "data_size": ["B", "kB", "MB", "GB"],
+    "validate_bytes": ["B", "kB", "MB", "GB"],
     "temperature": ["°C", "°F", "K"],
     "temperature_delta": ["°C", "°F", "K"],
     # Canonical mireds first (cv.color_temperature stores mireds; "6500 K" coerces).
