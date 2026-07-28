@@ -5291,6 +5291,20 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
+def _templatable_inner(node: Any) -> Any | None:
+    """
+    Return the plain-side validator inside a ``cv.templatable`` closure, else None.
+
+    The bundle already flags these fields ``templatable``; the extract
+    recovers the inner chain for type refinement and bounds.
+    """
+    if "templatable" not in (getattr(node, "__qualname__", "") or ""):
+        return None
+    if not _is_extractor_closure(node):
+        return None
+    return _probe_hidden_schema(node)
+
+
 def _is_extractor_closure(node: Any) -> bool:
     """Report whether *node* is a callable whose code references ``SCHEMA_EXTRACT``."""
     code = getattr(node, "__code__", None)
@@ -5925,9 +5939,13 @@ def _refined_types_in_schema(  # noqa: C901
         refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
         if refined is not None:
             return refined
-        # Some validators are wrapped (vol.All chains or partials);
-        # peel down to find the inner.
-        t = classify_branches(validator)
+        # Some validators are wrapped (vol.All chains, partials, or a
+        # ``cv.templatable`` closure whose extract is the plain-side
+        # validator); peel down to find the inner.
+        if (inner := _templatable_inner(validator)) is not None:
+            t = classify(inner)
+        else:
+            t = classify_branches(validator)
         if t is not None:
             return t
         # ``cv.float_with_unit`` returns a closure whose ``__name__``
@@ -7791,9 +7809,20 @@ def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
         if isinstance(n, vol.All):
             for child in n.validators:
                 collect(child, depth + 1)
+            return
         # ``vol.Any`` deliberately not traversed — see docstring.
+        inner = _templatable_inner(n)
+        if inner is not None:
+            collect(inner, depth + 1)
 
     collect(node)
+    return _intersect_bounds(mins, maxes)
+
+
+def _intersect_bounds(
+    mins: list[int | float], maxes: list[int | float]
+) -> tuple[int | float, int | float] | None:
+    """Intersect collected bounds; None when unbounded or disjoint (warned)."""
     if not mins or not maxes:
         return None
     lo, hi = max(mins), min(maxes)

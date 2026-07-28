@@ -451,3 +451,11 @@ def test_shipped_automations_canbus_send_carries_range() -> None:
     entry = next(e for e in body["config_entries"] if e["key"] == "can_id")
     assert entry["type"] == "integer"
     assert entry["range"] == [0, 536870911]
+
+
+def test_numeric_range_bounds_peels_templatable() -> None:
+    """Bounds inside a ``cv.templatable`` wrapper are collected."""
+    assert _numeric_range_bounds(cv.templatable(cv.int_range(min=1, max=100))) == (1, 100)
+    assert _numeric_range_bounds(
+        cv.All(cv.templatable(cv.All(cv.positive_int, cv.Range(min=1, max=15))))
+    ) == (1, 15)

@@ -794,3 +794,37 @@ def test_shipped_catalog_carrier_duty_percent_accepts_percent() -> None:
     assert duty["unit_options"] == ["%"]
     assert duty["range"] == [1, 100]
     assert duty["required"] is True
+
+
+def test_templatable_inner_classifies(cv) -> None:
+    """A ``cv.templatable`` closure classifies by its plain-side validator."""
+    schema = cv.Schema(
+        {
+            cv.Optional("flag"): cv.templatable(cv.boolean),
+            cv.Optional("duty"): cv.templatable(cv.percentage_int),
+            cv.Optional("level"): cv.templatable(cv.possibly_negative_percentage),
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    assert refined[("flag",)].type == "boolean"
+    assert refined[("duty",)].type == "float_with_unit"
+    assert refined[("duty",)].unit_options == ["%"]
+    # The rescaling percentage stays deliberately unrefined through the peel.
+    assert ("level",) not in refined
+
+
+def test_shipped_catalog_templatable_fields_carry_inner_types() -> None:
+    """Templatable fields ship their plain-side type, units, and bounds."""
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "cc1101.set_frequency.json").read_bytes()
+    )
+    entry = next(e for e in body["config_entries"] if e["key"] == "value")
+    assert entry["type"] == "float_with_unit"
+    assert entry["unit_options"][0] == "Hz"
+    assert entry["range"] == [300000000.0, 928000000.0]
+
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "light.rgb.json").read_bytes())
+    initial = next(e for e in body["config_entries"] if e["key"] == "initial_state")
+    ct = next(e for e in initial["config_entries"] if e["key"] == "color_temperature")
+    assert ct["type"] == "float_with_unit"
+    assert ct["unit_options"] == ["mireds", "K"]
