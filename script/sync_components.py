@@ -7541,9 +7541,11 @@ def _collect_automation_refined_types() -> dict[str, dict[str, dict[tuple[str, .
     return out
 
 
-def _collect_automation_field_ranges() -> dict[str, dict[str, dict[tuple[str, ...], tuple]]]:
+def _collect_automation_field_ranges() -> dict[
+    str, dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]]
+]:
     """Collect ``{registry_id: {path: (min, max)}}`` per registry type from live esphome."""
-    out: dict[str, dict[str, dict[tuple[str, ...], tuple]]] = {}
+    out: dict[str, dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]]] = {}
     for registry_type, registry_id, entry in _iter_automation_registry_entries():
         if ranges := _field_ranges_in_schema(_registry_entry_schema(entry)):
             out.setdefault(registry_type, {})[registry_id] = ranges
@@ -8224,7 +8226,8 @@ def build_automations(  # noqa: C901
     component_ids: set[str],
     registry_groups: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
     registry_refined: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] | None = None,
-    registry_ranges: dict[str, dict[str, dict[tuple[str, ...], tuple]]] | None = None,
+    registry_ranges: dict[str, dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]]]
+    | None = None,
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
@@ -8467,7 +8470,7 @@ def _apply_automation_refined_types(
 
 def _apply_automation_field_ranges(
     entries: list[dict],
-    ranges_index: dict[str, dict[tuple[str, ...], tuple]] | None,
+    ranges_index: dict[str, dict[tuple[str, ...], tuple[int | float, int | float]]] | None,
 ) -> None:
     """Overlay live registry ``vol.Range`` bounds onto action / condition entries."""
     if not ranges_index:

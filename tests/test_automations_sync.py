@@ -1155,3 +1155,34 @@ def test_build_automations_applies_registry_ranges(tmp_path: Path) -> None:
     entries = {e["key"]: e for e in action["config_entries"]}
     assert entries["level"]["range"] == [-1, 1]
     assert entries["id"].get("range") is None
+
+
+def test_registry_range_lands_only_after_refinement(tmp_path: Path) -> None:
+    """A range on a string field bounds it only once refinement retypes it numeric."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "fan.json",
+        {
+            "fan": {
+                "action": {
+                    "set_speed": {
+                        "schema": {"config_vars": {"speed": {"key": "Required"}}},
+                        "type": "schema",
+                        "docs": "Set the speed.",
+                    },
+                },
+                "schemas": {},
+            },
+        },
+    )
+    refined = {
+        "action": {"fan.set_speed": {("speed",): sync_components.RefinedType("float")}},
+    }
+    ranges = {"action": {"fan.set_speed": {("speed",): (0.0, 1.0)}}}
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids=set(), registry_refined=refined, registry_ranges=ranges
+    )
+    action = {a["id"]: a for a in result["actions"]}["fan.set_speed"]
+    entry = {e["key"]: e for e in action["config_entries"]}["speed"]
+    assert entry["type"] == "float"
+    assert entry["range"] == [0.0, 1.0]
