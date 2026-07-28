@@ -4737,7 +4737,9 @@ def _collect_bleed_keys(
     Ranges shed when the platform redefines the key unbounded; refined
     types shed when the platform's own refinement differs (the
     modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
-    item's plain ``cv.positive_int``).
+    item's plain ``cv.positive_int``). Keyed per platform domain, not
+    aggregated: one platform's redefinition must not spare a sibling
+    platform from the shed. Hub builds keep every signal.
     """
     hub_ranges = _collect_field_ranges(manifest)
     hub_refined = _collect_refined_types(manifest)
@@ -4749,11 +4751,14 @@ def _collect_bleed_keys(
         bled = {path for path in hub_ranges if path in keys and path not in bounded}
         if bled:
             range_bleed[domain] = bled
+        # Refined types walk list items, so the key set must too or the
+        # guard is blind to list-item paths.
+        list_keys = _platform_field_keys([platform_manifest], descend_list_items=True)
         platform_refined = _collect_refined_types(platform_manifest)
         refined_bled = {
             path
             for path in hub_refined
-            if path in keys and platform_refined.get(path) != hub_refined[path]
+            if path in list_keys and platform_refined.get(path) != hub_refined[path]
         }
         if refined_bled:
             refined_bleed[domain] = refined_bled
@@ -4821,23 +4826,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
-    # A range bounded on the bare/hub manifest must not bleed onto a
-    # platform component's same-named-but-different field. ``address`` is
-    # the canonical case: the modbus_controller hub's ``cv.hex_uint8_t``
-    # device address (0–255) collides with the items' unbounded
-    # ``cv.positive_int`` register address. Flag hub-bounded keys that a
-    # platform schema redefines without bounding so platform builds can
-    # drop them (``build_component_entry``); hub builds keep them.
-    #
-    # Keyed per platform domain, not aggregated: one platform bounding a
-    # key must not spare a sibling platform that leaves the same key
-    # unbounded from shedding the hub's bound.
-    #
-    # Only an *unbounded* platform redefinition is shed (the ``not in
-    # bounded`` guard). A platform that re-bounds a shared key
-    # differently would still inherit the hub's bound, since
-    # ``merge_from_platforms`` is keep-first on the hub's field_ranges;
-    # no catalog component hits that case today.
+    # Hub signals must not bleed onto platform fields the domain
+    # redefines; platform builds shed them (``build_component_entry``).
     field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
         manifest, platform_manifests_by_domain
     )
@@ -7845,14 +7835,20 @@ def _drop_machine_derived_ranges(
     return {path: bounds for path, bounds in field_ranges.items() if path not in denylisted}
 
 
-def _platform_field_keys(platform_manifests: list[Any]) -> set[tuple[str, ...]]:
+def _platform_field_keys(
+    platform_manifests: list[Any], *, descend_list_items: bool = False
+) -> set[tuple[str, ...]]:
     """Every config-var key path defined across *platform_manifests*' schemas."""
     keys: set[tuple[str, ...]] = set()
     for manifest in platform_manifests:
         schema = getattr(manifest, "config_schema", None)
         if schema is None:
             continue
-        _walk_schema_keys(schema, lambda _k, _kn, _v, path: keys.add(path))
+        _walk_schema_keys(
+            schema,
+            lambda _k, _kn, _v, path: keys.add(path),
+            descend_list_items=descend_list_items,
+        )
     return keys
 
 
