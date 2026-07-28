@@ -374,6 +374,13 @@ running on a workstation, and offload compiles there. The firmware
 bytes still install from the original dashboard; only the build
 runs elsewhere.
 
+Remote build is designed for dashboards on the same local
+network. Running the peer link across a VPN, Tailscale, or any
+slow or high-latency uplink is best effort: it may work, but the
+timing assumptions favor LAN-class throughput, slow links aren't
+a design target, and issues that only reproduce over a slow link
+won't be pursued.
+
 Two roles:
 
 - **Build server**, the dashboard that lends its CPU. Surfaced
