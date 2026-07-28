@@ -213,5 +213,5 @@ def test_missing_refined_type_validator_fails_the_sync() -> None:
     class _StubCV:
         pass
 
-    with pytest.raises(SystemExit, match="boolean"):
+    with pytest.raises(SystemExit, match=r"refined-type validator cv\."):
         _refined_type_tables(_StubCV())

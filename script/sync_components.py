@@ -6575,12 +6575,9 @@ def _apply_refined_types(
 
 
 def _stamp_display_format(entry: dict, new_type: RefinedType) -> None:
-    """Stamp a refined ``display_format`` unless the entry can't render it.
-
-    An options-backed entry renders a select whose values come from the
-    bundle in decimal; a hex stamp would desync the two. The static
-    ``data_type`` stamp wins when already present.
-    """
+    """Stamp a refined ``display_format`` unless the entry carries options or one already set."""
+    # An options-backed select's values come from the bundle in decimal;
+    # a hex stamp would desync the two.
     if (
         new_type.display_format is not None
         and not entry.get("options")
