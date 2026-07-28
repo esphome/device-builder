@@ -991,20 +991,24 @@ def main() -> int:
     # flattens to bare ``<domain>`` so the action surfaces whenever
     # a matching base domain is configured.
     component_ids = {c["id"] for c in catalog}
-    automations = build_automations(
-        schema_dir=schema_dir,
-        component_ids=component_ids,
-        registry_groups=_collect_automation_registry_groups(),
-        registry_refined=_collect_automation_refined_types(),
-    )
-    _LOGGER.info(
-        "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
-        len(automations["triggers"]),
-        len(automations["actions"]),
-        len(automations["conditions"]),
-        len(automations["light_effects"]),
-    )
-    _emit_split_automations_catalog(automations, version)
+    # Skipped on a ``--limit-component`` debug run: the partial import
+    # sweep leaves the live registries half-filled, which would de-refine
+    # every action the missing components register.
+    if not args.limit_component:
+        automations = build_automations(
+            schema_dir=schema_dir,
+            component_ids=component_ids,
+            registry_groups=_collect_automation_registry_groups(),
+            registry_refined=_collect_automation_refined_types(),
+        )
+        _LOGGER.info(
+            "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
+            len(automations["triggers"]),
+            len(automations["actions"]),
+            len(automations["conditions"]),
+            len(automations["light_effects"]),
+        )
+        _emit_split_automations_catalog(automations, version)
 
     # Per-registry pin mode flags: the long-form Mode checkboxes a given pin
     # supports depend on its registry (an I2C expander like pca9554 allows

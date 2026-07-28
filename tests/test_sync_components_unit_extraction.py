@@ -34,6 +34,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _hidden_schema,
     _registry_entry_schema,
     _require_non_introspectable_units,
+    _unwrap_schema_to_dict,
     _walk_schema_keys,
 )
 
@@ -486,12 +487,28 @@ def test_walk_peels_delegating_wrapper(cv) -> None:
 
 
 def test_registry_entry_schema_unwraps_maybe(cv) -> None:
-    """A ``maybe_simple_value`` registration peels to its validator half."""
+    """A ``maybe_simple_value`` registration peels to the half carrying the fields."""
     wrapper = cv.maybe_simple_value(cv.Schema({cv.Optional("x"): cv.boolean}), key="x")
-    entry = types.SimpleNamespace(raw_schema=wrapper)
-    peeled = _registry_entry_schema(entry)
+    peeled = _registry_entry_schema(types.SimpleNamespace(raw_schema=wrapper))
     assert peeled is not wrapper
-    assert callable(peeled)
+    target = _unwrap_schema_to_dict(peeled)
+    assert target is not None
+    assert {key.schema for key in target} == {"x"}
+
+
+def test_lambda_claims_fields_except_in_value_unions(cv) -> None:
+    """A lambda refines bare or chained fields, never a multi-branch value union."""
+    schema = cv.Schema(
+        {
+            cv.Optional("pure"): cv.lambda_,
+            cv.Optional("chained"): cv.All(cv.returning_lambda),
+            cv.Optional("union"): cv.Any(cv.returning_lambda, cv.string_strict),
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    assert refined[("pure",)].type == "lambda"
+    assert refined[("chained",)].type == "lambda"
+    assert ("union",) not in refined
 
 
 def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
