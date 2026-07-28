@@ -20,7 +20,7 @@ import pytest
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.models import AdoptableDevice, DeviceState, ErrorCode, EventType
+from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
 
 from .conftest import (
     CaptureDevicesEventsFactory,
@@ -553,12 +553,12 @@ async def test_import_device_returns_even_when_post_scan_fails(
     assert result == {"configuration": "kitchen.yaml"}
 
 
-async def test_import_device_seeds_online_state_from_zeroconf_cache(
+async def test_import_device_applies_cached_ip_and_probes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A freshly-adopted device lands ONLINE under ``ping`` with the cached IP, no mdns claim."""
+    """Adopt applies the cached IP and probes; no fabricated state, the real sources decide."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor(
@@ -571,13 +571,11 @@ async def test_import_device_seeds_online_state_from_zeroconf_cache(
         package_import_url="github://x",
     )
 
-    # Full call sequence — includes the post-apply probe_device the
-    # previous MagicMock-based assertion silently let through.
     assert ctrl._state_monitor.calls == [
-        ("apply", "kitchen", DeviceState.ONLINE, "ping", False),
         ("get_cached_addresses", "kitchen.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
         ("probe_device", "kitchen", "kitchen"),
+        ("probe_device_ping", "kitchen"),
     ]
 
 
@@ -585,7 +583,7 @@ async def test_import_device_rename_seeds_ping_with_the_factory_broadcast(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A rename-during-adopt seeds under ``ping`` off the factory name's cache."""
+    """A rename-during-adopt applies the factory name's cached IP and wakes ping to arbitrate."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl.state.import_result["apollo-plt-1-983300"] = AdoptableDevice(
@@ -608,10 +606,10 @@ async def test_import_device_rename_seeds_ping_with_the_factory_broadcast(
     )
 
     assert ctrl._state_monitor.calls == [
-        ("apply", "kitchen", DeviceState.ONLINE, "ping", False),
         ("get_cached_addresses", "apollo-plt-1-983300.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.77"]),
         ("probe_device", "kitchen", "apollo-plt-1-983300"),
+        ("probe_device_ping", "kitchen"),
     ]
 
 
@@ -620,7 +618,7 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """No cached IP → state still flips ONLINE, just no apply_ip call."""
+    """No cached IP → probes still run, just no apply_ip call."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl._state_monitor = RecordingStateMonitor()  # no cached addresses
@@ -632,9 +630,9 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     )
 
     assert ctrl._state_monitor.calls == [
-        ("apply", "kitchen", DeviceState.ONLINE, "ping", False),
         ("get_cached_addresses", "kitchen.local"),
         ("probe_device", "kitchen", "kitchen"),
+        ("probe_device_ping", "kitchen"),
     ]
 
 

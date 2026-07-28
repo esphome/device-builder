@@ -17,7 +17,6 @@ from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
 from ...models import (
     AdoptableDevice,
-    DeviceState,
     ErrorCode,
     EventType,
     ImportableDeviceAddedData,
@@ -148,16 +147,13 @@ async def import_device(
         controller._on_importable_removed(cached_name)
     mdns_name = cached_names[0] if cached_names else name
 
-    # Skip-the-wait state seed; the device was advertising on
-    # mDNS milliseconds ago, so pin ONLINE + the cached IP now
-    # rather than blinking through OFFLINE for ~10s waiting on
-    # the next ping sweep. Seeded under ``ping`` — for a
-    # rename-during-adopt no PTR exists under *name*, so an mdns
-    # claim would have no ``Removed`` to withdraw it (#2389); the
-    # sweep keeps arbitrating until the flashed firmware announces
-    # and mdns takes over. Probe esphomelib too so version /
-    # config_hash / api_encryption land alongside the IP.
-    controller._state_monitor.apply(name, DeviceState.ONLINE, "ping")
+    # No state seed — the real sources decide. The device was
+    # advertising on mDNS milliseconds ago, so a same-name adopt
+    # claims ONLINE via the esphomelib probe's cache hit in this
+    # same call; a rename-during-adopt has no PTR under *name* (an
+    # mdns claim would have no ``Removed`` to withdraw it, #2389),
+    # so the woken sweep pings the cached IP applied below for a
+    # real verdict within seconds.
     cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
     if cached:
         controller._state_monitor.apply_ip_addresses(name, cached)
@@ -167,6 +163,7 @@ async def import_device(
     # only knows the YAML name, which has no broadcast yet for
     # the rename-during-adopt case.
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
+    controller._state_monitor.probe_device_ping(name)
     return {"configuration": configuration}
 
 
