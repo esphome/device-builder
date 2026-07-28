@@ -1,14 +1,13 @@
-"""Tests for the ping sweep's resolve-first mDNS step."""
+"""Tests for the mDNS ownership lifecycle: claims behind a live PTR, withdrawals to ping."""
 
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_SRV, _TYPE_TXT
+from zeroconf.const import _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
 from esphome_device_builder.controllers._device_state_monitor import mdns as mdns_module
 from esphome_device_builder.controllers._device_state_monitor import shared
@@ -23,223 +22,20 @@ from .conftest import (
 _SERVICE_NAME = "kitchen._esphomelib._tcp.local."
 
 
-def _prime_sweep(monitor: Any, *, cache_trace: bool = True, live_ptr: bool = False) -> None:
-    """Wire the fake zeroconf plus the two cache reads the sweep filter makes."""
-    monitor.mdns._zeroconf = MagicMock()
-    monitor.mdns.has_cached_trace = MagicMock(  # type: ignore[method-assign]
-        return_value=cache_trace
-    )
-    monitor.mdns.live_ptr_service_names = MagicMock(  # type: ignore[method-assign]
-        return_value={_SERVICE_NAME} if live_ptr else set()
-    )
-
-
-async def test_sweep_claims_mdns_for_ping_owned_online_device(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Ping owns the ledger, the cache resolves → mdns reclaims without touching the wire."""
-    device = make_online_api_device()
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    _prime_sweep(monitor)
-    info = stub_async_service_info(monkeypatch, cached=True)
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
-    assert ("on_source_change", "kitchen", ReachabilitySource.MDNS) in callbacks.calls
-    assert device.runtime_state.deployed_version == "2026.7.0"
-    info.async_request.assert_not_called()
-
-
-async def test_sweep_cache_miss_falls_back_to_wire_resolve(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The wire fallback claims on an answer, bounded by the sweep-scoped timeout."""
-    device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    _prime_sweep(monitor)
-    info = stub_async_service_info(monkeypatch, resolved=True)
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    info.async_request.assert_awaited_once()
-    assert info.async_request.await_args.kwargs["timeout"] == mdns_module._SWEEP_RESOLVE_TIMEOUT_MS
-    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
-
-
-async def test_sweep_resolve_miss_claims_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A miss leaves the ledger and state alone — ICMP decides, never the resolve."""
-    device = make_online_api_device()
-    monitor, callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    _prime_sweep(monitor)
-    stub_async_service_info(monkeypatch)
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    assert monitor.state.state_source["kitchen"] == ReachabilitySource.PING
-    assert callbacks.calls_for("on_state_change") == []
-
-
 @pytest.mark.parametrize(
-    ("overrides", "source", "prime"),
+    "overrides",
     [
-        pytest.param({"state": DeviceState.OFFLINE}, ReachabilitySource.PING, {}, id="offline"),
-        pytest.param({"state": DeviceState.UNKNOWN}, ReachabilitySource.PING, {}, id="unknown"),
-        pytest.param(
-            {"api_enabled": False, "loaded_integrations": ["mqtt", "wifi"]},
-            ReachabilitySource.PING,
-            {},
-            id="non_api",
-        ),
-        pytest.param({}, ReachabilitySource.MQTT, {}, id="mqtt_owned"),
-        pytest.param({}, ReachabilitySource.PING, {"cache_trace": False}, id="no_cache_trace"),
-        pytest.param({}, ReachabilitySource.MDNS, {"live_ptr": True}, id="mdns_owned_live_ptr"),
+        pytest.param({}, id="api"),
+        pytest.param({"api_enabled": False, "loaded_integrations": ["mqtt", "wifi"]}, id="non_api"),
     ],
 )
-async def test_sweep_skips_ineligible_devices(
-    overrides: dict[str, Any], source: ReachabilitySource, prime: dict[str, bool]
-) -> None:
-    """Not-online, non-API, mqtt-owned, traceless, and browser-owned devices are never resolved."""
+def test_should_ping_skips_mdns_owned_devices(overrides: dict[str, Any]) -> None:
+    """Mdns ownership rides the browser lifecycle — owned ONLINE devices leave the sweep."""
     device = make_online_api_device(**overrides)
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = source
-    _prime_sweep(monitor, **prime)
-    monitor.mdns.resolve_and_claim = AsyncMock()  # type: ignore[method-assign]
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    monitor.mdns.resolve_and_claim.assert_not_called()
-
-
-async def test_sweep_resolves_multiple_candidates_concurrently() -> None:
-    devices = [make_online_api_device("kitchen"), make_online_api_device("porch")]
-    monitor, _callbacks = make_state_monitor_with_callbacks(devices)
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    monitor.state.state_source["porch"] = ReachabilitySource.PING
-    _prime_sweep(monitor)
-    resolve = AsyncMock()
-    monitor.mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    assert {call.args[0] for call in resolve.await_args_list} == {"kitchen", "porch"}
-
-
-async def test_sweep_surfaces_unexpected_resolve_errors(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """A raising ``resolve_and_claim`` is logged as a bug, not masked as a benign miss."""
-    device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    _prime_sweep(monitor)
-    monitor.mdns.resolve_and_claim = AsyncMock(  # type: ignore[method-assign]
-        side_effect=AttributeError("boom")
-    )
-
-    with caplog.at_level(logging.WARNING):
-        await shared.resolve_api_mdns_targets(monitor)
-
-    assert "Resolve-first mDNS claim for kitchen raised unexpectedly" in caplog.text
-
-
-async def test_sweep_without_zeroconf_is_a_noop() -> None:
-    device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.PING
-    monitor.mdns._zeroconf = None
-    monitor.mdns.resolve_and_claim = AsyncMock()  # type: ignore[method-assign]
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    monitor.mdns.resolve_and_claim.assert_not_called()
-
-
-async def test_sweep_rechecks_mdns_owned_device_without_live_ptr() -> None:
-    """An mdns claim with no live PTR keeps sweep eligibility until the PTR returns."""
-    device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    _prime_sweep(monitor, live_ptr=False)
-    resolve = AsyncMock()
-    monitor.mdns.resolve_and_claim = resolve  # type: ignore[method-assign]
-
-    await shared.resolve_api_mdns_targets(monitor)
-
-    resolve.assert_awaited_once_with("kitchen")
-
-
-async def test_resolve_and_claim_without_zeroconf_is_a_noop() -> None:
-    monitor, callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    monitor.mdns._zeroconf = None
-
-    await monitor.mdns.resolve_and_claim("kitchen")
-
-    assert callbacks.calls == []
-
-
-def test_should_ping_gates_mdns_ownership_on_live_ptr() -> None:
-    """An mdns claim with no live PTR has no ``Removed`` counterpart — keep sweeping it."""
-    device = make_online_api_device()
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-
-    monitor.mdns.has_live_ptr = MagicMock(return_value=False)  # type: ignore[method-assign]
-    assert shared.should_ping(monitor, device) is True
-
-    monitor.mdns.has_live_ptr = MagicMock(return_value=True)  # type: ignore[method-assign]
-    assert shared.should_ping(monitor, device) is False
-
-
-def test_should_ping_non_api_mdns_ownership_unchanged() -> None:
-    """Non-API devices never publish a PTR; their active-resolve claim keeps the lockout."""
-    device = make_online_api_device(api_enabled=False, loaded_integrations=["mqtt", "wifi"])
-    monitor, _callbacks = make_state_monitor_with_callbacks([device])
-    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
-    monitor.mdns.has_live_ptr = MagicMock(return_value=False)  # type: ignore[method-assign]
 
     assert shared.should_ping(monitor, device) is False
-
-
-def test_has_live_ptr_reads_the_browser_cache() -> None:
-    """Presence of a cached PTR decides; zeroconf's alias lookup only returns live entries."""
-    monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    fake_zeroconf = MagicMock()
-    monitor.mdns._zeroconf = fake_zeroconf
-    lookup = fake_zeroconf.zeroconf.cache.current_entry_with_name_and_alias
-
-    lookup.return_value = MagicMock()
-    assert monitor.mdns.has_live_ptr("kitchen") is True
-    lookup.assert_called_with("_esphomelib._tcp.local.", _SERVICE_NAME)
-
-    lookup.return_value = None
-    assert monitor.mdns.has_live_ptr("kitchen") is False
-
-    monitor.mdns._zeroconf = None
-    assert monitor.mdns.has_live_ptr("kitchen") is False
-
-
-def test_live_ptr_service_names_snapshots_unexpired_aliases() -> None:
-    """One cache pass yields the live aliases; expired entries drop out."""
-    monitor, _callbacks = make_state_monitor_with_callbacks([make_online_api_device()])
-    fake_zeroconf = MagicMock()
-    monitor.mdns._zeroconf = fake_zeroconf
-    live = MagicMock(alias=_SERVICE_NAME)
-    live.is_expired.return_value = False
-    expired = MagicMock(alias="porch._esphomelib._tcp.local.")
-    expired.is_expired.return_value = True
-    fake_zeroconf.zeroconf.cache.get_all_by_details.return_value = [live, expired]
-
-    assert monitor.mdns.live_ptr_service_names() == {_SERVICE_NAME}
-    fake_zeroconf.zeroconf.cache.get_all_by_details.assert_called_once_with(
-        "_esphomelib._tcp.local.", _TYPE_PTR, _CLASS_IN
-    )
-
-    monitor.mdns._zeroconf = None
-    assert monitor.mdns.live_ptr_service_names() == set()
 
 
 def test_has_cached_trace_checks_each_record_bucket() -> None:
@@ -448,7 +244,7 @@ async def test_resolve_overlapping_a_withdrawal_does_not_reclaim(
 async def test_resolve_started_after_a_withdrawal_still_claims(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A post-withdrawal resolve carries fresh evidence and re-claims normally."""
+    """A post-withdrawal resolve carries fresh evidence and re-claims behind a live PTR."""
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
@@ -458,6 +254,8 @@ async def test_resolve_started_after_a_withdrawal_still_claims(
     _dispatch_removed(monitor)
     assert device.runtime_state.state == DeviceState.UNKNOWN
 
+    # The re-announce restored a live PTR before the resolve landed.
+    monitor.mdns._zeroconf = MagicMock()
     verdict = await monitor.mdns.resolve_then(
         MagicMock(), info, "kitchen", monitor.mdns._apply_service_info
     )
@@ -486,3 +284,82 @@ async def test_probe_after_withdrawal_does_not_reclaim_off_the_cache(
     assert device.runtime_state.state == DeviceState.UNKNOWN
     assert "kitchen" not in monitor.state.state_source
     info.async_request.assert_not_called()
+
+
+async def test_withdrawal_hands_identity_back_for_known_api_device() -> None:
+    """Releasing mdns ownership stamps ``deployed_identity_live`` when identity is known."""
+    device = make_online_api_device(deployed_version="2026.7.0")
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+
+    _dispatch_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert ("on_deployed_identity_live_change", "kitchen", True) in callbacks.calls
+    assert device.runtime_state.deployed_identity_live is True
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({}, id="no_identity"),
+        pytest.param(
+            {"api_enabled": False, "loaded_integrations": ["wifi"], "deployed_version": "2026.7.0"},
+            id="non_api",
+        ),
+    ],
+)
+async def test_withdrawal_without_identity_evidence_does_not_stamp(
+    overrides: dict[str, Any],
+) -> None:
+    """No known api identity → the withdrawal stamps nothing."""
+    device = make_online_api_device(**overrides)
+    monitor, callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+
+    _dispatch_removed(monitor)
+
+    assert callbacks.calls_for("on_deployed_identity_live_change") == []
+
+
+async def test_readd_after_withdrawal_returns_vouching_to_the_announce(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A re-announce takes mdns ownership back and blanks the hand-back stamp."""
+    device = make_online_api_device(deployed_version="2026.7.0")
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+    stub_async_service_info(monkeypatch, cached=True)
+    monitor.mdns._zeroconf = MagicMock()
+
+    _dispatch_removed(monitor)
+    assert device.runtime_state.deployed_identity_live is True
+
+    monitor.mdns._on_esphomelib_service_state_change(
+        MagicMock(), "_esphomelib._tcp.local.", _SERVICE_NAME, mdns_module.ServiceStateChange.Added
+    )
+
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+    assert device.runtime_state.deployed_identity_live is False
+
+
+async def test_wire_resolve_without_live_ptr_applies_data_but_takes_no_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PTR-less wire answer (a ``probe_device`` resolve) never claims mdns."""
+    device = make_online_api_device(state=DeviceState.UNKNOWN)
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    info = stub_async_service_info(monkeypatch, resolved=True)
+
+    verdict = await monitor.mdns.resolve_then(
+        MagicMock(), info, "kitchen", monitor.mdns._apply_service_info
+    )
+
+    assert verdict is True
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+    assert device.runtime_state.deployed_version == "2026.7.0"

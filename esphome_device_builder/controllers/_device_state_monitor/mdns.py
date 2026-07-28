@@ -15,12 +15,11 @@ import logging
 from collections.abc import Callable, Mapping
 from functools import partial
 from operator import attrgetter
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from esphome.zeroconf import AsyncEsphomeZeroconf
 from zeroconf import (
     AddressResolver,
-    DNSPointer,
     DNSRecord,
     IPVersion,
     ServiceStateChange,
@@ -28,7 +27,7 @@ from zeroconf import (
     millis_to_seconds,
 )
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
-from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_PTR, _TYPE_SRV, _TYPE_TXT
+from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
 from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
@@ -54,9 +53,8 @@ _LOGGER = logging.getLogger(__name__)
 # wire inside the window, so a short one-shot silently drops their announce.
 _MDNS_RESOLVE_TIMEOUT_MS = 10_000
 
-# The ping sweep's resolve-first pass runs before the ICMP sweep it feeds, so
-# it gets the same 3s bound as the non-API active resolve — a slow node the
-# window misses is pinged this sweep and re-resolved next.
+# Sweep-scoped resolve bound (http-identity verify) — 3s matches the
+# non-API active resolve so one pass stays under a sweep interval.
 _SWEEP_RESOLVE_TIMEOUT_MS = 3_000
 
 # Bound on the zeroconf close. ``async_close`` broadcasts mDNS goodbyes and can
@@ -318,26 +316,6 @@ class MdnsSource:
         if props := self._cached_txt_properties(f"{device_name}.{_HTTP_SERVICE_TYPE}"):
             self._apply_http_identity_props(device_name, props)
 
-    async def resolve_and_claim(self, device_name: str) -> None:
-        """Resolve the esphomelib service (cache first, wire fallback) and claim mdns on a hit."""
-        if (zc := self._zeroconf) is None:
-            return
-        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
-        if info.load_from_cache(zc.zeroconf):
-            self._apply_service_info(device_name, info)
-            return
-        await self.resolve_then(
-            zc.zeroconf,
-            info,
-            device_name,
-            self._apply_service_info,
-            timeout_ms=_SWEEP_RESOLVE_TIMEOUT_MS,
-        )
-
-    def has_live_ptr(self, device_name: str) -> bool:
-        """Whether the cache holds an unexpired esphomelib PTR for *device_name*."""
-        return self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}") is not None
-
     def has_live_http_identity_txt(self, device_name: str) -> bool:
         """Whether the cache holds an unexpired ``_http._tcp`` TXT carrying identity keys."""
         return _has_identity_keys(
@@ -367,23 +345,6 @@ class MdnsSource:
         if verdict and _has_identity_keys(info.decoded_properties):
             return
         self._monitor.apply_deployed_identity_live(device_name, live=False)
-
-    def live_ptr_service_names(self) -> set[str]:
-        """
-        Snapshot the unexpired esphomelib PTR aliases in the cache.
-
-        Membership key is ``f"{name}.{_ESPHOME_SERVICE_TYPE}"``.
-        """
-        if self._zeroconf is None:
-            return set()
-        now_ms = current_time_millis()
-        return {
-            cast(DNSPointer, record).alias
-            for record in self._zeroconf.zeroconf.cache.get_all_by_details(
-                _ESPHOME_SERVICE_TYPE, _TYPE_PTR, _CLASS_IN
-            )
-            if not record.is_expired(now_ms)
-        }
 
     def has_cached_trace(self, name: str, service_type: str = _ESPHOME_SERVICE_TYPE) -> bool:
         """
@@ -558,8 +519,12 @@ class MdnsSource:
         # the active-resolve path: a resolved service is liveness evidence
         # on its own (already claimed even when addressless), and the
         # browser's ``Removed`` lifecycle withdraws the claim so ping
-        # decides — no permanent latch.
-        monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
+        # decides — no permanent latch. The claim rides a live PTR: a
+        # PTR-less wire answer (a ``probe_device`` resolve) applies its
+        # data below but takes no ownership, since no ``Removed`` could
+        # ever withdraw it.
+        if self._cached_ptr(info.name, info.type) is not None:
+            monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``
         # suffix). ``apply_ip_addresses`` picks the IPv4 primary

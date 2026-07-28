@@ -540,8 +540,8 @@ against legacy behaviour before assuming the simpler version suffices.
     `_on_service_removed` marks the device UNKNOWN, releases the
     precedence ledger (without ever stamping transient mdns ownership),
     and wakes the ICMP sweep — ping settles ONLINE/OFFLINE within
-    seconds, and mdns ownership returns via the announce or the
-    resolve-first sweep. With ICMP unavailable the withdrawal itself
+    seconds, and mdns ownership returns only via the device's next
+    announce. With ICMP unavailable the withdrawal itself
     demotes to OFFLINE (no arbiter will ever run); an already-OFFLINE
     bucket keeps its confirmed verdict; other channels' freshness
     stamps survive the withdrawal. Never verify-resolve a
@@ -610,31 +610,27 @@ against legacy behaviour before assuming the simpler version suffices.
     identity-carrying `device_info` payload (API-info probe, reviver
     dial). The ownership rule lives once, in the monitor
     (`_mdns_owns_api_identity`): `live=True` is refused while mDNS owns
-    an api device, and the flag clears when mDNS takes ownership,
-    handing blanking to the announce lifecycle.
-  - **Resolve-first sweep step** (`resolve_api_mdns_targets`, for ONLINE
-    API devices the ping sweep is about to ICMP). Exists because the
-    zeroconf browser never re-asks: after its startup queries it only
-    refreshes PTRs it already holds (rescue window at 75–100% of the
-    TTL), and a `Removed` cancels that schedule — from then on
-    re-discovery rides solely on the device's few boot-time announces.
-    The ways in (dashboard host suspended past the rescue window so the
-    wake expires every PTR at once; an OTA / crash goodbye; an expiry
-    whose reconnect announces were lost) all end the same: the ledger
-    sticks on `ping` while the device answers every direct query
-    (#1993). The sweep is the solicited re-ask the browser doesn't do:
-    a targeted `AsyncServiceInfo` resolve (cache first, wire fallback),
-    cheaper than the ICMP it replaces; on success `_apply_service_info`
-    claims mdns and the device leaves the ping rotation. Claims here
-    are **ownership repair, not liveness**: candidates must already be
-    ONLINE (never revive off the cache, #1776) and must have some cached
-    mDNS trace (an mDNS-dark deployment gains no multicast traffic). A
-    miss claims nothing; ICMP decides, same as the active-resolve path.
-    Latch guard: an mdns claim on an API device
-    **without a live PTR** (these resolves fetch SRV/TXT/A, not PTR)
-    has no `Removed` counterpart, so `should_ping` keeps it
-    sweep-eligible — the sweep is its offline-detection substitute
-    until the PTR returns and normal browser ownership resumes.
+    an api device, the flag clears when mDNS takes ownership (the
+    announce lifecycle vouches from there), and a withdrawal stamps it
+    back for an api bucket with known identity — vouching follows
+    ownership in both directions.
+  - **mDNS ownership requires a live PTR** (#2384). The browser rescues
+    the PTRs it holds itself (re-queries at 75–100% of the TTL), so a
+    live device under browser ownership never expires — a `Removed`
+    means a goodbye or repeated direct-query failures, and the
+    withdrawal above hands the device to ping until its next announce.
+    Every claim path enforces the invariant: a cache hit claims only
+    behind a live PTR (`cache_apply_or_resolve`), and
+    `_apply_service_info` skips the ONLINE claim for a PTR-less wire
+    answer (a `probe_device` resolve applies its data, takes no
+    ownership — no `Removed` could ever withdraw it). There is
+    deliberately **no** sweep re-claim of mdns ownership off SRV/A
+    resolves (the #1999 resolve-first sweep manufactured un-demotable
+    PTR-less claims): a PTR-lost device stays ONLINE via ping, and the
+    frontend's deployed-identity display survives through the
+    `deployed_identity_live` hand-back (`source_withdrawn` stamps it
+    for an api bucket with known identity; the re-announce's ownership
+    transition blanks it again).
 
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE

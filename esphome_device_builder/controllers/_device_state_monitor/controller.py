@@ -290,7 +290,9 @@ class DeviceStateMonitor(TaskControllerBase):
         An already-OFFLINE bucket keeps its state; the ledger is never
         stamped, so the withdrawal emits a single source change. With
         no ICMP arbiter the withdrawal demotes to OFFLINE instead of
-        parking on UNKNOWN.
+        parking on UNKNOWN. An api bucket with known identity gets
+        ``deployed_identity_live`` stamped back — the announce
+        lifecycle stops vouching the moment ownership is released.
         """
         # UNKNOWN only under a confirmed arbiter: a pre-probe (None)
         # withdrawal on a host whose probe then fails would park
@@ -302,6 +304,12 @@ class DeviceStateMonitor(TaskControllerBase):
             self._on_state_change(name, state, source)
         self.clear_resolved_addresses(name)
         self.forget(name)
+        # After forget — the stamp is refused while mDNS owns the name.
+        if any(
+            d.api_enabled and (d.runtime_state.deployed_version or d.mac_address)
+            for d in self._get_devices_by_name(name)
+        ):
+            self.apply_deployed_identity_live(name, live=True)
 
     def _emit_source_change(self, name: str, old: str, new: str) -> None:
         """Notify the owner when *name*'s authoritative source actually flips."""

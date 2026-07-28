@@ -125,13 +125,10 @@ class PingSource(SweepSource):
         return True
 
     async def _sweep(self) -> None:
-        # Disjoint candidate sets — resolve both concurrently so a
-        # wire-miss in one doesn't delay the sweep behind the other.
         # A failing resolve step is logged and must not skip the
-        # sibling resolve or the ping pass for this interval.
+        # ping pass for this interval.
         results = await asyncio.gather(
             shared.resolve_non_api_mdns_targets(self._monitor),
-            shared.resolve_api_mdns_targets(self._monitor),
             return_exceptions=True,
         )
         log_gather_failures(results, "mDNS resolve step failed; continuing")
@@ -189,9 +186,8 @@ class PingSource(SweepSource):
         dns_failed: list[Device] = []
         seen: set[tuple[str, str]] = set()
         monitor = self._monitor
-        live_ptrs = monitor.mdns.live_ptr_service_names()
         for device in monitor._get_devices():
-            if not device.address or not shared.should_ping(monitor, device, live_ptrs):
+            if not device.address or not shared.should_ping(monitor, device):
                 continue
             key = (device.name, device.address)
             if key in seen:

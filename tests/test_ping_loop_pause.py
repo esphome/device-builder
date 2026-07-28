@@ -68,7 +68,6 @@ def _instrument_loop(
     # ``_ping_sweep`` is a method on ``PingSource``; replace it on the
     # per-test instance.
     monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _resolve)
-    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _resolve)
     monitor.ping._ping_sweep = _sweep  # type: ignore[method-assign]
 
     # Skip the bootstrap delay; collapse the post-sweep idle wait
@@ -109,7 +108,7 @@ async def test_ping_loop_survives_a_raising_resolve_step(
     async def _boom(_monitor: DeviceStateMonitor) -> None:
         raise AttributeError("boom")
 
-    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _boom)
+    monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _boom)
 
     async with running_task(monitor.ping.run()):
         await wait_until(lambda: counts["sweeps"] >= 2, 0.5, "two sweeps")
@@ -147,7 +146,7 @@ async def test_ping_loop_does_not_mask_child_cancellation(
     async def _cancelled(_monitor: DeviceStateMonitor) -> None:
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(shared_module, "resolve_api_mdns_targets", _cancelled)
+    monkeypatch.setattr(shared_module, "resolve_non_api_mdns_targets", _cancelled)
 
     task = asyncio.create_task(monitor.ping.run())
     with contextlib.suppress(asyncio.CancelledError):
