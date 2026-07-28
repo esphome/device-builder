@@ -5222,6 +5222,12 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
+def _is_extractor_closure(node: Any) -> bool:
+    """Report whether *node* is a callable whose code references ``SCHEMA_EXTRACT``."""
+    code = getattr(node, "__code__", None)
+    return code is not None and "SCHEMA_EXTRACT" in code.co_names
+
+
 def _hidden_schema(node: Any) -> Any | None:
     """
     Return the schema a ``@schema_extractor`` closure yields for ``SCHEMA_EXTRACT``, else None.
@@ -5229,10 +5235,7 @@ def _hidden_schema(node: Any) -> Any | None:
     Only callables whose code references ``SCHEMA_EXTRACT`` are probed;
     repeated probes of one closure return one object.
     """
-    code = getattr(node, "__code__", None)
-    if code is None or "SCHEMA_EXTRACT" not in code.co_names:
-        return None
-    return _probe_hidden_schema(node)
+    return _probe_hidden_schema(node) if _is_extractor_closure(node) else None
 
 
 @cache
@@ -5300,13 +5303,15 @@ def _unwrap_schema_to_dict(node: Any) -> dict | None:
         if hasattr(node, "schema"):
             node = node.schema
             continue
-        hidden = _hidden_schema(node)
-        # Schema-only: a hidden extract can be a non-schema — cv.enum
-        # yields its bare value mapping, which the dict branch above
-        # would walk as config keys.
-        if isinstance(hidden, vol.Schema):
-            node = hidden
-            continue
+        if _is_extractor_closure(node):
+            hidden = _probe_hidden_schema(node)
+            # Schema-only: a hidden extract can be a non-schema — cv.enum
+            # yields its bare value mapping, which the dict branch above
+            # would walk as config keys.
+            if isinstance(hidden, vol.Schema):
+                node = hidden
+                continue
+            return None
         delegated = _delegated_schema(node)
         if delegated is not None:
             node = delegated

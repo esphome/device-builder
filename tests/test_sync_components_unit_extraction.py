@@ -25,6 +25,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _SUFFIX_UNIT_RE,
     _audit_catalog_for_unit_mismatches,
     _collect_refined_types,
+    _delegated_schema,
     _derive_suffix_units,
     _enumerate_platform_manifests,
     _extract_validator_units,
@@ -479,6 +480,16 @@ def test_walk_peels_delegating_wrapper(cv) -> None:
         lambda _k, key_name, _v, _path: keys.add(key_name),
     )
     assert "after" in keys
+
+
+def test_delegated_schema_rejects_ambiguous_wrappers(cv) -> None:
+    """A wrapper referencing two module-level schemas is not peeled."""
+    namespace = {
+        "A": cv.Schema({cv.Optional("x"): cv.boolean}),
+        "B": cv.Schema({cv.Optional("y"): cv.boolean}),
+    }
+    exec("def wrapper(value):\n    return A(B(value))", namespace)  # noqa: S102
+    assert _delegated_schema(namespace["wrapper"]) is None
 
 
 def test_hidden_schema_probe_is_memoized(cv) -> None:
