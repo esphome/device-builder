@@ -177,9 +177,10 @@ _EXPECTATIONS: list[
     (
         "remote_receiver",
         [
-            # ``cv.validate_bytes`` has no introspectable regex; the byte
-            # picker exists only through its ``_NON_INTROSPECTABLE_UNITS``
-            # entry (mis-keyed as ``data_size`` until #2363).
+            # ``cv.validate_bytes`` has no ``float_with_unit`` closure to
+            # introspect; the byte picker exists only through its
+            # ``_NON_INTROSPECTABLE_UNITS`` entry (mis-keyed as
+            # ``data_size`` until #2363).
             ("buffer_size", "float_with_unit", None, None),
         ],
     ),
