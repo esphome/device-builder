@@ -46,7 +46,6 @@ import shutil
 import sys
 import textwrap
 import time
-import types
 import unicodedata
 import urllib.request
 import zipfile
@@ -56,6 +55,7 @@ from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal, NamedTuple
 
 import orjson
@@ -974,6 +974,18 @@ def main() -> int:
         sum(1 for c in catalog if c.get("config_entries")),
     )
 
+    # Collected (and guarded) before any emit so the abort below leaves
+    # the tree untouched; ``build_catalog``'s import sweep has already
+    # filled the live registries.
+    registry_refined = {} if args.limit_component else _collect_automation_refined_types()
+    if not args.limit_component and not registry_refined:
+        # SystemExit so a partially-imported esphome can't rewrite
+        # every action body de-refined and still exit 0.
+        raise SystemExit(
+            "automation registries yielded no refinements after a full "
+            "import sweep — the automations catalog would be de-refined."
+        )
+
     _audit_catalog_for_unit_mismatches(catalog)
     _audit_catalog_for_pin_metadata(catalog)
 
@@ -995,14 +1007,6 @@ def main() -> int:
     # sweep leaves the live registries half-filled, which would de-refine
     # every action the missing components register.
     if not args.limit_component:
-        registry_refined = _collect_automation_refined_types()
-        if not registry_refined:
-            # SystemExit so a partially-imported esphome can't rewrite
-            # every action body de-refined and still exit 0.
-            raise SystemExit(
-                "automation registries yielded no refinements after a full "
-                "import sweep — the automations catalog would be de-refined."
-            )
         automations = build_automations(
             schema_dir=schema_dir,
             component_ids=component_ids,
@@ -7449,7 +7453,7 @@ def _collect_automation_refined_types() -> dict[str, dict[str, dict[tuple[str, .
     out: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] = {}
     for registry_type, registry in _automation_registries().items():
         for registry_id, entry in registry.items():
-            manifest = types.SimpleNamespace(config_schema=_registry_entry_schema(entry))
+            manifest = SimpleNamespace(config_schema=_registry_entry_schema(entry))
             if refined := _collect_refined_types(manifest):
                 out.setdefault(registry_type, {})[registry_id] = refined
     return out
