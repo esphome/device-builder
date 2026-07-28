@@ -292,9 +292,11 @@ class DeviceStateMonitor(TaskControllerBase):
         no ICMP arbiter the withdrawal demotes to OFFLINE instead of
         parking on UNKNOWN.
         """
-        # ``icmp_available is False`` is the probe's definitive no; the
-        # pre-probe ``None`` still counts as an arbiter coming.
-        state = DeviceState.OFFLINE if self.ping.icmp_available is False else DeviceState.UNKNOWN
+        # UNKNOWN only under a confirmed arbiter: a pre-probe (None)
+        # withdrawal on a host whose probe then fails would park
+        # UNKNOWN with no sweep ever running. Demoting instead always
+        # self-corrects — the sweep pings OFFLINE devices every pass.
+        state = DeviceState.UNKNOWN if self.ping.icmp_available is True else DeviceState.OFFLINE
         already_offline = not self._any_matching_device_differs(name, "state", DeviceState.OFFLINE)
         if not already_offline and self._any_matching_device_differs(name, "state", state):
             self._on_state_change(name, state, source)

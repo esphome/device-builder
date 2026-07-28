@@ -373,8 +373,8 @@ async def test_removed_without_icmp_goes_offline_directly() -> None:
     assert device.ip == "192.168.1.50"
 
 
-async def test_removed_before_the_icmp_probe_parks_on_unknown() -> None:
-    """An undecided ICMP probe still counts as an arbiter coming."""
+async def test_removed_before_the_icmp_probe_demotes_offline() -> None:
+    """An undecided probe demotes too — the probe may land False with no sweep ever running."""
     device = make_online_api_device()
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
@@ -383,7 +383,7 @@ async def test_removed_before_the_icmp_probe_parks_on_unknown() -> None:
 
     _dispatch_removed(monitor)
 
-    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert device.runtime_state.state == DeviceState.OFFLINE
     assert "kitchen" not in monitor.state.state_source
 
 

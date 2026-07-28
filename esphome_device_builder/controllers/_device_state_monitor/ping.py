@@ -73,9 +73,9 @@ class PingSource(SweepSource):
         # ``run`` default is only seen by tests that mock ``icmp_ping``.
         self._privileged: bool = True
         # Privilege-probe outcome for siblings: None until ``_prepare``
-        # probes (the withdrawal path treats undecided as an arbiter
-        # coming), then True once some ICMP socket mode works and the
-        # sweep is running, False when neither mode opens.
+        # probes (~10s after start), then True once some ICMP socket
+        # mode works and the sweep is running, False when neither mode
+        # opens (the loop exits and no sweep ever runs).
         self.icmp_available: bool | None = None
 
     async def ping_once(self, target: str, *, retry: bool) -> float | None:
