@@ -995,11 +995,19 @@ def main() -> int:
     # sweep leaves the live registries half-filled, which would de-refine
     # every action the missing components register.
     if not args.limit_component:
+        registry_refined = _collect_automation_refined_types()
+        if not registry_refined:
+            # SystemExit so a partially-imported esphome can't rewrite
+            # every action body de-refined and still exit 0.
+            raise SystemExit(
+                "automation registries yielded no refinements after a full "
+                "import sweep — the automations catalog would be de-refined."
+            )
         automations = build_automations(
             schema_dir=schema_dir,
             component_ids=component_ids,
             registry_groups=_collect_automation_registry_groups(),
-            registry_refined=_collect_automation_refined_types(),
+            registry_refined=registry_refined,
         )
         _LOGGER.info(
             "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
@@ -1009,6 +1017,10 @@ def main() -> int:
             len(automations["light_effects"]),
         )
         _emit_split_automations_catalog(automations, version)
+    else:
+        _LOGGER.warning(
+            "--limit-component run: automations catalog left untouched (partial registries)"
+        )
 
     # Per-registry pin mode flags: the long-form Mode checkboxes a given pin
     # supports depend on its registry (an I2C expander like pca9554 allows
@@ -7425,8 +7437,10 @@ def _registry_entry_schema(entry: Any) -> Any | None:
     """
     schema = getattr(entry, "raw_schema", None)
     hidden = _hidden_schema(schema)
-    if isinstance(hidden, tuple) and len(hidden) == 2 and callable(hidden[0]):
-        return hidden[0]
+    if isinstance(hidden, tuple):
+        if len(hidden) == 2 and callable(hidden[0]):
+            return hidden[0]
+        _LOGGER.warning("unrecognized registry extract shape %r; entry unrefined", hidden)
     return schema
 
 
