@@ -5794,10 +5794,10 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
 
     The schema bundle already gets ``cv.string`` and ``cv.int_`` right via
     explicit ``type:`` markers; these tables cover the cases where the
-    bundle silently emits no type at all. Identity is keyed by ``id()``
-    because some voluptuous validators (notably _Schema subclasses)
-    override __hash__ to be unhashable.
+    bundle silently emits no type at all.
     """
+    # Keyed by id() because some voluptuous validators (notably _Schema
+    # subclasses) override __hash__ to be unhashable.
     by_identity: dict[int, RefinedType] = {}
     by_name: dict[str, RefinedType] = {}
 
