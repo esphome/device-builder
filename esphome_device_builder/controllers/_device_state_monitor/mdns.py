@@ -107,6 +107,10 @@ class MdnsSource:
         # otherwise stack concurrent resolvers, each holding a global
         # zeroconf listener for the whole resolve window.
         self._inflight_resolves: set[str] = set()
+        # Per-service withdrawal counter. A resolve that started before
+        # the latest ``Removed`` may complete off records that predate
+        # the goodbye; its apply must not re-claim mdns ownership.
+        self._withdrawal_epochs: dict[str, int] = {}
 
     @property
     def zeroconf(self) -> AsyncEsphomeZeroconf | None:
@@ -446,6 +450,7 @@ class MdnsSource:
         """
         if info.name in self._inflight_resolves:
             return None
+        epoch = self._withdrawal_epochs.get(info.name, 0)
         self._inflight_resolves.add(info.name)
         try:
             if not await info.async_request(zeroconf, timeout=timeout_ms):
@@ -455,6 +460,10 @@ class MdnsSource:
             return None
         finally:
             self._inflight_resolves.discard(info.name)
+        if self._withdrawal_epochs.get(info.name, 0) != epoch:
+            # A withdrawal raced the resolve; the answer may predate the
+            # goodbye, so leave the verdict to the woken ping sweep.
+            return None
         apply(device_name, info)
         return True
 
@@ -487,7 +496,7 @@ class MdnsSource:
             return
 
         if state_change == ServiceStateChange.Removed:
-            self._on_service_removed(device_name)
+            self._on_service_removed(name, device_name)
             return
 
         # Don't claim ONLINE off a bare PTR — only once the service
@@ -514,13 +523,14 @@ class MdnsSource:
             self._on_http_service_state_change(zeroconf, service_type, name, state_change)
             importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
-    def _on_service_removed(self, device_name: str) -> None:
+    def _on_service_removed(self, name: str, device_name: str) -> None:
         """Mark a withdrawn service UNKNOWN and wake the ping sweep to decide."""
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
         # here would vouch for a sleeping device straight off the cache
         # and latch it ONLINE (#2369, #1776). With ICMP unavailable no
         # arbiter will ever run, so the withdrawal itself demotes.
+        self._withdrawal_epochs[name] = self._withdrawal_epochs.get(name, 0) + 1
         monitor = self._monitor
         withdrawn_state = (
             DeviceState.UNKNOWN if monitor.ping.icmp_available else DeviceState.OFFLINE

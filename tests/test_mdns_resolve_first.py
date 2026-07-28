@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -397,3 +398,54 @@ async def test_removed_with_a_lower_priority_owner_emits_one_source_change() -> 
     assert callbacks.calls_for("on_source_change") == [
         ("on_source_change", "kitchen", ReachabilitySource.UNKNOWN),
     ]
+
+
+async def test_resolve_overlapping_a_withdrawal_does_not_reclaim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A resolve that started before the goodbye can't re-claim off its stale answer."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+    info = stub_async_service_info(monkeypatch)
+    gate = asyncio.Event()
+
+    async def _wire(*_args: Any, **_kwargs: Any) -> bool:
+        await gate.wait()
+        return True
+
+    info.async_request = _wire
+    resolve = asyncio.create_task(
+        monitor.mdns.resolve_then(MagicMock(), info, "kitchen", monitor.mdns._apply_service_info)
+    )
+    await asyncio.sleep(0)
+
+    _dispatch_removed(monitor)
+    gate.set()
+    assert await resolve is None
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+
+
+async def test_resolve_started_after_a_withdrawal_still_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-withdrawal resolve carries fresh evidence and re-claims normally."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+    info = stub_async_service_info(monkeypatch, resolved=True)
+
+    _dispatch_removed(monitor)
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+
+    verdict = await monitor.mdns.resolve_then(
+        MagicMock(), info, "kitchen", monitor.mdns._apply_service_info
+    )
+
+    assert verdict is True
+    assert device.runtime_state.state == DeviceState.ONLINE
+    assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
