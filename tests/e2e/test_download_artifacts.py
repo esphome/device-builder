@@ -250,9 +250,9 @@ async def test_download_artifacts_unknown_job_surfaces_not_found(
     """A ``job_id`` with no matching ``FirmwareJob`` surfaces ``NOT_FOUND``.
 
     Pins the soft-reject round-trip for the first of the
-    receiver's five structured reject reasons (``unknown_job``
-    / ``build_dir_missing`` / ``job_not_completed`` /
-    ``duplicate_download`` / ``pack_failed``). The receiver-
+    receiver's structured reject reasons (the full inventory
+    lives in :mod:`controllers.remote_build.artifacts_download`'s
+    ``_REASON_*`` constants). The receiver-
     side :meth:`_find_remote_job` returns ``None`` when the
     ``(remote_peer, remote_job_id)`` correlation isn't in
     ``firmware.state.jobs``; the sender replies with a single

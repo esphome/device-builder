@@ -225,8 +225,8 @@ def test_collect_returns_empty_when_manifest_has_no_schema() -> None:
 def test_apply_overlays_range_onto_matching_entry() -> None:
     """The applier writes the bounds onto the entry's ``range`` key."""
     entries = [
-        {"key": "connection_slots", "range": None, "config_entries": []},
-        {"key": "active", "range": None, "config_entries": []},
+        {"key": "connection_slots", "type": "integer", "range": None, "config_entries": []},
+        {"key": "active", "type": "boolean", "range": None, "config_entries": []},
     ]
     _apply_field_ranges(entries, {("connection_slots",): (1, 15)})
     by_key = {e["key"]: e for e in entries}
@@ -244,7 +244,7 @@ def test_apply_overrides_existing_static_range() -> None:
     actually has to satisfy at compile time and should win.
     """
     entries = [
-        {"key": "byte_field", "range": [0, 255], "config_entries": []},
+        {"key": "byte_field", "type": "integer", "range": [0, 255], "config_entries": []},
     ]
     _apply_field_ranges(entries, {("byte_field",): (10, 200)})
     assert entries[0]["range"] == [10, 200]
@@ -256,12 +256,24 @@ def test_apply_walks_nested_paths() -> None:
         {
             "key": "outer",
             "config_entries": [
-                {"key": "inner", "range": None, "config_entries": []},
+                {"key": "inner", "type": "float", "range": None, "config_entries": []},
             ],
         },
     ]
     _apply_field_ranges(entries, {("outer", "inner"): (5, 50)})
     assert entries[0]["config_entries"][0]["range"] == [5, 50]
+
+
+def test_apply_skips_non_numeric_entries() -> None:
+    """A bound never lands on an entry whose input can't render it."""
+    entries = [
+        {"key": "buffer_size", "type": "string", "range": None, "config_entries": []},
+        {"key": "duty", "type": "float_with_unit", "range": None, "config_entries": []},
+    ]
+    _apply_field_ranges(entries, {("buffer_size",): (0.12, 1.0), ("duty",): (1, 100)})
+    by_key = {e["key"]: e for e in entries}
+    assert by_key["buffer_size"]["range"] is None
+    assert by_key["duty"]["range"] == [1, 100]
 
 
 def test_apply_is_a_no_op_with_empty_ranges() -> None:
@@ -379,3 +391,37 @@ def test_committed_catalog_ships_machine_derived_fields_unbounded() -> None:
         body = json.loads((_BODIES_DIR / f"{component_id}.json").read_text(encoding="utf-8"))
         entries_by_path = dict(_walk_entries(body["config_entries"]))
         assert entries_by_path[path].get("range") is None, (component_id, path)
+
+
+def test_shipped_catalog_mipi_spi_buffer_size_has_no_range() -> None:
+    """The rescaling ``cv.percentage`` field ships rangeless on its string entry."""
+    body = json.loads((_BODIES_DIR / "display.mipi_spi.json").read_text(encoding="utf-8"))
+    entry = next(e for e in body["config_entries"] if e["key"] == "buffer_size")
+    assert entry["type"] == "string"
+    assert entry.get("range") is None
+
+
+def test_shipped_catalog_ranges_only_on_numeric_entries() -> None:
+    """No shipped entry carries a ``range`` its input type can't render."""
+    violations = []
+    for body_path in sorted(_BODIES_DIR.glob("*.json")):
+        body = json.loads(body_path.read_text(encoding="utf-8"))
+        for path, entry in _walk_entries(body.get("config_entries") or []):
+            if entry.get("range") is not None and entry.get("type") not in (
+                "integer",
+                "float",
+                "float_with_unit",
+            ):
+                violations.append((body_path.name, ".".join(path), entry.get("type")))
+    assert not violations
+
+
+def test_apply_warns_on_dropped_bounds(caplog: pytest.LogCaptureFixture) -> None:
+    """A dropped bound names the component and field — the mistype signal."""
+    entries = [
+        {"key": "memory_address", "type": "string", "range": None, "config_entries": []},
+    ]
+    with caplog.at_level("WARNING"):
+        _apply_field_ranges(entries, {("memory_address",): (0, 255)}, "sensor.micronova")
+    assert "sensor.micronova" in caplog.text
+    assert "memory_address (string)" in caplog.text

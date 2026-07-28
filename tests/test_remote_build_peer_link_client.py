@@ -3420,7 +3420,7 @@ async def test_run_session_loops_send_ping_routes_through_channel(
     ws = _RecordingWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _ping_then_park(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _ping_then_park(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await send_ping(42)
         await closed_event.wait()
 
@@ -3472,7 +3472,7 @@ async def test_run_session_loops_returns_heartbeat_timeout_when_dead(
     async def _fake_heartbeat(
         *,
         send_ping: Any,
-        last_pong_at: Any,
+        last_inbound_at: Any,
         on_dead: Any,
     ) -> None:
         await on_dead()
@@ -4084,7 +4084,7 @@ async def test_run_session_loops_responds_to_peer_ping(
     ws = _PingingWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _idle_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -4115,10 +4115,10 @@ async def test_run_session_loops_responds_to_peer_ping(
     assert reason == "peer_hung_up"
 
 
-async def test_run_session_loops_bumps_last_pong_on_pong(
+async def test_run_session_loops_bumps_last_inbound_on_pong(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A PONG from the receiver bumps ``last_pong_at`` so the next heartbeat sees fresh activity."""
+    """A PONG from the receiver bumps ``last_inbound_at`` for the next heartbeat check."""
     initiator, responder = _build_handshake_pair()
     closed_event = asyncio.Event()
 
@@ -4138,13 +4138,13 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
     ws = _PongingWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    captured_last_pong: list[float] = []
+    captured_last_inbound: list[float] = []
     sample_taken = asyncio.Event()
 
-    async def _capturing_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _capturing_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         # Sleep one tick so the receive loop processes the PONG first.
         await asyncio.sleep(0)
-        captured_last_pong.append(last_pong_at())
+        captured_last_inbound.append(last_inbound_at())
         sample_taken.set()
         await closed_event.wait()
 
@@ -4170,11 +4170,73 @@ async def test_run_session_loops_bumps_last_pong_on_pong(
     reason = await drive_task
 
     assert reason == "peer_hung_up"
-    assert captured_last_pong, "heartbeat callback never sampled last_pong_at"
+    assert captured_last_inbound, "heartbeat callback never sampled last_inbound_at"
     # The captured value should be a real loop timestamp; we
     # mostly care that the PONG branch ran without falling
     # through to the unknown-msg-type branch (which would have
-    # left ``last_pong_at`` at the initial value).
+    # left ``last_inbound_at`` at the initial value).
+
+
+async def test_run_session_loops_bumps_last_inbound_on_any_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Any decrypted frame bumps ``last_inbound_at`` — a peer streaming chunks is alive."""
+    initiator, responder = _build_handshake_pair()
+    closed_event = asyncio.Event()
+    frame_consumed = asyncio.Event()
+
+    class _LateMysteryWs(_ParkingWs):
+        def __init__(self, evt: asyncio.Event) -> None:
+            super().__init__(evt)
+            self._delivered = False
+
+        async def __anext__(self) -> Any:
+            if not self._delivered:
+                self._delivered = True
+                # Let the loop clock advance past the session-start
+                # seed so the bump is a strict increase.
+                await asyncio.sleep(0.05)
+                payload = responder.encrypt(_json.dumps({"type": "mystery"}))
+                return WSMessage(type=WSMsgType.BINARY, data=payload, extra="")
+            frame_consumed.set()
+            await self._closed_event.wait()
+            raise StopAsyncIteration
+
+    ws = _LateMysteryWs(closed_event)
+    channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
+
+    samples: list[float] = []
+
+    async def _sampling_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
+        samples.append(last_inbound_at())
+        await frame_consumed.wait()
+        samples.append(last_inbound_at())
+        await closed_event.wait()
+
+    monkeypatch.setattr(
+        remote_build_peer_link_client.client, "run_peer_link_heartbeat", _sampling_heartbeat
+    )
+
+    client = PeerLinkClient(
+        receiver_hostname="127.0.0.1",
+        receiver_port=6055,
+        identity_priv=secrets.token_bytes(32),
+        dashboard_id="alpha",
+        pinned_static_x25519_pub=b"\x00" * 32,
+        pin_sha256="a" * 64,
+        receiver_label="test-receiver",
+        bus=EventBus(),
+    )
+    drive_task = asyncio.create_task(client._run_session_loops(channel))
+
+    await asyncio.wait_for(frame_consumed.wait(), timeout=2.0)
+    await asyncio.sleep(0)
+    closed_event.set()
+    reason = await drive_task
+
+    assert reason == "peer_hung_up"
+    assert len(samples) == 2
+    assert samples[1] > samples[0]
 
 
 async def test_run_session_loops_returns_transport_error_on_malformed_frame(
@@ -4200,7 +4262,7 @@ async def test_run_session_loops_returns_transport_error_on_malformed_frame(
     ws = _GarbageWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _idle_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -4244,7 +4306,7 @@ async def test_run_session_loops_ignores_unknown_msg_type(
     ws = _UnknownTypeWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _idle_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -4307,7 +4369,7 @@ async def test_run_session_loops_on_dead_swallows_aiohttp_close_error(
     ws = _RaisingCloseWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _fire_on_dead(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _fire_on_dead(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await on_dead()
 
     monkeypatch.setattr(
@@ -4542,7 +4604,7 @@ async def test_run_session_loops_fires_queue_status_event_on_inbound_frame(
     ws = _QueueStatusWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _idle_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -4625,7 +4687,7 @@ async def test_run_session_loops_drops_malformed_queue_status(
     ws = _BadQueueStatusWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _idle_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -4989,7 +5051,7 @@ async def test_submit_job_sends_header_chunks_and_returns_ack(
     ws = _AckOnLastChunkWs(closed_event)
     channel = PeerLinkChannel(noise=initiator, ws=ws, log_label="127.0.0.1:6055")
 
-    async def _idle_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _idle_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         await closed_event.wait()
 
     monkeypatch.setattr(
@@ -5930,6 +5992,9 @@ async def test_controller_download_artifacts_session_lost_maps_to_unavailable(
         ("job_not_completed", ErrorCode.PRECONDITION_FAILED),
         ("duplicate_download", ErrorCode.PRECONDITION_FAILED),
         ("pack_failed", ErrorCode.UNAVAILABLE),
+        ("stream_failed", ErrorCode.UNAVAILABLE),
+        ("busy", ErrorCode.UNAVAILABLE),
+        ("shutting_down", ErrorCode.UNAVAILABLE),
         ("entirely_unknown_reason", ErrorCode.UNAVAILABLE),
     ],
 )

@@ -118,7 +118,7 @@ def _header(
 
 async def _drain_extracts(receiver: SubmitJobReceiver) -> None:
     """Await the off-loop post-ack extract tasks so assertions see their effects."""
-    await asyncio.gather(*receiver._extracts._tasks, return_exceptions=True)
+    await receiver._extracts.wait_idle()
 
 
 def _passthrough_prepare(bundle_path: Path, target_dir: Path) -> Path:

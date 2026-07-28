@@ -2132,19 +2132,32 @@ async def test_receive_loop_routes_download_artifacts_to_sender(tmp_path: Path) 
     assert call_frame == payload
 
 
-async def test_receive_loop_pong_updates_last_pong_at(tmp_path: Path) -> None:
-    """A ``pong`` frame from the peer bumps ``session.last_pong_at``."""
+async def test_receive_loop_pong_updates_last_inbound_at(tmp_path: Path) -> None:
+    """A ``pong`` frame from the peer bumps ``session.last_inbound_at``."""
     initiator, responder = _noise_pair()
     session, ws = _make_unit_session(responder)
-    session.last_pong_at = 0.0
+    session.last_inbound_at = 0.0
     pong = initiator.encrypt(_json.dumps({"type": "pong", "nonce": 7}))
     ws._inbox.append(_binary_msg(pong))
 
     await _receive_loop(session, MagicMock())
 
-    assert session.last_pong_at > 0.0
+    assert session.last_inbound_at > 0.0
     # No outbound frame fired (pong is one-way from peer to us).
     assert ws.sends == []
+
+
+async def test_receive_loop_any_frame_updates_last_inbound_at(tmp_path: Path) -> None:
+    """Any decrypted frame bumps ``session.last_inbound_at``, not just pong."""
+    initiator, responder = _noise_pair()
+    session, ws = _make_unit_session(responder)
+    session.last_inbound_at = 0.0
+    frame = initiator.encrypt(_json.dumps({"type": "mystery"}))
+    ws._inbox.append(_binary_msg(frame))
+
+    await _receive_loop(session, MagicMock())
+
+    assert session.last_inbound_at > 0.0
 
 
 async def test_receive_loop_peer_terminate_exits_cleanly(tmp_path: Path) -> None:
@@ -2217,11 +2230,11 @@ async def test_run_peer_link_heartbeat_terminates_on_pong_timeout(
 
     await _peer_link_session_module.run_peer_link_heartbeat(
         send_ping=_send_ping,
-        last_pong_at=lambda: 0.0,
+        last_inbound_at=lambda: 0.0,
         on_dead=_on_dead,
     )
 
-    # Timeout branch fires before the first ping — last_pong_at
+    # Timeout branch fires before the first ping — last_inbound_at
     # is at 0, _monotonic() is at 1000, the gap exceeds the
     # zero threshold.
     assert pings == []
@@ -2245,7 +2258,7 @@ async def test_run_peer_link_heartbeat_terminates_on_send_failure(
 
     await _peer_link_session_module.run_peer_link_heartbeat(
         send_ping=_send_ping_fail,
-        last_pong_at=lambda: 0.0,
+        last_inbound_at=lambda: 0.0,
         on_dead=_on_dead,
     )
 
@@ -2290,7 +2303,7 @@ async def test_run_peer_link_session_heartbeat_closures_route_to_session(
     captured: dict[str, Any] = {}
     heartbeat_started = asyncio.Event()
 
-    async def _capturing_heartbeat(*, send_ping: Any, last_pong_at: Any, on_dead: Any) -> None:
+    async def _capturing_heartbeat(*, send_ping: Any, last_inbound_at: Any, on_dead: Any) -> None:
         captured["send_ping"] = send_ping
         captured["on_dead"] = on_dead
         heartbeat_started.set()
@@ -2366,7 +2379,7 @@ async def test_run_peer_link_heartbeat_propagates_cancellation(
     task = asyncio.create_task(
         _peer_link_session_module.run_peer_link_heartbeat(
             send_ping=_noop_send,
-            last_pong_at=lambda: 0.0,
+            last_inbound_at=lambda: 0.0,
             on_dead=_noop_dead,
         )
     )
