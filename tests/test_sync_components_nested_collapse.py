@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _AUTOMATIONS_BODIES_DIR,
     _OUTPUT_BODIES_DIR,
     _convert_config_vars,
     _convert_field,
@@ -138,6 +139,9 @@ def test_shipped_catalog_has_no_childless_nested() -> None:
             walk(entry.get("config_entries"), name)
 
     for body_path in sorted(_OUTPUT_BODIES_DIR.glob("*.json")):
+        body = json.loads(body_path.read_text(encoding="utf-8"))
+        walk(body.get("config_entries"), body_path.name)
+    for body_path in sorted(_AUTOMATIONS_BODIES_DIR.glob("**/*.json")):
         body = json.loads(body_path.read_text(encoding="utf-8"))
         walk(body.get("config_entries"), body_path.name)
     assert not violations

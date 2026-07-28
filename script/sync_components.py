@@ -3141,7 +3141,7 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
 
     ``top_level`` is True only for a component's own (direct) config
     vars; it gates the action-list ``type: trigger`` → TRIGGER override
-    so nested trigger fields stay ``nested`` (see below). ``_seen_refs``
+    so nested trigger fields go YAML-only (see below). ``_seen_refs``
     is threaded into nested recursion to break ``extends`` cycles.
     """
     if not isinstance(raw, dict):
