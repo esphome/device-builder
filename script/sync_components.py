@@ -5222,6 +5222,23 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
+def _hidden_schema(node: Any) -> Any | None:
+    """
+    Return the schema a ``@schema_extractor`` closure yields for ``SCHEMA_EXTRACT``, else None.
+
+    Ordinary validators are never invoked.
+    """
+    code = getattr(node, "__code__", None)
+    if code is None or "SCHEMA_EXTRACT" not in code.co_names:
+        return None
+    from esphome.schema_extractors import SCHEMA_EXTRACT
+
+    try:
+        return node(SCHEMA_EXTRACT)
+    except Exception:
+        return None
+
+
 def _unwrap_schema_to_dict(node: Any) -> dict | None:
     """
     Peel ``vol.Schema`` / ``vol.All`` / ``vol.Any`` wrappers to the underlying dict, or None.
@@ -5332,6 +5349,11 @@ def _walk_schema_keys(
             sub_path = (*path, key_name)
             visit(key, key_name, val, sub_path)
             walk(val, sub_path, depth + 1)
+
+    # Top-level only: a nested peel explodes on recursive closure-built
+    # schemas (lvgl) — each call constructs fresh objects, so the
+    # (id, path) dedupe never hits and the walk grows combinatorially.
+    schema = _hidden_schema(schema) or schema
 
     # Best-effort: don't tank the whole sync if one component
     # manifest's schema is misshapen. Log at debug level so we can
@@ -7264,6 +7286,7 @@ def _collect_required_groups(
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
+    schema = _hidden_schema(schema) or schema
 
     out: dict[tuple[str, ...], list[dict[str, Any]]] = {}
     visited: set[int] = set()

@@ -376,6 +376,45 @@ def test_walk_descends_typed_schema_branches(cv) -> None:
     assert {"clock_speed", "phy_addr"} <= keys
 
 
+def test_walk_peels_schema_extractor_closure(cv) -> None:
+    """``_walk_schema_keys`` descends a ``@schema_extractor``-style closure."""
+    from esphome import schema_extractors  # noqa: PLC0415
+
+    base_schema = cv.Schema({cv.Required("carrier_duty_percent"): cv.percentage_int})
+
+    def validator(config):
+        if config == schema_extractors.SCHEMA_EXTRACT:
+            return base_schema
+        raise AssertionError("probed as a plain validator")
+
+    keys: set[str] = set()
+    _walk_schema_keys(validator, lambda _k, key_name, _v, _path: keys.add(key_name))
+    assert keys == {"carrier_duty_percent"}
+
+
+def test_walk_does_not_call_plain_validators(cv) -> None:
+    """A closure that never references ``SCHEMA_EXTRACT`` is not probed."""
+    calls: list[object] = []
+
+    def validator(config):
+        calls.append(config)
+        return config
+
+    keys: set[str] = set()
+    _walk_schema_keys(validator, lambda _k, key_name, _v, _path: keys.add(key_name))
+    assert keys == set()
+    assert calls == []
+
+
+def test_shipped_catalog_remote_receiver_carries_introspection() -> None:
+    """The generated remote_receiver body is enriched through its trigger wrapper."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "remote_receiver.json").read_bytes())
+    entries = {e["key"]: e for e in body["config_entries"]}
+    assert entries["carrier_duty_percent"]["type"] == "float_with_unit"
+    assert entries["carrier_duty_percent"]["platform_defaults"] == {"esp32": 100}
+    assert entries["rmt_symbols"]["platform_defaults"]["esp32"] == 192
+
+
 def test_collect_refined_types_descends_typed_schema(cv) -> None:
     """A ``cv.frequency`` field inside a typed_schema branch refines to ``float_with_unit``."""
     typed = cv.typed_schema(
@@ -520,18 +559,11 @@ def test_collect_refined_types_percentage_int(cv) -> None:
         assert refined[path].unit_options == ["%"]
 
 
-def test_remote_transmitter_carrier_duty_refines_to_float_with_unit(loader) -> None:
-    """`remote_transmitter.carrier_duty_percent` refines to `float_with_unit` (`%`)."""
-    manifest = loader.get_component("remote_transmitter")
-    if manifest is None:
-        pytest.skip("esphome version doesn't ship remote_transmitter")
-    refined = _collect_refined_types(manifest)
-    duty = refined.get(("carrier_duty_percent",))
-    if duty is None:
-        pytest.skip(
-            "esphome version doesn't expose remote_transmitter.carrier_duty_percent "
-            "via the live-introspection walker — guard, not a regression"
-        )
+@pytest.mark.parametrize("component", ["remote_transmitter", "remote_receiver"])
+def test_carrier_duty_refines_to_float_with_unit(loader, component) -> None:
+    """`carrier_duty_percent` refines to `float_with_unit` (`%`), through wrappers too."""
+    refined = _collect_refined_types(loader.get_component(component))
+    duty = refined[("carrier_duty_percent",)]
     assert duty.type == "float_with_unit"
     assert duty.unit_options == ["%"]
 
