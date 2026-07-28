@@ -483,7 +483,9 @@ class MdnsSource:
             # device (#2369) — and resolving instead is no escape,
             # ``async_request`` would short-circuit on the same cached
             # records. With the PTR gone the claim stays with ping /
-            # the announce lifecycle.
+            # the announce lifecycle. Gates every applier routed here
+            # (http identity, importable) — a withdrawn service's
+            # leftover TXT shouldn't re-stamp anything either.
             if self._cached_ptr(info.name, info.type) is not None:
                 applier(device_name, info)
             return

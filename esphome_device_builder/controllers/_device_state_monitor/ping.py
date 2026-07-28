@@ -72,10 +72,11 @@ class PingSource(SweepSource):
         # Set in ``_prepare`` once the privilege probe lands; the pre-
         # ``run`` default is only seen by tests that mock ``icmp_ping``.
         self._privileged: bool = True
-        # Privilege-probe outcome for siblings (the API reviver gates
-        # on it): True once some ICMP socket mode works and the sweep
-        # is running.
-        self.icmp_available: bool = False
+        # Privilege-probe outcome for siblings: None until ``_prepare``
+        # probes (the withdrawal path treats undecided as an arbiter
+        # coming), then True once some ICMP socket mode works and the
+        # sweep is running, False when neither mode opens.
+        self.icmp_available: bool | None = None
 
     async def ping_once(self, target: str, *, retry: bool) -> float | None:
         """

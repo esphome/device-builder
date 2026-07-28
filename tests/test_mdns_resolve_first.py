@@ -364,13 +364,27 @@ async def test_removed_without_icmp_goes_offline_directly() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
-    assert monitor.ping.icmp_available is False
+    monitor.ping.icmp_available = False
 
     _dispatch_removed(monitor)
 
     assert device.runtime_state.state == DeviceState.OFFLINE
     assert "kitchen" not in monitor.state.state_source
     assert device.ip == "192.168.1.50"
+
+
+async def test_removed_before_the_icmp_probe_parks_on_unknown() -> None:
+    """An undecided ICMP probe still counts as an arbiter coming."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    monitor.ping.wake = MagicMock()  # type: ignore[method-assign]
+    assert monitor.ping.icmp_available is None
+
+    _dispatch_removed(monitor)
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
 
 
 async def test_removed_on_an_offline_device_keeps_the_confirmed_state() -> None:
