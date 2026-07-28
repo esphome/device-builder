@@ -20,12 +20,13 @@ harness stays visible:
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import tarfile
 from pathlib import Path
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -49,6 +50,7 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
 )
 from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
+from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
 from esphome_device_builder.helpers.storage_path import (
     resolve_compiled_config_path,
     resolve_idedata_path,
@@ -96,6 +98,11 @@ def _make_firmware_with_job(
 
 def _make_sender(firmware: Any | None = None) -> ArtifactsDownloadSender:
     return ArtifactsDownloadSender(firmware_controller=firmware or _make_firmware_with_job())
+
+
+async def _drain_download(sender: ArtifactsDownloadSender) -> None:
+    """Await the off-loop pack + stream task spawned by ``handle_download_artifacts``."""
+    await asyncio.gather(*list(sender._tasks))
 
 
 def _last_app_frame(session: Any) -> dict[str, Any]:
@@ -236,6 +243,7 @@ async def test_download_artifacts_build_dir_missing_rejected(
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     with caplog.at_level("WARNING"):
         await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+        await _drain_download(sender)
 
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
@@ -267,6 +275,7 @@ async def test_download_artifacts_reject_detail_capped(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     payload = _last_app_frame(session)
     assert payload["reason"] == "build_dir_missing"
@@ -290,6 +299,7 @@ async def test_download_artifacts_pack_failed_rejected(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     payload = _last_app_frame(session)
     assert payload["accepted"] is False
@@ -315,6 +325,7 @@ async def test_download_artifacts_happy_path_streams_start_chunk_end(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     frames = _all_app_frames(session)
     assert frames[0]["type"] == "artifacts_start"
@@ -348,8 +359,164 @@ async def test_download_artifacts_clears_inflight_on_reject(
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
 
     assert session.dashboard_id not in sender._inflight
+
+
+# ---------------------------------------------------------------------------
+# handle_download_artifacts — off-loop streaming
+# ---------------------------------------------------------------------------
+
+
+def _patch_pack(monkeypatch: pytest.MonkeyPatch, tarball: bytes = b"x" * 10) -> None:
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.remote_build.artifacts_download.pack_build_artifacts",
+        lambda _configuration: PackedArtifacts(tarball=tarball, firmware_offset="0x0"),
+    )
+
+
+def _parked_session(release: asyncio.Event) -> Any:
+    """Session stub whose ``send_app_frame`` parks until *release* is set."""
+    session = _make_session()
+
+    async def _parked_send(_payload: dict[str, Any]) -> bool:
+        await release.wait()
+        return True
+
+    session.send_app_frame = AsyncMock(side_effect=_parked_send)
+    return session
+
+
+async def test_download_artifacts_streams_off_the_receive_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``handle_download_artifacts`` returns while the stream is still parked on a send."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    release = asyncio.Event()
+    session = _parked_session(release)
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    assert session.dashboard_id in sender._inflight
+    assert sender.active
+
+    release.set()
+    await _drain_download(sender)
+    assert not sender.active
+    assert session.dashboard_id not in sender._inflight
+    assert _all_app_frames(session)[-1]["type"] == "artifacts_end"
+
+
+async def test_discard_session_cancels_the_inflight_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``discard_session`` cancels a mid-stream download and frees the slot."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _parked_session(asyncio.Event())
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    task = sender._inflight[session.dashboard_id].task
+    assert task is not None
+
+    sender.discard_session(session.dashboard_id)
+    await asyncio.gather(task, return_exceptions=True)
+
+    assert task.cancelled()
+    assert not sender.active
+    assert session.dashboard_id not in sender._inflight
+
+
+async def test_cancelled_stream_leaves_a_successor_slot_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancelled stream's cleanup doesn't pop a reconnected session's fresh slot."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    old_session = _parked_session(asyncio.Event())
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(old_session, cast(dict[str, Any], frame))
+    old_task = sender._inflight[old_session.dashboard_id].task
+    assert old_task is not None
+    sender.discard_session(old_session.dashboard_id)
+
+    release = asyncio.Event()
+    new_session = _parked_session(release)
+    await sender.handle_download_artifacts(new_session, cast(dict[str, Any], frame))
+
+    # The cancelled task's guarded pop must not evict the fresh slot.
+    await asyncio.gather(old_task, return_exceptions=True)
+    assert new_session.dashboard_id in sender._inflight
+
+    release.set()
+    await _drain_download(sender)
+    assert new_session.dashboard_id not in sender._inflight
+    assert _all_app_frames(new_session)[-1]["accepted"] is True
+
+
+async def test_stream_crash_sends_terminal_stream_failed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected send crash still resolves the offloader with ``stream_failed``."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[RuntimeError("boom"), True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    payload = _last_app_frame(session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "stream_failed"
+    assert payload["detail"] == "RuntimeError: boom"
+    assert session.dashboard_id not in sender._inflight
+
+
+async def test_stream_aborts_on_first_failed_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A send reporting a closed session stops the chunk loop; no end frame."""
+    _patch_pack(monkeypatch, tarball=b"x" * (BUNDLE_CHUNK_SIZE_BYTES * 2 + 1))
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[True, True, False])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    frames = _all_app_frames(session)
+    assert [f["type"] for f in frames] == ["artifacts_start", "artifacts_chunk", "artifacts_chunk"]
+    assert session.dashboard_id not in sender._inflight
+
+
+async def test_stop_drains_and_refuses_new_downloads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``stop()`` cancels the in-flight stream and refuses later requests."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _parked_session(asyncio.Event())
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await sender.stop()
+
+    assert not sender.active
+    assert not sender._inflight
+
+    late_session = _make_session()
+    await sender.handle_download_artifacts(late_session, cast(dict[str, Any], frame))
+    assert not sender._tasks
+    late_session.send_app_frame.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

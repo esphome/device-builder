@@ -57,15 +57,24 @@ offloaders that both built the same device) each get
 their own slot; the receiver's ``FirmwareJob`` map is
 keyed on the offloader's ``dashboard_id`` so cross-session
 collision is structurally impossible.
+
+The pack + stream runs as a tracked task off the peer-link
+receive loop: under TCP backpressure a chunk send can block
+for the transfer's whole wall clock, and an inline await
+would starve the loop of the offloader's pings and pongs
+until the heartbeat killed a healthy session (#2377) — the
+same seam #2335 closed for the submit-path extract.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import drain_tasks, log_task_exit, run_in_executor
 from ...helpers.peer_link_bundle import (
     BUNDLE_CHUNK_SIZE_BYTES,
     chunk_bundle,
@@ -102,6 +111,7 @@ _REASON_UNKNOWN_JOB = "unknown_job"
 _REASON_JOB_NOT_COMPLETED = "job_not_completed"
 _REASON_BUILD_DIR_MISSING = "build_dir_missing"
 _REASON_PACK_FAILED = "pack_failed"
+_REASON_STREAM_FAILED = "stream_failed"
 
 # Cap the operator-facing reject ``detail`` (a build-server path / exception
 # message) so a pathological configuration string can't bloat the frame.
@@ -118,16 +128,19 @@ _DOWNLOAD_ARTIFACTS_SCHEMA = frame_schema({"job_id": str})
 class _InflightDownload:
     """Per-session marker that a download is currently streaming.
 
-    Just the ``job_id`` of the in-flight download — the
-    duplicate-rejection check at ``handle_download_artifacts``
-    looks at presence, not at the value. Stored on
-    :attr:`ArtifactsDownloadSender._inflight` keyed on
-    ``session.dashboard_id`` so a second concurrent request
-    on the same session is rejected with
+    The duplicate-rejection check at
+    ``handle_download_artifacts`` looks at presence, not at the
+    value. Stored on :attr:`ArtifactsDownloadSender._inflight`
+    keyed on ``session.dashboard_id`` so a second concurrent
+    request on the same session is rejected with
     ``duplicate_download`` rather than racing the assembler.
+    ``task`` is the off-loop pack + stream task so
+    :meth:`ArtifactsDownloadSender.discard_session` can cancel
+    a stream whose session just dropped.
     """
 
     job_id: str
+    task: asyncio.Task[None] | None = None
 
 
 class ArtifactsDownloadSender:
@@ -136,9 +149,10 @@ class ArtifactsDownloadSender:
     One instance per :class:`ReceiverController` (created
     in :meth:`ReceiverController.start` alongside the
     :class:`SubmitJobReceiver`). Holds the in-flight
-    download registry; the actual streaming work lives in
-    :meth:`handle_download_artifacts` which the peer-link
-    receive loop dispatches into.
+    download registry; :meth:`handle_download_artifacts`
+    validates inline in the receive loop, then spawns the
+    pack + stream as a tracked task so a slow transfer
+    can't starve the loop.
 
     No persistent state beyond the in-flight registry —
     completed downloads drop their entry as soon as the
@@ -151,27 +165,44 @@ class ArtifactsDownloadSender:
     def __init__(self, firmware_controller: FirmwareController) -> None:
         self._firmware = firmware_controller
         # ``session.dashboard_id`` → in-flight download marker.
-        # Populated at the start of a download, cleared in the
-        # ``finally`` that ends the streaming work. The check
-        # gates concurrent downloads on the same session;
-        # different sessions each get their own slot because
-        # the dispatch routes by ``dashboard_id``.
+        # Populated at the start of a download, cleared by the
+        # streaming task's guarded pop. The check gates
+        # concurrent downloads on the same session; different
+        # sessions each get their own slot because the dispatch
+        # routes by ``dashboard_id``.
         self._inflight: dict[str, _InflightDownload] = {}
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._stopped = False
+
+    @property
+    def active(self) -> bool:
+        """Whether any download task is live (the reset busy gate)."""
+        return bool(self._tasks)
 
     def discard_session(self, dashboard_id: str) -> None:
-        """Drop any in-flight download marker for *dashboard_id*.
+        """Drop the in-flight download for *dashboard_id*, cancelling its stream.
 
         Called by the controller's session-teardown path
         (``unregister_peer_link_session``) so a half-finished
         download from a session that just dropped doesn't keep
-        the slot occupied across reconnect.
+        the slot occupied across reconnect, or keep streaming
+        into a closed WS.
         """
-        self._inflight.pop(dashboard_id, None)
+        inflight = self._inflight.pop(dashboard_id, None)
+        if inflight is not None and inflight.task is not None:
+            inflight.task.cancel()
+
+    async def stop(self) -> None:
+        """Refuse new downloads, then cancel and drain the in-flight ones."""
+        self._stopped = True
+        await drain_tasks(self._tasks)
+        self._tasks.clear()
+        self._inflight.clear()
 
     async def handle_download_artifacts(
         self, session: PeerLinkSession, frame: dict[str, Any]
     ) -> None:
-        """Validate, pack, and stream the build artifacts for *frame['job_id']*.
+        """Validate *frame['job_id']* inline, then pack + stream off-loop.
 
         Single-flight per session. Failure paths (malformed
         frame, unknown / non-completed job, missing build dir,
@@ -179,7 +210,8 @@ class ArtifactsDownloadSender:
         ``accepted=false`` and a structured ``reason``,
         without any preceding ``artifacts_start``. Success
         path sends ``artifacts_start`` → chunks →
-        ``artifacts_end{accepted: true}``.
+        ``artifacts_end{accepted: true}`` from the spawned
+        task.
 
         Errors that imply wire-level peer misbehaviour
         (malformed frame shape) terminate the session with
@@ -187,6 +219,8 @@ class ArtifactsDownloadSender:
         soft reject the offloader can rerender as a clean
         user-facing message.
         """
+        if self._stopped:
+            return
         if not is_valid_frame(_DOWNLOAD_ARTIFACTS_SCHEMA, frame):
             _LOGGER.debug(
                 "download_artifacts from %s: malformed frame; terminating: %r",
@@ -236,10 +270,34 @@ class ArtifactsDownloadSender:
             await self._send_reject(session, job_id, _REASON_JOB_NOT_COMPLETED)
             return
 
-        self._inflight[session.dashboard_id] = _InflightDownload(job_id=job_id)
+        inflight = self._inflight[session.dashboard_id] = _InflightDownload(job_id=job_id)
+        task = asyncio.create_task(
+            self._run_download(session, job_id, firmware_job.configuration, inflight),
+            name=f"artifacts-download-{job_id}",
+        )
+        inflight.task = task
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(partial(log_task_exit, f"artifacts download {job_id}"))
+
+    async def _run_download(
+        self,
+        session: PeerLinkSession,
+        job_id: str,
+        configuration: str,
+        inflight: _InflightDownload,
+    ) -> None:
+        """
+        Pack and stream one download; always resolves the offloader.
+
+        Every exit sends a terminal ``artifacts_end`` (reject or
+        success) except cancellation and a WS that already died
+        mid-stream — both mean the session is gone and the
+        offloader's future drains as session-lost.
+        """
         try:
             try:
-                packed = await run_in_executor(pack_build_artifacts, firmware_job.configuration)
+                packed = await run_in_executor(pack_build_artifacts, configuration)
             except FileNotFoundError as exc:
                 # ``FileNotFoundError`` from
                 # :func:`load_build_artifacts` carries the actual
@@ -261,7 +319,7 @@ class ArtifactsDownloadSender:
                     "job %s (configuration=%r): %s",
                     session.dashboard_id,
                     job_id,
-                    firmware_job.configuration,
+                    configuration,
                     exc,
                 )
                 await self._send_reject(session, job_id, _REASON_BUILD_DIR_MISSING, detail=str(exc))
@@ -271,15 +329,31 @@ class ArtifactsDownloadSender:
                     "download_artifacts from %s: pack failed for job %s (configuration=%r)",
                     session.dashboard_id,
                     job_id,
-                    firmware_job.configuration,
+                    configuration,
                 )
                 await self._send_reject(
                     session, job_id, _REASON_PACK_FAILED, detail=f"{type(exc).__name__}: {exc}"
                 )
                 return
             await self._send_stream(session, job_id, packed)
+        except Exception as exc:
+            # Off-loop, a crash no longer tears the session down —
+            # a terminal reject must go out or the offloader's
+            # future hangs until session loss.
+            _LOGGER.exception(
+                "download_artifacts from %s: stream failed for job %s (configuration=%r)",
+                session.dashboard_id,
+                job_id,
+                configuration,
+            )
+            await self._send_reject(
+                session, job_id, _REASON_STREAM_FAILED, detail=f"{type(exc).__name__}: {exc}"
+            )
         finally:
-            self._inflight.pop(session.dashboard_id, None)
+            # Guarded pop: after ``discard_session`` a reconnected
+            # session may already own a fresh slot under this key.
+            if self._inflight.get(session.dashboard_id) is inflight:
+                del self._inflight[session.dashboard_id]
 
     async def _send_reject(
         self, session: PeerLinkSession, job_id: str, reason: str, *, detail: str = ""
@@ -327,7 +401,8 @@ class ArtifactsDownloadSender:
             "artifacts_sha256": compute_bundle_sha256(tarball),
             "firmware_offset": packed.firmware_offset,
         }
-        await session.send_app_frame(cast(dict[str, Any], start))
+        if not await session.send_app_frame(cast(dict[str, Any], start)):
+            return
         for chunk_index, raw, is_last in chunk_bundle(tarball):
             chunk: ArtifactsChunkFrameData = {
                 "type": "artifacts_chunk",
@@ -336,7 +411,10 @@ class ArtifactsDownloadSender:
                 "data_b64": encode_chunk(raw),
                 "is_last": is_last,
             }
-            await session.send_app_frame(cast(dict[str, Any], chunk))
+            if not await session.send_app_frame(cast(dict[str, Any], chunk)):
+                # Session closed mid-stream — the rest of the
+                # tarball has nowhere to go.
+                return
         end: ArtifactsEndFrameData = {
             "type": "artifacts_end",
             "job_id": job_id,

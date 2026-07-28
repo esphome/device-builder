@@ -285,9 +285,9 @@ class _SessionLoopState:
     callback so close-cause information flows in either
     direction.
 
-    The receive loop bumps :attr:`last_pong_at` on each pong;
-    the heartbeat task reads it through a ``lambda`` to decide
-    whether to fire ``on_dead``. The receive loop and the
+    The receive loop bumps :attr:`last_inbound_at` on each
+    successfully decrypted frame; the heartbeat task reads it
+    through a ``lambda`` to decide whether to fire ``on_dead``. The receive loop and the
     heartbeat task each write :attr:`close_reason` on the
     branches they own — receive loop on transport-error /
     terminate-from-peer / unknown-msg-type, heartbeat on
@@ -301,5 +301,5 @@ class _SessionLoopState:
     have to be threaded through the heartbeat closure.
     """
 
-    last_pong_at: float
+    last_inbound_at: float
     close_reason: str
