@@ -84,6 +84,7 @@ from ...models import (
     ArtifactsStartFrameData,
     DownloadArtifactsFrameData,
     JobStatus,
+    JobType,
 )
 from ._task_window import TaskWindow
 from .artifacts_tarball import PackedArtifacts, pack_build_artifacts
@@ -109,6 +110,8 @@ _REASON_JOB_NOT_COMPLETED = "job_not_completed"
 _REASON_BUILD_DIR_MISSING = "build_dir_missing"
 _REASON_PACK_FAILED = "pack_failed"
 _REASON_STREAM_FAILED = "stream_failed"
+_REASON_BUSY = "busy"
+_REASON_SHUTTING_DOWN = "shutting_down"
 
 # Cap the operator-facing reject ``detail`` (a build-server path / exception
 # message) so a pathological configuration string can't bloat the frame.
@@ -240,14 +243,34 @@ class ArtifactsDownloadSender:
             )
             await self._send_reject(session, job_id, _REASON_JOB_NOT_COMPLETED)
             return
+        if any(
+            job.job_type is JobType.RESET_BUILD_ENV for job in self._firmware.state.active_jobs()
+        ):
+            # The reset busy gate refuses a reset while a download
+            # streams; mirror it so a pack can't race the wipe and
+            # surface as a misleading ``build_dir_missing``.
+            _LOGGER.warning(
+                "download_artifacts from %s: rejecting job %s while a build-env reset is active",
+                session.dashboard_id,
+                job_id,
+            )
+            await self._send_reject(session, job_id, _REASON_BUSY)
+            return
 
         task = self._downloads.track(
             self._run_download(session, job_id, firmware_job.configuration),
             name=f"artifacts-download-{job_id}",
             label=f"artifacts download {job_id}",
         )
-        if task is not None:
-            self._inflight[session.dashboard_id] = task
+        if task is None:
+            _LOGGER.warning(
+                "download_artifacts from %s: rejecting job %s; receiver is shutting down",
+                session.dashboard_id,
+                job_id,
+            )
+            await self._send_reject(session, job_id, _REASON_SHUTTING_DOWN)
+            return
+        self._inflight[session.dashboard_id] = task
 
     async def _run_download(
         self, session: PeerLinkSession, job_id: str, configuration: str
@@ -367,6 +390,7 @@ class ArtifactsDownloadSender:
             "firmware_offset": packed.firmware_offset,
         }
         if not await session.send_app_frame(cast(dict[str, Any], start)):
+            await self._abort_stream(session, job_id, at="start")
             return
         for chunk_index, raw, is_last in chunk_bundle(tarball):
             chunk: ArtifactsChunkFrameData = {
@@ -377,12 +401,33 @@ class ArtifactsDownloadSender:
                 "is_last": is_last,
             }
             if not await session.send_app_frame(cast(dict[str, Any], chunk)):
-                # Session closed mid-stream — the rest of the
-                # tarball has nowhere to go.
+                await self._abort_stream(
+                    session, job_id, at=f"chunk {chunk_index + 1}/{num_chunks}"
+                )
                 return
         end: ArtifactsEndFrameData = {
             "type": "artifacts_end",
             "job_id": job_id,
             "accepted": True,
         }
-        await session.send_app_frame(cast(dict[str, Any], end))
+        if not await session.send_app_frame(cast(dict[str, Any], end)):
+            await self._abort_stream(session, job_id, at="end")
+
+    async def _abort_stream(self, session: PeerLinkSession, job_id: str, *, at: str) -> None:
+        """
+        Log a failed mid-stream send and best-effort resolve the offloader.
+
+        A ``False`` send usually means the session is closing (the
+        reject below is then a no-op), but a local encode failure
+        leaves the WS alive — without the reject the offloader's
+        future would hang until session loss.
+        """
+        _LOGGER.warning(
+            "download_artifacts from %s: send failed mid-stream for job %s (at %s); aborting",
+            session.dashboard_id,
+            job_id,
+            at,
+        )
+        await self._send_reject(
+            session, job_id, _REASON_STREAM_FAILED, detail=f"send failed at {at}"
+        )

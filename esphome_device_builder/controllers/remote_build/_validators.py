@@ -121,6 +121,8 @@ _DOWNLOAD_ARTIFACTS_REASON_TO_ERROR_CODE: dict[str, ErrorCode] = {
     "duplicate_download": ErrorCode.PRECONDITION_FAILED,
     "pack_failed": ErrorCode.UNAVAILABLE,
     "stream_failed": ErrorCode.UNAVAILABLE,
+    "busy": ErrorCode.UNAVAILABLE,
+    "shutting_down": ErrorCode.UNAVAILABLE,
 }
 
 

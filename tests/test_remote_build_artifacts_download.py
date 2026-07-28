@@ -59,6 +59,7 @@ from esphome_device_builder.helpers.storage_path import (
 from esphome_device_builder.models import (
     DownloadArtifactsFrameData,
     JobStatus,
+    JobType,
 )
 
 from .conftest import make_peer_link_session as _make_session
@@ -74,6 +75,7 @@ def _make_firmware_with_job(
     remote_job_id: str = "remote-1",
     status: JobStatus = JobStatus.COMPLETED,
     configuration: str = "kitchen.yaml",
+    active_jobs: list[Any] | None = None,
 ) -> Any:
     """Stub ``FirmwareController`` exposing one matching job via the public API."""
     job = MagicMock()
@@ -93,6 +95,7 @@ def _make_firmware_with_job(
     firmware.remote_peer_job_ids.side_effect = lambda *, remote_peer: (
         [job.remote_job_id] if job.remote_peer == remote_peer else []
     )
+    firmware.state.active_jobs.side_effect = lambda: iter(active_jobs or [])
     return firmware
 
 
@@ -480,22 +483,92 @@ async def test_stream_crash_sends_terminal_stream_failed(
     assert session.dashboard_id not in sender._inflight
 
 
+async def test_download_artifacts_rejected_busy_during_reset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An active build-env reset rejects the download ``busy``."""
+    _patch_pack(monkeypatch)
+    reset_job = MagicMock()
+    reset_job.job_type = JobType.RESET_BUILD_ENV
+    sender = _make_sender(_make_firmware_with_job(active_jobs=[reset_job]))
+    session = _make_session()
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+
+    assert not sender.active
+    payload = _last_app_frame(session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "busy"
+
+
 async def test_stream_aborts_on_first_failed_send(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A send reporting a closed session stops the chunk loop; no end frame."""
+    """A send reporting failure stops the chunk loop and best-effort rejects."""
     _patch_pack(monkeypatch, tarball=b"x" * (BUNDLE_CHUNK_SIZE_BYTES * 2 + 1))
     sender = _make_sender()
     session = _make_session()
-    session.send_app_frame = AsyncMock(side_effect=[True, True, False])
+    session.send_app_frame = AsyncMock(side_effect=[True, True, False, True])
 
     frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
     await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
     await _drain_download(sender)
 
     frames = _all_app_frames(session)
-    assert [f["type"] for f in frames] == ["artifacts_start", "artifacts_chunk", "artifacts_chunk"]
+    assert [f["type"] for f in frames] == [
+        "artifacts_start",
+        "artifacts_chunk",
+        "artifacts_chunk",
+        "artifacts_end",
+    ]
+    assert frames[-1]["accepted"] is False
+    assert frames[-1]["reason"] == "stream_failed"
+    assert frames[-1]["detail"] == "send failed at chunk 2/3"
     assert session.dashboard_id not in sender._inflight
+
+
+async def test_stream_aborts_on_failed_start_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed ``artifacts_start`` send skips the chunks and best-effort rejects."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[False, True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    frames = _all_app_frames(session)
+    assert [f["type"] for f in frames] == ["artifacts_start", "artifacts_end"]
+    assert frames[-1]["accepted"] is False
+    assert frames[-1]["detail"] == "send failed at start"
+
+
+async def test_stream_aborts_on_failed_end_send(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed terminal send still attempts the best-effort reject."""
+    _patch_pack(monkeypatch)
+    sender = _make_sender()
+    session = _make_session()
+    session.send_app_frame = AsyncMock(side_effect=[True, True, False, True])
+
+    frame: DownloadArtifactsFrameData = {"type": "download_artifacts", "job_id": "remote-1"}
+    await sender.handle_download_artifacts(session, cast(dict[str, Any], frame))
+    await _drain_download(sender)
+
+    frames = _all_app_frames(session)
+    assert [f["type"] for f in frames[:3]] == [
+        "artifacts_start",
+        "artifacts_chunk",
+        "artifacts_end",
+    ]
+    assert frames[-1]["accepted"] is False
+    assert frames[-1]["detail"] == "send failed at end"
 
 
 async def test_stop_drains_and_refuses_new_downloads(
@@ -516,7 +589,10 @@ async def test_stop_drains_and_refuses_new_downloads(
     late_session = _make_session()
     await sender.handle_download_artifacts(late_session, cast(dict[str, Any], frame))
     assert not sender.active
-    late_session.send_app_frame.assert_not_awaited()
+    payload = _last_app_frame(late_session)
+    assert payload["type"] == "artifacts_end"
+    assert payload["accepted"] is False
+    assert payload["reason"] == "shutting_down"
 
 
 # ---------------------------------------------------------------------------

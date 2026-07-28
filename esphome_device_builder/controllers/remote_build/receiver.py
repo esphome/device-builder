@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from esphome.const import __version__ as _installed_esphome_version
 
 from ...helpers.api import api_command
-from ...helpers.async_ import drain_tasks
+from ...helpers.async_ import drain_tasks, log_gather_failures
 from ...helpers.event_bus import Event
 from ...helpers.storage import Store, drain_shutdown_callbacks
 from ...models import (
@@ -134,7 +134,10 @@ class ReceiverController(_RemoteBuildBase):  # noqa: PLR0904
             for handler in (self.state.submit_job_receiver, self.state.artifacts_download_sender)
             if handler is not None
         ]:
-            await asyncio.gather(*stoppers)
+            log_gather_failures(
+                await asyncio.gather(*stoppers, return_exceptions=True),
+                "receiver handler stop failed",
+            )
         # Drop the receiver-side handler refs so a subsequent
         # ``get_*`` call after ``stop()`` fails its
         # ``RuntimeError`` guard cleanly instead of returning a
