@@ -218,27 +218,32 @@ class MdnsSource:
         Read the truthful "last heard via mDNS" age + remaining TTL.
 
         Walks every record type the device might leave in the
-        cache (A / AAAA at ``<name>.local.``, SRV / TXT at
-        ``<name>._esphomelib._tcp.local.``, PTR at the type-
-        domain). The drawer's "Last seen" reads whichever is
-        freshest: A/AAAA decay at 120s, but the PTR kept alive
-        by the browser stays fresh for tens of minutes, so the
-        row stays populated through the brief A-expiry window
-        instead of flickering "Waiting for first broadcast".
-        Returns ``None`` only when *every* cached record has
-        been evicted.
+        cache (A / AAAA at ``<name>.local.``, SRV / TXT / PTR on
+        both service types — esphomelib for api devices,
+        ``_http._tcp`` for non-API). The drawer's "Last seen"
+        reads whichever is freshest: A/AAAA decay at 120s, but
+        the PTR kept alive by the browser stays fresh for tens
+        of minutes, so the row stays populated through the brief
+        A-expiry window instead of flickering "Waiting for first
+        broadcast". Returns ``None`` only when *every* cached
+        record has been evicted.
         """
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
-        service_name = f"{name}.{_ESPHOME_SERVICE_TYPE}"
-        txt_dns_records = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
-        records: list[DNSRecord] = [
-            *self._get_address_records(name),
-            *cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN),
-            *txt_dns_records,
-        ]
-        ptr = self._cached_ptr(service_name)
+        txt_dns_records: list[DNSRecord] = []
+        records: list[DNSRecord] = [*self._get_address_records(name)]
+        for service_type in (_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE):
+            service_name = f"{name}.{service_type}"
+            txts = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
+            txt_dns_records.extend(txts)
+            records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
+            records.extend(txts)
+        # The expiry countdown rides the ownership anchor: the
+        # esphomelib PTR while it is live, else the http PTR.
+        ptr = self._cached_ptr(f"{name}.{_ESPHOME_SERVICE_TYPE}") or self._cached_ptr(
+            f"{name}.{_HTTP_SERVICE_TYPE}", _HTTP_SERVICE_TYPE
+        )
         if ptr is not None:
             records.append(ptr)
         if not records:

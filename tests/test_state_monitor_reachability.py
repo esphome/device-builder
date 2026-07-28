@@ -1137,3 +1137,65 @@ async def test_refresh_mdns_empty_resolve_no_state_change() -> None:
 
     await monitor.mdns.refresh_mdns("kitchen")
     assert devices[0].runtime_state.state is DeviceState.UNKNOWN
+
+
+def test_get_mdns_cache_info_countdown_rides_the_http_ptr_for_non_api() -> None:
+    """A device with only ``_http._tcp`` records still gets the expiry countdown."""
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        zc.cache.async_add_records(
+            [
+                DNSPointer(
+                    name="_http._tcp.local.",
+                    type_=_TYPE_PTR,
+                    class_=_CLASS_IN,
+                    ttl=4500,
+                    alias="kitchen._http._tcp.local.",
+                    created=current_time_millis() - 10_000,
+                ),
+            ]
+        )
+        monitor = _make_monitor([_make_device()], None)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
+
+        assert info is not None
+        assert info.ptr_ttl_seconds == 4500.0
+    finally:
+        zc.close()
+
+
+def test_get_mdns_cache_info_countdown_prefers_the_esphomelib_ptr() -> None:
+    """With both PTRs live the countdown rides the esphomelib ownership anchor."""
+    zc = Zeroconf(interfaces=["127.0.0.1"])
+    try:
+        zc.cache.async_add_records(
+            [
+                DNSPointer(
+                    name="_esphomelib._tcp.local.",
+                    type_=_TYPE_PTR,
+                    class_=_CLASS_IN,
+                    ttl=4500,
+                    alias="kitchen._esphomelib._tcp.local.",
+                    created=current_time_millis(),
+                ),
+                DNSPointer(
+                    name="_http._tcp.local.",
+                    type_=_TYPE_PTR,
+                    class_=_CLASS_IN,
+                    ttl=120,
+                    alias="kitchen._http._tcp.local.",
+                    created=current_time_millis(),
+                ),
+            ]
+        )
+        monitor = _make_monitor([_make_device()], None)
+        monitor.mdns._zeroconf = MagicMock(zeroconf=zc)
+
+        info = monitor.mdns.get_mdns_cache_info("kitchen")
+
+        assert info is not None
+        assert info.ptr_ttl_seconds == 4500.0
+    finally:
+        zc.close()
