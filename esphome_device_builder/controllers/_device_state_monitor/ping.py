@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 from icmplib import async_ping as icmp_ping
 from icmplib.exceptions import ICMPLibError
 
-from ...helpers.async_ import log_gather_failures
 from ...helpers.hostname import is_local_hostname
 from ...models import Device, DeviceState
 from . import shared
@@ -127,11 +126,10 @@ class PingSource(SweepSource):
     async def _sweep(self) -> None:
         # A failing resolve step is logged and must not skip the
         # ping pass for this interval.
-        results = await asyncio.gather(
-            shared.resolve_non_api_mdns_targets(self._monitor),
-            return_exceptions=True,
-        )
-        log_gather_failures(results, "mDNS resolve step failed; continuing")
+        try:
+            await shared.resolve_non_api_mdns_targets(self._monitor)
+        except Exception:
+            _LOGGER.warning("mDNS resolve step failed; continuing", exc_info=True)
         await self._ping_sweep()
 
     async def _ping_sweep(self) -> None:

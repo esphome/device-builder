@@ -305,10 +305,7 @@ class DeviceStateMonitor(TaskControllerBase):
         self.clear_resolved_addresses(name)
         self.forget(name)
         # After forget — the stamp is refused while mDNS owns the name.
-        if any(
-            d.api_enabled and (d.runtime_state.deployed_version or d.mac_address)
-            for d in self._get_devices_by_name(name)
-        ):
+        if self._has_known_api_identity(name):
             self.apply_deployed_identity_live(name, live=True)
 
     def _emit_source_change(self, name: str, old: str, new: str) -> None:
@@ -548,6 +545,13 @@ class DeviceStateMonitor(TaskControllerBase):
             return False
         return self._apply_observation(
             name, "deployed_identity_live", live, forward, name, live=live
+        )
+
+    def _has_known_api_identity(self, name: str) -> bool:
+        """Whether some api device named *name* already carries identity fields."""
+        return any(
+            d.api_enabled and (d.runtime_state.deployed_version or d.mac_address)
+            for d in self._get_devices_by_name(name)
         )
 
     def _mdns_owns_api_identity(self, name: str) -> bool:

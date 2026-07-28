@@ -105,6 +105,10 @@ def apply_resolved_addresses(
     usable = drop_unspecified_addresses(addresses)
     if not usable:
         return
+    # Non-API devices publish no esphomelib PTR, so this claim
+    # deliberately rides none — the live-PTR ownership invariant is
+    # scoped to the esphomelib browser lifecycle (the active-resolve
+    # asymmetry in CLAUDE.md).
     monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
     monitor.apply_ip_addresses(name, usable)
 

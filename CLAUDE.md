@@ -619,11 +619,14 @@ against legacy behaviour before assuming the simpler version suffices.
     live device under browser ownership never expires — a `Removed`
     means a goodbye or repeated direct-query failures, and the
     withdrawal above hands the device to ping until its next announce.
-    Every claim path enforces the invariant: a cache hit claims only
-    behind a live PTR (`cache_apply_or_resolve`), and
+    Every esphomelib claim path enforces the invariant: a cache hit
+    claims only behind a live PTR (`cache_apply_or_resolve`), and
     `_apply_service_info` skips the ONLINE claim for a PTR-less wire
     answer (a `probe_device` resolve applies its data, takes no
-    ownership — no `Removed` could ever withdraw it). There is
+    ownership — no `Removed` could ever withdraw it). The non-API
+    active-resolve claim (`apply_resolved_addresses`) deliberately
+    rides no PTR — those devices never publish one; its regime is the
+    active-resolve asymmetry above. There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A
     resolves (the #1999 resolve-first sweep manufactured un-demotable
     PTR-less claims): a PTR-lost device stays ONLINE via ping, and the
