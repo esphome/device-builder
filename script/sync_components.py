@@ -5524,7 +5524,7 @@ _UNIT_NORMALIZATION: Literal["NFC"] = "NFC"
 
 
 @cache
-def _present_non_introspectable_units(cv: Any) -> dict[str, list[str]]:
+def _require_non_introspectable_units(cv: Any) -> dict[str, list[str]]:
     """Return the hand-maintained unit lists; a validator missing from *cv* fails the sync."""
     missing = [name for name in _NON_INTROSPECTABLE_UNITS if getattr(cv, name, None) is None]
     if missing:
@@ -5764,7 +5764,7 @@ def _collect_refined_types(  # noqa: C901
     add("float_range", RefinedType("float"), "float_range")
     # Non-closure unit validators only; real float_with_unit ones are
     # discovered in ``classify`` below via ``__qualname__``.
-    for validator_name, units in _present_non_introspectable_units(cv).items():
+    for validator_name, units in _require_non_introspectable_units(cv).items():
         add(
             validator_name,
             RefinedType("float_with_unit", unit_options=units),

@@ -174,6 +174,15 @@ _EXPECTATIONS: list[
             ("carrier_duty_percent", "float_with_unit", True, None),
         ],
     ),
+    (
+        "remote_receiver",
+        [
+            # ``cv.validate_bytes`` has no introspectable regex; the byte
+            # picker exists only through its ``_NON_INTROSPECTABLE_UNITS``
+            # entry (mis-keyed as ``data_size`` until #2363).
+            ("buffer_size", "float_with_unit", None, None),
+        ],
+    ),
 ]
 
 

@@ -28,7 +28,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _derive_suffix_units,
     _enumerate_platform_manifests,
     _extract_validator_units,
-    _present_non_introspectable_units,
+    _require_non_introspectable_units,
     _walk_schema_keys,
 )
 
@@ -361,7 +361,7 @@ def test_resistance_sensor_resistor_refines_to_float_with_unit(loader) -> None:
 
 def test_non_introspectable_units_include_color_temperature(cv) -> None:
     """`cv.color_temperature` is a hand-rolled `def` (no regex), curated as mireds/K."""
-    present = _present_non_introspectable_units(cv)
+    present = _require_non_introspectable_units(cv)
     assert present["color_temperature"] == ["mireds", "K"]
 
 
@@ -398,7 +398,7 @@ def test_missing_non_introspectable_validator_fails_the_sync() -> None:
         # temperature_delta removed
 
     with pytest.raises(SystemExit, match="temperature_delta"):
-        _present_non_introspectable_units(_StubCV())
+        _require_non_introspectable_units(_StubCV())
 
 
 def test_walk_descends_typed_schema_branches(cv) -> None:
@@ -578,13 +578,13 @@ def test_shipped_catalog_stepper_speed_fields_carry_units() -> None:
 
 def test_non_introspectable_units_include_percentage_int(cv) -> None:
     """`cv.percentage_int` is a hand-rolled `def` (no regex), curated as `%`."""
-    present = _present_non_introspectable_units(cv)
+    present = _require_non_introspectable_units(cv)
     assert present["percentage_int"] == ["%"]
 
 
 def test_non_introspectable_units_include_validate_bytes(cv) -> None:
     """`cv.validate_bytes` (inline regex, no closure) is curated as B/kB/MB/GB."""
-    present = _present_non_introspectable_units(cv)
+    present = _require_non_introspectable_units(cv)
     assert present["validate_bytes"] == ["B", "kB", "MB", "GB"]
 
 
