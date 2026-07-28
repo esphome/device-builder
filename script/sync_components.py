@@ -5525,11 +5525,7 @@ _UNIT_NORMALIZATION: Literal["NFC"] = "NFC"
 
 @cache
 def _present_non_introspectable_units(cv: Any) -> dict[str, list[str]]:
-    """``_NON_INTROSPECTABLE_UNITS`` entries resolved against *cv*; any gone fails the sync.
-
-    A renamed/removed validator can't be rediscovered (no regex), and a
-    warning shipped a silent picker loss once (cv.data_size, 2026.7).
-    """
+    """Return the hand-maintained unit lists; a validator missing from *cv* fails the sync."""
     missing = [name for name in _NON_INTROSPECTABLE_UNITS if getattr(cv, name, None) is None]
     if missing:
         raise RuntimeError(
