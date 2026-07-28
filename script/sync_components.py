@@ -4739,7 +4739,9 @@ def _collect_bleed_keys(
     modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
     item's plain ``cv.positive_int``). Keyed per platform domain, not
     aggregated: one platform's redefinition must not spare a sibling
-    platform from the shed. Hub builds keep every signal.
+    platform from the shed. Hub builds keep every signal. Covers
+    hub-to-platform bleed only; a sibling platform's contribution rides
+    ``merge_from_platforms`` unguarded.
     """
     hub_ranges = _collect_field_ranges(manifest)
     hub_refined = _collect_refined_types(manifest)
@@ -6581,7 +6583,9 @@ def _apply_refined_types(
     Only acts on entries currently typed ``string`` so we don't
     override the schema's explicit type assignments — EXCEPT for
     ``float_with_unit``, which we always apply because it carries
-    extra info (``unit_options``) the schema bundle can't express.
+    extra info (``unit_options``) the schema bundle can't express,
+    and ``integer``-typed entries, which keep their type but take a
+    refined ``display_format``.
     The schema bundle's ``float`` typing for those entries is
     technically the runtime type after coercion, but the YAML shape
     the user types is a string with a unit suffix; the

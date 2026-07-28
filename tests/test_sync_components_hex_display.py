@@ -241,3 +241,21 @@ def test_shipped_catalog_bundle_typed_hex_fields_gain_display() -> None:
     body = json.loads((_OUTPUT_BODIES_DIR / "uponor_smatrix.json").read_text(encoding="utf-8"))
     entries = {e["key"]: e for e in body["config_entries"]}
     assert entries["time_device_address"]["display_format"] == "hex"
+
+
+def test_refined_hex_display_stamps_integer_entries_without_retype() -> None:
+    """An integer-typed entry takes the hex display and keeps its type and range."""
+    entries = [{"key": "voltage_gain", "type": "integer", "display_format": None, "range": [0, 9]}]
+    refined = {("voltage_gain",): RefinedType("integer", display_format="hex")}
+    _apply_refined_types(entries, refined)
+    assert entries[0]["type"] == "integer"
+    assert entries[0]["display_format"] == "hex"
+    assert entries[0]["range"] == [0, 9]
+
+
+def test_refined_hex_display_never_clobbers_static_stamp() -> None:
+    """A ``data_type``-stamped entry keeps its static display format."""
+    entries = [{"key": "address", "type": "integer", "display_format": "hex"}]
+    refined = {("address",): RefinedType("integer", display_format="hex")}
+    _apply_refined_types(entries, refined)
+    assert entries[0]["display_format"] == "hex"
