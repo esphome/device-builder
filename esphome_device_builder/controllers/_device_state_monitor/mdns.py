@@ -540,9 +540,9 @@ class MdnsSource:
         # decides — no permanent latch. The claim rides the live PTR of
         # the *device-named* service — the one whose ``Removed`` maps
         # back to *device_name*: a PTR-less wire answer and a cross-name
-        # resolve (the adopt probe riding the factory service, #2389)
-        # apply their data below but take no ownership.
-        if self._cached_ptr(f"{device_name}.{info.type}", info.type) is not None:
+        # resolve (the adopt probe riding the factory service) apply
+        # their data below but take no ownership.
+        if self._has_live_ptr(device_name, info.type):
             monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``
