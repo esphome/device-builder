@@ -5573,6 +5573,11 @@ def _extract_validator_units(validator: Any) -> list[str] | None:
     raw_alternatives = [
         unicodedata.normalize(_UNIT_NORMALIZATION, alt) for alt in match.group(1).split("|") if alt
     ]
+    # A unitless validator (``cv.float_with_unit("device factor", "")``) has
+    # no unit group, so the search lands on the mantissa's ``(\w*?)``
+    # fragment; keep only unit-shaped alternatives so such fields stay
+    # plain floats.
+    raw_alternatives = [a for a in raw_alternatives if _SUFFIX_UNIT_RE.match(a)]
     if not raw_alternatives:
         return None
     # Prefer an alternative containing uppercase letters when one
@@ -5608,8 +5613,8 @@ def _extract_validator_units(validator: Any) -> list[str] | None:
     ]
 
 
-# What a unit symbol embedded in a suffix-strip validator may look like:
-# short, no whitespace, unit charset only ("steps/s", "steps/s^2").
+# What a unit symbol may look like: short, no whitespace, unit charset
+# only ("steps/s", "steps/s^2").
 _SUFFIX_UNIT_RE = re.compile(r"^[A-Za-z°µΩ%][A-Za-z0-9°µΩ%/^*()]{0,15}$")
 
 

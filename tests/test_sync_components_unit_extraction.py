@@ -147,6 +147,20 @@ def test_extract_units_for_angle(cv) -> None:
     assert set(units) == {"°", "deg"}
 
 
+def test_extract_units_returns_none_for_unitless_validator(cv) -> None:
+    """An empty-unit `float_with_unit` yields no units, not mantissa regex fragments."""
+    assert _extract_validator_units(cv.float_with_unit("device factor", "")) is None
+
+
+def test_shipped_catalog_tsl2591_factors_stay_plain_float() -> None:
+    """The generated tsl2591 body carries no regex-fragment unit options."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "sensor.tsl2591.json").read_bytes())
+    entries = {e["key"]: e for e in body["config_entries"]}
+    for key in ("device_factor", "glass_attenuation_factor"):
+        assert entries[key]["type"] == "float"
+        assert not entries[key].get("unit_options")
+
+
 def test_extract_units_returns_none_for_non_closure() -> None:
     """A plain function (no compiled-regex closure) returns None."""
 
