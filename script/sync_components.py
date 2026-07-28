@@ -5353,6 +5353,8 @@ def _walk_schema_keys(
     # Top-level only: a nested peel explodes on recursive closure-built
     # schemas (lvgl) — each call constructs fresh objects, so the
     # (id, path) dedupe never hits and the walk grows combinatorially.
+    # It also mis-reads non-schema extracts: cv.enum yields its bare
+    # value mapping, which would walk enum values as config keys.
     schema = _hidden_schema(schema) or schema
 
     # Best-effort: don't tank the whole sync if one component
