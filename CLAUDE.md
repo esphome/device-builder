@@ -375,6 +375,9 @@ against legacy behaviour before assuming the simpler version suffices.
   methods. A server lost mid-build re-routes to the next worker (bounded by
   `_MAX_SERVER_LOSS_RETRIES`). Local-only is a pool of one — the lane path is
   unchanged. Full write-up in `docs/ARCHITECTURE.md` "Remote build-server pool".
+  The peer link targets LAN-class links; slow-link operation is documented
+  best effort (#2377) — fix defects that reproduce at any link speed, but
+  don't add slow-link accommodations or tuning knobs.
 - **Component catalog is generated**, not hand-edited. Source is
   ESPHome's pre-built schema bundle (https://schema.esphome.io) plus
   narrow live `esphome` introspection for what the schema doesn't carry
