@@ -476,16 +476,7 @@ class MdnsSource:
             return
 
         if state_change == ServiceStateChange.Removed:
-            # Deferred or not, an in-flight resolve of this service
-            # must discard records that predate the goodbye.
-            self._bump_withdrawal_epoch(name)
-            # A live ``_http._tcp`` PTR re-anchors the election (an
-            # api+web_server bucket losing only its esphomelib PTR);
-            # withdraw only when no anchor remains. A goodbye burst
-            # byes both services in one packet, so a sleeper's first
-            # Removed already sees the sibling PTR evicted.
-            if not self._has_live_ptr(device_name, _HTTP_SERVICE_TYPE):
-                self._on_service_removed(device_name)
+            self._on_service_removed(name, device_name, sibling_type=_HTTP_SERVICE_TYPE)
             return
 
         # Don't claim ONLINE off a bare PTR — only once the service
@@ -512,12 +503,18 @@ class MdnsSource:
             self._on_http_service_state_change(zeroconf, service_type, name, state_change)
             importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
-    def _bump_withdrawal_epoch(self, name: str) -> None:
-        """Invalidate in-flight resolves of service *name* after a ``Removed``."""
+    def _on_service_removed(self, name: str, device_name: str, *, sibling_type: str) -> None:
+        """Note *name*'s withdrawal, then release the claim unless the sibling anchor survives."""
+        # Deferred or not, an in-flight resolve of this service must
+        # discard records that predate the goodbye.
         self._withdrawal_epochs[name] = self._withdrawal_epochs.get(name, 0) + 1
-
-    def _on_service_removed(self, device_name: str) -> None:
-        """Withdraw the mDNS claim and wake the ping sweep to decide."""
+        # A live sibling PTR re-anchors the election (an
+        # api+web_server bucket losing only one of its services);
+        # withdraw only when no anchor remains. A goodbye burst byes
+        # both services in one packet, so a sleeper's first Removed
+        # already sees the sibling PTR evicted.
+        if self._has_live_ptr(device_name, sibling_type):
+            return
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
         # here would vouch for a sleeping device straight off the cache
@@ -615,16 +612,13 @@ class MdnsSource:
         if not bucket:
             return
         if state_change == ServiceStateChange.Removed:
-            self._bump_withdrawal_epoch(name)
             # Keyed on the evidence, not the YAML: the ``api_enabled``
             # union reads raw YAML text while the claim gates on the
             # last compile's ``loaded_integrations``, and a
             # compiled-without-api device whose YAML gained ``api:``
-            # must still withdraw. The esphomelib lifecycle owns the
-            # name while its PTR is live; ``source_withdrawn`` itself
-            # no-ops for a name mdns doesn't own.
-            if not self._has_live_ptr(device_name, _ESPHOME_SERVICE_TYPE):
-                self._on_service_removed(device_name)
+            # must still withdraw. ``source_withdrawn`` itself no-ops
+            # for a name mdns doesn't own.
+            self._on_service_removed(name, device_name, sibling_type=_ESPHOME_SERVICE_TYPE)
             return
         if all(device.api_enabled for device in bucket):
             return
