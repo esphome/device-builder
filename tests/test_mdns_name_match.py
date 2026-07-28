@@ -69,7 +69,9 @@ class _FakeServiceInfo:
     network-resolve task on miss.
     """
 
-    def __init__(self, _service_type: str, _name: str) -> None:
+    def __init__(self, service_type: str, name: str) -> None:
+        self.type = service_type
+        self.name = name
         # ``DashboardImportDiscovery.browser_callback`` (also driven
         # by the dispatch handler) reads ``info.properties`` looking
         # for ``package_import_url`` TXT records. Empty dict means

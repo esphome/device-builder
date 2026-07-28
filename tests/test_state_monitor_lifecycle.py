@@ -1863,6 +1863,7 @@ def test_source_withdrawn_releases_the_ledger_and_keeps_freshness() -> None:
     monitor.state.reachability = tracker
     tracker.observe("kitchen", "ping")
     monitor.state.state_source["kitchen"] = "mdns"
+    monitor.ping.icmp_available = True
 
     monitor.source_withdrawn("kitchen", "mdns")
 

@@ -341,6 +341,8 @@ async def test_added_after_removed_reclaims_mdns_and_outranks_a_late_ping_miss(
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
     stub_async_service_info(monkeypatch, cached=True)
+    # The re-announce lands a live PTR, opening the cache-claim gate.
+    monitor.mdns._zeroconf = MagicMock()
 
     _dispatch_removed(monitor)
     assert device.runtime_state.state == DeviceState.UNKNOWN
@@ -449,3 +451,24 @@ async def test_resolve_started_after_a_withdrawal_still_claims(
     assert verdict is True
     assert device.runtime_state.state == DeviceState.ONLINE
     assert monitor.state.state_source["kitchen"] == ReachabilitySource.MDNS
+
+
+async def test_probe_after_withdrawal_does_not_reclaim_off_the_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Lingering SRV/A satisfy the cache but can't vouch once the PTR is gone."""
+    device = make_online_api_device()
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
+    _prime_removed(monitor)
+    info = stub_async_service_info(monkeypatch, cached=True)
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
+    monitor.mdns._zeroconf = zc
+
+    _dispatch_removed(monitor)
+    monitor.mdns.probe_device("kitchen")
+
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+    info.async_request.assert_not_called()

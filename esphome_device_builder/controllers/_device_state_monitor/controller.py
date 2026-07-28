@@ -283,23 +283,20 @@ class DeviceStateMonitor(TaskControllerBase):
         if old is not None:
             self._emit_source_change(name, old, ReachabilitySource.UNKNOWN)
 
-    def source_withdrawn(
-        self, name: str, source: str, *, state: DeviceState = DeviceState.UNKNOWN
-    ) -> None:
+    def source_withdrawn(self, name: str, source: str) -> None:
         """
-        Apply *state* and release the ledger after *source* withdrew its claim.
+        Release every per-name claim after *source* withdrew.
 
-        An already-OFFLINE bucket keeps its confirmed state — the
-        withdrawal adds nothing to a verdict ping already reached.
-        Other channels' freshness stamps survive; only the ledger and
-        the resolved addresses are the withdrawing source's to drop.
+        An already-OFFLINE bucket keeps its state; the ledger is never
+        stamped, so the withdrawal emits a single source change. With
+        no ICMP arbiter the withdrawal demotes to OFFLINE instead of
+        parking on UNKNOWN.
         """
-        devices = self._get_devices_by_name(name)
-        already_offline = bool(devices) and all(
-            d.runtime_state.state is DeviceState.OFFLINE for d in devices
-        )
-        if not already_offline:
-            self.apply(name, state, source, own=False)
+        state = DeviceState.UNKNOWN if self.ping.icmp_available else DeviceState.OFFLINE
+        if self._any_matching_device_differs(
+            name, "state", DeviceState.OFFLINE
+        ) and self._any_matching_device_differs(name, "state", state):
+            self._on_state_change(name, state, source)
         self.clear_resolved_addresses(name)
         self.forget(name)
 
@@ -319,9 +316,7 @@ class DeviceStateMonitor(TaskControllerBase):
         if self._mdns_owns_api_identity(name):
             self.apply_deployed_identity_live(name, live=False)
 
-    def apply(
-        self, name: str, state: DeviceState, source: str, *, claim: bool = False, own: bool = True
-    ) -> bool:
+    def apply(self, name: str, state: DeviceState, source: str, *, claim: bool = False) -> bool:
         """
         Record a state observation from *source*.
 
@@ -336,8 +331,6 @@ class DeviceStateMonitor(TaskControllerBase):
         from later flipping the device back. The priority check
         governs OFFLINE/downgrades; a positive ONLINE from any
         source still revives a not-online device regardless of owner.
-        ``own=False`` forwards the state change without touching the
-        precedence ledger.
         """
         devices = self._get_devices_by_name(name)
         if not devices:
@@ -379,9 +372,8 @@ class DeviceStateMonitor(TaskControllerBase):
                 self._emit_source_change(name, current_source, source)
             return False
 
-        if own:
-            self.state.state_source[name] = source
-            self._emit_source_change(name, current_source, source)
+        self.state.state_source[name] = source
+        self._emit_source_change(name, current_source, source)
         self._on_state_change(name, state, source)
         return True
 

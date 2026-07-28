@@ -446,7 +446,8 @@ class MdnsSource:
         At most one resolve per service name is in flight. Returns
         True when the service resolved and *apply* ran, False on a
         confirmed miss, None when there is no verdict (a swallowed
-        error, or a resolve already in flight).
+        error, a resolve already in flight, or a withdrawal that
+        raced this resolve).
         """
         if info.name in self._inflight_resolves:
             return None
@@ -477,7 +478,14 @@ class MdnsSource:
         """Apply *info* synchronously off the zeroconf cache, else resolve fire-and-forget."""
         applier = apply or self._apply_service_info
         if info.load_from_cache(zeroconf):
-            applier(device_name, info)
+            # The cache may vouch only behind a live PTR. A goodbye
+            # withdraws just the PTR, so SRV/A linger for a sleeping
+            # device (#2369) — and resolving instead is no escape,
+            # ``async_request`` would short-circuit on the same cached
+            # records. With the PTR gone the claim stays with ping /
+            # the announce lifecycle.
+            if self._cached_ptr(info.name, info.type) is not None:
+                applier(device_name, info)
             return
         self._monitor._track_task(self.resolve_then(zeroconf, info, device_name, applier))
 
@@ -524,18 +532,14 @@ class MdnsSource:
             importable.on_http_service_state_change(zeroconf, service_type, name, state_change)
 
     def _on_service_removed(self, name: str, device_name: str) -> None:
-        """Mark a withdrawn service UNKNOWN and wake the ping sweep to decide."""
+        """Withdraw the mDNS claim and wake the ping sweep to decide."""
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
         # here would vouch for a sleeping device straight off the cache
-        # and latch it ONLINE (#2369, #1776). With ICMP unavailable no
-        # arbiter will ever run, so the withdrawal itself demotes.
+        # and latch it ONLINE (#2369, #1776).
         self._withdrawal_epochs[name] = self._withdrawal_epochs.get(name, 0) + 1
         monitor = self._monitor
-        withdrawn_state = (
-            DeviceState.UNKNOWN if monitor.ping.icmp_available else DeviceState.OFFLINE
-        )
-        monitor.source_withdrawn(device_name, "mdns", state=withdrawn_state)
+        monitor.source_withdrawn(device_name, "mdns")
         monitor.probe_device_ping(device_name)
 
     def _apply_service_info(self, device_name: str, info: AsyncServiceInfo) -> None:

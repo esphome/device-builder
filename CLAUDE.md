@@ -547,7 +547,13 @@ against legacy behaviour before assuming the simpler version suffices.
     vouches for a sleeping device straight off the cache and latches it
     ONLINE forever (#2369). ONLINE is claimed **only once the service
     resolves** (cache hit or wire resolve, both via
-    `_apply_service_info`), never off a bare PTR. An announce whose
+    `_apply_service_info`), never off a bare PTR — and a cache hit
+    claims only behind a **live PTR** (`cache_apply_or_resolve`): after
+    a goodbye the lingering SRV/A still satisfy `load_from_cache`, and
+    resolving is no escape since `async_request` short-circuits on the
+    same cached records, so a PTR-less cache hit claims nothing. A
+    resolve that overlapped a withdrawal discards its apply
+    (`_withdrawal_epochs`) — its answer may predate the goodbye. An announce whose
     SRV/A won't resolve (a node that died mid-handshake, a reflector
     re-serving a stale PTR for a long-gone device) claims nothing and
     falls through to the ICMP sweep, same as the active-resolve path
