@@ -519,10 +519,7 @@ class MdnsSource:
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
         # here would vouch for a sleeping device straight off the cache
-        # (#2369). Cached records are ping *targets*, never liveness
-        # proof (#1776): drop to UNKNOWN, release the ledger so either
-        # ping verdict can land, and let ICMP settle it. mDNS ownership
-        # returns via the announce or the sweep's resolve-first pass.
+        # and latch it ONLINE (#2369, #1776).
         monitor = self._monitor
         monitor.source_withdrawn(device_name, "mdns")
         monitor.probe_device_ping(device_name)

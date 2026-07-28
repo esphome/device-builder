@@ -44,7 +44,6 @@ from esphome_device_builder.controllers._device_state_monitor import (
     DeviceStateMonitor,
     _decode_txt_bytes_to_sorted_pairs,
 )
-from esphome_device_builder.controllers._device_state_monitor import helpers as helpers_module
 from esphome_device_builder.controllers._device_state_monitor._state import MonitorState
 from esphome_device_builder.controllers._device_state_monitor.importable import ImportableDiscovery
 from esphome_device_builder.controllers._device_state_monitor.mdns import MdnsSource
@@ -107,6 +106,7 @@ def _make_monitor(
     monitor.state.reachability = tracker
     monitor._on_state_change = _flip_state(devices)
     monitor._on_ip_change = lambda _n, _i, _l: None
+    monitor._on_resolved_addresses_cleared = None
     monitor._on_source_change = None
     monitor._on_version_change = None
     monitor._on_config_hash_change = None
@@ -531,36 +531,21 @@ def test_forget_drops_source_ledger() -> None:
 
 
 async def test_mdns_removed_via_dispatch_clears_tracker() -> None:
-    """The real browser-callback path (Removed) routes through to ``clear``.
-
-    Sanity-check the integration end-to-end: drive a captured
-    dispatch closure with ``ServiceStateChange.Removed`` and
-    confirm the tracker's per-device entry is gone afterwards.
-    Without this we'd be relying on the test above which calls
-    ``clear`` directly — that misses any future refactor that
-    routes the Removed branch through a path the tracker isn't
-    wired into.
-    """
+    """The real browser-callback Removed path routes through to ``clear``."""
     devices = [_make_device(state=DeviceState.ONLINE)]
     tracker = ReachabilityTracker()
     tracker.observe("kitchen", "mdns")
 
     monitor = _make_monitor(devices, tracker)
 
-    # Replay the Removed branch the same way the dispatch closure
-    # would. The branch lives inline inside ``_start_mdns_browser``;
-    # exercising it without standing up zeroconf means inlining the
-    # six lines here is honest about what we're testing.
-    state_change = ServiceStateChange.Removed
-    name = "kitchen._esphomelib._tcp.local."
-    device_name = helpers_module.device_name_from_service(name)
-    if state_change == ServiceStateChange.Removed:
-        monitor.apply(device_name, DeviceState.OFFLINE, "mdns")
-        monitor.state.state_source.pop(device_name, None)
-        if monitor.state.reachability is not None:
-            monitor.state.reachability.clear(device_name)
+    monitor.mdns._on_esphomelib_service_state_change(
+        MagicMock(),
+        "_esphomelib._tcp.local.",
+        "kitchen._esphomelib._tcp.local.",
+        ServiceStateChange.Removed,
+    )
 
-    snap = tracker.snapshot("kitchen", state=DeviceState.OFFLINE, active_source="unknown", ip="")
+    snap = tracker.snapshot("kitchen", state=DeviceState.UNKNOWN, active_source="unknown", ip="")
     assert snap["mdns_last_seen_seconds_ago"] is None
 
 

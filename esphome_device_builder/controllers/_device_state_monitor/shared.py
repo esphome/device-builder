@@ -192,13 +192,10 @@ async def resolve_non_api_mdns_targets(monitor: DeviceStateMonitor) -> None:
         # sweep skips this device entirely — mDNS is the single
         # source of truth for devices that respond to it.
         apply_resolved_addresses(monitor, device.name, addresses)
-        # No OFFLINE branch — deliberate. The browser path can
-        # trust mDNS in both directions because the
-        # ``ServiceBrowser`` delivers a ``Removed`` event on TTL
-        # expiry. The one-off active resolve here has no such
-        # subscription, so a miss conflates "device gone", "device
-        # slow", and "transient packet loss"; let ICMP decide
-        # instead.
+        # No OFFLINE branch — deliberate. A one-off active resolve
+        # has no ``Removed``-delivering subscription, so a miss
+        # conflates "device gone", "device slow", and "transient
+        # packet loss"; let ICMP decide instead.
 
 
 async def _resolve_and_claim_logged(monitor: DeviceStateMonitor, device: Device) -> None:
