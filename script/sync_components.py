@@ -5479,14 +5479,18 @@ _COMMON_METRIC_PREFIXES = ["", "n", "µ", "m", "k", "M", "G"]
 _NON_METRIC_UNITS = frozenset({"fps", "°", "deg", "db", "dbm"})
 
 # Unit-coerced validators ESPHome builds WITHOUT a float_with_unit closure
-# (inline-regex ``validate_bytes``, hand-rolled ``temperature*``), so there's
-# no regex to introspect; the only hand-maintained unit lists.
+# (inline-regex ``validate_bytes``, hand-rolled ``temperature*``, the bare
+# ``%``-strip in ``percentage_int``), so there's no regex to introspect; the
+# only hand-maintained unit lists.
 _NON_INTROSPECTABLE_UNITS: dict[str, list[str]] = {
     "data_size": ["B", "kB", "MB", "GB"],
     "temperature": ["°C", "°F", "K"],
     "temperature_delta": ["°C", "°F", "K"],
     # Canonical mireds first (cv.color_temperature stores mireds; "6500 K" coerces).
     "color_temperature": ["mireds", "K"],
+    # Suffix-only, no rescale: "50%" == 50. cv.percentage (0-1 float) rescales
+    # and must never be listed here.
+    "percentage_int": ["%"],
 }
 
 # Normalisation applied to every discovered unit symbol. Only matters for

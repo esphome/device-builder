@@ -352,6 +352,7 @@ def test_missing_non_introspectable_validator_warns(caplog) -> None:
         data_size = object()
         temperature = object()
         color_temperature = object()
+        percentage_int = object()
         # temperature_delta removed
 
     with caplog.at_level(logging.WARNING, logger="sync_components"):
@@ -495,3 +496,69 @@ def test_shipped_catalog_stepper_speed_fields_carry_units() -> None:
             assert entries[key]["type"] == "float_with_unit"
             assert entries[key]["unit_options"][0] == "steps/s^2"
             assert "steps/s*s" in entries[key]["unit_options"]
+
+
+def test_non_introspectable_units_include_percentage_int(cv) -> None:
+    """`cv.percentage_int` is a hand-rolled `def` (no regex), curated as `%`."""
+    present = _present_non_introspectable_units(cv)
+    assert present["percentage_int"] == ["%"]
+
+
+def test_collect_refined_types_percentage_int(cv) -> None:
+    """`cv.percentage_int` refines to `float_with_unit`, bare or inside an All chain."""
+    schema = cv.Schema(
+        {
+            cv.Required("carrier_duty_percent"): cv.All(
+                cv.percentage_int, cv.Range(min=1, max=100)
+            ),
+            cv.Optional("min_humidity"): cv.percentage_int,
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    for path in (("carrier_duty_percent",), ("min_humidity",)):
+        assert refined[path].type == "float_with_unit"
+        assert refined[path].unit_options == ["%"]
+
+
+def test_remote_transmitter_carrier_duty_refines_to_float_with_unit(loader) -> None:
+    """`remote_transmitter.carrier_duty_percent` refines to `float_with_unit` (`%`)."""
+    manifest = loader.get_component("remote_transmitter")
+    if manifest is None:
+        pytest.skip("esphome version doesn't ship remote_transmitter")
+    refined = _collect_refined_types(manifest)
+    duty = refined.get(("carrier_duty_percent",))
+    if duty is None:
+        pytest.skip(
+            "esphome version doesn't expose remote_transmitter.carrier_duty_percent "
+            "via the live-introspection walker — guard, not a regression"
+        )
+    assert duty.type == "float_with_unit"
+    assert duty.unit_options == ["%"]
+
+
+def test_climate_visual_humidity_refines_to_float_with_unit(loader) -> None:
+    """Climate's `visual.min_humidity`/`max_humidity` refine to `float_with_unit` (`%`)."""
+    refined = {}
+    for platform_manifest in _enumerate_platform_manifests(loader, "bang_bang"):
+        refined.update(_collect_refined_types(platform_manifest))
+    low = refined.get(("visual", "min_humidity"))
+    high = refined.get(("visual", "max_humidity"))
+    if low is None or high is None:
+        pytest.skip(
+            "esphome version doesn't expose climate visual humidity bounds "
+            "via the live-introspection walker — guard, not a regression"
+        )
+    for entry in (low, high):
+        assert entry.type == "float_with_unit"
+        assert entry.unit_options == ["%"]
+
+
+def test_shipped_catalog_carrier_duty_percent_accepts_percent() -> None:
+    """The generated remote_transmitter body types carrier_duty_percent with a `%` unit."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "remote_transmitter.json").read_bytes())
+    entries = {e["key"]: e for e in body["config_entries"]}
+    duty = entries["carrier_duty_percent"]
+    assert duty["type"] == "float_with_unit"
+    assert duty["unit_options"] == ["%"]
+    assert duty["range"] == [1, 100]
+    assert duty["required"] is True

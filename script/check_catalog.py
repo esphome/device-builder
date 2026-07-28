@@ -165,6 +165,15 @@ _EXPECTATIONS: list[
             ("deceleration", "float_with_unit", None, None),
         ],
     ),
+    (
+        "remote_transmitter",
+        [
+            # ``cv.percentage_int`` accepts a ``%`` suffix; would regress to
+            # ``integer`` (rejecting the documented "50%") if the
+            # ``_NON_INTROSPECTABLE_UNITS`` entry were removed.
+            ("carrier_duty_percent", "float_with_unit", True, None),
+        ],
+    ),
 ]
 
 
