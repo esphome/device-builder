@@ -157,11 +157,13 @@ async def import_device(
     cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
     if cached:
         controller._state_monitor.apply_ip_addresses(name, cached)
-    # Both broadcast names are known here: the adoption YAML pins
-    # ``name`` with the mac suffix off, so the device broadcasts
-    # under it only after its first flash — until then the factory
-    # firmware broadcasts ``mdns_name``. Probe that service and
-    # apply against ``name``.
+    # Normally ``name`` IS the live broadcast — adopt imports the
+    # device under its MAC-suffixed factory name and bakes the
+    # suffix into the literal name (``name_add_mac_suffix: false``),
+    # so the mdns name matches immediately. Only a name edited in
+    # the adopt dialog diverges: the factory service then carries
+    # the device's data until the first flash bakes in the new
+    # name, so probe by ``mdns_name`` and apply against ``name``.
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
     controller._state_monitor.probe_device_ping(name)
     return {"configuration": configuration}
