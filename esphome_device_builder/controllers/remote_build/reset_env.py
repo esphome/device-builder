@@ -31,7 +31,8 @@ async def handle_reset_build_env(
 
     Acceptance means a tagged ``RESET_BUILD_ENV`` job was enqueued —
     progress and the terminal state ride the JobFanout stream, not this
-    ack. Refuses ``busy`` while any job is active or a bundle is mid-upload.
+    ack. Refuses ``busy`` while any job is active, a bundle is mid-upload,
+    or an artifact download is in flight.
     """
     if not is_valid_frame(_RESET_BUILD_ENV_SCHEMA, frame):
         _LOGGER.warning(
