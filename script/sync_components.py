@@ -55,7 +55,7 @@ from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 from typing import Any, Literal, NamedTuple
 
 import orjson
@@ -2652,6 +2652,7 @@ def build_component_entry(
             introspection.get("multi_conf", False) or component_id in _LIST_SCHEMA_MULTI_CONF
         ),
         "bus_constraints": bus_constraints,
+        "renamed_keys": introspection.get("renamed_keys") or {},
         "supported_platforms": _derive_supported_platforms(
             stem if domain else top_key,
             dependencies,
@@ -4827,6 +4828,11 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
+    renamed_keys = _collect_rename_keys(manifest)
+    for platform_manifest in platform_manifests:
+        for old_key, new_key in _collect_rename_keys(platform_manifest).items():
+            renamed_keys.setdefault(old_key, new_key)
+
     # Hub signals must not bleed onto platform fields the domain
     # redefines; platform builds shed them (``build_component_entry``).
     field_range_bleed_keys, refined_bleed_keys = _collect_bleed_keys(
@@ -4848,6 +4854,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
         "list_fields": list_fields,
         "registry_members": registry_members,
         "typed_defaults": typed_defaults,
+        "renamed_keys": renamed_keys,
         "auto_load": auto_load,
     }
 
@@ -5081,6 +5088,7 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "config_entries": [],
     "required_groups": [],
     "bus_constraints": {},
+    "renamed_keys": {},
 }
 
 
@@ -7987,6 +7995,96 @@ def _apply_list_fields(entries: list[dict], list_fields: dict[tuple[str, ...], b
             entry["multi_value"] = True
 
     _walk_catalog_entries(entries, visit)
+
+
+#: Schema-factory wrappers whose closures hold nested schemas worth
+#: walking for ``cv.rename_key`` validators. Matched against
+#: ``__qualname__`` prefixes.
+_RENAME_WRAPPER_PREFIXES = (
+    "validate_automation.",
+    "ensure_list.",
+    "typed_schema.",
+    "maybe_simple_value.",
+)
+
+
+def _collect_rename_keys(manifest: Any) -> dict[str, str]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for ``cv.rename_key`` aliases.
+
+    Returns ``{old_key: new_key}`` for every rename validator reachable
+    from the schema (top-level and nested, including list-item and
+    wrapper-closure schemas): esphome accepts the old spelling forever
+    and rewrites it during validation, so the bundle emits both keys
+    with no link between them. Empty dict when the component has no
+    schema.
+
+    Closure descent is limited to the schema-factory wrappers in
+    :data:`_RENAME_WRAPPER_PREFIXES` — a generic function-closure walk
+    reaches the global automation registry and from there every loaded
+    component's schema graph, and doesn't return. Every probe is
+    type-strict: a codegen ``MockObj`` answers *any* ``getattr`` with a
+    fresh truthy object (msa3xx's ``typed_schema`` enum hung the walk),
+    so anything that isn't a dict / ``vol.Schema`` / compound validator
+    / plain function is an inert leaf.
+    """
+    out: dict[str, str] = {}
+    visited: set[int] = set()
+    stack: list[tuple[Any, int]] = [(getattr(manifest, "config_schema", None), 0)]
+    while stack:
+        node, depth = stack.pop()
+        if node is None or depth > 10 or id(node) in visited:
+            continue
+        visited.add(id(node))
+        pair = _rename_key_pair(node)
+        if pair is not None:
+            out.setdefault(pair[0], pair[1])
+            continue
+        stack.extend((child, depth + 1) for child in _rename_walk_children(node))
+    return out
+
+
+def _rename_key_pair(node: Any) -> tuple[str, str] | None:
+    """Return the ``(old, new)`` pair of a ``cv.rename_key`` validator, else None."""
+    if not isinstance(node, FunctionType) or not node.__qualname__.startswith("rename_key."):
+        return None
+    try:
+        nonlocals = _closure_nonlocals(node)
+    except ValueError:
+        return None
+    old_key = nonlocals.get("old_key")
+    new_key = nonlocals.get("new_key")
+    if isinstance(old_key, str) and isinstance(new_key, str):
+        return old_key, new_key
+    return None
+
+
+def _is_rename_wrapper(node: Any) -> bool:
+    """Report whether *node* is a schema-factory wrapper worth descending into."""
+    return isinstance(node, FunctionType) and node.__qualname__.startswith(_RENAME_WRAPPER_PREFIXES)
+
+
+def _rename_walk_children(node: Any) -> Iterator[Any]:
+    """Yield the children of *node* worth visiting when hunting rename validators."""
+    validators = getattr(node, "validators", None)
+    if isinstance(validators, (list, tuple)):
+        yield from validators
+    schema = node if isinstance(node, dict) else getattr(node, "schema", None)
+    if isinstance(schema, dict):
+        yield from schema.values()
+    if not _is_rename_wrapper(node):
+        return
+    try:
+        nonlocals = _closure_nonlocals(node)
+    except ValueError:
+        return
+    for value in nonlocals.values():
+        if (
+            isinstance(value, dict | vol.Schema)
+            or isinstance(getattr(value, "validators", None), (list, tuple))
+            or _is_rename_wrapper(value)
+        ):
+            yield value
 
 
 def _collect_registry_members(manifest: Any) -> dict[str, bool]:

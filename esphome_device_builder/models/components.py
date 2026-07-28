@@ -129,6 +129,14 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # recommendation status. ``None`` on regular entries.
     underlying_category: ComponentCategory | None = None
 
+    # Legacy key spellings esphome still accepts, ``{old: new}`` — the
+    # ``cv.rename_key`` pairs extracted from the live schema (``api``:
+    # ``{"services": "actions", "service": "action"}``). Consumers that
+    # read user YAML by key name must accept every old spelling of a
+    # key they look up; writers splice into whichever spelling the file
+    # uses and emit the new one when creating from scratch.
+    renamed_keys: dict[str, str] = field(default_factory=dict)
+
 
 @dataclass
 class ComponentCatalogEntry(DashboardModel):
@@ -177,6 +185,11 @@ class ComponentCatalogEntry(DashboardModel):
     # / ``max_frequency``, Hz). ``require_tx`` / ... mark required pins.
     # Frontend pre-fills dep-added buses.
     bus_constraints: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    # Legacy key spellings esphome still accepts, ``{old: new}``. See
+    # :class:`ComponentCatalogIndexEntry.renamed_keys` — carried on both
+    # shapes so index-only consumers avoid a body load.
+    renamed_keys: dict[str, str] = field(default_factory=dict)
 
     # Empty list = component works on every target platform. Non-empty
     # = component is restricted to those platforms (e.g. ["esp32"] for

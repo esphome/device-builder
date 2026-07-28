@@ -10,6 +10,7 @@ config-write debounce on the device editor handles that.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
@@ -195,7 +196,10 @@ class AutomationsController:
         the form lands empty.
         """
         text = yaml if yaml is not None else await self._read_config(configuration)
-        parsed = await run_in_executor(parsing.parse_device_yaml, text)
+        renamed = self._db.components.renamed_keys("api")
+        parsed = await run_in_executor(
+            partial(parsing.parse_device_yaml, text, api_renamed_keys=renamed)
+        )
         return [p.to_dict() for p in parsed]
 
     @api_command("automations/upsert")
@@ -228,8 +232,9 @@ class AutomationsController:
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
+        renamed = self._db.components.renamed_keys("api")
         _new_text, diff = await run_in_executor(
-            lambda: writing.render_upsert(text, tree=tree, location=loc),
+            lambda: writing.render_upsert(text, tree=tree, location=loc, api_renamed_keys=renamed),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
@@ -250,8 +255,9 @@ class AutomationsController:
         """
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
+        renamed = self._db.components.renamed_keys("api")
         _new_text, diff = await run_in_executor(
-            lambda: writing.render_delete(text, location=loc),
+            lambda: writing.render_delete(text, location=loc, api_renamed_keys=renamed),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
 

@@ -385,6 +385,15 @@ against legacy behaviour before assuming the simpler version suffices.
   refinement, `unit_of_measurement` options). Component descriptions/
   titles fall back to the docs MDX repo when the schema index is sparse.
   All in `script/sync_components.py`.
+- **Legacy key spellings are generated data — never hard-code them.**
+  esphome's `cv.rename_key` aliases (`api: services:` → `actions:`,
+  item `service:` → `action:`) are extracted at sync time
+  (`_collect_rename_keys`) into component-level `renamed_keys` maps on
+  the catalog index and bodies. Consumers derive accepted spellings from
+  the map: `ComponentCatalog.renamed_keys(id)` backend-side (threaded
+  into `controllers/automations/` via `block_keys` / `item_keys`), the
+  catalog payloads frontend-side. A future esphome rename must flow in
+  through the nightly catalog sync, not a new literal (#2396).
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

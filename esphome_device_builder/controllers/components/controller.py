@@ -499,6 +499,11 @@ class ComponentCatalog:
         entry = self._by_id.get(normalize_platform(component_id))
         return entry.name if entry else None
 
+    def renamed_keys(self, component_id: str) -> dict[str, str]:
+        """Legacy ``{old: new}`` key spellings for *component_id* from the slim index."""
+        entry = self._by_id.get(normalize_platform(component_id))
+        return entry.renamed_keys if entry else {}
+
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
         """Return the hydrated body for *component_id*, or ``None`` if missing."""
         return await self._body_store.get(component_id)

@@ -480,18 +480,44 @@ def test_parse_http_request_action_response_handlers() -> None:
     assert [a.action_id for a in action.children["on_error"]] == ["logger.log"]
 
 
-def test_parse_api_action_accepts_legacy_service_key() -> None:
-    """The deprecated ``service:`` discriminator parses to the same shape."""
+def test_parse_api_action_accepts_legacy_service_key(api_renamed_keys: dict[str, str]) -> None:
+    """The legacy ``service:`` discriminator parses to the same shape."""
     legacy = (
         "esphome:\n  name: x\n"
         "api:\n  actions:\n"
         "    - service: legacy_name\n"
         "      then:\n        - delay: 1s\n"
     )
-    parsed = parse_device_yaml(legacy)
+    parsed = parse_device_yaml(legacy, api_renamed_keys=api_renamed_keys)
     assert len(parsed) == 1
     assert parsed[0].location.kind == "api_action"
     assert parsed[0].location.action_name == "legacy_name"
+
+
+def test_parse_api_action_accepts_legacy_services_block(api_renamed_keys: dict[str, str]) -> None:
+    """A legacy ``services:`` block parses the same as ``actions:``."""
+    legacy = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "    - service: start_va\n"
+        "      then:\n        - delay: 1s\n"
+        "    - service: stop_va\n"
+        "      then:\n        - delay: 2s\n"
+    )
+    parsed = parse_device_yaml(legacy, api_renamed_keys=api_renamed_keys)
+    names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert names == ["start_va", "stop_va"]
+
+
+def test_parse_api_action_ignores_legacy_spellings_without_renamed_keys() -> None:
+    """Legacy spellings match only when the catalog map is supplied."""
+    legacy = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "    - service: start_va\n"
+        "      then:\n        - delay: 1s\n"
+    )
+    assert parse_device_yaml(legacy) == []
 
 
 def test_parse_api_block_without_actions_returns_empty() -> None:

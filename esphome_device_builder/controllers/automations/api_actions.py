@@ -15,15 +15,33 @@ grep-ability.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 
 from ...models.automations import YamlDiff
 
 
-def has_inline_actions_value(
+def block_keys(renamed: Mapping[str, str] | None) -> tuple[str, ...]:
+    """Return the accepted spellings of the ``api.actions:`` block key, canonical first.
+
+    *renamed* is the api component's catalog ``renamed_keys`` map
+    (``{old: new}``); esphome accepts each old spelling forever, so
+    readers must match all of them and writers splice into whichever
+    the file uses.
+    """
+    return ("actions", *(old for old, new in (renamed or {}).items() if new == "actions"))
+
+
+def item_keys(renamed: Mapping[str, str] | None) -> tuple[str, ...]:
+    """Return the accepted spellings of an item's ``action:`` key, canonical first."""
+    return ("action", *(old for old, new in (renamed or {}).items() if new == "action"))
+
+
+def inline_actions_key(
     lines: list[str],
     api_span: tuple[int, int, str],
-) -> bool:
-    """Return True iff ``actions:`` under *api_span* carries an inline value.
+    keys: tuple[str, ...],
+) -> str | None:
+    """Return the block key under *api_span* carrying an inline value, if any.
 
     Flow-style values (``actions: []``, ``actions: null``,
     ``actions: !secret foo``, …) can't be spliced into the way the
@@ -32,35 +50,34 @@ def has_inline_actions_value(
     ``actions:`` key alongside the inline one.
     """
     api_start, api_end, child_indent = api_span
-    header = f"{child_indent}actions:"
-    for idx in range(api_start + 1, api_end):
-        text = lines[idx].rstrip("\n\r")
-        if text == header:
-            return False
-        if text.startswith(header + " "):
-            rest = text[len(header) :].strip()
-            return bool(rest) and not rest.startswith("#")
-    return False
+    for key in keys:
+        header = f"{child_indent}{key}:"
+        for idx in range(api_start + 1, api_end):
+            text = lines[idx].rstrip("\n\r")
+            if text == header:
+                return None
+            if text.startswith(header + " "):
+                rest = text[len(header) :].strip()
+                if rest and not rest.startswith("#"):
+                    return key
+                return None
+    return None
 
 
 def locate_actions_list(
     lines: list[str],
     api_span: tuple[int, int, str],
+    keys: tuple[str, ...],
 ) -> tuple[int, int, str] | None:
-    """Return ``(start, end, item_indent)`` for ``api.actions:`` or ``None``.
+    """Return ``(start, end, item_indent)`` for the api action list or ``None``.
 
-    ``start`` is the line index of the ``actions:`` key; ``end`` is
+    Matches any spelling in *keys*, first spelling wins when several
+    appear. ``start`` is the line index of the block key; ``end`` is
     one past the last item line; ``item_indent`` is the leading
     whitespace shared by each ``- ...`` dash line.
     """
-    api_start, api_end, child_indent = api_span
-    header = f"{child_indent}actions:"
-    actions_start: int | None = None
-    for idx in range(api_start + 1, api_end):
-        text = lines[idx].rstrip("\n\r")
-        if text == header or text.startswith(header + " "):
-            actions_start = idx
-            break
+    _api_start, api_end, child_indent = api_span
+    actions_start = _find_block_key_line(lines, api_span, keys)
     if actions_start is None:
         return None
     actions_end = api_end
@@ -92,6 +109,7 @@ def find_item(
     actions_end: int,
     item_indent: str,
     action_name: str,
+    keys: tuple[str, ...],
 ) -> tuple[int, int] | None:
     """Locate the line range of the list item whose discriminator matches."""
     item_starts: list[int] = []
@@ -102,7 +120,7 @@ def find_item(
         item_starts.append(idx)
     for run, start in enumerate(item_starts):
         end = item_starts[run + 1] if run + 1 < len(item_starts) else actions_end
-        if _discriminator(lines, start, end, item_indent) == action_name:
+        if _discriminator(lines, start, end, item_indent, keys) == action_name:
             return start, end
     return None
 
@@ -254,22 +272,40 @@ def render_delete_actions_key(
 # ---------------------------------------------------------------------------
 
 
+def _find_block_key_line(
+    lines: list[str],
+    api_span: tuple[int, int, str],
+    keys: tuple[str, ...],
+) -> int | None:
+    """Return the line index of the first block key matching a spelling in *keys*."""
+    api_start, api_end, child_indent = api_span
+    for key in keys:
+        header = f"{child_indent}{key}:"
+        for idx in range(api_start + 1, api_end):
+            text = lines[idx].rstrip("\n\r")
+            if text == header or text.startswith(header + " "):
+                return idx
+    return None
+
+
 def _discriminator(
     lines: list[str],
     item_start: int,
     item_end: int,
     item_indent: str,
+    keys: tuple[str, ...],
 ) -> str | None:
-    """Read the ``action:`` (or legacy ``service:``) key for a list item."""
+    """Read a list item's discriminator value under any spelling in *keys*."""
     child_indent = item_indent + "  "
+    key_alt = "|".join(re.escape(key) for key in keys)
     inline = re.match(
-        rf"^{re.escape(item_indent)}-\s*(?P<key>action|service):\s*(?P<val>\S+)",
+        rf"^{re.escape(item_indent)}-\s*(?:{key_alt}):\s*(?P<val>\S+)",
         lines[item_start].rstrip("\n\r"),
     )
     if inline:
         return inline.group("val").strip("'\"")
     child_re = re.compile(
-        rf"^{re.escape(child_indent)}(?:action|service):\s*(?P<val>\S+)",
+        rf"^{re.escape(child_indent)}(?:{key_alt}):\s*(?P<val>\S+)",
     )
     for idx in range(item_start, item_end):
         m = child_re.match(lines[idx].rstrip("\n\r"))

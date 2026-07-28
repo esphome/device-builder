@@ -1424,6 +1424,127 @@ def test_delete_api_action_refuses_inline_actions_list() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+_LEGACY_SERVICES_YAML = (
+    "esphome:\n  name: x\n"
+    "api:\n  services:\n"
+    "    - service: start_va\n"
+    "      then:\n        - logger.log: 'starting'\n"
+    "    - service: stop_va\n"
+    "      then:\n        - logger.log: 'stopping'\n"
+)
+
+
+def test_upsert_api_action_appends_into_legacy_services_block(
+    api_renamed_keys: dict[str, str],
+) -> None:
+    """A new item lands inside an existing ``services:`` block, not a second ``actions:``."""
+    new_text, _diff = render_upsert(
+        _LEGACY_SERVICES_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="pause_va"),
+        api_renamed_keys=api_renamed_keys,
+    )
+    assert "actions:" not in new_text
+    parsed = parse_device_yaml(new_text, api_renamed_keys=api_renamed_keys)
+    names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert names == ["start_va", "stop_va", "pause_va"]
+    assert "'starting'" in new_text
+    assert "'stopping'" in new_text
+
+
+def test_upsert_api_action_replaces_item_in_legacy_services_block(
+    api_renamed_keys: dict[str, str],
+) -> None:
+    """Upserting an existing ``service:``-keyed item replaces it in place."""
+    new_text, _diff = render_upsert(
+        _LEGACY_SERVICES_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="stop_va"),
+        api_renamed_keys=api_renamed_keys,
+    )
+    assert "actions:" not in new_text
+    parsed = parse_device_yaml(new_text, api_renamed_keys=api_renamed_keys)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["start_va", "stop_va"]
+    stop = next(e for e in api_entries if e.location.action_name == "stop_va")
+    assert [a.action_id for a in stop.automation.actions] == ["delay"]
+    assert "'starting'" in new_text
+
+
+def test_delete_api_action_from_legacy_services_block(
+    api_renamed_keys: dict[str, str],
+) -> None:
+    """Deleting one item from a ``services:`` block leaves the sibling intact."""
+    new_text, _diff = render_delete(
+        _LEGACY_SERVICES_YAML,
+        location=ApiActionLocation(action_name="start_va"),
+        api_renamed_keys=api_renamed_keys,
+    )
+    parsed = parse_device_yaml(new_text, api_renamed_keys=api_renamed_keys)
+    names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert names == ["stop_va"]
+    assert "services:" in new_text
+
+
+def test_delete_last_api_action_drops_legacy_services_key(
+    api_renamed_keys: dict[str, str],
+) -> None:
+    """Deleting the final item removes the ``services:`` key itself."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "    - service: start_va\n"
+        "      then:\n        - logger.log: 'starting'\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="start_va"),
+        api_renamed_keys=api_renamed_keys,
+    )
+    assert "services:" not in new_text
+    assert "start_va" not in new_text
+    assert "api:" in new_text
+
+
+def test_upsert_api_action_refuses_inline_services_list(
+    api_renamed_keys: dict[str, str],
+) -> None:
+    """``services: []`` hits the same INVALID_ARGS guard as inline ``actions:``."""
+    text = "esphome:\n  name: x\napi:\n  services: []\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id=None,
+                actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+            ),
+            location=ApiActionLocation(action_name="new"),
+            api_renamed_keys=api_renamed_keys,
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+    assert "api.services:" in str(err.value)
+
+
+def test_upsert_api_action_creates_second_block_without_renamed_keys() -> None:
+    """Without the catalog map a ``services:`` block is invisible to the writer."""
+    new_text, _diff = render_upsert(
+        _LEGACY_SERVICES_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="pause_va"),
+    )
+    assert "actions:" in new_text
+    assert "services:" in new_text
+
+
 def test_upsert_api_action_appends_into_empty_actions_with_sibling_key() -> None:
     """``actions:`` with no items but a sibling key below gains its first item.
 
@@ -1615,7 +1736,9 @@ def test_upsert_api_action_inserts_actions_key_when_api_has_trailing_blanks() ->
     assert [e.location.action_name for e in api_entries] == ["my_action"]
 
 
-def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params() -> None:
+def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params(
+    api_renamed_keys: dict[str, str],
+) -> None:
     """An explicit ``action`` key on the tree's trigger_params is ignored.
 
     The discriminator lives on the location, not the tree. A
@@ -1632,6 +1755,7 @@ def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params() -> None
             actions=[ActionNode(action_id="delay", params={"id": "1s"})],
         ),
         location=ApiActionLocation(action_name="real_name"),
+        api_renamed_keys=api_renamed_keys,
     )
     # Only the location-derived action_name is emitted.
     assert "- action: real_name" in new_text

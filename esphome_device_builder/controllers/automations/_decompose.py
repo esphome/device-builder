@@ -284,11 +284,13 @@ def _collect_block_params(
     return out
 
 
-def _collect_api_action_params(block: dict) -> dict[str, Any]:
-    """Collect ``api.actions:`` item params, dropping the discriminator + ``then:``."""
+def _collect_api_action_params(
+    block: dict, *, drop_keys: frozenset[str] | set[str]
+) -> dict[str, Any]:
+    """Collect ``api.actions:`` item params, dropping *drop_keys* (discriminator + ``then:``)."""
     out: dict[str, Any] = {}
     for key, value in block.items():
-        if key in ("then", "action", "service"):
+        if key in drop_keys:
             continue
         out[key] = _render_value(value)
     return out

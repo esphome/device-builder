@@ -16,6 +16,8 @@ value re-emits its tag (see :func:`emitter.encode_value`).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     SubEntityRef,
@@ -86,6 +88,7 @@ def render_upsert(  # noqa: PLR0911 — one return per location kind; a dispatch
     *,
     tree: AutomationTree,
     location: AutomationLocation,
+    api_renamed_keys: Mapping[str, str] | None = None,
 ) -> tuple[str, YamlDiff]:
     """
     Apply *tree* at *location*; return ``(new_yaml, diff)``.
@@ -93,6 +96,8 @@ def render_upsert(  # noqa: PLR0911 — one return per location kind; a dispatch
     *diff* is the :class:`YamlDiff` splice the frontend applies to
     the editor pane. *new_yaml* is the post-splice document — caller
     convenience so tests and callers don't re-derive it.
+    *api_renamed_keys* is the api component's catalog legacy-spelling
+    map; without it only canonical key names match.
     """
     if isinstance(location, ScriptLocation):
         return _upsert_script(yaml_text, tree, location)
@@ -107,7 +112,7 @@ def render_upsert(  # noqa: PLR0911 — one return per location kind; a dispatch
     if isinstance(location, LightEffectLocation):
         return upsert_light_effect(yaml_text, tree, location)
     if isinstance(location, ApiActionLocation):
-        return _upsert_api_action(yaml_text, tree, location)
+        return _upsert_api_action(yaml_text, tree, location, api_renamed_keys)
     msg = f"Unsupported AutomationLocation: {type(location).__name__}"
     raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
@@ -116,6 +121,7 @@ def render_delete(
     yaml_text: str,
     *,
     location: AutomationLocation,
+    api_renamed_keys: Mapping[str, str] | None = None,
 ) -> tuple[str, YamlDiff]:
     """Remove the automation at *location*; return ``(new_yaml, diff)``."""
     if isinstance(location, (ScriptLocation, IntervalLocation, DeviceOnLocation)):
@@ -127,7 +133,7 @@ def render_delete(
     if isinstance(location, LightEffectLocation):
         return delete_light_effect(yaml_text, location)
     if isinstance(location, ApiActionLocation):
-        return _delete_api_action(yaml_text, location)
+        return _delete_api_action(yaml_text, location, api_renamed_keys)
     msg = f"Unsupported AutomationLocation: {type(location).__name__}"
     raise CommandError(ErrorCode.INVALID_ARGS, msg)
 
@@ -349,18 +355,25 @@ def _upsert_api_action(
     yaml_text: str,
     tree: AutomationTree,
     location: ApiActionLocation,
+    renamed: Mapping[str, str] | None,
 ) -> tuple[str, YamlDiff]:
     """Splice or replace an ``api.actions:`` list item by ``action_name``."""
-    rendered = render_api_action_item(tree, location.action_name)
+    item_keys = api_actions.item_keys(renamed)
+    rendered = render_api_action_item(tree, location.action_name, item_keys)
     lines = yaml_text.splitlines(keepends=True)
     api_span = _locate_singleton_block(lines, "api")
     if api_span is None:
         new_text, _block = api_actions.render_create_block(yaml_text, rendered)
         return new_text, _build_diff_for_append(yaml_text, new_text)
-    if api_actions.has_inline_actions_value(lines, api_span):
-        msg = "api.actions: is inline (e.g. `actions: []`); rewrite it as a block list first"
+    block_keys = api_actions.block_keys(renamed)
+    inline_key = api_actions.inline_actions_key(lines, api_span, block_keys)
+    if inline_key is not None:
+        msg = (
+            f"api.{inline_key}: is inline (e.g. `{inline_key}: []`); "
+            "rewrite it as a block list first"
+        )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    actions_span = api_actions.locate_actions_list(lines, api_span)
+    actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
     actions_start, actions_end, item_indent = actions_span
@@ -370,6 +383,7 @@ def _upsert_api_action(
         actions_end,
         item_indent,
         location.action_name,
+        item_keys,
     )
     if existing is not None:
         item_start, item_end = existing
@@ -695,6 +709,7 @@ def _delete_component_action(
 def _delete_api_action(
     yaml_text: str,
     location: ApiActionLocation,
+    renamed: Mapping[str, str] | None,
 ) -> tuple[str, YamlDiff]:
     """Drop a single ``api.actions:`` item; drop ``actions:`` when emptied."""
     lines = yaml_text.splitlines(keepends=True)
@@ -702,10 +717,15 @@ def _delete_api_action(
     if api_span is None:
         msg = "api: block not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    if api_actions.has_inline_actions_value(lines, api_span):
-        msg = "api.actions: is inline (e.g. `actions: []`); rewrite it as a block list first"
+    block_keys = api_actions.block_keys(renamed)
+    inline_key = api_actions.inline_actions_key(lines, api_span, block_keys)
+    if inline_key is not None:
+        msg = (
+            f"api.{inline_key}: is inline (e.g. `{inline_key}: []`); "
+            "rewrite it as a block list first"
+        )
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
-    actions_span = api_actions.locate_actions_list(lines, api_span)
+    actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
     if actions_span is None:
         msg = "api.actions: not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
@@ -716,6 +736,7 @@ def _delete_api_action(
         actions_end,
         item_indent,
         location.action_name,
+        api_actions.item_keys(renamed),
     )
     if existing is None:
         msg = f"api.actions[action={location.action_name!r}] not present"

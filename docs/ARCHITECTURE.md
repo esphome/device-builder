@@ -293,6 +293,13 @@ dotted id directly. A new upstream domain missing a `ComponentCategory` member
 fails the sync loudly instead of degrading to MISC.
 Component-level descriptions and titles fall back to the docs MDX
 (`esphome.io` shallow clone) when the schema's index is sparse.
+Legacy key spellings (`cv.rename_key` pairs, e.g. `api: services:` →
+`actions:`) are also extracted from the live schema into a component-level
+`renamed_keys` map carried on both the slim index and the bodies; consumers
+(the automations parse/write paths via `ComponentCatalog.renamed_keys`, the
+frontend's renamed-keys registry) derive accepted spellings from it rather
+than hard-coding aliases, so a future upstream rename lands through the
+nightly sync.
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)

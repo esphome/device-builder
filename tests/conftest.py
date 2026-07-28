@@ -1242,3 +1242,9 @@ def catalog_releases_ahead(stamp_file: str = "components.index.json") -> int:
     payload = json.loads((index / stamp_file).read_bytes())
     stamp = payload.get("esphome_schema_version") or payload["esphome_version"]
     return release_ordinal(stamp) - release_ordinal(esphome_version)
+
+
+@pytest.fixture
+def api_renamed_keys() -> dict[str, str]:
+    """Return the api component's catalog ``renamed_keys`` map, as the controller passes it."""
+    return {"services": "actions", "service": "action"}
