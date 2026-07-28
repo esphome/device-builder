@@ -5554,6 +5554,7 @@ class RefinedType(NamedTuple):
 
     type: str
     unit_options: list[str] | None = None
+    display_format: str | None = None
 
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
@@ -5788,6 +5789,44 @@ def _is_dict_list_union(validator: Any) -> bool:
     return _validator_branches_dict_and_list(src)
 
 
+def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, RefinedType]]:
+    """Map runtime validator identities / names to refined types.
+
+    The schema bundle already gets ``cv.string`` and ``cv.int_`` right via
+    explicit ``type:`` markers; these tables cover the cases where the
+    bundle silently emits no type at all. Identity is keyed by ``id()``
+    because some voluptuous validators (notably _Schema subclasses)
+    override __hash__ to be unhashable.
+    """
+    by_identity: dict[int, RefinedType] = {}
+    by_name: dict[str, RefinedType] = {}
+
+    def add(name: str, refined: RefinedType, *attrs: str) -> None:
+        by_name[name] = refined
+        for a in attrs:
+            obj = getattr(cv, a, None)
+            if obj is not None:
+                by_identity[id(obj)] = refined
+
+    add("boolean", RefinedType("boolean"), "boolean")
+    add("float_", RefinedType("float"), "float_", "positive_float", "negative_float")
+    add("float_range", RefinedType("float"), "float_range")
+    # Non-closure unit validators only; real float_with_unit ones are
+    # discovered in ``classify`` via ``__qualname__``.
+    for validator_name, units in _require_non_introspectable_units(cv).items():
+        add(
+            validator_name,
+            RefinedType("float_with_unit", unit_options=units),
+            validator_name,
+        )
+    add("icon", RefinedType("icon"), "icon")
+    add("lambda_", RefinedType("lambda"), "lambda_")
+    add("returning_lambda", RefinedType("lambda"), "returning_lambda")
+    add("mac_address", RefinedType("mac_address"), "mac_address")
+    add("hex_int", RefinedType("integer", display_format="hex"), "hex_int")
+    return by_identity, by_name
+
+
 def _collect_refined_types(  # noqa: C901
     manifest: Any,
 ) -> dict[tuple[str, ...], RefinedType]:
@@ -5808,37 +5847,7 @@ def _collect_refined_types(  # noqa: C901
     except Exception:
         return {}
 
-    # Map runtime validator identities / names to refined types. The
-    # schema bundle already gets ``cv.string`` and ``cv.int_`` right via
-    # explicit ``type:`` markers; we focus on the cases where the
-    # bundle silently emits no type at all. Identity is keyed by
-    # ``id()`` because some voluptuous validators (notably _Schema
-    # subclasses) override __hash__ to be unhashable.
-    by_identity: dict[int, RefinedType] = {}
-    by_name: dict[str, RefinedType] = {}
-
-    def add(name: str, refined: RefinedType, *attrs: str) -> None:
-        by_name[name] = refined
-        for a in attrs:
-            obj = getattr(cv, a, None)
-            if obj is not None:
-                by_identity[id(obj)] = refined
-
-    add("boolean", RefinedType("boolean"), "boolean")
-    add("float_", RefinedType("float"), "float_", "positive_float", "negative_float")
-    add("float_range", RefinedType("float"), "float_range")
-    # Non-closure unit validators only; real float_with_unit ones are
-    # discovered in ``classify`` below via ``__qualname__``.
-    for validator_name, units in _require_non_introspectable_units(cv).items():
-        add(
-            validator_name,
-            RefinedType("float_with_unit", unit_options=units),
-            validator_name,
-        )
-    add("icon", RefinedType("icon"), "icon")
-    add("lambda_", RefinedType("lambda"), "lambda_")
-    add("returning_lambda", RefinedType("lambda"), "returning_lambda")
-    add("mac_address", RefinedType("mac_address"), "mac_address")
+    by_identity, by_name = _refined_type_tables(cv)
 
     out: dict[tuple[str, ...], RefinedType] = {}
 
@@ -6559,6 +6568,8 @@ def _apply_refined_types(
                 _merge_boolean_union_options(entry)
             else:
                 entry["type"] = new_type.type
+                if new_type.display_format is not None:
+                    entry["display_format"] = new_type.display_format
 
     _walk_catalog_entries(entries, visit)
 

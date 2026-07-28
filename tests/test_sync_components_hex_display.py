@@ -15,6 +15,7 @@ to the user as an unreadable form field
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -144,3 +145,49 @@ def test_string_field_has_no_display_format(
     assert entry is not None
     assert entry["type"] == "string"
     assert entry["display_format"] is None
+
+
+def test_hex_int_range_refines_to_hex_integer() -> None:
+    """A ``cv.hex_int_range`` chain refines to an integer with hex display."""
+    import esphome.config_validation as cv  # noqa: PLC0415
+
+    from script.sync_components import _collect_refined_types  # noqa: PLC0415
+
+    schema = cv.Schema({cv.Required("memory_location"): cv.hex_int_range(min=0x00, max=0x79)})
+    refined = _collect_refined_types(SimpleNamespace(config_schema=schema))
+    assert refined[("memory_location",)].type == "integer"
+    assert refined[("memory_location",)].display_format == "hex"
+
+
+def test_refined_hex_display_applies_over_string_entries() -> None:
+    """The applier stamps type and display_format from a hex refinement."""
+    from script.sync_components import (  # noqa: PLC0415
+        RefinedType,
+        _apply_refined_types,
+    )
+
+    entries = [{"key": "memory_address", "type": "string", "display_format": None}]
+    refined = {("memory_address",): RefinedType("integer", display_format="hex")}
+    _apply_refined_types(entries, refined)
+    assert entries[0]["type"] == "integer"
+    assert entries[0]["display_format"] == "hex"
+
+
+def test_shipped_catalog_micronova_memory_fields_are_hex_integers() -> None:
+    """The generated micronova bodies render memory fields as hex integers with bounds."""
+    import json  # noqa: PLC0415
+
+    body_path = (
+        Path(__file__).resolve().parent.parent
+        / "esphome_device_builder"
+        / "definitions"
+        / "components"
+        / "sensor.micronova.json"
+    )
+    body = json.loads(body_path.read_text(encoding="utf-8"))
+    fan_speed = next(e for e in body["config_entries"] if e["key"] == "fan_speed")
+    entries = {e["key"]: e for e in fan_speed["config_entries"]}
+    assert entries["memory_location"]["type"] == "integer"
+    assert entries["memory_location"]["display_format"] == "hex"
+    assert entries["memory_location"]["range"] == [0, 121]
+    assert entries["memory_address"]["range"] == [0, 255]
