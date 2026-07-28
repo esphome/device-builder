@@ -5528,8 +5528,10 @@ def _present_non_introspectable_units(cv: Any) -> dict[str, list[str]]:
     """Return the hand-maintained unit lists; a validator missing from *cv* fails the sync."""
     missing = [name for name in _NON_INTROSPECTABLE_UNITS if getattr(cv, name, None) is None]
     if missing:
-        raise RuntimeError(
-            f"hand-maintained unit validators gone from esphome: {missing}; "
+        # SystemExit so the per-file blanket ``except Exception`` in
+        # ``build_catalog`` can't swallow it into a gutted-but-green sync.
+        raise SystemExit(
+            f"hand-maintained unit validators gone from esphome: {missing} — "
             "renamed upstream? Update _NON_INTROSPECTABLE_UNITS."
         )
     return dict(_NON_INTROSPECTABLE_UNITS)

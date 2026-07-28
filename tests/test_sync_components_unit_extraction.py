@@ -397,7 +397,7 @@ def test_missing_non_introspectable_validator_fails_the_sync() -> None:
         percentage_int = object()
         # temperature_delta removed
 
-    with pytest.raises(RuntimeError, match="temperature_delta"):
+    with pytest.raises(SystemExit, match="temperature_delta"):
         _present_non_introspectable_units(_StubCV())
 
 
