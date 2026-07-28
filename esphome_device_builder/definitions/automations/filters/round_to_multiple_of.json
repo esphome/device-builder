@@ -1,1 +1,1 @@
-{"id":"round_to_multiple_of","name":"Sensor → Round To Multiple Of","config_entries":[{"key":"multiple","type":"nested","label":"Multiple","required":true,"display_format":null}],"applies_to":["sensor"],"value_type":null}
+{"id":"round_to_multiple_of","name":"Sensor → Round To Multiple Of","config_entries":[{"key":"multiple","type":"string","label":"Multiple","required":true,"display_format":null}],"applies_to":["sensor"],"value_type":null}

@@ -43,10 +43,11 @@ def test_convert_config_vars_breaks_self_referential_extends(monkeypatch) -> Non
 def test_merge_extends_skips_seen_refs() -> None:
     """A ref already on the expansion path is not re-resolved."""
     node = {"extends": ["CYCLE"], "config_vars": {"local": {"key": "Optional"}}}
-    merged = sync_components._merge_extends_config_vars(
+    merged, inherited = sync_components._merge_extends_config_vars(
         node, Path("/nonexistent"), frozenset({"CYCLE"})
     )
     assert set(merged) == {"local"}
+    assert inherited == frozenset()
 
 
 def test_get_esphome_loader_primes_core_target_platform(monkeypatch) -> None:

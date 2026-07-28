@@ -2802,9 +2802,12 @@ def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
 
 def _merge_extends_config_vars(
     schema_node: dict, schema_dir: Path, _seen_refs: frozenset[str] = frozenset()
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], frozenset[str]]:
     """
     Deep-merge a schema node's ``extends`` ancestry with its local config_vars.
+
+    Returns the merged fields plus the keys drawn from the ancestry, so the
+    caller can scope cycle-breaking to the inherited subtree.
 
     Per-field, not whole-field: a partial override like ``{"default": "x"}``
     keeps the base's inherited ``type`` / enum / docs. Values are usually field
@@ -2828,7 +2831,7 @@ def _merge_extends_config_vars(
             merged[key] = {**base, **local}
         else:
             merged[key] = local if local is not None else base or {}
-    return merged
+    return merged, frozenset(extended)
 
 
 def _convert_config_vars(
@@ -2844,7 +2847,11 @@ def _convert_config_vars(
     ``_seen_refs`` is threaded to break self-referential ``extends`` cycles; see
     :func:`_merge_extends_config_vars`.
     """
-    merged = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
+    merged, inherited_keys = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
+    # A ref is a cycle only within its own expansion subtree: inherited
+    # fields carry it as seen, a *local* field re-extending the same ref
+    # is legitimate reuse (combination's kalman ``std_dev`` re-extends
+    # the sensor schema its platform root also extends).
     seen_refs = _seen_refs | frozenset(schema_node.get("extends") or [])
 
     out: list[dict] = []
@@ -2869,7 +2876,11 @@ def _convert_config_vars(
         recovered = _RAW_NODE_OVERRIDES.get((component_id, key))
         field_raw = {**(raw or {}), **recovered} if recovered is not None else (raw or {})
         entry = _convert_field(
-            key, field_raw, schema_dir, top_level=bool(component_id), _seen_refs=seen_refs
+            key,
+            field_raw,
+            schema_dir,
+            top_level=bool(component_id),
+            _seen_refs=seen_refs if key in inherited_keys else _seen_refs,
         )
         if entry is None:
             continue
@@ -3159,17 +3170,26 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     extends = (inner_schema or {}).get("extends") if isinstance(inner_schema, dict) else None
 
     entry_type = _TYPE_MAP.get(schema_type or "")
+    if (
+        entry_type == "nested"
+        and isinstance(inner_schema, dict)
+        and not inner_schema.get("config_vars")
+        and not inner_schema.get("extends")
+    ):
+        # An empty ``type: schema`` wrapper (the bundle dumps
+        # assignment-composed ``float_range`` validators this way);
+        # fall through to docs / refinement typing instead of a
+        # childless nested group.
+        entry_type = None
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
-    # A top-level bare ``type: trigger`` field (cover ``open_action`` …) is
-    # an action list edited in the automation editor; the default
-    # ``trigger -> nested`` map yields an empty group the frontend drops, so
-    # surface it as TRIGGER. Scoped to ``top_level`` (the
-    # ``(component_id, field)`` location can't address a nested field, e.g.
-    # ``sprinkler`` ``set_action``) and to no-inner-config_vars (a trigger
-    # with params still wants ``nested``).
-    if top_level and schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
+    # A bare ``type: trigger`` field (cover ``open_action``, sprinkler's
+    # nested ``set_action`` …) is an action list edited in the automation
+    # editor; the default ``trigger -> nested`` map yields an empty group
+    # the frontend drops, so surface it as TRIGGER at any depth. Scoped to
+    # no-inner-config_vars (a trigger with params still wants ``nested``).
+    if schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
         entry_type = "trigger"
 
     # Polymorphic registry list (#941). Two upstream shapes:
@@ -4047,7 +4067,7 @@ def _push_config_vars(
     # field would also record the parent classes of sibling id declarations
     # (``mqtt_id``, ``zigbee_sensor``) at this path.
     if "id" not in base and isinstance(schema, dict) and schema.get("extends"):
-        inherited_id = _merge_extends_config_vars(schema, schema_dir).get("id")
+        inherited_id = _merge_extends_config_vars(schema, schema_dir)[0].get("id")
         if isinstance(inherited_id, dict):
             config_vars = {**base, "id": inherited_id}
     frontier.append((config_vars, path))
@@ -9042,7 +9062,7 @@ def _extract_triggers_from_section(
         # not other schemas (only CONFIG_SCHEMA validates a top-level
         # block; merging ``fastled_base.BASE_SCHEMA`` emits unreachable ids).
         if inner is not None and schema_name == "CONFIG_SCHEMA" and "." not in top_key:
-            cvs = _merge_extends_config_vars(inner, schema_dir)
+            cvs, _inherited = _merge_extends_config_vars(inner, schema_dir)
         else:
             cvs = (inner or {}).get("config_vars") or {}
         for key, raw in cvs.items():
@@ -9107,7 +9127,7 @@ def _extract_automation_param_schema(
     # collect every trigger / action-registry key into ``accepts_action_list``,
     # stripping any that did reach the form entries.
     stripped: set[str] = set()
-    for key, raw in _merge_extends_config_vars(schema, schema_dir).items():
+    for key, raw in _merge_extends_config_vars(schema, schema_dir)[0].items():
         if not isinstance(raw, dict):
             continue
         rtype = raw.get("type")
