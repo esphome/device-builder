@@ -41,6 +41,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _MACHINE_DERIVED_RANGE_FIELDS,
     _apply_field_ranges,
     _collect_field_ranges,
+    _field_ranges_in_schema,
     _numeric_range_bounds,
     _platform_field_keys,
     _walk_entries,
@@ -425,3 +426,9 @@ def test_apply_warns_on_dropped_bounds(caplog: pytest.LogCaptureFixture) -> None
         _apply_field_ranges(entries, {("memory_address",): (0, 255)}, "sensor.micronova")
     assert "sensor.micronova" in caplog.text
     assert "memory_address (string)" in caplog.text
+
+
+def test_field_ranges_in_schema_accepts_bare_schema() -> None:
+    """The schema-accepting core walks a schema with no manifest wrapper."""
+    schema = cv.Schema({cv.Required("level"): cv.int_range(min=1, max=15)})
+    assert _field_ranges_in_schema(schema) == {("level",): (1, 15)}

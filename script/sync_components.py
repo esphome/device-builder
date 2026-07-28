@@ -1012,6 +1012,7 @@ def main() -> int:
             component_ids=component_ids,
             registry_groups=_collect_automation_registry_groups(),
             registry_refined=registry_refined,
+            registry_ranges=_collect_automation_field_ranges(),
         )
         _LOGGER.info(
             "Built automations catalog: %d triggers, %d actions, %d conditions, %d effects",
@@ -3654,8 +3655,6 @@ def _emit_platform_capabilities_index() -> None:
     imported, so the long-lived process reads a cheap JSON instead and never
     imports ``esphome.components.*``. Atomic temp-then-replace.
     """
-    from types import SimpleNamespace
-
     import esphome
     from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
     from esphome.components.esp32.const import KEY_VARIANT, VARIANTS
@@ -5877,21 +5876,25 @@ def _refined_type_tables(cv: Any) -> tuple[dict[int, RefinedType], dict[str, Ref
     return by_identity, by_name
 
 
-def _collect_refined_types(  # noqa: C901
-    manifest: Any,
+def _collect_refined_types(manifest: Any) -> dict[tuple[str, ...], RefinedType]:
+    """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost."""
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+    return _refined_types_in_schema(schema)
+
+
+def _refined_types_in_schema(  # noqa: C901
+    schema: Any,
 ) -> dict[tuple[str, ...], RefinedType]:
-    """Walk the live ``CONFIG_SCHEMA`` to recover types the schema lost.
+    """Recover ``{key_path: RefinedType}`` from a live voluptuous *schema*.
 
     The pre-built schema collapses many ``cv.boolean`` / ``cv.float_`` /
     ``cv.icon`` / ``cv.lambda_`` validators into bare strings. By
     inspecting the actual voluptuous validators we can promote those
-    fields back to the right type. Returns ``{key_path: RefinedType}``
-    where the named tuple carries ``type`` plus per-type extras (e.g.
-    ``unit_options`` for ``float_with_unit``).
+    fields back to the right type; the named tuple carries ``type`` plus
+    per-type extras (e.g. ``unit_options`` for ``float_with_unit``).
     """
-    schema = getattr(manifest, "config_schema", None)
-    if schema is None:
-        return {}
     from esphome import config_validation as cv
 
     by_identity, by_name = _refined_type_tables(cv)
@@ -7497,13 +7500,19 @@ def _automation_registries() -> dict[str, Any]:
     }
 
 
+def _iter_automation_registry_entries() -> Iterator[tuple[str, str, Any]]:
+    """Yield ``(registry_type, registry_id, entry)`` across the live registries."""
+    for registry_type, registry in _automation_registries().items():
+        for registry_id, entry in registry.items():
+            yield registry_type, registry_id, entry
+
+
 def _collect_automation_registry_groups() -> dict[str, dict[str, list[dict[str, Any]]]]:
     """Collect ``{registry_id: [{kind, keys}, ...]}`` per registry type from live esphome."""
     out: dict[str, dict[str, list[dict[str, Any]]]] = {}
-    for registry_type, registry in _automation_registries().items():
-        for registry_id, entry in registry.items():
-            if groups := _groups_in_all_chain(getattr(entry, "raw_schema", None)):
-                out.setdefault(registry_type, {})[registry_id] = groups
+    for registry_type, registry_id, entry in _iter_automation_registry_entries():
+        if groups := _groups_in_all_chain(getattr(entry, "raw_schema", None)):
+            out.setdefault(registry_type, {})[registry_id] = groups
     return out
 
 
@@ -7526,11 +7535,18 @@ def _registry_entry_schema(entry: Any) -> Any | None:
 def _collect_automation_refined_types() -> dict[str, dict[str, dict[tuple[str, ...], RefinedType]]]:
     """Collect ``{registry_id: {path: RefinedType}}`` per registry type from live esphome."""
     out: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] = {}
-    for registry_type, registry in _automation_registries().items():
-        for registry_id, entry in registry.items():
-            manifest = SimpleNamespace(config_schema=_registry_entry_schema(entry))
-            if refined := _collect_refined_types(manifest):
-                out.setdefault(registry_type, {})[registry_id] = refined
+    for registry_type, registry_id, entry in _iter_automation_registry_entries():
+        if refined := _refined_types_in_schema(_registry_entry_schema(entry)):
+            out.setdefault(registry_type, {})[registry_id] = refined
+    return out
+
+
+def _collect_automation_field_ranges() -> dict[str, dict[str, dict[tuple[str, ...], tuple]]]:
+    """Collect ``{registry_id: {path: (min, max)}}`` per registry type from live esphome."""
+    out: dict[str, dict[str, dict[tuple[str, ...], tuple]]] = {}
+    for registry_type, registry_id, entry in _iter_automation_registry_entries():
+        if ranges := _field_ranges_in_schema(_registry_entry_schema(entry)):
+            out.setdefault(registry_type, {})[registry_id] = ranges
     return out
 
 
@@ -7797,17 +7813,17 @@ def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
 def _collect_field_ranges(
     manifest: Any,
 ) -> dict[tuple[str, ...], tuple[int | float, int | float]]:
-    """
-    Walk the live ``CONFIG_SCHEMA`` for per-field ``vol.Range`` bounds.
-
-    Returns ``{key_path: (min, max)}`` for fields whose validator
-    chain produces a fully-bounded numeric range. Empty dict when
-    the component has no schema.
-    """
+    """Walk the live ``CONFIG_SCHEMA`` for per-field ``vol.Range`` bounds."""
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
+    return _field_ranges_in_schema(schema)
 
+
+def _field_ranges_in_schema(
+    schema: Any,
+) -> dict[tuple[str, ...], tuple[int | float, int | float]]:
+    """``{key_path: (min, max)}`` for fields whose chain is a fully-bounded numeric range."""
     out: dict[tuple[str, ...], tuple[int | float, int | float]] = {}
 
     def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
@@ -8208,6 +8224,7 @@ def build_automations(  # noqa: C901
     component_ids: set[str],
     registry_groups: dict[str, dict[str, list[dict[str, Any]]]] | None = None,
     registry_refined: dict[str, dict[str, dict[tuple[str, ...], RefinedType]]] | None = None,
+    registry_ranges: dict[str, dict[str, dict[tuple[str, ...], tuple]]] | None = None,
 ) -> dict[str, list[dict]]:
     """
     Walk every schema file and emit the automation catalog.
@@ -8232,6 +8249,9 @@ def build_automations(  # noqa: C901
     *registry_refined* is :func:`_collect_automation_refined_types`
     output; matching actions / conditions get their entry types
     promoted from the live registry schemas.
+
+    *registry_ranges* is :func:`_collect_automation_field_ranges`
+    output; matching numeric entries gain ``range`` bounds.
     """
     triggers: list[dict] = []
     actions: list[dict] = []
@@ -8326,6 +8346,10 @@ def build_automations(  # noqa: C901
     refined_by_type = registry_refined or {}
     _apply_automation_refined_types(actions, refined_by_type.get("action"))
     _apply_automation_refined_types(conditions, refined_by_type.get("condition"))
+    # After refinement: the range gate reads the entry's final type.
+    ranges_by_type = registry_ranges or {}
+    _apply_automation_field_ranges(actions, ranges_by_type.get("action"))
+    _apply_automation_field_ranges(conditions, ranges_by_type.get("condition"))
     groups_by_type = registry_groups or {}
     _apply_automation_required_groups(actions, groups_by_type.get("action"))
     _apply_automation_required_groups(conditions, groups_by_type.get("condition"))
@@ -8439,6 +8463,19 @@ def _apply_automation_refined_types(
         refined = refined_index.get(entry["id"])
         if refined:
             _apply_refined_types(entry["config_entries"], refined)
+
+
+def _apply_automation_field_ranges(
+    entries: list[dict],
+    ranges_index: dict[str, dict[tuple[str, ...], tuple]] | None,
+) -> None:
+    """Overlay live registry ``vol.Range`` bounds onto action / condition entries."""
+    if not ranges_index:
+        return
+    for entry in entries:
+        ranges = ranges_index.get(entry["id"])
+        if ranges:
+            _apply_field_ranges(entry["config_entries"], ranges, entry["id"])
 
 
 def _convert_automation_action(

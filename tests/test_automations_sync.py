@@ -1122,3 +1122,36 @@ def test_build_automations_applies_registry_refined_types(tmp_path: Path) -> Non
     entry = {e["key"]: e for e in action["config_entries"]}["max_response_buffer_size"]
     assert entry["type"] == "float_with_unit"
     assert entry["unit_options"] == ["B", "kB", "MB", "GB"]
+
+
+def test_build_automations_applies_registry_ranges(tmp_path: Path) -> None:
+    """A live-registry range lands on a numeric action field, not a string one."""
+    schema_dir = _write_schema(
+        tmp_path,
+        "servo.json",
+        {
+            "servo": {
+                "action": {
+                    "write": {
+                        "schema": {
+                            "config_vars": {
+                                "level": {"key": "Required", "docs": "**int**: Target level."},
+                                "id": {"key": "Required", "type": "use_id"},
+                            },
+                        },
+                        "type": "schema",
+                        "docs": "Write a level.",
+                    },
+                },
+                "schemas": {},
+            },
+        },
+    )
+    ranges = {"action": {"servo.write": {("level",): (-1, 1), ("id",): (0, 9)}}}
+    result = sync_components.build_automations(
+        schema_dir=schema_dir, component_ids=set(), registry_ranges=ranges
+    )
+    action = {a["id"]: a for a in result["actions"]}["servo.write"]
+    entries = {e["key"]: e for e in action["config_entries"]}
+    assert entries["level"]["range"] == [-1, 1]
+    assert entries["id"].get("range") is None
