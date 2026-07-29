@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import re
 
+from ...helpers.api import CommandError
+from ...helpers.yaml.scan import child_block_end, is_list_item_line
+from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
 
 #: Accepted spellings, canonical first — esphome's ``cv.rename_key``
@@ -78,27 +81,12 @@ def locate_actions_list(
     if found is None:
         return None
     actions_start, matched_key = found
-    actions_end = api_end
-    for idx in range(actions_start + 1, api_end):
-        content = lines[idx].rstrip("\n\r")
-        stripped = content.lstrip(" ")
-        if not stripped or stripped.startswith("#"):
-            continue
-        leading = len(content) - len(stripped)
-        # A flush-style dash at the key's own indent is an item, not
-        # the next api child key — only shallower content or a
-        # same-indent non-dash line ends the list.
-        if leading < len(child_indent) or (
-            leading == len(child_indent) and not stripped.startswith("- ")
-        ):
-            actions_end = idx
-            break
-    actions_end = _trim_trailing_gap(lines, actions_start, actions_end)
+    actions_end = child_block_end(lines, actions_start, api_end, child_indent)
     item_indent: str | None = None
     for idx in range(actions_start + 1, actions_end):
         raw = lines[idx].rstrip("\n\r")
         stripped = raw.lstrip(" ")
-        if stripped.startswith("- "):
+        if is_list_item_line(stripped):
             item_indent = raw[: len(raw) - len(stripped)]
             break
     if item_indent is None:
@@ -184,6 +172,9 @@ def indent_for_list(rendered_item: str, item_indent: str) -> str:
     content, since YAML treats whitespace-only lines and fully
     empty lines differently inside a literal block.
     """
+    if len(item_indent) < 2:
+        msg = "api: block uses one-space indentation; re-indent it to edit actions"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     pad = " " * (len(item_indent) - 2)
     out_lines: list[str] = []
     for line in rendered_item.splitlines():
@@ -251,11 +242,13 @@ def render_append(
     item_indent: str,
     rendered: str,
 ) -> tuple[str, YamlDiff]:
-    """Append a new list item at the end of an existing ``api.actions:``."""
+    """Append a new list item at the end of an existing ``api.actions:``.
+
+    *actions_end* comes pre-trimmed from :func:`locate_actions_list`, so
+    the line before it is never blank.
+    """
     item_text = indent_for_list(rendered, item_indent)
     insert_at = actions_end
-    while insert_at > 0 and not lines[insert_at - 1].strip():
-        insert_at -= 1
     new_lines = [*lines[:insert_at], item_text, *lines[insert_at:]]
     new_text = "".join(new_lines)
     return new_text, YamlDiff(
@@ -308,23 +301,15 @@ def _item_spans(
     spans: list[tuple[int, int]] = []
     start: int | None = None
     for idx in range(actions_start + 1, actions_end):
-        if lines[idx].rstrip("\n\r").startswith(item_indent + "- "):
+        raw = lines[idx].rstrip("\n\r")
+        stripped = raw.lstrip(" ")
+        if raw[: len(raw) - len(stripped)] == item_indent and is_list_item_line(stripped):
             if start is not None:
                 spans.append((start, idx))
             start = idx
     if start is not None:
         spans.append((start, actions_end))
     return spans
-
-
-def _trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
-    """Pull *end* back over trailing blank and comment lines."""
-    while end - 1 > start:
-        stripped = lines[end - 1].strip()
-        if stripped and not stripped.startswith("#"):
-            break
-        end -= 1
-    return end
 
 
 def _find_block_key_line(

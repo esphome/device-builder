@@ -37,6 +37,42 @@ def block_end_index(lines: list[str], start: int) -> int:
     return len(lines)
 
 
+def is_list_item_line(stripped: str) -> bool:
+    """Report whether a whitespace-stripped line opens a list item (``- foo`` or lone ``-``)."""
+    return stripped == "-" or stripped.startswith("- ")
+
+
+def child_block_end(lines: list[str], start: int, end_bound: int, indent: str) -> int:
+    """
+    End (exclusive) of the child block whose key line sits at *indent*.
+
+    A flush-style list item at the key's own indent continues the block;
+    blank and comment lines never end it. The end trims back over
+    trailing blanks and comments at or above the key's indent (they
+    belong to the gap before the next key); deeper trailing comments
+    stay inside the block.
+    """
+    end = end_bound
+    for idx in range(start + 1, end_bound):
+        content = lines[idx].rstrip("\n\r")
+        stripped = content.lstrip(" ")
+        if not stripped or stripped.startswith("#"):
+            continue
+        leading = len(content) - len(stripped)
+        if leading < len(indent) or (leading == len(indent) and not is_list_item_line(stripped)):
+            end = idx
+            break
+    while end - 1 > start:
+        content = lines[end - 1].rstrip("\n\r")
+        stripped = content.lstrip(" ")
+        if stripped and (
+            not stripped.startswith("#") or len(content) - len(stripped) > len(indent)
+        ):
+            break
+        end -= 1
+    return end
+
+
 def top_list_item_starts(lines: list[str], start: int, end: int) -> list[int]:
     """
     Line indexes of the canonical-indent ``- `` items in a block body.

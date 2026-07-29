@@ -53,7 +53,6 @@ from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
 from .inline import SubEntityRef as SubEntityRef
-from .inline import _block_end as _block_end
 from .inline import _indent_block as _indent_block
 from .inline import remove_inline_handler as remove_inline_handler
 from .inline import remove_nested_handler as remove_nested_handler
@@ -73,6 +72,7 @@ from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
 from .scalar import read_yaml_scalar as read_yaml_scalar
 from .scalar import rewrite_yaml_scalar as rewrite_yaml_scalar
+from .scan import child_block_end as child_block_end
 from .substitution import is_retargetable_name as is_retargetable_name
 from .substitution import parse_substitution_ref as parse_substitution_ref
 from .substitution import rewrite_name_or_substitution as rewrite_name_or_substitution
