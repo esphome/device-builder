@@ -1,8 +1,8 @@
 """
 Editor controller — supports the in-browser YAML editor.
 
-Currently exposes live YAML validation; future editor utilities (formatting,
-schema-driven completion, etc.) will live here too.
+Exposes live YAML validation and legacy-spelling canonicalization; future
+editor utilities (formatting, schema-driven completion, etc.) live here too.
 """
 
 from __future__ import annotations

@@ -111,15 +111,23 @@ def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: Modu
 
 
 def test_handled_list_matches_the_writer_constants() -> None:
-    """Extending _HANDLED_RENAME_KEYS for api requires extending the writer too."""
+    """Every _HANDLED_RENAME_KEYS entry must have a writer/canonicalizer counterpart."""
     from esphome_device_builder.controllers.automations.api_actions import (  # noqa: PLC0415
         BLOCK_KEYS,
         ITEM_KEYS,
     )
+    from esphome_device_builder.controllers.automations.canonicalize import (  # noqa: PLC0415
+        _ACTION_NODE_RENAMES,
+    )
     from script.sync_components import _HANDLED_RENAME_KEYS  # noqa: PLC0415
 
     derived = {("api", legacy, keys[0]) for keys in (BLOCK_KEYS, ITEM_KEYS) for legacy in keys[1:]}
-    assert {t for t in _HANDLED_RENAME_KEYS if t[0] == "api"} == derived
+    derived |= {
+        (registry_id, rename.legacy_field, rename.canonical_field)
+        for rename in _ACTION_NODE_RENAMES
+        for registry_id in (rename.legacy_id, rename.canonical_id)
+    }
+    assert derived == _HANDLED_RENAME_KEYS
 
 
 def test_unhandled_pair_fails_the_sync() -> None:

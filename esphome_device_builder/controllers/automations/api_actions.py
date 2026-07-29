@@ -138,17 +138,14 @@ def find_item(
     action_name: str,
 ) -> tuple[int, int] | None:
     """Locate the line range of the list item whose discriminator matches."""
-    item_starts: list[int] = []
-    for idx in range(actions_start + 1, actions_end):
-        raw = lines[idx].rstrip("\n\r")
-        if not raw.startswith(item_indent + "- "):
-            continue
-        item_starts.append(idx)
-    for run, start in enumerate(item_starts):
-        end = item_starts[run + 1] if run + 1 < len(item_starts) else actions_end
-        if _discriminator(lines, start, end, item_indent) == action_name:
-            return start, end
-    return None
+    return next(
+        (
+            span
+            for span in _item_spans(lines, actions_start, actions_end, item_indent)
+            if _discriminator(lines, *span, item_indent) == action_name
+        ),
+        None,
+    )
 
 
 def count_siblings(
@@ -160,15 +157,11 @@ def count_siblings(
 ) -> int:
     """Count list items at *item_indent* that aren't the matched span."""
     item_start, item_end = matched
-    siblings = 0
-    for idx in range(actions_start + 1, actions_end):
-        raw = lines[idx].rstrip("\n\r")
-        if not raw.startswith(item_indent + "- "):
-            continue
-        if item_start <= idx < item_end:
-            continue
-        siblings += 1
-    return siblings
+    return sum(
+        1
+        for start, _end in _item_spans(lines, actions_start, actions_end, item_indent)
+        if not item_start <= start < item_end
+    )
 
 
 def indent_for_list(rendered_item: str, item_indent: str) -> str:
@@ -308,7 +301,7 @@ def _item_spans(
     spans: list[tuple[int, int]] = []
     start: int | None = None
     for idx in range(actions_start + 1, actions_end):
-        if lines[idx].rstrip("\n\r").startswith(item_indent + "-"):
+        if lines[idx].rstrip("\n\r").startswith(item_indent + "- "):
             if start is not None:
                 spans.append((start, idx))
             start = idx

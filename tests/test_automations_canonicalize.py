@@ -40,6 +40,17 @@ script:
 """
 
 
+def _respell(text: str) -> str:
+    """Unwrap a must-change canonicalize result to its new text."""
+    result = render_canonicalize(text)
+    assert result is not None
+    return result[0]
+
+
+def _on_boot(*body: str) -> str:
+    return "esphome:\n  on_boot:\n    then:\n" + "".join(f"{line}\n" for line in body)
+
+
 def test_legacy_api_block_and_items() -> None:
     result = render_canonicalize(_LEGACY_API_YAML)
     assert result is not None
@@ -112,17 +123,43 @@ def test_collision_skips_field_but_respells_id() -> None:
     assert "action: light.turn_off" in new_text
 
 
-def test_flow_style_inline_body() -> None:
-    text = """esphome:
-  name: demo
-  on_boot:
-    then:
-      - homeassistant.service: {service: light.toggle}
-"""
-    result = render_canonicalize(text)
-    assert result is not None
-    new_text, _diff = result
-    assert "- homeassistant.action: {action: light.toggle}" in new_text
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            "      - homeassistant.service: {service: light.toggle}",
+            "- homeassistant.action: {action: light.toggle}",
+            id="plain",
+        ),
+        pytest.param(
+            "      - homeassistant.service: {data: {service: keepme}, service: light.toggle}",
+            "{data: {service: keepme}, action: light.toggle}",
+            id="nested_payload_untouched",
+        ),
+        pytest.param(
+            "      - homeassistant.service: {data: {action: keepme}, service: light.toggle}",
+            "{data: {action: keepme}, action: light.toggle}",
+            id="nested_canonical_decoy",
+        ),
+        pytest.param(
+            '      - homeassistant.service: {service: "light.on", data: "{not: a-map}"}',
+            '{action: "light.on", data: "{not: a-map}"}',
+            id="quoted_braces",
+        ),
+        pytest.param("      - homeassistant.action: {action: light.on}", None, id="canonical"),
+        pytest.param(
+            "      - homeassistant.action: {data: {brightness: 50}}",
+            None,
+            id="no_field",
+        ),
+    ],
+)
+def test_flow_style_bodies(body: str, expected: str | None) -> None:
+    text = _on_boot(body)
+    if expected is None:
+        assert render_canonicalize(text) is None
+    else:
+        assert expected in _respell(text)
 
 
 def test_decoy_service_keys_untouched() -> None:
@@ -187,28 +224,6 @@ def test_api_without_actions_list_returns_none() -> None:
     assert render_canonicalize("api:\n  reboot_timeout: 0s\n") is None
 
 
-def test_flow_nested_payload_key_untouched() -> None:
-    text = (
-        "esphome:\n  on_boot:\n    then:\n"
-        "      - homeassistant.service: {data: {service: keepme}, service: light.toggle}\n"
-    )
-    result = render_canonicalize(text)
-    assert result is not None
-    new_text, _diff = result
-    assert "{data: {service: keepme}, action: light.toggle}" in new_text
-
-
-def test_flow_nested_canonical_decoy_still_respells() -> None:
-    text = (
-        "esphome:\n  on_boot:\n    then:\n"
-        "      - homeassistant.service: {data: {action: keepme}, service: light.toggle}\n"
-    )
-    result = render_canonicalize(text)
-    assert result is not None
-    new_text, _diff = result
-    assert "{data: {action: keepme}, action: light.toggle}" in new_text
-
-
 def test_comment_lines_do_not_pick_the_body_indent() -> None:
     text = (
         "esphome:\n  on_boot:\n    then:\n"
@@ -262,29 +277,6 @@ def test_anchor_after_block_scalar_still_respells() -> None:
     assert "homeassistant.service: not_yaml" in new_text
     assert "- homeassistant.action:" in new_text
     assert "action: light.on" in new_text
-
-
-def test_flow_canonical_at_depth_one_untouched() -> None:
-    text = "esphome:\n  on_boot:\n    then:\n      - homeassistant.action: {action: light.on}\n"
-    assert render_canonicalize(text) is None
-
-
-def test_flow_without_either_field_untouched() -> None:
-    text = (
-        "esphome:\n  on_boot:\n    then:\n      - homeassistant.action: {data: {brightness: 50}}\n"
-    )
-    assert render_canonicalize(text) is None
-
-
-def test_flow_quoted_value_braces_ignored() -> None:
-    text = (
-        "esphome:\n  on_boot:\n    then:\n"
-        '      - homeassistant.service: {service: "light.on", data: "{not: a-map}"}\n'
-    )
-    result = render_canonicalize(text)
-    assert result is not None
-    new_text, _diff = result
-    assert '{action: "light.on", data: "{not: a-map}"}' in new_text
 
 
 def test_api_item_with_both_discriminators_kept() -> None:
