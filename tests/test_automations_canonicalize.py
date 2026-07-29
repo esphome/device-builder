@@ -231,6 +231,48 @@ def test_block_scalar_contents_untouched() -> None:
     assert render_canonicalize(text) is None
 
 
+def test_anchor_after_block_scalar_still_respells() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - lambda: |-\n"
+        "          homeassistant.service: not_yaml\n"
+        "\n"
+        "          more text\n"
+        "      - homeassistant.service:\n"
+        "          service: light.on\n"
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    # The scalar body keeps its legacy text; the real node respells.
+    assert "homeassistant.service: not_yaml" in new_text
+    assert "- homeassistant.action:" in new_text
+    assert "action: light.on" in new_text
+
+
+def test_flow_canonical_at_depth_one_untouched() -> None:
+    text = "esphome:\n  on_boot:\n    then:\n      - homeassistant.action: {action: light.on}\n"
+    assert render_canonicalize(text) is None
+
+
+def test_flow_without_either_field_untouched() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n      - homeassistant.action: {data: {brightness: 50}}\n"
+    )
+    assert render_canonicalize(text) is None
+
+
+def test_flow_quoted_value_braces_ignored() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        '      - homeassistant.service: {service: "light.on", data: "{not: a-map}"}\n'
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    assert '{action: "light.on", data: "{not: a-map}"}' in new_text
+
+
 def test_api_item_with_both_discriminators_kept() -> None:
     text = "api:\n  actions:\n    - action: a\n      service: b\n      then: []\n"
     assert render_canonicalize(text) is None

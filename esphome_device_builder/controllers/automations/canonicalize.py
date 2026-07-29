@@ -130,13 +130,13 @@ def _respell_flow_field(rest: str, rename: ActionNodeRename) -> str | None:
     the canonical key already being present.
     """
     keys = _flow_depth1_keys(rest)
-    names = {name for _start, _end, name in keys}
-    if rename.canonical_field in names or rename.legacy_field not in names:
+    if any(name == rename.canonical_field for _start, _end, name in keys):
         return None
-    for start, end, name in keys:
-        if name == rename.legacy_field:
-            return rest[:start] + rename.canonical_field + rest[end:]
-    return None
+    legacy = next(((start, end) for start, end, name in keys if name == rename.legacy_field), None)
+    if legacy is None:
+        return None
+    start, end = legacy
+    return rest[:start] + rename.canonical_field + rest[end:]
 
 
 def _flow_depth1_keys(rest: str) -> list[tuple[int, int, str]]:
