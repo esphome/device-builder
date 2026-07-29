@@ -4863,7 +4863,13 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
     manifest_multi_conf = bool(getattr(manifest, "multi_conf", False))
-    list_form = manifest_multi_conf or component_id in _LIST_SCHEMA_MULTI_CONF
+    # Platform-domain blocks (sensor:, ota:, …) are - platform: lists,
+    # the same shape multi_conf makes of a component block.
+    list_form = (
+        manifest_multi_conf
+        or bool(getattr(manifest, "is_platform_component", False))
+        or component_id in _LIST_SCHEMA_MULTI_CONF
+    )
     _classify_rename_pairs(component_id, _collect_rename_keys(manifest), list_form=list_form)
     for domain, platform_manifest in platform_manifests_by_domain:
         _classify_rename_pairs(component_id, _collect_rename_keys(platform_manifest), domain=domain)

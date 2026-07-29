@@ -448,8 +448,8 @@ def test_load_migration_rules_rejects_non_list_rules(tmp_path: Path) -> None:
 
 
 def test_load_migration_rules_index_reads_the_committed_artifact() -> None:
-    """The cached entry point parses the shipped (empty until upstream adds pairs) artifact."""
-    assert load_migration_rules_index() == ()
+    """The cached entry point parses the shipped artifact into rules."""
+    assert all(isinstance(rule, MigrationRule) for rule in load_migration_rules_index())
 
 
 def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
