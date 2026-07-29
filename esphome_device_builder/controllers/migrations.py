@@ -16,13 +16,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ..helpers.yaml.scan import leading_ws
+from ..helpers.yaml.scan import child_block_end, leading_ws
 from ..models.automations import YamlDiff
 from .automations import api_actions
 from .automations.writing_layout import (
     _build_diff_for_append,
     _locate_singleton_block,
-    _trim_trailing_gap,
 )
 
 
@@ -191,13 +190,7 @@ def _child_block_span(
         content = lines[idx].rstrip("\n\r")
         if content != header and not content.startswith(header + " "):
             continue
-        stop = idx + 1
-        while stop < min(end, len(lines)):
-            deeper = lines[stop].rstrip("\n\r")
-            if deeper.strip() and len(leading_ws(deeper)) <= len(child_indent):
-                break
-            stop += 1
-        return idx, _trim_trailing_gap(lines, idx, stop)
+        return idx, child_block_end(lines, idx, min(end, len(lines)), child_indent)
     return None
 
 

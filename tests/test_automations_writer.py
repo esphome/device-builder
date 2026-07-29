@@ -1735,6 +1735,56 @@ def test_component_action_field_replaces_flush_leaf_list() -> None:
     assert "close_action:" in final_text
 
 
+def test_device_on_flush_handler_round_trips() -> None:
+    """A flush-style ``on_boot:`` list under ``esphome:`` replaces and deletes wholly."""
+    text = (
+        "esphome:\n  name: x\n  on_boot:\n  - logger.log: hi\n  - delay: 2s\n  friendly_name: y\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="esphome.on_boot",
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=DeviceOnLocation(trigger="on_boot"),
+    )
+    assert new_text.count("on_boot:") == 1
+    assert "logger.log: hi" not in new_text
+    assert "delay: 1s" in new_text
+    assert "friendly_name: y" in new_text
+    final_text, _diff = render_delete(text, location=DeviceOnLocation(trigger="on_boot"))
+    assert "on_boot:" not in final_text
+    assert "logger.log: hi" not in final_text
+    assert "friendly_name: y" in final_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_nested_action_field_replaces_flush_leaf_list() -> None:
+    """A flush-style leaf list under a nested field path replaces and deletes wholly."""
+    text = (
+        "sprinkler:\n  - id: lawn\n    repeat_number:\n      id: lawn_repeat\n"
+        "      set_action:\n      - logger.log: repeat changed\n"
+        "    multiplier_number:\n      id: lawn_multiplier\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=loc,
+    )
+    assert new_text.count("set_action:") == 1
+    assert "repeat changed" not in new_text
+    assert "delay: 1s" in new_text
+    assert "lawn_multiplier" in new_text
+    final_text, _diff = render_delete(text, location=loc)
+    assert "set_action:" not in final_text
+    assert "repeat changed" not in final_text
+    assert "lawn_multiplier" in final_text
+
+
 def test_subentity_flush_handler_round_trips() -> None:
     """A flush-style handler list inside a sub-sensor block replaces and deletes wholly."""
     text = (
