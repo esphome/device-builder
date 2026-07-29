@@ -1,5 +1,5 @@
 """
-Automations controller — the nine WS commands the frontend speaks.
+Automations controller — the eight WS commands the frontend speaks.
 
 See ``docs/API.md`` for the per-command contract. ``upsert`` /
 ``delete`` return a :class:`YamlDiff` the frontend applies in
@@ -25,7 +25,6 @@ from ...models.automations import (
     AvailableComponentInstance,
     AvailableScript,
     AvailableScriptParameter,
-    CanonicalizeResponse,
     ComponentActionFieldLocation,
     ComponentOnLocation,
     DeviceOnLocation,
@@ -34,7 +33,7 @@ from ...models.automations import (
     ScriptLocation,
     UpsertResponse,
 )
-from . import canonicalize, catalog, parsing, writing
+from . import catalog, parsing, writing
 from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
@@ -255,26 +254,6 @@ class AutomationsController:
             lambda: writing.render_delete(text, location=loc),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
-
-    @api_command("automations/canonicalize")
-    async def canonicalize(
-        self,
-        *,
-        configuration: str,
-        yaml: str | None = None,
-        **_kwargs: Any,
-    ) -> dict:
-        """Respell every legacy renamed-key spelling to canonical.
-
-        Covers the api ``services:`` block and item discriminators plus
-        the homeassistant action's legacy node id and ``service:`` body
-        field. Accepts the same optional ``yaml`` draft override as
-        ``upsert``; ``yaml_diff`` is ``null`` when nothing was legacy.
-        """
-        text = yaml if yaml is not None else await self._read_config(configuration)
-        result = await run_in_executor(canonicalize.render_canonicalize, text)
-        diff = result[1] if result is not None else None
-        return CanonicalizeResponse(yaml_diff=diff).to_dict()
 
     # ------------------------------------------------------------------
     # Internals

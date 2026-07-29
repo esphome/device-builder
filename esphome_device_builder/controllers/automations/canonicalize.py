@@ -1,30 +1,35 @@
 """
 Whole-file respell of legacy renamed-key spellings to canonical.
 
-The on-demand counterpart to the write-path respells: covers the api
-``services:`` block and item discriminators plus the homeassistant
-action's legacy node id and ``service:`` body field, line for line, so
-comments and formatting survive.
+One rule function per rename shape, folded by ``render_canonicalize``;
+every rule is a pure, line-for-line ``lines -> lines`` transform so
+comments and formatting survive. A future rename shape (a platform
+section field, say) adds a rule function and joins the fold.
 """
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from ...models.automations import YamlDiff
 from . import api_actions
 from .writing_layout import _locate_singleton_block
 
-#: Anchor for a homeassistant action node — a list item or mapping key
-#: whose id is either registered spelling. Comment lines can't match
-#: (the id must open the line's content).
-_HA_ANCHOR_RE = re.compile(
-    r"^(?P<lead>[ ]*(?:-\s*)?)(?P<id>homeassistant\.(?:service|action)):(?P<rest>.*)$"
-)
 
-_HA_CANONICAL_ID = "homeassistant.action"
-_FLOW_SERVICE_RE = re.compile(r"([{,]\s*)service(\s*:)")
-_FLOW_ACTION_RE = re.compile(r"[{,]\s*action\s*:")
+@dataclass(frozen=True)
+class ActionNodeRename:
+    """A registry action's legacy/canonical node ids and body field."""
+
+    legacy_id: str
+    canonical_id: str
+    legacy_field: str
+    canonical_field: str
+
+
+_ACTION_NODE_RENAMES = (
+    ActionNodeRename("homeassistant.service", "homeassistant.action", "service", "action"),
+)
 
 
 def render_canonicalize(yaml_text: str) -> tuple[str, YamlDiff] | None:
@@ -35,8 +40,8 @@ def render_canonicalize(yaml_text: str) -> tuple[str, YamlDiff] | None:
     first through last changed line, or ``None`` when nothing is legacy.
     """
     lines = yaml_text.splitlines(keepends=True)
-    out = _canonicalize_api(list(lines))
-    out = _canonicalize_homeassistant(out)
+    out = _canonicalize_api_actions(list(lines))
+    out = _canonicalize_action_nodes(out)
     if out == lines:
         return None
     changed = [idx for idx in range(len(lines)) if lines[idx] != out[idx]]
@@ -45,7 +50,7 @@ def render_canonicalize(yaml_text: str) -> tuple[str, YamlDiff] | None:
     return "".join(out), YamlDiff(fromLine=first + 1, toLine=last + 1, replacement=replacement)
 
 
-def _canonicalize_api(lines: list[str]) -> list[str]:
+def _canonicalize_api_actions(lines: list[str]) -> list[str]:
     """Respell the api block key and item discriminators."""
     api_span = _locate_singleton_block(lines, "api")
     if api_span is None:
@@ -61,22 +66,32 @@ def _canonicalize_api(lines: list[str]) -> list[str]:
     )
 
 
-def _canonicalize_homeassistant(lines: list[str]) -> list[str]:
-    """Respell homeassistant action node ids and their legacy body field."""
+def _canonicalize_action_nodes(lines: list[str]) -> list[str]:
+    """Respell registry-action node ids and their legacy body field."""
     out = list(lines)
-    for idx, line in enumerate(lines):
-        match = _HA_ANCHOR_RE.match(line.rstrip("\n\r"))
-        if match is None:
-            continue
-        if match.group("id") != _HA_CANONICAL_ID:
-            out[idx] = out[idx].replace(match.group("id"), _HA_CANONICAL_ID, 1)
-        rest = match.group("rest")
-        if "{" in rest:
-            # Flow-style body on the anchor line itself.
-            if _FLOW_ACTION_RE.search(rest) is None:
-                out[idx] = _FLOW_SERVICE_RE.sub(r"\1action\2", out[idx], count=1)
-            continue
-        _respell_body_field(lines, out, idx, content_col=len(match.group("lead")))
+    for rename in _ACTION_NODE_RENAMES:
+        anchor_re = re.compile(
+            rf"^(?P<lead>[ ]*(?:-\s*)?)"
+            rf"(?P<id>{re.escape(rename.legacy_id)}|{re.escape(rename.canonical_id)}):"
+            rf"(?P<rest>.*)$"
+        )
+        flow_field_re = re.compile(rf"([{{,]\s*){re.escape(rename.legacy_field)}(\s*:)")
+        flow_canonical_re = re.compile(rf"[{{,]\s*{re.escape(rename.canonical_field)}\s*:")
+        for idx, line in enumerate(lines):
+            match = anchor_re.match(line.rstrip("\n\r"))
+            if match is None:
+                continue
+            if match.group("id") == rename.legacy_id:
+                out[idx] = out[idx].replace(rename.legacy_id, rename.canonical_id, 1)
+            rest = match.group("rest")
+            if "{" in rest:
+                # Flow-style body on the anchor line itself.
+                if flow_canonical_re.search(rest) is None:
+                    out[idx] = flow_field_re.sub(
+                        rf"\1{rename.canonical_field}\2", out[idx], count=1
+                    )
+                continue
+            _respell_body_field(lines, out, idx, len(match.group("lead")), rename)
     return out
 
 
@@ -85,14 +100,15 @@ def _respell_body_field(
     out: list[str],
     anchor: int,
     content_col: int,
+    rename: ActionNodeRename,
 ) -> None:
-    """Rename the node's own ``service:`` key to ``action:`` in *out*.
+    """Rename the node's own legacy field key to canonical in *out*.
 
     The body's child indent is taken from its first line; only a key at
     exactly that column counts, so a same-named key nested deeper (an
     action list inside ``data:``) stays untouched. Skips the rename when
-    ``action:`` already exists at that column — respelling would emit a
-    duplicate key, and upstream validation already rejects the pair.
+    the canonical key already exists at that column — respelling would
+    emit a duplicate key, and upstream validation already rejects the pair.
     """
     child_indent: str | None = None
     body_end = anchor
@@ -108,13 +124,14 @@ def _respell_body_field(
         body_end = idx
     if child_indent is None:
         return
-    service_re = re.compile(rf"^{re.escape(child_indent)}service(\s*:)")
-    action_re = re.compile(rf"^{re.escape(child_indent)}action\s*:")
+    legacy_re = re.compile(rf"^{re.escape(child_indent)}{re.escape(rename.legacy_field)}(\s*:)")
+    canonical_re = re.compile(rf"^{re.escape(child_indent)}{re.escape(rename.canonical_field)}\s*:")
     body = range(anchor + 1, body_end + 1)
-    if any(action_re.match(lines[idx].rstrip("\n\r")) for idx in body):
+    if any(canonical_re.match(lines[idx].rstrip("\n\r")) for idx in body):
         return
     for idx in body:
-        new = service_re.sub(rf"{child_indent}action\1", lines[idx].rstrip("\n\r"), count=1)
-        if new != lines[idx].rstrip("\n\r"):
-            out[idx] = new + lines[idx][len(lines[idx].rstrip("\n\r")) :]
+        stripped = lines[idx].rstrip("\n\r")
+        new = legacy_re.sub(rf"{child_indent}{rename.canonical_field}\1", stripped, count=1)
+        if new != stripped:
+            out[idx] = new + lines[idx][len(stripped) :]
             return

@@ -17,10 +17,12 @@ from typing import TYPE_CHECKING, Any
 from fnv_hash_fast import fnv1a_32
 
 from ..helpers.api import api_command
-from ..helpers.async_ import drain_tasks
+from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.process import kill_quietly
 from ..helpers.subprocess import create_subprocess_exec
+from ..models.automations import CanonicalizeResponse
+from .automations.canonicalize import render_canonicalize
 from .firmware.helpers import _find_esphome_cmd
 
 if TYPE_CHECKING:
@@ -273,6 +275,23 @@ class EditorController:
     # ------------------------------------------------------------------
     # API commands
     # ------------------------------------------------------------------
+
+    @api_command("editor/canonicalize_spellings")
+    async def canonicalize_spellings(
+        self,
+        *,
+        content: str,
+        **_kwargs: Any,
+    ) -> dict:
+        """Respell every legacy renamed-key spelling in *content*.
+
+        One contiguous splice covering the api ``services:`` block and
+        item discriminators plus registry-action node ids and body
+        fields; ``yaml_diff`` is ``null`` when nothing was legacy.
+        """
+        result = await run_in_executor(render_canonicalize, content)
+        diff = result[1] if result is not None else None
+        return CanonicalizeResponse(yaml_diff=diff).to_dict()
 
     @api_command("editor/validate_yaml")
     async def validate_yaml(

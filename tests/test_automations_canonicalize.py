@@ -181,3 +181,16 @@ def test_nested_inside_api_action_body() -> None:
 @pytest.mark.parametrize("text", ["", "esphome:\n  name: demo\n"])
 def test_no_automations_returns_none(text: str) -> None:
     assert render_canonicalize(text) is None
+
+
+def test_api_without_actions_list_returns_none() -> None:
+    assert render_canonicalize("api:\n  reboot_timeout: 0s\n") is None
+
+
+def test_bodyless_anchor_respells_id_only() -> None:
+    result = render_canonicalize(
+        "esphome:\n  on_boot:\n    then:\n      - homeassistant.service:\n"
+    )
+    assert result is not None
+    new_text, _diff = result
+    assert "- homeassistant.action:" in new_text
