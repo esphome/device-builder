@@ -308,14 +308,15 @@ def _discriminator(
 ) -> str | None:
     """Read the ``action:`` (or legacy ``service:``) key for a list item."""
     child_indent = item_indent + "  "
+    key_alt = "|".join(re.escape(key) for key in ITEM_KEYS)
     inline = re.match(
-        rf"^{re.escape(item_indent)}-\s*(?P<key>action|service):\s*(?P<val>\S+)",
+        rf"^{re.escape(item_indent)}-\s*(?:{key_alt}):\s*(?P<val>\S+)",
         lines[item_start].rstrip("\n\r"),
     )
     if inline:
         return inline.group("val").strip("'\"")
     child_re = re.compile(
-        rf"^{re.escape(child_indent)}(?:action|service):\s*(?P<val>\S+)",
+        rf"^{re.escape(child_indent)}(?:{key_alt}):\s*(?P<val>\S+)",
     )
     for idx in range(item_start, item_end):
         m = child_re.match(lines[idx].rstrip("\n\r"))

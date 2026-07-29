@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _RENAME_SWEEP_COUNT,
     _UNHANDLED_RENAME_KEYS,
     _collect_rename_keys,
     _fail_on_unhandled_rename_keys,
@@ -28,8 +29,10 @@ def cv():
 @pytest.fixture(autouse=True)
 def _clean_unhandled():
     _UNHANDLED_RENAME_KEYS.clear()
+    saved_sweeps = _RENAME_SWEEP_COUNT[0]
     yield
     _UNHANDLED_RENAME_KEYS.clear()
+    _RENAME_SWEEP_COUNT[0] = saved_sweeps
 
 
 def _manifest(schema) -> SimpleNamespace:
@@ -75,19 +78,44 @@ def test_codegen_enum_values_terminate(cv) -> None:
     assert _collect_rename_keys(_manifest(schema)) == {}
 
 
-def test_live_api_pairs_are_all_handled(cv) -> None:
-    """The api component's live pairs stay inside the handled list."""
+def test_live_api_pairs_are_discovered_and_handled(cv) -> None:
+    """The walk finds the api pairs and the handled list covers them."""
+    from script.sync_components import _get_esphome_loader  # noqa: PLC0415
+
+    manifest = _get_esphome_loader().get_component("api")
+    assert _collect_rename_keys(manifest) == {"services": "actions", "service": "action"}
     introspect_component("api")
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
 def test_unhandled_pair_fails_the_sync() -> None:
+    _RENAME_SWEEP_COUNT[0] = 1
     _note_unhandled_rename_keys("sgp4x", {"voc": "voc_index"})
     with pytest.raises(SystemExit, match="sgp4x: voc -> voc_index"):
         _fail_on_unhandled_rename_keys()
 
 
 def test_handled_pairs_do_not_fail_the_sync() -> None:
+    _RENAME_SWEEP_COUNT[0] = 1
     _note_unhandled_rename_keys("api", {"services": "actions", "service": "action"})
     _fail_on_unhandled_rename_keys()
     assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def test_unreadable_rename_closure_yields_sentinel_pair() -> None:
+    from script.sync_components import _rename_key_pair  # noqa: PLC0415
+
+    def validator(value):
+        return value
+
+    validator.__qualname__ = "rename_key.<locals>.validator"
+    assert _rename_key_pair(validator) == (
+        "<unreadable rename_key>",
+        "<unreadable rename_key>",
+    )
+
+
+def test_zero_sweep_fails_the_sync() -> None:
+    _RENAME_SWEEP_COUNT[0] = 0
+    with pytest.raises(SystemExit, match="walked no schemas"):
+        _fail_on_unhandled_rename_keys()

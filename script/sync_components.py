@@ -8123,6 +8123,10 @@ _HANDLED_RENAME_KEYS = {
 
 _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
+#: Manifests the rename sweep actually walked; zero at check time means
+#: introspection's best-effort early returns silenced the canary.
+_RENAME_SWEEP_COUNT = [0]
+
 
 def _note_unhandled_rename_keys(component_id: str, pairs: Mapping[str, str]) -> None:
     """Record every discovered rename pair missing from the handled list."""
@@ -8132,7 +8136,16 @@ def _note_unhandled_rename_keys(component_id: str, pairs: Mapping[str, str]) -> 
 
 
 def _fail_on_unhandled_rename_keys() -> None:
-    """Abort the sync when upstream added a ``cv.rename_key`` we don't handle."""
+    """Abort the sync when upstream added a ``cv.rename_key`` we don't handle.
+
+    Also aborts when the sweep walked nothing at all — introspection's
+    best-effort early returns must not silence the canary.
+    """
+    if _RENAME_SWEEP_COUNT[0] == 0:
+        raise SystemExit(
+            "the cv.rename_key sweep walked no schemas; introspection is "
+            "broken and the rename canary can't guard this sync"
+        )
     if not _UNHANDLED_RENAME_KEYS:
         return
     rows = "\n".join(
@@ -8163,10 +8176,14 @@ def _collect_rename_keys(manifest: Any) -> dict[str, str]:
         return memoised[1]
     out: dict[str, str] = {}
     visited: set[int] = set()
+    capped = False
     stack: list[tuple[Any, int]] = [(schema, 0)]
     while stack:
         node, depth = stack.pop()
-        if node is None or depth > 10 or id(node) in visited:
+        if node is None or id(node) in visited:
+            continue
+        if depth > 10:
+            capped = True
             continue
         visited.add(id(node))
         pair = _rename_key_pair(node)
@@ -8174,23 +8191,30 @@ def _collect_rename_keys(manifest: Any) -> dict[str, str]:
             out.setdefault(pair[0], pair[1])
             continue
         stack.extend((child, depth + 1) for child in _rename_walk_children(node))
+    if capped:
+        _LOGGER.warning("rename_key walk hit the depth cap; coverage may be incomplete")
+    _RENAME_SWEEP_COUNT[0] += 1
     _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
 
 
 def _rename_key_pair(node: Any) -> tuple[str, str] | None:
-    """Return the ``(old, new)`` pair of a ``cv.rename_key`` validator, else None."""
+    """Return the ``(old, new)`` pair of a ``cv.rename_key`` validator, else None.
+
+    A rename validator whose closure can't be read yields a sentinel
+    pair so the handled-list check fails closed instead of dropping it.
+    """
     if not isinstance(node, FunctionType) or not node.__qualname__.startswith("rename_key."):
         return None
     try:
         nonlocals = _closure_nonlocals(node)
     except ValueError:
-        return None
+        return "<unreadable rename_key>", "<unreadable rename_key>"
     old_key = nonlocals.get("old_key")
     new_key = nonlocals.get("new_key")
     if isinstance(old_key, str) and isinstance(new_key, str):
         return old_key, new_key
-    return None
+    return "<unreadable rename_key>", "<unreadable rename_key>"
 
 
 def _is_rename_wrapper(node: Any) -> bool:
