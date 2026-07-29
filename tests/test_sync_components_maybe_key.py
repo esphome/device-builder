@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -53,10 +54,45 @@ def test_maybe_marker_stamps_maybe_key_on_a_single_nested(schema_dir: Path) -> N
     assert entry["maybe_key"] == "microphone"
 
 
+def test_maybe_marker_inherited_through_extends_is_stamped(schema_dir: Path) -> None:
+    """The ``sensor.msa3xx`` shape: ``maybe`` lives on the extended base schema."""
+    (schema_dir / "base.json").write_text(
+        json.dumps(
+            {
+                "base": {
+                    "schemas": {
+                        "ACCEL": {
+                            "maybe": "name",
+                            "schema": {
+                                "config_vars": {
+                                    "name": {"key": "Optional", "type": "string"},
+                                },
+                            },
+                        },
+                    },
+                },
+            }
+        )
+    )
+    raw = {"key": "Optional", "type": "schema", "schema": {"extends": ["base.ACCEL"]}}
+    entry = _convert_field("acceleration_x", raw, schema_dir)
+    assert entry is not None
+    assert entry["type"] == "nested"
+    assert entry["maybe_key"] == "name"
+
+
 def test_nested_without_maybe_marker_emits_none(schema_dir: Path) -> None:
     raw = _microphone_raw(is_list=True)
     del raw["maybe"]
     entry = _convert_field("microphone", raw, schema_dir)
+    assert entry is not None
+    assert entry["maybe_key"] is None
+
+
+def test_bool_schema_node_emits_none(schema_dir: Path) -> None:
+    """Pin-style fields carry ``schema: true``; only a mapping has extends."""
+    raw = {"key": "Optional", "type": "pin", "schema": True}
+    entry = _convert_field("pin", raw, schema_dir)
     assert entry is not None
     assert entry["maybe_key"] is None
 

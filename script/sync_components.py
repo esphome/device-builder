@@ -2992,7 +2992,9 @@ def _resolve_extends_maybe(ref: str, schema_dir: Path) -> str | None:
     maybe = target.get(_SCHEMA_MAYBE_FIELD)
     if isinstance(maybe, str):
         return maybe
-    schema_node = target.get("schema") or {}
+    schema_node = target.get("schema")
+    if not isinstance(schema_node, dict):
+        return None
     for sub in schema_node.get("extends") or []:
         inherited = _resolve_extends_maybe(sub, schema_dir)
         if inherited is not None:
@@ -3340,8 +3342,9 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         "multi_value": (True if entry_type == "registry_list" else bool(raw.get("is_list"))),
         # ``maybe_simple_value`` marker: the child key a bare scalar
         # expands into (``microphone: mic_id`` ==
-        # ``microphone: {microphone: mic_id}``).
-        "maybe_key": raw.get(_SCHEMA_MAYBE_FIELD) or None,
+        # ``microphone: {microphone: mic_id}``). Extends-aware: the
+        # marker can live on an extended base (msa3xx's accel_schema).
+        "maybe_key": _scalar_shorthand_key(raw, schema_dir),
         "templatable": bool(raw.get("templatable")),
         "depends_on": None,
         "depends_on_value": None,
@@ -8901,7 +8904,11 @@ def _scalar_shorthand_key(body: dict, schema_dir: Path) -> str | None:
     maybe = body.get(_SCHEMA_MAYBE_FIELD)
     if isinstance(maybe, str):
         return maybe
-    schema_node = body.get("schema") or {}
+    # Component config vars can carry a non-dict ``schema`` node
+    # (pin fields use ``schema: true``); only a mapping has extends.
+    schema_node = body.get("schema")
+    if not isinstance(schema_node, dict):
+        return None
     for ref in schema_node.get("extends") or []:
         inherited = _resolve_extends_maybe(ref, schema_dir)
         if inherited is not None:
