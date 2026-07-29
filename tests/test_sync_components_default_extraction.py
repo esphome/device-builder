@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
+    _convert_config_vars,
     _convert_field,
     _extract_default,
 )
@@ -202,18 +203,27 @@ def test_convert_field_bare_trigger_becomes_trigger_type(schema_dir: Path) -> No
     the frontend drop them. They carry no inner ``config_vars``.
     """
     raw = {"key": "Required", "type": "trigger"}
-    entry = _convert_field("open_action", raw, schema_dir, top_level=True)
+    entry = _convert_field("open_action", raw, schema_dir)
     assert entry is not None
     assert entry["type"] == "trigger"
     assert entry["config_entries"] is None
 
 
-def test_convert_field_nested_trigger_goes_yaml_only(schema_dir: Path) -> None:
-    """A var-less ``type: trigger`` field below top level is YAML-only."""
-    raw = {"key": "Required", "type": "trigger"}
-    entry = _convert_field("set_action", raw, schema_dir, top_level=False)
-    assert entry is not None
-    assert entry["type"] == "unknown"
+def test_nested_trigger_becomes_trigger_through_the_recursion(schema_dir: Path) -> None:
+    """A var-less ``type: trigger`` field below top level is TRIGGER too."""
+    node = {
+        "config_vars": {
+            "repeat_number": {
+                "key": "Optional",
+                "type": "schema",
+                "schema": {"config_vars": {"set_action": {"key": "Optional", "type": "trigger"}}},
+            },
+        },
+    }
+    entries = _convert_config_vars(node, schema_dir, component_id="sprinkler")
+    group = next(e for e in entries if e["key"] == "repeat_number")
+    action = next(e for e in group["config_entries"] if e["key"] == "set_action")
+    assert action["type"] == "trigger"
 
 
 def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: Path) -> None:
@@ -223,7 +233,7 @@ def test_convert_field_trigger_with_inner_config_vars_stays_nested(schema_dir: P
         "type": "trigger",
         "schema": {"config_vars": {"min_length": {"key": "Optional", "type": "integer"}}},
     }
-    entry = _convert_field("on_click", raw, schema_dir, top_level=True)
+    entry = _convert_field("on_click", raw, schema_dir)
     assert entry is not None
     assert entry["type"] == "nested"
 
