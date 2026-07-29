@@ -25,6 +25,14 @@ from ...models.automations import YamlDiff
 BLOCK_KEYS = ("actions", "services")
 ITEM_KEYS = ("action", "service")
 
+_ITEM_KEY_ALT = "|".join(re.escape(key) for key in ITEM_KEYS)
+_LEGACY_ITEM_KEY_ALT = "|".join(re.escape(key) for key in ITEM_KEYS[1:])
+#: Discriminator lines with the indent captured; callers compare the
+#: ``indent`` group against the expected column so a same-named key
+#: nested deeper in an action body can't match.
+_INLINE_DISCRIMINATOR_RE = re.compile(rf"^(?P<indent>[ ]*)-\s*(?:{_ITEM_KEY_ALT}):\s*(?P<val>\S+)")
+_CHILD_DISCRIMINATOR_RE = re.compile(rf"^(?P<indent>[ ]*)(?:{_ITEM_KEY_ALT}):\s*(?P<val>\S+)")
+
 
 def inline_actions_key(
     lines: list[str],
@@ -110,8 +118,7 @@ def canonicalize_block(
     out[actions_start] = re.sub(
         rf"^(\s*){re.escape(matched_key)}:", rf"\g<1>{BLOCK_KEYS[0]}:", out[actions_start], count=1
     )
-    legacy_alt = "|".join(re.escape(key) for key in ITEM_KEYS[1:])
-    item_re = re.compile(rf"^({re.escape(item_indent)}(?:-\s*|  ))(?:{legacy_alt}):")
+    item_re = re.compile(rf"^({re.escape(item_indent)}(?:-\s*|  ))(?:{_LEGACY_ITEM_KEY_ALT}):")
     for idx in range(actions_start + 1, actions_end):
         out[idx] = item_re.sub(rf"\g<1>{ITEM_KEYS[0]}:", out[idx], count=1)
     return out
@@ -308,18 +315,11 @@ def _discriminator(
 ) -> str | None:
     """Read the ``action:`` (or legacy ``service:``) key for a list item."""
     child_indent = item_indent + "  "
-    key_alt = "|".join(re.escape(key) for key in ITEM_KEYS)
-    inline = re.match(
-        rf"^{re.escape(item_indent)}-\s*(?:{key_alt}):\s*(?P<val>\S+)",
-        lines[item_start].rstrip("\n\r"),
-    )
-    if inline:
+    inline = _INLINE_DISCRIMINATOR_RE.match(lines[item_start].rstrip("\n\r"))
+    if inline and inline.group("indent") == item_indent:
         return inline.group("val").strip("'\"")
-    child_re = re.compile(
-        rf"^{re.escape(child_indent)}(?:{key_alt}):\s*(?P<val>\S+)",
-    )
     for idx in range(item_start, item_end):
-        m = child_re.match(lines[idx].rstrip("\n\r"))
-        if m:
+        m = _CHILD_DISCRIMINATOR_RE.match(lines[idx].rstrip("\n\r"))
+        if m and m.group("indent") == child_indent:
             return m.group("val").strip("'\"")
     return None
