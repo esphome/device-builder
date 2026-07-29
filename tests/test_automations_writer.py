@@ -1519,6 +1519,131 @@ def test_delete_api_action_refuses_inline_actions_list() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+_FLUSH_ACTIONS_YAML = (
+    "esphome:\n  name: x\n"
+    "api:\n  actions:\n"
+    "  - action: start_va\n"
+    "    then:\n      - logger.log: 'starting'\n"
+    "  - action: stop_va\n"
+    "    then:\n      - logger.log: 'stopping'\n"
+)
+
+
+def test_upsert_api_action_replaces_item_in_flush_dash_list() -> None:
+    """A flush-style list (dashes at the key's indent) edits in place."""
+    new_text, _diff = render_upsert(
+        _FLUSH_ACTIONS_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+        ),
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert new_text.count("actions:") == 1
+    assert new_text.count("- action: start_va") == 1
+    assert "delay: 2s" in new_text
+    assert "'starting'" not in new_text
+    assert "'stopping'" in new_text
+    parsed = parse_device_yaml(new_text)
+    api_names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert api_names == ["start_va", "stop_va"]
+
+
+def test_upsert_api_action_appends_at_flush_indent() -> None:
+    """A new item lands at the flush indent the existing items use."""
+    new_text, _diff = render_upsert(
+        _FLUSH_ACTIONS_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="pause_va"),
+    )
+    assert new_text.count("actions:") == 1
+    assert "\n  - action: pause_va\n" in new_text
+    parsed = parse_device_yaml(new_text)
+    api_names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert api_names == ["start_va", "stop_va", "pause_va"]
+
+
+def test_delete_api_action_from_flush_dash_list() -> None:
+    """Deleting one flush item keeps its sibling; deleting the last drops the key."""
+    new_text, diff = render_delete(
+        _FLUSH_ACTIONS_YAML,
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "start_va" not in new_text
+    assert "stop_va" in new_text
+    assert diff.replacement == ""
+    final_text, _diff = render_delete(
+        new_text,
+        location=ApiActionLocation(action_name="stop_va"),
+    )
+    assert "actions:" not in final_text
+    assert "api:" in final_text
+
+
+def test_upsert_api_action_canonicalizes_legacy_flush_services_block() -> None:
+    """A legacy flush-style ``services:`` block respells to canonical on write."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "  - service: start_va\n"
+        "    then:\n      - logger.log: 'starting'\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "services:" not in new_text
+    assert "- service:" not in new_text
+    assert new_text.count("actions:") == 1
+    assert "\n  - action: start_va\n" in new_text
+
+
+def test_comment_between_flush_items_does_not_hide_the_rest() -> None:
+    """A comment at the key's indent inside a flush list doesn't end it."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "  - action: start_va\n"
+        "    then:\n      - logger.log: 'starting'\n"
+        "  # stops the vacuum\n"
+        "  - action: stop_va\n"
+        "    then:\n      - logger.log: 'stopping'\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="stop_va"),
+    )
+    assert "stop_va" not in new_text
+    assert "start_va" in new_text
+
+
+def test_delete_last_flush_item_keeps_trailing_banner_comment() -> None:
+    """A comment banner between the list and the next api key survives delete-last."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "  - action: start_va\n"
+        "    then:\n      - logger.log: 'starting'\n"
+        "\n"
+        "  # transport security\n"
+        "  encryption:\n    key: 'aaaa'\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "actions:" not in new_text
+    assert "# transport security" in new_text
+    assert "encryption:" in new_text
+
+
 def test_upsert_api_action_appends_into_empty_actions_with_sibling_key() -> None:
     """``actions:`` with no items but a sibling key below gains its first item.
 

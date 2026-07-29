@@ -81,12 +81,19 @@ def locate_actions_list(
     actions_end = api_end
     for idx in range(actions_start + 1, api_end):
         content = lines[idx].rstrip("\n\r")
-        if not content:
+        stripped = content.lstrip(" ")
+        if not stripped or stripped.startswith("#"):
             continue
-        leading = len(content) - len(content.lstrip(" "))
-        if leading <= len(child_indent):
+        leading = len(content) - len(stripped)
+        # A flush-style dash at the key's own indent is an item, not
+        # the next api child key — only shallower content or a
+        # same-indent non-dash line ends the list.
+        if leading < len(child_indent) or (
+            leading == len(child_indent) and not stripped.startswith("- ")
+        ):
             actions_end = idx
             break
+    actions_end = _trim_trailing_gap(lines, actions_start, actions_end)
     item_indent: str | None = None
     for idx in range(actions_start + 1, actions_end):
         raw = lines[idx].rstrip("\n\r")
@@ -308,6 +315,16 @@ def _item_spans(
     if start is not None:
         spans.append((start, actions_end))
     return spans
+
+
+def _trim_trailing_gap(lines: list[str], start: int, end: int) -> int:
+    """Pull *end* back over trailing blank and comment lines."""
+    while end - 1 > start:
+        stripped = lines[end - 1].strip()
+        if stripped and not stripped.startswith("#"):
+            break
+        end -= 1
+    return end
 
 
 def _find_block_key_line(
