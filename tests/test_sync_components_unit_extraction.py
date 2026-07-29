@@ -822,6 +822,8 @@ def test_shipped_catalog_templatable_fields_carry_inner_types() -> None:
     assert entry["type"] == "float_with_unit"
     assert entry["unit_options"][0] == "Hz"
     assert entry["range"] == [300000000.0, 928000000.0]
+    # The wrapper's flag survives the peel — the lambda toggle stays.
+    assert entry["templatable"] is True
 
     body = orjson.loads((_OUTPUT_BODIES_DIR / "light.rgb.json").read_bytes())
     initial = next(e for e in body["config_entries"] if e["key"] == "initial_state")
