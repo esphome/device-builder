@@ -128,9 +128,7 @@ async def import_device(
         # only our generated adoption shape gets the keep-with-warning
         # classification.
         packages_span=None if full_config_import else packages_block_span(content),
-        failure_tail=(
-            ". The import was rolled back; adopt again after fixing the device's package source."
-        ),
+        failure_tail=". The import was rolled back; nothing was written.",
     )
 
     await controller._commit_history(configuration, f"Import {configuration}")
