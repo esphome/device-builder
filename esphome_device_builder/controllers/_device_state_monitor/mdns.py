@@ -231,17 +231,27 @@ class MdnsSource:
         if self._zeroconf is None:
             return None
         cache = self._zeroconf.zeroconf.cache
-        # Decode TXT per service, esphomelib first — one freshest-of-both
-        # pick could surface web_server's contentless TXT over the
-        # identity TXT on an api+web_server device.
-        txt_dns_records: list[DNSRecord] = []
+        # Decode TXT per service: live esphomelib wins (one
+        # freshest-of-both pick could surface web_server's contentless
+        # TXT over the identity TXT on an api+web_server device), then
+        # a live http TXT (an expired esphomelib TXT — a device
+        # recompiled without ``api:`` — must not shadow it), then the
+        # aged records, so the panel keeps the last-known identity the
+        # unfiltered ``records`` below deliberately preserve.
+        now_ms = current_time_millis()
+        txt_by_service: dict[str, list[DNSRecord]] = {}
         records: list[DNSRecord] = [*self._get_address_records(name)]
         for service_type in (_ESPHOME_SERVICE_TYPE, _HTTP_SERVICE_TYPE):
             service_name = f"{name}.{service_type}"
             txts = list(cache.get_all_by_details(service_name, _TYPE_TXT, _CLASS_IN))
-            txt_dns_records = txt_dns_records or txts
+            txt_by_service[service_type] = txts
             records.extend(cache.get_all_by_details(service_name, _TYPE_SRV, _CLASS_IN))
             records.extend(txts)
+        esphomelib_txts = txt_by_service[_ESPHOME_SERVICE_TYPE]
+        http_txts = txt_by_service[_HTTP_SERVICE_TYPE]
+        live_esphomelib = [r for r in esphomelib_txts if not r.is_expired(now_ms)]
+        live_http = [r for r in http_txts if not r.is_expired(now_ms)]
+        txt_dns_records = live_esphomelib or live_http or esphomelib_txts or http_txts
         # The expiry countdown rides the ownership anchor.
         ptr = self._anchor_ptr(name)
         if ptr is not None:
@@ -252,7 +262,6 @@ class MdnsSource:
         # wants the truthful "last seen" age even when the cached
         # record has aged past its TTL. (The PTR lookup alone is
         # live-only; zeroconf's alias API filters expired entries.)
-        now_ms = current_time_millis()
         latest = max(records, key=attrgetter("created"))
         # ``DNSRecord.created`` is millis; ``get_remaining_ttl``
         # already returns seconds (impl divides by 1000.0). Don't
@@ -537,12 +546,19 @@ class MdnsSource:
         # the active-resolve path: a resolved service is liveness evidence
         # on its own (already claimed even when addressless), and the
         # browser's ``Removed`` lifecycle withdraws the claim so ping
-        # decides — no permanent latch. The claim rides a live PTR: a
-        # PTR-less wire answer (a ``probe_device`` resolve) applies its
-        # data below but takes no ownership, since no ``Removed`` could
-        # ever withdraw it.
-        if self._cached_ptr(info.name, info.type) is not None:
+        # decides — no permanent latch. The claim rides the live PTR of
+        # the *device-named* service — the one whose ``Removed`` maps
+        # back to *device_name*: a PTR-less wire answer and a cross-name
+        # resolve (the adopt probe riding the factory service) apply
+        # their data below but take no ownership.
+        if self._has_live_ptr(device_name, info.type):
             monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
+        else:
+            _LOGGER.debug(
+                "mDNS resolve of %s (%s) applied data only (no live device-named PTR)",
+                device_name,
+                info.name,
+            )
         # Pass the full announced address set (IPv4 first, then
         # scoped IPv6 — link-local entries keep the ``%scope``
         # suffix). ``apply_ip_addresses`` picks the IPv4 primary

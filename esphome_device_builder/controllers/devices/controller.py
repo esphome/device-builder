@@ -334,8 +334,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """
         Return ``--mdns/--dns-address-cache`` CLI args for *configuration*.
 
-        Empty list when the device is unknown, has no OTA-capable
-        integration loaded, or has no cached IP available.
+        Empty list when the device is unknown, known to load no
+        OTA-capable integration, or has no cached IP available; an
+        empty ``loaded_integrations`` counts as unknown, not no-OTA.
         """
         # Keyed on the YAML filename; the esphome name can differ from the stem.
         device = self.get_by_configuration(configuration)
@@ -350,8 +351,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # build that doesn't read them is harmless. Devices loading
         # neither (e.g. MQTT-only configs) flash via paths that don't
         # take a host/port at all, so the cache args are noise there.
+        # An empty list is *unknown*, not known-no-OTA — StorageJSON
+        # not read yet (never compiled, or the post-compile refresh
+        # lost the race to the dependent upload) — so pass the args.
         loaded = device.loaded_integrations
-        if "api" not in loaded and "web_server" not in loaded:
+        if loaded and "api" not in loaded and "web_server" not in loaded:
             return []
         return _build_address_cache_args(device, self._state_monitor)
 

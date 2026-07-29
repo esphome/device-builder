@@ -81,6 +81,13 @@ def _prime_removed(monitor: Any) -> None:
     monitor.ping.wake = MagicMock()
 
 
+def _stub_no_live_ptrs(monitor: Any) -> None:
+    """Wire a zeroconf whose cache holds no live PTR for any service type."""
+    zc = MagicMock()
+    zc.zeroconf.cache.current_entry_with_name_and_alias.return_value = None
+    monitor.mdns._zeroconf = zc
+
+
 async def test_removed_marks_unknown_and_wakes_the_ping_sweep() -> None:
     """A ``Removed`` drops to UNKNOWN, releases every ledger, and nudges the ICMP sweep."""
     device = make_online_api_device()
@@ -406,6 +413,7 @@ async def test_http_removed_withdraws_a_non_api_bucket() -> None:
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
+    _stub_no_live_ptrs(monitor)
 
     _dispatch_http_removed(monitor)
 
@@ -440,6 +448,7 @@ async def test_http_removed_withdraws_when_yaml_gained_api_but_firmware_lacks_it
     monitor, _callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MDNS
     _prime_removed(monitor)
+    _stub_no_live_ptrs(monitor)
 
     _dispatch_http_removed(monitor)
 
@@ -509,6 +518,7 @@ async def test_http_removed_leaves_an_mqtt_owned_name_alone() -> None:
     monitor, callbacks = make_state_monitor_with_callbacks([device])
     monitor.state.state_source["kitchen"] = ReachabilitySource.MQTT
     _prime_removed(monitor)
+    _stub_no_live_ptrs(monitor)
 
     _dispatch_http_removed(monitor)
 
@@ -536,3 +546,29 @@ def test_anchor_ptr_elects_esphomelib_first_then_http() -> None:
         lookup.side_effect = lambda type_, _alias, _live=live: _live.get(type_)
         assert monitor.mdns._anchor_ptr("kitchen") is winner, live
         assert monitor.mdns.has_live_anchor_ptr("kitchen") is (winner is not None), live
+
+
+async def test_cross_name_resolve_applies_data_but_takes_no_ownership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adopt probe rides the factory service; its PTR can't anchor the chosen name."""
+    device = make_online_api_device(state=DeviceState.UNKNOWN)
+    monitor, _callbacks = make_state_monitor_with_callbacks([device])
+    info = stub_async_service_info(monkeypatch, resolved=True)
+    info.name = "factory-name._esphomelib._tcp.local."
+    info.type = "_esphomelib._tcp.local."
+    zc = MagicMock()
+    # The factory service's PTR is live; the chosen name's is not.
+    zc.zeroconf.cache.current_entry_with_name_and_alias.side_effect = lambda _type, alias: (
+        MagicMock() if alias.startswith("factory-name.") else None
+    )
+    monitor.mdns._zeroconf = zc
+
+    verdict = await monitor.mdns.resolve_then(
+        MagicMock(), info, "kitchen", monitor.mdns._apply_service_info
+    )
+
+    assert verdict is True
+    assert device.runtime_state.state == DeviceState.UNKNOWN
+    assert "kitchen" not in monitor.state.state_source
+    assert device.runtime_state.deployed_version == "2026.7.0"

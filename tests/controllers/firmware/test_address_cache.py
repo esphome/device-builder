@@ -209,6 +209,15 @@ def test_get_address_cache_args_skipped_for_neither_api_nor_web_server() -> None
     assert args == []
 
 
+def test_get_address_cache_args_passes_cache_for_unknown_integrations() -> None:
+    """Empty ``loaded_integrations`` is unknown, not known-no-OTA — the args still pass."""
+    controller = _devices_controller_with(_device(loaded_integrations=[]))
+
+    args = controller.get_address_cache_args("kitchen.yaml")
+
+    assert args == ["--mdns-address-cache", "kitchen.local=192.168.1.50"]
+
+
 def test_get_address_cache_args_unknown_configuration_returns_empty() -> None:
     """Unknown filename → empty list, no exception.
 

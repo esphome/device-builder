@@ -4748,6 +4748,26 @@ def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in seen))
 
 
+def _upgrade_stamp_only_refinements(
+    refined_types: dict[tuple[str, ...], RefinedType],
+    platform_manifests: list[Any],
+) -> dict[tuple[str, ...], RefinedType]:
+    """Upgrade stamp-only hub entries a platform refines with a real type.
+
+    The keep-first platform merge would otherwise let a type-less
+    ``templatable`` stamp block the typed refinement at the same path.
+    """
+    for path, value in list(refined_types.items()):
+        if value.type:
+            continue
+        for platform_manifest in platform_manifests:
+            typed = _collect_refined_types(platform_manifest).get(path)
+            if typed is not None and typed.type:
+                refined_types[path] = typed._replace(templatable=True)
+                break
+    return refined_types
+
+
 def _collect_bleed_keys(
     manifest: Any,
     platform_manifests_by_domain: list[tuple[str, Any]],
@@ -4836,7 +4856,9 @@ def introspect_component(component_id: str) -> dict[str, Any]:
                 merged.setdefault(path, value)
         return merged
 
-    refined_types = merge_from_platforms(_collect_refined_types)
+    refined_types = _upgrade_stamp_only_refinements(
+        merge_from_platforms(_collect_refined_types), platform_manifests
+    )
     component_gates = merge_from_platforms(_collect_component_gates)
     platform_constraints = merge_from_platforms(_collect_platform_constraints)
     field_ranges = _drop_machine_derived_ranges(
@@ -5336,6 +5358,16 @@ def _strip_entry_defaults(entry: dict) -> dict:
     return out
 
 
+def _templatable_inner(node: Any) -> Any | None:
+    """Return the plain-side validator inside a ``cv.templatable`` closure, else None."""
+    qualname = getattr(node, "__qualname__", "") or ""
+    if not qualname.startswith("templatable."):
+        return None
+    if getattr(node, "__module__", "") != "esphome.config_validation":
+        return None
+    return _hidden_schema(node)
+
+
 def _is_extractor_closure(node: Any) -> bool:
     """Report whether *node* is a callable whose code references ``SCHEMA_EXTRACT``."""
     code = getattr(node, "__code__", None)
@@ -5645,6 +5677,12 @@ class RefinedType(NamedTuple):
     type: str
     unit_options: list[str] | None = None
     display_format: str | None = None
+    templatable: bool = False
+
+
+# Stamp-only refinement: the union is templatable but no plain branch
+# classifies, so the bundle's typing stands.
+_TEMPLATABLE_ONLY = RefinedType("")
 
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
@@ -5949,17 +5987,37 @@ def _refined_types_in_schema(  # noqa: C901
     def classify_branches(validator: Any) -> RefinedType | None:
         inner = getattr(validator, "validators", None) or ()
         is_union = isinstance(validator, vol.Any) and len(inner) > 1
+        if not is_union:
+            flag = False
+            for v in inner:
+                t = classify(v)
+                if t is None:
+                    continue
+                if not t.type:
+                    # Stamp-only (a nested lambda union): keep looking for
+                    # the chain's real type and carry the flag onto it.
+                    flag = True
+                    continue
+                return t._replace(templatable=t.templatable or flag) if flag else t
+            return _TEMPLATABLE_ONLY if flag else None
+        # A lambda branch in a value union (``cv.Any(returning_lambda,
+        # date_time)``) must not claim the field's type — the plain form
+        # is the primary YAML shape — but it marks the field templatable
+        # so the lambda toggle renders. Every branch is inspected: the
+        # lambda may sit after the branch that types the field.
+        plain: RefinedType | None = None
+        lambda_seen = False
         for v in inner:
             t = classify(v)
             if t is None:
                 continue
-            # A lambda branch in a value union (``cv.Any(returning_lambda,
-            # date_time)``) must not claim the field — the plain form is
-            # the primary YAML shape and a lambda editor would hide it.
-            if t.type == "lambda" and is_union:
-                continue
-            return t
-        return None
+            if t.type == "lambda":
+                lambda_seen = True
+            elif plain is None:
+                plain = t
+        if not lambda_seen:
+            return plain
+        return (plain or _TEMPLATABLE_ONLY)._replace(templatable=True)
 
     def classify(validator: Any) -> RefinedType | None:
         # An enum whose live mapping keys / one_of values are all real
@@ -5970,9 +6028,12 @@ def _refined_types_in_schema(  # noqa: C901
         refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
         if refined is not None:
             return refined
-        # Some validators are wrapped (vol.All chains or partials);
-        # peel down to find the inner.
-        t = classify_branches(validator)
+        # Some validators are wrapped (vol.All chains, partials, or
+        # ``cv.templatable`` closures); peel down to find the inner.
+        if (inner := _templatable_inner(validator)) is not None:
+            t = classify(inner)
+        else:
+            t = classify_branches(validator)
         if t is not None:
             return t
         # ``cv.float_with_unit`` returns a closure whose ``__name__``
@@ -6650,26 +6711,36 @@ def _apply_refined_types(
         new_type = refined.get(path)
         if new_type is None:
             return
-        if new_type.type == "float_with_unit":
-            # Always apply — see docstring. Carries unit_options
-            # the schema bundle can't represent.
-            entry["type"] = new_type.type
-            entry["unit_options"] = list(new_type.unit_options or [])
-        elif new_type.type == "unknown":
-            # Mapping-or-list union: force YAML-only, but not over a
-            # structural entry that already carries a real shape.
-            if not entry.get("config_entries"):
-                entry["type"] = "unknown"
-        elif entry.get("type") == "string":
-            if new_type.type == "boolean" and entry.get("options"):
-                _merge_boolean_union_options(entry)
-            else:
-                entry["type"] = new_type.type
-                _stamp_display_format(entry, new_type)
-        elif entry.get("type") == "integer":
-            _stamp_display_format(entry, new_type)
+        # A lambda-or-plain union renders the lambda toggle beside the
+        # plain input; additive only, a bundle-set flag is never cleared.
+        if new_type.templatable:
+            entry["templatable"] = True
+        if new_type.type:
+            _apply_refined_entry_type(entry, new_type)
 
     _walk_catalog_entries(entries, visit)
+
+
+def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
+    """Apply one refinement's type to *entry* per the override rules above."""
+    if new_type.type == "float_with_unit":
+        # Always apply — see the caller's docstring. Carries
+        # unit_options the schema bundle can't represent.
+        entry["type"] = new_type.type
+        entry["unit_options"] = list(new_type.unit_options or [])
+    elif new_type.type == "unknown":
+        # Mapping-or-list union: force YAML-only, but not over a
+        # structural entry that already carries a real shape.
+        if not entry.get("config_entries"):
+            entry["type"] = "unknown"
+    elif entry.get("type") == "string":
+        if new_type.type == "boolean" and entry.get("options"):
+            _merge_boolean_union_options(entry)
+        else:
+            entry["type"] = new_type.type
+            _stamp_display_format(entry, new_type)
+    elif entry.get("type") == "integer":
+        _stamp_display_format(entry, new_type)
 
 
 def _stamp_display_format(entry: dict, new_type: RefinedType) -> None:
@@ -7836,12 +7907,31 @@ def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
         if isinstance(n, vol.All):
             for child in n.validators:
                 collect(child, depth + 1)
+            return
         # ``vol.Any`` deliberately not traversed — see docstring.
+        inner = _templatable_inner(n)
+        if inner is not None:
+            collect(inner, depth + 1)
 
     collect(node)
+    return _intersect_bounds(mins, maxes)
+
+
+# JS ``Number.MAX_SAFE_INTEGER``: a bound beyond it is already imprecise
+# after the frontend's JSON.parse, so the catalog omits it — the same
+# policy the static path applies by leaving ``hex_uint64_t`` rangeless.
+_JS_MAX_SAFE_INTEGER = 2**53 - 1
+
+
+def _intersect_bounds(
+    mins: list[int | float], maxes: list[int | float]
+) -> tuple[int | float, int | float] | None:
+    """Intersect collected bounds; None when unbounded, disjoint (warned), or JS-unsafe."""
     if not mins or not maxes:
         return None
     lo, hi = max(mins), min(maxes)
+    if max(abs(lo), abs(hi)) > _JS_MAX_SAFE_INTEGER:
+        return None
     if lo > hi:
         # Disjoint Range constraints in a vol.All chain — schema bug
         # upstream, the field accepts no value. Surface so future
@@ -8856,11 +8946,12 @@ def _classify_scalar_validator(validator: Any, _depth: int = 0) -> str | None:
     inner = getattr(validator, "schema", None)
     if inner is not None and inner is not validator:
         return _classify_scalar_validator(inner, _depth + 1)
-    # Recurse into a templatable closure's captured inner or an All refinement
-    # chain. Any is deliberately skipped (a scalar-or-list filter stays None).
+    # Recurse into a templatable closure's plain-side inner or an All
+    # refinement chain. Any is deliberately skipped (a scalar-or-list
+    # filter stays None).
     children: tuple[Any, ...] = ()
-    if "templatable" in (getattr(validator, "__qualname__", "") or ""):
-        children = tuple(c.cell_contents for c in getattr(validator, "__closure__", None) or ())
+    if (templatable_inner := _templatable_inner(validator)) is not None:
+        children = (templatable_inner,)
     elif isinstance(validator, vol.All):
         children = tuple(validator.validators)
     for child in children:

@@ -508,7 +508,28 @@ def test_lambda_claims_fields_except_in_value_unions(cv) -> None:
     refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
     assert refined[("pure",)].type == "lambda"
     assert refined[("chained",)].type == "lambda"
-    assert ("union",) not in refined
+    # The union's lambda branch never claims the type; it marks the
+    # field templatable and the plain branch types it.
+    assert refined[("union",)].type == ""
+    assert refined[("union",)].templatable is True
+
+
+def test_lambda_union_typing_and_chain_carry(cv) -> None:
+    """Pin typed-plus-flag in both branch orders, and the All-chain flag carry."""
+    schema = cv.Schema(
+        {
+            cv.Optional("before"): cv.Any(cv.boolean, cv.returning_lambda),
+            cv.Optional("after"): cv.Any(cv.returning_lambda, cv.boolean),
+            cv.Optional("chain"): cv.All(cv.Any(cv.returning_lambda, cv.string_strict), cv.hex_int),
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    for key in ("before", "after"):
+        assert refined[(key,)].type == "boolean"
+        assert refined[(key,)].templatable is True
+    assert refined[("chain",)].type == "integer"
+    assert refined[("chain",)].display_format == "hex"
+    assert refined[("chain",)].templatable is True
 
 
 def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
@@ -531,14 +552,16 @@ def test_shipped_automations_http_request_carries_byte_units() -> None:
         assert entry["unit_options"] == ["B", "kB", "MB", "GB"]
 
 
-def test_datetime_set_date_stays_plain(loader) -> None:
-    """A lambda branch in a value union does not claim the field."""
+def test_datetime_set_date_stays_plain_but_templatable(loader) -> None:
+    """A lambda branch in a value union marks the field templatable, not lambda-typed."""
     from esphome import automation  # noqa: PLC0415
 
     loader.get_component("datetime")
     assert "datetime.date.set" in automation.ACTION_REGISTRY
     refined = _collect_automation_refined_types()
-    assert ("date",) not in refined.get("action", {}).get("datetime.date.set", {})
+    date = refined["action"]["datetime.date.set"][("date",)]
+    assert date.type == ""
+    assert date.templatable is True
 
 
 def test_shipped_automations_datetime_set_stays_plain() -> None:
@@ -794,3 +817,56 @@ def test_shipped_catalog_carrier_duty_percent_accepts_percent() -> None:
     assert duty["unit_options"] == ["%"]
     assert duty["range"] == [1, 100]
     assert duty["required"] is True
+
+
+def test_templatable_inner_classifies(cv) -> None:
+    """A ``cv.templatable`` closure classifies by its plain-side validator."""
+    schema = cv.Schema(
+        {
+            cv.Optional("flag"): cv.templatable(cv.boolean),
+            cv.Optional("duty"): cv.templatable(cv.percentage_int),
+            cv.Optional("level"): cv.templatable(cv.possibly_negative_percentage),
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    assert refined[("flag",)].type == "boolean"
+    assert refined[("duty",)].type == "float_with_unit"
+    assert refined[("duty",)].unit_options == ["%"]
+    # The rescaling percentage stays deliberately unrefined through the peel.
+    assert ("level",) not in refined
+
+
+def test_shipped_catalog_templatable_fields_carry_inner_types() -> None:
+    """Templatable fields ship their plain-side type, units, and bounds."""
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "cc1101.set_frequency.json").read_bytes()
+    )
+    entry = next(e for e in body["config_entries"] if e["key"] == "value")
+    assert entry["type"] == "float_with_unit"
+    assert entry["unit_options"][0] == "Hz"
+    assert entry["range"] == [300000000.0, 928000000.0]
+    # The wrapper's flag survives the peel — the lambda toggle stays.
+    assert entry["templatable"] is True
+
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "light.rgb.json").read_bytes())
+    initial = next(e for e in body["config_entries"] if e["key"] == "initial_state")
+    ct = next(e for e in initial["config_entries"] if e["key"] == "color_temperature")
+    assert ct["type"] == "float_with_unit"
+    assert ct["unit_options"] == ["mireds", "K"]
+
+
+def test_shipped_automations_lambda_unions_carry_templatable() -> None:
+    """Lambda-or-plain union fields ship the toggle flag with typing untouched."""
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "datetime.date.set.json").read_bytes()
+    )
+    entry = next(e for e in body["config_entries"] if e["key"] == "date")
+    assert entry["templatable"] is True
+    assert entry["type"] == "string"
+
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "http_request.send.json").read_bytes()
+    )
+    entry = next(e for e in body["config_entries"] if e["key"] == "json")
+    assert entry["templatable"] is True
+    assert entry["type"] == "map"

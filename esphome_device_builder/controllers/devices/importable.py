@@ -17,7 +17,6 @@ from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
 from ...models import (
     AdoptableDevice,
-    DeviceState,
     ErrorCode,
     EventType,
     ImportableDeviceAddedData,
@@ -148,20 +147,22 @@ async def import_device(
         controller._on_importable_removed(cached_name)
     mdns_name = cached_names[0] if cached_names else name
 
-    # Skip-the-wait state seed; the device was advertising on
-    # mDNS milliseconds ago, so pin ONLINE + the cached IP now
-    # rather than blinking through OFFLINE for ~10s waiting on
-    # the next ping sweep. Probe esphomelib too so version /
-    # config_hash / api_encryption land alongside the IP.
-    controller._state_monitor.apply(name, DeviceState.ONLINE, "mdns", claim=True)
+    # No state seed — the real sources decide. Discovery is
+    # mDNS-based, so a same-name adopt claims ONLINE via the
+    # esphomelib probe's cache hit in this same call; a
+    # rename-during-adopt has no PTR under *name* (an mdns claim
+    # would have no ``Removed`` to withdraw it, #2389), so the
+    # regular sweep pings the cached IP applied below.
     cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
     if cached:
         controller._state_monitor.apply_ip_addresses(name, cached)
-    # Look up the service by ``mdns_name`` (factory firmware is
-    # still broadcasting under that) but apply against the
-    # chosen ``name``. The scan-change handler probes too but
-    # only knows the YAML name, which has no broadcast yet for
-    # the rename-during-adopt case.
+    # Normally ``name`` IS the live broadcast — adopt imports the
+    # device under its MAC-suffixed factory name and bakes the
+    # suffix into the literal name (``name_add_mac_suffix: false``),
+    # so the mdns name matches immediately. Only a name edited in
+    # the adopt dialog diverges: the factory service then carries
+    # the device's data until the first flash bakes in the new
+    # name, so probe by ``mdns_name`` and apply against ``name``.
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
     return {"configuration": configuration}
 
