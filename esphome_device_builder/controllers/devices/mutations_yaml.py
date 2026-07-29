@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
@@ -132,7 +132,9 @@ async def validate_rewritten_yaml_or_raise(
     on_error_cleanup: Callable[[], None] | None = None,
     tolerate_unavailable: bool = False,
     timeout: float | None = None,
-) -> None:
+    probe_without_packages: str | None = None,
+    failure_tail: str | None = None,
+) -> str | None:
     """
     Schema-validate *content* via the editor; raise if invalid.
 
@@ -147,9 +149,20 @@ async def validate_rewritten_yaml_or_raise(
     subprocess failure) as success: file kept, no cleanup; genuine
     YAML/schema errors still raise. *timeout* overrides the validator's
     round-trip budget.
+
+    *probe_without_packages* is *content* with its top-level
+    ``packages:`` block stripped. When primary validation fails but the
+    probe validates clean, the failure is confined to remote package
+    resolution — external content the user can repair in the editor —
+    so the file is kept and a warning string is returned instead of
+    raising. Returns ``None`` when *content* validates clean.
+
+    *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
+    sentence; callers whose rollback deletes the file pass copy that
+    doesn't point at a nonexistent editor.
     """
     if editor is None:
-        return
+        return None
     succeeded = False
     try:
         try:
@@ -166,7 +179,7 @@ async def validate_rewritten_yaml_or_raise(
                 action,
             )
             succeeded = True
-            return
+            return None
         except (ValidatorUnavailableError, BrokenPipeError):
             if not tolerate_unavailable:
                 raise
@@ -178,7 +191,7 @@ async def validate_rewritten_yaml_or_raise(
                 configuration,
             )
             succeeded = True
-            return
+            return None
         errors = [
             *(err.get("message", "") for err in result.get("yaml_errors", [])),
             *(err.get("message", "") for err in result.get("validation_errors", [])),
@@ -186,24 +199,15 @@ async def validate_rewritten_yaml_or_raise(
         errors = [msg for msg in errors if msg]
         if not errors:
             succeeded = True
-            return
-        shown = errors[:3]
-        suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
-        message_tail = (
-            ". Please report this with a redacted snippet of just the "
-            "esphome: / substitutions: blocks (strip Wi-Fi credentials, "
-            "API keys, and static IPs) so the dashboard generator can "
-            "be fixed."
-            if on_failure is ErrorCode.INTERNAL_ERROR
-            else ". Fix the errors in the editor and try again."
+            return None
+        warning = await _package_only_warning(
+            editor, configuration, action, errors, probe_without_packages, timeout
         )
-        body = "; ".join(shown) + suffix
-        # esphome messages often end with their own period; the tail
-        # brings the sentence break.
-        body = body.removesuffix(".")
-        raise CommandError(
-            on_failure,
-            f"Can't {action} — config doesn't validate: " + body + message_tail,
+        if warning is not None:
+            succeeded = True
+            return warning
+        _raise_validation_failure(
+            errors, action=action, on_failure=on_failure, failure_tail=failure_tail
         )
     finally:
         if not succeeded and on_error_cleanup is not None:
@@ -215,3 +219,83 @@ async def validate_rewritten_yaml_or_raise(
                 await run_in_executor(on_error_cleanup)
             except Exception:
                 _LOGGER.exception("on_error_cleanup raised; original error preserved")
+
+
+def _raise_validation_failure(
+    errors: list[str],
+    *,
+    action: str,
+    on_failure: ErrorCode,
+    failure_tail: str | None,
+) -> NoReturn:
+    """Raise the refusal ``CommandError`` for a failed validation."""
+    shown = errors[:3]
+    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
+    if on_failure is ErrorCode.INTERNAL_ERROR:
+        message_tail = (
+            ". Please report this with a redacted snippet of just the "
+            "esphome: / substitutions: blocks (strip Wi-Fi credentials, "
+            "API keys, and static IPs) so the dashboard generator can "
+            "be fixed."
+        )
+    else:
+        message_tail = failure_tail or ". Fix the errors in the editor and try again."
+    body = "; ".join(shown) + suffix
+    # esphome messages often end with their own period; the tail
+    # brings the sentence break.
+    body = body.removesuffix(".")
+    raise CommandError(
+        on_failure,
+        f"Can't {action} — config doesn't validate: " + body + message_tail,
+    )
+
+
+async def _package_only_warning(
+    editor: EditorController,
+    configuration: str,
+    action: str,
+    errors: list[str],
+    probe_without_packages: str | None,
+    timeout: float | None,
+) -> str | None:
+    """
+    Warning for a failure confined to remote package resolution, else ``None``.
+
+    The probe is the content with its ``packages:`` block stripped; a
+    clean probe proves every error came from the remote fetch, so the
+    file is worth keeping for an in-editor repair.
+    """
+    if probe_without_packages is None or not await _probe_validates_clean(
+        editor, configuration, probe_without_packages, timeout
+    ):
+        return None
+    _LOGGER.info(
+        "Validation of %s for %s failed only on package resolution; keeping file",
+        configuration,
+        action,
+    )
+    first = errors[0].removesuffix(".")
+    return (
+        f"Imported, but the remote package didn't resolve: {first}. "
+        "Fix the packages: source in the editor; install will "
+        "surface the same error until it resolves."
+    )
+
+
+async def _probe_validates_clean(
+    editor: EditorController,
+    configuration: str,
+    content: str,
+    timeout: float | None,
+) -> bool:
+    """Report whether *content* validates with no errors; conservative False on any failure."""
+    try:
+        result = await editor.validate_yaml(
+            configuration=configuration, content=content, timeout=timeout
+        )
+    except (TimeoutError, ValidatorUnavailableError, BrokenPipeError):
+        return False
+    return not any(
+        err.get("message")
+        for err in (*result.get("yaml_errors", []), *result.get("validation_errors", []))
+    )

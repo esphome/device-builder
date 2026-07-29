@@ -656,8 +656,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         on_error_cleanup: Callable[[], None] | None = None,
         tolerate_unavailable: bool = False,
         timeout: float | None = None,
-    ) -> None:
-        await mutations_yaml.validate_rewritten_yaml_or_raise(
+        probe_without_packages: str | None = None,
+        failure_tail: str | None = None,
+    ) -> str | None:
+        return await mutations_yaml.validate_rewritten_yaml_or_raise(
             self._db.editor,
             configuration,
             content,
@@ -666,6 +668,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_error_cleanup=on_error_cleanup,
             tolerate_unavailable=tolerate_unavailable,
             timeout=timeout,
+            probe_without_packages=probe_without_packages,
+            failure_tail=failure_tail,
         )
 
     @api_command("devices/delete")
