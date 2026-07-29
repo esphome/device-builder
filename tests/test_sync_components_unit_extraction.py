@@ -855,6 +855,14 @@ def test_shipped_catalog_templatable_fields_carry_inner_types() -> None:
     assert ct["unit_options"] == ["mireds", "K"]
 
 
+def test_shipped_catalog_espnow_peers_is_mac_address_list() -> None:
+    """The generated espnow body types peers as a mac_address multi-value entry."""
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "espnow.json").read_bytes())
+    entry = next(e for e in body["config_entries"] if e["key"] == "peers")
+    assert entry["type"] == "mac_address"
+    assert entry["multi_value"] is True
+
+
 def test_shipped_automations_lambda_unions_carry_templatable() -> None:
     """Lambda-or-plain union fields ship the toggle flag with typing untouched."""
     body = orjson.loads(
@@ -870,6 +878,22 @@ def test_shipped_automations_lambda_unions_carry_templatable() -> None:
     entry = next(e for e in body["config_entries"] if e["key"] == "json")
     assert entry["templatable"] is True
     assert entry["type"] == "map"
+
+
+def test_walk_descends_templatable_list_of_mappings(cv) -> None:
+    """A mapping item list behind ``cv.templatable`` walks its item fields."""
+    schema = cv.Schema(
+        {
+            cv.Optional("frames"): cv.templatable(
+                cv.ensure_list(cv.Schema({cv.Optional("payload"): cv.boolean}))
+            ),
+        }
+    )
+    keys: set[str] = set()
+    _walk_schema_keys(
+        schema, lambda _k, key_name, _v, _path: keys.add(key_name), descend_list_items=True
+    )
+    assert "payload" in keys
 
 
 def test_ensure_list_scalar_item_types_the_entry(cv) -> None:

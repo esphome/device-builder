@@ -5484,7 +5484,9 @@ def _walk_schema_keys(
             branches = _typed_branch_schemas(node)
             if branches is None and descend_list_items:
                 # ``cv.ensure_list(...)`` is also a closure, sometimes
-                # behind a ``cv.templatable`` wrapper (speaker's data).
+                # behind a ``cv.templatable`` wrapper; the peel matters
+                # only for mapping-shaped items (a scalar item types the
+                # parent entry via ``classify`` instead).
                 item = _ensure_list_item_validator(_templatable_inner(node) or node)
                 branches = {"": item} if item is not None else None
             for branch in (branches or {}).values():
