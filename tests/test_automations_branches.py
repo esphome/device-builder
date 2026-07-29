@@ -917,10 +917,10 @@ def test_upsert_subentity_handler_inline_scalar_raises(yaml_text: str) -> None:
         )
 
 
-def test_remove_subentity_handler_inline_scalar_returns_none() -> None:
-    """A scalar-valued sub key on remove is just not-found."""
-    res = remove_subentity_handler(_SCALAR_SUB_KEY_YAML, _SUB_REF, handler_key="on_value_range")
-    assert res is None
+def test_remove_subentity_handler_inline_scalar_raises() -> None:
+    """A scalar-valued sub key on remove raises the same refusal as upsert."""
+    with pytest.raises(YamlUpsertNotSupportedError):
+        remove_subentity_handler(_SCALAR_SUB_KEY_YAML, _SUB_REF, handler_key="on_value_range")
 
 
 def test_upsert_inline_handler_replace_with_sibling_below() -> None:

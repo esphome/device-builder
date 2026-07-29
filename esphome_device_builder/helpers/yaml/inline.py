@@ -385,13 +385,11 @@ def remove_subentity_handler(
     """
     Delete ``<handler_key>:`` from a nested sub-entity block (inverse of upsert).
 
-    An inline-scalar sub key reads as not-found (no handler block to delete).
+    Raises :class:`YamlUpsertNotSupportedError` when ``<sub_key>`` has an
+    inline scalar value.
     """
     lines = yaml_text.splitlines(keepends=True)
-    try:
-        span = _locate_subentity_instance(lines, ref)
-    except YamlUpsertNotSupportedError:
-        return None
+    span = _locate_subentity_instance(lines, ref)
     if span is None:
         return None
     return _apply_handler_remove(lines, span, handler_key)

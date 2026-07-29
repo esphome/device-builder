@@ -2801,8 +2801,8 @@ def test_delete_subentity_flow_mapping_indexed_entry_refuses() -> None:
     assert "inline value" in str(exc.value)
 
 
-def test_delete_subentity_inline_scalar_sub_key_not_found() -> None:
-    """Deleting a handler off a scalar-valued sub key is a clean NOT_FOUND."""
+def test_delete_subentity_inline_scalar_sub_key_refuses() -> None:
+    """Deleting a handler off a scalar-valued sub key refuses like the upsert side."""
     target = ComponentTarget(
         domain="sensor",
         is_sub_entity=True,
@@ -2813,7 +2813,8 @@ def test_delete_subentity_inline_scalar_sub_key_not_found() -> None:
     loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
     with pytest.raises(CommandError) as exc:
         _delete_subentity_on(_AHT10_SCALAR_TEMP, loc, target)
-    assert exc.value.code == ErrorCode.NOT_FOUND
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "inline value" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------
