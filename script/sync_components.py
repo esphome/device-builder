@@ -5610,6 +5610,12 @@ class RefinedType(NamedTuple):
     type: str
     unit_options: list[str] | None = None
     display_format: str | None = None
+    templatable: bool = False
+
+
+# Stamp-only refinement: the union is templatable but no plain branch
+# classifies, so the bundle's typing stands.
+_TEMPLATABLE_ONLY = RefinedType("")
 
 
 # IoT-relevant subset of ``cv.METRIC_SUFFIXES`` (which spans 1e-30..1e30).
@@ -5914,17 +5920,30 @@ def _refined_types_in_schema(  # noqa: C901
     def classify_branches(validator: Any) -> RefinedType | None:
         inner = getattr(validator, "validators", None) or ()
         is_union = isinstance(validator, vol.Any) and len(inner) > 1
+        if not is_union:
+            for v in inner:
+                t = classify(v)
+                if t is not None:
+                    return t
+            return None
+        # A lambda branch in a value union (``cv.Any(returning_lambda,
+        # date_time)``) must not claim the field's type — the plain form
+        # is the primary YAML shape — but it marks the field templatable
+        # so the lambda toggle renders. Every branch is inspected: the
+        # lambda may sit after the branch that types the field.
+        plain: RefinedType | None = None
+        lambda_seen = False
         for v in inner:
             t = classify(v)
             if t is None:
                 continue
-            # A lambda branch in a value union (``cv.Any(returning_lambda,
-            # date_time)``) must not claim the field — the plain form is
-            # the primary YAML shape and a lambda editor would hide it.
-            if t.type == "lambda" and is_union:
-                continue
-            return t
-        return None
+            if t.type == "lambda":
+                lambda_seen = True
+            elif plain is None:
+                plain = t
+        if not lambda_seen:
+            return plain
+        return (plain or _TEMPLATABLE_ONLY)._replace(templatable=True)
 
     def classify(validator: Any) -> RefinedType | None:
         # An enum whose live mapping keys / one_of values are all real
@@ -6618,26 +6637,36 @@ def _apply_refined_types(
         new_type = refined.get(path)
         if new_type is None:
             return
-        if new_type.type == "float_with_unit":
-            # Always apply — see docstring. Carries unit_options
-            # the schema bundle can't represent.
-            entry["type"] = new_type.type
-            entry["unit_options"] = list(new_type.unit_options or [])
-        elif new_type.type == "unknown":
-            # Mapping-or-list union: force YAML-only, but not over a
-            # structural entry that already carries a real shape.
-            if not entry.get("config_entries"):
-                entry["type"] = "unknown"
-        elif entry.get("type") == "string":
-            if new_type.type == "boolean" and entry.get("options"):
-                _merge_boolean_union_options(entry)
-            else:
-                entry["type"] = new_type.type
-                _stamp_display_format(entry, new_type)
-        elif entry.get("type") == "integer":
-            _stamp_display_format(entry, new_type)
+        # A lambda-or-plain union renders the lambda toggle beside the
+        # plain input; additive only, a bundle-set flag is never cleared.
+        if new_type.templatable:
+            entry["templatable"] = True
+        if new_type.type:
+            _apply_refined_entry_type(entry, new_type)
 
     _walk_catalog_entries(entries, visit)
+
+
+def _apply_refined_entry_type(entry: dict, new_type: RefinedType) -> None:
+    """Apply one refinement's type to *entry* per the override rules above."""
+    if new_type.type == "float_with_unit":
+        # Always apply — see the caller's docstring. Carries
+        # unit_options the schema bundle can't represent.
+        entry["type"] = new_type.type
+        entry["unit_options"] = list(new_type.unit_options or [])
+    elif new_type.type == "unknown":
+        # Mapping-or-list union: force YAML-only, but not over a
+        # structural entry that already carries a real shape.
+        if not entry.get("config_entries"):
+            entry["type"] = "unknown"
+    elif entry.get("type") == "string":
+        if new_type.type == "boolean" and entry.get("options"):
+            _merge_boolean_union_options(entry)
+        else:
+            entry["type"] = new_type.type
+            _stamp_display_format(entry, new_type)
+    elif entry.get("type") == "integer":
+        _stamp_display_format(entry, new_type)
 
 
 def _stamp_display_format(entry: dict, new_type: RefinedType) -> None:

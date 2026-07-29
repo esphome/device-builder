@@ -508,7 +508,10 @@ def test_lambda_claims_fields_except_in_value_unions(cv) -> None:
     refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
     assert refined[("pure",)].type == "lambda"
     assert refined[("chained",)].type == "lambda"
-    assert ("union",) not in refined
+    # The union's lambda branch never claims the type; it marks the
+    # field templatable and the plain branch types it.
+    assert refined[("union",)].type == ""
+    assert refined[("union",)].templatable is True
 
 
 def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
@@ -531,14 +534,16 @@ def test_shipped_automations_http_request_carries_byte_units() -> None:
         assert entry["unit_options"] == ["B", "kB", "MB", "GB"]
 
 
-def test_datetime_set_date_stays_plain(loader) -> None:
-    """A lambda branch in a value union does not claim the field."""
+def test_datetime_set_date_stays_plain_but_templatable(loader) -> None:
+    """A lambda branch in a value union marks the field templatable, not lambda-typed."""
     from esphome import automation  # noqa: PLC0415
 
     loader.get_component("datetime")
     assert "datetime.date.set" in automation.ACTION_REGISTRY
     refined = _collect_automation_refined_types()
-    assert ("date",) not in refined.get("action", {}).get("datetime.date.set", {})
+    date = refined["action"]["datetime.date.set"][("date",)]
+    assert date.type == ""
+    assert date.templatable is True
 
 
 def test_shipped_automations_datetime_set_stays_plain() -> None:
@@ -830,3 +835,20 @@ def test_shipped_catalog_templatable_fields_carry_inner_types() -> None:
     ct = next(e for e in initial["config_entries"] if e["key"] == "color_temperature")
     assert ct["type"] == "float_with_unit"
     assert ct["unit_options"] == ["mireds", "K"]
+
+
+def test_shipped_automations_lambda_unions_carry_templatable() -> None:
+    """Lambda-or-plain union fields ship the toggle flag with typing untouched."""
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "datetime.date.set.json").read_bytes()
+    )
+    entry = next(e for e in body["config_entries"] if e["key"] == "date")
+    assert entry["templatable"] is True
+    assert entry["type"] == "string"
+
+    body = orjson.loads(
+        (_AUTOMATIONS_BODIES_DIR / "actions" / "http_request.send.json").read_bytes()
+    )
+    entry = next(e for e in body["config_entries"] if e["key"] == "json")
+    assert entry["templatable"] is True
+    assert entry["type"] == "map"
