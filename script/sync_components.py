@@ -1348,6 +1348,10 @@ def build_catalog(
     _apply_libretiny_family_provides(out)
     _apply_libretiny_family_options(out)
 
+    # After the alias fold and per-entry writers so hub constraints reach
+    # transitive dependents.
+    _propagate_platform_constraints(out)
+
     # Multi-instance status needs the whole-catalog multi_conf + provides view.
     _apply_auto_loaded_reference_advanced_all(out)
 
@@ -1510,6 +1514,40 @@ def _apply_libretiny_family_options(entries: list[dict]) -> None:
             if not kept:
                 raise RuntimeError(f"no FAMILY_COMPONENT family maps to platform {entry['id']!r}")
             var["options"] = kept
+
+
+def _propagate_platform_constraints(entries: list[dict]) -> None:
+    """
+    Narrow ``supported_platforms`` through transitive dependencies.
+
+    Unknown dependency names and unconstrained dependencies don't narrow.
+    """
+    by_id = {entry["id"]: entry for entry in entries}
+    changed = True
+    while changed:
+        changed = False
+        for entry in entries:
+            own = set(entry.get("supported_platforms") or ())
+            constraints = [own] if own else []
+            constraints += [
+                set(platforms)
+                for dep in entry.get("dependencies") or ()
+                if (platforms := by_id.get(dep, {}).get("supported_platforms"))
+            ]
+            if not constraints:
+                continue
+            narrowed = set.intersection(*constraints)
+            if not narrowed:
+                # An empty list ships as "every platform" (the wire default),
+                # so a disjoint intersection must fail the sync, not emit.
+                raise RuntimeError(
+                    f"{entry['id']}: dependency platform constraints are disjoint "
+                    f"(own {sorted(own)}, dependencies {entry.get('dependencies')})"
+                )
+            if narrowed == own:
+                continue
+            entry["supported_platforms"] = sorted(narrowed)
+            changed = True
 
 
 # Matches a description that is actually the first bullet of an MDX
