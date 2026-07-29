@@ -1510,6 +1510,7 @@ def test_upsert_api_action_refuses_inline_services_list() -> None:
             location=ApiActionLocation(action_name="new"),
         )
     assert err.value.code == ErrorCode.INVALID_ARGS
+    assert "api.services:" in str(err.value)
 
 
 def test_delete_api_action_refuses_inline_actions_list() -> None:

@@ -26,17 +26,17 @@ BLOCK_KEYS = ("actions", "services")
 ITEM_KEYS = ("action", "service")
 
 
-def has_inline_actions_value(
+def inline_actions_key(
     lines: list[str],
     api_span: tuple[int, int, str],
-) -> bool:
-    """Return True iff the action block key under *api_span* carries an inline value.
+) -> str | None:
+    """Return the block key under *api_span* carrying an inline value, if any.
 
     Flow-style values (``actions: []``, ``actions: null``,
     ``actions: !secret foo``, …) can't be spliced into the way the
     line-based writer wants. Callers should refuse the upsert /
     delete and surface a clear error rather than emit a second
-    ``actions:`` key alongside the inline one.
+    key alongside the inline one. Both spellings are checked in full.
     """
     api_start, api_end, child_indent = api_span
     for key in BLOCK_KEYS:
@@ -44,11 +44,13 @@ def has_inline_actions_value(
         for idx in range(api_start + 1, api_end):
             text = lines[idx].rstrip("\n\r")
             if text == header:
-                return False
+                break
             if text.startswith(header + " "):
                 rest = text[len(header) :].strip()
-                return bool(rest) and not rest.startswith("#")
-    return False
+                if rest and not rest.startswith("#"):
+                    return key
+                break
+    return None
 
 
 def locate_actions_list(
