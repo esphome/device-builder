@@ -112,15 +112,21 @@ def canonicalize_block(
 
     Only the key tokens change; discriminators are matched on the dash
     line or at the item's child indent only, so a same-named key inside
-    an action body stays untouched.
+    an action body stays untouched. An item already carrying the
+    canonical discriminator keeps its legacy one — respelling would emit
+    a duplicate key, and upstream validation already rejects the pair.
     """
     out = list(lines)
     out[actions_start] = re.sub(
         rf"^(\s*){re.escape(matched_key)}:", rf"\g<1>{BLOCK_KEYS[0]}:", out[actions_start], count=1
     )
     item_re = re.compile(rf"^({re.escape(item_indent)}(?:-\s*|  ))(?:{_LEGACY_ITEM_KEY_ALT}):")
-    for idx in range(actions_start + 1, actions_end):
-        out[idx] = item_re.sub(rf"\g<1>{ITEM_KEYS[0]}:", out[idx], count=1)
+    canonical_re = re.compile(rf"^{re.escape(item_indent)}(?:-\s*|  ){ITEM_KEYS[0]}:")
+    for start, end in _item_spans(out, actions_start, actions_end, item_indent):
+        if any(canonical_re.match(out[idx].rstrip("\n\r")) for idx in range(start, end)):
+            continue
+        for idx in range(start, end):
+            out[idx] = item_re.sub(rf"\g<1>{ITEM_KEYS[0]}:", out[idx], count=1)
     return out
 
 
@@ -290,6 +296,25 @@ def render_delete_actions_key(
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _item_spans(
+    lines: list[str],
+    actions_start: int,
+    actions_end: int,
+    item_indent: str,
+) -> list[tuple[int, int]]:
+    """Return each list item's ``(start, end)`` line span within the block."""
+    spans: list[tuple[int, int]] = []
+    start: int | None = None
+    for idx in range(actions_start + 1, actions_end):
+        if lines[idx].rstrip("\n\r").startswith(item_indent + "-"):
+            if start is not None:
+                spans.append((start, idx))
+            start = idx
+    if start is not None:
+        spans.append((start, actions_end))
+    return spans
 
 
 def _find_block_key_line(

@@ -187,6 +187,74 @@ def test_api_without_actions_list_returns_none() -> None:
     assert render_canonicalize("api:\n  reboot_timeout: 0s\n") is None
 
 
+def test_flow_nested_payload_key_untouched() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - homeassistant.service: {data: {service: keepme}, service: light.toggle}\n"
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    assert "{data: {service: keepme}, action: light.toggle}" in new_text
+
+
+def test_flow_nested_canonical_decoy_still_respells() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - homeassistant.service: {data: {action: keepme}, service: light.toggle}\n"
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    assert "{data: {action: keepme}, action: light.toggle}" in new_text
+
+
+def test_brace_in_trailing_comment_keeps_block_body_respell() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - homeassistant.service:  # TODO {see later}\n"
+        "          service: light.turn_on\n"
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    assert "homeassistant.action:  # TODO {see later}" in new_text
+    assert "action: light.turn_on" in new_text
+
+
+def test_block_scalar_contents_untouched() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - lambda: |-\n"
+        "          homeassistant.service: not_yaml\n"
+    )
+    assert render_canonicalize(text) is None
+
+
+def test_api_item_with_both_discriminators_kept() -> None:
+    text = "api:\n  actions:\n    - action: a\n      service: b\n      then: []\n"
+    assert render_canonicalize(text) is None
+
+
+def test_api_legacy_item_beside_collision_item_still_respells() -> None:
+    text = (
+        "api:\n  services:\n"
+        "    - action: a\n"
+        "      service: b\n"
+        "      then: []\n"
+        "    - service: pause\n"
+        "      then: []\n"
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    assert "actions:" in new_text
+    # The collision item keeps both keys; the clean item respells.
+    assert "- action: a" in new_text
+    assert "service: b" in new_text
+    assert "- action: pause" in new_text
+
+
 def test_bodyless_anchor_respells_id_only() -> None:
     result = render_canonicalize(
         "esphome:\n  on_boot:\n    then:\n      - homeassistant.service:\n"
