@@ -474,6 +474,51 @@ async def test_import_device_refuses_when_an_error_roots_outside_packages(
     assert not (tmp_path / "kitchen.yaml").exists()
 
 
+async def test_import_device_full_config_never_gets_the_package_exemption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``?full_config`` import refuses even for packages-rooted errors."""
+
+    def _write_with_packages(*args: Any, **_kw: Any) -> None:
+        args[0].write_text(
+            "packages:\n  base: github://acme/base.yaml\nesphome:\n  name: x\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _write_with_packages)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {
+                    "message": "base.yaml does not exist in repository",
+                    "range": {
+                        "document": "<file>",
+                        "start_line": 1,
+                        "start_col": 2,
+                        "end_line": 2,
+                        "end_col": 0,
+                    },
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://acme/full.yaml?full_config",
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
 async def test_import_device_refuses_when_an_error_has_no_range(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -16,35 +16,37 @@ from esphome_device_builder.helpers.device_yaml import generate_adoption_yaml
 
 def _validate_via_vscode(tmp_path: Path, content: str) -> dict:
     """Run one real ``esphome vscode --ace`` validation round-trip on *content*."""
-    proc = subprocess.Popen(  # noqa: S603 — args are fully test-controlled
+    with subprocess.Popen(  # noqa: S603 — args are fully test-controlled
         [sys.executable, "-m", "esphome", "vscode", str(tmp_path), "--ace"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
         cwd=tmp_path,
-    )
-    try:
-        assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(json.dumps({"type": "validate", "file": "adopt.yaml"}) + "\n")
-        proc.stdin.flush()
-        while True:
-            line = proc.stdout.readline()
-            assert line, "esphome vscode subprocess closed stdout"
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if msg.get("type") == "read_file":
-                proc.stdin.write(json.dumps({"type": "file_response", "content": content}) + "\n")
-                proc.stdin.flush()
-            elif msg.get("type") == "result":
-                return {
-                    "yaml_errors": msg.get("yaml_errors", []),
-                    "validation_errors": msg.get("validation_errors", []),
-                }
-    finally:
-        proc.kill()
+    ) as proc:
+        try:
+            assert proc.stdin is not None and proc.stdout is not None
+            proc.stdin.write(json.dumps({"type": "validate", "file": "adopt.yaml"}) + "\n")
+            proc.stdin.flush()
+            while True:
+                line = proc.stdout.readline()
+                assert line, "esphome vscode subprocess closed stdout"
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if msg.get("type") == "read_file":
+                    proc.stdin.write(
+                        json.dumps({"type": "file_response", "content": content}) + "\n"
+                    )
+                    proc.stdin.flush()
+                elif msg.get("type") == "result":
+                    return {
+                        "yaml_errors": msg.get("yaml_errors", []),
+                        "validation_errors": msg.get("validation_errors", []),
+                    }
+        finally:
+            proc.kill()
 
 
 def test_unresolvable_package_errors_root_inside_the_packages_span(tmp_path: Path) -> None:

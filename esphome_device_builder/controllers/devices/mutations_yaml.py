@@ -247,12 +247,20 @@ def _raise_validation_failure(
 
 
 def packages_block_span(content: str) -> tuple[int, int] | None:
-    """0-indexed line span of the top-level ``packages:`` block, or ``None`` when absent."""
+    """
+    0-indexed line span of the top-level ``packages:`` block, or ``None``.
+
+    ``None`` also when the block runs to EOF — an unbounded span would
+    classify every trailing error as package-confined.
+    """
     lines = content.splitlines(keepends=True)
     start = find_block_header(lines, "packages")
     if start is None:
         return None
-    return start, block_end_index(lines, start)
+    end = block_end_index(lines, start)
+    if end >= len(lines):
+        return None
+    return start, end
 
 
 def _packages_confined_warning(
@@ -261,7 +269,7 @@ def _packages_confined_warning(
     configuration: str,
     action: str,
 ) -> str | None:
-    """Warning when every validation error roots inside *packages_span*, else ``None``."""
+    """Warning when every validation error is attributable to the packages block, else ``None``."""
     if packages_span is None or result.get("yaml_errors"):
         return None
     entries = result.get("validation_errors", [])
@@ -274,9 +282,12 @@ def _packages_confined_warning(
         configuration,
         action,
     )
-    first = str(entries[0].get("message", "")).removesuffix(".")
+    errors = [str(entry.get("message", "")) for entry in entries]
+    shown = errors[:3]
+    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
+    body = ("; ".join(shown) + suffix).removesuffix(".")
     return (
-        f"Imported, but the remote package failed to load: {first}. "
+        f"Imported, but the remote package failed to load: {body}. "
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves."
     )
@@ -286,8 +297,9 @@ def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> 
     """
     Report whether a validation error is attributable to the packages block.
 
-    The validator marks the in-memory document ``<file>``; an error in
-    any other document came from fetched package content.
+    The validator marks the edited file ``<file>``; an error in any
+    other document (fetched package content, or an ``!include``) is
+    treated as confined.
     """
     range_ = entry.get("range")
     if not range_:
