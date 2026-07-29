@@ -303,9 +303,12 @@ def _upsert_subentity_on(
             index=location.index,
         )
     rendered = render_trigger_handler(tree, key=location.trigger)
-    res = upsert_subentity_handler(
-        yaml_text, ref, handler_key=location.trigger, rendered_yaml=rendered
-    )
+    try:
+        res = upsert_subentity_handler(
+            yaml_text, ref, handler_key=location.trigger, rendered_yaml=rendered
+        )
+    except YamlUpsertNotSupportedError as err:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
     if res is None:
         msg = (
             f"Sub-entity id={location.component_id!r} not found under "

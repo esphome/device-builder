@@ -55,11 +55,15 @@ from esphome_device_builder.controllers.automations.writing import (
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.yaml import (
-    _indent_block as _helpers_indent_block,
+    SubEntityRef,
+    YamlUpsertNotSupportedError,
+    remove_inline_handler,
+    remove_subentity_handler,
+    upsert_inline_handler,
+    upsert_subentity_handler,
 )
 from esphome_device_builder.helpers.yaml import (
-    remove_inline_handler,
-    upsert_inline_handler,
+    _indent_block as _helpers_indent_block,
 )
 from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
@@ -888,6 +892,35 @@ def test_delete_component_on_when_handler_absent_raises_not_found() -> None:
 # ---------------------------------------------------------------------------
 # helpers/yaml.py
 # ---------------------------------------------------------------------------
+
+
+_SCALAR_SUB_KEY_YAML = "sensor:\n  - platform: aht10\n    id: aht20\n    temperature: 5\n"
+_DASH_SCALAR_SUB_KEY_YAML = "sensor:\n  - temperature: 5\n    platform: aht10\n    id: aht20\n"
+_SUB_REF = SubEntityRef(parent_domain="sensor", parent_id="aht20", sub_key="temperature")
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        pytest.param(_SCALAR_SUB_KEY_YAML, id="child_line"),
+        pytest.param(_DASH_SCALAR_SUB_KEY_YAML, id="dash_line"),
+    ],
+)
+def test_upsert_subentity_handler_inline_scalar_raises(yaml_text: str) -> None:
+    """A scalar-valued sub key raises instead of reporting the block missing."""
+    with pytest.raises(YamlUpsertNotSupportedError):
+        upsert_subentity_handler(
+            yaml_text,
+            _SUB_REF,
+            handler_key="on_value_range",
+            rendered_yaml="on_value_range:\n  then:\n    - delay: 1s\n",
+        )
+
+
+def test_remove_subentity_handler_inline_scalar_returns_none() -> None:
+    """A scalar-valued sub key on remove is just not-found."""
+    res = remove_subentity_handler(_SCALAR_SUB_KEY_YAML, _SUB_REF, handler_key="on_value_range")
+    assert res is None
 
 
 def test_upsert_inline_handler_replace_with_sibling_below() -> None:

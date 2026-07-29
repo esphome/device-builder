@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from .scalar import ESPHOME_YAML_INDENT, YamlUpsertNotSupportedError, block_body_is_list
 from .scan import (
+    DASH_KEY_PREFIX,
     block_end_index,
     find_block_header,
     key_header_re,
@@ -95,7 +96,9 @@ def upsert_subentity_handler(
 
     Splices at *ref*'s ``<sub_key>:`` block child indent inside its parent
     instance. Same return shape as :func:`upsert_inline_handler`; ``None``
-    when the sub-block isn't found.
+    when the sub-block isn't found. Raises
+    :class:`YamlUpsertNotSupportedError` when ``<sub_key>`` has an inline
+    scalar value.
     """
     lines = yaml_text.splitlines(keepends=True)
     span = _locate_subentity_instance(lines, ref)
@@ -268,7 +271,7 @@ def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFra
     inline_msg = f"{key!r} has an inline value; rewrite it as a block mapping first"
     start: int | None = None
     if frame.is_list_item:
-        dash_header, dash_scalar = key_line_res(key, prefix=r"^\s*-\s+")
+        dash_header, dash_scalar = key_line_res(key, prefix=DASH_KEY_PREFIX)
         first = lines[frame.start].rstrip("\n\r")
         if dash_scalar.match(first):
             raise YamlUpsertNotSupportedError(inline_msg)
@@ -381,7 +384,10 @@ def remove_subentity_handler(
 ) -> tuple[str, int, int] | None:
     """Delete ``<handler_key>:`` from a nested sub-entity block (inverse of upsert)."""
     lines = yaml_text.splitlines(keepends=True)
-    span = _locate_subentity_instance(lines, ref)
+    try:
+        span = _locate_subentity_instance(lines, ref)
+    except YamlUpsertNotSupportedError:
+        return None
     if span is None:
         return None
     return _apply_handler_remove(lines, span, handler_key)
@@ -421,8 +427,10 @@ def _locate_subentity_instance(
     """
     Find the line range of *ref*'s ``<sub_key>:`` block inside its parent instance.
 
-    Locates the parent instance, then the ``<sub_key>:`` header among its
-    child fields. Returns ``(start, end, child_indent)`` where *start* is the
+    Locates the parent instance, then the ``<sub_key>:`` block via
+    :func:`_locate_key_block` (which also matches the dash-line first-key
+    form and raises :class:`YamlUpsertNotSupportedError` on an inline
+    scalar). Returns ``(start, end, child_indent)`` where *start* is the
     header line, *end* one past the sub-block's last line, and *child_indent*
     the leading whitespace of the sub-block's own fields (where a sibling
     handler is spliced). ``None`` when the parent or the sub-block isn't
@@ -431,16 +439,9 @@ def _locate_subentity_instance(
     span = _locate_component_instance(lines, ref.parent_domain, ref.parent_id)
     if span is None:
         return None
-    instance_start, instance_end, parent_child_indent = span
-    header_re = key_header_re(ref.sub_key, indent=parent_child_indent)
-    sub_start: int | None = None
-    for idx in range(instance_start, instance_end):
-        if header_re.match(lines[idx].rstrip("\n\r")):
-            sub_start = idx
-            break
-    if sub_start is None:
+    frame = _locate_key_block(lines, _instance_frame(lines, span), ref.sub_key)
+    if frame is None:
         return None
-    frame = _key_block_frame(lines, sub_start, instance_end, parent_child_indent)
     return frame.start, frame.end, frame.child_indent
 
 
@@ -550,7 +551,7 @@ def _instance_declared_id(
     ``child_indent`` on a later line.
     """
     first_line = lines[start].rstrip("\n\r")
-    inline_match = re.match(r"^\s*-\s*id:\s*(?P<id>\S+)", first_line)
+    inline_match = re.match(rf"{DASH_KEY_PREFIX}id:\s*(?P<id>\S+)", first_line)
     if inline_match:
         return _unquote_id(inline_match.group("id"))
     child_re = re.compile(rf"^{re.escape(child_indent)}id:\s*(?P<id>\S+)")

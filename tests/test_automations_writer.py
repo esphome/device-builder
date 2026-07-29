@@ -2677,6 +2677,103 @@ def test_subentity_list_locate_refuses_missing_sub_block() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sub-entity spelled as its item's dash-line first key (#2436)
+# ---------------------------------------------------------------------------
+
+
+_AHT10_DASH_FIRST = (
+    "esphome:\n  name: x\n"
+    "sensor:\n"
+    "  - temperature:\n"
+    "      id: aht20_temperature\n"
+    "      name: Kit Temperature\n"
+    "    platform: aht10\n"
+    "    id: aht20\n"
+    "    humidity:\n"
+    "      id: aht20_humidity\n"
+    "      name: Kit Humidity\n"
+)
+
+
+def test_upsert_subentity_dash_line_first_key_splices_inside() -> None:
+    """A sub-block heading its item's dash line is still located for the splice."""
+    loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
+    new_text, _diff = render_upsert(_AHT10_DASH_FIRST, tree=_value_range_tree(), location=loc)
+    temp_idx = new_text.index("name: Kit Temperature")
+    on_idx = new_text.index("on_value_range:")
+    plat_idx = new_text.index("platform: aht10")
+    assert temp_idx < on_idx < plat_idx, "handler landed outside the temperature block"
+    lines = new_text.split("\n")
+    assert "      on_value_range:" in lines
+    assert "    on_value_range:" not in lines
+
+
+def test_dash_line_subentity_handler_round_trips() -> None:
+    """The dash-line sub-entity handler parses back and deletes to the original."""
+    loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
+    new_text, _diff = render_upsert(_AHT10_DASH_FIRST, tree=_value_range_tree(), location=loc)
+    parsed = parse_device_yaml(new_text)
+    assert len(parsed) == 1
+    assert parsed[0].location == loc
+    back, _ddiff = render_delete(new_text, location=loc)
+    assert back == _AHT10_DASH_FIRST
+
+
+def test_dash_line_subentity_list_entries_splice_inside() -> None:
+    """The indexed list-entry path resplices a dash-line sub-block it located via parse."""
+    one, _ = render_upsert(
+        _AHT10_DASH_FIRST, tree=_range_tree(25, "red"), location=_sub_range_loc(0)
+    )
+    two, _ = render_upsert(one, tree=_range_tree(30, "blue"), location=_sub_range_loc(1))
+    temp_idx = two.index("id: aht20_temperature")
+    plat_idx = two.index("platform: aht10")
+    assert temp_idx < two.index("above: 25") < plat_idx
+    assert temp_idx < two.index("above: 30") < plat_idx
+
+
+_AHT10_SCALAR_TEMP = "sensor:\n  - platform: aht10\n    id: aht20\n    temperature: 5\n"
+_AHT10_DASH_SCALAR_TEMP = "sensor:\n  - temperature: 5\n    platform: aht10\n    id: aht20\n"
+
+
+@pytest.mark.parametrize(
+    "yaml_text",
+    [
+        pytest.param(_AHT10_SCALAR_TEMP, id="child_line"),
+        pytest.param(_AHT10_DASH_SCALAR_TEMP, id="dash_line"),
+    ],
+)
+def test_upsert_subentity_inline_scalar_sub_key_refuses(yaml_text: str) -> None:
+    """A scalar-valued sub key refuses the upsert instead of shadowing it."""
+    target = ComponentTarget(
+        domain="sensor",
+        is_sub_entity=True,
+        parent_domain="sensor",
+        parent_id="aht20",
+        sub_key="temperature",
+    )
+    loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
+    with pytest.raises(CommandError) as exc:
+        _upsert_subentity_on(yaml_text, _value_range_tree(), loc, target)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "inline value" in str(exc.value)
+
+
+def test_delete_subentity_inline_scalar_sub_key_not_found() -> None:
+    """Deleting a handler off a scalar-valued sub key is a clean NOT_FOUND."""
+    target = ComponentTarget(
+        domain="sensor",
+        is_sub_entity=True,
+        parent_domain="sensor",
+        parent_id="aht20",
+        sub_key="temperature",
+    )
+    loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
+    with pytest.raises(CommandError) as exc:
+        _delete_subentity_on(_AHT10_SCALAR_TEMP, loc, target)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+# ---------------------------------------------------------------------------
 # !lambda tag preservation (issue #1306)
 # ---------------------------------------------------------------------------
 

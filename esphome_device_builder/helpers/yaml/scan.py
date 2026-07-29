@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import re
 
+# Regex prefix for a key on its list item's dash line (``- <key>: ...``).
+DASH_KEY_PREFIX = r"^\s*-\s+"
+
 
 def key_header_re(key: str, *, indent: str = "") -> re.Pattern[str]:
     """Pattern matching a ``<key>:`` header line at exactly *indent*, bare or with a comment."""
