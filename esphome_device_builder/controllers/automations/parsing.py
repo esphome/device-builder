@@ -305,6 +305,8 @@ class ComponentTarget(NamedTuple):
 
     A top-level instance, or a nested sub-entity carrying the parent context
     (``parent_domain`` / ``parent_id`` / ``sub_key``) the writer splices under.
+    ``catalog_id`` is the instance's catalog id (the parent's for a
+    sub-entity), stamped by the walk.
     """
 
     domain: str
@@ -312,6 +314,7 @@ class ComponentTarget(NamedTuple):
     parent_domain: str | None = None
     parent_id: str | None = None
     sub_key: str | None = None
+    catalog_id: str | None = None
 
 
 def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
@@ -332,25 +335,14 @@ def resolve_action_field_target(yaml_text: str, component_id: str) -> tuple[str,
     """
     Resolve *component_id* to ``(instance_domain, catalog_id)`` for action-field writes.
 
-    A sub-entity id resolves to its parent instance (whose form computes
-    the field paths). ``None`` when no instance matches or the YAML
-    won't load.
+    Thin wrapper over :func:`resolve_component_target`; a sub-entity id
+    resolves to its parent instance (whose form computes the field
+    paths). ``None`` when no instance matches or the YAML won't load.
     """
-    yaml = make_yaml()
-    try:
-        root = yaml.load(yaml_text)
-    except Exception:  # noqa: BLE001 — any load failure reads as instance-not-found
+    target = resolve_component_target(yaml_text, component_id)
+    if target is None or target.catalog_id is None:
         return None
-    parent: tuple[str, str] | None = None
-    for domain, instance, comp_id, target in _iter_instance_targets(root):
-        if not target.is_sub_entity:
-            parent = (domain, catalog_id(domain, instance.get("platform")))
-            if comp_id == component_id:
-                return parent
-        elif comp_id == component_id:
-            # The walk yields a sub-entity right after its parent.
-            return parent
-    return None
+    return target.parent_domain or target.domain, target.catalog_id
 
 
 def resolve_component_target(yaml_text: str, component_id: str) -> ComponentTarget | None:
@@ -405,7 +397,13 @@ def _iter_instance_targets(
             if not isinstance(instance, dict):
                 continue
             comp_id = instance_id(str(domain), instance, idx, is_list=is_list)
-            yield str(domain), instance, comp_id, ComponentTarget(domain=str(domain))
+            cat_id = catalog_id(str(domain), instance.get("platform"))
+            yield (
+                str(domain),
+                instance,
+                comp_id,
+                ComponentTarget(domain=str(domain), catalog_id=cat_id),
+            )
             for sub_domain, sub, sub_id, sub_key in iter_subentities(
                 str(domain), instance, comp_id
             ):
@@ -419,6 +417,7 @@ def _iter_instance_targets(
                         parent_domain=str(domain),
                         parent_id=comp_id,
                         sub_key=sub_key,
+                        catalog_id=cat_id,
                     ),
                 )
 

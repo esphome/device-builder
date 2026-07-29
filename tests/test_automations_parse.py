@@ -935,6 +935,25 @@ def test_resolve_component_target_maps_subentity_to_platform_type() -> None:
     assert container.is_sub_entity is False
 
 
+def test_component_target_carries_catalog_id() -> None:
+    """The walk stamps the instance's catalog id; a sub-entity carries its parent's."""
+    text = (
+        "sun:\n  id: helios\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n      id: aht20_temperature\n"
+    )
+    for comp_id, expected in [
+        ("helios", "sun"),
+        ("aht20", "sensor.aht10"),
+        ("aht20_temperature", "sensor.aht10"),
+    ]:
+        target = resolve_component_target(text, comp_id)
+        assert target is not None
+        assert target.catalog_id == expected
+
+
 def test_parse_recognises_hand_authored_subentity_handler() -> None:
     """An ``on_value_range`` on a sub-sensor parses to its sub-entity location."""
     text = (
