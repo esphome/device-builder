@@ -278,7 +278,7 @@ def _packages_confined_warning(
     )
     body = _summarise([str(entry.get("message", "")) for entry in entries])
     return (
-        f"Imported, but the remote package failed to load: {body}. "
+        f"Imported, but the remote package didn't validate: {body}. "
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves."
     )
