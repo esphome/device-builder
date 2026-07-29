@@ -1276,3 +1276,22 @@ async def test_migrate_config_null_when_canonical(tmp_path: Path) -> None:
     content = "api:\n  actions:\n    - action: pause\n      then: []\n"
     result = await controller.migrate_config(content=content)
     assert result["yaml_diff"] is None
+
+
+@pytest.mark.asyncio
+async def test_migrate_config_applies_generated_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from esphome_device_builder.controllers import migrations  # noqa: PLC0415
+    from esphome_device_builder.definitions import MigrationRule  # noqa: PLC0415
+
+    rule = MigrationRule(
+        kind="platform_item_field", old="voc", new="voc_index", domain="sensor", platform="sgp4x"
+    )
+    monkeypatch.setattr(migrations, "load_migration_rules_index", lambda: (rule,))
+    controller = _make_controller(tmp_path)
+    content = "sensor:\n  - platform: sgp4x\n    voc:\n      name: VOC\n"
+    result = await controller.migrate_config(content=content)
+    diff = result["yaml_diff"]
+    assert diff is not None
+    assert "voc_index:" in diff["replacement"]

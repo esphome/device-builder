@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
+from esphome_device_builder.controllers import migrations
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
 from esphome_device_builder.controllers.migrations import render_migrations
+from esphome_device_builder.definitions import MigrationRule
 
 _LEGACY_API_YAML = """esphome:
   name: demo
@@ -418,3 +422,112 @@ def test_block_scalar_indent_indicator_untouched() -> None:
         "          homeassistant.service: not_yaml\n"
     )
     assert render_migrations(text) is None
+
+
+_VOC_RULE = MigrationRule(
+    kind="platform_item_field", old="voc", new="voc_index", domain="sensor", platform="sgp4x"
+)
+_BLOCK_RULE = MigrationRule(
+    kind="component_block_field", old="old_key", new="new_key", component="mycomp"
+)
+
+_SGP4X_YAML = """sensor:
+  - platform: sgp4x
+    # gas indexes
+    voc:  # keep me
+      name: "VOC Index"
+    nox:
+      name: NOx
+  - platform: dht
+    voc: decoy
+"""
+
+
+@pytest.fixture
+def generated_rules(monkeypatch: pytest.MonkeyPatch) -> Callable[..., None]:
+    """Inject synthetic artifact rules into the migration fold."""
+
+    def _set(*rules: MigrationRule) -> None:
+        monkeypatch.setattr(migrations, "load_migration_rules_index", lambda: rules)
+
+    return _set
+
+
+def test_platform_item_rename_scoped_to_matching_platform(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    new_text = _respell(_SGP4X_YAML)
+    assert "    voc_index:  # keep me\n" in new_text
+    assert '      name: "VOC Index"\n' in new_text
+    # The dht item's same-named key is not an sgp4x field.
+    assert "    voc: decoy\n" in new_text
+
+
+def test_platform_item_rename_on_the_dash_line(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = "sensor:\n  - voc:\n      name: x\n    platform: sgp4x\n"
+    new_text = _respell(text)
+    assert "  - voc_index:\n" in new_text
+    assert "platform: sgp4x" in new_text
+
+
+def test_platform_item_collision_skips_the_item(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = "sensor:\n  - platform: sgp4x\n    voc: a\n    voc_index: b\n"
+    assert render_migrations(text) is None
+
+
+def test_platform_item_rename_ignores_deeper_decoys(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = "sensor:\n  - platform: sgp4x\n    compensation:\n      voc: nested\n"
+    assert render_migrations(text) is None
+
+
+def test_platform_item_rename_skips_block_scalars(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = "sensor:\n  - platform: sgp4x\n    filters:\n      - lambda: |\n        voc: fake\n"
+    assert render_migrations(text) is None
+
+
+def test_platform_value_tolerates_quotes_and_comment(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = 'sensor:\n  - platform: "sgp4x"  # gas\n    voc:\n      name: x\n'
+    assert "voc_index:" in _respell(text)
+
+
+def test_platform_rule_without_domain_block_is_a_noop(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    assert render_migrations("binary_sensor:\n  - platform: sgp4x\n    voc: x\n") is None
+
+
+def test_component_block_field_rename(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  old_key: 1  # note\n  other: 2\n"
+    new_text = _respell(text)
+    assert "  new_key: 1  # note\n" in new_text
+    assert "  other: 2\n" in new_text
+
+
+def test_component_block_field_collision_is_a_noop(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    assert render_migrations("mycomp:\n  old_key: 1\n  new_key: 2\n") is None
+
+
+def test_component_block_field_ignores_deeper_decoys(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    assert render_migrations("mycomp:\n  child:\n    old_key: 1\n") is None
+
+
+def test_component_block_field_absent_component_is_a_noop(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    assert render_migrations("other:\n  old_key: 1\n") is None
+
+
+def test_generated_and_bespoke_rules_share_one_diff(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = _LEGACY_API_YAML + "\n" + _SGP4X_YAML
+    result = render_migrations(text)
+    assert result is not None
+    new_text, diff = result
+    assert "actions:" in new_text
+    assert "voc_index:" in new_text
+    assert diff.fromLine <= diff.toLine

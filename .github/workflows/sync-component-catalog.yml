@@ -180,6 +180,7 @@ jobs:
               esphome_device_builder/definitions/boards.index.json \
               esphome_device_builder/definitions/board_bodies/ \
               esphome_device_builder/definitions/featured_components.index.json \
+              esphome_device_builder/definitions/migration_rules.index.json \
               esphome-constraints.txt \
               pyproject.toml \
             && [ -z "$(git ls-files --others --exclude-standard esphome_device_builder/definitions/components/ esphome_device_builder/definitions/board_bodies/)" ]; then

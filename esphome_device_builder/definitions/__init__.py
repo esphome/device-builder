@@ -64,6 +64,7 @@ _COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "components.index.json"
 _FEATURED_COMPONENTS_INDEX_JSON = _DEFINITIONS_DIR / "featured_components.index.json"
 _PIN_REGISTRY_MODES_INDEX_JSON = _DEFINITIONS_DIR / "pin_registry_modes.index.json"
 _PLATFORM_CAPABILITIES_INDEX_JSON = _DEFINITIONS_DIR / "platform_capabilities.index.json"
+_MIGRATION_RULES_INDEX_JSON = _DEFINITIONS_DIR / "migration_rules.index.json"
 
 _IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".svg", ".webp")
 _GENERIC_DIR = _BOARDS_DIR / "_generic"
@@ -558,6 +559,86 @@ def load_pin_registry_modes_index() -> dict[str, list[str]]:
             "Failed to load pin_registry_modes.index.json — pin Mode flags won't be scoped."
         ),
     )
+
+
+class MigrationRule(NamedTuple):
+    """One sync-discovered ``cv.rename_key`` applied generically by the migration engine."""
+
+    kind: str
+    old: str
+    new: str
+    component: str = ""
+    domain: str = ""
+    platform: str = ""
+
+
+MIGRATION_RULE_KINDS = frozenset({"component_block_field", "platform_item_field"})
+
+
+@cache
+def load_migration_rules_index() -> tuple[MigrationRule, ...]:
+    """Load the sync-discovered rename rules ``editor/migrate_config`` folds.
+
+    Cached — the rules are folded on every migrate call. Missing /
+    malformed artefact yields no rules; the bespoke migrations still run.
+    """
+    return _load_migration_rules(_MIGRATION_RULES_INDEX_JSON)
+
+
+def _load_migration_rules(path: Path) -> tuple[MigrationRule, ...]:
+    """Parse a migration-rules index at *path*; empty on missing / malformed."""
+    return _load_json_artifact(
+        path,
+        default=(),
+        transform=_migration_rules_from_payload,
+        missing_msg=(
+            "migration_rules.index.json missing — generic rename migrations "
+            "disabled. Run script/sync_components.py to generate it."
+        ),
+        error_msg=("Failed to load migration_rules.index.json — generic rename migrations off."),
+    )
+
+
+def _migration_rules_from_payload(payload: Any) -> tuple[MigrationRule, ...]:
+    """Coerce a parsed rules payload, dropping malformed records."""
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        _LOGGER.warning("migration_rules.index.json has no rules list — ignoring.")
+        return ()
+    out: list[MigrationRule] = []
+    for record in rules:
+        rule = _coerce_migration_rule(record)
+        if rule is None:
+            _LOGGER.warning("Dropping malformed migration rule: %r", record)
+            continue
+        out.append(rule)
+    return tuple(out)
+
+
+def _coerce_migration_rule(record: Any) -> MigrationRule | None:
+    """Build one :class:`MigrationRule`, or ``None`` for a malformed record."""
+
+    def _field(key: str) -> str | None:
+        value = record.get(key)
+        return value if isinstance(value, str) and value else None
+
+    if not isinstance(record, dict):
+        return None
+    kind = record.get("kind")
+    old = _field("old")
+    new = _field("new")
+    if kind not in MIGRATION_RULE_KINDS or old is None or new is None or old == new:
+        return None
+    if kind == "component_block_field":
+        component = _field("component")
+        if component is None:
+            return None
+        return MigrationRule(kind=kind, old=old, new=new, component=component)
+    domain = _field("domain")
+    platform = _field("platform")
+    if domain is None or platform is None:
+        return None
+    return MigrationRule(kind=kind, old=old, new=new, domain=domain, platform=platform)
 
 
 class PlatformCapabilities(NamedTuple):

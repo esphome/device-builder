@@ -944,6 +944,41 @@ def validate_component(manifest: Path) -> list[str]:
     return errors
 
 
+_MIGRATION_RULE_KINDS = {"component_block_field", "platform_item_field"}
+
+#: Required non-empty string fields per migration-rule kind.
+_MIGRATION_RULE_FIELDS = {
+    "component_block_field": ("component", "old", "new"),
+    "platform_item_field": ("domain", "platform", "old", "new"),
+}
+
+
+def check_migration_rules() -> list[str]:
+    """Validate the shape of the generated ``migration_rules.index.json``."""
+    path = DEFINITIONS_DIR / "migration_rules.index.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [f"migration_rules.index.json: unreadable ({exc})"]
+    rules = payload.get("rules") if isinstance(payload, dict) else None
+    if not isinstance(rules, list):
+        return ["migration_rules.index.json: payload must be {'rules': [...]}"]
+    errors: list[str] = []
+    for pos, record in enumerate(rules):
+        if not isinstance(record, dict) or record.get("kind") not in _MIGRATION_RULE_KINDS:
+            errors.append(f"migration_rules.index.json: rules[{pos}]: unknown or missing kind")
+            continue
+        for field in _MIGRATION_RULE_FIELDS[record["kind"]]:
+            value = record.get(field)
+            if not isinstance(value, str) or not value:
+                errors.append(
+                    f"migration_rules.index.json: rules[{pos}]: {field} must be a non-empty string"
+                )
+        if record.get("old") == record.get("new"):
+            errors.append(f"migration_rules.index.json: rules[{pos}]: old and new are identical")
+    return errors
+
+
 # Browser-like UA: some vendor CDNs 403 the default urllib agent.
 _IMAGE_USER_AGENT = "Mozilla/5.0 (compatible; esphome-device-builder-linkcheck/1.0)"
 _IMAGE_FETCH_TIMEOUT = 15
@@ -1046,6 +1081,8 @@ def main() -> int:
     components_dir = DEFINITIONS_DIR / "components"
     for manifest in sorted(components_dir.glob("*/manifest.yaml")):
         all_errors.extend(validate_component(manifest))
+
+    all_errors.extend(check_migration_rules())
 
     if args.check_images:
         all_errors.extend(check_board_images(boards_dir))

@@ -6,9 +6,10 @@ Each migration is a pure, line-for-line ``lines -> lines`` rule in
 single click brings a config fully up to date. Line edits (never
 parse-and-re-emit) keep comments and formatting intact and let the
 command run against a mid-edit draft that ``automations/parse`` would
-reject. Exposed as ``editor/migrate_config``; detection is mirrored in
-device-builder-frontend ``src/util/config-migrations.ts`` — new rules
-land on both sides.
+reject. Bespoke rules cover the anchors the generic machinery can't
+express; plain ``cv.rename_key`` pairs arrive data-driven from the
+sync-generated ``migration_rules.index.json``. Exposed as
+``editor/migrate_config``.
 """
 
 from __future__ import annotations
@@ -16,7 +17,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ..helpers.yaml.scan import child_block_end, leading_ws
+from ..definitions import MigrationRule, load_migration_rules_index
+from ..helpers.yaml.scan import (
+    block_end_index,
+    child_block_end,
+    find_block_header,
+    leading_ws,
+    top_list_item_starts,
+)
 from ..models.automations import YamlDiff
 from .automations import api_actions
 from .automations.writing_layout import (
@@ -113,9 +121,68 @@ def _apply_action_node_rename(
             rest = _respell_flow_field(rest, rename)
         out[idx] = match.group("lead") + rename.canonical_id + ":" + rest + line[len(content) :]
         if not flow:
-            hit = _respell_body_field(lines, idx, len(match.group("lead")), rename, in_scalar)
+            hit = _respell_body_field(
+                lines,
+                idx,
+                len(match.group("lead")),
+                rename.legacy_field,
+                rename.canonical_field,
+                in_scalar,
+            )
             if hit is not None:
                 out[hit[0]] = hit[1]
+    return out
+
+
+def _apply_generated_renames(lines: list[str]) -> list[str]:
+    """Apply the sync-discovered rename rules from the generated artifact."""
+    out = lines
+    for rule in load_migration_rules_index():
+        if rule.kind == "component_block_field":
+            out = _apply_component_block_field(out, rule)
+        else:
+            out = _apply_platform_item_field(out, rule)
+    return out
+
+
+def _apply_component_block_field(lines: list[str], rule: MigrationRule) -> list[str]:
+    """Rename a child key of the top-level ``<component>:`` block."""
+    header = find_block_header(lines, rule.component)
+    if header is None:
+        return lines
+    hit = _respell_body_field(lines, header, 0, rule.old, rule.new, _block_scalar_mask(lines))
+    if hit is None:
+        return lines
+    out = list(lines)
+    out[hit[0]] = hit[1]
+    return out
+
+
+def _apply_platform_item_field(lines: list[str], rule: MigrationRule) -> list[str]:
+    """Rename a child key of the ``- platform: <platform>`` items under ``<domain>:``."""
+    header = find_block_header(lines, rule.domain)
+    if header is None:
+        return lines
+    end = block_end_index(lines, header)
+    in_scalar = _block_scalar_mask(lines)
+    out = list(lines)
+    for item_start in top_list_item_starts(lines, header, end):
+        keys = _item_child_keys(lines, item_start, end, in_scalar)
+        platform = next(
+            (_entry_value(lines[idx], col) for idx, col, key in keys if key == "platform"),
+            None,
+        )
+        if platform != rule.platform:
+            continue
+        if any(key == rule.new for _idx, _col, key in keys):
+            continue
+        target = next(((idx, col) for idx, col, key in keys if key == rule.old), None)
+        if target is None:
+            continue
+        idx, col = target
+        content = lines[idx].rstrip("\n\r")
+        eol = lines[idx][len(content) :]
+        out[idx] = content[:col] + rule.new + content[col + len(rule.old) :] + eol
     return out
 
 
@@ -268,11 +335,12 @@ def _respell_body_field(
     lines: list[str],
     anchor: int,
     content_col: int,
-    rename: ActionNodeRename,
+    legacy_field: str,
+    canonical_field: str,
     in_scalar: list[bool],
 ) -> tuple[int, str] | None:
     """
-    Return ``(line index, respelled line)`` for the node's legacy field.
+    Return ``(line index, respelled line)`` for the body's legacy field.
 
     Only a key at exactly the body's child-indent column counts, so a
     same-named key nested deeper stays untouched. ``None`` when the
@@ -295,12 +363,66 @@ def _respell_body_field(
         if indent != child_indent:
             continue
         key = stripped.split(":", 1)[0].rstrip()
-        if key == rename.canonical_field:
+        if key == canonical_field:
             return None
-        if key == rename.legacy_field and hit is None:
-            new = child_indent + rename.canonical_field + content[len(child_indent) + len(key) :]
+        if key == legacy_field and hit is None:
+            new = child_indent + canonical_field + content[len(child_indent) + len(key) :]
             hit = (idx, new + lines[idx][len(content) :])
     return hit
 
 
-_RULES = (_canonicalize_api_actions, _canonicalize_action_nodes, _migrate_ethernet_clk)
+def _item_child_keys(
+    lines: list[str],
+    item_start: int,
+    end: int,
+    in_scalar: list[bool],
+) -> list[tuple[int, int, str]]:
+    """
+    ``(line, column, key)`` for a list item's depth-1 mapping keys.
+
+    The dash-line key comes first; following lines count only at its
+    column (or, for a bare dash, the first child indent seen).
+    """
+    keys: list[tuple[int, int, str]] = []
+    content = lines[item_start].rstrip("\n\r")
+    dash_col = len(leading_ws(content))
+    rest = content[dash_col + 1 :]
+    child_col: int | None = None
+    stripped = rest.lstrip(" ")
+    if stripped and not stripped.startswith(("#", "{", "[")) and ":" in stripped:
+        child_col = dash_col + 1 + (len(rest) - len(stripped))
+        keys.append((item_start, child_col, stripped.split(":", 1)[0].rstrip()))
+    for idx in range(item_start + 1, min(end, len(lines))):
+        if in_scalar[idx]:
+            continue
+        line = lines[idx].rstrip("\n\r")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(leading_ws(line))
+        if indent <= dash_col:
+            break
+        child_col = child_col if child_col is not None else indent
+        if indent != child_col or ":" not in stripped:
+            continue
+        keys.append((idx, indent, stripped.split(":", 1)[0].rstrip()))
+    return keys
+
+
+def _entry_value(line: str, col: int) -> str:
+    """Return the ``key: value`` entry's scalar at *col*, comment and quotes stripped."""
+    value = line.rstrip("\n\r")[col:].split(":", 1)[1].strip()
+    comment = _TRAILING_COMMENT_RE.search(value)
+    if comment is not None:
+        value = value[: comment.start()].strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
+    return value
+
+
+_RULES = (
+    _canonicalize_api_actions,
+    _canonicalize_action_nodes,
+    _migrate_ethernet_clk,
+    _apply_generated_renames,
+)

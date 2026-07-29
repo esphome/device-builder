@@ -107,6 +107,8 @@ esphome_device_builder = [
   "definitions/board_bodies/*.json",
   "definitions/featured_components.index.json",
   "definitions/pin_registry_modes.index.json",
+  "definitions/platform_capabilities.index.json",
+  "definitions/migration_rules.index.json",
   "definitions/components.index.json",
   "definitions/components/*.json",
   "definitions/automations.index.json",

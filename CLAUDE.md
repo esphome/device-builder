@@ -385,22 +385,28 @@ against legacy behaviour before assuming the simpler version suffices.
   refinement, `unit_of_measurement` options). Component descriptions/
   titles fall back to the docs MDX repo when the schema index is sparse.
   All in `script/sync_components.py`.
-- **esphome key renames are handled case by case, guarded by the sync.**
-  `cv.rename_key` aliases get hard-coded read support, a canonical
-  respell on any write touching the legacy-spelled block (per the
-  pass-through exception above), and a migration helper where the key
-  is a form field. `script/sync_components.py` fails when introspection
-  finds a pair outside `_HANDLED_RENAME_KEYS`, so a new upstream rename
-  surfaces on the nightly sync instead of shipping unhandled. Current
-  entries: the api `services`→`actions` / `service`→`action` pair
-  (#2396) and the homeassistant action's `service`→`action` field under
-  both registered ids. `editor/migrate_config`
-  (`controllers/migrations.py`, one rule function per migration) is the
-  migration-helper leg: a one-click whole-file update covering every
-  handled rename (plus the legacy `homeassistant.service` node id and
-  the ethernet `clk_mode`→`clk` conversion), driven by the frontend's
-  migrate nudge. New migrations add a rule function to the fold, not a
-  new command.
+- **esphome key renames are data-driven where expressible, bespoke
+  otherwise — guarded by the sync either way.** The sync classifies
+  every discovered `cv.rename_key`: a *direct* pair (the validator sits
+  on a component or platform schema's own mapping) is emitted to the
+  generated `definitions/migration_rules.index.json`, which
+  `editor/migrate_config` (`controllers/migrations.py`) folds as
+  data-driven rules — a plain upstream rename ships with zero
+  hand-written code. Anything else (wrapper-nested pairs like api's
+  item discriminator, registry-node renames needing the id alias) needs
+  bespoke handling: hard-coded read support, a canonical respell on any
+  write touching the legacy-spelled block (per the pass-through
+  exception above), and a rule function in the migrations fold —
+  acknowledged in `_HANDLED_RENAME_KEYS`. `script/sync_components.py`
+  fails when introspection finds a pair that is neither, so a new
+  upstream rename surfaces on the nightly sync instead of shipping
+  unhandled. Current bespoke entries: the api `services`→`actions` /
+  `service`→`action` pair (#2396) and the homeassistant action's
+  `service`→`action` field under both registered ids; the fold also
+  carries the legacy `homeassistant.service` node id and the ethernet
+  `clk_mode`→`clk` conversion. The frontend's migrate nudge drives the
+  one-click whole-file update; new migrations extend the artifact or
+  add a rule function — never a new command.
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform
@@ -908,10 +914,11 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/boards.index.json` + `board_bodies/<id>.json` + `featured_components.index.json` | Generated; do not hand-edit. Slim board index + per-id lazy bodies (via `BoardCatalog._body_store`) + aggregated featured-components map (read once by the components controller's registry build). |
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
 | `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
+| `esphome_device_builder/definitions/migration_rules.index.json` | Generated; do not hand-edit. Direct `cv.rename_key` pairs the sync discovered, folded as data-driven rules by `editor/migrate_config`. Empty until upstream adds such a pair. Loaded via `load_migration_rules_index`. |
 | `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
 | `script/update_board.py` | One-step contributor wrapper: regenerate one board's JSON (`sync_boards.py`) + validate (`validate_definitions.py`). Auto-detects the edited board, or takes an id. |
 | `script/sync_boards.py` | Regenerates the split board catalog from the manifests; stamps the generating `esphome_version` into `boards.index.json`. Takes an optional board id to regenerate just one. Both modes guard installed `esphome` against that stamp; `--restamp` opts a full sync out to regenerate against a new esphome. |
-| `script/sync_components.py` | Regenerates the component catalog + `platform_capabilities.index.json` |
+| `script/sync_components.py` | Regenerates the component catalog + `platform_capabilities.index.json` + `migration_rules.index.json` |
 | `script/check_catalog.py` | Smoke test for popular components |
 | `script/check_import_time.py` | CI guard: fails if `import …device_builder` regresses past `script/import_time_budget.json` (e.g. a fresh eager `esphome.components.*` import) |
 | `script/validate_definitions.py` | Lint board manifests |

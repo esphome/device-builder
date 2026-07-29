@@ -17,7 +17,9 @@ import pytest
 
 from esphome_device_builder import definitions as defs
 from esphome_device_builder.definitions import (
+    MigrationRule,
     _generic_image_url,
+    _load_migration_rules,
     _parse_connectivity,
     _parse_pin_features,
     _parse_tags,
@@ -27,6 +29,7 @@ from esphome_device_builder.definitions import (
     load_board_catalog,
     load_board_index,
     load_featured_components_index,
+    load_migration_rules_index,
     load_pin_registry_modes_index,
 )
 from esphome_device_builder.models import (
@@ -353,6 +356,100 @@ def test_load_pin_registry_modes_tolerates_unexpected_shapes(
 
     json_path.write_bytes(orjson.dumps({"pca9554": ["input", 5], "bad": "nope"}))
     assert load_pin_registry_modes_index() == {"pca9554": ["input"]}
+
+
+def test_load_migration_rules_missing_returns_empty(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing artefact disables generic renames (bespoke migrations still run)."""
+    with caplog.at_level(logging.WARNING):
+        result = _load_migration_rules(tmp_path / "missing.index.json")
+    assert result == ()
+    assert any("migration_rules.index.json" in rec.getMessage() for rec in caplog.records)
+
+
+def test_load_migration_rules_corrupt_returns_empty(tmp_path: Path) -> None:
+    json_path = tmp_path / "migration_rules.index.json"
+    json_path.write_bytes(b"{not valid json")
+    assert _load_migration_rules(json_path) == ()
+
+
+def test_load_migration_rules_reads_both_kinds(tmp_path: Path) -> None:
+    json_path = tmp_path / "migration_rules.index.json"
+    json_path.write_bytes(
+        orjson.dumps(
+            {
+                "rules": [
+                    {
+                        "kind": "component_block_field",
+                        "component": "mycomp",
+                        "old": "a",
+                        "new": "b",
+                    },
+                    {
+                        "kind": "platform_item_field",
+                        "domain": "sensor",
+                        "platform": "sgp4x",
+                        "old": "voc",
+                        "new": "voc_index",
+                    },
+                ]
+            }
+        )
+    )
+    assert _load_migration_rules(json_path) == (
+        MigrationRule(kind="component_block_field", old="a", new="b", component="mycomp"),
+        MigrationRule(
+            kind="platform_item_field",
+            old="voc",
+            new="voc_index",
+            domain="sensor",
+            platform="sgp4x",
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        pytest.param("not-a-dict", id="non_dict"),
+        pytest.param({"kind": "unknown", "old": "a", "new": "b"}, id="unknown_kind"),
+        pytest.param({"kind": "component_block_field", "component": "x", "old": "a"}, id="no_new"),
+        pytest.param(
+            {"kind": "component_block_field", "component": "x", "old": "a", "new": "a"},
+            id="old_equals_new",
+        ),
+        pytest.param({"kind": "component_block_field", "old": "a", "new": "b"}, id="no_component"),
+        pytest.param(
+            {"kind": "platform_item_field", "domain": "sensor", "old": "a", "new": "b"},
+            id="no_platform",
+        ),
+        pytest.param(
+            {"kind": "platform_item_field", "domain": 5, "platform": "x", "old": "a", "new": "b"},
+            id="non_string_domain",
+        ),
+    ],
+)
+def test_load_migration_rules_drops_malformed_records(tmp_path: Path, record: object) -> None:
+    json_path = tmp_path / "migration_rules.index.json"
+    keep = {"kind": "component_block_field", "component": "ok", "old": "a", "new": "b"}
+    json_path.write_bytes(orjson.dumps({"rules": [record, keep]}))
+    assert _load_migration_rules(json_path) == (
+        MigrationRule(kind="component_block_field", old="a", new="b", component="ok"),
+    )
+
+
+def test_load_migration_rules_rejects_non_list_rules(tmp_path: Path) -> None:
+    json_path = tmp_path / "migration_rules.index.json"
+    json_path.write_bytes(orjson.dumps({"rules": "nope"}))
+    assert _load_migration_rules(json_path) == ()
+    json_path.write_bytes(orjson.dumps([1, 2]))
+    assert _load_migration_rules(json_path) == ()
+
+
+def test_load_migration_rules_index_reads_the_committed_artifact() -> None:
+    """The cached entry point parses the shipped (empty until upstream adds pairs) artifact."""
+    assert load_migration_rules_index() == ()
 
 
 def test_load_board_body_refuses_traversal_id(caplog: pytest.LogCaptureFixture) -> None:
