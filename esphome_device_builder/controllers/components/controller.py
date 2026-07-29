@@ -163,6 +163,11 @@ class ComponentCatalog:
         """
         return self._categories_for_board(board_id)
 
+    @api_command("components/get_renamed_keys")
+    async def get_renamed_keys(self, **kwargs: Any) -> dict[str, dict[str, str]]:
+        """Return every component's non-empty legacy key spellings, ``{component: {old: new}}``."""
+        return self.all_renamed_keys()
+
     @api_command("components/get_pin_registry_modes")
     async def get_pin_registry_modes(self, **kwargs: Any) -> dict[str, list[str]]:
         """
@@ -504,6 +509,10 @@ class ComponentCatalog:
         """Legacy ``{old: new}`` key spellings for *component_id* from the slim index."""
         entry = self._by_id.get(normalize_platform(component_id))
         return entry.renamed_keys if entry else {}
+
+    def all_renamed_keys(self) -> dict[str, dict[str, str]]:
+        """Every component's non-empty ``renamed_keys`` map from the slim index."""
+        return {c.id: c.renamed_keys for c in self._components if c.renamed_keys}
 
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
         """Return the hydrated body for *component_id*, or ``None`` if missing."""

@@ -263,6 +263,7 @@ Board catalog dataclasses (`BoardCatalogIndex`, `BoardCatalogEntry`, `BoardHardw
 | `components/get_components` | `{query?, category?, exclude_category?, platform?, board_id?, provides?, offset?, limit?}` | `PagedComponentsResponse` | Search/list components |
 | `components/get_component_bodies` | `{component_ids, platform?, board_id?}` | `{component_id: ComponentCatalogEntry}` | Hydrate one or many bodies; missing ids omitted |
 | `components/get_pin_registry_modes` | _none_ | `{provider_key: [mode_flag, …]}` | Allowed long-form pin `mode` flags per external pin provider; empty when the artefact is missing |
+| `components/get_renamed_keys` | _none_ | `{component: {old: new}}` | Legacy key spellings esphome still accepts (the catalog's `cv.rename_key` pairs), only components with a non-empty map. The device editor fetches this once at its load gate and resolves accepted spellings from it |
 
 `platform` filters to components compatible with the given target platform; components with an empty `supported_platforms` list are platform-agnostic and always included. `board_id` is a convenience — the boards catalog resolves it to a platform; `platform` wins when both are passed. The platform is also used to materialise each entry's `platform_defaults` into `default_value`.
 

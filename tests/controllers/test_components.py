@@ -265,6 +265,18 @@ def test_renamed_keys_reads_slim_index_or_empty() -> None:
     assert cat.renamed_keys("does-not-exist") == {}
 
 
+async def test_get_renamed_keys_returns_only_non_empty_maps() -> None:
+    """The WS command carries only components whose map is non-empty."""
+    cat = ComponentCatalog()
+    api_entry = _make_entry(entry_id="api")
+    api_entry.renamed_keys = {"services": "actions", "service": "action"}
+    cat._components = [api_entry, _make_entry(entry_id="wifi")]
+    cat._by_id = {c.id: c for c in cat._components}
+    assert await cat.get_renamed_keys() == {"api": {"services": "actions", "service": "action"}}
+    cat._components = [_make_entry(entry_id="wifi")]
+    assert await cat.get_renamed_keys() == {}
+
+
 # ── get_components() ────────────────────────────────────────────────
 
 
