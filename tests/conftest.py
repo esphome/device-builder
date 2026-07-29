@@ -1245,6 +1245,6 @@ def catalog_releases_ahead(stamp_file: str = "components.index.json") -> int:
 
 
 @pytest.fixture
-def api_renamed_keys() -> dict[str, str]:
-    """Return the api component's catalog ``renamed_keys`` map, as the controller passes it."""
-    return {"services": "actions", "service": "action"}
+def api_action_spellings() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return the accepted ``(block, item)`` api-action spellings, as the controller passes them."""
+    return ("actions", "services"), ("action", "service")

@@ -37,6 +37,7 @@ def _make_controller(config_dir: Path) -> AutomationsController:
     # Real index_title returns a str/None; a bare MagicMock would break the
     # ``title: str | None`` serialization in ``get_available``.
     db.components.index_title = lambda _component_id: None
+    db.components.accepted_spellings = lambda _component_id, path: (path[-1],)
     return AutomationsController(db)
 
 

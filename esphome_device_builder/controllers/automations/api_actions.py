@@ -15,20 +15,9 @@ grep-ability.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from functools import lru_cache
 
 from ...models.automations import YamlDiff
-
-
-def block_keys(renamed: Mapping[str, str] | None) -> tuple[str, ...]:
-    """Return the accepted spellings of the ``api.actions:`` block key, canonical first."""
-    return _spellings("actions", renamed)
-
-
-def item_keys(renamed: Mapping[str, str] | None) -> tuple[str, ...]:
-    """Return the accepted spellings of an item's ``action:`` key, canonical first."""
-    return _spellings("action", renamed)
 
 
 def inline_actions_key(
@@ -263,11 +252,6 @@ def render_delete_actions_key(
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
-
-
-def _spellings(canonical: str, renamed: Mapping[str, str] | None) -> tuple[str, ...]:
-    """Return *canonical* plus every legacy spelling *renamed* maps onto it."""
-    return (canonical, *(old for old, new in (renamed or {}).items() if new == canonical))
 
 
 def _find_block_key_line(

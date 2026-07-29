@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +20,7 @@ from ...models import (
     ComponentCatalogEntry,
     ComponentCatalogIndexEntry,
     ComponentCategory,
+    ConfigEntry,
     IntegrationDocEntry,
     PagedComponentsResponse,
 )
@@ -94,6 +94,11 @@ class ComponentCatalog:
         # empty (or a native pin with no provider key) leaves the frontend
         # showing every flag (the pre-scoping behaviour).
         self._pin_registry_modes: dict[str, list[str]] = {}
+        # ``(component, canonical_path) -> (canonical, *legacy)`` accepted
+        # key spellings, projected from the ``renamed_to`` marks of the
+        # bodies the index lists under ``renamed_components``. Built once
+        # in ``load()`` so lookups are RAM-only on the WS dispatch path.
+        self._accepted_spellings: dict[tuple[str, tuple[str, ...]], tuple[str, ...]] = {}
         self._body_store: LazyBodyStore[ComponentCatalogEntry] = LazyBodyStore(
             load_one=_load_body_from_disk,
             cache_maxsize=_BODY_CACHE_MAXSIZE,
@@ -130,6 +135,7 @@ class ComponentCatalog:
         self._by_id = {c.id: c for c in self._components}
         self._build_featured_registry()
         self._pin_registry_modes = load_pin_registry_modes_index()
+        self._build_accepted_spellings(data.get("renamed_components", []))
         _LOGGER.info(
             "Component catalog loaded: %d components (slim index), %d featured, %d pin registries",
             len(self._components),
@@ -163,10 +169,19 @@ class ComponentCatalog:
         """
         return self._categories_for_board(board_id)
 
-    @api_command("components/get_renamed_keys")
-    async def get_renamed_keys(self, **kwargs: Any) -> dict[str, dict[str, str]]:
-        """Return every component's non-empty legacy key spellings, ``{component: {old: new}}``."""
-        return self.all_renamed_keys()
+    @api_command("components/get_legacy_spellings")
+    async def get_legacy_spellings(self, **kwargs: Any) -> dict[str, list[dict[str, Any]]]:
+        """Return every legacy-spelled entry as ``{component: [{path, spellings}]}``.
+
+        ``path`` is the canonical tree path; ``spellings`` lists the
+        accepted key names at that position, canonical first.
+        """
+        out: dict[str, list[dict[str, Any]]] = {}
+        for (component_id, path), spellings in self._accepted_spellings.items():
+            out.setdefault(component_id, []).append(
+                {"path": list(path), "spellings": list(spellings)}
+            )
+        return out
 
     @api_command("components/get_pin_registry_modes")
     async def get_pin_registry_modes(self, **kwargs: Any) -> dict[str, list[str]]:
@@ -505,14 +520,10 @@ class ComponentCatalog:
         entry = self._by_id.get(normalize_platform(component_id))
         return entry.name if entry else None
 
-    def renamed_keys(self, component_id: str) -> Mapping[str, str]:
-        """Legacy ``{old: new}`` key spellings for *component_id* from the slim index."""
-        entry = self._by_id.get(normalize_platform(component_id))
-        return entry.renamed_keys if entry else {}
-
-    def all_renamed_keys(self) -> dict[str, dict[str, str]]:
-        """Every component's non-empty ``renamed_keys`` map from the slim index."""
-        return {c.id: c.renamed_keys for c in self._components if c.renamed_keys}
+    def accepted_spellings(self, component_id: str, path: tuple[str, ...]) -> tuple[str, ...]:
+        """Return the accepted key spellings of the entry at canonical *path*, canonical first."""
+        key = (normalize_platform(component_id), path)
+        return self._accepted_spellings.get(key, (path[-1],))
 
     async def get_body(self, component_id: str) -> ComponentCatalogEntry | None:
         """Return the hydrated body for *component_id*, or ``None`` if missing."""
@@ -691,6 +702,33 @@ class ComponentCatalog:
                 continue
             return [(body, _apply_featured_presets(record, {}, body))]
         return []
+
+    def _build_accepted_spellings(self, renamed_components: list[str]) -> None:
+        """Project the ``renamed_to`` marks of the listed bodies into RAM."""
+        self._accepted_spellings = {}
+        for component_id in renamed_components:
+            body = self._body_store.get_sync(component_id)
+            if body is not None:
+                self._collect_spellings(component_id, (), body.config_entries)
+
+    def _collect_spellings(
+        self,
+        component_id: str,
+        path: tuple[str, ...],
+        entries: list[ConfigEntry],
+    ) -> None:
+        """Record each level's marked entries under their canonical sibling's path."""
+        marks: dict[str, list[str]] = {}
+        for entry in entries:
+            if entry.renamed_to:
+                marks.setdefault(entry.renamed_to, []).append(entry.key)
+        for canonical, legacy in marks.items():
+            self._accepted_spellings[(component_id, (*path, canonical))] = (canonical, *legacy)
+        for entry in entries:
+            # A marked entry's subtree duplicates its canonical sibling's.
+            if entry.renamed_to or not entry.config_entries:
+                continue
+            self._collect_spellings(component_id, (*path, entry.key), entry.config_entries)
 
     def _build_featured_registry(self) -> None:
         """Index every featured component from the precomputed map.

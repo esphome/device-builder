@@ -28,7 +28,7 @@ into the ordered :class:`ParsedAutomation` list.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from functools import partial
 from importlib import resources
 from typing import Any, NamedTuple
@@ -51,7 +51,7 @@ from ...models.automations import (
     ParsedAutomation,
     ScriptLocation,
 )
-from . import api_actions, catalog
+from . import catalog
 from ._decompose import (
     DEFAULT_SHORTHAND_KEY,
     _block_tree,
@@ -101,7 +101,8 @@ _COMPONENTS_PACKAGE = "esphome_device_builder.definitions.components"
 def parse_device_yaml(
     yaml_text: str,
     *,
-    api_renamed_keys: Mapping[str, str] | None = None,
+    api_block_keys: tuple[str, ...] = ("actions",),
+    api_item_keys: tuple[str, ...] = ("action",),
 ) -> list[ParsedAutomation]:
     """
     Walk *yaml_text* and return every automation we recognise.
@@ -110,8 +111,9 @@ def parse_device_yaml(
     inline component handlers → light effects. ``from_line`` /
     ``to_line`` are 1-indexed against the input YAML so the navigator
     can map a click to the right range without re-parsing.
-    *api_renamed_keys* is the api component's catalog legacy-spelling
-    map; without it only canonical key names match.
+    *api_block_keys* / *api_item_keys* are the catalog's accepted
+    spellings of ``api.actions:`` and its item discriminator, canonical
+    first; the defaults match only canonical names.
     """
     yaml = make_yaml()
     try:
@@ -126,7 +128,7 @@ def parse_device_yaml(
     out.extend(_parse_device_level(data))
     out.extend(_parse_top_level_scripts(data))
     out.extend(_parse_top_level_intervals(data))
-    out.extend(_parse_api_actions(data, api_renamed_keys))
+    out.extend(_parse_api_actions(data, api_block_keys, api_item_keys))
     out.extend(_parse_inline_component_triggers(data))
     out.extend(_parse_component_action_fields(data))
     out.extend(_parse_light_effects(data))
@@ -264,28 +266,31 @@ def _parse_top_level_intervals(root: Any) -> list[ParsedAutomation]:
     )
 
 
-def _parse_api_actions(root: Any, renamed: Mapping[str, str] | None) -> list[ParsedAutomation]:
+def _parse_api_actions(
+    root: Any,
+    block_keys: tuple[str, ...],
+    item_keys: tuple[str, ...],
+) -> list[ParsedAutomation]:
     """
     Parse ``api.actions:`` list items as callable automations.
 
     Structurally a near-duplicate of ``script:`` — named callable
     with typed ``variables:`` and a ``then:`` action list — so the
-    same :class:`AutomationTree` shape carries it. *renamed* supplies
-    the accepted legacy spellings of the block and discriminator keys;
-    the writer emits canonical ``action:``.
+    same :class:`AutomationTree` shape carries it. *block_keys* /
+    *item_keys* are the accepted spellings of the block and
+    discriminator keys; the writer emits canonical ``action:``.
     """
     if not isinstance(root, dict):
         return []
     api_block = root.get("api")
     if not isinstance(api_block, dict):
         return []
-    for key in api_actions.block_keys(renamed):
+    for key in block_keys:
         actions = api_block.get(key)
         if isinstance(actions, list):
             break
     else:
         return []
-    item_keys = api_actions.item_keys(renamed)
 
     def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str] | None:
         del idx

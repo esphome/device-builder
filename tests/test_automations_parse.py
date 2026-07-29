@@ -480,7 +480,9 @@ def test_parse_http_request_action_response_handlers() -> None:
     assert [a.action_id for a in action.children["on_error"]] == ["logger.log"]
 
 
-def test_parse_api_action_accepts_legacy_service_key(api_renamed_keys: dict[str, str]) -> None:
+def test_parse_api_action_accepts_legacy_service_key(
+    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+) -> None:
     """The legacy ``service:`` discriminator parses to the same shape."""
     legacy = (
         "esphome:\n  name: x\n"
@@ -488,13 +490,19 @@ def test_parse_api_action_accepts_legacy_service_key(api_renamed_keys: dict[str,
         "    - service: legacy_name\n"
         "      then:\n        - delay: 1s\n"
     )
-    parsed = parse_device_yaml(legacy, api_renamed_keys=api_renamed_keys)
+    parsed = parse_device_yaml(
+        legacy,
+        api_block_keys=api_action_spellings[0],
+        api_item_keys=api_action_spellings[1],
+    )
     assert len(parsed) == 1
     assert parsed[0].location.kind == "api_action"
     assert parsed[0].location.action_name == "legacy_name"
 
 
-def test_parse_api_action_accepts_legacy_services_block(api_renamed_keys: dict[str, str]) -> None:
+def test_parse_api_action_accepts_legacy_services_block(
+    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+) -> None:
     """A legacy ``services:`` block parses the same as ``actions:``."""
     legacy = (
         "esphome:\n  name: x\n"
@@ -504,7 +512,11 @@ def test_parse_api_action_accepts_legacy_services_block(api_renamed_keys: dict[s
         "    - service: stop_va\n"
         "      then:\n        - delay: 2s\n"
     )
-    parsed = parse_device_yaml(legacy, api_renamed_keys=api_renamed_keys)
+    parsed = parse_device_yaml(
+        legacy,
+        api_block_keys=api_action_spellings[0],
+        api_item_keys=api_action_spellings[1],
+    )
     names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
     assert names == ["start_va", "stop_va"]
 

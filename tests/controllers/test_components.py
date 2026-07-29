@@ -255,26 +255,50 @@ def test_index_title_resolves_rp2_alias() -> None:
     assert cat.index_title("rp2") == "RP2040 Platform"
 
 
-def test_renamed_keys_reads_slim_index_or_empty() -> None:
-    """``renamed_keys`` is the slim-index map for a known id, ``{}`` otherwise."""
-    cat = ComponentCatalog()
-    entry = _make_entry(entry_id="api")
-    entry.renamed_keys = {"services": "actions", "service": "action"}
-    cat._by_id = {"api": entry}
-    assert cat.renamed_keys("api") == {"services": "actions", "service": "action"}
-    assert cat.renamed_keys("does-not-exist") == {}
+def _marked_api_entries() -> list[ConfigEntry]:
+    """Entry tree mirroring the marked api body shape."""
+    children = [
+        ConfigEntry(key="action", type=ConfigEntryType.STRING, label="Action"),
+        ConfigEntry(
+            key="service", type=ConfigEntryType.STRING, label="Service", renamed_to="action"
+        ),
+    ]
+    return [
+        ConfigEntry(
+            key="actions",
+            type=ConfigEntryType.NESTED,
+            label="Actions",
+            config_entries=children,
+        ),
+        ConfigEntry(
+            key="services",
+            type=ConfigEntryType.NESTED,
+            label="Services",
+            renamed_to="actions",
+            config_entries=children,
+        ),
+    ]
 
 
-async def test_get_renamed_keys_returns_only_non_empty_maps() -> None:
-    """The WS command carries only components whose map is non-empty."""
+def test_accepted_spellings_projects_marks_by_canonical_path() -> None:
+    """Marked entries resolve at their canonical path; unmarked paths fall back."""
     cat = ComponentCatalog()
-    api_entry = _make_entry(entry_id="api")
-    api_entry.renamed_keys = {"services": "actions", "service": "action"}
-    cat._components = [api_entry, _make_entry(entry_id="wifi")]
-    cat._by_id = {c.id: c for c in cat._components}
-    assert await cat.get_renamed_keys() == {"api": {"services": "actions", "service": "action"}}
-    cat._components = [_make_entry(entry_id="wifi")]
-    assert await cat.get_renamed_keys() == {}
+    cat._collect_spellings("api", (), _marked_api_entries())
+    assert cat.accepted_spellings("api", ("actions",)) == ("actions", "services")
+    assert cat.accepted_spellings("api", ("actions", "action")) == ("action", "service")
+    assert cat.accepted_spellings("api", ("port",)) == ("port",)
+    assert cat.accepted_spellings("wifi", ("actions",)) == ("actions",)
+
+
+async def test_get_legacy_spellings_returns_pathed_projection() -> None:
+    """The WS command carries each marked position's path + spellings."""
+    cat = ComponentCatalog()
+    cat._collect_spellings("api", (), _marked_api_entries())
+    result = await cat.get_legacy_spellings()
+    assert sorted(result["api"], key=lambda row: row["path"]) == [
+        {"path": ["actions"], "spellings": ["actions", "services"]},
+        {"path": ["actions", "action"], "spellings": ["action", "service"]},
+    ]
 
 
 # ── get_components() ────────────────────────────────────────────────

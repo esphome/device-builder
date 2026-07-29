@@ -466,6 +466,14 @@ class ConfigEntry(DashboardModel):
     # Null on every other entry type. #941.
     registry: str | None = None
 
+    # Set on a legacy-spelled entry: the canonical sibling key esphome
+    # rewrites this one to (``cv.rename_key``; the api ``services``
+    # entry carries ``"actions"``). Both spellings exist as siblings at
+    # the same level, so consumers resolve accepted spellings and
+    # deprecation nudges from the tree position. Null on canonical
+    # entries.
+    renamed_to: str | None = None
+
     # Unit choices for ``FLOAT_WITH_UNIT`` entries. The frontend
     # renders a unit picker populated from this list; each option's
     # string is what the YAML serialization appends after the

@@ -388,12 +388,15 @@ against legacy behaviour before assuming the simpler version suffices.
 - **Legacy key spellings are generated data — never hard-code them.**
   esphome's `cv.rename_key` aliases (`api: services:` → `actions:`,
   item `service:` → `action:`) are extracted at sync time
-  (`_collect_rename_keys`) into component-level `renamed_keys` maps on
-  the catalog index and bodies. Consumers derive accepted spellings from
-  the map: `ComponentCatalog.renamed_keys(id)` backend-side (threaded
-  into `controllers/automations/` via `block_keys` / `item_keys`), the
-  catalog payloads frontend-side. A future esphome rename must flow in
-  through the nightly catalog sync, not a new literal (#2396).
+  (`_collect_rename_keys`) and stamped as `renamed_to` marks on the
+  legacy ConfigEntry in place — only where the canonical sibling exists
+  at the same level, so nesting stays structural. Consumers derive
+  accepted spellings from the marks:
+  `ComponentCatalog.accepted_spellings(id, path)` backend-side
+  (threaded into `controllers/automations/` as key tuples), the
+  `components/get_legacy_spellings` projection frontend-side (fetched
+  once at the device editor's load gate). A future esphome rename must
+  flow in through the nightly catalog sync, not a new literal (#2396).
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

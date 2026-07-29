@@ -10,7 +10,6 @@ config-write debounce on the device editor handles that.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -197,9 +196,14 @@ class AutomationsController:
         the form lands empty.
         """
         text = yaml if yaml is not None else await self._read_config(configuration)
-        renamed = self._api_renamed_keys()
+        block_keys, item_keys = self._api_action_spellings()
         parsed = await run_in_executor(
-            partial(parsing.parse_device_yaml, text, api_renamed_keys=renamed)
+            partial(
+                parsing.parse_device_yaml,
+                text,
+                api_block_keys=block_keys,
+                api_item_keys=item_keys,
+            )
         )
         return [p.to_dict() for p in parsed]
 
@@ -233,9 +237,15 @@ class AutomationsController:
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        renamed = self._api_renamed_keys()
+        block_keys, item_keys = self._api_action_spellings()
         _new_text, diff = await run_in_executor(
-            lambda: writing.render_upsert(text, tree=tree, location=loc, api_renamed_keys=renamed),
+            lambda: writing.render_upsert(
+                text,
+                tree=tree,
+                location=loc,
+                api_block_keys=block_keys,
+                api_item_keys=item_keys,
+            ),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
@@ -256,9 +266,11 @@ class AutomationsController:
         """
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        renamed = self._api_renamed_keys()
+        block_keys, item_keys = self._api_action_spellings()
         _new_text, diff = await run_in_executor(
-            lambda: writing.render_delete(text, location=loc, api_renamed_keys=renamed),
+            lambda: writing.render_delete(
+                text, location=loc, api_block_keys=block_keys, api_item_keys=item_keys
+            ),
         )
         return UpsertResponse(yaml_diff=diff).to_dict()
 
@@ -266,10 +278,15 @@ class AutomationsController:
     # Internals
     # ------------------------------------------------------------------
 
-    def _api_renamed_keys(self) -> Mapping[str, str]:
-        """Return the api component's catalog legacy-spelling map, ``{}`` before load."""
+    def _api_action_spellings(self) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return the accepted ``(block, item)`` key spellings for api actions."""
         components = self._db.components
-        return components.renamed_keys("api") if components is not None else {}
+        if components is None:
+            return ("actions",), ("action",)
+        return (
+            components.accepted_spellings("api", ("actions",)),
+            components.accepted_spellings("api", ("actions", "action")),
+        )
 
     async def _read_config(self, configuration: str) -> str:
         """Read a device's YAML off disk in a worker thread."""

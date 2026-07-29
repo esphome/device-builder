@@ -49,7 +49,7 @@ import time
 import unicodedata
 import urllib.request
 import zipfile
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -2639,6 +2639,7 @@ def build_component_entry(
     _apply_esp32_options(component_id, config_entries)
     _promote_multi_value_keys(config_entries)
     _promote_template_controls(component_id, config_entries)
+    _apply_renamed_marks(config_entries, introspection.get("renamed_keys") or {})
 
     component = {
         "id": component_id,
@@ -2652,7 +2653,6 @@ def build_component_entry(
             introspection.get("multi_conf", False) or component_id in _LIST_SCHEMA_MULTI_CONF
         ),
         "bus_constraints": bus_constraints,
-        "renamed_keys": introspection.get("renamed_keys") or {},
         "supported_platforms": _derive_supported_platforms(
             stem if domain else top_key,
             dependencies,
@@ -2780,6 +2780,28 @@ def _apply_visibility_cascade(
                 parent_advanced=entry["advanced"],
                 parent_yaml_only=entry["hidden"],
             )
+
+
+def _apply_renamed_marks(entries: list[dict], pairs: Mapping[str, str]) -> None:
+    """
+    Stamp ``renamed_to`` on legacy-spelled entries, level by level.
+
+    *pairs* is the component's discovered ``cv.rename_key`` map
+    (``{old: new}``). A mark lands only where the canonical sibling
+    exists at the same level, so nesting level stays structural and a
+    pair discovered at one depth can't mislabel a same-named key at
+    another.
+    """
+    if not pairs:
+        return
+    present = {entry.get("key") for entry in entries}
+    for entry in entries:
+        new = pairs.get(entry.get("key", ""))
+        if new is not None and new in present:
+            entry["renamed_to"] = new
+        inner = entry.get("config_entries")
+        if isinstance(inner, list):
+            _apply_renamed_marks(inner, pairs)
 
 
 def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
@@ -5075,6 +5097,7 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "group": None,
     "required_groups": [],
     "registry": None,
+    "renamed_to": None,
 }
 
 _COMPONENT_DEFAULTS: dict[str, Any] = {
@@ -5088,7 +5111,6 @@ _COMPONENT_DEFAULTS: dict[str, Any] = {
     "config_entries": [],
     "required_groups": [],
     "bus_constraints": {},
-    "renamed_keys": {},
 }
 
 
@@ -5175,6 +5197,12 @@ def _emit_split_catalog(catalog: list[dict], version: str) -> None:
     # wheel after deflate.
     index_payload = {
         "esphome_schema_version": version,
+        # Components whose entry tree carries ``renamed_to`` marks —
+        # the runtime pre-warms exactly these bodies to build the
+        # accepted-spellings projection without scanning every body.
+        "renamed_components": sorted(
+            c["id"] for c in catalog if _tree_has_renamed_marks(c.get("config_entries") or [])
+        ),
         "components": [_strip_index_defaults(c) for c in catalog],
     }
     swap_split_catalog_in(
@@ -5267,6 +5295,15 @@ def _emit_split_automations_catalog(automations: dict[str, Any], version: str) -
         _AUTOMATIONS_BODIES_DIR,
     )
     _LOGGER.info("Wrote %s", _AUTOMATIONS_INDEX_FILE)
+
+
+def _tree_has_renamed_marks(entries: list[dict]) -> bool:
+    """Report whether any entry in the tree carries a ``renamed_to`` mark."""
+    return any(
+        entry.get("renamed_to") is not None
+        or _tree_has_renamed_marks(entry.get("config_entries") or [])
+        for entry in entries
+    )
 
 
 def _strip_index_defaults(component: dict) -> dict:
