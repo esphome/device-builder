@@ -284,9 +284,7 @@ def _collect_block_params(
     return out
 
 
-def _collect_api_action_params(
-    block: dict, *, drop_keys: frozenset[str] | set[str]
-) -> dict[str, Any]:
+def _collect_api_action_params(block: dict, *, drop_keys: set[str]) -> dict[str, Any]:
     """Collect ``api.actions:`` item params, dropping *drop_keys* (discriminator + ``then:``)."""
     out: dict[str, Any] = {}
     for key, value in block.items():

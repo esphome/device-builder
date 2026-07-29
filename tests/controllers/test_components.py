@@ -255,6 +255,16 @@ def test_index_title_resolves_rp2_alias() -> None:
     assert cat.index_title("rp2") == "RP2040 Platform"
 
 
+def test_renamed_keys_reads_slim_index_or_empty() -> None:
+    """``renamed_keys`` is the slim-index map for a known id, ``{}`` otherwise."""
+    cat = ComponentCatalog()
+    entry = _make_entry(entry_id="api")
+    entry.renamed_keys = {"services": "actions", "service": "action"}
+    cat._by_id = {"api": entry}
+    assert cat.renamed_keys("api") == {"services": "actions", "service": "action"}
+    assert cat.renamed_keys("does-not-exist") == {}
+
+
 # ── get_components() ────────────────────────────────────────────────
 
 

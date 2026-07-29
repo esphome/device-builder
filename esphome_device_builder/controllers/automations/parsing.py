@@ -279,12 +279,11 @@ def _parse_api_actions(root: Any, renamed: Mapping[str, str] | None) -> list[Par
     api_block = root.get("api")
     if not isinstance(api_block, dict):
         return []
-    actions: Any = None
     for key in api_actions.block_keys(renamed):
         actions = api_block.get(key)
         if isinstance(actions, list):
             break
-    if not isinstance(actions, list):
+    else:
         return []
     item_keys = api_actions.item_keys(renamed)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -499,7 +500,7 @@ class ComponentCatalog:
         entry = self._by_id.get(normalize_platform(component_id))
         return entry.name if entry else None
 
-    def renamed_keys(self, component_id: str) -> dict[str, str]:
+    def renamed_keys(self, component_id: str) -> Mapping[str, str]:
         """Legacy ``{old: new}`` key spellings for *component_id* from the slim index."""
         entry = self._by_id.get(normalize_platform(component_id))
         return entry.renamed_keys if entry else {}

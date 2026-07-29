@@ -4828,7 +4828,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
-    renamed_keys = _collect_rename_keys(manifest)
+    renamed_keys = dict(_collect_rename_keys(manifest))
     for platform_manifest in platform_manifests:
         for old_key, new_key in _collect_rename_keys(platform_manifest).items():
             renamed_keys.setdefault(old_key, new_key)
@@ -7999,7 +7999,12 @@ def _apply_list_fields(entries: list[dict], list_fields: dict[tuple[str, ...], b
 
 #: Schema-factory wrappers whose closures hold nested schemas worth
 #: walking for ``cv.rename_key`` validators. Matched against
-#: ``__qualname__`` prefixes.
+#: ``__qualname__`` prefixes. Descent is limited to these because a
+#: generic function-closure walk reaches the global automation registry
+#: and from there every loaded component's schema graph; every probe is
+#: also type-strict, because a codegen ``MockObj`` answers any getattr
+#: with a fresh truthy object (msa3xx's ``typed_schema`` enum hung an
+#: unrestricted walk).
 _RENAME_WRAPPER_PREFIXES = (
     "validate_automation.",
     "ensure_list.",
@@ -8007,30 +8012,35 @@ _RENAME_WRAPPER_PREFIXES = (
     "maybe_simple_value.",
 )
 
+#: Node types the rename walk descends into beyond functions.
+_RENAME_SCHEMA_TYPES = (dict, vol.Schema)
+
+#: Per-schema memo for :func:`_collect_rename_keys`. Schemas are
+#: unhashable, so keyed on identity; the stored schema ref keeps the
+#: id from being reused. Entries sharing a stem re-introspect the same
+#: manifest, so the walk would otherwise repeat thousands of times per
+#: sync.
+_RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[str, str]]] = {}
+
 
 def _collect_rename_keys(manifest: Any) -> dict[str, str]:
     """
     Walk the live ``CONFIG_SCHEMA`` for ``cv.rename_key`` aliases.
 
     Returns ``{old_key: new_key}`` for every rename validator reachable
-    from the schema (top-level and nested, including list-item and
-    wrapper-closure schemas): esphome accepts the old spelling forever
-    and rewrites it during validation, so the bundle emits both keys
-    with no link between them. Empty dict when the component has no
-    schema.
-
-    Closure descent is limited to the schema-factory wrappers in
-    :data:`_RENAME_WRAPPER_PREFIXES` — a generic function-closure walk
-    reaches the global automation registry and from there every loaded
-    component's schema graph, and doesn't return. Every probe is
-    type-strict: a codegen ``MockObj`` answers *any* ``getattr`` with a
-    fresh truthy object (msa3xx's ``typed_schema`` enum hung the walk),
-    so anything that isn't a dict / ``vol.Schema`` / compound validator
-    / plain function is an inert leaf.
+    from the schema, including list-item and wrapper-closure schemas.
+    Empty dict when the component has no schema. Memoised per schema —
+    callers must not mutate the result.
     """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+    memoised = _RENAME_KEYS_MEMO.get(id(schema))
+    if memoised is not None and memoised[0] is schema:
+        return memoised[1]
     out: dict[str, str] = {}
     visited: set[int] = set()
-    stack: list[tuple[Any, int]] = [(getattr(manifest, "config_schema", None), 0)]
+    stack: list[tuple[Any, int]] = [(schema, 0)]
     while stack:
         node, depth = stack.pop()
         if node is None or depth > 10 or id(node) in visited:
@@ -8041,6 +8051,7 @@ def _collect_rename_keys(manifest: Any) -> dict[str, str]:
             out.setdefault(pair[0], pair[1])
             continue
         stack.extend((child, depth + 1) for child in _rename_walk_children(node))
+    _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
     return out
 
 
@@ -8080,7 +8091,7 @@ def _rename_walk_children(node: Any) -> Iterator[Any]:
         return
     for value in nonlocals.values():
         if (
-            isinstance(value, dict | vol.Schema)
+            isinstance(value, _RENAME_SCHEMA_TYPES)
             or isinstance(getattr(value, "validators", None), (list, tuple))
             or _is_rename_wrapper(value)
         ):

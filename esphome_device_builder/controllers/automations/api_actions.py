@@ -16,24 +16,19 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from functools import lru_cache
 
 from ...models.automations import YamlDiff
 
 
 def block_keys(renamed: Mapping[str, str] | None) -> tuple[str, ...]:
-    """Return the accepted spellings of the ``api.actions:`` block key, canonical first.
-
-    *renamed* is the api component's catalog ``renamed_keys`` map
-    (``{old: new}``); esphome accepts each old spelling forever, so
-    readers must match all of them and writers splice into whichever
-    the file uses.
-    """
-    return ("actions", *(old for old, new in (renamed or {}).items() if new == "actions"))
+    """Return the accepted spellings of the ``api.actions:`` block key, canonical first."""
+    return _spellings("actions", renamed)
 
 
 def item_keys(renamed: Mapping[str, str] | None) -> tuple[str, ...]:
     """Return the accepted spellings of an item's ``action:`` key, canonical first."""
-    return ("action", *(old for old, new in (renamed or {}).items() if new == "action"))
+    return _spellings("action", renamed)
 
 
 def inline_actions_key(
@@ -49,18 +44,14 @@ def inline_actions_key(
     delete and surface a clear error rather than emit a second
     ``actions:`` key alongside the inline one.
     """
-    api_start, api_end, child_indent = api_span
-    for key in keys:
-        header = f"{child_indent}{key}:"
-        for idx in range(api_start + 1, api_end):
-            text = lines[idx].rstrip("\n\r")
-            if text == header:
-                return None
-            if text.startswith(header + " "):
-                rest = text[len(header) :].strip()
-                if rest and not rest.startswith("#"):
-                    return key
-                return None
+    _api_start, _api_end, child_indent = api_span
+    found = _find_block_key_line(lines, api_span, keys)
+    if found is None:
+        return None
+    idx, key = found
+    rest = lines[idx].rstrip("\n\r")[len(f"{child_indent}{key}:") :].strip()
+    if rest and not rest.startswith("#"):
+        return key
     return None
 
 
@@ -77,9 +68,10 @@ def locate_actions_list(
     whitespace shared by each ``- ...`` dash line.
     """
     _api_start, api_end, child_indent = api_span
-    actions_start = _find_block_key_line(lines, api_span, keys)
-    if actions_start is None:
+    found = _find_block_key_line(lines, api_span, keys)
+    if found is None:
         return None
+    actions_start = found[0]
     actions_end = api_end
     for idx in range(actions_start + 1, api_end):
         content = lines[idx].rstrip("\n\r")
@@ -272,20 +264,38 @@ def render_delete_actions_key(
 # ---------------------------------------------------------------------------
 
 
+def _spellings(canonical: str, renamed: Mapping[str, str] | None) -> tuple[str, ...]:
+    """Return *canonical* plus every legacy spelling *renamed* maps onto it."""
+    return (canonical, *(old for old, new in (renamed or {}).items() if new == canonical))
+
+
 def _find_block_key_line(
     lines: list[str],
     api_span: tuple[int, int, str],
     keys: tuple[str, ...],
-) -> int | None:
-    """Return the line index of the first block key matching a spelling in *keys*."""
+) -> tuple[int, str] | None:
+    """Return ``(line index, key)`` of the first block key matching a spelling in *keys*."""
     api_start, api_end, child_indent = api_span
     for key in keys:
         header = f"{child_indent}{key}:"
         for idx in range(api_start + 1, api_end):
             text = lines[idx].rstrip("\n\r")
             if text == header or text.startswith(header + " "):
-                return idx
+                return idx, key
     return None
+
+
+@lru_cache(maxsize=64)
+def _discriminator_patterns(
+    item_indent: str, keys: tuple[str, ...]
+) -> tuple[re.Pattern, re.Pattern]:
+    """Return the compiled ``(inline, child)`` discriminator patterns for *keys*."""
+    child_indent = item_indent + "  "
+    key_alt = "|".join(re.escape(key) for key in keys)
+    return (
+        re.compile(rf"^{re.escape(item_indent)}-\s*(?:{key_alt}):\s*(?P<val>\S+)"),
+        re.compile(rf"^{re.escape(child_indent)}(?:{key_alt}):\s*(?P<val>\S+)"),
+    )
 
 
 def _discriminator(
@@ -296,17 +306,10 @@ def _discriminator(
     keys: tuple[str, ...],
 ) -> str | None:
     """Read a list item's discriminator value under any spelling in *keys*."""
-    child_indent = item_indent + "  "
-    key_alt = "|".join(re.escape(key) for key in keys)
-    inline = re.match(
-        rf"^{re.escape(item_indent)}-\s*(?:{key_alt}):\s*(?P<val>\S+)",
-        lines[item_start].rstrip("\n\r"),
-    )
+    inline_re, child_re = _discriminator_patterns(item_indent, keys)
+    inline = inline_re.match(lines[item_start].rstrip("\n\r"))
     if inline:
         return inline.group("val").strip("'\"")
-    child_re = re.compile(
-        rf"^{re.escape(child_indent)}(?:{key_alt}):\s*(?P<val>\S+)",
-    )
     for idx in range(item_start, item_end):
         m = child_re.match(lines[idx].rstrip("\n\r"))
         if m:

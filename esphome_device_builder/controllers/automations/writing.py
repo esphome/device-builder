@@ -351,6 +351,21 @@ def _upsert_component_action(
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
+def _refuse_inline_api_actions(
+    lines: list[str],
+    api_span: tuple[int, int, str],
+    block_keys: tuple[str, ...],
+) -> None:
+    """Raise ``INVALID_ARGS`` when the api action block key carries an inline value."""
+    inline_key = api_actions.inline_actions_key(lines, api_span, block_keys)
+    if inline_key is not None:
+        msg = (
+            f"api.{inline_key}: is inline (e.g. `{inline_key}: []`); "
+            "rewrite it as a block list first"
+        )
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
 def _upsert_api_action(
     yaml_text: str,
     tree: AutomationTree,
@@ -366,13 +381,7 @@ def _upsert_api_action(
         new_text, _block = api_actions.render_create_block(yaml_text, rendered)
         return new_text, _build_diff_for_append(yaml_text, new_text)
     block_keys = api_actions.block_keys(renamed)
-    inline_key = api_actions.inline_actions_key(lines, api_span, block_keys)
-    if inline_key is not None:
-        msg = (
-            f"api.{inline_key}: is inline (e.g. `{inline_key}: []`); "
-            "rewrite it as a block list first"
-        )
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    _refuse_inline_api_actions(lines, api_span, block_keys)
     actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
@@ -718,17 +727,12 @@ def _delete_api_action(
         msg = "api: block not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     block_keys = api_actions.block_keys(renamed)
-    inline_key = api_actions.inline_actions_key(lines, api_span, block_keys)
-    if inline_key is not None:
-        msg = (
-            f"api.{inline_key}: is inline (e.g. `{inline_key}: []`); "
-            "rewrite it as a block list first"
-        )
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    _refuse_inline_api_actions(lines, api_span, block_keys)
     actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
     if actions_span is None:
         msg = "api.actions: not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
+    item_keys = api_actions.item_keys(renamed)
     actions_start, actions_end, item_indent = actions_span
     existing = api_actions.find_item(
         lines,
@@ -736,7 +740,7 @@ def _delete_api_action(
         actions_end,
         item_indent,
         location.action_name,
-        api_actions.item_keys(renamed),
+        item_keys,
     )
     if existing is None:
         msg = f"api.actions[action={location.action_name!r}] not present"
