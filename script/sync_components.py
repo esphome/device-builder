@@ -2613,8 +2613,8 @@ def build_component_entry(
         # Platform build: drop hub-derived signals that bleed onto a
         # platform field this domain redefines (e.g. the modbus_controller
         # item ``address``). Hub builds keep them.
-        bleed = (introspection.get("field_range_bleed_keys") or {}).get(domain, set())
-        field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
+        bleed = (introspection.get("field_range_bleed_keys") or {}).get(domain, {})
+        field_ranges = _shed_range_bleed(field_ranges, bleed)
         refined_bleed = (introspection.get("refined_bleed_keys") or {}).get(domain, {})
         refined_types = _shed_refined_bleed(refined_types, refined_bleed)
     # Refined types first: the range gate reads the entry's final type,
@@ -4749,15 +4749,17 @@ def _upgrade_stamp_only_refinements(
 def _collect_bleed_keys(
     manifest: Any,
     platform_manifests_by_domain: list[tuple[str, Any]],
-) -> tuple[dict[str, set[tuple[str, ...]]], dict[str, dict[tuple[str, ...], RefinedType | None]]]:
+) -> tuple[
+    dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]],
+    dict[str, dict[tuple[str, ...], RefinedType | None]],
+]:
     """Per-domain hub signals a platform schema redefines, for platform builds to shed.
 
-    Ranges shed when the platform redefines the key unbounded; refined
-    types shed when the platform's own refinement differs (the
+    Both signals shed when the platform's own value differs (the
     modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
     item's plain ``cv.positive_int``), each shed path mapping to the
-    platform's own refinement (``None`` when it has none) so the build
-    substitutes rather than dropping. Keyed per platform domain, not
+    platform's own range / refinement (``None`` when it has none) so the
+    build substitutes rather than dropping. Keyed per platform domain, not
     aggregated: one platform's redefinition must not spare a sibling
     platform from the shed. Hub builds keep every signal. Covers
     hub-to-platform bleed only; a sibling platform's contribution rides
@@ -4765,12 +4767,16 @@ def _collect_bleed_keys(
     """
     hub_ranges = _collect_field_ranges(manifest)
     hub_refined = _collect_refined_types(manifest)
-    range_bleed: dict[str, set[tuple[str, ...]]] = {}
+    range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
         keys = _platform_field_keys([platform_manifest])
-        bounded = set(_collect_field_ranges(platform_manifest))
-        bled = {path for path in hub_ranges if path in keys and path not in bounded}
+        platform_ranges = _collect_field_ranges(platform_manifest)
+        bled = {
+            path: platform_ranges.get(path)
+            for path in hub_ranges
+            if path in keys and platform_ranges.get(path) != hub_ranges[path]
+        }
         if bled:
             range_bleed[domain] = bled
         # Refined types walk list items, so the key set must too or the
@@ -4785,6 +4791,16 @@ def _collect_bleed_keys(
         if refined_bled:
             refined_bleed[domain] = refined_bled
     return range_bleed, refined_bleed
+
+
+def _shed_range_bleed(
+    field_ranges: dict[tuple[str, ...], tuple[int | float, int | float]],
+    range_bleed: dict[tuple[str, ...], tuple[int | float, int | float] | None],
+) -> dict[tuple[str, ...], tuple[int | float, int | float]]:
+    """Drop shed hub ranges, substituting the platform's own where it has one."""
+    return {k: v for k, v in field_ranges.items() if k not in range_bleed} | {
+        k: v for k, v in range_bleed.items() if v is not None
+    }
 
 
 def _shed_refined_bleed(

@@ -43,10 +43,12 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _MACHINE_DERIVED_RANGE_FIELDS,
     _apply_field_ranges,
     _collect_automation_field_ranges,
+    _collect_bleed_keys,
     _collect_field_ranges,
     _field_ranges_in_schema,
     _numeric_range_bounds,
     _platform_field_keys,
+    _shed_range_bleed,
     _walk_entries,
     introspect_component,
 )
@@ -362,18 +364,32 @@ def test_per_domain_bleed_does_not_aggregate_across_platforms() -> None:
     sibling domain bounds the same key.
     """
     hub = _FakeManifest({cv.Optional("address"): cv.hex_uint8_t})
-    bounded = _FakeManifest({cv.Optional("address"): cv.All(cv.int_, cv.Range(min=5, max=48))})
+    bounded = _FakeManifest({cv.Optional("address"): cv.All(cv.int_, cv.Range(min=0, max=255))})
     unbounded = _FakeManifest({cv.Optional("address"): cv.positive_int})
-    hub_ranges = _collect_field_ranges(hub)
-    bleed: dict[str, set] = {}
-    for domain, pm in (("a", bounded), ("b", unbounded)):
-        keys = _platform_field_keys([pm])
-        pbounded = set(_collect_field_ranges(pm))
-        bled = {p for p in hub_ranges if p in keys and p not in pbounded}
-        if bled:
-            bleed[domain] = bled
-    assert ("address",) not in bleed.get("a", set())  # a bounds it -> keep
-    assert ("address",) in bleed.get("b", set())  # b unbounded -> shed
+    bleed, _refined = _collect_bleed_keys(hub, [("a", bounded), ("b", unbounded)])
+    assert ("address",) not in bleed.get("a", {})  # a bounds it identically -> keep
+    assert ("address",) in bleed.get("b", {})  # b unbounded -> shed
+
+
+def test_divergent_platform_bound_is_shed_with_substitute() -> None:
+    """A shed path the platform bounds differently maps to the platform's own bounds."""
+    hub = _FakeManifest({cv.Optional("address"): cv.hex_uint8_t})
+    divergent = _FakeManifest({cv.Optional("address"): cv.All(cv.int_, cv.Range(min=5, max=48))})
+    unbounded = _FakeManifest({cv.Optional("address"): cv.positive_int})
+    bleed, _refined = _collect_bleed_keys(hub, [("a", divergent), ("b", unbounded)])
+    assert bleed["a"][("address",)] == (5, 48)
+    assert bleed["b"][("address",)] is None
+
+
+def test_shed_range_bleed_substitutes_and_drops() -> None:
+    """The shed keeps unshed paths, substitutes platform bounds, drops the rest."""
+    field_ranges = {
+        ("kept",): (0, 255),
+        ("substituted",): (0, 255),
+        ("dropped",): (0, 255),
+    }
+    shed = _shed_range_bleed(field_ranges, {("substituted",): (5, 48), ("dropped",): None})
+    assert shed == {("kept",): (0, 255), ("substituted",): (5, 48)}
 
 
 def test_no_platform_component_has_no_range_bleed() -> None:
