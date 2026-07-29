@@ -1245,6 +1245,9 @@ def catalog_releases_ahead(stamp_file: str = "components.index.json") -> int:
 
 
 @pytest.fixture
-def api_action_spellings() -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return the accepted ``(block, item)`` api-action spellings, as the controller passes them."""
-    return ("actions", "services"), ("action", "service")
+def api_action_spellings() -> dict[str, tuple[str, ...]]:
+    """Return the accepted api-action spelling kwargs, as the controller passes them."""
+    return {
+        "api_block_keys": ("actions", "services"),
+        "api_item_keys": ("action", "service"),
+    }

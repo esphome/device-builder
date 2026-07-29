@@ -481,7 +481,7 @@ def test_parse_http_request_action_response_handlers() -> None:
 
 
 def test_parse_api_action_accepts_legacy_service_key(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
     """The legacy ``service:`` discriminator parses to the same shape."""
     legacy = (
@@ -492,8 +492,7 @@ def test_parse_api_action_accepts_legacy_service_key(
     )
     parsed = parse_device_yaml(
         legacy,
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
     assert len(parsed) == 1
     assert parsed[0].location.kind == "api_action"
@@ -501,7 +500,7 @@ def test_parse_api_action_accepts_legacy_service_key(
 
 
 def test_parse_api_action_accepts_legacy_services_block(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
     """A legacy ``services:`` block parses the same as ``actions:``."""
     legacy = (
@@ -514,8 +513,7 @@ def test_parse_api_action_accepts_legacy_services_block(
     )
     parsed = parse_device_yaml(
         legacy,
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
     names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
     assert names == ["start_va", "stop_va"]

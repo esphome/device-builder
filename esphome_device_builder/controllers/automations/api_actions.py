@@ -16,52 +16,46 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
+from typing import NamedTuple
 
 from ...models.automations import YamlDiff
 
+#: Canonical key spellings used when no catalog data is supplied; the
+#: catalog-driven tuples always list today's canonical spelling first.
+CANONICAL_BLOCK_KEYS = ("actions",)
+CANONICAL_ITEM_KEYS = ("action",)
 
-def inline_actions_key(
-    lines: list[str],
-    api_span: tuple[int, int, str],
-    keys: tuple[str, ...],
-) -> str | None:
-    """Return the block key under *api_span* carrying an inline value, if any.
 
-    Flow-style values (``actions: []``, ``actions: null``,
-    ``actions: !secret foo``, …) can't be spliced into the way the
-    line-based writer wants. Callers should refuse the upsert /
-    delete and surface a clear error rather than emit a second
-    ``actions:`` key alongside the inline one.
-    """
-    _api_start, _api_end, child_indent = api_span
-    found = _find_block_key_line(lines, api_span, keys)
-    if found is None:
-        return None
-    idx, key = found
-    rest = lines[idx].rstrip("\n\r")[len(f"{child_indent}{key}:") :].strip()
-    if rest and not rest.startswith("#"):
-        return key
-    return None
+class ActionsSpan(NamedTuple):
+    """The located api action list: line span, item indent, matched key."""
+
+    start: int
+    end: int
+    item_indent: str
+    key: str
+    # The block key carries a flow-style value (``actions: []``) the
+    # line-based writer can't splice into; callers must refuse.
+    inline: bool
 
 
 def locate_actions_list(
     lines: list[str],
     api_span: tuple[int, int, str],
     keys: tuple[str, ...],
-) -> tuple[int, int, str, str] | None:
-    """Return ``(start, end, item_indent, key)`` for the api action list or ``None``.
+) -> ActionsSpan | None:
+    """Locate the api action list under *api_span*, matching any spelling in *keys*.
 
-    Matches any spelling in *keys*, first spelling wins when several
-    appear. ``start`` is the line index of the block key; ``end`` is
-    one past the last item line; ``item_indent`` is the leading
-    whitespace shared by each ``- ...`` dash line; ``key`` is the
-    spelling matched in the file.
+    First spelling wins when several appear; ``end`` is one past the
+    last item line.
     """
-    _api_start, api_end, child_indent = api_span
+    api_end, child_indent = api_span[1], api_span[2]
     found = _find_block_key_line(lines, api_span, keys)
     if found is None:
         return None
     actions_start, matched_key = found
+    rest = lines[actions_start].rstrip("\n\r")[len(f"{child_indent}{matched_key}:") :].strip()
+    if rest and not rest.startswith("#"):
+        return ActionsSpan(actions_start, actions_start, "", matched_key, inline=True)
     actions_end = api_end
     for idx in range(actions_start + 1, api_end):
         content = lines[idx].rstrip("\n\r")
@@ -82,7 +76,34 @@ def locate_actions_list(
         # Empty list — assume the canonical two-space nesting under
         # ``actions:`` so the first item still indents predictably.
         item_indent = child_indent + "  "
-    return actions_start, actions_end, item_indent, matched_key
+    return ActionsSpan(actions_start, actions_end, item_indent, matched_key, inline=False)
+
+
+def canonicalize_block(
+    lines: list[str],
+    span: ActionsSpan,
+    block_keys: tuple[str, ...],
+    item_keys: tuple[str, ...],
+) -> list[str]:
+    """Respell the block key and item discriminators to canonical, line for line.
+
+    Only the key tokens change; every other byte (indent, values,
+    comments, sibling lines) passes through untouched.
+    """
+    out = list(lines)
+    header = out[span.start]
+    out[span.start] = re.sub(
+        rf"^(\s*){re.escape(span.key)}:", rf"\g<1>{block_keys[0]}:", header, count=1
+    )
+    legacy_alt = "|".join(re.escape(key) for key in item_keys[1:])
+    if legacy_alt:
+        # Discriminators live on the dash line or at the item's child
+        # indent — never deeper, so a same-named key inside an action
+        # body (``homeassistant.service`` params) stays untouched.
+        item_re = re.compile(rf"^({re.escape(span.item_indent)}(?:-\s*|  ))(?:{legacy_alt}):")
+        for idx in range(span.start + 1, span.end):
+            out[idx] = item_re.sub(rf"\g<1>{item_keys[0]}:", out[idx], count=1)
+    return out
 
 
 def find_item(
@@ -167,13 +188,13 @@ def render_replacement(
     )
 
 
-def render_create_block(yaml_text: str, rendered: str) -> tuple[str, str]:
+def render_create_block(yaml_text: str, rendered: str, block_key: str) -> tuple[str, str]:
     """Return ``(new_yaml, block_text)`` for a fresh ``api:`` block at EOF."""
     item_indent = "    "
     item_text = indent_for_list(rendered, item_indent)
     # ``item_text`` always ends with ``\n``, so the block does too and
     # the final concatenation lands a trailing newline on EOF.
-    block = "api:\n  actions:\n" + item_text
+    block = f"api:\n  {block_key}:\n" + item_text
     base = yaml_text.rstrip()
     separator = "\n\n" if base else ""
     return f"{base}{separator}{block}", block
@@ -183,12 +204,13 @@ def render_insert_actions_key(
     lines: list[str],
     api_span: tuple[int, int, str],
     rendered: str,
+    block_key: str,
 ) -> tuple[str, YamlDiff]:
-    """Insert an ``actions:`` key with one item under an existing ``api:`` block."""
+    """Insert the canonical block key with one item under an existing ``api:`` block."""
     api_start, api_end, child_indent = api_span
     item_indent = child_indent + "  "
     item_text = indent_for_list(rendered, item_indent)
-    block = f"{child_indent}actions:\n{item_text}"
+    block = f"{child_indent}{block_key}:\n{item_text}"
     insert_at = api_end
     while insert_at > api_start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1

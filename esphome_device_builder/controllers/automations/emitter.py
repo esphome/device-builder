@@ -64,13 +64,13 @@ def render_interval_item(tree: AutomationTree) -> str:
 
 
 def render_api_action_item(
-    tree: AutomationTree, action_name: str, discriminator_keys: tuple[str, ...]
+    tree: AutomationTree, action_name: str, item_keys: tuple[str, ...]
 ) -> str:
-    """Render a single ``- action: <name>`` api-actions list item."""
+    """Render one api-action list item, keyed by the canonical discriminator spelling."""
     item = CommentedMap()
-    item["action"] = action_name
+    item[item_keys[0]] = action_name
     for key, value in tree.trigger_params.items():
-        if key in discriminator_keys:
+        if key in item_keys:
             continue
         item[key] = encode_value(value)
     item["then"] = emit_action_seq(tree.actions)

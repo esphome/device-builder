@@ -86,8 +86,8 @@ def render_upsert(  # noqa: PLR0911 — one return per location kind; a dispatch
     *,
     tree: AutomationTree,
     location: AutomationLocation,
-    api_block_keys: tuple[str, ...] = ("actions",),
-    api_item_keys: tuple[str, ...] = ("action",),
+    api_block_keys: tuple[str, ...] = api_actions.CANONICAL_BLOCK_KEYS,
+    api_item_keys: tuple[str, ...] = api_actions.CANONICAL_ITEM_KEYS,
 ) -> tuple[str, YamlDiff]:
     """
     Apply *tree* at *location*; return ``(new_yaml, diff)``.
@@ -120,8 +120,8 @@ def render_delete(
     yaml_text: str,
     *,
     location: AutomationLocation,
-    api_block_keys: tuple[str, ...] = ("actions",),
-    api_item_keys: tuple[str, ...] = ("action",),
+    api_block_keys: tuple[str, ...] = api_actions.CANONICAL_BLOCK_KEYS,
+    api_item_keys: tuple[str, ...] = api_actions.CANONICAL_ITEM_KEYS,
 ) -> tuple[str, YamlDiff]:
     """Remove the automation at *location*; return ``(new_yaml, diff)``."""
     if isinstance(location, (ScriptLocation, IntervalLocation, DeviceOnLocation)):
@@ -352,18 +352,36 @@ def _upsert_component_action(
 
 
 def _refuse_inline_api_actions(
-    lines: list[str],
-    api_span: tuple[int, int, str],
-    block_keys: tuple[str, ...],
+    span: api_actions.ActionsSpan,
 ) -> None:
-    """Raise ``INVALID_ARGS`` when the api action block key carries an inline value."""
-    inline_key = api_actions.inline_actions_key(lines, api_span, block_keys)
-    if inline_key is not None:
-        msg = (
-            f"api.{inline_key}: is inline (e.g. `{inline_key}: []`); "
-            "rewrite it as a block list first"
-        )
+    """Raise ``INVALID_ARGS`` when the located block key carries an inline value."""
+    if span.inline:
+        msg = f"api.{span.key}: is inline (e.g. `{span.key}: []`); rewrite it as a block list first"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
+def _canonicalized(
+    lines: list[str],
+    span: api_actions.ActionsSpan,
+    block_keys: tuple[str, ...],
+    item_keys: tuple[str, ...],
+) -> list[str]:
+    """Return *lines* with a legacy-spelled block respelled to canonical."""
+    if span.key == block_keys[0]:
+        return lines
+    return api_actions.canonicalize_block(lines, span, block_keys, item_keys)
+
+
+def _widen_to_block(
+    original_lines: list[str],
+    span: api_actions.ActionsSpan,
+    new_text: str,
+) -> tuple[str, YamlDiff]:
+    """Rebuild the diff to cover the whole block so a respelled header ships too."""
+    new_lines = new_text.splitlines(keepends=True)
+    new_end = span.end + (len(new_lines) - len(original_lines))
+    replacement = "".join(new_lines[span.start : new_end])
+    return new_text, YamlDiff(fromLine=span.start + 1, toLine=span.end, replacement=replacement)
 
 
 def _upsert_api_action(
@@ -373,31 +391,35 @@ def _upsert_api_action(
     block_keys: tuple[str, ...],
     item_keys: tuple[str, ...],
 ) -> tuple[str, YamlDiff]:
-    """Splice or replace an ``api.actions:`` list item by ``action_name``."""
+    """Splice or replace an api action item, respelling the touched block to canonical."""
     rendered = render_api_action_item(tree, location.action_name, item_keys)
     lines = yaml_text.splitlines(keepends=True)
     api_span = _locate_singleton_block(lines, "api")
     if api_span is None:
-        new_text, _block = api_actions.render_create_block(yaml_text, rendered)
+        new_text, _block = api_actions.render_create_block(yaml_text, rendered, block_keys[0])
         return new_text, _build_diff_for_append(yaml_text, new_text)
-    _refuse_inline_api_actions(lines, api_span, block_keys)
-    actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
-    if actions_span is None:
-        return api_actions.render_insert_actions_key(lines, api_span, rendered)
-    actions_start, actions_end, item_indent, _block_key = actions_span
+    span = api_actions.locate_actions_list(lines, api_span, block_keys)
+    if span is None:
+        return api_actions.render_insert_actions_key(lines, api_span, rendered, block_keys[0])
+    _refuse_inline_api_actions(span)
+    lines = _canonicalized(lines, span, block_keys, item_keys)
     existing = api_actions.find_item(
         lines,
-        actions_start,
-        actions_end,
-        item_indent,
+        span.start,
+        span.end,
+        span.item_indent,
         location.action_name,
         item_keys,
     )
     if existing is not None:
         item_start, item_end = existing
-        rendered_text = api_actions.indent_for_list(rendered, item_indent)
-        return api_actions.render_replacement(lines, item_start, item_end, rendered_text)
-    return api_actions.render_append(lines, actions_end, item_indent, rendered)
+        rendered_text = api_actions.indent_for_list(rendered, span.item_indent)
+        new_text, diff = api_actions.render_replacement(lines, item_start, item_end, rendered_text)
+    else:
+        new_text, diff = api_actions.render_append(lines, span.end, span.item_indent, rendered)
+    if span.key == block_keys[0]:
+        return new_text, diff
+    return _widen_to_block(lines, span, new_text)
 
 
 # ---------------------------------------------------------------------------
@@ -720,42 +742,45 @@ def _delete_api_action(
     block_keys: tuple[str, ...],
     item_keys: tuple[str, ...],
 ) -> tuple[str, YamlDiff]:
-    """Drop a single ``api.actions:`` item; drop ``actions:`` when emptied."""
+    """Drop one api action item, respelling the block to canonical; drop the key when emptied."""
     lines = yaml_text.splitlines(keepends=True)
     api_span = _locate_singleton_block(lines, "api")
     if api_span is None:
         msg = "api: block not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    _refuse_inline_api_actions(lines, api_span, block_keys)
-    actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
-    if actions_span is None:
+    span = api_actions.locate_actions_list(lines, api_span, block_keys)
+    if span is None:
         msg = "api.actions: not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    actions_start, actions_end, item_indent, block_key = actions_span
+    _refuse_inline_api_actions(span)
     existing = api_actions.find_item(
         lines,
-        actions_start,
-        actions_end,
-        item_indent,
+        span.start,
+        span.end,
+        span.item_indent,
         location.action_name,
         item_keys,
     )
     if existing is None:
-        msg = f"api.{block_key}[action={location.action_name!r}] not present"
+        msg = f"api.{span.key}[action={location.action_name!r}] not present"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     item_start, item_end = existing
     siblings = api_actions.count_siblings(
         lines,
-        actions_start,
-        actions_end,
-        item_indent,
+        span.start,
+        span.end,
+        span.item_indent,
         existing,
     )
-    if siblings > 0:
-        return api_actions.render_delete_item(lines, item_start, item_end)
-    # Last sibling — drop the entire ``actions:`` key as well so the
-    # file doesn't grow ``actions: []`` noise.
-    return api_actions.render_delete_actions_key(lines, actions_start, actions_end)
+    if siblings == 0:
+        # Last sibling — drop the entire block key as well so the file
+        # doesn't grow ``actions: []`` noise.
+        return api_actions.render_delete_actions_key(lines, span.start, span.end)
+    lines = _canonicalized(lines, span, block_keys, item_keys)
+    new_text, diff = api_actions.render_delete_item(lines, item_start, item_end)
+    if span.key == block_keys[0]:
+        return new_text, diff
+    return _widen_to_block(lines, span, new_text)
 
 
 # ---------------------------------------------------------------------------

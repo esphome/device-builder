@@ -10,7 +10,6 @@ config-write debounce on the device editor handles that.
 from __future__ import annotations
 
 import logging
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ruamel.yaml import YAMLError
@@ -34,7 +33,7 @@ from ...models.automations import (
     ScriptLocation,
     UpsertResponse,
 )
-from . import catalog, parsing, writing
+from . import api_actions, catalog, parsing, writing
 from .catalog import AutomationBodyRef
 
 if TYPE_CHECKING:
@@ -198,11 +197,8 @@ class AutomationsController:
         text = yaml if yaml is not None else await self._read_config(configuration)
         block_keys, item_keys = self._api_action_spellings()
         parsed = await run_in_executor(
-            partial(
-                parsing.parse_device_yaml,
-                text,
-                api_block_keys=block_keys,
-                api_item_keys=item_keys,
+            lambda: parsing.parse_device_yaml(
+                text, api_block_keys=block_keys, api_item_keys=item_keys
             )
         )
         return [p.to_dict() for p in parsed]
@@ -282,7 +278,7 @@ class AutomationsController:
         """Return the accepted ``(block, item)`` key spellings for api actions."""
         components = self._db.components
         if components is None:
-            return ("actions",), ("action",)
+            return api_actions.CANONICAL_BLOCK_KEYS, api_actions.CANONICAL_ITEM_KEYS
         return (
             components.accepted_spellings("api", ("actions",)),
             components.accepted_spellings("api", ("actions", "action")),

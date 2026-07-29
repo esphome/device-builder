@@ -301,8 +301,11 @@ The index lists the marked components under `renamed_components`;
 `ComponentCatalog.load()` pre-warms those bodies into an accepted-spellings
 projection consumed by the automations parse/write paths
 (`accepted_spellings`) and served to the frontend via
-`components/get_legacy_spellings` — no consumer hard-codes an alias, so a
-future upstream rename lands through the nightly sync.
+`components/get_legacy_spellings`. The projection is keyed by every
+spelling (anchors survive a rename of the canonical name itself), writers
+emit the current canonical spelling and respell a legacy block they touch,
+and no consumer hard-codes an alias — a future upstream rename lands
+through the nightly sync.
 
 The same script runs nightly via
 [`.github/workflows/sync-component-catalog.yml`](../.github/workflows/sync-component-catalog.yml)

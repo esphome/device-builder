@@ -1435,9 +1435,9 @@ _LEGACY_SERVICES_YAML = (
 
 
 def test_upsert_api_action_appends_into_legacy_services_block(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
-    """A new item lands inside an existing ``services:`` block, not a second ``actions:``."""
+    """A new item respells the touched ``services:`` block to canonical ``actions:``."""
     new_text, _diff = render_upsert(
         _LEGACY_SERVICES_YAML,
         tree=AutomationTree(
@@ -1445,15 +1445,12 @@ def test_upsert_api_action_appends_into_legacy_services_block(
             actions=[ActionNode(action_id="delay", params={"id": "1s"})],
         ),
         location=ApiActionLocation(action_name="pause_va"),
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
-    assert "actions:" not in new_text
-    parsed = parse_device_yaml(
-        new_text,
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
-    )
+    assert "services:" not in new_text
+    assert "service:" not in new_text
+    assert new_text.count("actions:") == 1
+    parsed = parse_device_yaml(new_text)
     names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
     assert names == ["start_va", "stop_va", "pause_va"]
     assert "'starting'" in new_text
@@ -1461,9 +1458,9 @@ def test_upsert_api_action_appends_into_legacy_services_block(
 
 
 def test_upsert_api_action_replaces_item_in_legacy_services_block(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
-    """Upserting an existing ``service:``-keyed item replaces it in place."""
+    """Replacing a ``service:``-keyed item respells the whole block to canonical."""
     new_text, _diff = render_upsert(
         _LEGACY_SERVICES_YAML,
         tree=AutomationTree(
@@ -1471,15 +1468,11 @@ def test_upsert_api_action_replaces_item_in_legacy_services_block(
             actions=[ActionNode(action_id="delay", params={"id": "1s"})],
         ),
         location=ApiActionLocation(action_name="stop_va"),
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
-    assert "actions:" not in new_text
-    parsed = parse_device_yaml(
-        new_text,
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
-    )
+    assert "services:" not in new_text
+    assert "service:" not in new_text
+    parsed = parse_device_yaml(new_text)
     api_entries = [p for p in parsed if p.location.kind == "api_action"]
     assert [e.location.action_name for e in api_entries] == ["start_va", "stop_va"]
     stop = next(e for e in api_entries if e.location.action_name == "stop_va")
@@ -1488,27 +1481,24 @@ def test_upsert_api_action_replaces_item_in_legacy_services_block(
 
 
 def test_delete_api_action_from_legacy_services_block(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
-    """Deleting one item from a ``services:`` block leaves the sibling intact."""
+    """Deleting one item keeps the sibling and respells the block to canonical."""
     new_text, _diff = render_delete(
         _LEGACY_SERVICES_YAML,
         location=ApiActionLocation(action_name="start_va"),
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
-    parsed = parse_device_yaml(
-        new_text,
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
-    )
+    parsed = parse_device_yaml(new_text)
     names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
     assert names == ["stop_va"]
-    assert "services:" in new_text
+    assert "services:" not in new_text
+    assert "service:" not in new_text
+    assert "actions:" in new_text
 
 
 def test_delete_last_api_action_drops_legacy_services_key(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
     """Deleting the final item removes the ``services:`` key itself."""
     text = (
@@ -1520,8 +1510,7 @@ def test_delete_last_api_action_drops_legacy_services_key(
     new_text, _diff = render_delete(
         text,
         location=ApiActionLocation(action_name="start_va"),
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
     assert "services:" not in new_text
     assert "start_va" not in new_text
@@ -1529,7 +1518,7 @@ def test_delete_last_api_action_drops_legacy_services_key(
 
 
 def test_upsert_api_action_refuses_inline_services_list(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
     """``services: []`` hits the same INVALID_ARGS guard as inline ``actions:``."""
     text = "esphome:\n  name: x\napi:\n  services: []\n"
@@ -1541,23 +1530,21 @@ def test_upsert_api_action_refuses_inline_services_list(
                 actions=[ActionNode(action_id="delay", params={"id": "1s"})],
             ),
             location=ApiActionLocation(action_name="new"),
-            api_block_keys=api_action_spellings[0],
-            api_item_keys=api_action_spellings[1],
+            **api_action_spellings,
         )
     assert err.value.code == ErrorCode.INVALID_ARGS
     assert "api.services:" in str(err.value)
 
 
 def test_delete_api_action_not_found_names_the_file_spelling(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
     """A missing-item error names the block key the file actually uses."""
     with pytest.raises(CommandError) as err:
         render_delete(
             _LEGACY_SERVICES_YAML,
             location=ApiActionLocation(action_name="never_added"),
-            api_block_keys=api_action_spellings[0],
-            api_item_keys=api_action_spellings[1],
+            **api_action_spellings,
         )
     assert err.value.code == ErrorCode.NOT_FOUND
     assert "api.services[" in str(err.value)
@@ -1769,7 +1756,7 @@ def test_upsert_api_action_inserts_actions_key_when_api_has_trailing_blanks() ->
 
 
 def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params(
-    api_action_spellings: tuple[tuple[str, ...], tuple[str, ...]],
+    api_action_spellings: dict[str, tuple[str, ...]],
 ) -> None:
     """An explicit ``action`` key on the tree's trigger_params is ignored.
 
@@ -1787,8 +1774,7 @@ def test_upsert_api_action_drops_action_key_smuggled_in_trigger_params(
             actions=[ActionNode(action_id="delay", params={"id": "1s"})],
         ),
         location=ApiActionLocation(action_name="real_name"),
-        api_block_keys=api_action_spellings[0],
-        api_item_keys=api_action_spellings[1],
+        **api_action_spellings,
     )
     # Only the location-derived action_name is emitted.
     assert "- action: real_name" in new_text

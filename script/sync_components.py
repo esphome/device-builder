@@ -2788,9 +2788,7 @@ def _apply_renamed_marks(entries: list[dict], pairs: Mapping[str, str]) -> None:
 
     *pairs* is the component's discovered ``cv.rename_key`` map
     (``{old: new}``). A mark lands only where the canonical sibling
-    exists at the same level, so nesting level stays structural and a
-    pair discovered at one depth can't mislabel a same-named key at
-    another.
+    exists at the same level, so nesting level stays structural.
     """
     if not pairs:
         return
@@ -4850,6 +4848,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     registry_members = merge_from_platforms(_collect_registry_members)
     typed_defaults = merge_from_platforms(_collect_typed_defaults)
 
+    # ``dict(...)`` copies before the setdefault merge — the collector's
+    # return is a shared memo entry.
     renamed_keys = dict(_collect_rename_keys(manifest))
     for platform_manifest in platform_manifests:
         for old_key, new_key in _collect_rename_keys(platform_manifest).items():
@@ -8073,7 +8073,7 @@ def _collect_rename_keys(manifest: Any) -> dict[str, str]:
     if schema is None:
         return {}
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
-    if memoised is not None and memoised[0] is schema:
+    if memoised is not None:
         return memoised[1]
     out: dict[str, str] = {}
     visited: set[int] = set()

@@ -395,8 +395,12 @@ against legacy behaviour before assuming the simpler version suffices.
   `ComponentCatalog.accepted_spellings(id, path)` backend-side
   (threaded into `controllers/automations/` as key tuples), the
   `components/get_legacy_spellings` projection frontend-side (fetched
-  once at the device editor's load gate). A future esphome rename must
-  flow in through the nightly catalog sync, not a new literal (#2396).
+  once at the device editor's load gate). The projection is keyed by
+  every spelling, so code anchors keep resolving even if the canonical
+  name itself is later renamed; writers always emit the tuple's first
+  (current canonical) spelling and respell a legacy block they touch.
+  A future esphome rename must flow in through the nightly catalog
+  sync, not a new literal (#2396).
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

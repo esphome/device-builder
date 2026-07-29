@@ -51,7 +51,7 @@ from ...models.automations import (
     ParsedAutomation,
     ScriptLocation,
 )
-from . import catalog
+from . import api_actions, catalog
 from ._decompose import (
     DEFAULT_SHORTHAND_KEY,
     _block_tree,
@@ -101,8 +101,8 @@ _COMPONENTS_PACKAGE = "esphome_device_builder.definitions.components"
 def parse_device_yaml(
     yaml_text: str,
     *,
-    api_block_keys: tuple[str, ...] = ("actions",),
-    api_item_keys: tuple[str, ...] = ("action",),
+    api_block_keys: tuple[str, ...] = api_actions.CANONICAL_BLOCK_KEYS,
+    api_item_keys: tuple[str, ...] = api_actions.CANONICAL_ITEM_KEYS,
 ) -> list[ParsedAutomation]:
     """
     Walk *yaml_text* and return every automation we recognise.
@@ -294,7 +294,7 @@ def _parse_api_actions(
 
     def _describe(item: dict[str, Any], idx: int) -> tuple[AutomationLocation, str] | None:
         del idx
-        action_name = next((item.get(key) for key in item_keys if item.get(key)), None)
+        action_name = next((value for key in item_keys if (value := item.get(key))), None)
         if not action_name:
             return None
         return ApiActionLocation(action_name=str(action_name)), f"API: {action_name}"

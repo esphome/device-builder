@@ -709,26 +709,38 @@ class ComponentCatalog:
         for component_id in renamed_components:
             body = self._body_store.get_sync(component_id)
             if body is not None:
-                self._collect_spellings(component_id, (), body.config_entries)
+                self._collect_spellings(component_id, [()], body.config_entries)
 
     def _collect_spellings(
         self,
         component_id: str,
-        path: tuple[str, ...],
+        prefixes: list[tuple[str, ...]],
         entries: list[ConfigEntry],
     ) -> None:
-        """Record each level's marked entries under their canonical sibling's path."""
+        """Record each level's marked entries under every spelling of every path.
+
+        Keying by all spellings (not just canonical) makes consumer
+        anchors rename-proof: a lookup by a spelling that later becomes
+        legacy still resolves, with the current canonical first.
+        """
         marks: dict[str, list[str]] = {}
         for entry in entries:
             if entry.renamed_to:
                 marks.setdefault(entry.renamed_to, []).append(entry.key)
         for canonical, legacy in marks.items():
-            self._accepted_spellings[(component_id, (*path, canonical))] = (canonical, *legacy)
+            spellings = (canonical, *legacy)
+            for prefix in prefixes:
+                for spelling in spellings:
+                    self._accepted_spellings[(component_id, (*prefix, spelling))] = spellings
         for entry in entries:
             # A marked entry's subtree duplicates its canonical sibling's.
             if entry.renamed_to or not entry.config_entries:
                 continue
-            self._collect_spellings(component_id, (*path, entry.key), entry.config_entries)
+            child_spellings = (entry.key, *marks.get(entry.key, []))
+            child_prefixes = [
+                (*prefix, spelling) for prefix in prefixes for spelling in child_spellings
+            ]
+            self._collect_spellings(component_id, child_prefixes, entry.config_entries)
 
     def _build_featured_registry(self) -> None:
         """Index every featured component from the precomputed map.

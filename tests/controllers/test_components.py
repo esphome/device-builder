@@ -280,25 +280,30 @@ def _marked_api_entries() -> list[ConfigEntry]:
     ]
 
 
-def test_accepted_spellings_projects_marks_by_canonical_path() -> None:
-    """Marked entries resolve at their canonical path; unmarked paths fall back."""
+def test_accepted_spellings_resolves_any_spelling_in_the_path() -> None:
+    """Every spelling combination resolves; unmarked paths fall back to the leaf."""
     cat = ComponentCatalog()
-    cat._collect_spellings("api", (), _marked_api_entries())
+    cat._collect_spellings("api", [()], _marked_api_entries())
     assert cat.accepted_spellings("api", ("actions",)) == ("actions", "services")
+    # Anchors keep resolving even when queried by a legacy spelling, so
+    # a consumer literal survives the canonical name itself renaming.
+    assert cat.accepted_spellings("api", ("services",)) == ("actions", "services")
     assert cat.accepted_spellings("api", ("actions", "action")) == ("action", "service")
+    assert cat.accepted_spellings("api", ("services", "service")) == ("action", "service")
     assert cat.accepted_spellings("api", ("port",)) == ("port",)
     assert cat.accepted_spellings("wifi", ("actions",)) == ("actions",)
 
 
 async def test_get_legacy_spellings_returns_pathed_projection() -> None:
-    """The WS command carries each marked position's path + spellings."""
+    """The WS command carries every spelling variant's path + spellings."""
     cat = ComponentCatalog()
-    cat._collect_spellings("api", (), _marked_api_entries())
+    cat._collect_spellings("api", [()], _marked_api_entries())
     result = await cat.get_legacy_spellings()
-    assert sorted(result["api"], key=lambda row: row["path"]) == [
-        {"path": ["actions"], "spellings": ["actions", "services"]},
-        {"path": ["actions", "action"], "spellings": ["action", "service"]},
-    ]
+    rows = {tuple(row["path"]): row["spellings"] for row in result["api"]}
+    assert rows[("actions",)] == ["actions", "services"]
+    assert rows[("services",)] == ["actions", "services"]
+    assert rows[("actions", "action")] == ["action", "service"]
+    assert rows[("services", "service")] == ["action", "service"]
 
 
 # ── get_components() ────────────────────────────────────────────────
