@@ -405,7 +405,7 @@ def _iter_instance_targets(
                 ComponentTarget(domain=str(domain), catalog_id=cat_id),
             )
             for sub_domain, sub, sub_id, sub_key in iter_subentities(
-                str(domain), instance, comp_id
+                str(domain), instance, comp_id, cat_id=cat_id
             ):
                 yield (
                     sub_domain,
@@ -439,6 +439,7 @@ def iter_subentities(
     domain: str,
     instance: dict,
     parent_id: str,
+    cat_id: str | None = None,
 ) -> Iterator[tuple[str, dict, str, str]]:
     """
     Yield ``(platform_type, sub_instance, sub_id, sub_key)`` per configured sub-block.
@@ -447,7 +448,8 @@ def iter_subentities(
     writer locates it by parent + sub-key, so it round-trips without a
     declared ``id:``.
     """
-    cat_id = catalog_id(domain, instance.get("platform"))
+    if cat_id is None:
+        cat_id = catalog_id(domain, instance.get("platform"))
     for sub_key, sub_domain in platform_subentity_keys(cat_id):
         sub = instance.get(sub_key)
         if isinstance(sub, dict):

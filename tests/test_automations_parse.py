@@ -1077,3 +1077,12 @@ def test_resolve_action_field_target_handles_sub_entity_and_bad_yaml() -> None:
     )
     assert parsing.resolve_action_field_target("{unclosed", "lawn") is None
     assert parsing.resolve_action_field_target(yaml, "nope") is None
+    # A platform instance is the shape where the two tuple elements differ.
+    text = (
+        "sensor:\n  - platform: aht10\n    id: aht20\n"
+        "    temperature:\n      id: aht20_temperature\n"
+    )
+    assert parsing.resolve_action_field_target(text, "aht20_temperature") == (
+        "sensor",
+        "sensor.aht10",
+    )
