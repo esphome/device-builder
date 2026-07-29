@@ -775,8 +775,8 @@ def _delete_component_action(
             f"has no action field {location.field!r}; nothing to delete"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    new_text, from_line, to_line = res
-    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement="")
+    new_text, from_line, to_line, replacement = res
+    return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
 def _delete_api_action(

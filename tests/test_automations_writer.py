@@ -3076,3 +3076,50 @@ def test_intermediate_on_the_instance_dash_line_never_duplicates(first_line: str
     assert new_text.count("repeat_number") == 1
     reparsed = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
     assert reparsed.location == loc
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_delete_pruning_a_dash_line_mapping_keeps_the_item() -> None:
+    """An emptied mapping heading its item's dash line leaves a bare dash, not a broken list."""
+    text = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    valves:\n"
+        "      - run_duration_number:\n"
+        "          set_action:\n"
+        "            - logger.log: changed\n"
+        "        valve_switch: Front Yard\n"
+        "      - valve_switch: Back Yard\n"
+    )
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.0.run_duration_number.set_action"
+    )
+    new_text, diff = render_delete(text, location=loc)
+    assert "run_duration_number" not in new_text
+    assert "valve_switch: Front Yard" in new_text
+    assert "valve_switch: Back Yard" in new_text
+    assert diff.replacement.strip() == "-"
+    # The list survives: both valves still parse as items of the instance.
+    reparsed = parse_device_yaml(new_text)
+    assert reparsed is not None
+    assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_delete_pruning_the_instance_dash_line_keeps_it_a_list() -> None:
+    """An emptied mapping heading the instance dash line keeps the domain a list."""
+    text = (
+        "sprinkler:\n"
+        "  - repeat_number:\n"
+        "      set_action:\n"
+        "        - logger.log: changed\n"
+        "    id: lawn\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, diff = render_delete(text, location=loc)
+    assert "repeat_number" not in new_text
+    assert "id: lawn" in new_text
+    assert diff.replacement.strip() == "-"
+    parsed = parse_device_yaml(new_text)
+    assert all(p.location.kind != "component_action" for p in parsed)
+    assert _apply_diff(text, diff) == new_text

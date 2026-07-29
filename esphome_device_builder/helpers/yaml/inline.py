@@ -146,13 +146,16 @@ def remove_nested_handler(
     component_domain: str,
     component_id: str,
     field_segments: Sequence[str],
-) -> tuple[str, int, int] | None:
+) -> tuple[str, int, int, str] | None:
     """
     Delete a nested field block addressed by *field_segments*.
 
     Inverse of :func:`upsert_nested_handler`; also prunes intermediate
     mappings the removal empties (never a list item or the instance).
-    ``None`` when any path step or the leaf is absent.
+    Returns ``(new_text, from_line, to_line, replacement)`` — the
+    replacement is empty except when the pruned mapping headed its
+    item's dash line, which is rewritten to a bare dash so the item
+    survives. ``None`` when any path step or the leaf is absent.
     """
     lines = yaml_text.splitlines(keepends=True)
     span = _locate_component_instance(lines, component_domain, component_id)
@@ -174,6 +177,7 @@ def remove_nested_handler(
     # Prune enclosing mappings the removal leaves empty. List items and
     # the instance span (stack[0]) are never pruned — deleting a valve
     # item would shift sibling indices other parsed locations hold.
+    replacement = ""
     for frame in reversed(stack[1:]):
         if frame.is_list_item:
             break
@@ -184,10 +188,19 @@ def remove_nested_handler(
         )
         if not emptied:
             break
+        if lines[frame.start].lstrip().startswith("- "):
+            # The mapping heads its item's dash line: keep the item by
+            # rewriting the line to a bare dash instead of deleting it.
+            line = lines[frame.start]
+            body = line.rstrip("\r\n")
+            replacement = leading_ws(body) + "-" + line[len(body) :]
+            rm_start = frame.start
+            rm_end = max(rm_end, frame.end)
+            break
         rm_start = frame.start
         rm_end = max(rm_end, frame.end)
-    new_lines = [*lines[:rm_start], *lines[rm_end:]]
-    return "".join(new_lines), rm_start + 1, rm_end
+    new_lines = [*lines[:rm_start], replacement, *lines[rm_end:]]
+    return "".join(new_lines), rm_start + 1, rm_end, replacement
 
 
 @dataclass(frozen=True, slots=True)
