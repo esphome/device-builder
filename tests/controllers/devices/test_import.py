@@ -348,31 +348,40 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     assert ctrl._scanner.calls == []
 
 
-async def test_import_device_keeps_yaml_when_only_package_resolution_fails(
+def _package_entry_error(content: str, message: str) -> dict[str, Any]:
+    """Build a validation error rooted at the packages entry line."""
+    lines = content.splitlines()
+    packages_line = next(i for i, line in enumerate(lines) if line.startswith("packages:"))
+    return {
+        "message": message,
+        "range": {
+            "document": "<file>",
+            "start_line": packages_line + 1,
+            "start_col": 2,
+            "end_line": packages_line + 3,
+            "end_col": 0,
+        },
+    }
+
+
+async def test_import_device_keeps_yaml_when_only_the_package_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A dead remote-package URL keeps the file and returns a warning.
-
-    The probe (content with ``packages:`` stripped) validating clean
-    proves the failure is confined to the baked-in broadcast URL, a
-    one-line ``packages:`` repair in the editor.
-    """
+    """Errors rooted inside the ``packages:`` block keep the file and return a warning."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
     async def _validate(
         *, configuration: str, content: str, timeout: float | None = None
-    ) -> dict[str, list[dict[str, str]]]:
-        if "packages:" in content:
-            return {
-                "yaml_errors": [],
-                "validation_errors": [
-                    {"message": "gl-s10.yaml does not exist in repository"},
-                ],
-            }
-        return {"yaml_errors": [], "validation_errors": []}
+    ) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "yaml_errors": [],
+            "validation_errors": [
+                _package_entry_error(content, "gl-s10.yaml does not exist in repository"),
+            ],
+        }
 
     ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
 
@@ -388,28 +397,56 @@ async def test_import_device_keeps_yaml_when_only_package_resolution_fails(
     assert ctrl._scanner.calls != []
 
 
-async def test_import_device_refuses_when_probe_also_fails_to_run(
+async def test_import_device_refuses_when_an_error_roots_outside_packages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A probe that can't run falls back to the conservative refusal."""
+    """An error outside the ``packages:`` span keeps the conservative refusal."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
 
     async def _validate(
         *, configuration: str, content: str, timeout: float | None = None
-    ) -> dict[str, list[dict[str, str]]]:
-        if "packages:" in content:
-            return {
-                "yaml_errors": [],
-                "validation_errors": [
-                    {"message": "gl-s10.yaml does not exist in repository"},
-                ],
-            }
-        raise TimeoutError
+    ) -> dict[str, list[dict[str, Any]]]:
+        return {
+            "yaml_errors": [],
+            "validation_errors": [
+                _package_entry_error(content, "gl-s10.yaml does not exist in repository"),
+                {
+                    "message": "[esphome] invalid key",
+                    "range": {"start_line": 0, "start_col": 0, "end_line": 0, "end_col": 0},
+                },
+            ],
+        }
 
     ctrl._db.editor.validate_yaml = AsyncMock(side_effect=_validate)
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_import_device_refuses_when_an_error_has_no_range(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An error without a range can't be classified; fail closed."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "gl-s10.yaml does not exist in repository"}],
+        }
+    )
 
     with pytest.raises(CommandError) as excinfo:
         await ctrl.import_device(

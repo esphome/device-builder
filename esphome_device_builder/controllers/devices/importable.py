@@ -123,7 +123,7 @@ async def import_device(
         on_error_cleanup=_cleanup,
         tolerate_unavailable=True,
         timeout=IMPORT_VALIDATE_TIMEOUT,
-        probe_without_packages=_strip_packages_block(content),
+        packages_span=_packages_block_span(content),
         failure_tail=(
             ". The import was rolled back; adopt again after fixing the device's package source."
         ),
@@ -277,11 +277,10 @@ def _drop_importable_rows_and_probe(
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
 
 
-def _strip_packages_block(content: str) -> str | None:
-    """*content* without its top-level ``packages:`` block, or ``None`` when absent."""
+def _packages_block_span(content: str) -> tuple[int, int] | None:
+    """0-indexed line span of the top-level ``packages:`` block, or ``None`` when absent."""
     lines = content.splitlines(keepends=True)
     start = find_block_header(lines, "packages")
     if start is None:
         return None
-    end = block_end_index(lines, start)
-    return "".join([*lines[:start], *lines[end:]])
+    return start, block_end_index(lines, start)

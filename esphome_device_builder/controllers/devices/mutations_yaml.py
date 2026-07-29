@@ -132,7 +132,7 @@ async def validate_rewritten_yaml_or_raise(
     on_error_cleanup: Callable[[], None] | None = None,
     tolerate_unavailable: bool = False,
     timeout: float | None = None,
-    probe_without_packages: str | None = None,
+    packages_span: tuple[int, int] | None = None,
     failure_tail: str | None = None,
 ) -> str | None:
     """
@@ -150,10 +150,10 @@ async def validate_rewritten_yaml_or_raise(
     YAML/schema errors still raise. *timeout* overrides the validator's
     round-trip budget.
 
-    *probe_without_packages* (*content* minus its top-level
-    ``packages:`` block): when set and only the package resolution
-    failed, the file is kept and a warning string is returned instead
-    of raising. Returns ``None`` when *content* validates clean.
+    *packages_span* (0-indexed line span of the ``packages:`` block):
+    when every validation error roots inside it, the file is kept and a
+    warning string is returned instead of raising. Returns ``None``
+    when *content* validates clean.
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
     sentence.
@@ -197,9 +197,7 @@ async def validate_rewritten_yaml_or_raise(
         if not errors:
             succeeded = True
             return None
-        warning = await _package_only_warning(
-            editor, configuration, action, errors, probe_without_packages, timeout
-        )
+        warning = _packages_confined_warning(result, packages_span, configuration, action)
         if warning is not None:
             succeeded = True
             return warning
@@ -247,52 +245,29 @@ def _raise_validation_failure(
     )
 
 
-async def _package_only_warning(
-    editor: EditorController,
+def _packages_confined_warning(
+    result: dict,
+    packages_span: tuple[int, int] | None,
     configuration: str,
     action: str,
-    errors: list[str],
-    probe_without_packages: str | None,
-    timeout: float | None,
 ) -> str | None:
-    """
-    Warning for a failure confined to remote package resolution, else ``None``.
-
-    The probe is the content with its ``packages:`` block stripped; a
-    clean probe proves every error came from the remote fetch, so the
-    file is worth keeping for an in-editor repair.
-    """
-    if probe_without_packages is None or not await _probe_validates_clean(
-        editor, configuration, probe_without_packages, timeout
+    """Warning when every validation error roots inside *packages_span*, else ``None``."""
+    if packages_span is None or result.get("yaml_errors"):
+        return None
+    start, end = packages_span
+    entries = result.get("validation_errors", [])
+    if not entries or any(
+        not start <= (entry.get("range") or {}).get("start_line", -1) < end for entry in entries
     ):
         return None
     _LOGGER.info(
-        "Validation of %s for %s failed only on package resolution; keeping file",
+        "Validation of %s for %s failed only inside the packages block; keeping file",
         configuration,
         action,
     )
-    first = errors[0].removesuffix(".")
+    first = str(entries[0].get("message", "")).removesuffix(".")
     return (
-        f"Imported, but the remote package didn't resolve: {first}. "
+        f"Imported, but the remote package failed to load: {first}. "
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves."
-    )
-
-
-async def _probe_validates_clean(
-    editor: EditorController,
-    configuration: str,
-    content: str,
-    timeout: float | None,
-) -> bool:
-    """Report whether *content* validates with no errors; False when the validator can't answer."""
-    try:
-        result = await editor.validate_yaml(
-            configuration=configuration, content=content, timeout=timeout
-        )
-    except (TimeoutError, ValidatorUnavailableError, BrokenPipeError):
-        return False
-    return not any(
-        err.get("message")
-        for err in (*result.get("yaml_errors", []), *result.get("validation_errors", []))
     )
