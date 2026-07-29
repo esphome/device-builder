@@ -954,6 +954,15 @@ def test_component_target_carries_catalog_id() -> None:
         assert target.catalog_id == expected
 
 
+def test_iter_subentities_derives_cat_id_when_absent() -> None:
+    """A caller omitting ``cat_id`` gets it derived from the instance."""
+    instance = {"platform": "aht10", "id": "aht20", "temperature": {"id": "t"}}
+    subs = list(parsing.iter_subentities("sensor", instance, "aht20"))
+    assert [(domain, sub_id, key) for domain, _sub, sub_id, key in subs] == [
+        ("sensor", "t", "temperature")
+    ]
+
+
 def test_parse_recognises_hand_authored_subentity_handler() -> None:
     """An ``on_value_range`` on a sub-sensor parses to its sub-entity location."""
     text = (
