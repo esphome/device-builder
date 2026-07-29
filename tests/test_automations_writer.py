@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.controllers.automations import parsing, writing
+from esphome_device_builder.controllers.automations import writing
 from esphome_device_builder.controllers.automations.emitter import dump, emit_action_node
 from esphome_device_builder.controllers.automations.parsing import (
     ComponentTarget,
@@ -2752,18 +2752,6 @@ def test_round_trip_untagged_lambda_stays_bare() -> None:
 # Nested action-list config fields (dotted ``field`` paths)
 # ---------------------------------------------------------------------------
 
-_SPRINKLER_FIELD_PATHS = (
-    ("multiplier_number", "set_action"),
-    ("repeat_number", "set_action"),
-    ("valves", "run_duration_number", "set_action"),
-)
-
-
-@pytest.fixture
-def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Seed the catalog path index with sprinkler's nested trigger fields."""
-    monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
-
 
 def _nested_tree() -> AutomationTree:
     return AutomationTree(
@@ -3069,3 +3057,26 @@ def test_nested_descent_dash_line_scalar_first_key_refuses() -> None:
         )
     assert exc.value.code == ErrorCode.INVALID_ARGS
     assert "inline value" in str(exc.value)
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+@pytest.mark.parametrize(
+    "first_line",
+    [
+        pytest.param("  - repeat_number: 3\n    id: lawn\n", id="dash_scalar"),
+        pytest.param("  - repeat_number:\n      initial_value: 1\n    id: lawn\n", id="dash_block"),
+    ],
+)
+def test_intermediate_on_the_instance_dash_line_never_duplicates(first_line: str) -> None:
+    """An intermediate spelled on the instance dash line resolves or refuses, never duplicates."""
+    text = "sprinkler:\n" + first_line
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    try:
+        new_text, _diff = render_upsert(text, tree=_nested_tree(), location=loc)
+    except CommandError as err:
+        assert err.code == ErrorCode.INVALID_ARGS
+        assert "inline value" in str(err)
+        return
+    assert new_text.count("repeat_number") == 1
+    reparsed = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
+    assert reparsed.location == loc

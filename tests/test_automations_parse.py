@@ -957,18 +957,6 @@ def test_parse_recognises_hand_authored_subentity_handler() -> None:
 # Nested action-list config fields (dotted ``field`` paths)
 # ---------------------------------------------------------------------------
 
-_SPRINKLER_FIELD_PATHS = (
-    ("multiplier_number", "set_action"),
-    ("repeat_number", "set_action"),
-    ("valves", "run_duration_number", "set_action"),
-)
-
-
-@pytest.fixture
-def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Seed the catalog path index with sprinkler's nested trigger fields."""
-    monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
-
 
 @pytest.mark.usefixtures("_sprinkler_paths")
 def test_parse_nested_action_fields_emit_concrete_dotted_paths() -> None:

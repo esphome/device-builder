@@ -332,10 +332,8 @@ def _require_known_field_path(cat_id: str, segments: list[str], field: str) -> N
     """
     Reject a field path the shipped catalog doesn't declare as an action list.
 
-    Guards the splice against a stale frontend sending a bare leaf for a
-    nested field (which would land as an invalid direct child) and
-    against typos. A component with no catalog trigger paths keeps the
-    historical permissive single-segment behaviour.
+    A component with no catalogued trigger paths keeps the permissive
+    single-segment behaviour.
     """
     known = component_action_field_paths(cat_id)
     if known:

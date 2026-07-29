@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.automations import AutomationsController, catalog, parsing
+from esphome_device_builder.controllers.automations import AutomationsController, catalog
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation
@@ -1043,15 +1043,9 @@ def _apply_diff(text: str, diff: dict) -> str:
     return "".join([*lines[: from_line - 1], replacement, *lines[to_line:]])
 
 
-async def test_upsert_and_delete_nested_action_field_round_trip(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("_sprinkler_paths")
+async def test_upsert_and_delete_nested_action_field_round_trip(tmp_path: Path) -> None:
     """A dotted component_action field decodes, splices, and deletes over the WS surface."""
-    monkeypatch.setitem(
-        parsing._ACTION_FIELD_PATH_INDEX,
-        "sprinkler",
-        (("valves", "run_duration_number", "set_action"),),
-    )
     config = tmp_path / "s.yaml"
     text = (
         "sprinkler:\n"

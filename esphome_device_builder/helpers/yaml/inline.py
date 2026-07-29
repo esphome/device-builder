@@ -127,7 +127,9 @@ def upsert_nested_handler(
         return None
     intermediates = list(field_segments[:-1])
     leaf_key = field_segments[-1]
-    stack, consumed, list_miss = _descend_field_segments(lines, span, intermediates)
+    stack, consumed, list_miss = _descend_field_segments(
+        lines, _instance_frame(lines, span), intermediates
+    )
     if list_miss:
         return None
     target = (stack[-1].start, stack[-1].end, stack[-1].child_indent)
@@ -163,7 +165,9 @@ def remove_nested_handler(
     intermediates = list(field_segments[:-1])
     leaf_key = field_segments[-1]
     try:
-        stack, consumed, _list_miss = _descend_field_segments(lines, span, intermediates)
+        stack, consumed, _list_miss = _descend_field_segments(
+            lines, _instance_frame(lines, span), intermediates
+        )
     except YamlUpsertNotSupportedError:
         return None
     if consumed != len(intermediates):
@@ -203,13 +207,20 @@ class _SpanFrame:
     is_list_item: bool = False
 
 
+def _instance_frame(lines: list[str], span: tuple[int, int, str]) -> _SpanFrame:
+    """Frame for a located instance; a dash-line start marks it a list item."""
+    start, end, child_indent = span
+    is_item = lines[start].lstrip().startswith("- ")
+    return _SpanFrame(start, end, child_indent, is_list_item=is_item)
+
+
 def _descend_field_segments(
     lines: list[str],
-    span: tuple[int, int, str],
+    frame: _SpanFrame,
     segments: Sequence[str],
 ) -> tuple[list[_SpanFrame], int, bool]:
     """
-    Resolve *segments* stepwise from *span*, deepest-first frames on a stack.
+    Resolve *segments* stepwise from *frame*, deepest-first frames on a stack.
 
     Returns ``(stack, consumed, list_miss)`` — the frames located (the
     instance frame first), how many segments resolved, and whether the
@@ -217,7 +228,7 @@ def _descend_field_segments(
     :class:`YamlUpsertNotSupportedError` when a key segment exists with
     an inline scalar value (no block to descend into).
     """
-    stack = [_SpanFrame(*span)]
+    stack = [frame]
     consumed = 0
     for seg in segments:
         frame = stack[-1]
