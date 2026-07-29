@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
 
@@ -311,7 +310,6 @@ def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> 
         return False
     document = range_.get("document", "<file>")
     if document != "<file>":
-        packages_root = str(Path(CORE.data_dir) / "packages")
-        return bool(str(document).startswith(packages_root + os.sep))
+        return Path(document).is_relative_to(Path(CORE.data_dir) / "packages")
     start, end = packages_span
     return bool(start <= range_.get("start_line", -1) < end)

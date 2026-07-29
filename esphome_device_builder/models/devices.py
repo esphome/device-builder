@@ -306,8 +306,7 @@ class WizardResponse(DashboardModel):
     """
     Response after creating a new device.
 
-    ``warning`` is set when the config was kept despite a validation
-    failure confined to remote package resolution.
+    ``warning``: config kept despite a package-confined validation failure.
     """
 
     configuration: str
