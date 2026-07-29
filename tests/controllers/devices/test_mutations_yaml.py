@@ -96,3 +96,11 @@ async def test_cleanup_failure_preserves_the_validation_error() -> None:
 
     assert "invalid key" in excinfo.value.message
     cleanup.assert_called_once()
+
+
+def test_packages_block_span_bounds() -> None:
+    """No ``packages:`` block, and a block running to EOF, both yield ``None``."""
+    assert mutations_yaml.packages_block_span("esphome:\n  name: x\n") is None
+    # EOF-unbounded span must fail closed, not classify every trailing error.
+    assert mutations_yaml.packages_block_span("esphome:\n  name: x\npackages:\n  a: b\n") is None
+    assert mutations_yaml.packages_block_span("packages:\n  a: b\nesphome:\n  name: x\n") == (0, 2)
