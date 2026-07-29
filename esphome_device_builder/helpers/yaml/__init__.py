@@ -56,9 +56,11 @@ from .inline import SubEntityRef as SubEntityRef
 from .inline import _block_end as _block_end
 from .inline import _indent_block as _indent_block
 from .inline import remove_inline_handler as remove_inline_handler
+from .inline import remove_nested_handler as remove_nested_handler
 from .inline import remove_subentity_handler as remove_subentity_handler
 from .inline import synthetic_instance_index as synthetic_instance_index
 from .inline import upsert_inline_handler as upsert_inline_handler
+from .inline import upsert_nested_handler as upsert_nested_handler
 from .inline import upsert_subentity_handler as upsert_subentity_handler
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH

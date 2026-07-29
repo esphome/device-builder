@@ -1,0 +1,36 @@
+esphome:
+  name: sprinkler-test
+
+sprinkler:
+  - id: lawn
+    main_switch: Lawn Sprinklers
+    auto_advance_switch: Lawn Auto Advance
+    repeat_number:
+      id: lawn_repeat
+      initial_value: 1
+      set_action:
+        - logger.log: repeat changed
+    multiplier_number:
+      id: lawn_multiplier
+      set_action:
+        - logger.log: multiplier changed
+    valves:
+      - valve_switch: Front Yard
+        enable_switch: Enable Front Yard
+        run_duration_number:
+          id: front_duration
+          initial_value: 900s
+          set_action:
+            - logger.log: front duration changed
+      - valve_switch: Back Yard
+        enable_switch: Enable Back Yard
+        run_duration_number:
+          id: back_duration
+          set_action:
+            - logger.log: back duration changed
+            - switch.turn_on: notify_relay
+
+switch:
+  - platform: gpio
+    id: notify_relay
+    pin: 4

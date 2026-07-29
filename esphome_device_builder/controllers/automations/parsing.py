@@ -328,6 +328,30 @@ def resolve_component_domain(yaml_text: str, component_id: str) -> str | None:
     return target.parent_domain or target.domain
 
 
+def resolve_action_field_target(yaml_text: str, component_id: str) -> tuple[str, str] | None:
+    """
+    Resolve *component_id* to ``(instance_domain, catalog_id)`` for action-field writes.
+
+    A sub-entity id resolves to its parent instance (whose form computes
+    the field paths). ``None`` when no instance matches or the YAML
+    won't load.
+    """
+    yaml = make_yaml()
+    try:
+        root = yaml.load(yaml_text)
+    except Exception:  # noqa: BLE001 — any load failure reads as instance-not-found
+        return None
+    parents: dict[str, tuple[str, str]] = {}
+    for domain, instance, comp_id, target in _iter_instance_targets(root):
+        if not target.is_sub_entity:
+            parents[comp_id] = (domain, catalog_id(domain, instance.get("platform")))
+            if comp_id == component_id:
+                return parents[comp_id]
+        elif comp_id == component_id and target.parent_id in parents:
+            return parents[target.parent_id]
+    return None
+
+
 def resolve_component_target(yaml_text: str, component_id: str) -> ComponentTarget | None:
     """
     Resolve *component_id* to a top-level instance or a nested sub-entity.
@@ -463,24 +487,38 @@ def _component_body_entries(catalog_id: str) -> list[Any]:
     return json_loads(raw).get("config_entries") or []
 
 
-# Per-``<domain>.<platform>`` set of ``type: trigger`` action-list field
-# keys, read from the component bodies on first use (process cache).
-_ACTION_FIELD_INDEX: dict[str, frozenset[str]] = {}
+# Per-``<domain>.<platform>`` tuple of ``type: trigger`` action-list field
+# schema paths, read from the component bodies on first use (process cache).
+_ACTION_FIELD_PATH_INDEX: dict[str, tuple[tuple[str, ...], ...]] = {}
+
+_MAX_FIELD_PATH_DEPTH = 8
 
 
-def _component_action_fields(catalog_id: str) -> frozenset[str]:
-    """Return the ``type: trigger`` action-list field keys for *catalog_id*."""
-    cached = _ACTION_FIELD_INDEX.get(catalog_id)
+def component_action_field_paths(catalog_id: str) -> tuple[tuple[str, ...], ...]:
+    """Schema-key paths of every ``type: trigger`` entry in the shipped body, depth-first."""
+    cached = _ACTION_FIELD_PATH_INDEX.get(catalog_id)
     if cached is None:
-        cached = frozenset(
-            entry["key"]
-            for entry in _component_body_entries(catalog_id)
-            if isinstance(entry, dict)
-            and entry.get("type") == "trigger"
-            and isinstance(entry.get("key"), str)
-        )
-        _ACTION_FIELD_INDEX[catalog_id] = cached
+        paths: list[tuple[str, ...]] = []
+        _collect_trigger_paths(_component_body_entries(catalog_id), (), paths)
+        cached = tuple(paths)
+        _ACTION_FIELD_PATH_INDEX[catalog_id] = cached
     return cached
+
+
+def _collect_trigger_paths(
+    entries: Any, prefix: tuple[str, ...], out: list[tuple[str, ...]]
+) -> None:
+    """Accumulate ``type: trigger`` entry paths from a ``config_entries`` list."""
+    if not isinstance(entries, list) or len(prefix) >= _MAX_FIELD_PATH_DEPTH:
+        return
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("key"), str):
+            continue
+        key = entry["key"]
+        if entry.get("type") == "trigger":
+            out.append((*prefix, key))
+            continue
+        _collect_trigger_paths(entry.get("config_entries"), (*prefix, key), out)
 
 
 # Per-``<domain>.<platform>`` tuple of ``(sub_key, platform_type)`` pairs for
@@ -535,36 +573,82 @@ def _parse_component_action_fields(root: Any) -> list[ParsedAutomation]:
     """
     out: list[ParsedAutomation] = []
     for domain, instance, comp_id, target in _iter_instance_targets(root):
-        # Action-list fields (``open_action`` …) are a top-level-component
-        # concern; the shared walk also yields sub-entities (for inline
-        # ``on_*`` parsing), so skip them here to keep the scope unchanged.
+        # The shared walk also yields sub-entities (for inline ``on_*``
+        # parsing); skip them — a nested field, sub-entity blocks
+        # included, is addressed on the *parent* instance via the dotted
+        # path (the path the parent's config form computes), and
+        # list-nested blocks aren't sub-entities at all.
         if target.is_sub_entity:
             continue
-        fields = _component_action_fields(catalog_id(domain, instance.get("platform")))
-        if not fields:
+        paths = component_action_field_paths(catalog_id(domain, instance.get("platform")))
+        if not paths:
             continue
         comp_name = str(instance.get("name") or comp_id)
-        for key, body in list(instance.items()):
-            if key not in fields:
-                continue
-            from_line, to_line = _key_range(instance, key)
-            tree, error, unsupported = _safe_tree(
-                partial(_decompose_trigger_body, body, trigger_id=None),
-                trigger_id=None,
-            )
-            out.append(
-                ParsedAutomation(
-                    location=ComponentActionFieldLocation(component_id=comp_id, field=key),
-                    label=f"{comp_name} → {_pretty_name(key)}",
-                    automation=tree,
-                    from_line=from_line,
-                    to_line=to_line,
-                    raw_yaml=_dump_slice({key: body}),
-                    error=error,
-                    unsupported=unsupported,
+        hits: list[ParsedAutomation] = []
+        for schema_path in paths:
+            for parent, leaf_key, concrete in _iter_concrete_field_paths(instance, schema_path):
+                body = parent[leaf_key]
+                from_line, to_line = _key_range(parent, leaf_key)
+                tree, error, unsupported = _safe_tree(
+                    partial(_decompose_trigger_body, body, trigger_id=None),
+                    trigger_id=None,
                 )
-            )
+                hits.append(
+                    ParsedAutomation(
+                        location=ComponentActionFieldLocation(
+                            component_id=comp_id, field=".".join(concrete)
+                        ),
+                        label=f"{comp_name} → {_pretty_field_path(concrete)}",
+                        automation=tree,
+                        from_line=from_line,
+                        to_line=to_line,
+                        raw_yaml=_dump_slice({leaf_key: body}),
+                        error=error,
+                        unsupported=unsupported,
+                    )
+                )
+        # Document order, not catalog order — matches the pre-nested
+        # behaviour for multiple top-level fields on one instance.
+        hits.sort(key=lambda parsed: parsed.from_line)
+        out.extend(hits)
     return out
+
+
+def _iter_concrete_field_paths(
+    node: dict,
+    path: tuple[str, ...],
+    _prefix: tuple[str, ...] = (),
+) -> Iterator[tuple[dict, str, tuple[str, ...]]]:
+    """
+    Yield ``(leaf_parent, leaf_key, concrete_path)`` per present occurrence of *path*.
+
+    A list value at an intermediate segment fans out per mapping item
+    with its index inserted into the concrete path; scalars where a
+    mapping is expected are skipped silently.
+    """
+    key = path[0]
+    if len(path) == 1:
+        if key in node:
+            yield node, key, (*_prefix, key)
+        return
+    value = node.get(key)
+    if isinstance(value, dict):
+        yield from _iter_concrete_field_paths(value, path[1:], (*_prefix, key))
+    elif isinstance(value, list):
+        for idx, item in enumerate(value):
+            if isinstance(item, dict):
+                yield from _iter_concrete_field_paths(item, path[1:], (*_prefix, key, str(idx)))
+
+
+def _pretty_field_path(segments: tuple[str, ...]) -> str:
+    """Human label for a concrete field path; an index folds into its list segment."""
+    parts: list[str] = []
+    for seg in segments:
+        if seg.isdecimal():
+            parts[-1] = f"{parts[-1]} #{int(seg) + 1}"
+        else:
+            parts.append(_pretty_name(seg))
+    return " → ".join(parts)
 
 
 def _parse_instance_triggers(

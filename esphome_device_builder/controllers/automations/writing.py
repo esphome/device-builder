@@ -16,15 +16,20 @@ value re-emits its tag (see :func:`emitter.encode_value`).
 
 from __future__ import annotations
 
+import re
+
 from ...helpers.api import CommandError
 from ...helpers.yaml import (
     SubEntityRef,
+    YamlUpsertNotSupportedError,
     _block_end,
     _indent_block,
     _splice_into_domain_block,
     remove_inline_handler,
+    remove_nested_handler,
     remove_subentity_handler,
     upsert_inline_handler,
+    upsert_nested_handler,
     upsert_subentity_handler,
 )
 from ...models.api import ErrorCode
@@ -53,7 +58,9 @@ from .emitter import (
 )
 from .parsing import (
     ComponentTarget,
+    component_action_field_paths,
     make_yaml,
+    resolve_action_field_target,
     resolve_component_domain,
     resolve_component_target,
 )
@@ -309,6 +316,38 @@ def _upsert_subentity_on(
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
+_FIELD_SEGMENT_RE = re.compile(r"^[a-z0-9_]+$")
+
+
+def _split_field_path(field: str) -> list[str]:
+    """Split a dotted action-field path, rejecting malformed segments."""
+    segments = field.split(".")
+    if not all(_FIELD_SEGMENT_RE.match(seg) for seg in segments):
+        msg = f"Invalid action-field path {field!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    return segments
+
+
+def _require_known_field_path(cat_id: str, segments: list[str], field: str) -> None:
+    """
+    Reject a field path the shipped catalog doesn't declare as an action list.
+
+    Guards the splice against a stale frontend sending a bare leaf for a
+    nested field (which would land as an invalid direct child) and
+    against typos. A component with no catalog trigger paths keeps the
+    historical permissive single-segment behaviour.
+    """
+    known = component_action_field_paths(cat_id)
+    if known:
+        schema_path = tuple(seg for seg in segments if not seg.isdecimal())
+        if schema_path not in known:
+            msg = f"{field!r} is not an action-list field of {cat_id!r}"
+            raise CommandError(ErrorCode.INVALID_ARGS, msg)
+    elif len(segments) > 1:
+        msg = f"{cat_id!r} has no catalogued action-list fields; can't splice {field!r}"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
+
+
 def _upsert_component_action(
     yaml_text: str,
     tree: AutomationTree,
@@ -317,28 +356,45 @@ def _upsert_component_action(
     """Splice an action-list config field (``open_action:`` …) on a component.
 
     Reuses the same inline-handler splice as ``on_*`` handlers, keyed on
-    the literal ``field`` name; only the rendered body differs (a bare
-    action list, no ``then:`` wrapper).
+    the ``field`` path's leaf; only the rendered body differs (a bare
+    action list, no ``then:`` wrapper). A dotted field splices at the
+    nested path, creating missing intermediate mappings but never a
+    list item.
     """
-    domain = resolve_component_domain(yaml_text, location.component_id)
-    if domain is None:
+    segments = _split_field_path(location.field)
+    resolved = resolve_action_field_target(yaml_text, location.component_id)
+    if resolved is None:
         msg = (
             f"Component instance id={location.component_id!r} not found; "
             f"can't splice action field {location.field!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    rendered = render_action_field(tree, key=location.field)
-    res = upsert_inline_handler(
-        yaml_text,
-        component_domain=domain,
-        component_id=location.component_id,
-        handler_key=location.field,
-        rendered_yaml=rendered,
-    )
+    domain, cat_id = resolved
+    _require_known_field_path(cat_id, segments, location.field)
+    rendered = render_action_field(tree, key=segments[-1])
+    try:
+        if len(segments) == 1:
+            res = upsert_inline_handler(
+                yaml_text,
+                component_domain=domain,
+                component_id=location.component_id,
+                handler_key=location.field,
+                rendered_yaml=rendered,
+            )
+        else:
+            res = upsert_nested_handler(
+                yaml_text,
+                component_domain=domain,
+                component_id=location.component_id,
+                field_segments=segments,
+                rendered_yaml=rendered,
+            )
+    except YamlUpsertNotSupportedError as err:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
     if res is None:
         msg = (
-            f"Component instance id={location.component_id!r} not found "
-            f"under {domain!r}; can't splice action field {location.field!r}"
+            f"Component instance id={location.component_id!r} under {domain!r} "
+            f"can't take action field {location.field!r} (instance or list item missing)"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line, replacement = res
@@ -703,7 +759,12 @@ def _delete_component_action(
     yaml_text: str,
     location: ComponentActionFieldLocation,
 ) -> tuple[str, YamlDiff]:
-    """Drop an action-list config field (``open_action:`` …) from a component."""
+    """Drop an action-list config field (``open_action:`` …) from a component.
+
+    A dotted field removes the nested leaf and prunes intermediate
+    mappings the removal empties (never a list item or the instance).
+    """
+    segments = _split_field_path(location.field)
     domain = resolve_component_domain(yaml_text, location.component_id)
     if domain is None:
         msg = (
@@ -711,16 +772,24 @@ def _delete_component_action(
             f"can't delete action field {location.field!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    res = remove_inline_handler(
-        yaml_text,
-        component_domain=domain,
-        component_id=location.component_id,
-        handler_key=location.field,
-    )
+    if len(segments) == 1:
+        res = remove_inline_handler(
+            yaml_text,
+            component_domain=domain,
+            component_id=location.component_id,
+            handler_key=location.field,
+        )
+    else:
+        res = remove_nested_handler(
+            yaml_text,
+            component_domain=domain,
+            component_id=location.component_id,
+            field_segments=segments,
+        )
     if res is None:
         msg = (
-            f"Component instance id={location.component_id!r} not found "
-            f"under {domain!r}; can't delete action field {location.field!r}"
+            f"Component instance id={location.component_id!r} under {domain!r} "
+            f"has no action field {location.field!r}; nothing to delete"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     new_text, from_line, to_line = res

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from esphome_device_builder.controllers.automations import writing
+from esphome_device_builder.controllers.automations import parsing, writing
 from esphome_device_builder.controllers.automations.emitter import dump, emit_action_node
 from esphome_device_builder.controllers.automations.parsing import (
     ComponentTarget,
@@ -2743,3 +2743,213 @@ def test_round_trip_untagged_lambda_stays_bare() -> None:
     parsed = parse_device_yaml(text)[0]
     _new_text, diff = render_upsert(text, tree=parsed.automation, location=parsed.location)
     assert "!lambda" not in diff.replacement
+
+
+# Nested action-list config fields (dotted ``field`` paths)
+# ---------------------------------------------------------------------------
+
+_SPRINKLER_FIELD_PATHS = (
+    ("multiplier_number", "set_action"),
+    ("repeat_number", "set_action"),
+    ("valves", "run_duration_number", "set_action"),
+)
+
+
+@pytest.fixture
+def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seed the catalog path index with sprinkler's nested trigger fields."""
+    monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
+
+
+def _nested_tree() -> AutomationTree:
+    return AutomationTree(
+        trigger_id=None,
+        actions=[ActionNode(action_id="logger.log", params={"format": "changed"})],
+    )
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_round_trip_nested_action_field_preserves_location_and_actions() -> None:
+    """Parse → upsert with the same tree → parse keeps a valve-indexed field stable."""
+    text = _load("sprinkler_nested_actions.yaml")
+    first = next(
+        p
+        for p in parse_device_yaml(text)
+        if p.location.kind == "component_action"
+        and p.location.field == "valves.1.run_duration_number.set_action"
+    )
+    new_text, _diff = render_upsert(text, tree=first.automation, location=first.location)
+    second = next(
+        p
+        for p in parse_device_yaml(new_text)
+        if p.location.kind == "component_action"
+        and p.location.field == "valves.1.run_duration_number.set_action"
+    )
+    assert second.location == first.location
+    assert [a.action_id for a in second.automation.actions] == [
+        a.action_id for a in first.automation.actions
+    ]
+    assert "then:" not in new_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_upsert_nested_action_field_touches_only_the_addressed_valve() -> None:
+    """Rewriting valve #1's field leaves valve #2's block byte-identical."""
+    text = _load("sprinkler_nested_actions.yaml")
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.0.run_duration_number.set_action"
+    )
+    new_text, _diff = render_upsert(text, tree=_nested_tree(), location=loc)
+    assert "back duration changed" in new_text
+    assert "switch.turn_on: notify_relay" in new_text
+    assert "front duration changed" not in new_text
+    assert "logger.log: changed" in new_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_upsert_nested_action_field_creates_missing_mapping_chain() -> None:
+    """A missing ``repeat_number:`` block is created around the spliced leaf."""
+    text = "sprinkler:\n  - id: lawn\n    main_switch: Lawn\n"
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, _diff = render_upsert(text, tree=_nested_tree(), location=loc)
+    reparsed = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
+    assert reparsed.location == loc
+    assert [a.action_id for a in reparsed.automation.actions] == ["logger.log"]
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_upsert_nested_action_field_never_fabricates_a_list_item() -> None:
+    """An out-of-range valve index is NOT_FOUND, not a new item."""
+    text = _load("sprinkler_nested_actions.yaml")
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.5.run_duration_number.set_action"
+    )
+    with pytest.raises(CommandError) as exc:
+        render_upsert(text, tree=_nested_tree(), location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_upsert_nested_action_field_inline_scalar_intermediate_rejected() -> None:
+    """``repeat_number: 3`` can't be descended into; the splice refuses cleanly."""
+    text = "sprinkler:\n  - id: lawn\n    repeat_number: 3\n"
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    with pytest.raises(CommandError) as exc:
+        render_upsert(text, tree=_nested_tree(), location=loc)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "inline value" in str(exc.value)
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+@pytest.mark.parametrize("field", ["a..b", ".set_action", "repeat_number.", "a.-1.b", "A.b"])
+def test_upsert_nested_action_field_malformed_path_rejected(field: str) -> None:
+    text = _load("sprinkler_nested_actions.yaml")
+    loc = ComponentActionFieldLocation(component_id="lawn", field=field)
+    with pytest.raises(CommandError) as exc:
+        render_upsert(text, tree=_nested_tree(), location=loc)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_upsert_bare_leaf_for_a_nested_field_rejected() -> None:
+    """A stale frontend's bare ``set_action`` can't splice an invalid direct child."""
+    text = _load("sprinkler_nested_actions.yaml")
+    loc = ComponentActionFieldLocation(component_id="lawn", field="set_action")
+    with pytest.raises(CommandError) as exc:
+        render_upsert(text, tree=_nested_tree(), location=loc)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_upsert_nested_field_without_catalog_paths_rejected() -> None:
+    """A component with no catalogued trigger paths takes no dotted splice."""
+    text = "madeup:\n  - platform: nope\n    id: thing\n"
+    loc = ComponentActionFieldLocation(component_id="thing", field="a.b_action")
+    with pytest.raises(CommandError) as exc:
+        render_upsert(text, tree=_nested_tree(), location=loc)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_delete_nested_action_field_drops_only_the_leaf() -> None:
+    """Deleting valve #1's field keeps the valve item and its sibling valve."""
+    text = _load("sprinkler_nested_actions.yaml")
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.0.run_duration_number.set_action"
+    )
+    new_text, diff = render_delete(text, location=loc)
+    assert "front duration changed" not in new_text
+    assert "valve_switch: Front Yard" in new_text
+    assert "back duration changed" in new_text
+    assert diff.replacement == ""
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_delete_nested_action_field_prunes_emptied_mappings() -> None:
+    """A container mapping the delete empties is pruned; the instance is not."""
+    text = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    main_switch: Lawn\n"
+        "    repeat_number:\n"
+        "      set_action:\n"
+        "        - logger.log: changed\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, _diff = render_delete(text, location=loc)
+    assert "repeat_number" not in new_text
+    assert "main_switch: Lawn" in new_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_delete_nested_action_field_never_prunes_a_list_item() -> None:
+    """Pruning stops at a valve item even when the delete empties its mapping."""
+    text = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    valves:\n"
+        "      - valve_switch: Front Yard\n"
+        "        run_duration_number:\n"
+        "          set_action:\n"
+        "            - logger.log: changed\n"
+        "      - valve_switch: Back Yard\n"
+    )
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.0.run_duration_number.set_action"
+    )
+    new_text, _diff = render_delete(text, location=loc)
+    assert "run_duration_number" not in new_text
+    assert "valve_switch: Front Yard" in new_text
+    assert "valve_switch: Back Yard" in new_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_delete_nested_action_field_miss_is_not_found() -> None:
+    text = "sprinkler:\n  - id: lawn\n    main_switch: Lawn\n"
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    with pytest.raises(CommandError) as exc:
+        render_delete(text, location=loc)
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_nested_action_field_dash_line_first_key_round_trips() -> None:
+    """``- run_duration_number:`` as an item's first key resolves for upsert and delete."""
+    text = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    valves:\n"
+        "      - run_duration_number:\n"
+        "          set_action:\n"
+        "            - logger.log: old\n"
+        "        valve_switch: Front Yard\n"
+    )
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.0.run_duration_number.set_action"
+    )
+    new_text, _diff = render_upsert(text, tree=_nested_tree(), location=loc)
+    assert new_text.count("set_action:") == 1
+    assert "old" not in new_text
+    assert "valve_switch: Front Yard" in new_text
+    deleted, _d = render_delete(new_text, location=loc)
+    assert "set_action" not in deleted
+    assert "valve_switch: Front Yard" in deleted

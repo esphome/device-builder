@@ -336,8 +336,11 @@ class ApiActionLocation(DashboardModel):
 class ComponentActionFieldLocation(DashboardModel):
     """A ``type: trigger`` action-list config field (cover ``open_action`` …).
 
-    Keyed on the literal ``field`` name (not a catalog trigger); carries a
-    bare action list with no trigger/params, unlike ``ComponentOnLocation``.
+    ``field`` is a dot-joined path from the component instance — schema
+    keys, a decimal segment indexing a YAML list
+    (``valves.0.run_duration_number.set_action``); a direct child is the
+    bare key. Carries a bare action list with no trigger/params, unlike
+    ``ComponentOnLocation``.
     """
 
     component_id: str

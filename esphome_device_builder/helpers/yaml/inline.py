@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from .scalar import ESPHOME_YAML_INDENT, block_body_is_list
+from .scalar import ESPHOME_YAML_INDENT, YamlUpsertNotSupportedError, block_body_is_list
 from .scan import (
     block_end_index,
     find_block_header,
@@ -100,6 +101,184 @@ def upsert_subentity_handler(
     if span is None:
         return None
     return _apply_handler_upsert(lines, span, handler_key, rendered_yaml)
+
+
+def upsert_nested_handler(
+    yaml_text: str,
+    *,
+    component_domain: str,
+    component_id: str,
+    field_segments: Sequence[str],
+    rendered_yaml: str,
+) -> tuple[str, int, int, str] | None:
+    """
+    Insert or replace a nested field block addressed by *field_segments*.
+
+    Segments are mapping keys, a decimal segment indexing a YAML list
+    (``valves.0.run_duration_number.set_action``). Missing intermediate
+    *mappings* are created around the rendered leaf; a missing or
+    out-of-range list item is refused (``None``) — never fabricated.
+    Same return shape as :func:`upsert_inline_handler`; raises
+    :class:`YamlUpsertNotSupportedError` on an inline-scalar intermediate.
+    """
+    lines = yaml_text.splitlines(keepends=True)
+    span = _locate_component_instance(lines, component_domain, component_id)
+    if span is None:
+        return None
+    intermediates = list(field_segments[:-1])
+    leaf_key = field_segments[-1]
+    stack, consumed, list_miss = _descend_field_segments(lines, span, intermediates)
+    if list_miss:
+        return None
+    target = (stack[-1].start, stack[-1].end, stack[-1].child_indent)
+    if consumed == len(intermediates):
+        return _apply_handler_upsert(lines, target, leaf_key, rendered_yaml)
+    remaining = intermediates[consumed:]
+    if any(seg.isdecimal() for seg in remaining):
+        return None
+    rendered = rendered_yaml
+    for seg in reversed(remaining):
+        rendered = f"{seg}:\n" + "\n".join(_indent_block(rendered, ESPHOME_YAML_INDENT))
+    return _apply_handler_upsert(lines, target, remaining[0], rendered)
+
+
+def remove_nested_handler(
+    yaml_text: str,
+    *,
+    component_domain: str,
+    component_id: str,
+    field_segments: Sequence[str],
+) -> tuple[str, int, int] | None:
+    """
+    Delete a nested field block addressed by *field_segments*.
+
+    Inverse of :func:`upsert_nested_handler`; also prunes intermediate
+    mappings the removal empties (never a list item or the instance).
+    ``None`` when any path step or the leaf is absent.
+    """
+    lines = yaml_text.splitlines(keepends=True)
+    span = _locate_component_instance(lines, component_domain, component_id)
+    if span is None:
+        return None
+    intermediates = list(field_segments[:-1])
+    leaf_key = field_segments[-1]
+    try:
+        stack, consumed, _list_miss = _descend_field_segments(lines, span, intermediates)
+    except YamlUpsertNotSupportedError:
+        return None
+    if consumed != len(intermediates):
+        return None
+    target = (stack[-1].start, stack[-1].end, stack[-1].child_indent)
+    removed = _apply_handler_remove(lines, target, leaf_key)
+    if removed is None:
+        return None
+    _new_text, from_line, to_line = removed
+    rm_start, rm_end = from_line - 1, to_line
+    # Prune enclosing mappings the removal leaves empty. List items and
+    # the instance span (stack[0]) are never pruned — deleting a valve
+    # item would shift sibling indices other parsed locations hold.
+    for frame in reversed(stack[1:]):
+        if frame.is_list_item:
+            break
+        emptied = all(
+            not lines[idx].strip()
+            for idx in range(frame.start + 1, frame.end)
+            if not (rm_start <= idx < rm_end)
+        )
+        if not emptied:
+            break
+        rm_start = frame.start
+        rm_end = max(rm_end, frame.end)
+    new_lines = [*lines[:rm_start], *lines[rm_end:]]
+    return "".join(new_lines), rm_start + 1, rm_end
+
+
+@dataclass(frozen=True, slots=True)
+class _SpanFrame:
+    """One resolved step of a nested descent: block bounds + child indent."""
+
+    start: int
+    end: int
+    child_indent: str
+    is_list_item: bool = False
+
+
+def _descend_field_segments(
+    lines: list[str],
+    span: tuple[int, int, str],
+    segments: Sequence[str],
+) -> tuple[list[_SpanFrame], int, bool]:
+    """
+    Resolve *segments* stepwise from *span*, deepest-first frames on a stack.
+
+    Returns ``(stack, consumed, list_miss)`` — the frames located (the
+    instance frame first), how many segments resolved, and whether the
+    walk stopped at a missing/out-of-range list index. Raises
+    :class:`YamlUpsertNotSupportedError` when a key segment exists with
+    an inline scalar value (no block to descend into).
+    """
+    stack = [_SpanFrame(*span)]
+    consumed = 0
+    for seg in segments:
+        frame = stack[-1]
+        if seg.isdecimal():
+            if not block_body_is_list(lines, frame.start, frame.end):
+                return stack, consumed, True
+            items = top_list_item_starts(lines, frame.start, frame.end)
+            idx = int(seg)
+            if idx >= len(items):
+                return stack, consumed, True
+            start = items[idx]
+            end = items[idx + 1] if idx + 1 < len(items) else frame.end
+            stack.append(_SpanFrame(start, end, _child_indent(lines, start), is_list_item=True))
+            consumed += 1
+            continue
+        located = _locate_key_block(lines, frame, seg)
+        if located is None:
+            return stack, consumed, False
+        stack.append(located)
+        consumed += 1
+    return stack, consumed, False
+
+
+def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFrame | None:
+    """
+    Find ``<key>:`` as a block header inside *frame*, or ``None`` when absent.
+
+    Matches the plain child-indent form and — for a list-item frame —
+    the dash-line first-key form (``- <key>:``). A ``<key>: <scalar>``
+    line raises :class:`YamlUpsertNotSupportedError` instead of
+    reporting the key missing, so an upsert can't shadow it.
+    """
+    header_re = key_header_re(key, indent=frame.child_indent)
+    dash_re = re.compile(rf"^\s*-\s+{re.escape(key)}:\s*(?:#.*)?$")
+    child_scalar_re = re.compile(rf"^{re.escape(frame.child_indent)}{re.escape(key)}:\s*[^\s#]")
+    dash_scalar_re = re.compile(rf"^\s*-\s+{re.escape(key)}:\s*[^\s#]")
+    inline_msg = f"{key!r} has an inline value; rewrite it as a block mapping first"
+    start: int | None = None
+    for idx in range(frame.start, frame.end):
+        content = lines[idx].rstrip("\n\r")
+        if header_re.match(content):
+            start = idx
+            break
+        if idx == frame.start and frame.is_list_item:
+            if dash_re.match(content):
+                start = idx
+                break
+            if dash_scalar_re.match(content):
+                raise YamlUpsertNotSupportedError(inline_msg)
+        if child_scalar_re.match(content):
+            raise YamlUpsertNotSupportedError(inline_msg)
+    if start is None:
+        return None
+    end = _block_end(lines, start, frame.end, frame.child_indent)
+    child = frame.child_indent + ESPHOME_YAML_INDENT
+    for idx in range(start + 1, end):
+        content = lines[idx].rstrip("\n\r")
+        if content:
+            child = leading_ws(content)
+            break
+    return _SpanFrame(start, end, child)
 
 
 def _block_end(lines: list[str], start: int, end_bound: int, indent: str) -> int:

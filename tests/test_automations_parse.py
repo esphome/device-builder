@@ -17,6 +17,7 @@ from pathlib import Path
 import orjson
 import pytest
 
+from esphome_device_builder.controllers.automations import parsing
 from esphome_device_builder.controllers.automations.parsing import (
     parse_device_yaml,
     platform_subentity_keys,
@@ -951,3 +952,107 @@ def test_parse_recognises_hand_authored_subentity_handler() -> None:
     assert len(parsed) == 1
     assert parsed[0].location.component_id == "aht20_temperature"
     assert parsed[0].location.trigger == "on_value_range"
+
+
+# Nested action-list config fields (dotted ``field`` paths)
+# ---------------------------------------------------------------------------
+
+_SPRINKLER_FIELD_PATHS = (
+    ("multiplier_number", "set_action"),
+    ("repeat_number", "set_action"),
+    ("valves", "run_duration_number", "set_action"),
+)
+
+
+@pytest.fixture
+def _sprinkler_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seed the catalog path index with sprinkler's nested trigger fields."""
+    monkeypatch.setitem(parsing._ACTION_FIELD_PATH_INDEX, "sprinkler", _SPRINKLER_FIELD_PATHS)
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_parse_nested_action_fields_emit_concrete_dotted_paths() -> None:
+    """Nested fields surface with indexed dotted paths, in document order."""
+    parsed = parse_device_yaml(_load("sprinkler_nested_actions.yaml"))
+    actions = [p for p in parsed if p.location.kind == "component_action"]
+    assert [p.location.field for p in actions] == [
+        "repeat_number.set_action",
+        "multiplier_number.set_action",
+        "valves.0.run_duration_number.set_action",
+        "valves.1.run_duration_number.set_action",
+    ]
+    for item in actions:
+        assert item.location.component_id == "lawn"
+        assert item.automation.trigger_id is None
+    second_valve = actions[3]
+    assert [a.action_id for a in second_valve.automation.actions] == [
+        "logger.log",
+        "switch.turn_on",
+    ]
+    assert second_valve.label == "lawn → Valves #2 → Run Duration Number → Set Action"
+    orjson.dumps([p.to_dict() for p in actions])
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_parse_nested_action_field_line_ranges_anchor_the_leaf() -> None:
+    """from/to lines span the nested ``set_action:`` block, not its container."""
+    parsed = parse_device_yaml(_load("sprinkler_nested_actions.yaml"))
+    by_field = {p.location.field: p for p in parsed if p.location.kind == "component_action"}
+    first_valve = by_field["valves.0.run_duration_number.set_action"]
+    assert first_valve.from_line == 23
+    assert first_valve.to_line == 24
+    second_valve = by_field["valves.1.run_duration_number.set_action"]
+    assert second_valve.from_line == 29
+    assert second_valve.to_line == 31
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_parse_nested_action_field_single_mapping_list_domain() -> None:
+    """A ``valves:`` written as one mapping yields an index-free path."""
+    yaml = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    valves:\n"
+        "      valve_switch: Only Zone\n"
+        "      run_duration_number:\n"
+        "        set_action:\n"
+        "          - logger.log: changed\n"
+    )
+    actions = [p for p in parse_device_yaml(yaml) if p.location.kind == "component_action"]
+    assert [p.location.field for p in actions] == ["valves.run_duration_number.set_action"]
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_parse_nested_action_field_absent_or_scalar_not_surfaced() -> None:
+    """Absent nested fields and scalars where mappings are expected emit nothing."""
+    yaml = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    repeat_number: 3\n"
+        "    valves:\n"
+        "      - valve_switch: Front Yard\n"
+    )
+    actions = [p for p in parse_device_yaml(yaml) if p.location.kind == "component_action"]
+    assert actions == []
+
+
+def test_collect_trigger_paths_walks_nested_entries() -> None:
+    """The catalog walk finds trigger entries at any depth, keyed by schema path."""
+    entries = [
+        {"key": "open_action", "type": "trigger"},
+        {
+            "key": "valves",
+            "type": "nested",
+            "config_entries": [
+                {
+                    "key": "run_duration_number",
+                    "type": "nested",
+                    "config_entries": [{"key": "set_action", "type": "trigger"}],
+                },
+            ],
+        },
+        {"key": "name", "type": "string"},
+    ]
+    out: list[tuple[str, ...]] = []
+    parsing._collect_trigger_paths(entries, (), out)
+    assert out == [("open_action",), ("valves", "run_duration_number", "set_action")]
