@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from esphome_device_builder.controllers.devices.mutations_yaml import (
@@ -23,12 +25,17 @@ def _validate_via_vscode(tmp_path: Path, content: str) -> dict:
         stderr=subprocess.DEVNULL,
         text=True,
         cwd=tmp_path,
+        # Never block on an interactive git credential prompt; the
+        # dead-repo probe must fail, not ask.
+        env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""},
     ) as proc:
         try:
             assert proc.stdin is not None and proc.stdout is not None
             proc.stdin.write(json.dumps({"type": "validate", "file": "adopt.yaml"}) + "\n")
             proc.stdin.flush()
+            deadline = time.monotonic() + 120
             while True:
+                assert time.monotonic() < deadline, "validator round-trip exceeded 120s"
                 line = proc.stdout.readline()
                 assert line, "esphome vscode subprocess closed stdout"
                 try:

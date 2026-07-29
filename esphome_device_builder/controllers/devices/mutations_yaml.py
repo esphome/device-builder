@@ -225,8 +225,6 @@ def _raise_validation_failure(
     failure_tail: str | None,
 ) -> NoReturn:
     """Raise the refusal ``CommandError`` for a failed validation."""
-    shown = errors[:3]
-    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
     if on_failure is ErrorCode.INTERNAL_ERROR:
         message_tail = (
             ". Please report this with a redacted snippet of just the "
@@ -236,13 +234,9 @@ def _raise_validation_failure(
         )
     else:
         message_tail = failure_tail or ". Fix the errors in the editor and try again."
-    body = "; ".join(shown) + suffix
-    # esphome messages often end with their own period; the tail
-    # brings the sentence break.
-    body = body.removesuffix(".")
     raise CommandError(
         on_failure,
-        f"Can't {action} — config doesn't validate: " + body + message_tail,
+        f"Can't {action} — config doesn't validate: " + _summarise(errors) + message_tail,
     )
 
 
@@ -282,15 +276,22 @@ def _packages_confined_warning(
         configuration,
         action,
     )
-    errors = [str(entry.get("message", "")) for entry in entries]
-    shown = errors[:3]
-    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
-    body = ("; ".join(shown) + suffix).removesuffix(".")
+    body = _summarise([str(entry.get("message", "")) for entry in entries])
     return (
         f"Imported, but the remote package failed to load: {body}. "
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves."
     )
+
+
+def _summarise(errors: list[str]) -> str:
+    """Join up to three non-empty messages with a ``(+N more)`` count, period-trimmed."""
+    errors = [msg for msg in errors if msg]
+    shown = errors[:3]
+    suffix = f" (+{len(errors) - len(shown)} more)" if len(errors) > len(shown) else ""
+    # esphome messages often end with their own period; the caller's
+    # tail brings the sentence break.
+    return ("; ".join(shown) + suffix).removesuffix(".")
 
 
 def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> bool:
@@ -299,7 +300,9 @@ def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> 
 
     The validator marks the edited file ``<file>``; an error in any
     other document (fetched package content, or an ``!include``) is
-    treated as confined.
+    treated as confined. Callers gate *packages_span* to generated
+    adoption YAML, which carries no ``!include``, so a foreign document
+    is package content by construction.
     """
     range_ = entry.get("range")
     if not range_:
