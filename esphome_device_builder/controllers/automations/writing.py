@@ -322,7 +322,7 @@ _FIELD_SEGMENT_RE = re.compile(r"^[a-z0-9_]+$")
 def _split_field_path(field: str) -> list[str]:
     """Split a dotted action-field path, rejecting malformed segments."""
     segments = field.split(".")
-    if not all(_FIELD_SEGMENT_RE.match(seg) for seg in segments):
+    if not all(_FIELD_SEGMENT_RE.match(seg) for seg in segments) or segments[-1].isdecimal():
         msg = f"Invalid action-field path {field!r}"
         raise CommandError(ErrorCode.INVALID_ARGS, msg)
     return segments

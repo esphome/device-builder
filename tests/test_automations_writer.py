@@ -2827,7 +2827,9 @@ def test_upsert_nested_action_field_inline_scalar_intermediate_rejected() -> Non
 
 
 @pytest.mark.usefixtures("_sprinkler_paths")
-@pytest.mark.parametrize("field", ["a..b", ".set_action", "repeat_number.", "a.-1.b", "A.b"])
+@pytest.mark.parametrize(
+    "field", ["a..b", ".set_action", "repeat_number.", "a.-1.b", "A.b", "valves.0"]
+)
 def test_upsert_nested_action_field_malformed_path_rejected(field: str) -> None:
     text = _load("sprinkler_nested_actions.yaml")
     loc = ComponentActionFieldLocation(component_id="lawn", field=field)
