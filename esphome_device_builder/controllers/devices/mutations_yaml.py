@@ -201,7 +201,11 @@ async def validate_rewritten_yaml_or_raise(
         if not errors:
             succeeded = True
             return None
-        warning = _packages_confined_warning(result, packages_span, configuration, action)
+        # Executor hop: the package-cache containment check reads
+        # ``CORE.data_dir``, whose ``config_dir`` resolution stats the disk.
+        warning = await run_in_executor(
+            _packages_confined_warning, result, packages_span, configuration, action
+        )
         if warning is not None:
             succeeded = True
             return warning
