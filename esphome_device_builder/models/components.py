@@ -104,6 +104,11 @@ class ComponentCatalogIndexEntry(DashboardModel):
     image_url: str = ""
     dependencies: list[str] = field(default_factory=list)
     multi_conf: bool = False
+    # Same shape as :attr:`ComponentCatalogEntry.bus_constraints`. Kept in
+    # the slim index so bus-availability checks can read every configured
+    # component's claims (``require_rx`` / ``require_tx`` / settings)
+    # without hydrating bodies.
+    bus_constraints: dict[str, dict[str, Any]] = field(default_factory=dict)
     supported_platforms: list[str] = field(default_factory=list)
     # Interface namespaces this component can be referenced *as*: a
     # cross-domain interface (an ``adc`` sensor provides

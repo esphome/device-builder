@@ -80,10 +80,10 @@ _CACHE_ROOT = _REPO_ROOT / ".cache"
 
 # Fields stripped from index entries — they belong on the per-id body
 # files only. Slim-index keeps the catalog UI's list / search /
-# filter paths off the per-field tree.
-_INDEX_DROP_FIELDS: frozenset[str] = frozenset(
-    {"config_entries", "required_groups", "bus_constraints"}
-)
+# filter paths off the per-field tree. ``bus_constraints`` stays in the
+# index: bus availability checks need every configured component's
+# claims without hydrating bodies.
+_INDEX_DROP_FIELDS: frozenset[str] = frozenset({"config_entries", "required_groups"})
 
 # Actions with more top-level config entries than this are flagged
 # form_editable=False (LVGL *.update sits at 160+, every other action <= 30).
