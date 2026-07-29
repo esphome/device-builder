@@ -346,6 +346,34 @@ async def test_import_device_rejects_when_imported_yaml_does_not_validate(
     assert ctrl._scanner.calls == []
 
 
+async def test_import_device_validation_message_collapses_the_period(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An esphome error ending in a period doesn't double up against the tail."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {"message": "gl-s10.yaml does not exist in repository."},
+            ],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    assert "repository. Fix the errors" in excinfo.value.message
+    assert ".." not in excinfo.value.message
+
+
 async def test_import_device_rolls_back_on_unicode_decode_error_from_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -197,12 +197,13 @@ async def validate_rewritten_yaml_or_raise(
             if on_failure is ErrorCode.INTERNAL_ERROR
             else ". Fix the errors in the editor and try again."
         )
+        body = "; ".join(shown) + suffix
+        # esphome messages often end with their own period; the tail
+        # brings the sentence break.
+        body = body.removesuffix(".")
         raise CommandError(
             on_failure,
-            f"Can't {action} — config doesn't validate: "
-            + "; ".join(shown)
-            + suffix
-            + message_tail,
+            f"Can't {action} — config doesn't validate: " + body + message_tail,
         )
     finally:
         if not succeeded and on_error_cleanup is not None:
