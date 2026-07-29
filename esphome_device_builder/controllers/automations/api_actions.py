@@ -108,13 +108,13 @@ def canonicalize_block(
     item_indent: str,
     matched_key: str,
 ) -> list[str]:
-    """Respell the block key and item discriminators to canonical, line for line.
+    """
+    Respell the block key and item discriminators to canonical, line for line.
 
     Only the key tokens change; discriminators are matched on the dash
     line or at the item's child indent only, so a same-named key inside
     an action body stays untouched. An item already carrying the
-    canonical discriminator keeps its legacy one — respelling would emit
-    a duplicate key, and upstream validation already rejects the pair.
+    canonical discriminator keeps its legacy one.
     """
     out = list(lines)
     out[actions_start] = re.sub(

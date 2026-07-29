@@ -373,3 +373,39 @@ def test_body_scan_skips_a_scalar_member() -> None:
     new_text = _respell(text)
     assert "action: light.on" in new_text
     assert "variables: |-" in new_text
+
+
+def test_ethernet_clk_replacement_keeps_the_blank_separator() -> None:
+    text = (
+        "ethernet:\n"
+        "  type: LAN8720\n"
+        "  clk_mode: GPIO0_IN\n"
+        "  clk:\n"
+        "    pin: GPIO16\n"
+        "    mode: CLK_OUT\n"
+        "\n"
+        "wifi:\n"
+        "  ssid: foo\n"
+    )
+    new_text = _respell(text)
+    assert "\n\nwifi:" in new_text
+    assert new_text.count("clk:") == 1
+
+
+def test_ethernet_out_of_table_pin_untouched() -> None:
+    assert render_migrations("ethernet:\n  clk_mode: GPIO5_OUT\n") is None
+
+
+def test_ethernet_clk_mode_with_comment_and_quotes() -> None:
+    new_text = _respell('ethernet:\n  clk_mode: "GPIO0_IN"  # rmii clock\n')
+    assert "clk:  # rmii clock\n" in new_text
+    assert "pin: GPIO0" in new_text
+
+
+def test_block_scalar_indent_indicator_untouched() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - lambda: |2-\n"
+        "          homeassistant.service: not_yaml\n"
+    )
+    assert render_migrations(text) is None

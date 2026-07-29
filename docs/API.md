@@ -315,6 +315,13 @@ Parsing and writing live on the backend: the frontend exchanges structured `Auto
 | `automations/parse` | `{configuration, yaml?}` | `[ParsedAutomation]` | Walk the device YAML and return every recognised automation (top-level `script:` / `interval:`, `api.actions:`, device-level `esphome.on_*`, inline component `on_*:`, light `effects:` entries). An unknown *condition* id (or a misrouted / malformed body) flags only its own automation (`error` set, empty tree); siblings still parse. An uncatalogued single-key **action** (from an `external_components` source, or a typo) instead decomposes to an opaque passthrough `ActionNode` — `unknown: true` with the body on `raw_body` (tags carried via the passthrough tag sentinel above) — so its catalogued siblings stay editable; the frontend renders that one node read-only. A *known* action with no structured form (an oversized LVGL `*.update`) additionally sets `unsupported: true`, so the editor shows the neutral "edit in YAML" hint instead of an error alert. A YAML that won't load at all raises `INVALID_ARGS`. Optional `yaml` parses the unsaved draft instead of disk. |
 | `automations/upsert` | `{configuration, automation, location, yaml?}` | `{yaml_diff: YamlDiff}` | Insert or replace one automation at `location`. Returns the splice the frontend applies in place. Optional `yaml` splices into the unsaved draft instead of disk. |
 | `automations/delete` | `{configuration, location, yaml?}` | `{yaml_diff: YamlDiff}` | Remove the automation at `location`. Optional `yaml` splices into the unsaved draft instead of disk. |
+
+### Editor
+
+Backed by [`controllers/editor.py`](../esphome_device_builder/controllers/editor.py).
+
+| Command | Args | Response | Description |
+|---------|------|----------|-------------|
 | `editor/migrate_config` | `{content}` | `{yaml_diff: YamlDiff \| null}` | Apply every known migration to `content` in one splice, bringing the config up to date: the api `services:` block key and `service:` item discriminators, registry-action node ids and body fields (`homeassistant.service` → `homeassistant.action`, `service:` → `action:`), and the ethernet `clk_mode` → `clk` conversion. Line edits only — formatting and comments preserved. `null` when nothing needed migrating. Editor-namespaced because the rule set is device-YAML-wide — future migrations join the same rules fold. The frontend gates its migrate nudge on a mirrored detection (`src/util/config-migrations.ts`), so new rules need both sides. |
 
 ### Config

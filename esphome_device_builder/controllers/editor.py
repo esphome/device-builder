@@ -283,7 +283,8 @@ class EditorController:
         content: str,
         **_kwargs: Any,
     ) -> dict:
-        """Apply every known migration to *content* in one splice.
+        """
+        Apply every known migration to *content* in one splice.
 
         Renamed api and homeassistant spellings plus the ethernet
         ``clk_mode`` -> ``clk`` conversion; ``yaml_diff`` is ``null``

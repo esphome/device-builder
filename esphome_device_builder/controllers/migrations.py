@@ -19,7 +19,11 @@ from dataclasses import dataclass
 from ..helpers.yaml.scan import leading_ws
 from ..models.automations import YamlDiff
 from .automations import api_actions
-from .automations.writing_layout import _build_diff_for_append, _locate_singleton_block
+from .automations.writing_layout import (
+    _build_diff_for_append,
+    _locate_singleton_block,
+    _trim_trailing_gap,
+)
 
 
 @dataclass(frozen=True)
@@ -46,7 +50,7 @@ _ACTION_NODE_RENAMES = (
 
 _ANCHOR_RES = tuple((rename, rename.anchor_re) for rename in _ACTION_NODE_RENAMES)
 
-_SCALAR_HEADER_RE = re.compile(r"[|>][+-]?\d*\s*$")
+_SCALAR_HEADER_RE = re.compile(r"[|>][0-9+-]*\s*$")
 
 
 def render_migrations(yaml_text: str) -> tuple[str, YamlDiff] | None:
@@ -84,36 +88,57 @@ def _canonicalize_api_actions(lines: list[str]) -> list[str]:
 def _canonicalize_action_nodes(lines: list[str]) -> list[str]:
     """Respell registry-action node ids and their legacy body field."""
     out = list(lines)
-    in_scalar = _block_scalar_mask(lines)
     for rename, anchor_re in _ANCHOR_RES:
-        for idx, line in enumerate(lines):
-            if in_scalar[idx]:
-                continue
-            content = line.rstrip("\n\r")
-            match = anchor_re.match(content)
-            if match is None:
-                continue
-            rest = match.group("rest")
-            flow = rest.lstrip().startswith("{")
-            if flow:
-                rest = _respell_flow_field(rest, rename)
-            out[idx] = match.group("lead") + rename.canonical_id + ":" + rest + line[len(content) :]
-            if not flow:
-                hit = _respell_body_field(lines, idx, len(match.group("lead")), rename, in_scalar)
-                if hit is not None:
-                    out[hit[0]] = hit[1]
+        out = _apply_action_node_rename(out, rename, anchor_re)
     return out
 
 
-_CLK_MODE_VALUE_RE = re.compile(r"^GPIO(\d+)_(IN|OUT)$")
+def _apply_action_node_rename(
+    lines: list[str],
+    rename: ActionNodeRename,
+    anchor_re: re.Pattern[str],
+) -> list[str]:
+    """Apply one rename table entry across the whole file."""
+    out = list(lines)
+    in_scalar = _block_scalar_mask(lines)
+    for idx, line in enumerate(lines):
+        if in_scalar[idx]:
+            continue
+        content = line.rstrip("\n\r")
+        match = anchor_re.match(content)
+        if match is None:
+            continue
+        rest = match.group("rest")
+        flow = rest.lstrip().startswith("{")
+        if flow:
+            rest = _respell_flow_field(rest, rename)
+        out[idx] = match.group("lead") + rename.canonical_id + ":" + rest + line[len(content) :]
+        if not flow:
+            hit = _respell_body_field(lines, idx, len(match.group("lead")), rename, in_scalar)
+            if hit is not None:
+                out[hit[0]] = hit[1]
+    return out
+
+
+#: Upstream's closed ``CLK_MODES_DEPRECATED`` table — anything else is an
+#: invalid config that must keep failing validation loudly.
+_CLK_MODES = {
+    "GPIO0_IN": ("GPIO0", "CLK_EXT_IN"),
+    "GPIO0_OUT": ("GPIO0", "CLK_OUT"),
+    "GPIO16_OUT": ("GPIO16", "CLK_OUT"),
+    "GPIO17_OUT": ("GPIO17", "CLK_OUT"),
+}
+
+_TRAILING_COMMENT_RE = re.compile(r"\s(#.*)$")
 
 
 def _migrate_ethernet_clk(lines: list[str]) -> list[str]:
-    """Migrate flat ``clk_mode: GPIO<n>_(IN|OUT)`` to the nested ``clk`` block.
+    """
+    Migrate flat ``clk_mode`` to the nested ``clk`` block.
 
-    The pin and direction are decoded from the mode string; an existing
-    ``clk:`` block is replaced wholesale, mirroring upstream precedence.
-    A value that doesn't decode (a secret, an unknown enum) is left alone.
+    Pin and direction come from upstream's closed mode table; a value
+    outside it is left alone. An existing ``clk:`` block is replaced
+    wholesale; a trailing comment on the old line moves to ``clk:``.
     """
     span = _locate_singleton_block(lines, "ethernet")
     if span is None:
@@ -125,14 +150,21 @@ def _migrate_ethernet_clk(lines: list[str]) -> list[str]:
         if not content.startswith(header):
             continue
         value = content[len(header) :].strip()
-        match = _CLK_MODE_VALUE_RE.match(value.upper().replace(" ", "_"))
-        if match is None:
+        comment = ""
+        comment_match = _TRAILING_COMMENT_RE.search(value)
+        if comment_match is not None:
+            comment = "  " + comment_match.group(1)
+            value = value[: comment_match.start()].strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        decoded = _CLK_MODES.get(value.strip().upper().replace(" ", "_"))
+        if decoded is None:
             return lines
+        pin, mode = decoded
         eol = lines[idx][len(content) :] or "\n"
-        mode = "CLK_EXT_IN" if match.group(2) == "IN" else "CLK_OUT"
         replacement = [
-            f"{child_indent}clk:{eol}",
-            f"{child_indent}  pin: GPIO{match.group(1)}{eol}",
+            f"{child_indent}clk:{comment}{eol}",
+            f"{child_indent}  pin: {pin}{eol}",
             f"{child_indent}  mode: {mode}{eol}",
         ]
         out = list(lines)
@@ -165,7 +197,7 @@ def _child_block_span(
             if deeper.strip() and len(leading_ws(deeper)) <= len(child_indent):
                 break
             stop += 1
-        return idx, stop
+        return idx, _trim_trailing_gap(lines, idx, stop)
     return None
 
 
@@ -191,12 +223,11 @@ def _block_scalar_mask(lines: list[str]) -> list[bool]:
 
 
 def _respell_flow_field(rest: str, rename: ActionNodeRename) -> str:
-    """Respell the depth-1 legacy field key in a flow-style body.
+    """
+    Respell the depth-1 legacy field key in a flow-style body.
 
-    Only keys of the outer flow mapping count, so a same-named key inside a
-    nested ``data: {...}`` payload is never rewritten and never mistaken for
-    the canonical key already being present. Unchanged when the canonical
-    key is present or the legacy one is absent.
+    Only keys of the outer flow mapping count. Unchanged when the
+    canonical key is present or the legacy one is absent.
     """
     keys = _flow_depth1_keys(rest)
     if any(name == rename.canonical_field for _start, _end, name in keys):
@@ -247,15 +278,13 @@ def _respell_body_field(
     rename: ActionNodeRename,
     in_scalar: list[bool],
 ) -> tuple[int, str] | None:
-    """Return ``(line index, respelled line)`` for the node's legacy field.
+    """
+    Return ``(line index, respelled line)`` for the node's legacy field.
 
-    The body's child indent is taken from its first line; only a key at
-    exactly that column counts, so a same-named key nested deeper (an
-    action list inside ``data:``) stays untouched. ``None`` when the field
-    is absent — or when the canonical key already exists at that column,
-    since respelling would emit a duplicate key and upstream validation
-    already rejects the pair. Comment lines neither bound the body nor
-    pick its indent.
+    Only a key at exactly the body's child-indent column counts, so a
+    same-named key nested deeper stays untouched. ``None`` when the
+    field is absent or the canonical key already exists at that column.
+    Comment lines neither bound the body nor pick its indent.
     """
     child_indent: str | None = None
     hit: tuple[int, str] | None = None
