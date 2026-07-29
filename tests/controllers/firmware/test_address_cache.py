@@ -210,12 +210,7 @@ def test_get_address_cache_args_skipped_for_neither_api_nor_web_server() -> None
 
 
 def test_get_address_cache_args_passes_cache_for_unknown_integrations() -> None:
-    """Empty ``loaded_integrations`` is unknown, not known-no-OTA — pass the args.
-
-    A never-compiled device (fresh adopt) reads its integrations from
-    a StorageJSON that doesn't exist yet, and the post-compile refresh
-    is a spawned task the dependent upload can outrun.
-    """
+    """Empty ``loaded_integrations`` is unknown, not known-no-OTA — the args still pass."""
     controller = _devices_controller_with(_device(loaded_integrations=[]))
 
     args = controller.get_address_cache_args("kitchen.yaml")
