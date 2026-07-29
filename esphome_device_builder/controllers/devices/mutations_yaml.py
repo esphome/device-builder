@@ -150,16 +150,13 @@ async def validate_rewritten_yaml_or_raise(
     YAML/schema errors still raise. *timeout* overrides the validator's
     round-trip budget.
 
-    *probe_without_packages* is *content* with its top-level
-    ``packages:`` block stripped. When primary validation fails but the
-    probe validates clean, the failure is confined to remote package
-    resolution — external content the user can repair in the editor —
-    so the file is kept and a warning string is returned instead of
-    raising. Returns ``None`` when *content* validates clean.
+    *probe_without_packages* (*content* minus its top-level
+    ``packages:`` block): when set and only the package resolution
+    failed, the file is kept and a warning string is returned instead
+    of raising. Returns ``None`` when *content* validates clean.
 
     *failure_tail* overrides the ``INVALID_ARGS`` refusal's closing
-    sentence; callers whose rollback deletes the file pass copy that
-    doesn't point at a nonexistent editor.
+    sentence.
     """
     if editor is None:
         return None
@@ -277,8 +274,8 @@ async def _package_only_warning(
     first = errors[0].removesuffix(".")
     return (
         f"Imported, but the remote package didn't resolve: {first}. "
-        "Fix the packages: source in the editor; install will "
-        "surface the same error until it resolves."
+        "Fix the packages entry in the editor; install will surface "
+        "the same error until it resolves."
     )
 
 
@@ -288,7 +285,7 @@ async def _probe_validates_clean(
     content: str,
     timeout: float | None,
 ) -> bool:
-    """Report whether *content* validates with no errors; conservative False on any failure."""
+    """Report whether *content* validates with no errors; False when the validator can't answer."""
     try:
         result = await editor.validate_yaml(
             configuration=configuration, content=content, timeout=timeout
