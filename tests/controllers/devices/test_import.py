@@ -404,12 +404,14 @@ async def test_import_device_keeps_yaml_when_the_error_roots_in_the_package_file
 ) -> None:
     """A resolved package whose content fails validation still keeps the file.
 
-    The validator marks such errors with the package file's document,
-    not the in-memory ``<file>``, at whatever line the remote content
-    puts them.
+    The validator marks such errors with the package cache file's
+    document, at whatever line the remote content puts them.
     """
+    from esphome.core import CORE  # noqa: PLC0415
+
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
+    package_doc = str(Path(CORE.data_dir) / "packages" / "ab12cd34" / "gl-s10.yaml")
     ctrl._db.editor.validate_yaml = AsyncMock(
         return_value={
             "yaml_errors": [],
@@ -417,7 +419,7 @@ async def test_import_device_keeps_yaml_when_the_error_roots_in_the_package_file
                 {
                     "message": "[sensor] required key not provided",
                     "range": {
-                        "document": "/cache/packages/gl-s10.yaml",
+                        "document": package_doc,
                         "start_line": 41,
                         "start_col": 0,
                         "end_line": 41,
@@ -436,6 +438,43 @@ async def test_import_device_keeps_yaml_when_the_error_roots_in_the_package_file
 
     assert "required key not provided" in result["warning"]
     assert (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_import_device_refuses_when_the_error_roots_in_secrets_yaml(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A document outside the package cache (secrets.yaml) fails closed."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {
+                    "message": "[wifi] password too short",
+                    "range": {
+                        "document": str(tmp_path / "secrets.yaml"),
+                        "start_line": 1,
+                        "start_col": 0,
+                        "end_line": 1,
+                        "end_col": 10,
+                    },
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 async def test_import_device_refuses_when_an_error_roots_outside_packages(

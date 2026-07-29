@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NoReturn
+
+from esphome.core import CORE
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
@@ -298,17 +302,16 @@ def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> 
     """
     Report whether a validation error is attributable to the packages block.
 
-    The validator marks the edited file ``<file>``; an error in any
-    other document (fetched package content, or an ``!include``) is
-    treated as confined. Callers gate *packages_span* to generated
-    adoption YAML, which carries no ``!include``; a defined-but-invalid
-    ``!secret`` value may also stamp secrets.yaml and ride the
-    exemption.
+    The validator marks the edited file ``<file>``; any other document
+    is confined only when it lives in esphome's package cache, so an
+    ``!include`` or secrets.yaml error fails closed.
     """
     range_ = entry.get("range")
     if not range_:
         return False
-    if range_.get("document", "<file>") != "<file>":
-        return True
+    document = range_.get("document", "<file>")
+    if document != "<file>":
+        packages_root = str(Path(CORE.data_dir) / "packages")
+        return bool(str(document).startswith(packages_root + os.sep))
     start, end = packages_span
     return bool(start <= range_.get("start_line", -1) < end)

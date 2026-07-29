@@ -23,6 +23,7 @@ from .helpers import (
     slugify_hostname,
     write_new_file_exclusive,
 )
+from .mutations_yaml import packages_block_span
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -123,6 +124,7 @@ async def create_device(  # noqa: C901, PLR0912
         name, friendly, board, file_content, ssid, psk
     )
 
+    warning: str | None = None
     # Validate generated YAML before write so a regression in
     # generate_device_yaml / generate_minimal_stub_yaml surfaces
     # as INTERNAL_ERROR rather than landing an unflashable YAML
@@ -145,15 +147,18 @@ async def create_device(  # noqa: C901, PLR0912
         # A ``packages: github://...`` YAML only validates through a live
         # upstream fetch, so use the adopt contract: short budget,
         # unavailability tolerated (the compile surfaces a real fetch
-        # failure later). Genuine schema errors still mean our generator
-        # broke.
-        await controller._validate_rewritten_yaml_or_raise(
+        # failure later), and an upstream failure confined to the
+        # ``packages:`` block keeps the config with a warning instead of
+        # blaming the generator. Genuine schema errors still mean our
+        # generator broke.
+        warning = await controller._validate_rewritten_yaml_or_raise(
             filename,
             yaml_content,
             action="create",
             on_failure=ErrorCode.INTERNAL_ERROR,
             tolerate_unavailable=True,
             timeout=IMPORT_VALIDATE_TIMEOUT,
+            packages_span=packages_block_span(yaml_content),
         )
     else:
         await controller._validate_rewritten_yaml_or_raise(
@@ -192,7 +197,7 @@ async def create_device(  # noqa: C901, PLR0912
         board_id=board_id,
         clear_metadata=not overwriting,
     )
-    return WizardResponse(configuration=filename)
+    return WizardResponse(configuration=filename, warning=warning)
 
 
 def save_device_storage(filename: str, storage: StorageJSON) -> None:
