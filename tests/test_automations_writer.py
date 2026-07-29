@@ -35,7 +35,11 @@ from esphome_device_builder.controllers.automations.writing_lists import (
     delete_subentity_list_entry,
 )
 from esphome_device_builder.helpers.api import CommandError
-from esphome_device_builder.helpers.yaml import SubEntityRef
+from esphome_device_builder.helpers.yaml import (
+    SubEntityRef,
+    remove_nested_handler,
+    upsert_nested_handler,
+)
 from esphome_device_builder.models.api import ErrorCode
 from esphome_device_builder.models.automations import (
     ActionNode,
@@ -2953,3 +2957,115 @@ def test_nested_action_field_dash_line_first_key_round_trips() -> None:
     deleted, _d = render_delete(new_text, location=loc)
     assert "set_action" not in deleted
     assert "valve_switch: Front Yard" in deleted
+
+
+# Nested inline-helper branch coverage (direct calls)
+# ---------------------------------------------------------------------------
+
+_VALVE_YAML = (
+    "sprinkler:\n"
+    "  - id: lawn\n"
+    "    valves:\n"
+    "      - valve_switch: Front Yard\n"
+    "        run_duration_number:\n"
+    "          set_action:\n"
+    "            - logger.log: changed\n"
+)
+
+
+def test_upsert_nested_handler_unknown_instance_returns_none() -> None:
+    assert (
+        upsert_nested_handler(
+            _VALVE_YAML,
+            component_domain="sprinkler",
+            component_id="nope",
+            field_segments=["valves", "0", "run_duration_number", "set_action"],
+            rendered_yaml="set_action:\n  - logger.log: x",
+        )
+        is None
+    )
+
+
+def test_upsert_nested_handler_numeric_segment_into_mapping_is_a_miss() -> None:
+    """A decimal segment against a mapping block refuses instead of splicing."""
+    text = "sprinkler:\n  - id: lawn\n    valves:\n      valve_switch: Only Zone\n"
+    assert (
+        upsert_nested_handler(
+            text,
+            component_domain="sprinkler",
+            component_id="lawn",
+            field_segments=["valves", "0", "run_duration_number", "set_action"],
+            rendered_yaml="set_action:\n  - logger.log: x",
+        )
+        is None
+    )
+
+
+def test_upsert_nested_handler_remaining_numeric_after_miss_returns_none() -> None:
+    """A missing key whose remainder includes an index can't be created."""
+    text = "sprinkler:\n  - id: lawn\n    main_switch: Lawn\n"
+    assert (
+        upsert_nested_handler(
+            text,
+            component_domain="sprinkler",
+            component_id="lawn",
+            field_segments=["valves", "0", "run_duration_number", "set_action"],
+            rendered_yaml="set_action:\n  - logger.log: x",
+        )
+        is None
+    )
+
+
+def test_remove_nested_handler_unknown_instance_returns_none() -> None:
+    assert (
+        remove_nested_handler(
+            _VALVE_YAML,
+            component_domain="sprinkler",
+            component_id="nope",
+            field_segments=["valves", "0", "run_duration_number", "set_action"],
+        )
+        is None
+    )
+
+
+def test_remove_nested_handler_inline_scalar_intermediate_returns_none() -> None:
+    """The delete side treats an inline-scalar intermediate as absent."""
+    text = "sprinkler:\n  - id: lawn\n    repeat_number: 3\n"
+    assert (
+        remove_nested_handler(
+            text,
+            component_domain="sprinkler",
+            component_id="lawn",
+            field_segments=["repeat_number", "set_action"],
+        )
+        is None
+    )
+
+
+def test_remove_nested_handler_missing_leaf_returns_none() -> None:
+    text = "sprinkler:\n  - id: lawn\n    repeat_number:\n      initial_value: 1\n"
+    assert (
+        remove_nested_handler(
+            text,
+            component_domain="sprinkler",
+            component_id="lawn",
+            field_segments=["repeat_number", "set_action"],
+        )
+        is None
+    )
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_nested_descent_dash_line_scalar_first_key_refuses() -> None:
+    """``- run_duration_number: x`` on the item dash line raises, not shadows."""
+    text = "sprinkler:\n  - id: lawn\n    valves:\n      - run_duration_number: quick\n"
+    with pytest.raises(CommandError) as exc:
+        render_upsert(
+            text,
+            tree=_nested_tree(),
+            location=ComponentActionFieldLocation(
+                component_id="lawn", field="valves.0.run_duration_number.set_action"
+            ),
+        )
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "inline value" in str(exc.value)

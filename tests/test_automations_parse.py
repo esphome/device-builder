@@ -1052,7 +1052,21 @@ def test_collect_trigger_paths_walks_nested_entries() -> None:
             ],
         },
         {"key": "name", "type": "string"},
+        "not-a-dict",
+        {"type": "trigger"},
     ]
     out: list[tuple[str, ...]] = []
     parsing._collect_trigger_paths(entries, (), out)
     assert out == [("open_action",), ("valves", "run_duration_number", "set_action")]
+
+
+def test_resolve_action_field_target_handles_sub_entity_and_bad_yaml() -> None:
+    """A sub-entity id resolves to its parent instance; unloadable YAML is None."""
+    yaml = "sprinkler:\n  - id: lawn\n    repeat_number:\n      id: lawn_repeat\n"
+    assert parsing.resolve_action_field_target(yaml, "lawn") == ("sprinkler", "sprinkler")
+    assert parsing.resolve_action_field_target(yaml, "lawn_repeat") == (
+        "sprinkler",
+        "sprinkler",
+    )
+    assert parsing.resolve_action_field_target("{unclosed", "lawn") is None
+    assert parsing.resolve_action_field_target(yaml, "nope") is None
