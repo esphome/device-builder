@@ -672,6 +672,15 @@ against legacy behaviour before assuming the simpler version suffices.
   Don't add an OFFLINE branch to the active-resolve path without
   re-reading this. The asymmetry is the only way to get aggressive ONLINE
   detection without flipping the indicator red on every quiet device.
+
+  **Non-compliant mDNS middleboxes are out of scope.** A repeater or
+  caching proxy that re-serves records past the device's real liveness
+  fabricates evidence indistinguishable from a live device (a pinned
+  sibling `_http._tcp` PTR deferring a dead device's withdrawal forever,
+  #2406). Fix defects that reproduce with compliant responders (RFC 8766
+  proxies included); don't add detection or accommodations for
+  fabricated records — close such issues pointing at the design-scope
+  paragraph in docs/ARCHITECTURE.md "Discovery (mDNS)".
 - **Persisted-IP revival is identity-gated** (`api_reviver.py`). A
   stuck-offline `api:` device whose `.local` won't resolve and whose RAM
   `ip_addresses` are gone (an mDNS `Removed` withdrawal, or a restart) gets
