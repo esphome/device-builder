@@ -47,12 +47,12 @@ def test_empty_schema_wrapper_collapses(schema_dir: Path) -> None:
     assert not entry.get("config_entries")
 
 
-def test_nested_bare_trigger_goes_yaml_only(schema_dir: Path) -> None:
-    """A var-less nested ``type: trigger`` field is YAML-only, not a dead-end group."""
+def test_nested_bare_trigger_becomes_trigger_type(schema_dir: Path) -> None:
+    """A var-less nested ``type: trigger`` field is TRIGGER, not a dead-end group."""
     raw = {"key": "Optional", "type": "trigger"}
-    entry = _convert_field("set_action", raw, schema_dir, top_level=False)
+    entry = _convert_field("set_action", raw, schema_dir)
     assert entry is not None
-    assert entry["type"] == "unknown"
+    assert entry["type"] == "trigger"
 
 
 def test_local_field_reuses_root_extends_ref(schema_dir: Path) -> None:
@@ -111,7 +111,7 @@ def test_shipped_catalog_childless_nested_resolved() -> None:
     body = json.loads((_OUTPUT_BODIES_DIR / "sprinkler.json").read_text(encoding="utf-8"))
     repeat = next(e for e in body["config_entries"] if e["key"] == "repeat_number")
     action = next(e for e in repeat["config_entries"] if e["key"] == "set_action")
-    assert action["type"] == "unknown"
+    assert action["type"] == "trigger"
 
     body = json.loads((_OUTPUT_BODIES_DIR / "sensor.combination.json").read_text(encoding="utf-8"))
     std_dev = None

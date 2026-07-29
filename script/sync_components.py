@@ -2871,11 +2871,6 @@ def _convert_config_vars(
         # automation editor, not the component form — skip them here.
         if is_trigger_key(key):
             continue
-        # ``component_id`` is set only for a component's own config_vars
-        # (the top-level build call), not the recursive nested calls — so
-        # it doubles as the "this is a direct component field" signal the
-        # action-list trigger override keys on.
-        #
         # Some fields hide a typed_schema behind a custom validator, so the
         # bundle carries only a bare string; merge the real node over the
         # bundle's so the recovered shape wins but the bundle's auxiliary
@@ -2893,7 +2888,6 @@ def _convert_config_vars(
             key,
             field_raw,
             schema_dir,
-            top_level=bool(component_id),
             _seen_refs=_seen_refs if ref is None else _seen_refs | {ref},
         )
         if entry is None:
@@ -3147,15 +3141,12 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     raw: dict,
     schema_dir: Path,
     *,
-    top_level: bool = False,
     _seen_refs: frozenset[str] = frozenset(),
 ) -> dict | None:
     """Build a single ConfigEntry dict from a schema's config_var entry.
 
-    ``top_level`` is True only for a component's own (direct) config
-    vars; it gates the action-list ``type: trigger`` → TRIGGER override
-    so nested trigger fields go YAML-only (see below). ``_seen_refs``
-    is threaded into nested recursion to break ``extends`` cycles.
+    ``_seen_refs`` is threaded into nested recursion to break
+    ``extends`` cycles.
     """
     if not isinstance(raw, dict):
         # Some schemas use bare ``{}``-shaped placeholders for fields
@@ -3198,15 +3189,14 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     if entry_type is None and data_type in _DATA_TYPE_PRIMITIVE:
         entry_type = _DATA_TYPE_PRIMITIVE[data_type]
 
-    # A top-level bare ``type: trigger`` field (cover ``open_action`` …) is
-    # an action list edited in the automation editor; the default
-    # ``trigger -> nested`` map yields an empty group the frontend drops, so
-    # surface it as TRIGGER. Scoped to no-inner-config_vars (a trigger with
-    # params still wants ``nested``). A *nested* bare trigger (sprinkler's
-    # ``set_action``) can't route — the frontend's edit-action event carries
-    # only the leaf key — so it goes YAML-only instead of a dead-end group.
+    # A bare ``type: trigger`` field (cover ``open_action``, sprinkler's
+    # nested ``set_action`` …) is an action list edited in the automation
+    # editor; the default ``trigger -> nested`` map yields an empty group
+    # the frontend drops, so surface it as TRIGGER at any depth — the
+    # edit-action event carries the full field path. Scoped to
+    # no-inner-config_vars (a trigger with params still wants ``nested``).
     if schema_type == "trigger" and not (inner_schema or {}).get("config_vars"):
-        entry_type = "trigger" if top_level else "unknown"
+        entry_type = "trigger"
 
     # Polymorphic registry list (#941). Two upstream shapes:
     #   1. Lights' ``effects:`` carries ``{filter: [<ids>], key:
