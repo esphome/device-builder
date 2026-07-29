@@ -345,12 +345,38 @@ def _upsert_component_action(
     return new_text, YamlDiff(fromLine=from_line, toLine=to_line, replacement=replacement)
 
 
+def _canonicalized_api_block(
+    lines: list[str],
+    actions_span: tuple[int, int, str, str],
+) -> list[str]:
+    """Return *lines* with a legacy-spelled action block respelled to canonical."""
+    actions_start, actions_end, item_indent, block_key = actions_span
+    if block_key == api_actions.BLOCK_KEYS[0]:
+        return lines
+    return api_actions.canonicalize_block(lines, actions_start, actions_end, item_indent, block_key)
+
+
+def _widen_diff_to_block(
+    lines: list[str],
+    actions_start: int,
+    actions_end: int,
+    new_text: str,
+) -> tuple[str, YamlDiff]:
+    """Rebuild the diff to span the whole block so the respelled header ships too."""
+    new_lines = new_text.splitlines(keepends=True)
+    new_end = actions_end + (len(new_lines) - len(lines))
+    replacement = "".join(new_lines[actions_start:new_end])
+    return new_text, YamlDiff(
+        fromLine=actions_start + 1, toLine=actions_end, replacement=replacement
+    )
+
+
 def _upsert_api_action(
     yaml_text: str,
     tree: AutomationTree,
     location: ApiActionLocation,
 ) -> tuple[str, YamlDiff]:
-    """Splice or replace an ``api.actions:`` list item by ``action_name``."""
+    """Splice or replace an api action item, respelling a legacy block to canonical."""
     rendered = render_api_action_item(tree, location.action_name)
     lines = yaml_text.splitlines(keepends=True)
     api_span = _locate_singleton_block(lines, "api")
@@ -363,7 +389,8 @@ def _upsert_api_action(
     actions_span = api_actions.locate_actions_list(lines, api_span)
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
-    actions_start, actions_end, item_indent = actions_span
+    actions_start, actions_end, item_indent, block_key = actions_span
+    lines = _canonicalized_api_block(lines, actions_span)
     existing = api_actions.find_item(
         lines,
         actions_start,
@@ -374,8 +401,12 @@ def _upsert_api_action(
     if existing is not None:
         item_start, item_end = existing
         rendered_text = api_actions.indent_for_list(rendered, item_indent)
-        return api_actions.render_replacement(lines, item_start, item_end, rendered_text)
-    return api_actions.render_append(lines, actions_end, item_indent, rendered)
+        new_text, diff = api_actions.render_replacement(lines, item_start, item_end, rendered_text)
+    else:
+        new_text, diff = api_actions.render_append(lines, actions_end, item_indent, rendered)
+    if block_key == api_actions.BLOCK_KEYS[0]:
+        return new_text, diff
+    return _widen_diff_to_block(lines, actions_start, actions_end, new_text)
 
 
 # ---------------------------------------------------------------------------
@@ -709,7 +740,7 @@ def _delete_api_action(
     if actions_span is None:
         msg = "api.actions: not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    actions_start, actions_end, item_indent = actions_span
+    actions_start, actions_end, item_indent, block_key = actions_span
     existing = api_actions.find_item(
         lines,
         actions_start,
@@ -728,11 +759,15 @@ def _delete_api_action(
         item_indent,
         existing,
     )
-    if siblings > 0:
-        return api_actions.render_delete_item(lines, item_start, item_end)
-    # Last sibling — drop the entire ``actions:`` key as well so the
-    # file doesn't grow ``actions: []`` noise.
-    return api_actions.render_delete_actions_key(lines, actions_start, actions_end)
+    if siblings == 0:
+        # Last sibling — drop the entire block key as well so the file
+        # doesn't grow ``actions: []`` noise.
+        return api_actions.render_delete_actions_key(lines, actions_start, actions_end)
+    lines = _canonicalized_api_block(lines, actions_span)
+    new_text, diff = api_actions.render_delete_item(lines, item_start, item_end)
+    if block_key == api_actions.BLOCK_KEYS[0]:
+        return new_text, diff
+    return _widen_diff_to_block(lines, actions_start, actions_end, new_text)
 
 
 # ---------------------------------------------------------------------------

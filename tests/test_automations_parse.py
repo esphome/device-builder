@@ -494,6 +494,21 @@ def test_parse_api_action_accepts_legacy_service_key() -> None:
     assert parsed[0].location.action_name == "legacy_name"
 
 
+def test_parse_api_action_accepts_legacy_services_block() -> None:
+    """A legacy ``services:`` block parses the same as ``actions:``."""
+    legacy = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "    - service: start_va\n"
+        "      then:\n        - delay: 1s\n"
+        "    - service: stop_va\n"
+        "      then:\n        - delay: 2s\n"
+    )
+    parsed = parse_device_yaml(legacy)
+    names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert names == ["start_va", "stop_va"]
+
+
 def test_parse_api_block_without_actions_returns_empty() -> None:
     """An ``api:`` block without an ``actions:`` key yields no api_action entries.
 

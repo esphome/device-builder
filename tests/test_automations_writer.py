@@ -1416,6 +1416,102 @@ def test_upsert_api_action_refuses_inline_actions_list() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+_LEGACY_SERVICES_YAML = (
+    "esphome:\n  name: x\n"
+    "api:\n  services:\n"
+    "    - service: start_va\n"
+    "      then:\n        - logger.log: 'starting'\n"
+    "    - service: stop_va\n"
+    "      then:\n        - logger.log: 'stopping'\n"
+)
+
+
+def test_upsert_api_action_canonicalizes_legacy_services_block() -> None:
+    """A new item respells the touched ``services:`` block to canonical ``actions:``."""
+    new_text, _diff = render_upsert(
+        _LEGACY_SERVICES_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="pause_va"),
+    )
+    assert "services:" not in new_text
+    assert "service:" not in new_text
+    assert new_text.count("actions:") == 1
+    parsed = parse_device_yaml(new_text)
+    names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert names == ["start_va", "stop_va", "pause_va"]
+    assert "'starting'" in new_text
+    assert "'stopping'" in new_text
+
+
+def test_upsert_api_action_replaces_item_in_legacy_services_block() -> None:
+    """Replacing a ``service:``-keyed item respells the whole block to canonical."""
+    new_text, _diff = render_upsert(
+        _LEGACY_SERVICES_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="stop_va"),
+    )
+    assert "services:" not in new_text
+    assert "service:" not in new_text
+    parsed = parse_device_yaml(new_text)
+    api_entries = [p for p in parsed if p.location.kind == "api_action"]
+    assert [e.location.action_name for e in api_entries] == ["start_va", "stop_va"]
+    stop = next(e for e in api_entries if e.location.action_name == "stop_va")
+    assert [a.action_id for a in stop.automation.actions] == ["delay"]
+    assert "'starting'" in new_text
+
+
+def test_delete_api_action_canonicalizes_legacy_services_block() -> None:
+    """Deleting one item keeps the sibling and respells the block to canonical."""
+    new_text, _diff = render_delete(
+        _LEGACY_SERVICES_YAML,
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    parsed = parse_device_yaml(new_text)
+    names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert names == ["stop_va"]
+    assert "services:" not in new_text
+    assert "service:" not in new_text
+    assert "actions:" in new_text
+
+
+def test_delete_last_api_action_drops_legacy_services_key() -> None:
+    """Deleting the final item removes the ``services:`` key itself."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "    - service: start_va\n"
+        "      then:\n        - logger.log: 'starting'\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "services:" not in new_text
+    assert "start_va" not in new_text
+    assert "api:" in new_text
+
+
+def test_upsert_api_action_refuses_inline_services_list() -> None:
+    """``services: []`` hits the same INVALID_ARGS guard as inline ``actions:``."""
+    text = "esphome:\n  name: x\napi:\n  services: []\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id=None,
+                actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+            ),
+            location=ApiActionLocation(action_name="new"),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
 def test_delete_api_action_refuses_inline_actions_list() -> None:
     """Same INVALID_ARGS guard fires on the delete path."""
     text = "esphome:\n  name: x\napi:\n  actions: null\n"

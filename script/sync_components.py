@@ -49,13 +49,13 @@ import time
 import unicodedata
 import urllib.request
 import zipfile
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
 from io import BytesIO
 from pathlib import Path
-from types import SimpleNamespace
+from types import FunctionType, SimpleNamespace
 from typing import Any, Literal, NamedTuple
 
 import orjson
@@ -973,6 +973,7 @@ def main() -> int:
         len(catalog),
         sum(1 for c in catalog if c.get("config_entries")),
     )
+    _fail_on_unhandled_rename_keys()
 
     # Collected (and guarded) before any emit so the abort below leaves
     # the tree untouched; ``build_catalog``'s import sweep has already
@@ -4819,6 +4820,12 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
+    rename_pairs = dict(_collect_rename_keys(manifest))
+    for platform_manifest in platform_manifests:
+        for old_key, new_key in _collect_rename_keys(platform_manifest).items():
+            rename_pairs.setdefault(old_key, new_key)
+    _note_unhandled_rename_keys(component_id, rename_pairs)
+
     auto_load: list[str] = _resolve_auto_load(manifest.auto_load)
 
     # Bare manifest results take precedence (``setdefault`` keep-first);
@@ -8077,6 +8084,141 @@ def _apply_list_fields(entries: list[dict], list_fields: dict[tuple[str, ...], b
             entry["multi_value"] = True
 
     _walk_catalog_entries(entries, visit)
+
+
+#: Schema-factory wrappers whose closures hold nested schemas worth
+#: walking for ``cv.rename_key`` validators. Matched against
+#: ``__qualname__`` prefixes. Descent is limited to these because a
+#: generic function-closure walk reaches the global automation registry
+#: and from there every loaded component's schema graph; every probe is
+#: also type-strict, because a codegen ``MockObj`` answers any getattr
+#: with a fresh truthy object (msa3xx's ``typed_schema`` enum hung an
+#: unrestricted walk).
+_RENAME_WRAPPER_PREFIXES = (
+    "validate_automation.",
+    "ensure_list.",
+    "typed_schema.",
+    "maybe_simple_value.",
+)
+
+#: Node types the rename walk descends into beyond functions.
+_RENAME_SCHEMA_TYPES = (dict, vol.Schema)
+
+#: Per-schema memo for :func:`_collect_rename_keys`. Schemas are
+#: unhashable, so keyed on identity; the stored schema ref keeps the
+#: id from being reused. Entries sharing a stem re-introspect the same
+#: manifest, so the walk would otherwise repeat thousands of times per
+#: sync.
+_RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[str, str]]] = {}
+
+#: ``(component, old, new)`` rename pairs the dashboard handles:
+#: hard-coded read support, canonical respell on write, and a migration
+#: helper where the key is a form field. The sync fails when
+#: introspection finds a pair outside this list, so a new upstream
+#: ``cv.rename_key`` can't ship silently unhandled.
+_HANDLED_RENAME_KEYS = {
+    ("api", "services", "actions"),
+    ("api", "service", "action"),
+}
+
+_UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
+
+
+def _note_unhandled_rename_keys(component_id: str, pairs: Mapping[str, str]) -> None:
+    """Record every discovered rename pair missing from the handled list."""
+    for old, new in pairs.items():
+        if (component_id, old, new) not in _HANDLED_RENAME_KEYS:
+            _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
+
+
+def _fail_on_unhandled_rename_keys() -> None:
+    """Abort the sync when upstream added a ``cv.rename_key`` we don't handle."""
+    if not _UNHANDLED_RENAME_KEYS:
+        return
+    rows = "\n".join(
+        f"  {component}: {old} -> {new}" for component, old, new in sorted(_UNHANDLED_RENAME_KEYS)
+    )
+    raise SystemExit(
+        "esphome added cv.rename_key pairs the dashboard doesn't handle:\n"
+        f"{rows}\n"
+        "Add hard-coded read support, a canonical respell on write, and a "
+        "migration helper for each, then extend _HANDLED_RENAME_KEYS."
+    )
+
+
+def _collect_rename_keys(manifest: Any) -> dict[str, str]:
+    """
+    Walk the live ``CONFIG_SCHEMA`` for ``cv.rename_key`` aliases.
+
+    Returns ``{old_key: new_key}`` for every rename validator reachable
+    from the schema, including list-item and wrapper-closure schemas.
+    Empty dict when the component has no schema. Memoised per schema —
+    callers must not mutate the result.
+    """
+    schema = getattr(manifest, "config_schema", None)
+    if schema is None:
+        return {}
+    memoised = _RENAME_KEYS_MEMO.get(id(schema))
+    if memoised is not None:
+        return memoised[1]
+    out: dict[str, str] = {}
+    visited: set[int] = set()
+    stack: list[tuple[Any, int]] = [(schema, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if node is None or depth > 10 or id(node) in visited:
+            continue
+        visited.add(id(node))
+        pair = _rename_key_pair(node)
+        if pair is not None:
+            out.setdefault(pair[0], pair[1])
+            continue
+        stack.extend((child, depth + 1) for child in _rename_walk_children(node))
+    _RENAME_KEYS_MEMO[id(schema)] = (schema, out)
+    return out
+
+
+def _rename_key_pair(node: Any) -> tuple[str, str] | None:
+    """Return the ``(old, new)`` pair of a ``cv.rename_key`` validator, else None."""
+    if not isinstance(node, FunctionType) or not node.__qualname__.startswith("rename_key."):
+        return None
+    try:
+        nonlocals = _closure_nonlocals(node)
+    except ValueError:
+        return None
+    old_key = nonlocals.get("old_key")
+    new_key = nonlocals.get("new_key")
+    if isinstance(old_key, str) and isinstance(new_key, str):
+        return old_key, new_key
+    return None
+
+
+def _is_rename_wrapper(node: Any) -> bool:
+    """Report whether *node* is a schema-factory wrapper worth descending into."""
+    return isinstance(node, FunctionType) and node.__qualname__.startswith(_RENAME_WRAPPER_PREFIXES)
+
+
+def _rename_walk_children(node: Any) -> Iterator[Any]:
+    """Yield the children of *node* worth visiting when hunting rename validators."""
+    validators = getattr(node, "validators", None)
+    if isinstance(validators, (list, tuple)):
+        yield from validators
+    schema = node if isinstance(node, dict) else getattr(node, "schema", None)
+    if isinstance(schema, dict):
+        yield from schema.values()
+    if not _is_rename_wrapper(node):
+        return
+    try:
+        nonlocals = _closure_nonlocals(node)
+    except ValueError:
+        return
+    for value in nonlocals.values():
+        if (
+            isinstance(value, _RENAME_SCHEMA_TYPES)
+            or isinstance(getattr(value, "validators", None), (list, tuple))
+            or _is_rename_wrapper(value)
+        ):
+            yield value
 
 
 def _collect_registry_members(manifest: Any) -> dict[str, bool]:

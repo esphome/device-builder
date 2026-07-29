@@ -18,12 +18,19 @@ import re
 
 from ...models.automations import YamlDiff
 
+#: Accepted spellings, canonical first — esphome's ``cv.rename_key``
+#: aliases in ``components/api``. The catalog sync fails when upstream
+#: adds a rename outside its handled list, so new pairs land here
+#: deliberately, with a migration helper.
+BLOCK_KEYS = ("actions", "services")
+ITEM_KEYS = ("action", "service")
+
 
 def has_inline_actions_value(
     lines: list[str],
     api_span: tuple[int, int, str],
 ) -> bool:
-    """Return True iff ``actions:`` under *api_span* carries an inline value.
+    """Return True iff the action block key under *api_span* carries an inline value.
 
     Flow-style values (``actions: []``, ``actions: null``,
     ``actions: !secret foo``, …) can't be spliced into the way the
@@ -32,37 +39,35 @@ def has_inline_actions_value(
     ``actions:`` key alongside the inline one.
     """
     api_start, api_end, child_indent = api_span
-    header = f"{child_indent}actions:"
-    for idx in range(api_start + 1, api_end):
-        text = lines[idx].rstrip("\n\r")
-        if text == header:
-            return False
-        if text.startswith(header + " "):
-            rest = text[len(header) :].strip()
-            return bool(rest) and not rest.startswith("#")
+    for key in BLOCK_KEYS:
+        header = f"{child_indent}{key}:"
+        for idx in range(api_start + 1, api_end):
+            text = lines[idx].rstrip("\n\r")
+            if text == header:
+                return False
+            if text.startswith(header + " "):
+                rest = text[len(header) :].strip()
+                return bool(rest) and not rest.startswith("#")
     return False
 
 
 def locate_actions_list(
     lines: list[str],
     api_span: tuple[int, int, str],
-) -> tuple[int, int, str] | None:
-    """Return ``(start, end, item_indent)`` for ``api.actions:`` or ``None``.
+) -> tuple[int, int, str, str] | None:
+    """Return ``(start, end, item_indent, key)`` for the api action list or ``None``.
 
-    ``start`` is the line index of the ``actions:`` key; ``end`` is
-    one past the last item line; ``item_indent`` is the leading
-    whitespace shared by each ``- ...`` dash line.
+    Matches either block spelling, canonical winning when both appear;
+    ``start`` is the line index of the block key; ``end`` is one past
+    the last item line; ``item_indent`` is the leading whitespace
+    shared by each ``- ...`` dash line; ``key`` is the spelling in the
+    file.
     """
-    api_start, api_end, child_indent = api_span
-    header = f"{child_indent}actions:"
-    actions_start: int | None = None
-    for idx in range(api_start + 1, api_end):
-        text = lines[idx].rstrip("\n\r")
-        if text == header or text.startswith(header + " "):
-            actions_start = idx
-            break
-    if actions_start is None:
+    _api_start, api_end, child_indent = api_span
+    found = _find_block_key_line(lines, api_span)
+    if found is None:
         return None
+    actions_start, matched_key = found
     actions_end = api_end
     for idx in range(actions_start + 1, api_end):
         content = lines[idx].rstrip("\n\r")
@@ -83,7 +88,46 @@ def locate_actions_list(
         # Empty list — assume the canonical two-space nesting under
         # ``actions:`` so the first item still indents predictably.
         item_indent = child_indent + "  "
-    return actions_start, actions_end, item_indent
+    return actions_start, actions_end, item_indent, matched_key
+
+
+def canonicalize_block(
+    lines: list[str],
+    actions_start: int,
+    actions_end: int,
+    item_indent: str,
+    matched_key: str,
+) -> list[str]:
+    """Respell the block key and item discriminators to canonical, line for line.
+
+    Only the key tokens change; discriminators are matched on the dash
+    line or at the item's child indent only, so a same-named key inside
+    an action body stays untouched.
+    """
+    out = list(lines)
+    out[actions_start] = re.sub(
+        rf"^(\s*){re.escape(matched_key)}:", rf"\g<1>{BLOCK_KEYS[0]}:", out[actions_start], count=1
+    )
+    legacy_alt = "|".join(re.escape(key) for key in ITEM_KEYS[1:])
+    item_re = re.compile(rf"^({re.escape(item_indent)}(?:-\s*|  ))(?:{legacy_alt}):")
+    for idx in range(actions_start + 1, actions_end):
+        out[idx] = item_re.sub(rf"\g<1>{ITEM_KEYS[0]}:", out[idx], count=1)
+    return out
+
+
+def _find_block_key_line(
+    lines: list[str],
+    api_span: tuple[int, int, str],
+) -> tuple[int, str] | None:
+    """Return ``(line index, key)`` of the first block key matching either spelling."""
+    api_start, api_end, child_indent = api_span
+    for key in BLOCK_KEYS:
+        header = f"{child_indent}{key}:"
+        for idx in range(api_start + 1, api_end):
+            text = lines[idx].rstrip("\n\r")
+            if text == header or text.startswith(header + " "):
+                return idx, key
+    return None
 
 
 def find_item(

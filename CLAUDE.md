@@ -385,6 +385,15 @@ against legacy behaviour before assuming the simpler version suffices.
   refinement, `unit_of_measurement` options). Component descriptions/
   titles fall back to the docs MDX repo when the schema index is sparse.
   All in `script/sync_components.py`.
+- **esphome key renames are handled case by case, guarded by the sync.**
+  `cv.rename_key` aliases get hard-coded read support, a canonical
+  respell on any write touching the legacy-spelled block (per the
+  pass-through exception above), and a migration helper where the key
+  is a form field. `script/sync_components.py` fails when introspection
+  finds a pair outside `_HANDLED_RENAME_KEYS`, so a new upstream rename
+  surfaces on the nightly sync instead of shipping unhandled. Current
+  entries: the api `services`→`actions` / `service`→`action` pair
+  (#2396).
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

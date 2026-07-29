@@ -264,9 +264,9 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
 
     Structurally a near-duplicate of ``script:`` — named callable
     with typed ``variables:`` and a ``then:`` action list — so the
-    same :class:`AutomationTree` shape carries it. The deprecated
-    ``service:`` discriminator key is accepted as an alias for
-    ``action:`` on read; the writer emits ``action:``.
+    same :class:`AutomationTree` shape carries it. The legacy
+    ``services:`` block key and ``service:`` discriminator are
+    accepted on read; a write respells its block to canonical.
     """
     if not isinstance(root, dict):
         return []
@@ -274,6 +274,8 @@ def _parse_api_actions(root: Any) -> list[ParsedAutomation]:
     if not isinstance(api_block, dict):
         return []
     actions = api_block.get("actions")
+    if not isinstance(actions, list):
+        actions = api_block.get("services")
     if not isinstance(actions, list):
         return []
 
