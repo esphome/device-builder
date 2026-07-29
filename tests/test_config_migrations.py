@@ -341,3 +341,35 @@ def test_ethernet_existing_clk_replaced_wholesale() -> None:
 @pytest.mark.parametrize("value", ["!secret clk", "EXTERNAL", "17"])
 def test_ethernet_undecodable_clk_mode_untouched(value: str) -> None:
     assert render_migrations(_ETHERNET_YAML.replace("GPIO0_IN", value)) is None
+
+
+def test_ethernet_without_clk_mode_untouched() -> None:
+    assert render_migrations("ethernet:\n  type: LAN8720\n  clk:\n    pin: GPIO0\n") is None
+
+
+def test_ethernet_existing_clk_bounded_by_next_key() -> None:
+    text = (
+        "ethernet:\n"
+        "  type: LAN8720\n"
+        "  clk:\n"
+        "    pin: GPIO16\n"
+        "  mdc_pin: GPIO23\n"
+        "  clk_mode: GPIO0_IN\n"
+    )
+    new_text = _respell(text)
+    assert new_text.count("clk:") == 1
+    assert "pin: GPIO0" in new_text
+    assert "GPIO16" not in new_text
+    assert "mdc_pin: GPIO23" in new_text
+
+
+def test_body_scan_skips_a_scalar_member() -> None:
+    text = _on_boot(
+        "      - homeassistant.action:",
+        "          variables: |-",
+        "            x",
+        "          service: light.on",
+    )
+    new_text = _respell(text)
+    assert "action: light.on" in new_text
+    assert "variables: |-" in new_text
