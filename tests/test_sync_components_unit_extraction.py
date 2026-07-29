@@ -514,6 +514,24 @@ def test_lambda_claims_fields_except_in_value_unions(cv) -> None:
     assert refined[("union",)].templatable is True
 
 
+def test_lambda_union_typing_and_chain_carry(cv) -> None:
+    """Pin typed-plus-flag in both branch orders, and the All-chain flag carry."""
+    schema = cv.Schema(
+        {
+            cv.Optional("before"): cv.Any(cv.boolean, cv.returning_lambda),
+            cv.Optional("after"): cv.Any(cv.returning_lambda, cv.boolean),
+            cv.Optional("chain"): cv.All(cv.Any(cv.returning_lambda, cv.string_strict), cv.hex_int),
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    for key in ("before", "after"):
+        assert refined[(key,)].type == "boolean"
+        assert refined[(key,)].templatable is True
+    assert refined[("chain",)].type == "integer"
+    assert refined[("chain",)].display_format == "hex"
+    assert refined[("chain",)].templatable is True
+
+
 def test_http_request_action_buffer_refines_to_float_with_unit(loader) -> None:
     """The live action registry yields byte units for max_response_buffer_size."""
     loader.get_component("http_request")
