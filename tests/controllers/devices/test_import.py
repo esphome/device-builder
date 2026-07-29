@@ -397,6 +397,47 @@ async def test_import_device_keeps_yaml_when_only_the_package_fails(
     assert ctrl._scanner.calls != []
 
 
+async def test_import_device_keeps_yaml_when_the_error_roots_in_the_package_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A resolved package whose content fails validation still keeps the file.
+
+    The validator marks such errors with the package file's document,
+    not the in-memory ``<file>``, at whatever line the remote content
+    puts them.
+    """
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [
+                {
+                    "message": "[sensor] required key not provided",
+                    "range": {
+                        "document": "/cache/packages/gl-s10.yaml",
+                        "start_line": 41,
+                        "start_col": 0,
+                        "end_line": 41,
+                        "end_col": 10,
+                    },
+                },
+            ],
+        }
+    )
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x",
+    )
+
+    assert "required key not provided" in result["warning"]
+    assert (tmp_path / "kitchen.yaml").exists()
+
+
 async def test_import_device_refuses_when_an_error_roots_outside_packages(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

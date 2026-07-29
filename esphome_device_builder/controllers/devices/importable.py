@@ -15,7 +15,6 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import generate_adoption_yaml
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
-from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import (
     AdoptableDevice,
     ErrorCode,
@@ -24,6 +23,7 @@ from ...models import (
     ImportableDeviceRemovedData,
 )
 from ..editor import IMPORT_VALIDATE_TIMEOUT
+from .mutations_yaml import packages_block_span
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -60,8 +60,9 @@ async def import_device(
         None,
     )
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
+    full_config_import = "full_config" in package_import_url.partition("?")[2]
     try:
-        if "full_config" in package_import_url.partition("?")[2]:
+        if full_config_import:
             # A ``?full_config`` import downloads and rewrites the whole
             # upstream YAML — keep delegating those to esphome's
             # implementation. ``esphome.components.dashboard_import`` pulls
@@ -123,7 +124,10 @@ async def import_device(
         on_error_cleanup=_cleanup,
         tolerate_unavailable=True,
         timeout=IMPORT_VALIDATE_TIMEOUT,
-        packages_span=_packages_block_span(content),
+        # The delegated full-config path writes verbatim upstream YAML;
+        # only our generated adoption shape gets the keep-with-warning
+        # classification.
+        packages_span=None if full_config_import else packages_block_span(content),
         failure_tail=(
             ". The import was rolled back; adopt again after fixing the device's package source."
         ),
@@ -275,12 +279,3 @@ def _drop_importable_rows_and_probe(
     # the device's data until the first flash bakes in the new
     # name, so probe by ``mdns_name`` and apply against ``name``.
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
-
-
-def _packages_block_span(content: str) -> tuple[int, int] | None:
-    """0-indexed line span of the top-level ``packages:`` block, or ``None`` when absent."""
-    lines = content.splitlines(keepends=True)
-    start = find_block_header(lines, "packages")
-    if start is None:
-        return None
-    return start, block_end_index(lines, start)

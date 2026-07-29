@@ -14,6 +14,7 @@ from ...helpers.device_yaml import (
     generate_device_yaml,
     generate_minimal_stub_yaml,
 )
+from ...helpers.yaml.scan import block_end_index, find_block_header
 from ...models import ErrorCode
 from ..editor import ValidatorUnavailableError
 
@@ -245,6 +246,15 @@ def _raise_validation_failure(
     )
 
 
+def packages_block_span(content: str) -> tuple[int, int] | None:
+    """0-indexed line span of the top-level ``packages:`` block, or ``None`` when absent."""
+    lines = content.splitlines(keepends=True)
+    start = find_block_header(lines, "packages")
+    if start is None:
+        return None
+    return start, block_end_index(lines, start)
+
+
 def _packages_confined_warning(
     result: dict,
     packages_span: tuple[int, int] | None,
@@ -254,10 +264,9 @@ def _packages_confined_warning(
     """Warning when every validation error roots inside *packages_span*, else ``None``."""
     if packages_span is None or result.get("yaml_errors"):
         return None
-    start, end = packages_span
     entries = result.get("validation_errors", [])
-    if not entries or any(
-        not start <= (entry.get("range") or {}).get("start_line", -1) < end for entry in entries
+    if not entries or not all(
+        _entry_confined_to_packages(entry, packages_span) for entry in entries
     ):
         return None
     _LOGGER.info(
@@ -271,3 +280,19 @@ def _packages_confined_warning(
         "Fix the packages entry in the editor; install will surface "
         "the same error until it resolves."
     )
+
+
+def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> bool:
+    """
+    Report whether a validation error is attributable to the packages block.
+
+    The validator marks the in-memory document ``<file>``; an error in
+    any other document came from fetched package content.
+    """
+    range_ = entry.get("range")
+    if not range_:
+        return False
+    if range_.get("document", "<file>") != "<file>":
+        return True
+    start, end = packages_span
+    return bool(start <= range_.get("start_line", -1) < end)

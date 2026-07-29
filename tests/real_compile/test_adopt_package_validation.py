@@ -7,9 +7,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from esphome_device_builder.controllers.devices.importable import _packages_block_span
 from esphome_device_builder.controllers.devices.mutations_yaml import (
     _packages_confined_warning,
+    packages_block_span,
 )
 from esphome_device_builder.helpers.device_yaml import generate_adoption_yaml
 
@@ -60,7 +60,7 @@ def test_unresolvable_package_errors_root_inside_the_packages_span(tmp_path: Pat
     result = _validate_via_vscode(tmp_path, content)
 
     assert result["validation_errors"], "expected the package failure to surface"
-    span = _packages_block_span(content)
+    span = packages_block_span(content)
     warning = _packages_confined_warning(result, span, "adopt.yaml", "import")
     assert warning is not None
     assert "Fix the packages entry" in warning
