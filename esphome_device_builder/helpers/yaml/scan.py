@@ -39,7 +39,7 @@ def block_end_index(lines: list[str], start: int) -> int:
 
 def is_list_item_line(stripped: str) -> bool:
     """Report whether a whitespace-stripped line opens a list item (``- foo`` or lone ``-``)."""
-    return stripped == "-" or stripped.startswith("- ")
+    return stripped.startswith("- ") or stripped.rstrip(" ") == "-"
 
 
 def child_block_end(lines: list[str], start: int, end_bound: int, indent: str) -> int:
@@ -87,7 +87,7 @@ def top_list_item_starts(lines: list[str], start: int, end: int) -> list[int]:
         stripped = raw.lstrip(" ")
         # A bare dash opens an item whose mapping starts on the next
         # line (the shape the nested-delete prune writes).
-        if not stripped.startswith("- ") and stripped.rstrip(" ") != "-":
+        if not is_list_item_line(stripped):
             continue
         prefix = raw[: len(raw) - len(stripped)]
         if item_indent is None:
