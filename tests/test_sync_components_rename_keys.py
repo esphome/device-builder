@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -17,7 +17,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
 
 
 @pytest.fixture
-def cv():
+def cv() -> ModuleType:
     """Lazy-import esphome's config_validation; skip if unavailable."""
     try:
         from esphome import config_validation as _cv  # noqa: PLC0415
@@ -39,7 +39,7 @@ def _manifest(schema) -> SimpleNamespace:
     return SimpleNamespace(config_schema=schema)
 
 
-def test_top_level_rename_is_discovered(cv) -> None:
+def test_top_level_rename_is_discovered(cv: ModuleType) -> None:
     schema = cv.All(
         cv.Schema({cv.Optional("new_name"): cv.string}),
         cv.rename_key("old_name", "new_name"),
@@ -47,7 +47,7 @@ def test_top_level_rename_is_discovered(cv) -> None:
     assert _collect_rename_keys(_manifest(schema)) == {"old_name": "new_name"}
 
 
-def test_nested_list_item_rename_is_discovered(cv) -> None:
+def test_nested_list_item_rename_is_discovered(cv: ModuleType) -> None:
     item = cv.All(
         cv.Schema({cv.Optional("action"): cv.string}),
         cv.rename_key("service", "action"),
@@ -56,7 +56,7 @@ def test_nested_list_item_rename_is_discovered(cv) -> None:
     assert _collect_rename_keys(_manifest(schema)) == {"service": "action"}
 
 
-def test_typed_schema_branch_rename_is_discovered(cv) -> None:
+def test_typed_schema_branch_rename_is_discovered(cv: ModuleType) -> None:
     branch = cv.All(
         cv.Schema({cv.Optional("new_name"): cv.string}),
         cv.rename_key("old_name", "new_name"),
@@ -65,7 +65,7 @@ def test_typed_schema_branch_rename_is_discovered(cv) -> None:
     assert _collect_rename_keys(_manifest(schema)) == {"old_name": "new_name"}
 
 
-def test_codegen_enum_values_terminate(cv) -> None:
+def test_codegen_enum_values_terminate(cv: ModuleType) -> None:
     """A typed_schema whose closure holds codegen MockObj values must not hang."""
     import esphome.codegen as cg  # noqa: PLC0415
 
@@ -78,7 +78,7 @@ def test_codegen_enum_values_terminate(cv) -> None:
     assert _collect_rename_keys(_manifest(schema)) == {}
 
 
-def test_live_api_pairs_are_discovered_and_handled(cv) -> None:
+def test_live_api_pairs_are_discovered_and_handled(cv: ModuleType) -> None:
     """The walk finds the api pairs and the handled list covers them."""
     from script.sync_components import _get_esphome_loader  # noqa: PLC0415
 
@@ -88,7 +88,7 @@ def test_live_api_pairs_are_discovered_and_handled(cv) -> None:
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
-def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv) -> None:
+def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: ModuleType) -> None:
     """The registry sweep reaches schemas only the action registry references."""
     import esphome.components.api  # noqa: F401,PLC0415
 
