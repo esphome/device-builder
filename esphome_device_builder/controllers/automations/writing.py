@@ -730,15 +730,18 @@ def _delete_subentity_on(
 ) -> tuple[str, YamlDiff]:
     """Drop an ``on_*:`` handler from a nested sub-entity (``aht20_temperature``)."""
     ref = _subentity_context(target)
-    if location.index is not None:
-        return delete_subentity_list_entry(
-            yaml_text,
-            ref,
-            component_id=location.component_id,
-            handler_key=location.trigger,
-            index=location.index,
-        )
-    res = remove_subentity_handler(yaml_text, ref, handler_key=location.trigger)
+    try:
+        if location.index is not None:
+            return delete_subentity_list_entry(
+                yaml_text,
+                ref,
+                component_id=location.component_id,
+                handler_key=location.trigger,
+                index=location.index,
+            )
+        res = remove_subentity_handler(yaml_text, ref, handler_key=location.trigger)
+    except YamlUpsertNotSupportedError as err:
+        raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
     if res is None:
         msg = (
             f"Sub-entity id={location.component_id!r} not found under "

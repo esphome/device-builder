@@ -2780,6 +2780,27 @@ def test_upsert_subentity_flow_mapping_sub_key_refuses(index: int | None) -> Non
     assert "inline value" in str(exc.value)
 
 
+def test_delete_subentity_flow_mapping_indexed_entry_refuses() -> None:
+    """An indexed delete resplicing into a flow-style sub block refuses cleanly."""
+    yaml_text = (
+        "sensor:\n  - platform: aht10\n    id: aht20\n"
+        "    temperature: {id: t, on_value_range: ["
+        "{above: 1, then: [{logger.log: a}]}, {above: 2, then: [{logger.log: b}]}]}\n"
+    )
+    target = ComponentTarget(
+        domain="sensor",
+        is_sub_entity=True,
+        parent_domain="sensor",
+        parent_id="aht20",
+        sub_key="temperature",
+    )
+    loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range", index=0)
+    with pytest.raises(CommandError) as exc:
+        _delete_subentity_on(yaml_text, loc, target)
+    assert exc.value.code == ErrorCode.INVALID_ARGS
+    assert "inline value" in str(exc.value)
+
+
 def test_delete_subentity_inline_scalar_sub_key_not_found() -> None:
     """Deleting a handler off a scalar-valued sub key is a clean NOT_FOUND."""
     target = ComponentTarget(
