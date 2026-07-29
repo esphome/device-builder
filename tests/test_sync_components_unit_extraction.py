@@ -870,3 +870,17 @@ def test_shipped_automations_lambda_unions_carry_templatable() -> None:
     entry = next(e for e in body["config_entries"] if e["key"] == "json")
     assert entry["templatable"] is True
     assert entry["type"] == "map"
+
+
+def test_ensure_list_scalar_item_types_the_entry(cv) -> None:
+    """A scalar list item's classification types the multi_value entry."""
+    schema = cv.Schema(
+        {
+            cv.Optional("data"): cv.templatable(cv.ensure_list(cv.hex_uint8_t)),
+            cv.Optional("bare"): cv.ensure_list(cv.boolean),
+        }
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    assert refined[("data",)].type == "integer"
+    assert refined[("data",)].display_format == "hex"
+    assert refined[("bare",)].type == "boolean"

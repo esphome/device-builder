@@ -5483,8 +5483,9 @@ def _walk_schema_keys(
             # like ethernet's ``clock_speed``.
             branches = _typed_branch_schemas(node)
             if branches is None and descend_list_items:
-                # ``cv.ensure_list(...)`` is also a closure.
-                item = _ensure_list_item_validator(node)
+                # ``cv.ensure_list(...)`` is also a closure, sometimes
+                # behind a ``cv.templatable`` wrapper (speaker's data).
+                item = _ensure_list_item_validator(_templatable_inner(node) or node)
                 branches = {"": item} if item is not None else None
             for branch in (branches or {}).values():
                 walk(branch, path, depth + 1)
@@ -5984,9 +5985,12 @@ def _refined_types_in_schema(  # noqa: C901
         if refined is not None:
             return refined
         # Some validators are wrapped (vol.All chains, partials, or
-        # ``cv.templatable`` closures); peel down to find the inner.
+        # ``cv.templatable`` closures); peel down to find the inner. A
+        # ``cv.ensure_list`` scalar item types its multi_value entry.
         if (inner := _templatable_inner(validator)) is not None:
             t = classify(inner)
+        elif (item := _ensure_list_item_validator(validator)) is not None:
+            t = classify(item)
         else:
             t = classify_branches(validator)
         if t is not None:
