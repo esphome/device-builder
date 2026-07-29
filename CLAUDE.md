@@ -393,7 +393,12 @@ against legacy behaviour before assuming the simpler version suffices.
   finds a pair outside `_HANDLED_RENAME_KEYS`, so a new upstream rename
   surfaces on the nightly sync instead of shipping unhandled. Current
   entries: the api `services`→`actions` / `service`→`action` pair
-  (#2396).
+  (#2396) and the homeassistant action's `service`→`action` field under
+  both registered ids. `automations/canonicalize`
+  (`controllers/automations/canonicalize.py`) is the migration-helper
+  leg: an on-demand whole-file respell of every handled pair (plus the
+  legacy `homeassistant.service` node id), driven by the frontend's
+  legacy-spelling nudge.
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

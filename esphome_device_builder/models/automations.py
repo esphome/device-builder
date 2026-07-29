@@ -541,3 +541,10 @@ class UpsertResponse(DashboardModel):
     """Wraps the splice diff returned by upsert / delete."""
 
     yaml_diff: YamlDiff
+
+
+@dataclass
+class CanonicalizeResponse(DashboardModel):
+    """Canonicalize's splice diff; ``None`` when nothing was legacy."""
+
+    yaml_diff: YamlDiff | None = None
