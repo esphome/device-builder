@@ -147,13 +147,12 @@ async def import_device(
         controller._on_importable_removed(cached_name)
     mdns_name = cached_names[0] if cached_names else name
 
-    # No state seed — the real sources decide. The device was
-    # advertising on mDNS milliseconds ago, so a same-name adopt
-    # claims ONLINE via the esphomelib probe's cache hit in this
-    # same call; a rename-during-adopt has no PTR under *name* (an
-    # mdns claim would have no ``Removed`` to withdraw it, #2389),
-    # so the woken sweep pings the cached IP applied below for a
-    # real verdict within seconds.
+    # No state seed — the real sources decide. Discovery is
+    # mDNS-based, so a same-name adopt claims ONLINE via the
+    # esphomelib probe's cache hit in this same call; a
+    # rename-during-adopt has no PTR under *name* (an mdns claim
+    # would have no ``Removed`` to withdraw it, #2389), so the
+    # regular sweep pings the cached IP applied below.
     cached = controller._state_monitor.mdns.get_cached_addresses(f"{mdns_name}.local")
     if cached:
         controller._state_monitor.apply_ip_addresses(name, cached)
@@ -165,7 +164,6 @@ async def import_device(
     # the device's data until the first flash bakes in the new
     # name, so probe by ``mdns_name`` and apply against ``name``.
     controller._state_monitor.mdns.probe_device(name, service_name=mdns_name)
-    controller._state_monitor.probe_device_ping(name)
     return {"configuration": configuration}
 
 

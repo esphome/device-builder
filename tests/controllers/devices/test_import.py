@@ -575,7 +575,6 @@ async def test_import_device_applies_cached_ip_and_probes(
         ("get_cached_addresses", "kitchen.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
         ("probe_device", "kitchen", "kitchen"),
-        ("probe_device_ping", "kitchen"),
     ]
 
 
@@ -609,7 +608,6 @@ async def test_import_device_rename_seeds_ping_with_the_factory_broadcast(
         ("get_cached_addresses", "apollo-plt-1-983300.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.77"]),
         ("probe_device", "kitchen", "apollo-plt-1-983300"),
-        ("probe_device_ping", "kitchen"),
     ]
 
 
@@ -632,7 +630,6 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
         ("probe_device", "kitchen", "kitchen"),
-        ("probe_device_ping", "kitchen"),
     ]
 
 

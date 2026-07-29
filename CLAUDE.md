@@ -656,11 +656,11 @@ against legacy behaviour before assuming the simpler version suffices.
     live anchor PTR — a gate `refresh_mdns`'s drawer re-resolves share
     via `apply_resolved_addresses`. The importable adopt path
     (`devices/importable.py`) seeds no state — it applies the
-    factory broadcast's cached IP, probes the esphomelib service
-    (a same-name adopt claims mdns off the cache hit), and wakes a
-    targeted ping; a rename-during-adopt has no PTR under the
-    chosen name, so the sweep arbitrates until the flashed
-    firmware announces and mdns takes over. There is
+    factory broadcast's cached IP and probes the esphomelib
+    service (a same-name adopt claims mdns off the cache hit); a
+    rename-during-adopt has no PTR under the chosen name, so the
+    sweep arbitrates until the flashed firmware announces and
+    mdns takes over. There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A
     resolves (the #1999 resolve-first sweep manufactured un-demotable
     PTR-less claims): a PTR-lost device stays ONLINE via ping, and the
