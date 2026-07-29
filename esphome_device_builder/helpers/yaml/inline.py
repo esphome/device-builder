@@ -11,6 +11,7 @@ from .scan import (
     block_end_index,
     find_block_header,
     key_header_re,
+    key_line_res,
     leading_ws,
     top_list_item_starts,
 )
@@ -267,14 +268,14 @@ def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFra
     inline_msg = f"{key!r} has an inline value; rewrite it as a block mapping first"
     start: int | None = None
     if frame.is_list_item:
+        dash_header, dash_scalar = key_line_res(key, prefix=r"^\s*-\s+")
         first = lines[frame.start].rstrip("\n\r")
-        if re.match(rf"^\s*-\s+{re.escape(key)}:\s*[^\s#]", first):
+        if dash_scalar.match(first):
             raise YamlUpsertNotSupportedError(inline_msg)
-        if re.match(rf"^\s*-\s+{re.escape(key)}:\s*(?:#.*)?$", first):
+        if dash_header.match(first):
             start = frame.start
     if start is None:
-        header_re = key_header_re(key, indent=frame.child_indent)
-        scalar_re = re.compile(rf"^{re.escape(frame.child_indent)}{re.escape(key)}:\s*[^\s#]")
+        header_re, scalar_re = key_line_res(key, prefix=f"^{re.escape(frame.child_indent)}")
         for idx in range(frame.start, frame.end):
             content = lines[idx].rstrip("\n\r")
             if header_re.match(content):
