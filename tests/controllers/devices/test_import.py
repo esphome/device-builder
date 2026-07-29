@@ -474,6 +474,7 @@ async def test_import_device_refuses_when_the_error_roots_in_secrets_yaml(
         )
 
     assert excinfo.value.code == ErrorCode.INVALID_ARGS
+    assert "[wifi] password too short (secrets.yaml)" in excinfo.value.message
     assert not (tmp_path / "kitchen.yaml").exists()
 
 

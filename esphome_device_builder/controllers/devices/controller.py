@@ -134,6 +134,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             data_dir=Path(CORE.data_dir),
             shutdown_register=self._shutdown_callbacks.append,
         )
+        # Resolved here because ``CORE.data_dir`` stats the config dir;
+        # the validate path reads it from the loop thread.
+        self._packages_root = Path(CORE.data_dir) / "packages"
         self._shared_sidecar = SharedSidecarClient(self._db.settings.config_dir)
 
         # Per-file locks serialising a YAML write with its version-history
@@ -669,6 +672,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             tolerate_unavailable=tolerate_unavailable,
             timeout=timeout,
             packages_span=packages_span,
+            packages_root=self._packages_root,
             failure_tail=failure_tail,
         )
 

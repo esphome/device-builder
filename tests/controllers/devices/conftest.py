@@ -525,6 +525,7 @@ def make_controller() -> MakeControllerFactory:
             data_dir=config_dir,
             shutdown_register=controller._shutdown_callbacks.append,
         )
+        controller._packages_root = config_dir / ".esphome" / "packages"
         controller._shared_sidecar = SharedSidecarClient(config_dir)
         # Default the editor's ``validate_yaml`` to a passing result
         # so any handler that runs YAML through it (currently

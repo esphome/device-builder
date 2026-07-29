@@ -70,6 +70,8 @@ def test_unresolvable_package_errors_root_inside_the_packages_span(tmp_path: Pat
 
     assert result["validation_errors"], "expected the package failure to surface"
     span = packages_block_span(content)
-    warning = _packages_confined_warning(result, span, "adopt.yaml", "import")
+    warning = _packages_confined_warning(
+        result, span, tmp_path / ".esphome" / "packages", "adopt.yaml", "import"
+    )
     assert warning is not None
     assert "Fix the packages entry" in warning
