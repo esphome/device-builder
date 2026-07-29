@@ -391,7 +391,7 @@ def _scope_component_instances(
         is_container = bool(parsing.platform_subentity_keys(catalog_id))
         out.append(_component_instance(catalog_id, instance_id, item, is_container=is_container))
         for sub_domain, sub, sub_id, _sub_key in parsing.iter_subentities(
-            domain, item, instance_id
+            domain, item, instance_id, cat_id=catalog_id
         ):
             out.append(_component_instance(sub_domain, sub_id, sub, parent_id=instance_id))
     return out

@@ -439,6 +439,7 @@ def iter_subentities(
     domain: str,
     instance: dict,
     parent_id: str,
+    *,
     cat_id: str | None = None,
 ) -> Iterator[tuple[str, dict, str, str]]:
     """
