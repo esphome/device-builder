@@ -301,8 +301,9 @@ def _entry_confined_to_packages(entry: dict, packages_span: tuple[int, int]) -> 
     The validator marks the edited file ``<file>``; an error in any
     other document (fetched package content, or an ``!include``) is
     treated as confined. Callers gate *packages_span* to generated
-    adoption YAML, which carries no ``!include``, so a foreign document
-    is package content by construction.
+    adoption YAML, which carries no ``!include``; a defined-but-invalid
+    ``!secret`` value may also stamp secrets.yaml and ride the
+    exemption.
     """
     range_ = entry.get("range")
     if not range_:
