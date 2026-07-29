@@ -480,6 +480,14 @@ class ConfigEntry(DashboardModel):
     # renders an add/remove list of inputs of the declared `type`.
     multi_value: bool = False
 
+    # For NESTED entries validated by esphome's ``maybe_simple_value``:
+    # the child key a bare scalar value expands into
+    # (``microphone: mic_id`` == ``microphone: {microphone: mic_id}``).
+    # With ``multi_value`` each list item may also be a bare scalar.
+    # The frontend expands the shorthand against this key instead of
+    # treating a scalar as an empty list. None = no scalar shorthand.
+    maybe_key: str | None = None
+
     # When True the field accepts either a literal value of the
     # declared `type` OR a `!lambda |- ...` block returning that type.
     # Most ESPHome fields are templatable.

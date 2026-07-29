@@ -3338,6 +3338,10 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         # otherwise emit ``multi_value: false`` and the parser /
         # serializer round-trip would miss the array contract.
         "multi_value": (True if entry_type == "registry_list" else bool(raw.get("is_list"))),
+        # ``maybe_simple_value`` marker: the child key a bare scalar
+        # expands into (``microphone: mic_id`` ==
+        # ``microphone: {microphone: mic_id}``).
+        "maybe_key": raw.get(_SCHEMA_MAYBE_FIELD) or None,
         "templatable": bool(raw.get("templatable")),
         "depends_on": None,
         "depends_on_value": None,
@@ -5089,6 +5093,7 @@ _ENTRY_DEFAULTS: dict[str, Any] = {
     "allow_custom_value": False,
     "range": None,
     "multi_value": False,
+    "maybe_key": None,
     "templatable": False,
     "depends_on": None,
     "depends_on_value": None,
