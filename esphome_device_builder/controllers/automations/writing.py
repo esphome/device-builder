@@ -292,18 +292,18 @@ def _upsert_subentity_on(
     """Splice an ``on_*:`` handler under a nested sub-entity (``aht20_temperature``)."""
     ref = _subentity_context(target)
     trigger = _require_trigger(target.domain, location)
-    if location.index is not None:
-        return upsert_subentity_on_entry(
-            yaml_text,
-            ref,
-            tree=tree,
-            component_id=location.component_id,
-            trigger_key=location.trigger,
-            trigger=trigger,
-            index=location.index,
-        )
-    rendered = render_trigger_handler(tree, key=location.trigger)
     try:
+        if location.index is not None:
+            return upsert_subentity_on_entry(
+                yaml_text,
+                ref,
+                tree=tree,
+                component_id=location.component_id,
+                trigger_key=location.trigger,
+                trigger=trigger,
+                index=location.index,
+            )
+        rendered = render_trigger_handler(tree, key=location.trigger)
         res = upsert_subentity_handler(
             yaml_text, ref, handler_key=location.trigger, rendered_yaml=rendered
         )

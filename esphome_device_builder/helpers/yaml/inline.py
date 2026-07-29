@@ -382,7 +382,11 @@ def remove_subentity_handler(
     *,
     handler_key: str,
 ) -> tuple[str, int, int] | None:
-    """Delete ``<handler_key>:`` from a nested sub-entity block (inverse of upsert)."""
+    """
+    Delete ``<handler_key>:`` from a nested sub-entity block (inverse of upsert).
+
+    An inline-scalar sub key reads as not-found (no handler block to delete).
+    """
     lines = yaml_text.splitlines(keepends=True)
     try:
         span = _locate_subentity_instance(lines, ref)
