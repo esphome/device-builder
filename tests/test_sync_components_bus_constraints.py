@@ -160,7 +160,7 @@ def test_shipped_catalog_captures_cn105_cv_all_constraints() -> None:
 
 
 def test_strip_index_defaults_keeps_bus_constraints() -> None:
-    """Non-empty ``bus_constraints`` survive index slimming; empty drops with the defaults."""
+    """Non-empty ``bus_constraints`` survive index slimming; empty drops."""
     entry = {
         "id": "sensor.a01nyub",
         "bus_constraints": {"uart": {"baud_rate": 9600, "require_rx": True}},
@@ -173,7 +173,7 @@ def test_strip_index_defaults_keeps_bus_constraints() -> None:
 
 
 def test_shipped_index_carries_bus_constraints() -> None:
-    """Index entries keep ``bus_constraints`` so availability checks skip body hydration."""
+    """Shipped index entries retain non-empty ``bus_constraints``."""
     index = orjson.loads(_OUTPUT_INDEX_FILE.read_bytes())
     by_id = {c["id"]: c for c in index["components"]}
     assert by_id["sensor.a01nyub"]["bus_constraints"]["uart"]["require_rx"] is True
