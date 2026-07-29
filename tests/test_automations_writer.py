@@ -1531,6 +1531,20 @@ def test_upsert_api_action_refuses_inline_services_list(
     assert "api.services:" in str(err.value)
 
 
+def test_delete_api_action_not_found_names_the_file_spelling(
+    api_renamed_keys: dict[str, str],
+) -> None:
+    """A missing-item error names the block key the file actually uses."""
+    with pytest.raises(CommandError) as err:
+        render_delete(
+            _LEGACY_SERVICES_YAML,
+            location=ApiActionLocation(action_name="never_added"),
+            api_renamed_keys=api_renamed_keys,
+        )
+    assert err.value.code == ErrorCode.NOT_FOUND
+    assert "api.services[" in str(err.value)
+
+
 def test_upsert_api_action_creates_second_block_without_renamed_keys() -> None:
     """Without the catalog map a ``services:`` block is invisible to the writer."""
     new_text, _diff = render_upsert(

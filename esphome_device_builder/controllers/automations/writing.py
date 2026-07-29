@@ -385,7 +385,7 @@ def _upsert_api_action(
     actions_span = api_actions.locate_actions_list(lines, api_span, block_keys)
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
-    actions_start, actions_end, item_indent = actions_span
+    actions_start, actions_end, item_indent, _block_key = actions_span
     existing = api_actions.find_item(
         lines,
         actions_start,
@@ -733,7 +733,7 @@ def _delete_api_action(
         msg = "api.actions: not present; nothing to delete"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     item_keys = api_actions.item_keys(renamed)
-    actions_start, actions_end, item_indent = actions_span
+    actions_start, actions_end, item_indent, block_key = actions_span
     existing = api_actions.find_item(
         lines,
         actions_start,
@@ -743,7 +743,7 @@ def _delete_api_action(
         item_keys,
     )
     if existing is None:
-        msg = f"api.actions[action={location.action_name!r}] not present"
+        msg = f"api.{block_key}[action={location.action_name!r}] not present"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     item_start, item_end = existing
     siblings = api_actions.count_siblings(

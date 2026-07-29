@@ -134,7 +134,10 @@ class ComponentCatalogIndexEntry(DashboardModel):
     # ``{"services": "actions", "service": "action"}``). Consumers that
     # read user YAML by key name must accept every old spelling of a
     # key they look up; writers splice into whichever spelling the file
-    # uses and emit the new one when creating from scratch.
+    # uses and emit the new one when creating from scratch. The map is
+    # flat — nesting level is discarded, so consumers disambiguate by
+    # canonical target name; two same-named targets at different levels
+    # would collide.
     renamed_keys: dict[str, str] = field(default_factory=dict)
 
 

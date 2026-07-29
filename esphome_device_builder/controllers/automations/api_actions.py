@@ -59,19 +59,20 @@ def locate_actions_list(
     lines: list[str],
     api_span: tuple[int, int, str],
     keys: tuple[str, ...],
-) -> tuple[int, int, str] | None:
-    """Return ``(start, end, item_indent)`` for the api action list or ``None``.
+) -> tuple[int, int, str, str] | None:
+    """Return ``(start, end, item_indent, key)`` for the api action list or ``None``.
 
     Matches any spelling in *keys*, first spelling wins when several
     appear. ``start`` is the line index of the block key; ``end`` is
     one past the last item line; ``item_indent`` is the leading
-    whitespace shared by each ``- ...`` dash line.
+    whitespace shared by each ``- ...`` dash line; ``key`` is the
+    spelling matched in the file.
     """
     _api_start, api_end, child_indent = api_span
     found = _find_block_key_line(lines, api_span, keys)
     if found is None:
         return None
-    actions_start = found[0]
+    actions_start, matched_key = found
     actions_end = api_end
     for idx in range(actions_start + 1, api_end):
         content = lines[idx].rstrip("\n\r")
@@ -92,7 +93,7 @@ def locate_actions_list(
         # Empty list — assume the canonical two-space nesting under
         # ``actions:`` so the first item still indents predictably.
         item_indent = child_indent + "  "
-    return actions_start, actions_end, item_indent
+    return actions_start, actions_end, item_indent, matched_key
 
 
 def find_item(

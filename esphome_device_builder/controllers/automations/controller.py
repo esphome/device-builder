@@ -10,6 +10,7 @@ config-write debounce on the device editor handles that.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -196,7 +197,7 @@ class AutomationsController:
         the form lands empty.
         """
         text = yaml if yaml is not None else await self._read_config(configuration)
-        renamed = self._db.components.renamed_keys("api")
+        renamed = self._api_renamed_keys()
         parsed = await run_in_executor(
             partial(parsing.parse_device_yaml, text, api_renamed_keys=renamed)
         )
@@ -232,7 +233,7 @@ class AutomationsController:
         tree = AutomationTree.from_dict(automation)
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        renamed = self._db.components.renamed_keys("api")
+        renamed = self._api_renamed_keys()
         _new_text, diff = await run_in_executor(
             lambda: writing.render_upsert(text, tree=tree, location=loc, api_renamed_keys=renamed),
         )
@@ -255,7 +256,7 @@ class AutomationsController:
         """
         loc = _decode_location(location)
         text = yaml if yaml is not None else await self._read_config(configuration)
-        renamed = self._db.components.renamed_keys("api")
+        renamed = self._api_renamed_keys()
         _new_text, diff = await run_in_executor(
             lambda: writing.render_delete(text, location=loc, api_renamed_keys=renamed),
         )
@@ -264,6 +265,11 @@ class AutomationsController:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _api_renamed_keys(self) -> Mapping[str, str]:
+        """Return the api component's catalog legacy-spelling map, ``{}`` before load."""
+        components = self._db.components
+        return components.renamed_keys("api") if components is not None else {}
 
     async def _read_config(self, configuration: str) -> str:
         """Read a device's YAML off disk in a worker thread."""
