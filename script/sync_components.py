@@ -3656,10 +3656,7 @@ def _emit_pin_registry_modes_index(registry_modes: dict[str, list[str]]) -> None
 def _emit_migration_rules_index() -> None:
     """Write the sync-discovered generic rename rules for ``editor/migrate_config``.
 
-    The migration engine folds these as data-driven rules, so a plain
-    ``cv.rename_key`` on a component or platform schema ships without
-    hand-written code. Always written — empty is the steady state until
-    upstream adds such a pair. Atomic temp-then-replace.
+    Always written — empty is the steady state. Atomic temp-then-replace.
     """
     rules = []
     for kind, component, domain, platform, old, new in sorted(_MIGRATION_RULES):
@@ -4862,7 +4859,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
-    _classify_rename_pairs(component_id, _collect_rename_keys(manifest))
+    list_form = (
+        bool(getattr(manifest, "multi_conf", False)) or component_id in _LIST_SCHEMA_MULTI_CONF
+    )
+    _classify_rename_pairs(component_id, _collect_rename_keys(manifest), list_form=list_form)
     for domain, platform_manifest in platform_manifests_by_domain:
         _classify_rename_pairs(component_id, _collect_rename_keys(platform_manifest), domain=domain)
 
@@ -8202,18 +8202,22 @@ def _classify_rename_pairs(
     pairs: Mapping[tuple[str, str], bool],
     *,
     domain: str | None = None,
+    list_form: bool = False,
 ) -> None:
     """
     Route discovered pairs: expressible → migration-rules artifact, else canary.
 
     A *direct* pair (the validator sits on the schema's own mapping, no
     wrapper descent) is a plain child-key rename the generic migration
-    engine applies; anything else needs bespoke handling.
+    engine applies; anything else needs bespoke handling. *list_form*
+    marks a ``multi_conf`` component whose block is a list —
+    ``component_block_field`` can't address those, so its pairs fall to
+    the canary.
     """
     for (old, new), direct in pairs.items():
         if (component_id, old, new) in _HANDLED_RENAME_KEYS:
             continue
-        if direct and old != new:
+        if direct and not list_form and old != new:
             if domain is None:
                 _MIGRATION_RULES.add(("component_block_field", component_id, "", "", old, new))
             else:
@@ -8298,7 +8302,10 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
         visited.add(id(node))
         pair = _rename_key_pair(node)
         if pair is not None:
-            out[pair] = out.get(pair, False) or direct
+            # ``and`` so a pair also reachable nested stays inexpressible
+            # (fail-loud): the generic rule would cover only the direct
+            # occurrence.
+            out[pair] = out.get(pair, True) and direct
             continue
         stack.extend(
             (child, depth + 1, direct and stays_direct)

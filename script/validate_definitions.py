@@ -944,6 +944,8 @@ def validate_component(manifest: Path) -> list[str]:
     return errors
 
 
+# Mirrors ``definitions.MIGRATION_RULE_KINDS`` — the runtime loader isn't
+# importable here (pre-commit env has no ``orjson``); keep both in sync.
 _MIGRATION_RULE_KINDS = {"component_block_field", "platform_item_field"}
 
 #: Required non-empty string fields per migration-rule kind.

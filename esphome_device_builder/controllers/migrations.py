@@ -138,9 +138,11 @@ def _apply_generated_renames(lines: list[str]) -> list[str]:
     """Apply the sync-discovered rename rules from the generated artifact."""
     out = lines
     for rule in load_migration_rules_index():
+        # No fallthrough: a kind this build doesn't know is a no-op,
+        # never misapplied as some other kind's rename.
         if rule.kind == "component_block_field":
             out = _apply_component_block_field(out, rule)
-        else:
+        elif rule.kind == "platform_item_field":
             out = _apply_platform_item_field(out, rule)
     return out
 

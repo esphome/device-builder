@@ -100,11 +100,20 @@ def test_live_api_pairs_are_discovered_and_handled(cv: ModuleType) -> None:
     assert set() == _MIGRATION_RULES
 
 
-def test_platform_manifest_walk_stays_clean(cv: ModuleType) -> None:
-    """A platform component's manifests classify without pairs today."""
+def test_platform_manifest_renames_never_reach_the_canary(cv: ModuleType) -> None:
+    """
+    sgp4x classifies clean on every esphome channel.
+
+    Stable has no pairs yet; dev already carries the sensor-platform
+    ``voc``/``nox`` renames, which must route to the artifact with the
+    domain attributed — never fail the sync.
+    """
     introspect_component("sgp4x")
     assert set() == _UNHANDLED_RENAME_KEYS
-    assert set() == _MIGRATION_RULES
+    for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES:
+        assert kind == "platform_item_field"
+        assert domain == "sensor"
+        assert platform == "sgp4x"
 
 
 def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: ModuleType) -> None:
@@ -159,6 +168,26 @@ def test_direct_platform_pair_routes_to_the_artifact() -> None:
     _classify_rename_pairs("sgp4x", {("voc", "voc_index"): True}, domain="sensor")
     assert {("platform_item_field", "", "sensor", "sgp4x", "voc", "voc_index")} == _MIGRATION_RULES
     assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def test_mixed_direct_and_nested_pair_classifies_nested(cv: ModuleType) -> None:
+    """A pair also reachable nested must stay inexpressible (fail-loud)."""
+    item = cv.All(
+        cv.Schema({cv.Optional("action"): cv.string}),
+        cv.rename_key("service", "action"),
+    )
+    schema = cv.All(
+        cv.Schema({cv.Optional("actions"): cv.ensure_list(item)}),
+        cv.rename_key("service", "action"),
+    )
+    assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): False}
+
+
+def test_list_form_component_pair_routes_to_the_canary() -> None:
+    """A multi_conf component's block is a list the block rule can't address."""
+    _classify_rename_pairs("uart", {("old", "new"): True}, list_form=True)
+    assert set() == _MIGRATION_RULES
+    assert {("uart", "old", "new")} == _UNHANDLED_RENAME_KEYS
 
 
 def test_non_direct_pair_routes_to_the_canary() -> None:
