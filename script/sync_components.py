@@ -5292,17 +5292,13 @@ def _strip_entry_defaults(entry: dict) -> dict:
 
 
 def _templatable_inner(node: Any) -> Any | None:
-    """
-    Return the plain-side validator inside a ``cv.templatable`` closure, else None.
-
-    The bundle already flags these fields ``templatable``; the extract
-    recovers the inner chain for type refinement and bounds.
-    """
-    if "templatable" not in (getattr(node, "__qualname__", "") or ""):
+    """Return the plain-side validator inside a ``cv.templatable`` closure, else None."""
+    qualname = getattr(node, "__qualname__", "") or ""
+    if not qualname.startswith("templatable."):
         return None
-    if not _is_extractor_closure(node):
+    if getattr(node, "__module__", "") != "esphome.config_validation":
         return None
-    return _probe_hidden_schema(node)
+    return _hidden_schema(node)
 
 
 def _is_extractor_closure(node: Any) -> bool:
@@ -5939,9 +5935,8 @@ def _refined_types_in_schema(  # noqa: C901
         refined = by_identity.get(id(validator)) or _int_enum_refined_type(validator)
         if refined is not None:
             return refined
-        # Some validators are wrapped (vol.All chains, partials, or a
-        # ``cv.templatable`` closure whose extract is the plain-side
-        # validator); peel down to find the inner.
+        # Some validators are wrapped (vol.All chains, partials, or
+        # ``cv.templatable`` closures); peel down to find the inner.
         if (inner := _templatable_inner(validator)) is not None:
             t = classify(inner)
         else:
@@ -7819,13 +7814,21 @@ def _numeric_range_bounds(node: Any) -> tuple[int | float, int | float] | None:
     return _intersect_bounds(mins, maxes)
 
 
+# JS ``Number.MAX_SAFE_INTEGER``: a bound beyond it is already imprecise
+# after the frontend's JSON.parse, so the catalog omits it — the same
+# policy the static path applies by leaving ``hex_uint64_t`` rangeless.
+_JS_MAX_SAFE_INTEGER = 2**53 - 1
+
+
 def _intersect_bounds(
     mins: list[int | float], maxes: list[int | float]
 ) -> tuple[int | float, int | float] | None:
-    """Intersect collected bounds; None when unbounded or disjoint (warned)."""
+    """Intersect collected bounds; None when unbounded, disjoint (warned), or JS-unsafe."""
     if not mins or not maxes:
         return None
     lo, hi = max(mins), min(maxes)
+    if max(abs(lo), abs(hi)) > _JS_MAX_SAFE_INTEGER:
+        return None
     if lo > hi:
         # Disjoint Range constraints in a vol.All chain — schema bug
         # upstream, the field accepts no value. Surface so future
@@ -8739,11 +8742,12 @@ def _classify_scalar_validator(validator: Any, _depth: int = 0) -> str | None:
     inner = getattr(validator, "schema", None)
     if inner is not None and inner is not validator:
         return _classify_scalar_validator(inner, _depth + 1)
-    # Recurse into a templatable closure's captured inner or an All refinement
-    # chain. Any is deliberately skipped (a scalar-or-list filter stays None).
+    # Recurse into a templatable closure's plain-side inner or an All
+    # refinement chain. Any is deliberately skipped (a scalar-or-list
+    # filter stays None).
     children: tuple[Any, ...] = ()
-    if "templatable" in (getattr(validator, "__qualname__", "") or ""):
-        children = tuple(c.cell_contents for c in getattr(validator, "__closure__", None) or ())
+    if (templatable_inner := _templatable_inner(validator)) is not None:
+        children = (templatable_inner,)
     elif isinstance(validator, vol.All):
         children = tuple(validator.validators)
     for child in children:

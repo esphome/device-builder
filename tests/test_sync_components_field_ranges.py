@@ -459,3 +459,9 @@ def test_numeric_range_bounds_peels_templatable() -> None:
     assert _numeric_range_bounds(
         cv.All(cv.templatable(cv.All(cv.positive_int, cv.Range(min=1, max=15))))
     ) == (1, 15)
+
+
+def test_numeric_range_bounds_drops_js_unsafe_bounds() -> None:
+    """A bound beyond 2**53 - 1 is omitted; it is imprecise after JSON.parse."""
+    assert _numeric_range_bounds(vol.Range(min=0, max=2**64 - 1)) is None
+    assert _numeric_range_bounds(vol.Range(min=0, max=2**53 - 1)) == (0, 2**53 - 1)
