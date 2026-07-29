@@ -745,7 +745,11 @@ against legacy behaviour before assuming the simpler version suffices.
   `esphome.board`, renamed fields like `wifi.use_address`); refusing the
   write strands the user. Validate *our* outputs (`generate_device_yaml`,
   `generate_minimal_stub_yaml`, `dashboard_import.import_config`, clone's
-  leaf rewrites) but pass user-supplied content through unchanged. PR
+  leaf rewrites) but pass user-supplied content through unchanged —
+  except keys esphome has deprecated or renamed: when an editor write
+  already touches a block spelled with a legacy key the catalog marks
+  as renamed, respell that block to canonical in the same edit rather
+  than preserving the dead spelling. PR
   #412 reverses #405's overzealous validation on `create_device`'s
   `file_content` branch and pins the legacy-config acceptance contract.
   The next compile / install surfaces real schema errors with line
