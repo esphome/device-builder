@@ -3148,3 +3148,25 @@ def test_delete_pruning_the_instance_dash_line_keeps_it_a_list() -> None:
     parsed = parse_device_yaml(new_text)
     assert all(p.location.kind != "component_action" for p in parsed)
     assert _apply_diff(text, diff) == new_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_index_free_single_mapping_valves_round_trips() -> None:
+    """A ``valves:`` written as one mapping takes the index-free path for both operations."""
+    text = (
+        "sprinkler:\n"
+        "  - id: lawn\n"
+        "    valves:\n"
+        "      valve_switch: Only Zone\n"
+        "      run_duration_number:\n"
+        "        id: only_duration\n"
+    )
+    loc = ComponentActionFieldLocation(
+        component_id="lawn", field="valves.run_duration_number.set_action"
+    )
+    new_text, _diff = render_upsert(text, tree=_nested_tree(), location=loc)
+    reparsed = next(p for p in parse_device_yaml(new_text) if p.location.kind == "component_action")
+    assert reparsed.location == loc
+    deleted, _d = render_delete(new_text, location=loc)
+    assert "set_action" not in deleted
+    assert "valve_switch: Only Zone" in deleted
