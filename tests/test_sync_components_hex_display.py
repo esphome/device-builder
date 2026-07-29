@@ -222,7 +222,11 @@ def test_hub_refinement_bleed_is_shed_for_platform_builds() -> None:
     from script.sync_components import introspect_component  # noqa: PLC0415
 
     introspection = introspect_component("modbus_controller")
-    assert ("address",) in introspection.get("refined_bleed_keys", {}).get("sensor", set())
+    shed = introspection.get("refined_bleed_keys", {}).get("sensor", {})
+    assert ("address",) in shed
+    # The platform item's ``cv.positive_int`` carries no refinement of its
+    # own, so the shed drops the hub's hex outright.
+    assert shed[("address",)] is None
 
 
 def test_shipped_catalog_modbus_platform_address_stays_decimal() -> None:
@@ -291,4 +295,31 @@ def test_bleed_guard_sees_list_item_paths() -> None:
         )
     )
     _range_bleed, refined_bleed = _collect_bleed_keys(hub, [("sensor", platform)])
-    assert ("items", "addr") in refined_bleed.get("sensor", set())
+    assert ("items", "addr") in refined_bleed.get("sensor", {})
+
+
+def test_shed_path_substitutes_the_platforms_own_refinement() -> None:
+    """A shed path where the platform refines differently maps to the platform's refinement."""
+    from script.sync_components import _collect_bleed_keys  # noqa: PLC0415
+
+    hub = SimpleNamespace(config_schema=cv.Schema({cv.Optional("threshold"): cv.hex_int}))
+    platform = SimpleNamespace(config_schema=cv.Schema({cv.Optional("threshold"): cv.frequency}))
+    _range_bleed, refined_bleed = _collect_bleed_keys(hub, [("sensor", platform)])
+    substitute = refined_bleed["sensor"][("threshold",)]
+    assert substitute is not None
+    assert substitute.type == "float_with_unit"
+
+
+def test_shed_refined_bleed_substitutes_and_drops() -> None:
+    """The shed keeps unshed paths, substitutes typed platform refinements, drops the rest."""
+    from script.sync_components import _shed_refined_bleed  # noqa: PLC0415
+
+    hub_hex = RefinedType("integer", display_format="hex")
+    platform_own = RefinedType("float_with_unit", unit_options=["Hz"])
+    refined_types = {
+        ("kept",): hub_hex,
+        ("substituted",): hub_hex,
+        ("dropped",): hub_hex,
+    }
+    shed = _shed_refined_bleed(refined_types, {("substituted",): platform_own, ("dropped",): None})
+    assert shed == {("kept",): hub_hex, ("substituted",): platform_own}

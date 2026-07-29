@@ -2613,8 +2613,8 @@ def build_component_entry(
         # item ``address``). Hub builds keep them.
         bleed = (introspection.get("field_range_bleed_keys") or {}).get(domain, set())
         field_ranges = {k: v for k, v in field_ranges.items() if k not in bleed}
-        refined_bleed = (introspection.get("refined_bleed_keys") or {}).get(domain, set())
-        refined_types = {k: v for k, v in refined_types.items() if k not in refined_bleed}
+        refined_bleed = (introspection.get("refined_bleed_keys") or {}).get(domain, {})
+        refined_types = _shed_refined_bleed(refined_types, refined_bleed)
     # Refined types first: the range gate reads the entry's final type,
     # and a field promoted to float_with_unit must keep its bounds.
     _apply_refined_types(config_entries, refined_types)
@@ -2806,13 +2806,15 @@ def _promote_template_controls(component_id: str, entries: list[dict]) -> None:
 
 def _merge_extends_config_vars(
     schema_node: dict, schema_dir: Path, _seen_refs: frozenset[str] = frozenset()
-) -> tuple[dict[str, Any], frozenset[str]]:
+) -> tuple[dict[str, Any], dict[str, str]]:
     """
     Deep-merge a schema node's ``extends`` ancestry with its local config_vars.
 
-    Returns the merged fields plus the keys drawn exclusively from the
-    ancestry, so the caller can scope cycle-breaking to the inherited
-    subtree; a locally-overridden key counts as local.
+    Returns the merged fields plus a map from each key drawn exclusively
+    from the ancestry to the ref it resolved through, so the caller can
+    scope cycle-breaking per ref; a locally-overridden key counts as
+    local. A key several refs provide is attributed to the last, matching
+    the merge's last-wins resolution.
 
     Per-field, not whole-field: a partial override like ``{"default": "x"}``
     keeps the base's inherited ``type`` / enum / docs. Values are usually field
@@ -2824,10 +2826,13 @@ def _merge_extends_config_vars(
     """
     config_vars = dict(schema_node.get("config_vars") or {})
     extended: dict[str, dict] = {}
+    origin_ref: dict[str, str] = {}
     for ref in schema_node.get("extends") or []:
         if ref in _seen_refs:
             continue
-        extended.update(_resolve_extends(ref, schema_dir))
+        resolved = _resolve_extends(ref, schema_dir)
+        extended.update(resolved)
+        origin_ref.update(dict.fromkeys(resolved, ref))
     merged: dict[str, Any] = {}
     for key in {*extended, *config_vars}:
         base = extended.get(key)
@@ -2836,7 +2841,7 @@ def _merge_extends_config_vars(
             merged[key] = {**base, **local}
         else:
             merged[key] = local if local is not None else base or {}
-    return merged, frozenset(set(extended) - set(config_vars))
+    return merged, {key: ref for key, ref in origin_ref.items() if key not in config_vars}
 
 
 def _convert_config_vars(
@@ -2852,12 +2857,7 @@ def _convert_config_vars(
     ``_seen_refs`` is threaded to break self-referential ``extends`` cycles; see
     :func:`_merge_extends_config_vars`.
     """
-    merged, inherited_keys = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
-    # A ref is a cycle only within its own expansion subtree: inherited
-    # fields carry it as seen, a *local* field re-extending the same ref
-    # is legitimate reuse (combination's kalman ``std_dev`` re-extends
-    # the sensor schema its platform root also extends).
-    seen_refs = _seen_refs | frozenset(schema_node.get("extends") or [])
+    merged, inherited_ref = _merge_extends_config_vars(schema_node, schema_dir, _seen_refs)
 
     out: list[dict] = []
     for key, raw in merged.items():
@@ -2880,12 +2880,19 @@ def _convert_config_vars(
         # keys (docs, help link) survive (font.file).
         recovered = _RAW_NODE_OVERRIDES.get((component_id, key))
         field_raw = {**(raw or {}), **recovered} if recovered is not None else (raw or {})
+        # A ref is a cycle only within its own expansion subtree: an
+        # inherited field carries just the ref it resolved through, so a
+        # sibling ref on the same node stays expandable beneath it and a
+        # *local* field re-extending the same ref is legitimate reuse
+        # (combination's kalman ``std_dev`` re-extends the sensor schema
+        # its platform root also extends).
+        ref = inherited_ref.get(key)
         entry = _convert_field(
             key,
             field_raw,
             schema_dir,
             top_level=bool(component_id),
-            _seen_refs=seen_refs if key in inherited_keys else _seen_refs,
+            _seen_refs=_seen_refs if ref is None else _seen_refs | {ref},
         )
         if entry is None:
             continue
@@ -4750,13 +4757,15 @@ def _upgrade_stamp_only_refinements(
 def _collect_bleed_keys(
     manifest: Any,
     platform_manifests_by_domain: list[tuple[str, Any]],
-) -> tuple[dict[str, set[tuple[str, ...]]], dict[str, set[tuple[str, ...]]]]:
+) -> tuple[dict[str, set[tuple[str, ...]]], dict[str, dict[tuple[str, ...], RefinedType | None]]]:
     """Per-domain hub signals a platform schema redefines, for platform builds to shed.
 
     Ranges shed when the platform redefines the key unbounded; refined
     types shed when the platform's own refinement differs (the
     modbus_controller hub's ``cv.hex_uint8_t`` ``address`` vs the platform
-    item's plain ``cv.positive_int``). Keyed per platform domain, not
+    item's plain ``cv.positive_int``), each shed path mapping to the
+    platform's own refinement (``None`` when it has none) so the build
+    substitutes rather than dropping. Keyed per platform domain, not
     aggregated: one platform's redefinition must not spare a sibling
     platform from the shed. Hub builds keep every signal. Covers
     hub-to-platform bleed only; a sibling platform's contribution rides
@@ -4765,7 +4774,7 @@ def _collect_bleed_keys(
     hub_ranges = _collect_field_ranges(manifest)
     hub_refined = _collect_refined_types(manifest)
     range_bleed: dict[str, set[tuple[str, ...]]] = {}
-    refined_bleed: dict[str, set[tuple[str, ...]]] = {}
+    refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
         keys = _platform_field_keys([platform_manifest])
         bounded = set(_collect_field_ranges(platform_manifest))
@@ -4777,13 +4786,23 @@ def _collect_bleed_keys(
         list_keys = _platform_field_keys([platform_manifest], descend_list_items=True)
         platform_refined = _collect_refined_types(platform_manifest)
         refined_bled = {
-            path
+            path: platform_refined.get(path)
             for path in hub_refined
             if path in list_keys and platform_refined.get(path) != hub_refined[path]
         }
         if refined_bled:
             refined_bleed[domain] = refined_bled
     return range_bleed, refined_bleed
+
+
+def _shed_refined_bleed(
+    refined_types: dict[tuple[str, ...], RefinedType],
+    refined_bleed: dict[tuple[str, ...], RefinedType | None],
+) -> dict[tuple[str, ...], RefinedType]:
+    """Drop shed hub refinements, substituting the platform's own where it has one."""
+    return {k: v for k, v in refined_types.items() if k not in refined_bleed} | {
+        k: v for k, v in refined_bleed.items() if v is not None
+    }
 
 
 def introspect_component(component_id: str) -> dict[str, Any]:
