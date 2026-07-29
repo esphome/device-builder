@@ -27,6 +27,7 @@ Run locally:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -232,6 +233,7 @@ def main() -> int:  # noqa: C901
     failures.extend(_check_gating_floors(all_bodies))
     failures.extend(_check_no_field_bullet_descriptions(catalog))
     failures.extend(_check_boolean_options_exclusive(all_bodies))
+    failures.extend(_check_automation_enrichment_floor())
 
     if failures:
         print(f"FAIL: {len(failures)} catalog regression(s):")
@@ -309,6 +311,41 @@ _GATING_FLOORS: dict[str, int] = {
     "web_server": 2000,
     "zigbee": 1600,
 }
+
+# Catalog-wide floor on automation entries carrying live-introspection
+# enrichment (unit_options / display_format / range). A component import
+# silently failing mid-sweep de-refines its actions; wholesale loss
+# lands the count under the floor and reds the sync smoke. Sits well
+# below the live count (149 at introduction) so legitimate churn
+# passes; the band test keeps it calibrated from both sides.
+_AUTOMATION_ENRICHMENT_FLOOR = 100
+
+
+def _check_automation_enrichment_floor() -> list[str]:
+    """Fail when refinement-shaped automation enrichment falls below the floor."""
+    enriched = count_enriched_automation_entries()
+    if enriched >= _AUTOMATION_ENRICHMENT_FLOOR:
+        return []
+    return [
+        (
+            f"automation enrichment count {enriched} fell below floor "
+            f"{_AUTOMATION_ENRICHMENT_FLOOR} — a component import likely failed "
+            "mid-sweep, de-refining its actions"
+        )
+    ]
+
+
+def count_enriched_automation_entries() -> int:
+    """Count action / condition fields carrying refinement-shaped enrichment."""
+    base = Path(__file__).parent.parent / "esphome_device_builder" / "definitions" / "automations"
+    count = 0
+    for sub in ("actions", "conditions"):
+        for body_path in sorted((base / sub).glob("*.json")):
+            body = json.loads(body_path.read_text(encoding="utf-8"))
+            for entry in body.get("config_entries") or []:
+                if entry.get("unit_options") or entry.get("display_format") or entry.get("range"):
+                    count += 1
+    return count
 
 
 def _resolve_field(component: Any, path: str) -> Any:

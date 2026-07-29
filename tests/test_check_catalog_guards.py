@@ -8,11 +8,14 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.components import ComponentCatalog
+from script import check_catalog
 from script.check_catalog import (  # type: ignore[import-not-found]
+    _AUTOMATION_ENRICHMENT_FLOOR,
     _GATING_FLOORS,
     _check_boolean_options_exclusive,
     _check_gating_floors,
     _load_body_from_disk,
+    count_enriched_automation_entries,
 )
 
 pytestmark = pytest.mark.xdist_group("catalog")
@@ -119,3 +122,24 @@ def test_boolean_options_exclusive_reports_a_missing_body() -> None:
     assert _check_boolean_options_exclusive([("gone", None)]) == [
         "boolean/options check: missing body for gone"
     ]
+
+
+def test_automation_enrichment_floor_sits_in_a_sane_band() -> None:
+    """A floor typo (100 -> 10, or above live) fails here, not in the field."""
+    live = count_enriched_automation_entries()
+    assert live >= _AUTOMATION_ENRICHMENT_FLOOR, (
+        f"floor {_AUTOMATION_ENRICHMENT_FLOOR} above live count {live}: the sync smoke "
+        "would fire spuriously — lower it in script/check_catalog.py"
+    )
+    assert live // 4 <= _AUTOMATION_ENRICHMENT_FLOOR, (
+        f"floor {_AUTOMATION_ENRICHMENT_FLOOR} drifted far below live count {live} — "
+        "the catalog grew; bump it in script/check_catalog.py"
+    )
+
+
+def test_automation_enrichment_floor_reds_on_wholesale_loss(monkeypatch) -> None:
+    """A de-refined catalog fails the check with an actionable message."""
+    monkeypatch.setattr(check_catalog, "count_enriched_automation_entries", lambda: 3)
+    failures = check_catalog._check_automation_enrichment_floor()
+    assert len(failures) == 1
+    assert "import likely failed" in failures[0]
