@@ -8,6 +8,7 @@ import pytest
 
 from esphome_device_builder.controllers.devices import mutations_yaml
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
+from esphome_device_builder.helpers.api import CommandError
 
 
 @pytest.mark.parametrize(
@@ -70,4 +71,28 @@ async def test_tolerate_path_still_propagates_generic_runtime_error() -> None:
             tolerate_unavailable=True,
         )
 
+    cleanup.assert_called_once()
+
+
+async def test_cleanup_failure_preserves_the_validation_error() -> None:
+    """A raising rollback callback doesn't replace the original diagnostic."""
+    editor = MagicMock()
+    editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "[esphome] invalid key"}],
+        }
+    )
+    cleanup = Mock(side_effect=OSError("permission denied"))
+
+    with pytest.raises(CommandError) as excinfo:
+        await mutations_yaml.validate_rewritten_yaml_or_raise(
+            editor,
+            "kitchen.yaml",
+            "esphome:\n",
+            action="rename",
+            on_error_cleanup=cleanup,
+        )
+
+    assert "invalid key" in excinfo.value.message
     cleanup.assert_called_once()
