@@ -3099,10 +3099,35 @@ def test_delete_pruning_a_dash_line_mapping_keeps_the_item() -> None:
     assert "valve_switch: Front Yard" in new_text
     assert "valve_switch: Back Yard" in new_text
     assert diff.replacement.strip() == "-"
-    # The list survives: both valves still parse as items of the instance.
+    # The list survives: the sibling valve still parses at its index.
     reparsed = parse_device_yaml(new_text)
-    assert reparsed is not None
+    assert all(p.location.kind != "component_action" for p in reparsed)
     assert _apply_diff(text, diff) == new_text
+    # The bare-dash item stays addressable: a re-add lands back in valve
+    # #1, and the sibling valve keeps its own index.
+    re_added, _d = render_upsert(new_text, tree=_nested_tree(), location=loc)
+    front = re_added.index("valve_switch: Front Yard")
+    back = re_added.index("valve_switch: Back Yard")
+    splice = re_added.index("logger.log: changed")
+    assert front < splice < back
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_instance_stays_writable_after_a_dash_line_prune() -> None:
+    """The bare-dash instance line still resolves for the next write."""
+    text = (
+        "sprinkler:\n"
+        "  - repeat_number:\n"
+        "      set_action:\n"
+        "        - logger.log: changed\n"
+        "    id: lawn\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    deleted, _diff = render_delete(text, location=loc)
+    re_added, _d = render_upsert(deleted, tree=_nested_tree(), location=loc)
+    reparsed = [p for p in parse_device_yaml(re_added) if p.location.kind == "component_action"]
+    assert [p.location.field for p in reparsed] == ["repeat_number.set_action"]
+    assert reparsed[0].location.component_id == "lawn"
 
 
 @pytest.mark.usefixtures("_sprinkler_paths")

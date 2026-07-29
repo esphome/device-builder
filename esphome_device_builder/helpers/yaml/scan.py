@@ -49,7 +49,9 @@ def top_list_item_starts(lines: list[str], start: int, end: int) -> list[int]:
     for idx in range(start + 1, end):
         raw = lines[idx].rstrip("\n\r")
         stripped = raw.lstrip(" ")
-        if not stripped.startswith("- "):
+        # A bare dash opens an item whose mapping starts on the next
+        # line (the shape the nested-delete prune writes).
+        if not stripped.startswith("- ") and stripped.rstrip(" ") != "-":
             continue
         prefix = raw[: len(raw) - len(stripped)]
         if item_indent is None:
