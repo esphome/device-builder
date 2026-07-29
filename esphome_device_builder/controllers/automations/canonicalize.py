@@ -191,7 +191,9 @@ def _respell_body_field(
     body_end = anchor
     for idx in range(anchor + 1, len(lines)):
         content = lines[idx].rstrip("\n\r")
-        if not content.strip():
+        stripped = content.strip()
+        # Comment lines neither bound the body nor pick its indent.
+        if not stripped or stripped.startswith("#"):
             continue
         leading = len(content) - len(content.lstrip(" "))
         if leading <= content_col:

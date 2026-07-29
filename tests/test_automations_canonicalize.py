@@ -209,6 +209,20 @@ def test_flow_nested_canonical_decoy_still_respells() -> None:
     assert "{data: {action: keepme}, action: light.toggle}" in new_text
 
 
+def test_comment_lines_do_not_pick_the_body_indent() -> None:
+    text = (
+        "esphome:\n  on_boot:\n    then:\n"
+        "      - homeassistant.service:\n"
+        "        # call the light service\n"
+        "          service: light.turn_on\n"
+    )
+    result = render_canonicalize(text)
+    assert result is not None
+    new_text, _diff = result
+    assert "action: light.turn_on" in new_text
+    assert "# call the light service" in new_text
+
+
 def test_brace_in_trailing_comment_keeps_block_body_respell() -> None:
     text = (
         "esphome:\n  on_boot:\n    then:\n"
