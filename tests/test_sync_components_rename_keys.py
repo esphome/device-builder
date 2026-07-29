@@ -101,13 +101,7 @@ def test_live_api_pairs_are_discovered_and_handled(cv: ModuleType) -> None:
 
 
 def test_platform_manifest_renames_never_reach_the_canary(cv: ModuleType) -> None:
-    """
-    sgp4x classifies clean on every esphome channel.
-
-    Stable has no pairs yet; dev already carries the sensor-platform
-    ``voc``/``nox`` renames, which must route to the artifact with the
-    domain attributed — never fail the sync.
-    """
+    """sgp4x pairs route to the artifact, never the canary, on every esphome channel."""
     introspect_component("sgp4x")
     assert set() == _UNHANDLED_RENAME_KEYS
     for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES:
