@@ -127,15 +127,11 @@ def upsert_nested_handler(
         return None
     intermediates = list(field_segments[:-1])
     leaf_key = field_segments[-1]
-    stack, consumed, list_miss = _descend_field_segments(
-        lines, _instance_frame(lines, span), intermediates
-    )
-    if list_miss:
-        return None
+    stack = _descend_field_segments(lines, _instance_frame(lines, span), intermediates)
     target = (stack[-1].start, stack[-1].end, stack[-1].child_indent)
-    if consumed == len(intermediates):
+    remaining = intermediates[len(stack) - 1 :]
+    if not remaining:
         return _apply_handler_upsert(lines, target, leaf_key, rendered_yaml)
-    remaining = intermediates[consumed:]
     if any(seg.isdecimal() for seg in remaining):
         return None
     rendered = rendered_yaml
@@ -165,19 +161,16 @@ def remove_nested_handler(
     intermediates = list(field_segments[:-1])
     leaf_key = field_segments[-1]
     try:
-        stack, consumed, _list_miss = _descend_field_segments(
-            lines, _instance_frame(lines, span), intermediates
-        )
+        stack = _descend_field_segments(lines, _instance_frame(lines, span), intermediates)
     except YamlUpsertNotSupportedError:
         return None
-    if consumed != len(intermediates):
+    if len(stack) - 1 != len(intermediates):
         return None
     target = (stack[-1].start, stack[-1].end, stack[-1].child_indent)
-    removed = _apply_handler_remove(lines, target, leaf_key)
-    if removed is None:
+    located = _locate_handler_range(lines, target, leaf_key)
+    if located is None:
         return None
-    _new_text, from_line, to_line = removed
-    rm_start, rm_end = from_line - 1, to_line
+    rm_start, rm_end = located
     # Prune enclosing mappings the removal leaves empty. List items and
     # the instance span (stack[0]) are never pruned — deleting a valve
     # item would shift sibling indices other parsed locations hold.
@@ -218,38 +211,35 @@ def _descend_field_segments(
     lines: list[str],
     frame: _SpanFrame,
     segments: Sequence[str],
-) -> tuple[list[_SpanFrame], int, bool]:
+) -> list[_SpanFrame]:
     """
     Resolve *segments* stepwise from *frame*, deepest-first frames on a stack.
 
-    Returns ``(stack, consumed, list_miss)`` — the frames located (the
-    instance frame first), how many segments resolved, and whether the
-    walk stopped at a missing/out-of-range list index. Raises
+    Stops at the first unresolvable segment (missing key, non-list or
+    out-of-range index); each resolved segment pushes one frame, so the
+    caller reads progress as ``len(stack) - 1``. Raises
     :class:`YamlUpsertNotSupportedError` when a key segment exists with
     an inline scalar value (no block to descend into).
     """
     stack = [frame]
-    consumed = 0
     for seg in segments:
         frame = stack[-1]
         if seg.isdecimal():
             if not block_body_is_list(lines, frame.start, frame.end):
-                return stack, consumed, True
+                break
             items = top_list_item_starts(lines, frame.start, frame.end)
+            bounds = _instance_bounds(lines, items, frame.end)
             idx = int(seg)
-            if idx >= len(items):
-                return stack, consumed, True
-            start = items[idx]
-            end = items[idx + 1] if idx + 1 < len(items) else frame.end
-            stack.append(_SpanFrame(start, end, _child_indent(lines, start), is_list_item=True))
-            consumed += 1
+            if idx >= len(bounds):
+                break
+            start, end, child_indent = bounds[idx]
+            stack.append(_SpanFrame(start, end, child_indent, is_list_item=True))
             continue
         located = _locate_key_block(lines, frame, seg)
         if located is None:
-            return stack, consumed, False
+            break
         stack.append(located)
-        consumed += 1
-    return stack, consumed, False
+    return stack
 
 
 def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFrame | None:
@@ -261,29 +251,33 @@ def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFra
     line raises :class:`YamlUpsertNotSupportedError` instead of
     reporting the key missing, so an upsert can't shadow it.
     """
-    header_re = key_header_re(key, indent=frame.child_indent)
-    dash_re = re.compile(rf"^\s*-\s+{re.escape(key)}:\s*(?:#.*)?$")
-    child_scalar_re = re.compile(rf"^{re.escape(frame.child_indent)}{re.escape(key)}:\s*[^\s#]")
-    dash_scalar_re = re.compile(rf"^\s*-\s+{re.escape(key)}:\s*[^\s#]")
     inline_msg = f"{key!r} has an inline value; rewrite it as a block mapping first"
     start: int | None = None
-    for idx in range(frame.start, frame.end):
-        content = lines[idx].rstrip("\n\r")
-        if header_re.match(content):
-            start = idx
-            break
-        if idx == frame.start and frame.is_list_item:
-            if dash_re.match(content):
+    if frame.is_list_item:
+        first = lines[frame.start].rstrip("\n\r")
+        if re.match(rf"^\s*-\s+{re.escape(key)}:\s*[^\s#]", first):
+            raise YamlUpsertNotSupportedError(inline_msg)
+        if re.match(rf"^\s*-\s+{re.escape(key)}:\s*(?:#.*)?$", first):
+            start = frame.start
+    if start is None:
+        header_re = key_header_re(key, indent=frame.child_indent)
+        scalar_re = re.compile(rf"^{re.escape(frame.child_indent)}{re.escape(key)}:\s*[^\s#]")
+        for idx in range(frame.start, frame.end):
+            content = lines[idx].rstrip("\n\r")
+            if header_re.match(content):
                 start = idx
                 break
-            if dash_scalar_re.match(content):
+            if scalar_re.match(content):
                 raise YamlUpsertNotSupportedError(inline_msg)
-        if child_scalar_re.match(content):
-            raise YamlUpsertNotSupportedError(inline_msg)
-    if start is None:
-        return None
-    end = _block_end(lines, start, frame.end, frame.child_indent)
-    child = frame.child_indent + ESPHOME_YAML_INDENT
+        if start is None:
+            return None
+    return _key_block_frame(lines, start, frame.end, frame.child_indent)
+
+
+def _key_block_frame(lines: list[str], start: int, end_bound: int, outer_indent: str) -> _SpanFrame:
+    """Frame for the block headed at *start*: bounds plus first-child indent."""
+    end = _block_end(lines, start, end_bound, outer_indent)
+    child = outer_indent + ESPHOME_YAML_INDENT
     for idx in range(start + 1, end):
         content = lines[idx].rstrip("\n\r")
         if content:
@@ -385,14 +379,24 @@ def _apply_handler_remove(
     handler_key: str,
 ) -> tuple[str, int, int] | None:
     """Drop ``<handler_key>:`` from the located *span*; the shared remove tail."""
+    located = _locate_handler_range(lines, span, handler_key)
+    if located is None:
+        return None
+    start, end = located
+    return "".join([*lines[:start], *lines[end:]]), start + 1, end
+
+
+def _locate_handler_range(
+    lines: list[str],
+    span: tuple[int, int, str],
+    handler_key: str,
+) -> tuple[int, int] | None:
+    """Line range of ``<handler_key>:`` and its block inside *span*, or ``None``."""
     instance_start, instance_end, child_indent = span
     handler_re = key_header_re(handler_key, indent=child_indent)
     for idx in range(instance_start, instance_end):
-        if not handler_re.match(lines[idx].rstrip("\n\r")):
-            continue
-        handler_end = _block_end(lines, idx, instance_end, child_indent)
-        new_lines = [*lines[:idx], *lines[handler_end:]]
-        return "".join(new_lines), idx + 1, handler_end
+        if handler_re.match(lines[idx].rstrip("\n\r")):
+            return idx, _block_end(lines, idx, instance_end, child_indent)
     return None
 
 
@@ -422,16 +426,8 @@ def _locate_subentity_instance(
             break
     if sub_start is None:
         return None
-    sub_end = _block_end(lines, sub_start, instance_end, parent_child_indent)
-    # Child indent = the first non-blank child's leading whitespace; for an
-    # empty sub-block (no fields yet) splice one indent level in.
-    sub_child_indent = parent_child_indent + ESPHOME_YAML_INDENT
-    for idx in range(sub_start + 1, sub_end):
-        content = lines[idx].rstrip("\n\r")
-        if content:
-            sub_child_indent = leading_ws(content)
-            break
-    return sub_start, sub_end, sub_child_indent
+    frame = _key_block_frame(lines, sub_start, instance_end, parent_child_indent)
+    return frame.start, frame.end, frame.child_indent
 
 
 def _locate_component_instance(

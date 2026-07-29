@@ -18,6 +18,7 @@ from esphome_device_builder.controllers.automations import AutomationsController
 from esphome_device_builder.controllers.automations import controller as automations_controller
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models.automations import IntervalLocation, ScriptLocation
+from tests.conftest import apply_yaml_diff
 
 # Co-locate every automations-catalog test on one xdist worker so
 # the slim index (cached after first :func:`catalog._load_index`)
@@ -1036,11 +1037,7 @@ def test_decode_location_compiles_unpacker_once_per_kind() -> None:
 
 
 def _apply_diff(text: str, diff: dict) -> str:
-    """Apply a YamlDiff dict the way the frontend splices drafts."""
-    lines = text.splitlines(keepends=True)
-    from_line, to_line = diff["fromLine"], diff["toLine"]
-    replacement = diff["replacement"]
-    return "".join([*lines[: from_line - 1], replacement, *lines[to_line:]])
+    return apply_yaml_diff(text, diff["fromLine"], diff["toLine"], diff["replacement"])
 
 
 @pytest.mark.usefixtures("_sprinkler_paths")

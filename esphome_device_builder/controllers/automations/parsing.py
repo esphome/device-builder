@@ -341,14 +341,15 @@ def resolve_action_field_target(yaml_text: str, component_id: str) -> tuple[str,
         root = yaml.load(yaml_text)
     except Exception:  # noqa: BLE001 — any load failure reads as instance-not-found
         return None
-    parents: dict[str, tuple[str, str]] = {}
+    parent: tuple[str, str] | None = None
     for domain, instance, comp_id, target in _iter_instance_targets(root):
         if not target.is_sub_entity:
-            parents[comp_id] = (domain, catalog_id(domain, instance.get("platform")))
+            parent = (domain, catalog_id(domain, instance.get("platform")))
             if comp_id == component_id:
-                return parents[comp_id]
-        elif comp_id == component_id and target.parent_id in parents:
-            return parents[target.parent_id]
+                return parent
+        elif comp_id == component_id:
+            # The walk yields a sub-entity right after its parent.
+            return parent
     return None
 
 
@@ -491,8 +492,6 @@ def _component_body_entries(catalog_id: str) -> list[Any]:
 # schema paths, read from the component bodies on first use (process cache).
 _ACTION_FIELD_PATH_INDEX: dict[str, tuple[tuple[str, ...], ...]] = {}
 
-_MAX_FIELD_PATH_DEPTH = 8
-
 
 def component_action_field_paths(catalog_id: str) -> tuple[tuple[str, ...], ...]:
     """Schema-key paths of every ``type: trigger`` entry in the shipped body, depth-first."""
@@ -509,7 +508,7 @@ def _collect_trigger_paths(
     entries: Any, prefix: tuple[str, ...], out: list[tuple[str, ...]]
 ) -> None:
     """Accumulate ``type: trigger`` entry paths from a ``config_entries`` list."""
-    if not isinstance(entries, list) or len(prefix) >= _MAX_FIELD_PATH_DEPTH:
+    if not isinstance(entries, list):
         return
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("key"), str):

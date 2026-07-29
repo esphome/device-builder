@@ -370,23 +370,16 @@ def _upsert_component_action(
     domain, cat_id = resolved
     _require_known_field_path(cat_id, segments, location.field)
     rendered = render_action_field(tree, key=segments[-1])
+    # A single segment degenerates to the flat splice: the descent
+    # resolves zero intermediates and lands on the instance span.
     try:
-        if len(segments) == 1:
-            res = upsert_inline_handler(
-                yaml_text,
-                component_domain=domain,
-                component_id=location.component_id,
-                handler_key=location.field,
-                rendered_yaml=rendered,
-            )
-        else:
-            res = upsert_nested_handler(
-                yaml_text,
-                component_domain=domain,
-                component_id=location.component_id,
-                field_segments=segments,
-                rendered_yaml=rendered,
-            )
+        res = upsert_nested_handler(
+            yaml_text,
+            component_domain=domain,
+            component_id=location.component_id,
+            field_segments=segments,
+            rendered_yaml=rendered,
+        )
     except YamlUpsertNotSupportedError as err:
         raise CommandError(ErrorCode.INVALID_ARGS, str(err)) from err
     if res is None:
@@ -770,20 +763,12 @@ def _delete_component_action(
             f"can't delete action field {location.field!r}"
         )
         raise CommandError(ErrorCode.NOT_FOUND, msg)
-    if len(segments) == 1:
-        res = remove_inline_handler(
-            yaml_text,
-            component_domain=domain,
-            component_id=location.component_id,
-            handler_key=location.field,
-        )
-    else:
-        res = remove_nested_handler(
-            yaml_text,
-            component_domain=domain,
-            component_id=location.component_id,
-            field_segments=segments,
-        )
+    res = remove_nested_handler(
+        yaml_text,
+        component_domain=domain,
+        component_id=location.component_id,
+        field_segments=segments,
+    )
     if res is None:
         msg = (
             f"Component instance id={location.component_id!r} under {domain!r} "
