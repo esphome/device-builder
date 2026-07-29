@@ -177,6 +177,14 @@ def test_mixed_direct_and_nested_pair_classifies_nested(cv: ModuleType) -> None:
     assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): False}
 
 
+def test_shared_closure_reachable_both_ways_classifies_nested(cv: ModuleType) -> None:
+    """One rename validator object placed direct and nested still votes on both paths."""
+    rename = cv.rename_key("service", "action")
+    item = cv.All(cv.Schema({cv.Optional("action"): cv.string}), rename)
+    schema = cv.All(cv.Schema({cv.Optional("actions"): cv.ensure_list(item)}), rename)
+    assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): False}
+
+
 def test_list_form_component_pair_routes_to_the_canary() -> None:
     """A multi_conf component's block is a list the block rule can't address."""
     _classify_rename_pairs("uart", {("old", "new"): True}, list_form=True)

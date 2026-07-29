@@ -572,6 +572,9 @@ class MigrationRule(NamedTuple):
     platform: str = ""
 
 
+#: Shapes the generic rules deliberately don't reach — check when the
+#: first real pair lands: flow-style list items, and the legacy
+#: bare-mapping ``ota:`` / ``time:`` form (implicit platform).
 MIGRATION_RULE_KINDS = frozenset({"component_block_field", "platform_item_field"})
 
 

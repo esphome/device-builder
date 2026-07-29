@@ -253,6 +253,35 @@ jobs:
           added = sorted(new_ids - old_ids)
           removed = sorted(old_ids - new_ids)
 
+          RULES_INDEX = Path("esphome_device_builder/definitions/migration_rules.index.json")
+
+          def load_rules(blob: str | None) -> list[dict]:
+              if not blob:
+                  return []
+              try:
+                  payload = json.loads(blob)
+              except ValueError:
+                  return []
+              rules = payload.get("rules") if isinstance(payload, dict) else None
+              return rules if isinstance(rules, list) else []
+
+          new_rules = load_rules(RULES_INDEX.read_text() if RULES_INDEX.is_file() else None)
+          try:
+              old_rules = load_rules(
+                  subprocess.check_output(["git", "show", f"HEAD:{RULES_INDEX}"], text=True)
+              )
+          except subprocess.CalledProcessError:
+              old_rules = []
+
+          def rule_row(rule: dict) -> str:
+              anchor = rule.get("component") or f"{rule.get('domain')}/{rule.get('platform')}"
+              return f"{rule.get('kind')} {anchor}: {rule.get('old')} -> {rule.get('new')}"
+
+          old_rule_rows = {rule_row(r) for r in old_rules}
+          new_rule_rows = {rule_row(r) for r in new_rules}
+          rules_added = sorted(new_rule_rows - old_rule_rows)
+          rules_removed = sorted(old_rule_rows - new_rule_rows)
+
           old_types = count_types(old_components)
           new_types = count_types(new_components)
           all_types = sorted(set(old_types) | set(new_types))
@@ -269,9 +298,25 @@ jobs:
               f"({len(new_components) - len(old_components):+d})  ",
               f"**Config entries**: {old_total} → {new_total} "
               f"({new_total - old_total:+d})  ",
-              f"**Added**: {len(added)} · **Removed**: {len(removed)}",
+              f"**Added**: {len(added)} · **Removed**: {len(removed)}  ",
+              f"**Migration rules**: {len(old_rules)} → {len(new_rules)} "
+              f"({len(new_rules) - len(old_rules):+d})",
               "",
           ]
+
+          # Each rule is an automatic YAML rewrite shipping without code
+          # review — surface every change (loss included: a dropped rule
+          # silently stops that migration firing) for the human gate.
+          if rules_added or rules_removed:
+              lines.append("<details open><summary>Migration-rule churn</summary>")
+              lines.append("")
+              for row in rules_added:
+                  lines.append(f"- **New rule** `{row}`")
+              for row in rules_removed:
+                  lines.append(f"- **Removed rule** `{row}` — its migration stops firing")
+              lines.append("")
+              lines.append("</details>")
+              lines.append("")
 
           if added or removed:
               lines.append("<details><summary>Component churn</summary>")

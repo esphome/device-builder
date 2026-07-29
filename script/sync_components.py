@@ -3669,7 +3669,10 @@ def _emit_migration_rules_index() -> None:
         rules.append(record)
     next_path = _MIGRATION_RULES_INDEX_FILE.with_suffix(".json.next")
     next_path.write_bytes(
-        orjson.dumps({"rules": rules}, option=orjson.OPT_SORT_KEYS | orjson.OPT_APPEND_NEWLINE)
+        orjson.dumps(
+            {"rules": rules},
+            option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2 | orjson.OPT_APPEND_NEWLINE,
+        )
     )
     next_path.replace(_MIGRATION_RULES_INDEX_FILE)
 
@@ -4859,9 +4862,8 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests_by_domain = _enumerate_platform_manifests_by_domain(loader, component_id)
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
-    list_form = (
-        bool(getattr(manifest, "multi_conf", False)) or component_id in _LIST_SCHEMA_MULTI_CONF
-    )
+    manifest_multi_conf = bool(getattr(manifest, "multi_conf", False))
+    list_form = manifest_multi_conf or component_id in _LIST_SCHEMA_MULTI_CONF
     _classify_rename_pairs(component_id, _collect_rename_keys(manifest), list_form=list_form)
     for domain, platform_manifest in platform_manifests_by_domain:
         _classify_rename_pairs(component_id, _collect_rename_keys(platform_manifest), domain=domain)
@@ -4903,7 +4905,7 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     )
 
     return {
-        "multi_conf": bool(getattr(manifest, "multi_conf", False)),
+        "multi_conf": manifest_multi_conf,
         "is_target_platform": bool(getattr(manifest, "is_target_platform", False)),
         "platform_defaults": _collect_platform_defaults(manifest),
         "platform_constraints": platform_constraints,
@@ -8294,19 +8296,22 @@ def _schema_rename_keys(schema: Any) -> dict[tuple[str, str], bool]:
     stack: list[tuple[Any, int, bool]] = [(schema, 0, True)]
     while stack:
         node, depth, direct = stack.pop()
-        if node is None or id(node) in visited:
+        if node is None:
             continue
         if depth > 10:
             capped = True
             continue
-        visited.add(id(node))
         pair = _rename_key_pair(node)
         if pair is not None:
             # ``and`` so a pair also reachable nested stays inexpressible
             # (fail-loud): the generic rule would cover only the direct
-            # occurrence.
+            # occurrence. Rename validators bypass the visited gate so a
+            # shared closure lets every path vote.
             out[pair] = out.get(pair, True) and direct
             continue
+        if id(node) in visited:
+            continue
+        visited.add(id(node))
         stack.extend(
             (child, depth + 1, direct and stays_direct)
             for child, stays_direct in _rename_walk_children(node)
