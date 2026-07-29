@@ -1785,6 +1785,33 @@ def test_nested_action_field_replaces_flush_leaf_list() -> None:
     assert "lawn_multiplier" in final_text
 
 
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_nested_descent_skips_a_misaligned_comment_child() -> None:
+    """A comment misaligned to the container key doesn't set the child indent."""
+    text = (
+        "sprinkler:\n  - id: lawn\n    repeat_number:\n"
+        "    # a note about the repeat number\n"
+        "      id: lawn_repeat\n"
+        "      set_action:\n        - logger.log: repeat changed\n"
+        "    multiplier_number:\n      id: lawn_multiplier\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=loc,
+    )
+    assert new_text.count("set_action:") == 1
+    assert "repeat changed" not in new_text
+    assert "# a note about the repeat number" in new_text
+    final_text, _diff = render_delete(text, location=loc)
+    assert "set_action:" not in final_text
+    assert "lawn_multiplier" in final_text
+
+
 def test_subentity_flush_handler_round_trips() -> None:
     """A flush-style handler list inside a sub-sensor block replaces and deletes wholly."""
     text = (

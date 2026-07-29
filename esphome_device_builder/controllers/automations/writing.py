@@ -441,6 +441,9 @@ def _upsert_api_action(
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
     actions_start, actions_end, item_indent, block_key = actions_span
+    if len(item_indent) < 2:
+        msg = "api: block indentation is too shallow; re-indent it to edit actions"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     lines = _canonicalized_api_block(lines, actions_span)
     existing = api_actions.find_item(
         lines,

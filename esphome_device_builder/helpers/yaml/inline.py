@@ -295,7 +295,9 @@ def _key_block_frame(lines: list[str], start: int, end_bound: int, outer_indent:
     child = outer_indent + ESPHOME_YAML_INDENT
     for idx in range(start + 1, end):
         content = lines[idx].rstrip("\n\r")
-        if content:
+        stripped = content.lstrip(" ")
+        # A comment (possibly misaligned) is not the first child.
+        if stripped and not stripped.startswith("#"):
             child = leading_ws(content)
             break
     return _SpanFrame(start, end, child)

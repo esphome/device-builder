@@ -16,9 +16,7 @@ from __future__ import annotations
 
 import re
 
-from ...helpers.api import CommandError
 from ...helpers.yaml.scan import child_block_end, is_list_item_line
-from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
 
 #: Accepted spellings, canonical first — esphome's ``cv.rename_key``
@@ -172,9 +170,6 @@ def indent_for_list(rendered_item: str, item_indent: str) -> str:
     content, since YAML treats whitespace-only lines and fully
     empty lines differently inside a literal block.
     """
-    if len(item_indent) < 2:
-        msg = "api: block uses one-space indentation; re-indent it to edit actions"
-        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     pad = " " * (len(item_indent) - 2)
     out_lines: list[str] = []
     for line in rendered_item.splitlines():
@@ -242,11 +237,7 @@ def render_append(
     item_indent: str,
     rendered: str,
 ) -> tuple[str, YamlDiff]:
-    """Append a new list item at the end of an existing ``api.actions:``.
-
-    *actions_end* comes pre-trimmed from :func:`locate_actions_list`, so
-    the line before it is never blank.
-    """
+    """Append a new list item at the pre-trimmed *actions_end* of ``api.actions:``."""
     item_text = indent_for_list(rendered, item_indent)
     insert_at = actions_end
     new_lines = [*lines[:insert_at], item_text, *lines[insert_at:]]
