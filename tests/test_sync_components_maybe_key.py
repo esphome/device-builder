@@ -9,6 +9,7 @@ import pytest
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _convert_field,
+    _resolve_extends_maybe,
     _strip_entry_defaults,
 )
 
@@ -95,6 +96,14 @@ def test_bool_schema_node_emits_none(schema_dir: Path) -> None:
     entry = _convert_field("pin", raw, schema_dir)
     assert entry is not None
     assert entry["maybe_key"] is None
+
+
+def test_extends_base_with_bool_schema_resolves_no_marker(schema_dir: Path) -> None:
+    """An extended base whose ``schema`` is ``true`` resolves to no marker."""
+    (schema_dir / "base.json").write_text(
+        json.dumps({"base": {"schemas": {"BOOLISH": {"schema": True}}}})
+    )
+    assert _resolve_extends_maybe("base.BOOLISH", schema_dir) is None
 
 
 def test_strip_entry_defaults_drops_a_null_maybe_key() -> None:

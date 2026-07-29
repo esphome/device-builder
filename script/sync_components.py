@@ -3344,7 +3344,9 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
         # expands into (``microphone: mic_id`` ==
         # ``microphone: {microphone: mic_id}``). Extends-aware: the
         # marker can live on an extended base (msa3xx's accel_schema).
-        "maybe_key": _scalar_shorthand_key(raw, schema_dir),
+        # NESTED-only per the model contract — a wrapper collapsed to a
+        # primitive has no child entries for the key to name.
+        "maybe_key": (_scalar_shorthand_key(raw, schema_dir) if entry_type == "nested" else None),
         "templatable": bool(raw.get("templatable")),
         "depends_on": None,
         "depends_on_value": None,
