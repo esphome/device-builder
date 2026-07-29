@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import types
+from types import ModuleType
 
 import orjson
 import pytest
@@ -40,7 +41,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
 
 
 @pytest.fixture
-def cv():
+def cv() -> ModuleType:
     """Lazy-import esphome's config_validation; skip if unavailable."""
     try:
         from esphome import config_validation as _cv  # noqa: PLC0415
@@ -49,7 +50,7 @@ def cv():
     return _cv
 
 
-def test_extract_units_for_frequency(cv) -> None:
+def test_extract_units_for_frequency(cv: ModuleType) -> None:
     """`cv.frequency` produces the IoT-relevant metric-prefixed Hz list.
 
     Canonical unit (`Hz`) first; remaining prefixes in magnitude
@@ -68,7 +69,7 @@ def test_extract_units_for_frequency(cv) -> None:
     ]
 
 
-def test_extract_units_for_voltage(cv) -> None:
+def test_extract_units_for_voltage(cv: ModuleType) -> None:
     """`cv.voltage` produces the IoT-relevant metric-prefixed V list."""
     assert _extract_validator_units(cv.voltage) == [
         "V",
@@ -81,7 +82,7 @@ def test_extract_units_for_voltage(cv) -> None:
     ]
 
 
-def test_extract_units_for_distance(cv) -> None:
+def test_extract_units_for_distance(cv: ModuleType) -> None:
     """`cv.distance` produces the IoT-relevant metric-prefixed m list."""
     assert _extract_validator_units(cv.distance) == [
         "m",
@@ -94,7 +95,7 @@ def test_extract_units_for_distance(cv) -> None:
     ]
 
 
-def test_extract_units_for_framerate(cv) -> None:
+def test_extract_units_for_framerate(cv: ModuleType) -> None:
     """`cv.framerate` is a fixed-unit validator (no metric prefix)."""
     units = _extract_validator_units(cv.framerate)
     # Order is canonical-first; both `FPS` and `Hz` accepted by the
@@ -105,7 +106,7 @@ def test_extract_units_for_framerate(cv) -> None:
     assert set(units) >= {"FPS", "Hz"}
 
 
-def test_extract_units_for_resistance(cv) -> None:
+def test_extract_units_for_resistance(cv: ModuleType) -> None:
     """`cv.resistance` (not on any hand-maintained list) is discovered as metric Ω."""
     assert _extract_validator_units(cv.resistance) == [
         "Ω",
@@ -118,7 +119,7 @@ def test_extract_units_for_resistance(cv) -> None:
     ]
 
 
-def test_extract_units_for_current(cv) -> None:
+def test_extract_units_for_current(cv: ModuleType) -> None:
     """`cv.current` is discovered as a metric-prefixed A list."""
     assert _extract_validator_units(cv.current) == [
         "A",
@@ -131,7 +132,7 @@ def test_extract_units_for_current(cv) -> None:
     ]
 
 
-def test_extract_units_for_bps(cv) -> None:
+def test_extract_units_for_bps(cv: ModuleType) -> None:
     """`cv.bps` is discovered as a metric-prefixed bit-rate list."""
     units = _extract_validator_units(cv.bps)
     assert units is not None
@@ -139,7 +140,7 @@ def test_extract_units_for_bps(cv) -> None:
     assert {"kbps", "Mbps", "Gbps"} <= set(units)
 
 
-def test_extract_units_for_decibel(cv) -> None:
+def test_extract_units_for_decibel(cv: ModuleType) -> None:
     """`cv.decibel` is a non-metric unit: distinct dB / dBm, no prefixes."""
     units = _extract_validator_units(cv.decibel)
     assert units is not None
@@ -147,21 +148,25 @@ def test_extract_units_for_decibel(cv) -> None:
     assert units[0] == "dB"
 
 
-def test_extract_units_for_angle(cv) -> None:
+def test_extract_units_for_angle(cv: ModuleType) -> None:
     """`cv.angle` is a non-metric unit: ° / deg, no prefixes."""
     units = _extract_validator_units(cv.angle)
     assert units is not None
     assert set(units) == {"°", "deg"}
 
 
-def test_extract_units_returns_none_for_unitless_validator(cv, caplog) -> None:
+def test_extract_units_returns_none_for_unitless_validator(
+    cv: ModuleType, caplog: pytest.LogCaptureFixture
+) -> None:
     """An empty-unit `float_with_unit` yields no units and drops without a warning."""
     with caplog.at_level(logging.WARNING, logger="sync_components"):
         assert _extract_validator_units(cv.float_with_unit("device factor", "")) is None
     assert "picker dropped" not in caplog.text
 
 
-def test_extract_units_warns_on_non_unit_alternation(cv, caplog) -> None:
+def test_extract_units_warns_on_non_unit_alternation(
+    cv: ModuleType, caplog: pytest.LogCaptureFixture
+) -> None:
     """An alternation with no unit-shaped spelling warns instead of vanishing."""
     with caplog.at_level(logging.WARNING, logger="sync_components"):
         assert _extract_validator_units(cv.float_with_unit("volume", "(m³)")) is None
@@ -365,7 +370,7 @@ def test_resistance_sensor_resistor_refines_to_float_with_unit(loader) -> None:
     assert resistor.unit_options is not None and "Ω" in resistor.unit_options
 
 
-def test_non_introspectable_units_include_color_temperature(cv) -> None:
+def test_non_introspectable_units_include_color_temperature(cv: ModuleType) -> None:
     """`cv.color_temperature` is a hand-rolled `def` (no regex), curated as mireds/K."""
     present = _require_non_introspectable_units(cv)
     assert present["color_temperature"] == ["mireds", "K"]
@@ -407,7 +412,7 @@ def test_missing_non_introspectable_validator_fails_the_sync() -> None:
         _require_non_introspectable_units(_StubCV())
 
 
-def test_walk_descends_typed_schema_branches(cv) -> None:
+def test_walk_descends_typed_schema_branches(cv: ModuleType) -> None:
     """``_walk_schema_keys`` visits fields inside ``cv.typed_schema`` branches."""
     typed = cv.typed_schema(
         {
@@ -421,7 +426,7 @@ def test_walk_descends_typed_schema_branches(cv) -> None:
     assert {"clock_speed", "phy_addr"} <= keys
 
 
-def test_walk_peels_schema_extractor_closure(cv) -> None:
+def test_walk_peels_schema_extractor_closure(cv: ModuleType) -> None:
     """``_walk_schema_keys`` descends a ``@schema_extractor``-style closure."""
     from esphome import schema_extractors  # noqa: PLC0415
 
@@ -437,7 +442,7 @@ def test_walk_peels_schema_extractor_closure(cv) -> None:
     assert keys == {"carrier_duty_percent"}
 
 
-def test_walk_does_not_call_plain_validators(cv) -> None:
+def test_walk_does_not_call_plain_validators(cv: ModuleType) -> None:
     """A closure that never references ``SCHEMA_EXTRACT`` is not probed."""
     calls: list[object] = []
 
@@ -451,7 +456,7 @@ def test_walk_does_not_call_plain_validators(cv) -> None:
     assert calls == []
 
 
-def test_walk_peels_nested_wrapper_values(cv) -> None:
+def test_walk_peels_nested_wrapper_values(cv: ModuleType) -> None:
     """A wrapped nested value's fields are visited; an enum value's mapping is not."""
     from esphome import schema_extractors  # noqa: PLC0415
 
@@ -474,7 +479,7 @@ def test_walk_peels_nested_wrapper_values(cv) -> None:
     assert not {"RX", "TX"} & keys
 
 
-def test_walk_peels_delegating_wrapper(cv) -> None:
+def test_walk_peels_delegating_wrapper(cv: ModuleType) -> None:
     """A plain wrapper delegating to one module-level schema is peeled."""
     namespace = {"DEBUG_SCHEMA": cv.Schema({cv.Optional("after"): cv.percentage_int})}
     exec("def wrapper(value):\n    return DEBUG_SCHEMA(value)", namespace)  # noqa: S102
@@ -486,7 +491,7 @@ def test_walk_peels_delegating_wrapper(cv) -> None:
     assert "after" in keys
 
 
-def test_registry_entry_schema_unwraps_maybe(cv) -> None:
+def test_registry_entry_schema_unwraps_maybe(cv: ModuleType) -> None:
     """A ``maybe_simple_value`` registration peels to the half carrying the fields."""
     wrapper = cv.maybe_simple_value(cv.Schema({cv.Optional("x"): cv.boolean}), key="x")
     peeled = _registry_entry_schema(types.SimpleNamespace(raw_schema=wrapper))
@@ -496,7 +501,7 @@ def test_registry_entry_schema_unwraps_maybe(cv) -> None:
     assert {key.schema for key in target} == {"x"}
 
 
-def test_lambda_claims_fields_except_in_value_unions(cv) -> None:
+def test_lambda_claims_fields_except_in_value_unions(cv: ModuleType) -> None:
     """A lambda refines bare or chained fields, never a multi-branch value union."""
     schema = cv.Schema(
         {
@@ -514,7 +519,7 @@ def test_lambda_claims_fields_except_in_value_unions(cv) -> None:
     assert refined[("union",)].templatable is True
 
 
-def test_lambda_union_typing_and_chain_carry(cv) -> None:
+def test_lambda_union_typing_and_chain_carry(cv: ModuleType) -> None:
     """Pin typed-plus-flag in both branch orders, and the All-chain flag carry."""
     schema = cv.Schema(
         {
@@ -573,7 +578,7 @@ def test_shipped_automations_datetime_set_stays_plain() -> None:
     assert entry["type"] == "string"
 
 
-def test_delegated_schema_rejects_ambiguous_wrappers(cv) -> None:
+def test_delegated_schema_rejects_ambiguous_wrappers(cv: ModuleType) -> None:
     """A wrapper referencing two module-level schemas is not peeled."""
     namespace = {
         "A": cv.Schema({cv.Optional("x"): cv.boolean}),
@@ -583,7 +588,7 @@ def test_delegated_schema_rejects_ambiguous_wrappers(cv) -> None:
     assert _delegated_schema(namespace["wrapper"]) is None
 
 
-def test_hidden_schema_probe_is_memoized(cv) -> None:
+def test_hidden_schema_probe_is_memoized(cv: ModuleType) -> None:
     """Repeated probes of one closure return one schema object."""
     from esphome import schema_extractors  # noqa: PLC0415
 
@@ -606,7 +611,7 @@ def test_shipped_catalog_remote_receiver_carries_introspection() -> None:
     assert entries["rmt_symbols"]["platform_defaults"]["esp32"] == 192
 
 
-def test_collect_refined_types_descends_typed_schema(cv) -> None:
+def test_collect_refined_types_descends_typed_schema(cv: ModuleType) -> None:
     """A ``cv.frequency`` field inside a typed_schema branch refines to ``float_with_unit``."""
     typed = cv.typed_schema(
         {"W5500": cv.Schema({cv.Optional("clock_speed", default="26.67MHz"): cv.frequency})},
@@ -728,13 +733,13 @@ def test_shipped_catalog_stepper_speed_fields_carry_units() -> None:
             assert "steps/s*s" in entries[key]["unit_options"]
 
 
-def test_non_introspectable_units_include_percentage_int(cv) -> None:
+def test_non_introspectable_units_include_percentage_int(cv: ModuleType) -> None:
     """`cv.percentage_int` is a hand-rolled `def` (no regex), curated as `%`."""
     present = _require_non_introspectable_units(cv)
     assert present["percentage_int"] == ["%"]
 
 
-def test_non_introspectable_units_include_validate_bytes(cv) -> None:
+def test_non_introspectable_units_include_validate_bytes(cv: ModuleType) -> None:
     """`cv.validate_bytes` (inline regex, no closure) is curated as B/kB/MB/GB."""
     present = _require_non_introspectable_units(cv)
     assert present["validate_bytes"] == ["B", "kB", "MB", "GB"]
@@ -766,7 +771,7 @@ def test_shipped_catalog_debug_after_bytes_carries_byte_units() -> None:
     assert bytes_entry["unit_options"] == ["B", "kB", "MB", "GB"]
 
 
-def test_collect_refined_types_percentage_int(cv) -> None:
+def test_collect_refined_types_percentage_int(cv: ModuleType) -> None:
     """`cv.percentage_int` refines to `float_with_unit`, bare or inside an All chain."""
     schema = cv.Schema(
         {
@@ -819,7 +824,7 @@ def test_shipped_catalog_carrier_duty_percent_accepts_percent() -> None:
     assert duty["required"] is True
 
 
-def test_templatable_inner_classifies(cv) -> None:
+def test_templatable_inner_classifies(cv: ModuleType) -> None:
     """A ``cv.templatable`` closure classifies by its plain-side validator."""
     schema = cv.Schema(
         {
@@ -880,7 +885,7 @@ def test_shipped_automations_lambda_unions_carry_templatable() -> None:
     assert entry["type"] == "map"
 
 
-def test_walk_descends_templatable_list_of_mappings(cv) -> None:
+def test_walk_descends_templatable_list_of_mappings(cv: ModuleType) -> None:
     """A mapping item list behind ``cv.templatable`` walks its item fields."""
     schema = cv.Schema(
         {
@@ -896,7 +901,7 @@ def test_walk_descends_templatable_list_of_mappings(cv) -> None:
     assert "payload" in keys
 
 
-def test_ensure_list_scalar_item_types_the_entry(cv) -> None:
+def test_ensure_list_scalar_item_types_the_entry(cv: ModuleType) -> None:
     """A scalar list item's classification types the multi_value entry."""
     schema = cv.Schema(
         {
@@ -910,7 +915,7 @@ def test_ensure_list_scalar_item_types_the_entry(cv) -> None:
     assert refined[("bare",)].type == "boolean"
 
 
-def test_lambda_or_list_union_keeps_the_toggle(cv) -> None:
+def test_lambda_or_list_union_keeps_the_toggle(cv: ModuleType) -> None:
     """A lambda-or-list union types from the list branch and keeps the toggle."""
     schema = cv.Schema(
         {cv.Optional("targets"): cv.Any(cv.returning_lambda, cv.ensure_list(cv.mac_address))}
