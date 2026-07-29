@@ -350,8 +350,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # build that doesn't read them is harmless. Devices loading
         # neither (e.g. MQTT-only configs) flash via paths that don't
         # take a host/port at all, so the cache args are noise there.
+        # An empty list is *unknown*, not known-no-OTA: it means the
+        # StorageJSON hasn't been read yet (never compiled, or the
+        # post-compile refresh is a spawned task the dependent upload
+        # can outrun), so pass the args rather than dropping them on
+        # the device's very first flash.
         loaded = device.loaded_integrations
-        if "api" not in loaded and "web_server" not in loaded:
+        if loaded and "api" not in loaded and "web_server" not in loaded:
             return []
         return _build_address_cache_args(device, self._state_monitor)
 
