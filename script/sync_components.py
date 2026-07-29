@@ -973,6 +973,7 @@ def main() -> int:
         len(catalog),
         sum(1 for c in catalog if c.get("config_entries")),
     )
+    _sweep_registry_rename_keys()
     _fail_on_unhandled_rename_keys()
 
     # Collected (and guarded) before any emit so the abort below leaves
@@ -8119,6 +8120,11 @@ _RENAME_KEYS_MEMO: dict[int, tuple[Any, dict[str, str]]] = {}
 _HANDLED_RENAME_KEYS = {
     ("api", "services", "actions"),
     ("api", "service", "action"),
+    # api's HOMEASSISTANT_ACTION_ACTION_SCHEMA, reachable only through
+    # the action registry (under both registered names) — same pair,
+    # keyed on the registry id the sweep attributes it to.
+    ("homeassistant.action", "service", "action"),
+    ("homeassistant.service", "service", "action"),
 }
 
 _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
@@ -8171,6 +8177,27 @@ def _collect_rename_keys(manifest: Any) -> dict[str, str]:
     schema = getattr(manifest, "config_schema", None)
     if schema is None:
         return {}
+    return _schema_rename_keys(schema)
+
+
+def _sweep_registry_rename_keys() -> None:
+    """
+    Sweep the automation registries for ``cv.rename_key`` pairs.
+
+    Registered action/condition/trigger/effect schemas are reachable
+    only through the registries, never a component ``CONFIG_SCHEMA``,
+    so the manifest walk alone would miss a rename living in one.
+    """
+    for _registry_type, registry_id, entry in _iter_automation_registry_entries():
+        schema = _registry_entry_schema(entry)
+        if schema is None:
+            continue
+        if pairs := _schema_rename_keys(schema):
+            _note_unhandled_rename_keys(registry_id, pairs)
+
+
+def _schema_rename_keys(schema: Any) -> dict[str, str]:
+    """Walk *schema* for rename validators; memoised, don't mutate the result."""
     memoised = _RENAME_KEYS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]

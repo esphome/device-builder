@@ -124,21 +124,6 @@ def canonicalize_block(
     return out
 
 
-def _find_block_key_line(
-    lines: list[str],
-    api_span: tuple[int, int, str],
-) -> tuple[int, str] | None:
-    """Return ``(line index, key)`` of the first block key matching either spelling."""
-    api_start, api_end, child_indent = api_span
-    for key in BLOCK_KEYS:
-        header = f"{child_indent}{key}:"
-        for idx in range(api_start + 1, api_end):
-            text = lines[idx].rstrip("\n\r")
-            if text == header or text.startswith(header + " "):
-                return idx, key
-    return None
-
-
 def find_item(
     lines: list[str],
     actions_start: int,
@@ -305,6 +290,21 @@ def render_delete_actions_key(
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _find_block_key_line(
+    lines: list[str],
+    api_span: tuple[int, int, str],
+) -> tuple[int, str] | None:
+    """Return ``(line index, key)`` of the first block key matching either spelling."""
+    api_start, api_end, child_indent = api_span
+    for key in BLOCK_KEYS:
+        header = f"{child_indent}{key}:"
+        for idx in range(api_start + 1, api_end):
+            text = lines[idx].rstrip("\n\r")
+            if text == header or text.startswith(header + " "):
+                return idx, key
+    return None
 
 
 def _discriminator(

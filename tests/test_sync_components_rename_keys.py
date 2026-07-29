@@ -88,6 +88,40 @@ def test_live_api_pairs_are_discovered_and_handled(cv) -> None:
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
+def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv) -> None:
+    """The registry sweep reaches schemas only the action registry references."""
+    import esphome.components.api  # noqa: F401,PLC0415
+
+    from script.sync_components import (  # noqa: PLC0415
+        _iter_automation_registry_entries,
+        _registry_entry_schema,
+        _schema_rename_keys,
+        _sweep_registry_rename_keys,
+    )
+
+    pairs = {
+        registry_id: found
+        for _rtype, registry_id, entry in _iter_automation_registry_entries()
+        if (schema := _registry_entry_schema(entry)) is not None
+        and (found := _schema_rename_keys(schema))
+    }
+    assert pairs["homeassistant.action"] == {"service": "action"}
+    _sweep_registry_rename_keys()
+    assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def test_handled_list_matches_the_writer_constants() -> None:
+    """Extending _HANDLED_RENAME_KEYS for api requires extending the writer too."""
+    from esphome_device_builder.controllers.automations.api_actions import (  # noqa: PLC0415
+        BLOCK_KEYS,
+        ITEM_KEYS,
+    )
+    from script.sync_components import _HANDLED_RENAME_KEYS  # noqa: PLC0415
+
+    derived = {("api", legacy, keys[0]) for keys in (BLOCK_KEYS, ITEM_KEYS) for legacy in keys[1:]}
+    assert {t for t in _HANDLED_RENAME_KEYS if t[0] == "api"} == derived
+
+
 def test_unhandled_pair_fails_the_sync() -> None:
     _RENAME_SWEEP_COUNT[0] = 1
     _note_unhandled_rename_keys("sgp4x", {"voc": "voc_index"})
