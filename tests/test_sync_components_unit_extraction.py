@@ -908,3 +908,13 @@ def test_ensure_list_scalar_item_types_the_entry(cv) -> None:
     assert refined[("data",)].type == "integer"
     assert refined[("data",)].display_format == "hex"
     assert refined[("bare",)].type == "boolean"
+
+
+def test_lambda_or_list_union_keeps_the_toggle(cv) -> None:
+    """A lambda-or-list union types from the list branch and keeps the toggle."""
+    schema = cv.Schema(
+        {cv.Optional("targets"): cv.Any(cv.returning_lambda, cv.ensure_list(cv.mac_address))}
+    )
+    refined = _collect_refined_types(types.SimpleNamespace(config_schema=schema))
+    assert refined[("targets",)].type == "mac_address"
+    assert refined[("targets",)].templatable is True

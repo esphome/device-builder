@@ -5991,7 +5991,12 @@ def _refined_types_in_schema(  # noqa: C901
         # ``cv.ensure_list`` scalar item types its multi_value entry.
         if (inner := _templatable_inner(validator)) is not None:
             t = classify(inner)
-        elif (item := _ensure_list_item_validator(validator)) is not None:
+        elif (
+            not isinstance(validator, vol.Any)
+            and (item := _ensure_list_item_validator(validator)) is not None
+        ):
+            # Never on a union: a lambda-or-list ``vol.Any`` belongs to
+            # the branch logic below, which keeps the lambda toggle.
             t = classify(item)
         else:
             t = classify_branches(validator)
