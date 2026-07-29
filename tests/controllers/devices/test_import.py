@@ -578,11 +578,11 @@ async def test_import_device_applies_cached_ip_and_probes(
     ]
 
 
-async def test_import_device_rename_seeds_ping_with_the_factory_broadcast(
+async def test_import_device_rename_applies_the_factory_cached_ip_and_probes(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A rename-during-adopt applies the factory name's cached IP and wakes ping to arbitrate."""
+    """The factory name drives the cache lookup and probe; the chosen name receives the apply."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     ctrl.state.import_result["apollo-plt-1-983300"] = AdoptableDevice(
