@@ -47,14 +47,6 @@ def test_empty_schema_wrapper_collapses(schema_dir: Path) -> None:
     assert not entry.get("config_entries")
 
 
-def test_nested_bare_trigger_becomes_trigger_type(schema_dir: Path) -> None:
-    """A var-less nested ``type: trigger`` field is TRIGGER, not a dead-end group."""
-    raw = {"key": "Optional", "type": "trigger"}
-    entry = _convert_field("set_action", raw, schema_dir)
-    assert entry is not None
-    assert entry["type"] == "trigger"
-
-
 def test_local_field_reuses_root_extends_ref(schema_dir: Path) -> None:
     """A local field re-extending the root's ref expands; it isn't a cycle."""
     node = {
@@ -112,6 +104,10 @@ def test_shipped_catalog_childless_nested_resolved() -> None:
     repeat = next(e for e in body["config_entries"] if e["key"] == "repeat_number")
     action = next(e for e in repeat["config_entries"] if e["key"] == "set_action")
     assert action["type"] == "trigger"
+    valves = next(e for e in body["config_entries"] if e["key"] == "valves")
+    duration = next(e for e in valves["config_entries"] if e["key"] == "run_duration_number")
+    valve_action = next(e for e in duration["config_entries"] if e["key"] == "set_action")
+    assert valve_action["type"] == "trigger"
 
     body = json.loads((_OUTPUT_BODIES_DIR / "sensor.combination.json").read_text(encoding="utf-8"))
     std_dev = None
