@@ -1519,6 +1519,334 @@ def test_delete_api_action_refuses_inline_actions_list() -> None:
     assert err.value.code == ErrorCode.INVALID_ARGS
 
 
+_FLUSH_ACTIONS_YAML = (
+    "esphome:\n  name: x\n"
+    "api:\n  actions:\n"
+    "  - action: start_va\n"
+    "    then:\n      - logger.log: 'starting'\n"
+    "  - action: stop_va\n"
+    "    then:\n      - logger.log: 'stopping'\n"
+)
+
+
+def test_upsert_api_action_replaces_item_in_flush_dash_list() -> None:
+    """A flush-style list (dashes at the key's indent) edits in place."""
+    new_text, _diff = render_upsert(
+        _FLUSH_ACTIONS_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "2s"})],
+        ),
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert new_text.count("actions:") == 1
+    assert new_text.count("- action: start_va") == 1
+    assert "delay: 2s" in new_text
+    assert "'starting'" not in new_text
+    assert "'stopping'" in new_text
+    parsed = parse_device_yaml(new_text)
+    api_names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert api_names == ["start_va", "stop_va"]
+
+
+def test_upsert_api_action_appends_at_flush_indent() -> None:
+    """A new item lands at the flush indent the existing items use."""
+    new_text, _diff = render_upsert(
+        _FLUSH_ACTIONS_YAML,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="pause_va"),
+    )
+    assert new_text.count("actions:") == 1
+    assert "\n  - action: pause_va\n" in new_text
+    parsed = parse_device_yaml(new_text)
+    api_names = [p.location.action_name for p in parsed if p.location.kind == "api_action"]
+    assert api_names == ["start_va", "stop_va", "pause_va"]
+
+
+def test_delete_api_action_from_flush_dash_list() -> None:
+    """Deleting one flush item keeps its sibling; deleting the last drops the key."""
+    new_text, diff = render_delete(
+        _FLUSH_ACTIONS_YAML,
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "start_va" not in new_text
+    assert "stop_va" in new_text
+    assert diff.replacement == ""
+    final_text, _diff = render_delete(
+        new_text,
+        location=ApiActionLocation(action_name="stop_va"),
+    )
+    assert "actions:" not in final_text
+    assert "api:" in final_text
+
+
+def test_upsert_api_action_canonicalizes_legacy_flush_services_block() -> None:
+    """A legacy flush-style ``services:`` block respells to canonical on write."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  services:\n"
+        "  - service: start_va\n"
+        "    then:\n      - logger.log: 'starting'\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "services:" not in new_text
+    assert "- service:" not in new_text
+    assert new_text.count("actions:") == 1
+    assert "\n  - action: start_va\n" in new_text
+
+
+def test_comment_between_flush_items_does_not_hide_the_rest() -> None:
+    """A comment at the key's indent inside a flush list doesn't end it."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "  - action: start_va\n"
+        "    then:\n      - logger.log: 'starting'\n"
+        "  # stops the vacuum\n"
+        "  - action: stop_va\n"
+        "    then:\n      - logger.log: 'stopping'\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="stop_va"),
+    )
+    assert "stop_va" not in new_text
+    assert "start_va" in new_text
+
+
+def test_delete_last_flush_item_keeps_trailing_banner_comment() -> None:
+    """A comment banner between the list and the next api key survives delete-last."""
+    text = (
+        "esphome:\n  name: x\n"
+        "api:\n  actions:\n"
+        "  - action: start_va\n"
+        "    then:\n      - logger.log: 'starting'\n"
+        "\n"
+        "  # transport security\n"
+        "  encryption:\n    key: 'aaaa'\n"
+    )
+    new_text, _diff = render_delete(
+        text,
+        location=ApiActionLocation(action_name="start_va"),
+    )
+    assert "actions:" not in new_text
+    assert "# transport security" in new_text
+    assert "encryption:" in new_text
+
+
+def test_delete_last_flush_item_removes_item_scoped_comment() -> None:
+    """A comment indented inside the last item goes with it, not stranded under ``api:``."""
+    text = (
+        "api:\n  actions:\n"
+        "  - action: a\n"
+        "    then:\n      - logger.log: x\n"
+        "    # note about a\n"
+        "  encryption:\n    key: k\n"
+    )
+    new_text, _diff = render_delete(text, location=ApiActionLocation(action_name="a"))
+    assert "# note about a" not in new_text
+    assert "encryption:" in new_text
+
+
+def test_delete_last_flush_item_removes_block_scalar_tail() -> None:
+    """A ``#``-leading line inside a lambda block scalar is item content, not a comment."""
+    text = (
+        "api:\n  actions:\n"
+        "  - action: a\n"
+        "    then:\n"
+        "      - lambda: |-\n"
+        "          int n = 1;\n"
+        "          #define FOO 1\n"
+        "  encryption:\n    key: k\n"
+    )
+    new_text, _diff = render_delete(text, location=ApiActionLocation(action_name="a"))
+    assert "#define" not in new_text
+    assert "encryption:" in new_text
+
+
+def test_lone_dash_flush_item_round_trips() -> None:
+    """The lone-dash spelling (``-`` alone on its line) upserts in place and deletes."""
+    text = "api:\n  actions:\n  -\n    action: a\n    then:\n      - logger.log: x\n"
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=ApiActionLocation(action_name="a"),
+    )
+    assert new_text.count("action: a") == 1
+    assert "delay: 1s" in new_text
+    final_text, _diff = render_delete(text, location=ApiActionLocation(action_name="a"))
+    assert "action: a" not in final_text
+    assert "actions:" not in final_text
+
+
+def test_upsert_api_action_refuses_one_space_indent() -> None:
+    """A one-space ``api:`` child indent can't host the two-space item emit."""
+    text = "api:\n actions:\n - action: a\n   then:\n     - logger.log: x\n"
+    with pytest.raises(CommandError) as err:
+        render_upsert(
+            text,
+            tree=AutomationTree(
+                trigger_id=None,
+                actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+            ),
+            location=ApiActionLocation(action_name="b"),
+        )
+    assert err.value.code == ErrorCode.INVALID_ARGS
+
+
+def test_component_action_field_replaces_flush_leaf_list() -> None:
+    """A flush-style action-field list replaces wholly instead of stacking a duplicate."""
+    text = (
+        "cover:\n  - platform: feedback\n    id: g\n"
+        "    open_action:\n"
+        "    - switch.turn_on: relay\n"
+        "    close_action:\n"
+        "    - switch.turn_off: relay\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="g", field="open_action")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="switch.toggle", params={"id": "relay"})],
+        ),
+        location=loc,
+    )
+    assert new_text.count("open_action:") == 1
+    assert "switch.toggle" in new_text
+    assert "switch.turn_on" not in new_text
+    assert "switch.turn_off" in new_text
+    final_text, _diff = render_delete(text, location=loc)
+    assert "open_action:" not in final_text
+    assert "switch.turn_on" not in final_text
+    assert "close_action:" in final_text
+
+
+def test_device_on_flush_handler_round_trips() -> None:
+    """A flush-style ``on_boot:`` list under ``esphome:`` replaces and deletes wholly."""
+    text = (
+        "esphome:\n  name: x\n  on_boot:\n  - logger.log: hi\n  - delay: 2s\n  friendly_name: y\n"
+    )
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="esphome.on_boot",
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=DeviceOnLocation(trigger="on_boot"),
+    )
+    assert new_text.count("on_boot:") == 1
+    assert "logger.log: hi" not in new_text
+    assert "delay: 1s" in new_text
+    assert "friendly_name: y" in new_text
+    final_text, _diff = render_delete(text, location=DeviceOnLocation(trigger="on_boot"))
+    assert "on_boot:" not in final_text
+    assert "logger.log: hi" not in final_text
+    assert "friendly_name: y" in final_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_nested_action_field_replaces_flush_leaf_list() -> None:
+    """A flush-style leaf list under a nested field path replaces and deletes wholly."""
+    text = (
+        "sprinkler:\n  - id: lawn\n    repeat_number:\n      id: lawn_repeat\n"
+        "      set_action:\n      - logger.log: repeat changed\n"
+        "    multiplier_number:\n      id: lawn_multiplier\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=loc,
+    )
+    assert new_text.count("set_action:") == 1
+    assert "repeat changed" not in new_text
+    assert "delay: 1s" in new_text
+    assert "lawn_multiplier" in new_text
+    final_text, _diff = render_delete(text, location=loc)
+    assert "set_action:" not in final_text
+    assert "repeat changed" not in final_text
+    assert "lawn_multiplier" in final_text
+
+
+@pytest.mark.usefixtures("_sprinkler_paths")
+def test_nested_descent_skips_a_misaligned_comment_child() -> None:
+    """A comment misaligned to the container key doesn't set the child indent."""
+    text = (
+        "sprinkler:\n  - id: lawn\n    repeat_number:\n"
+        "    # a note about the repeat number\n"
+        "      id: lawn_repeat\n"
+        "      set_action:\n        - logger.log: repeat changed\n"
+        "    multiplier_number:\n      id: lawn_multiplier\n"
+    )
+    loc = ComponentActionFieldLocation(component_id="lawn", field="repeat_number.set_action")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id=None,
+            actions=[ActionNode(action_id="delay", params={"id": "1s"})],
+        ),
+        location=loc,
+    )
+    assert new_text.count("set_action:") == 1
+    assert "repeat changed" not in new_text
+    assert "# a note about the repeat number" in new_text
+    final_text, _diff = render_delete(text, location=loc)
+    assert "set_action:" not in final_text
+    assert "lawn_multiplier" in final_text
+
+
+def test_subentity_flush_handler_round_trips() -> None:
+    """A flush-style handler list inside a sub-sensor block replaces and deletes wholly."""
+    text = (
+        "esphome:\n  name: x\n"
+        "sensor:\n"
+        "  - platform: aht10\n"
+        "    id: aht20\n"
+        "    temperature:\n"
+        "      id: aht20_temperature\n"
+        "      on_value_range:\n"
+        "      - above: 10\n"
+        "        then:\n"
+        "          - light.toggle: led\n"
+        "    humidity:\n"
+        "      id: aht20_humidity\n"
+    )
+    loc = ComponentOnLocation(component_id="aht20_temperature", trigger="on_value_range")
+    new_text, _diff = render_upsert(
+        text,
+        tree=AutomationTree(
+            trigger_id="sensor.on_value_range",
+            trigger_params={"above": 42},
+            actions=[ActionNode(action_id="light.turn_on", params={"id": "led"})],
+        ),
+        location=loc,
+    )
+    assert new_text.count("on_value_range:") == 1
+    assert "above: 42" in new_text
+    assert "above: 10" not in new_text
+    assert "aht20_humidity" in new_text
+    final_text, _diff = render_delete(text, location=loc)
+    assert "on_value_range:" not in final_text
+    assert "aht20_humidity" in final_text
+
+
 def test_upsert_api_action_appends_into_empty_actions_with_sibling_key() -> None:
     """``actions:`` with no items but a sibling key below gains its first item.
 

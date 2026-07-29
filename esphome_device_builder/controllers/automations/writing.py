@@ -22,9 +22,9 @@ from ...helpers.api import CommandError
 from ...helpers.yaml import (
     SubEntityRef,
     YamlUpsertNotSupportedError,
-    _block_end,
     _indent_block,
     _splice_into_domain_block,
+    child_block_end,
     remove_inline_handler,
     remove_nested_handler,
     remove_subentity_handler,
@@ -441,6 +441,9 @@ def _upsert_api_action(
     if actions_span is None:
         return api_actions.render_insert_actions_key(lines, api_span, rendered)
     actions_start, actions_end, item_indent, block_key = actions_span
+    if len(item_indent) < 2:
+        msg = "api: block indentation is too shallow; re-indent it to edit actions"
+        raise CommandError(ErrorCode.INVALID_ARGS, msg)
     lines = _canonicalized_api_block(lines, actions_span)
     existing = api_actions.find_item(
         lines,
@@ -564,7 +567,7 @@ def _upsert_under_top_key(
         text = lines[idx].rstrip("\n\r")
         if text == handler_re_prefix or text.startswith(handler_re_prefix + " "):
             handler_start = idx
-            handler_end = _block_end(lines, idx, end, indent)
+            handler_end = child_block_end(lines, idx, end, indent)
             break
     rendered_text = "\n".join(_indent_block(rendered_yaml, indent)) + "\n"
     if handler_start is not None and handler_end is not None:
@@ -674,7 +677,7 @@ def _delete_under_top_key(
     for idx in range(start + 1, end):
         text = lines[idx].rstrip("\n\r")
         if text == handler_prefix or text.startswith(handler_prefix + " "):
-            handler_end = _block_end(lines, idx, end, indent)
+            handler_end = child_block_end(lines, idx, end, indent)
             new_lines = [*lines[:idx], *lines[handler_end:]]
             return "".join(new_lines), YamlDiff(
                 fromLine=idx + 1,

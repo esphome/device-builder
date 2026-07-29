@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 
+from ...helpers.yaml.scan import child_block_end, is_list_item_line
 from ...models.automations import YamlDiff
 
 #: Accepted spellings, canonical first — esphome's ``cv.rename_key``
@@ -78,20 +79,12 @@ def locate_actions_list(
     if found is None:
         return None
     actions_start, matched_key = found
-    actions_end = api_end
-    for idx in range(actions_start + 1, api_end):
-        content = lines[idx].rstrip("\n\r")
-        if not content:
-            continue
-        leading = len(content) - len(content.lstrip(" "))
-        if leading <= len(child_indent):
-            actions_end = idx
-            break
+    actions_end = child_block_end(lines, actions_start, api_end, child_indent)
     item_indent: str | None = None
     for idx in range(actions_start + 1, actions_end):
         raw = lines[idx].rstrip("\n\r")
         stripped = raw.lstrip(" ")
-        if stripped.startswith("- "):
+        if is_list_item_line(stripped):
             item_indent = raw[: len(raw) - len(stripped)]
             break
     if item_indent is None:
@@ -244,11 +237,9 @@ def render_append(
     item_indent: str,
     rendered: str,
 ) -> tuple[str, YamlDiff]:
-    """Append a new list item at the end of an existing ``api.actions:``."""
+    """Append a new list item at the pre-trimmed *actions_end* of ``api.actions:``."""
     item_text = indent_for_list(rendered, item_indent)
     insert_at = actions_end
-    while insert_at > 0 and not lines[insert_at - 1].strip():
-        insert_at -= 1
     new_lines = [*lines[:insert_at], item_text, *lines[insert_at:]]
     new_text = "".join(new_lines)
     return new_text, YamlDiff(
@@ -301,7 +292,9 @@ def _item_spans(
     spans: list[tuple[int, int]] = []
     start: int | None = None
     for idx in range(actions_start + 1, actions_end):
-        if lines[idx].rstrip("\n\r").startswith(item_indent + "- "):
+        raw = lines[idx].rstrip("\n\r")
+        stripped = raw.lstrip(" ")
+        if raw[: len(raw) - len(stripped)] == item_indent and is_list_item_line(stripped):
             if start is not None:
                 spans.append((start, idx))
             start = idx

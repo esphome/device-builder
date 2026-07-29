@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from .scalar import ESPHOME_YAML_INDENT, YamlUpsertNotSupportedError, block_body_is_list
 from .scan import (
     block_end_index,
+    child_block_end,
     find_block_header,
     key_header_re,
     key_line_res,
@@ -290,25 +291,16 @@ def _locate_key_block(lines: list[str], frame: _SpanFrame, key: str) -> _SpanFra
 
 def _key_block_frame(lines: list[str], start: int, end_bound: int, outer_indent: str) -> _SpanFrame:
     """Frame for the block headed at *start*: bounds plus first-child indent."""
-    end = _block_end(lines, start, end_bound, outer_indent)
+    end = child_block_end(lines, start, end_bound, outer_indent)
     child = outer_indent + ESPHOME_YAML_INDENT
     for idx in range(start + 1, end):
         content = lines[idx].rstrip("\n\r")
-        if content:
+        stripped = content.lstrip(" ")
+        # A comment (possibly misaligned) is not the first child.
+        if stripped and not stripped.startswith("#"):
             child = leading_ws(content)
             break
     return _SpanFrame(start, end, child)
-
-
-def _block_end(lines: list[str], start: int, end_bound: int, indent: str) -> int:
-    """First line index after *start* whose indent is <= len(*indent*); *end_bound* if none."""
-    for idx in range(start + 1, end_bound):
-        content = lines[idx].rstrip("\n\r")
-        if not content:
-            continue
-        if len(content) - len(content.lstrip(" ")) <= len(indent):
-            return idx
-    return end_bound
 
 
 def _apply_handler_upsert(
@@ -329,7 +321,7 @@ def _apply_handler_upsert(
     for idx in range(instance_start, instance_end):
         if handler_re.match(lines[idx].rstrip("\n\r")):
             handler_start = idx
-            handler_end = _block_end(lines, idx, instance_end, child_indent)
+            handler_end = child_block_end(lines, idx, instance_end, child_indent)
             break
 
     rendered_lines = _indent_block(rendered_yaml, child_indent)
@@ -410,7 +402,7 @@ def _locate_handler_range(
     handler_re = key_header_re(handler_key, indent=child_indent)
     for idx in range(instance_start, instance_end):
         if handler_re.match(lines[idx].rstrip("\n\r")):
-            return idx, _block_end(lines, idx, instance_end, child_indent)
+            return idx, child_block_end(lines, idx, instance_end, child_indent)
     return None
 
 

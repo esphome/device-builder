@@ -338,6 +338,15 @@ def test_ethernet_existing_clk_replaced_wholesale() -> None:
     assert "GPIO16" not in new_text
 
 
+def test_ethernet_existing_clk_with_comment_at_key_indent_replaced_wholesale() -> None:
+    """A comment at the ``clk:`` key's own indent doesn't split the replaced block."""
+    text = _ETHERNET_YAML + "  clk:\n  # a note\n    pin: GPIO17\n    mode: CLK_OUT\n"
+    new_text = _respell(text)
+    assert new_text.count("clk:") == 1
+    assert new_text.count("\n    pin:") == 1
+    assert "GPIO17" not in new_text
+
+
 @pytest.mark.parametrize("value", ["!secret clk", "EXTERNAL", "17"])
 def test_ethernet_undecodable_clk_mode_untouched(value: str) -> None:
     assert render_migrations(_ETHERNET_YAML.replace("GPIO0_IN", value)) is None
