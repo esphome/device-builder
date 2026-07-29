@@ -1,11 +1,11 @@
-"""Tests for the whole-file legacy-spelling canonicalizer."""
+"""Tests for the whole-file config migrations."""
 
 from __future__ import annotations
 
 import pytest
 
-from esphome_device_builder.controllers.automations.canonicalize import render_canonicalize
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
+from esphome_device_builder.controllers.migrations import render_migrations
 
 _LEGACY_API_YAML = """esphome:
   name: demo
@@ -42,7 +42,7 @@ script:
 
 def _respell(text: str) -> str:
     """Unwrap a must-change canonicalize result to its new text."""
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     return result[0]
 
@@ -52,7 +52,7 @@ def _on_boot(*body: str) -> str:
 
 
 def test_legacy_api_block_and_items() -> None:
-    result = render_canonicalize(_LEGACY_API_YAML)
+    result = render_migrations(_LEGACY_API_YAML)
     assert result is not None
     new_text, diff = result
     assert "services:" not in new_text
@@ -70,12 +70,12 @@ def test_legacy_api_block_and_items() -> None:
 
 def test_already_canonical_returns_none() -> None:
     canonical = _LEGACY_API_YAML.replace("services:", "actions:").replace("- service:", "- action:")
-    assert render_canonicalize(canonical) is None
+    assert render_migrations(canonical) is None
 
 
 def test_legacy_items_under_canonical_block() -> None:
     text = _LEGACY_API_YAML.replace("services:", "actions:")
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "- service:" not in new_text
@@ -83,7 +83,7 @@ def test_legacy_items_under_canonical_block() -> None:
 
 
 def test_homeassistant_id_and_field() -> None:
-    result = render_canonicalize(_LEGACY_HA_YAML)
+    result = render_migrations(_LEGACY_HA_YAML)
     assert result is not None
     new_text, _diff = result
     assert "homeassistant.service:" not in new_text
@@ -98,7 +98,7 @@ def test_homeassistant_id_and_field() -> None:
 
 def test_homeassistant_id_only_when_field_canonical() -> None:
     text = _LEGACY_HA_YAML.replace("service: light.turn_on", "action: light.turn_on")
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "homeassistant.service:" not in new_text
@@ -114,7 +114,7 @@ def test_collision_skips_field_but_respells_id() -> None:
           service: light.turn_on
           action: light.turn_off
 """
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "homeassistant.action:" in new_text
@@ -157,7 +157,7 @@ def test_collision_skips_field_but_respells_id() -> None:
 def test_flow_style_bodies(body: str, expected: str | None) -> None:
     text = _on_boot(body)
     if expected is None:
-        assert render_canonicalize(text) is None
+        assert render_migrations(text) is None
     else:
         assert expected in _respell(text)
 
@@ -173,14 +173,14 @@ def test_decoy_service_keys_untouched() -> None:
             service: not_a_rename
       - logger.log: "service: literal"
 """
-    assert render_canonicalize(text) is None
+    assert render_migrations(text) is None
 
 
 def test_inline_legacy_services_key_respelled() -> None:
     text = """api:
   services: []
 """
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "actions: []" in new_text
@@ -191,7 +191,7 @@ def test_multiple_sites_single_spanning_diff() -> None:
         "homeassistant.action:", "homeassistant.service:"
     )
     text = _LEGACY_API_YAML + "\n" + ha_script
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, diff = result
     assert "services:" not in new_text
@@ -207,7 +207,7 @@ def test_nested_inside_api_action_body() -> None:
         - homeassistant.service:
             service: switch.toggle
 """
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "homeassistant.action:" in new_text
@@ -217,11 +217,11 @@ def test_nested_inside_api_action_body() -> None:
 
 @pytest.mark.parametrize("text", ["", "esphome:\n  name: demo\n"])
 def test_no_automations_returns_none(text: str) -> None:
-    assert render_canonicalize(text) is None
+    assert render_migrations(text) is None
 
 
 def test_api_without_actions_list_returns_none() -> None:
-    assert render_canonicalize("api:\n  reboot_timeout: 0s\n") is None
+    assert render_migrations("api:\n  reboot_timeout: 0s\n") is None
 
 
 def test_comment_lines_do_not_pick_the_body_indent() -> None:
@@ -231,7 +231,7 @@ def test_comment_lines_do_not_pick_the_body_indent() -> None:
         "        # call the light service\n"
         "          service: light.turn_on\n"
     )
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "action: light.turn_on" in new_text
@@ -244,7 +244,7 @@ def test_brace_in_trailing_comment_keeps_block_body_respell() -> None:
         "      - homeassistant.service:  # TODO {see later}\n"
         "          service: light.turn_on\n"
     )
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "homeassistant.action:  # TODO {see later}" in new_text
@@ -257,7 +257,7 @@ def test_block_scalar_contents_untouched() -> None:
         "      - lambda: |-\n"
         "          homeassistant.service: not_yaml\n"
     )
-    assert render_canonicalize(text) is None
+    assert render_migrations(text) is None
 
 
 def test_anchor_after_block_scalar_still_respells() -> None:
@@ -270,7 +270,7 @@ def test_anchor_after_block_scalar_still_respells() -> None:
         "      - homeassistant.service:\n"
         "          service: light.on\n"
     )
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     # The scalar body keeps its legacy text; the real node respells.
@@ -281,7 +281,7 @@ def test_anchor_after_block_scalar_still_respells() -> None:
 
 def test_api_item_with_both_discriminators_kept() -> None:
     text = "api:\n  actions:\n    - action: a\n      service: b\n      then: []\n"
-    assert render_canonicalize(text) is None
+    assert render_migrations(text) is None
 
 
 def test_api_legacy_item_beside_collision_item_still_respells() -> None:
@@ -293,7 +293,7 @@ def test_api_legacy_item_beside_collision_item_still_respells() -> None:
         "    - service: pause\n"
         "      then: []\n"
     )
-    result = render_canonicalize(text)
+    result = render_migrations(text)
     assert result is not None
     new_text, _diff = result
     assert "actions:" in new_text
@@ -304,9 +304,40 @@ def test_api_legacy_item_beside_collision_item_still_respells() -> None:
 
 
 def test_bodyless_anchor_respells_id_only() -> None:
-    result = render_canonicalize(
-        "esphome:\n  on_boot:\n    then:\n      - homeassistant.service:\n"
-    )
+    result = render_migrations("esphome:\n  on_boot:\n    then:\n      - homeassistant.service:\n")
     assert result is not None
     new_text, _diff = result
     assert "- homeassistant.action:" in new_text
+
+
+_ETHERNET_YAML = """ethernet:
+  type: LAN8720
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk_mode: GPIO0_IN
+"""
+
+
+def test_ethernet_clk_mode_migrates_to_clk_block() -> None:
+    new_text = _respell(_ETHERNET_YAML)
+    assert "clk_mode" not in new_text
+    assert "  clk:\n    pin: GPIO0\n    mode: CLK_EXT_IN\n" in new_text
+    assert "mdc_pin: GPIO23" in new_text
+
+
+def test_ethernet_clk_out_direction() -> None:
+    new_text = _respell(_ETHERNET_YAML.replace("GPIO0_IN", "GPIO17_OUT"))
+    assert "  clk:\n    pin: GPIO17\n    mode: CLK_OUT\n" in new_text
+
+
+def test_ethernet_existing_clk_replaced_wholesale() -> None:
+    text = _ETHERNET_YAML + "  clk:\n    pin: GPIO16\n    mode: CLK_OUT\n"
+    new_text = _respell(text)
+    assert new_text.count("clk:") == 1
+    assert "pin: GPIO0" in new_text
+    assert "GPIO16" not in new_text
+
+
+@pytest.mark.parametrize("value", ["!secret clk", "EXTERNAL", "17"])
+def test_ethernet_undecodable_clk_mode_untouched(value: str) -> None:
+    assert render_migrations(_ETHERNET_YAML.replace("GPIO0_IN", value)) is None

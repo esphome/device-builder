@@ -1,7 +1,7 @@
 """
 Editor controller — supports the in-browser YAML editor.
 
-Exposes live YAML validation and legacy-spelling canonicalization; future
+Exposes live YAML validation and one-click config migration; future
 editor utilities (formatting, schema-driven completion, etc.) live here too.
 """
 
@@ -21,9 +21,9 @@ from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.process import kill_quietly
 from ..helpers.subprocess import create_subprocess_exec
-from ..models.automations import CanonicalizeResponse
-from .automations.canonicalize import render_canonicalize
+from ..models.automations import MigrateConfigResponse
 from .firmware.helpers import _find_esphome_cmd
+from .migrations import render_migrations
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder
@@ -276,22 +276,22 @@ class EditorController:
     # API commands
     # ------------------------------------------------------------------
 
-    @api_command("editor/canonicalize_spellings")
-    async def canonicalize_spellings(
+    @api_command("editor/migrate_config")
+    async def migrate_config(
         self,
         *,
         content: str,
         **_kwargs: Any,
     ) -> dict:
-        """Respell every legacy renamed-key spelling in *content*.
+        """Apply every known migration to *content* in one splice.
 
-        One contiguous splice covering the api ``services:`` block and
-        item discriminators plus registry-action node ids and body
-        fields; ``yaml_diff`` is ``null`` when nothing was legacy.
+        Renamed api and homeassistant spellings plus the ethernet
+        ``clk_mode`` -> ``clk`` conversion; ``yaml_diff`` is ``null``
+        when nothing needed migrating.
         """
-        result = await run_in_executor(render_canonicalize, content)
+        result = await run_in_executor(render_migrations, content)
         diff = result[1] if result is not None else None
-        return CanonicalizeResponse(yaml_diff=diff).to_dict()
+        return MigrateConfigResponse(yaml_diff=diff).to_dict()
 
     @api_command("editor/validate_yaml")
     async def validate_yaml(

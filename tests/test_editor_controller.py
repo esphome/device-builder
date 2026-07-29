@@ -1260,10 +1260,10 @@ async def test_invalidate_cache_clears_every_session(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_canonicalize_spellings_respells_legacy_content(tmp_path: Path) -> None:
+async def test_migrate_config_respells_legacy_content(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     content = "api:\n  services:\n    - service: pause\n      then:\n        - delay: 1s\n"
-    result = await controller.canonicalize_spellings(content=content)
+    result = await controller.migrate_config(content=content)
     diff = result["yaml_diff"]
     assert diff is not None
     assert "actions:" in diff["replacement"]
@@ -1271,8 +1271,8 @@ async def test_canonicalize_spellings_respells_legacy_content(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_canonicalize_spellings_null_when_canonical(tmp_path: Path) -> None:
+async def test_migrate_config_null_when_canonical(tmp_path: Path) -> None:
     controller = _make_controller(tmp_path)
     content = "api:\n  actions:\n    - action: pause\n      then: []\n"
-    result = await controller.canonicalize_spellings(content=content)
+    result = await controller.migrate_config(content=content)
     assert result["yaml_diff"] is None

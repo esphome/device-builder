@@ -394,12 +394,13 @@ against legacy behaviour before assuming the simpler version suffices.
   surfaces on the nightly sync instead of shipping unhandled. Current
   entries: the api `services`→`actions` / `service`→`action` pair
   (#2396) and the homeassistant action's `service`→`action` field under
-  both registered ids. `editor/canonicalize_spellings`
-  (`controllers/automations/canonicalize.py`, one rule function per
-  rename shape) is the migration-helper leg: an on-demand whole-file
-  respell of every handled pair (plus the legacy `homeassistant.service`
-  node id), driven by the frontend's legacy-spelling nudge. New rename
-  shapes add a rule function to the fold, not a new command.
+  both registered ids. `editor/migrate_config`
+  (`controllers/migrations.py`, one rule function per migration) is the
+  migration-helper leg: a one-click whole-file update covering every
+  handled rename (plus the legacy `homeassistant.service` node id and
+  the ethernet `clk_mode`→`clk` conversion), driven by the frontend's
+  migrate nudge. New migrations add a rule function to the fold, not a
+  new command.
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

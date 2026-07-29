@@ -544,7 +544,7 @@ class UpsertResponse(DashboardModel):
 
 
 @dataclass
-class CanonicalizeResponse(DashboardModel):
-    """Canonicalize's splice diff; ``None`` when nothing was legacy."""
+class MigrateConfigResponse(DashboardModel):
+    """Migrate's splice diff; ``None`` when nothing needed migrating."""
 
     yaml_diff: YamlDiff | None = None

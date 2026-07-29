@@ -1,14 +1,14 @@
 """
-Whole-file respell of legacy renamed-key spellings to canonical.
+Whole-file migration of deprecated options to their replacements.
 
-Each rename shape is a pure, line-for-line ``lines -> lines`` rule in
-``_RULES``; ``render_canonicalize`` folds them. Line edits (never
+Each migration is a pure, line-for-line ``lines -> lines`` rule in
+``_RULES``; ``render_migrations`` folds them into one splice, so a
+single click brings a config fully up to date. Line edits (never
 parse-and-re-emit) keep comments and formatting intact and let the
 command run against a mid-edit draft that ``automations/parse`` would
-reject. Lives beside the ``api_actions`` / ``writing_layout`` locators
-it reuses; exposed as an ``editor/`` command. Detection is mirrored in
-device-builder-frontend ``src/util/yaml-automations-legacy.ts`` — new
-cases land in both suites.
+reject. Exposed as ``editor/migrate_config``; detection is mirrored in
+device-builder-frontend ``src/util/config-migrations.ts`` — new rules
+land on both sides.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ...helpers.yaml.scan import leading_ws
-from ...models.automations import YamlDiff
-from . import api_actions
-from .writing_layout import _build_diff_for_append, _locate_singleton_block
+from ..helpers.yaml.scan import leading_ws
+from ..models.automations import YamlDiff
+from .automations import api_actions
+from .automations.writing_layout import _build_diff_for_append, _locate_singleton_block
 
 
 @dataclass(frozen=True)
@@ -49,12 +49,12 @@ _ANCHOR_RES = tuple((rename, rename.anchor_re) for rename in _ACTION_NODE_RENAME
 _SCALAR_HEADER_RE = re.compile(r"[|>][+-]?\d*\s*$")
 
 
-def render_canonicalize(yaml_text: str) -> tuple[str, YamlDiff] | None:
+def render_migrations(yaml_text: str) -> tuple[str, YamlDiff] | None:
     """
-    Respell every legacy spelling in *yaml_text* to canonical.
+    Apply every known migration to *yaml_text*.
 
     Returns ``(new_text, diff)`` with one contiguous splice covering the
-    changed span, or ``None`` when nothing is legacy.
+    changed span, or ``None`` when nothing needed migrating.
     """
     out = yaml_text.splitlines(keepends=True)
     for rule in _RULES:
@@ -105,7 +105,68 @@ def _canonicalize_action_nodes(lines: list[str]) -> list[str]:
     return out
 
 
-_RULES = (_canonicalize_api_actions, _canonicalize_action_nodes)
+_CLK_MODE_VALUE_RE = re.compile(r"^GPIO(\d+)_(IN|OUT)$")
+
+
+def _migrate_ethernet_clk(lines: list[str]) -> list[str]:
+    """Migrate flat ``clk_mode: GPIO<n>_(IN|OUT)`` to the nested ``clk`` block.
+
+    The pin and direction are decoded from the mode string; an existing
+    ``clk:`` block is replaced wholesale, mirroring upstream precedence.
+    A value that doesn't decode (a secret, an unknown enum) is left alone.
+    """
+    span = _locate_singleton_block(lines, "ethernet")
+    if span is None:
+        return lines
+    start, end, child_indent = span
+    header = child_indent + "clk_mode:"
+    for idx in range(start + 1, min(end, len(lines))):
+        content = lines[idx].rstrip("\n\r")
+        if not content.startswith(header):
+            continue
+        value = content[len(header) :].strip()
+        match = _CLK_MODE_VALUE_RE.match(value.upper().replace(" ", "_"))
+        if match is None:
+            return lines
+        eol = lines[idx][len(content) :] or "\n"
+        mode = "CLK_EXT_IN" if match.group(2) == "IN" else "CLK_OUT"
+        replacement = [
+            f"{child_indent}clk:{eol}",
+            f"{child_indent}  pin: GPIO{match.group(1)}{eol}",
+            f"{child_indent}  mode: {mode}{eol}",
+        ]
+        out = list(lines)
+        splices = [(idx, idx + 1, replacement)]
+        clk_span = _child_block_span(lines, start, end, child_indent, "clk")
+        if clk_span is not None and clk_span[0] != idx:
+            splices.append((clk_span[0], clk_span[1], []))
+        for splice_start, splice_end, rep in sorted(splices, key=lambda t: -t[0]):
+            out[splice_start:splice_end] = rep
+        return out
+    return lines
+
+
+def _child_block_span(
+    lines: list[str],
+    start: int,
+    end: int,
+    child_indent: str,
+    key: str,
+) -> tuple[int, int] | None:
+    """Line span of the ``key:`` child (header plus deeper lines), or ``None``."""
+    header = child_indent + key + ":"
+    for idx in range(start + 1, min(end, len(lines))):
+        content = lines[idx].rstrip("\n\r")
+        if content != header and not content.startswith(header + " "):
+            continue
+        stop = idx + 1
+        while stop < min(end, len(lines)):
+            deeper = lines[stop].rstrip("\n\r")
+            if deeper.strip() and len(leading_ws(deeper)) <= len(child_indent):
+                break
+            stop += 1
+        return idx, stop
+    return None
 
 
 def _block_scalar_mask(lines: list[str]) -> list[bool]:
@@ -218,3 +279,6 @@ def _respell_body_field(
             new = child_indent + rename.canonical_field + content[len(child_indent) + len(key) :]
             hit = (idx, new + lines[idx][len(content) :])
     return hit
+
+
+_RULES = (_canonicalize_api_actions, _canonicalize_action_nodes, _migrate_ethernet_clk)

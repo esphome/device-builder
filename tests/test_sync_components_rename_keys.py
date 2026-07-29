@@ -116,7 +116,7 @@ def test_handled_list_matches_the_writer_constants() -> None:
         BLOCK_KEYS,
         ITEM_KEYS,
     )
-    from esphome_device_builder.controllers.automations.canonicalize import (  # noqa: PLC0415
+    from esphome_device_builder.controllers.migrations import (  # noqa: PLC0415
         _ACTION_NODE_RENAMES,
     )
     from script.sync_components import _HANDLED_RENAME_KEYS  # noqa: PLC0415
