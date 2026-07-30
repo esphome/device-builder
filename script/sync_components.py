@@ -8319,6 +8319,10 @@ def _sweep_component_aliases() -> None:
     appears as ``- platform:`` values) or is itself a platform domain.
     """
     loader = _get_esphome_loader()
+    if loader is None:
+        raise SystemExit(
+            "esphome.loader unavailable; the component-ALIAS sweep can't guard this sync"
+        )
     for legacy, meta in loader.get_alias_metadata().items():
         if legacy in _HANDLED_ALIASES:
             continue

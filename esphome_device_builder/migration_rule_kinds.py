@@ -1,8 +1,7 @@
 """Migration-rule kinds and the extra fields each requires beyond old/new.
 
-Stdlib-only: the single source for the runtime loader, the sync
-emitter, and ``script/validate_definitions.py`` (whose pre-commit env
-has no ``orjson``, so it can't import ``definitions``).
+Stdlib-only — ``script/validate_definitions.py`` imports this from the
+pre-commit env.
 """
 
 from __future__ import annotations
