@@ -173,6 +173,31 @@ async def test_rp2040_alias_platform_counts_as_captive_capable(
     assert "\ncaptive_portal:" in response.yaml
 
 
+async def test_missing_captive_portal_entry_skips_portal_merge(
+    session_component_catalog: ComponentCatalog,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A catalog without ``captive_portal`` still lands the wifi defaults, portal-free."""
+    (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
+    _write_secrets(tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
+    real_get_component = session_component_catalog.get_component
+
+    async def _no_portal(*, component_id: str) -> object:
+        if component_id == "captive_portal":
+            return None
+        return await real_get_component(component_id=component_id)
+
+    monkeypatch.setattr(session_component_catalog, "get_component", _no_portal)
+
+    response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
+
+    assert "  ssid: !secret wifi_ssid\n" in response.yaml
+    assert "  ap:\n" in response.yaml
+    assert "captive_portal:" not in response.yaml
+
+
 async def test_captive_portal_not_duplicated(
     session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:

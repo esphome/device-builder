@@ -422,7 +422,7 @@ def _format_yaml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, str):
-        if _SECRET_REF_RE.fullmatch(value):
+        if value.startswith("!") and _SECRET_REF_RE.fullmatch(value):
             return value
         return _safe_yaml_scalar(value)
     return str(value)
