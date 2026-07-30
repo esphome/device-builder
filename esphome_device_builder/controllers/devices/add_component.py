@@ -8,6 +8,7 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import (
     CAPTIVE_PORTAL_PLATFORMS,
+    device_ap_label,
     parse_esphome_meta,
     parse_platform_from_yaml,
 )
@@ -154,26 +155,28 @@ async def _apply_wifi_recovery_defaults(
     config_dir: Path, fields: dict[str, Any], existing: str
 ) -> bool:
     """
-    Fill wizard-parity recovery defaults into a new ``wifi:`` block's *fields*.
+    Fill recovery defaults into a new ``wifi:`` block's *fields*.
 
-    Absent credentials become ``!secret`` references and an absent ``ap``
-    gains the fallback hotspot; user-supplied values are never overwritten.
     Returns whether ``captive_portal:`` should be merged in as well.
-    No-op unless the shared Wi-Fi secrets are defined.
     """
     secrets = await run_in_executor(read_secrets_yaml, config_dir)
-    if not wifi_secrets_defined(secrets):
-        return False
+    if wifi_secrets_defined(secrets):
+        if not fields.get("ssid"):
+            fields["ssid"] = WIFI_SSID_SECRET_REF
+        if not fields.get("password"):
+            fields["password"] = WIFI_PASSWORD_SECRET_REF
+    # No credentials typed and none to reference: generating an AP-only
+    # device would surprise, so the bare add stays bare.
     if not fields.get("ssid"):
-        fields["ssid"] = WIFI_SSID_SECRET_REF
-    if not fields.get("password"):
-        fields["password"] = WIFI_PASSWORD_SECRET_REF
+        return False
+    # Cheap column-0 scan: a platform arriving through ``packages:``
+    # deliberately forfeits the AP/portal leg rather than paying an
+    # ``esphome config`` resolve on this UI-latency path.
     platform, _, _ = parse_platform_from_yaml(existing)
     if normalize_platform(platform) not in CAPTIVE_PORTAL_PLATFORMS:
         return False
     if not fields.get("ap"):
-        meta = parse_esphome_meta(existing)
-        label = meta.friendly_name or meta.name or ""
+        label = device_ap_label(parse_esphome_meta(existing)) or ""
         fields["ap"] = {"ssid": fallback_ap_ssid(label), "password": fallback_ap_psk()}
     return True
 

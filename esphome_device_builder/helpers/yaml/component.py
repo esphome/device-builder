@@ -414,8 +414,7 @@ def _format_yaml_value(value: Any) -> str:
     """
     Format a Python value for YAML output.
 
-    A strict ``!secret <name>`` string emits unquoted so the editor's
-    secret picker round-trips as a tag, not a quoted dead literal.
+    A strict ``!secret <name>`` string emits unquoted, as a tag.
     """
     if value is None:
         return "null"

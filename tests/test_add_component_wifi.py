@@ -109,6 +109,43 @@ async def test_secret_picker_values_emit_as_tags(
     assert '"!secret' not in response.yaml
 
 
+async def test_typed_credentials_without_secrets_still_gain_recovery(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
+    """Inline-typed credentials get the fallback AP and portal even with no secrets.yaml."""
+    (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="lamp.yaml",
+        component_id="wifi",
+        fields={"ssid": "MyNet", "password": "pw12345"},
+    )
+
+    assert "  ssid: MyNet\n" in response.yaml
+    assert "!secret" not in response.yaml
+    assert "  ap:\n" in response.yaml
+    assert "\ncaptive_portal:" in response.yaml
+
+
+async def test_packages_provided_platform_forfeits_recovery_leg(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
+    """A platform arriving through ``packages:`` gets credentials but no AP/portal."""
+    yaml = _ESP32_YAML.replace(
+        "esp32:\n  board: esp32dev", "packages:\n  board: !include common/esp32.yaml"
+    )
+    (tmp_path / "lamp.yaml").write_text(yaml, "utf-8")
+    _write_secrets(tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
+
+    response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
+
+    assert "  ssid: !secret wifi_ssid\n" in response.yaml
+    assert "ap:" not in response.yaml
+    assert "captive_portal:" not in response.yaml
+
+
 async def test_user_supplied_ap_is_preserved(
     session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
