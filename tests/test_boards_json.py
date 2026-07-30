@@ -27,6 +27,7 @@ import orjson
 import pytest
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 
+import esphome_device_builder
 from esphome_device_builder.definitions import (
     build_board_catalog_from_manifests,
     load_board_body_from_disk,
@@ -770,3 +771,12 @@ def test_every_board_has_a_docs_url() -> None:
     # Generated (unmanifested) boards take the per-platform default.
     assert docs["MyRP_2350B"] == "https://esphome.io/components/rp2.html"
     assert docs["rpipico2w"] == "https://esphome.io/components/rp2.html"
+
+
+def test_every_platform_has_generic_board_art() -> None:
+    """Each platform's ``_generic/<key>.svg`` fallback exists; a key rename must rename the art."""
+    generic_dir = (
+        Path(esphome_device_builder.__file__).parent / "definitions" / "boards" / "_generic"
+    )
+    for platform in Platform:
+        assert (generic_dir / f"{platform.value}.svg").is_file(), platform.value
