@@ -41,6 +41,9 @@ from esphome_device_builder.helpers.lazy_catalog import (  # noqa: E402
     is_external_image_url,
     is_unsafe_manifest_path,
 )
+from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
+    MIGRATION_RULE_EXTRA_FIELDS,
+)
 from script._component_catalog import load_component_catalog  # noqa: E402
 from script._manifest import ManifestError, load_manifest_dict  # noqa: E402
 
@@ -944,18 +947,6 @@ def validate_component(manifest: Path) -> list[str]:
     return errors
 
 
-# Mirrors ``definitions.MIGRATION_RULE_KINDS`` — the runtime loader isn't
-# importable here (pre-commit env has no ``orjson``); keep both in sync.
-_MIGRATION_RULE_KINDS = {"component_block_field", "platform_item_field", "component_key"}
-
-#: Required non-empty string fields per migration-rule kind.
-_MIGRATION_RULE_FIELDS = {
-    "component_block_field": ("component", "old", "new"),
-    "platform_item_field": ("domain", "platform", "old", "new"),
-    "component_key": ("old", "new"),
-}
-
-
 def check_migration_rules() -> list[str]:
     """Validate the shape of the generated ``migration_rules.index.json``."""
     path = DEFINITIONS_DIR / "migration_rules.index.json"
@@ -968,10 +959,10 @@ def check_migration_rules() -> list[str]:
         return ["migration_rules.index.json: payload must be {'rules': [...]}"]
     errors: list[str] = []
     for pos, record in enumerate(rules):
-        if not isinstance(record, dict) or record.get("kind") not in _MIGRATION_RULE_KINDS:
+        if not isinstance(record, dict) or record.get("kind") not in MIGRATION_RULE_EXTRA_FIELDS:
             errors.append(f"migration_rules.index.json: rules[{pos}]: unknown or missing kind")
             continue
-        for field in _MIGRATION_RULE_FIELDS[record["kind"]]:
+        for field in ("old", "new", *MIGRATION_RULE_EXTRA_FIELDS[record["kind"]]):
             value = record.get(field)
             if not isinstance(value, str) or not value:
                 errors.append(

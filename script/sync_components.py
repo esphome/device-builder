@@ -128,6 +128,9 @@ from esphome_device_builder.controllers.components import (  # noqa: E402
 from esphome_device_builder.controllers.components import variant_to_key  # noqa: E402
 from esphome_device_builder.helpers.automation_keys import is_trigger_key  # noqa: E402
 from esphome_device_builder.helpers.chips import normalize_chip_variant  # noqa: E402
+from esphome_device_builder.migration_rule_kinds import (  # noqa: E402
+    MIGRATION_RULE_EXTRA_FIELDS,
+)
 from esphome_device_builder.models import (  # noqa: E402
     RP2_ALIAS_PLATFORM,
     RP2_CANONICAL_PLATFORM,
@@ -976,7 +979,7 @@ def main() -> int:
     )
     _sweep_registry_rename_keys()
     _sweep_component_aliases()
-    _fail_on_unhandled_rename_keys()
+    _fail_on_unhandled_renames()
 
     # Collected (and guarded) before any emit so the abort below leaves
     # the tree untouched; ``build_catalog``'s import sweep has already
@@ -3709,11 +3712,9 @@ def _emit_migration_rules_index() -> None:
     rules = []
     for kind, component, domain, platform, old, new in sorted(_MIGRATION_RULES):
         record = {"kind": kind, "old": old, "new": new}
-        if kind == "component_block_field":
-            record["component"] = component
-        elif kind == "platform_item_field":
-            record["domain"] = domain
-            record["platform"] = platform
+        values = {"component": component, "domain": domain, "platform": platform}
+        for name in MIGRATION_RULE_EXTRA_FIELDS[kind]:
+            record[name] = values[name]
         rules.append(record)
     next_path = _MIGRATION_RULES_INDEX_FILE.with_suffix(".json.next")
     next_path.write_bytes(
@@ -8313,22 +8314,26 @@ def _sweep_component_aliases() -> None:
     """
     Emit each esphome component ALIAS as a ``component_key`` migration rule.
 
-    An alias on a platform component falls to the canary instead: its
-    legacy spelling also appears as ``- platform:`` values, which a
-    top-level key respell can't reach.
+    An alias the top-level key respell can't cover falls to the canary:
+    the canonical registers platforms under a domain (the legacy name
+    appears as ``- platform:`` values) or is itself a platform domain.
     """
     loader = _get_esphome_loader()
     for legacy, meta in loader.get_alias_metadata().items():
         if legacy in _HANDLED_ALIASES:
             continue
         manifest = loader.get_component(meta.canonical)
-        if manifest is None or manifest.is_platform_component:
+        if (
+            manifest is None
+            or bool(getattr(manifest, "is_platform_component", False))
+            or _enumerate_platform_manifests_by_domain(loader, meta.canonical)
+        ):
             _UNHANDLED_ALIASES.add((legacy, meta.canonical))
             continue
         _MIGRATION_RULES.add(("component_key", "", "", "", legacy, meta.canonical))
 
 
-def _fail_on_unhandled_rename_keys() -> None:
+def _fail_on_unhandled_renames() -> None:
     """Abort the sync when upstream added a ``cv.rename_key`` we don't handle.
 
     Also aborts on an inexpressible component ALIAS, and when the sweep

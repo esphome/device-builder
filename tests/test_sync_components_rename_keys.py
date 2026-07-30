@@ -17,7 +17,7 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _classify_rename_pairs,
     _collect_rename_keys,
     _emit_migration_rules_index,
-    _fail_on_unhandled_rename_keys,
+    _fail_on_unhandled_renames,
     _note_unhandled_rename_keys,
     _sweep_component_aliases,
     introspect_component,
@@ -256,13 +256,18 @@ def test_live_alias_sweep_emits_the_rp2_rule() -> None:
 
 
 def _fake_loader(
-    monkeypatch: pytest.MonkeyPatch, *, canonical: str, manifest: SimpleNamespace | None
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    canonical: str,
+    manifest: SimpleNamespace | None,
+    platform_manifest: SimpleNamespace | None = None,
 ) -> None:
     loader = SimpleNamespace(
         get_alias_metadata=lambda: {
             "legacy_x": SimpleNamespace(canonical=canonical, removal_version=None)
         },
         get_component=lambda name: manifest,
+        get_platform=lambda domain, stem: platform_manifest,
     )
     monkeypatch.setattr(sync_components, "_get_esphome_loader", lambda: loader)
 
@@ -278,7 +283,22 @@ def test_platform_component_alias_falls_to_the_canary(
     assert {("legacy_x", "canon_x")} == _UNHANDLED_ALIASES
     _RENAME_SWEEP_COUNT[0] = 1
     with pytest.raises(SystemExit, match="legacy_x -> canon_x"):
-        _fail_on_unhandled_rename_keys()
+        _fail_on_unhandled_renames()
+
+
+def test_platform_provider_alias_falls_to_the_canary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An alias whose canonical registers platforms under a domain is inexpressible."""
+    _fake_loader(
+        monkeypatch,
+        canonical="canon_x",
+        manifest=SimpleNamespace(is_platform_component=False),
+        platform_manifest=SimpleNamespace(),
+    )
+    _sweep_component_aliases()
+    assert set() == _MIGRATION_RULES
+    assert {("legacy_x", "canon_x")} == _UNHANDLED_ALIASES
 
 
 def test_unresolvable_alias_canonical_falls_to_the_canary(
@@ -303,13 +323,13 @@ def test_unhandled_pair_fails_the_sync() -> None:
     _RENAME_SWEEP_COUNT[0] = 1
     _note_unhandled_rename_keys("sgp4x", [("voc", "voc_index")])
     with pytest.raises(SystemExit, match="sgp4x: voc -> voc_index"):
-        _fail_on_unhandled_rename_keys()
+        _fail_on_unhandled_renames()
 
 
 def test_handled_pairs_do_not_fail_the_sync() -> None:
     _RENAME_SWEEP_COUNT[0] = 1
     _note_unhandled_rename_keys("api", [("services", "actions"), ("service", "action")])
-    _fail_on_unhandled_rename_keys()
+    _fail_on_unhandled_renames()
     assert set() == _UNHANDLED_RENAME_KEYS
 
 
@@ -329,4 +349,4 @@ def test_unreadable_rename_closure_yields_sentinel_pair() -> None:
 def test_zero_sweep_fails_the_sync() -> None:
     _RENAME_SWEEP_COUNT[0] = 0
     with pytest.raises(SystemExit, match="walked no schemas"):
-        _fail_on_unhandled_rename_keys()
+        _fail_on_unhandled_renames()

@@ -412,9 +412,10 @@ against legacy behaviour before assuming the simpler version suffices.
   `clk_mode`→`clk` conversion. esphome component ALIASES (top-level
   block renames like `rp2040:`→`rp2:`) ship data-driven too: the sync
   reads `esphome.loader.get_alias_metadata()` and emits `component_key`
-  rules, failing when an alias sits on a platform component the
-  top-level respell can't express (acknowledge bespoke handling in
-  `_HANDLED_ALIASES`). The frontend's migrate nudge drives the
+  rules, failing when the top-level respell can't express an alias (a
+  platform domain, or a provider whose name appears as `- platform:`
+  values); acknowledge bespoke handling in `_HANDLED_ALIASES`. The
+  frontend's migrate nudge drives the
   one-click whole-file update; new migrations extend the artifact or
   add a rule function — never a new command.
 - **The long-lived process never imports `esphome.components.*`.**
