@@ -233,12 +233,12 @@ async def test_get_component_bodies_omits_unknown_ids() -> None:
     assert await cat.get_component_bodies(component_ids=["does-not-exist"]) == {}
 
 
-async def test_get_component_bodies_resolves_rp2_alias() -> None:
-    """A ``rp2`` request hydrates the canonical ``rp2040`` body, keyed as requested."""
+async def test_get_component_bodies_resolves_rp2040_alias() -> None:
+    """A ``rp2040`` request hydrates the canonical ``rp2`` body, keyed as requested."""
     cat = ComponentCatalog()
     await asyncio.to_thread(cat.load)
-    bodies = await cat.get_component_bodies(component_ids=["rp2"])
-    assert bodies["rp2"].id == "rp2040"
+    bodies = await cat.get_component_bodies(component_ids=["rp2040"])
+    assert bodies["rp2040"].id == "rp2"
 
 
 def test_index_title_returns_catalog_name_or_none() -> None:
@@ -249,10 +249,10 @@ def test_index_title_returns_catalog_name_or_none() -> None:
     assert cat.index_title("does-not-exist") is None
 
 
-def test_index_title_resolves_rp2_alias() -> None:
+def test_index_title_resolves_rp2040_alias() -> None:
     cat = ComponentCatalog()
-    cat._by_id = {"rp2040": _make_entry(entry_id="rp2040", name="RP2040 Platform")}
-    assert cat.index_title("rp2") == "RP2040 Platform"
+    cat._by_id = {"rp2": _make_entry(entry_id="rp2", name="RP2 Platform")}
+    assert cat.index_title("rp2040") == "RP2 Platform"
 
 
 # ── get_components() ────────────────────────────────────────────────

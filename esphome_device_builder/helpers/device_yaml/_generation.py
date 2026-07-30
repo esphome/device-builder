@@ -363,7 +363,7 @@ def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
 
     1. Platform ``esp32`` + variant in ESPHome's ``NO_WIFI_VARIANTS``
        (currently ``esp32h2`` / ``esp32p4``) → False.
-    2. Platform ``rp2040`` → True only when the PlatformIO board id
+    2. Platform ``rp2`` → True only when the PlatformIO board id
        is in ESPHome's RP2040 ``BOARDS`` table marked ``"wifi": True``
        (the Pico W / Pico 2 W / Pimoroni / SparkFun / Waveshare W
        variants — the plain Pico, plain Pico 2, Seeed XIAO RP2040,
@@ -422,7 +422,7 @@ def _append_platform_block(
                 # is set.
                 lines.extend(("    advanced:", "      enable_idf_experimental_features: true"))
     else:
-        # esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52 — board is required
+        # esp8266, rp2, bk72xx, rtl87xx, ln882x, nrf52 — board is required
         lines.append(f"  board: {esphome_cfg.board}")
     lines.append("")
 

@@ -1607,7 +1607,7 @@ def _make_board(
     [
         pytest.param(_make_board(platform=Platform.ESP32, variant="esp32c3"), True, id="esp32c3"),
         pytest.param(
-            _make_board(platform=Platform.RP2040, pio_board="rpipicow"), True, id="rp2040_picow"
+            _make_board(platform=Platform.RP2, pio_board="rpipicow"), True, id="rp2040_picow"
         ),
         pytest.param(
             _make_board(platform=Platform.ESP32, variant="esp32h2"),
@@ -1722,7 +1722,7 @@ def test_generate_yaml_omits_wifi_for_plain_rp2040_pico() -> None:
     inference reads ``esphome.components.rp2040.boards.BOARDS`` so
     we don't carry a hand-maintained list parallel to upstream.
     """
-    board = _make_board(platform=Platform.RP2040, pio_board="rpipico")
+    board = _make_board(platform=Platform.RP2, pio_board="rpipico")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "wifi:" not in yaml
 
@@ -1734,7 +1734,7 @@ def test_generate_yaml_emits_wifi_for_rp2040_pico_w() -> None:
     BOARDS lookup (typo in the key, accidentally querying ``mcu``
     instead of ``wifi``, etc.) surfaces here.
     """
-    board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
+    board = _make_board(platform=Platform.RP2, pio_board="rpipicow")
     yaml = generate_device_yaml("kitchen", "Kitchen", board, ssid="", psk="")
     assert "wifi:" in yaml
 
@@ -1953,14 +1953,14 @@ async def test_resolve_default_components_skips_featured_with_missing_body(
         ({"platform": "esp32", "variant": "esp32p4"}, False),
         ({"platform": "esp32", "variant": "ESP32H2"}, False),
         ({"platform": "esp32", "variant": None}, True),
-        # RP2040: W variants in upstream's BOARDS table → True;
+        # RP2: W variants in upstream's BOARDS table → True;
         # plain Pico / XIAO / etc. → False; unknown ids fail open.
-        ({"platform": "rp2040", "board": "rpipicow"}, True),
-        ({"platform": "rp2040", "board": "rpipico2w"}, True),
-        ({"platform": "rp2040", "board": "rpipico"}, False),
-        ({"platform": "rp2040", "board": "seeed_xiao_rp2040"}, False),
-        ({"platform": "rp2040", "board": "not-a-real-board"}, True),
-        ({"platform": "rp2040", "board": None}, True),
+        ({"platform": "rp2", "board": "rpipicow"}, True),
+        ({"platform": "rp2", "board": "rpipico2w"}, True),
+        ({"platform": "rp2", "board": "rpipico"}, False),
+        ({"platform": "rp2", "board": "seeed_xiao_rp2040"}, False),
+        ({"platform": "rp2", "board": "not-a-real-board"}, True),
+        ({"platform": "rp2", "board": None}, True),
         # Wi-Fi-first families default to True regardless of board /
         # variant; nRF52 is BLE-only; ``host`` compiles ESPHome to a
         # host binary with no radio at all; unknown platforms fail
@@ -2001,14 +2001,14 @@ def test_infer_native_wifi_routes_through_module_alias(
     monkeypatch.setattr(device_yaml._generation, "_has_native_wifi", _stub)
 
     esp32_board = _make_board(platform=Platform.ESP32, variant="esp32c3")
-    rp2040_board = _make_board(platform=Platform.RP2040, pio_board="rpipicow")
+    rp2040_board = _make_board(platform=Platform.RP2, pio_board="rpipicow")
 
     assert device_yaml._infer_native_wifi(esp32_board) is False
     assert device_yaml._infer_native_wifi(rp2040_board) is False
 
     assert calls == [
         {"platform": "esp32", "board": "", "variant": "esp32c3"},
-        {"platform": "rp2040", "board": "rpipicow", "variant": None},
+        {"platform": "rp2", "board": "rpipicow", "variant": None},
     ]
 
 
@@ -2533,36 +2533,13 @@ def test_load_device_uses_storage_core_platform_over_yaml(tmp_path: Path) -> Non
         "esphome:\n  name: kitchen\nesp32:\n  board: esp32-c3-devkitm-1\n",
         encoding="utf-8",
     )
-    # … but StorageJSON records rp2040 (post-codegen truth).
+    # … but StorageJSON records rp2 (post-codegen truth).
     # ``core_platform`` is the lowercase platform key upstream
     # writes alongside the uppercase ``target_platform`` chip
     # variant; override both to keep the on-disk shape consistent.
     write_storage_json(
         tmp_path,
         "kitchen.yaml",
-        overrides={
-            "core_platform": "rp2040",
-            "esp_platform": "RP2040",
-            "target_platform": "RP2040",
-        },
-    )
-
-    device = load_device_from_storage(yaml_path)
-
-    assert device.target_platform == "rp2040"
-
-
-@pytest.mark.usefixtures("_redirect_ext_storage")
-def test_load_device_folds_renamed_rp2_core_platform_to_rp2040(tmp_path: Path) -> None:
-    """A newer esphome's ``core_platform == "rp2"`` folds to the rp2040 catalog key."""
-    yaml_path = tmp_path / "pico.yaml"
-    yaml_path.write_text(
-        "esphome:\n  name: pico\nrp2:\n  board: rpipico\n",
-        encoding="utf-8",
-    )
-    write_storage_json(
-        tmp_path,
-        "pico.yaml",
         overrides={
             "core_platform": "rp2",
             "esp_platform": "RP2",
@@ -2572,7 +2549,30 @@ def test_load_device_folds_renamed_rp2_core_platform_to_rp2040(tmp_path: Path) -
 
     device = load_device_from_storage(yaml_path)
 
-    assert device.target_platform == "rp2040"
+    assert device.target_platform == "rp2"
+
+
+@pytest.mark.usefixtures("_redirect_ext_storage")
+def test_load_device_folds_legacy_rp2040_core_platform_to_rp2(tmp_path: Path) -> None:
+    """An older esphome's ``core_platform == "rp2040"`` folds to the rp2 catalog key."""
+    yaml_path = tmp_path / "pico.yaml"
+    yaml_path.write_text(
+        "esphome:\n  name: pico\nrp2040:\n  board: rpipico\n",
+        encoding="utf-8",
+    )
+    write_storage_json(
+        tmp_path,
+        "pico.yaml",
+        overrides={
+            "core_platform": "rp2040",
+            "esp_platform": "RP2040",
+            "target_platform": "RP2040",
+        },
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.target_platform == "rp2"
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

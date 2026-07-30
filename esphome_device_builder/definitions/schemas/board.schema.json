@@ -33,7 +33,7 @@
         "platform": {
           "type": "string",
           "description": "ESPHome platform.",
-          "enum": ["esp32", "esp8266", "rp2040", "bk72xx", "rtl87xx", "ln882x", "nrf52", "host"]
+          "enum": ["esp32", "esp8266", "rp2", "bk72xx", "rtl87xx", "ln882x", "nrf52", "host"]
         },
         "board": {
           "type": "string",

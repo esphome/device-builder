@@ -227,11 +227,11 @@ def test_apply_walks_nested_paths() -> None:
             ],
         },
     ]
-    constraints = {("outer", "inner"): ["rp2040"]}
+    constraints = {("outer", "inner"): ["rp2"]}
     _apply_platform_constraints(entries, constraints)
     inner = entries[0]["config_entries"][0]
     sibling = entries[0]["config_entries"][1]
-    assert inner["supported_platforms"] == ["rp2040"]
+    assert inner["supported_platforms"] == ["rp2"]
     assert "supported_platforms" not in sibling
 
 

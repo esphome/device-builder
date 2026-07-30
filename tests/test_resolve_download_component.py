@@ -57,10 +57,10 @@ def test_pass_through_for_first_class_platforms() -> None:
     """Platforms that are their own component name pass through unchanged.
 
     ``esp8266`` is a real ``esphome.components.esp8266`` package
-    — no remapping needed; same for ``host`` and ``rp2040``.
+    — no remapping needed; same for ``host`` and ``rp2``.
     """
     assert _resolve_download_component("esp8266") == "esp8266"
-    assert _resolve_download_component("rp2040") == "rp2040"
+    assert _resolve_download_component("rp2") == "rp2"
     assert _resolve_download_component("host") == "host"
 
 
@@ -73,13 +73,13 @@ def test_uppercase_first_class_platform_lowercased() -> None:
     lowercase component name in either case.
     """
     assert _resolve_download_component("ESP8266") == "esp8266"
-    assert _resolve_download_component("Rp2040") == "rp2040"
+    assert _resolve_download_component("Rp2") == "rp2"
 
 
-def test_rp2_folds_to_rp2040() -> None:
-    """The renamed ``rp2`` platform routes to the rp2040 download component."""
-    assert _resolve_download_component("rp2") == "rp2040"
-    assert _resolve_download_component("RP2") == "rp2040"
+def test_rp2040_folds_to_rp2() -> None:
+    """The deprecated ``rp2040`` spelling routes to the rp2 download component."""
+    assert _resolve_download_component("rp2040") == "rp2"
+    assert _resolve_download_component("RP2040") == "rp2"
 
 
 def test_unknown_platform_passes_through_lowercased() -> None:
@@ -127,7 +127,7 @@ def test_libretiny_family_modules_actually_export_get_download_types(family: str
     )
 
 
-@pytest.mark.parametrize("component", ["esp32", "esp8266", "rp2040"])
+@pytest.mark.parametrize("component", ["esp32", "esp8266", "rp2"])
 def test_first_class_component_modules_export_get_download_types(component: str) -> None:
     """Sanity for the non-LibreTiny modules our resolver returns.
 

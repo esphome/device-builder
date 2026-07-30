@@ -4,7 +4,7 @@ description: Raspberry Pi Pico with RP2040, dual-core Cortex-M0+ at 133 MHz, 2 M
   original Pico board, no wireless connectivity.
 manufacturer: Raspberry Pi
 esphome:
-  platform: rp2040
+  platform: rp2
   board: rpipico
   framework: arduino
 hardware:
@@ -13,7 +13,7 @@ hardware:
   cpu_frequency: 133MHz
 tags:
 - dev-kit
-docs_url: https://esphome.io/components/rp2040.html
+docs_url: https://esphome.io/components/rp2.html
 product_url: https://www.raspberrypi.org/products/raspberry-pi-pico/
 pins:
 - gpio: 0

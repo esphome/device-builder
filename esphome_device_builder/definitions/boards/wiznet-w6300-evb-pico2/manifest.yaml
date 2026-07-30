@@ -4,7 +4,7 @@ description: WIZnet W6300-EVB-Pico2 — RP2350 (Raspberry Pi Pico 2 form factor)
   controller wired over SPI. Wired-only networking, no Wi-Fi.
 manufacturer: WIZnet
 esphome:
-  platform: rp2040
+  platform: rp2
   board: wiznet_6300_evb_pico2
 hardware:
   flash_size: 4MB

@@ -43,8 +43,8 @@ def test_ram_psram_inclusive_is_quiet():
 def test_ram_per_chip_values():
     for platform, board, chip_kw, ram in [
         ("esp8266", "d1_mini", {}, 81920),
-        ("rp2040", "rpipico", {"mcu": "rp2040"}, 262144),
-        ("rp2040", "rpipico2", {"mcu": "rp2350"}, 524288),
+        ("rp2", "rpipico", {"mcu": "rp2040"}, 262144),
+        ("rp2", "rpipico2", {"mcu": "rp2350"}, 524288),
     ]:
         data = _board(platform, board, ram_size=ram, **chip_kw)
         assert vd.collect_hardware_warnings("b", data) == []

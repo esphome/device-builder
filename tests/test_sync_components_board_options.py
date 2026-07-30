@@ -98,6 +98,6 @@ def test_shipped_catalog_surfaces_board_combobox() -> None:
 
 
 def test_shipped_catalog_keeps_variant_platforms_boardless() -> None:
-    """esp32 / rp2040 stay variant-driven — no board entry in the editor catalog."""
+    """esp32 / rp2 stay variant-driven — no board entry in the editor catalog."""
     assert _board_entry("esp32") is None
-    assert _board_entry("rp2040") is None
+    assert _board_entry("rp2") is None

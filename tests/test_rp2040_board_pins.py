@@ -50,7 +50,7 @@ def test_catalog_generates_unmanifested_rp2040_board(
     # 0xcb_helios is in ESPHome's BOARDS but has no device-builder manifest.
     assert "0xcb_helios" in boards
     board = boards["0xcb_helios"]
-    assert board.esphome.platform.value == "rp2040"
+    assert board.esphome.platform.value == "rp2"
     assert [p.gpio for p in board.pins] == list(range(30))
 
 

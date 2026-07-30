@@ -4,7 +4,7 @@ description: Raspberry Pi Pico 2 with RP2350, dual-core Cortex-M33 at 150 MHz, 4
   performance upgrade over the original Pico.
 manufacturer: Raspberry Pi
 esphome:
-  platform: rp2040
+  platform: rp2
   board: rpipico2
   framework: arduino
 hardware:
@@ -14,7 +14,7 @@ hardware:
 tags:
 - dev-kit
 - usb-c
-docs_url: https://esphome.io/components/rp2040.html
+docs_url: https://esphome.io/components/rp2.html
 product_url: https://www.raspberrypi.org/products/raspberry-pi-pico/
 pins:
 - gpio: 0

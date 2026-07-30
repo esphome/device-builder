@@ -389,9 +389,9 @@ def _resolve_chip(esphome_cfg: dict) -> str | None:
         return _esp32_table_variant(esphome_cfg)
     if platform == "esp8266":
         return "esp8266"
-    if platform == "rp2040":
+    if platform == "rp2":
         mcu = esphome_cfg.get("mcu")
-        if mcu is None and (tables := _esphome_boards_table("rp2040")) is not None:
+        if mcu is None and (tables := _esphome_boards_table("rp2")) is not None:
             meta = tables.get(esphome_cfg.get("board"))
             if isinstance(meta, dict):
                 mcu = meta.get("mcu")

@@ -147,7 +147,7 @@ _LIBRETINY_MCU: dict[str, str] = {
 _PLATFORM_DOCS_URL: dict[Platform, str] = {
     Platform.ESP32: "https://esphome.io/components/esp32.html",
     Platform.ESP8266: "https://esphome.io/components/esp8266.html",
-    Platform.RP2040: "https://esphome.io/components/rp2040.html",
+    Platform.RP2: "https://esphome.io/components/rp2.html",
     Platform.BK72XX: "https://esphome.io/components/libretiny.html",
     Platform.RTL87XX: "https://esphome.io/components/libretiny.html",
     Platform.LN882X: "https://esphome.io/components/libretiny.html",
@@ -441,15 +441,15 @@ def _augment_rp2040_boards(boards: list[BoardCatalogEntry]) -> None:
     default_max_pin: int = module.DEFAULT_MAX_PIN
     for name, meta in module.BOARDS.items():
         display = _meta_name(meta, name)
-        if name in ids or _name_already_listed(Platform.RP2040, name, display, names):
+        if name in ids or _name_already_listed(Platform.RP2, name, display, names):
             continue
         max_pin = meta.get("max_pin", default_max_pin)
         pins = _resolve_board_pins(module.RP2040_BOARD_PINS, name) or {}
         boards.append(
-            _generated_board(Platform.RP2040, name, display, _derive_rp2040_pins(pins, max_pin))
+            _generated_board(Platform.RP2, name, display, _derive_rp2040_pins(pins, max_pin))
         )
         ids.add(name)
-        names.add((Platform.RP2040, display))
+        names.add((Platform.RP2, display))
 
 
 def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
@@ -463,7 +463,7 @@ def _backfill_rp2040_wifi(boards: list[BoardCatalogEntry]) -> None:
     """
     module = importlib.import_module("esphome.components.rp2040.boards")
     for board in boards:
-        if board.esphome.platform is Platform.RP2040 and BoardTag.WIFI not in board.tags:
+        if board.esphome.platform is Platform.RP2 and BoardTag.WIFI not in board.tags:
             meta = module.BOARDS.get(board.esphome.board)
             if isinstance(meta, dict) and meta.get("wifi"):
                 board.tags.append(BoardTag.WIFI)
@@ -480,7 +480,7 @@ def _backfill_rp2040_mcu(boards: list[BoardCatalogEntry]) -> None:
     """
     module = importlib.import_module("esphome.components.rp2040.boards")
     for board in boards:
-        if board.esphome.platform is Platform.RP2040:
+        if board.esphome.platform is Platform.RP2:
             meta = module.BOARDS.get(board.esphome.board)
             board.esphome.mcu = meta.get("mcu", "rp2040") if isinstance(meta, dict) else "rp2040"
 
@@ -547,7 +547,7 @@ def _augment_rp2040_onboard_ethernet_pins(boards: list[BoardCatalogEntry]) -> No
         if board.esphome.board in _RP2040_BASE_PINOUT_BOARD.values()
     }
     for board in boards:
-        if board.esphome.platform is not Platform.RP2040 or board.pins:
+        if board.esphome.platform is not Platform.RP2 or board.pins:
             continue
         ethernet = next(
             (fc for fc in board.featured_components if fc.component_id == "ethernet"), None

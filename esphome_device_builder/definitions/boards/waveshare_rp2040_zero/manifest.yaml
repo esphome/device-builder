@@ -4,7 +4,7 @@ description: Waveshare RP2040-Zero is a tiny RP2040 board (23x18mm) with USB-C, 
   pads. Affordable and compact Pico alternative.
 manufacturer: Waveshare
 esphome:
-  platform: rp2040
+  platform: rp2
   board: waveshare_rp2040_zero
   framework: arduino
 hardware:
@@ -14,7 +14,7 @@ hardware:
 tags:
 - compact
 - usb-c
-docs_url: https://esphome.io/components/rp2040.html
+docs_url: https://esphome.io/components/rp2.html
 product_url: https://www.raspberrypi.org/products/raspberry-pi-pico/
 pins:
 - gpio: 0

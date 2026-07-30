@@ -4,7 +4,7 @@ description: WIZnet W5100S-EVB-Pico — RP2040 (Raspberry Pi Pico form factor) w
   controller wired over SPI. Wired-only networking, no Wi-Fi.
 manufacturer: WIZnet
 esphome:
-  platform: rp2040
+  platform: rp2
   board: wiznet_5100s_evb_pico
 hardware:
   flash_size: 2MB

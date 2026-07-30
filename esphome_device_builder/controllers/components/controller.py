@@ -549,7 +549,7 @@ class ComponentCatalog:
         Map a wire id to the catalog body it resolves to.
 
         Regular ids return unchanged, except esphome 2026.7's ``rp2``
-        spelling, which resolves to the canonical ``rp2040`` body.
+        spelling, which resolves to the canonical ``rp2`` body.
         ``featured.<board>.<local>`` ids return the underlying
         ``<domain>.<stem>`` id from the featured registry. Returns
         ``None`` when the featured id is unknown so callers can skip

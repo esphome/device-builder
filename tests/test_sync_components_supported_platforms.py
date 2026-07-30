@@ -104,7 +104,7 @@ def test_propagate_narrows_through_chain() -> None:
 def test_propagate_uses_dependency_constraint_without_platform_deps() -> None:
     # ethernet's list comes from an override, not a target-platform dependency.
     entries = [
-        {"id": "ethernet", "dependencies": [], "supported_platforms": ["esp32", "rp2040"]},
+        {"id": "ethernet", "dependencies": [], "supported_platforms": ["esp32", "rp2"]},
         {
             "id": "text_sensor.ethernet_info",
             "dependencies": ["ethernet"],
@@ -112,13 +112,13 @@ def test_propagate_uses_dependency_constraint_without_platform_deps() -> None:
         },
     ]
     _propagate_platform_constraints(entries)
-    assert entries[1]["supported_platforms"] == ["esp32", "rp2040"]
+    assert entries[1]["supported_platforms"] == ["esp32", "rp2"]
 
 
 def test_propagate_keeps_constrained_entry_untouched() -> None:
-    platforms = ["rp2040", "esp32"]
+    platforms = ["rp2", "esp32"]
     entries = [
-        {"id": "i2s_audio", "dependencies": [], "supported_platforms": ["esp32", "rp2040"]},
+        {"id": "i2s_audio", "dependencies": [], "supported_platforms": ["esp32", "rp2"]},
         {
             "id": "speaker.i2s_audio",
             "dependencies": ["i2s_audio"],
@@ -128,7 +128,7 @@ def test_propagate_keeps_constrained_entry_untouched() -> None:
     _propagate_platform_constraints(entries)
     # equal set: original list object and order survive
     assert entries[1]["supported_platforms"] is platforms
-    assert platforms == ["rp2040", "esp32"]
+    assert platforms == ["rp2", "esp32"]
 
 
 def test_propagate_skips_unknown_and_unconstrained_dependencies() -> None:
@@ -166,7 +166,7 @@ def test_propagate_tolerates_cycles() -> None:
 def test_propagate_rejects_disjoint_constraints() -> None:
     entries = [
         {"id": "esp_hub", "dependencies": [], "supported_platforms": ["esp32"]},
-        {"id": "rp_hub", "dependencies": [], "supported_platforms": ["rp2040"]},
+        {"id": "rp_hub", "dependencies": [], "supported_platforms": ["rp2"]},
         {
             "id": "sensor.impossible",
             "dependencies": ["esp_hub", "rp_hub"],
@@ -184,7 +184,7 @@ def test_committed_microphone_i2s_audio_is_esp32_only() -> None:
 def test_committed_ethernet_info_inherits_ethernet_platforms() -> None:
     assert _index_by_id()["text_sensor.ethernet_info"].get("supported_platforms") == [
         "esp32",
-        "rp2040",
+        "rp2",
     ]
 
 

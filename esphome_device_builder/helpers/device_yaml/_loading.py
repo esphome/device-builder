@@ -196,7 +196,7 @@ def load_device_from_storage(
     )
 
     # ``Device.target_platform`` is the lowercase platform *key*
-    # (``esp32``, ``esp8266``, ``rp2040``, …) — the value the
+    # (``esp32``, ``esp8266``, ``rp2``, …) — the value the
     # frontend's PLATFORM column renders. Source order:
     #
     # 1. ``storage.core_platform`` — post-codegen ground truth

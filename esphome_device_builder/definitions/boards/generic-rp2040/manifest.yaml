@@ -5,11 +5,11 @@ description: Generic RP2040 development board. Select this if your specific boar
 manufacturer: Generic
 is_generic: true
 esphome:
-  platform: rp2040
+  platform: rp2
   board: rpipicow
   framework: arduino
 tags: []
-docs_url: https://esphome.io/components/rp2040.html
+docs_url: https://esphome.io/components/rp2.html
 pins:
 - gpio: 0
   label: GPIO0

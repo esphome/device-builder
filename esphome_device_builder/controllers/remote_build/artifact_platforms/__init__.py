@@ -13,9 +13,9 @@ from functools import cache
 
 from ....definitions import load_platform_capabilities_index
 from ....models.boards import normalize_platform
-from . import bk72xx, esp32, esp8266, ln882x, nrf52, rp2040, rtl87xx
+from . import bk72xx, esp32, esp8266, ln882x, nrf52, rp2, rtl87xx
 
-_PLATFORMS = (bk72xx, esp8266, esp32, ln882x, nrf52, rp2040, rtl87xx)
+_PLATFORMS = (bk72xx, esp8266, esp32, ln882x, nrf52, rp2, rtl87xx)
 
 
 @cache

@@ -48,7 +48,7 @@ def test_nrf52_does_not_steal_rp2040_itsybitsy(
     # can't serve both, so the clash leaves rp2040's entry in place rather than
     # shadowing it onto nRF52 pins.
     by_id = {b.id: b for b in generated_board_catalog.boards}
-    assert by_id["adafruit_itsybitsy"].esphome.platform.value == "rp2040"
+    assert by_id["adafruit_itsybitsy"].esphome.platform.value == "rp2"
     assert by_id["adafruit_itsybitsy_nrf52840"].esphome.platform.value == "nrf52"
 
 

@@ -314,7 +314,7 @@ _SKIP_KEYS: frozenset[str] = frozenset({"mqtt_id", "zigbee_id", "then"})
 # deprecated and the dashboard handles the underlying concern itself.
 # Keyed by ``(component_id, field_key)``.
 #
-# - ``esp32.board`` / ``rp2040.board``: these platforms carry a
+# - ``esp32.board`` / ``rp2.board``: these platforms carry a
 #   ``variant`` that the user selects instead (schema enforces
 #   ``has_at_least_one_key(board, variant)``), so the editor surfaces
 #   ``variant`` and the board itself comes from the board catalog. The
@@ -325,7 +325,7 @@ _DEPRECATED_FIELDS: frozenset[tuple[str, str]] = frozenset(
     {
         ("esp32", "board"),
         (RP2_CANONICAL_PLATFORM, "board"),
-        # esphome 2026.7's rename of the rp2040 component; extraction runs
+        # the deprecated rp2040 alias of the rp2 component; extraction runs
         # before ``_fold_rp2_component_alias`` re-keys it onto the canonical id.
         (RP2_ALIAS_PLATFORM, "board"),
     }
@@ -1383,11 +1383,11 @@ def _mark_platform_domains_multi_conf(entries: list[dict]) -> None:
 
 def _fold_rp2_component_alias(entries: list[dict]) -> None:
     """
-    Collapse esphome 2026.7's renamed ``rp2`` component onto the canonical id.
+    Collapse the deprecated ``rp2040`` alias entry onto the canonical ``rp2`` id.
 
-    The richer renamed schema is re-keyed, the alias shell dropped (its
-    identity fields kept), and ``dependencies`` folded so blocks spelled with
-    the canonical key satisfy them — see ``normalize_platform``.
+    The alias schema is re-keyed, the canonical shell's identity fields
+    win, and ``dependencies`` are folded so blocks spelled with either
+    key satisfy them — see ``normalize_platform``.
     """
     by_id = {entry["id"]: entry for entry in entries}
     if (rp2 := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
@@ -4651,7 +4651,7 @@ _CATEGORY_OVERRIDES: dict[str, str] = {
     "esp32": "core",
     "esp8266": "core",
     RP2_CANONICAL_PLATFORM: "core",
-    # esphome 2026.7's rename of rp2040; extraction categorizes before
+    # the deprecated rp2040 alias; extraction categorizes before
     # ``_fold_rp2_component_alias`` re-keys the entry onto the canonical id.
     RP2_ALIAS_PLATFORM: "core",
     "bk72xx": "core",
@@ -4704,9 +4704,9 @@ def _infer_misc_category(top_key: str) -> str:
 # no-op and the catalog ships without those fields populated.
 
 # Target-platform component ids — components named after a chip family
-# that act as the "platform" entry in YAML. ``rp2`` is the 2026.7 rename
-# of ``rp2040``; both stay listed so a dependency on either surfaces,
-# and ``_expand_libretiny`` folds the emitted key onto ``rp2040``.
+# that act as the "platform" entry in YAML. ``rp2040`` is the deprecated
+# alias of ``rp2``; both stay listed so a dependency on either surfaces,
+# and ``_expand_libretiny`` folds the emitted key onto ``rp2``.
 _TARGET_PLATFORMS: frozenset[str] = frozenset(
     {
         "esp32",
@@ -5734,8 +5734,8 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
                 continue
             if value is vol.UNDEFINED or not _is_json_safe(value):
                 continue
-            # The catalog stays keyed on ``rp2040``; esphome 2026.7's
-            # ``SplitDefault(rp2=...)`` keys must fold onto it or the
+            # The catalog keys on ``rp2``; a legacy ``SplitDefault``
+            # spelled with the rp2040 alias must fold onto it or the
             # resolver never matches (see models/boards.py).
             per_platform[normalize_platform(str(plat))] = value
         if per_platform:

@@ -4,7 +4,7 @@ description: Seeed XIAO RP2040 is a tiny RP2040 board (21x17mm) with dual-core C
   programmable RGB LED. Compatible with Arduino and MicroPython.
 manufacturer: Seeed
 esphome:
-  platform: rp2040
+  platform: rp2
   board: seeed_xiao_rp2040
   framework: arduino
 hardware:
@@ -15,7 +15,7 @@ tags:
 - compact
 - usb-c
 - rgb-led
-docs_url: https://esphome.io/components/rp2040.html
+docs_url: https://esphome.io/components/rp2.html
 product_url: https://www.raspberrypi.org/products/raspberry-pi-pico/
 pins:
 - gpio: 0

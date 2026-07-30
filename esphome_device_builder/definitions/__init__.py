@@ -647,7 +647,7 @@ class PlatformCapabilities(NamedTuple):
     libretiny_families: list[str]
     rp2040_no_wifi_boards: list[str]
     # ``{component: [{title, description, file}]}`` for the platforms whose
-    # download types are static (esp32 / esp8266 / rp2040). Build-dir-dependent
+    # download types are static (esp32 / esp8266 / rp2). Build-dir-dependent
     # platforms (libretiny / nrf52) are absent and resolved via subprocess.
     download_types: dict[str, list[dict[str, str]]]
     # Every shipped component directory name — including the schema-less

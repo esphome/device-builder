@@ -256,23 +256,23 @@ async def test_get_boards_filters_by_mcu_splitting_the_rp2040_platform() -> None
         [
             _board(
                 board_id="rpipico",
-                platform=Platform.RP2040,
+                platform=Platform.RP2,
                 pio_board="rpipico",
                 mcu="rp2040",
             ),
             _board(
                 board_id="rpipico2",
-                platform=Platform.RP2040,
+                platform=Platform.RP2,
                 pio_board="rpipico2",
                 mcu="rp2350",
             ),
         ],
     )
 
-    rp2350 = await cat.get_boards(platform=Platform.RP2040, mcu="rp2350")
+    rp2350 = await cat.get_boards(platform=Platform.RP2, mcu="rp2350")
     assert {b.id for b in rp2350.boards} == {"rpipico2"}
 
-    rp2040 = await cat.get_boards(platform=Platform.RP2040, mcu="rp2040")
+    rp2040 = await cat.get_boards(platform=Platform.RP2, mcu="rp2040")
     assert {b.id for b in rp2040.boards} == {"rpipico"}
 
 
@@ -281,7 +281,7 @@ async def test_get_boards_folds_renamed_rp2_platform() -> None:
     cat = BoardCatalog()
     _seed_catalog(
         cat,
-        [_board(board_id="rpipico", platform=Platform.RP2040, pio_board="rpipico", mcu="rp2040")],
+        [_board(board_id="rpipico", platform=Platform.RP2, pio_board="rpipico", mcu="rp2040")],
     )
 
     result = await cat.get_boards(platform="rp2")
@@ -651,7 +651,7 @@ def test_find_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None:
     catalog._boards = [
         _board(
             board_id="adafruit_itsybitsy",
-            platform=Platform.RP2040,
+            platform=Platform.RP2,
             pio_board="adafruit_itsybitsy",
         ),
         _board(
@@ -660,9 +660,9 @@ def test_find_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None:
             pio_board="adafruit_itsybitsy",
         ),
     ]
-    rp = catalog.find_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2040)
+    rp = catalog.find_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2)
     nrf = catalog.find_by_pio_board("adafruit_itsybitsy", platform="nrf52")
-    assert rp is not None and rp.esphome.platform is Platform.RP2040
+    assert rp is not None and rp.esphome.platform is Platform.RP2
     assert nrf is not None and nrf.esphome.platform is Platform.NRF52
 
 
@@ -675,7 +675,7 @@ def test_find_by_pio_board_scoped_miss_returns_none(catalog: BoardCatalog) -> No
     catalog._boards = [
         _board(
             board_id="adafruit_itsybitsy",
-            platform=Platform.RP2040,
+            platform=Platform.RP2,
             pio_board="adafruit_itsybitsy",
         ),
     ]
@@ -701,7 +701,7 @@ def test_find_all_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None
     catalog._boards = [
         _board(
             board_id="adafruit_itsybitsy",
-            platform=Platform.RP2040,
+            platform=Platform.RP2,
             pio_board="adafruit_itsybitsy",
         ),
         _board(
@@ -711,7 +711,7 @@ def test_find_all_by_pio_board_scopes_to_platform(catalog: BoardCatalog) -> None
         ),
     ]
 
-    rp = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2040)
+    rp = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform=Platform.RP2)
     nrf = catalog.find_all_by_pio_board("adafruit_itsybitsy", platform="nrf52")
 
     assert [b.id for b in rp] == ["adafruit_itsybitsy"]
@@ -805,7 +805,7 @@ def test_find_by_platform_variant_folds_renamed_rp2() -> None:
     cat = BoardCatalog()
     _seed_catalog(
         cat,
-        [_board(board_id="rpipico", platform=Platform.RP2040, pio_board="rpipico", mcu="rp2040")],
+        [_board(board_id="rpipico", platform=Platform.RP2, pio_board="rpipico", mcu="rp2040")],
     )
 
     assert cat.find_by_platform_variant("rp2") == cat.find_by_platform_variant("rp2040")

@@ -37,8 +37,8 @@ class Connectivity(StrEnum):
 
 # Canonical and accepted-alias spellings of the RP2 platform key;
 # a canonical-key flip starts by swapping these values.
-RP2_CANONICAL_PLATFORM = "rp2040"
-RP2_ALIAS_PLATFORM = "rp2"
+RP2_CANONICAL_PLATFORM = "rp2"
+RP2_ALIAS_PLATFORM = "rp2040"
 
 
 class Platform(StrEnum):
@@ -46,7 +46,7 @@ class Platform(StrEnum):
 
     ESP32 = "esp32"
     ESP8266 = "esp8266"
-    RP2040 = RP2_CANONICAL_PLATFORM
+    RP2 = RP2_CANONICAL_PLATFORM
     BK72XX = "bk72xx"
     RTL87XX = "rtl87xx"
     LN882X = "ln882x"
@@ -58,7 +58,7 @@ class Platform(StrEnum):
         # Hand-curated manifests and wire payloads may carry either RP2
         # spelling; fold both onto the canonical member.
         if isinstance(value, str) and value.lower() in RP2_PLATFORM_ALIASES:
-            return cls.RP2040
+            return cls.RP2
         return None
 
 
@@ -135,7 +135,7 @@ class BoardEsphomeConfig(DashboardModel):
     variant: str | None = None
     framework: str | None = None  # "arduino" or "esp-idf"
     # Chip series within an ESPHome platform that lumps several under one
-    # key: currently rp2040 ("rp2040" / "rp2350"). Reusable to split the
+    # key: currently rp2 ("rp2040" / "rp2350"). Reusable to split the
     # libretiny families (e.g. bk72xx chips) the same way later. None where
     # the platform needs no split; esp32 uses ``variant`` for the same role.
     mcu: str | None = None

@@ -75,7 +75,7 @@ def test_index_within_installed_esphome() -> None:
         (set(caps.rp2040_no_wifi_boards), installed_no_wifi_boards),
         (set(caps.esp32_board_variants), set(ESP32_BOARDS)),
     ]
-    for component in ("esp32", "esp8266", "rp2040"):
+    for component in ("esp32", "esp8266", "rp2"):
         module = importlib.import_module(f"esphome.components.{component}")
         upstream = {entry["file"] for entry in module.get_download_types(sentinel)}
         pairs.append(({entry["file"] for entry in caps.download_types[component]}, upstream))

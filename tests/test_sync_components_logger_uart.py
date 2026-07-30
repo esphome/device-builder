@@ -46,7 +46,7 @@ def test_uart_keys_use_shared_variant_normaliser() -> None:
 def test_uart_options_cover_every_platform() -> None:
     """Introspection yields one option list per supported chip / variant."""
     opts = _logger_uart_platform_options()
-    assert {"esp32", "esp32_c3", "esp32_s2", "esp8266", "rp2040", "bk72xx", "nrf52"} <= set(opts)
+    assert {"esp32", "esp32_c3", "esp32_s2", "esp8266", "rp2", "bk72xx", "nrf52"} <= set(opts)
     # Variant-specific divergence: C3 has USB_SERIAL_JTAG, base esp32 does not.
     esp32_values = {o["value"] for o in opts["esp32"]}
     c3_values = {o["value"] for o in opts["esp32_c3"]}

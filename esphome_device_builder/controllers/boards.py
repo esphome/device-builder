@@ -101,7 +101,7 @@ class BoardCatalog:
         Get boards with optional filtering, search, and pagination.
 
         ``query`` matches the board id, name, manufacturer, description
-        and tags. ``mcu`` narrows the rp2040 platform to one chip series
+        and tags. ``mcu`` narrows the rp2 platform to one chip series
         ("rp2040" / "rp2350"). Sort order: featured first; generics next;
         WiFi-capable boards ahead of non-WiFi within each group; then
         alphabetically. Returns slim :class:`BoardCatalogIndex` entries —
@@ -194,7 +194,7 @@ class BoardCatalog:
         :meth:`get_board` for pins / featured_components.
 
         ``platform`` scopes the match to one ESPHome platform — nRF52 and
-        rp2040 both ship an ``adafruit_itsybitsy``, so an unscoped lookup
+        rp2 both ship an ``adafruit_itsybitsy``, so an unscoped lookup
         would serve wrong-platform pins. A scoped miss returns ``None``.
 
         Several entries can share a PlatformIO board id (products built on one

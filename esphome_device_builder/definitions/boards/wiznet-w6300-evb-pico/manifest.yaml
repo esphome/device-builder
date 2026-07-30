@@ -4,7 +4,7 @@ description: WIZnet W6300-EVB-Pico — RP2040 (Raspberry Pi Pico form factor) wi
   controller wired over SPI. Wired-only networking, no Wi-Fi.
 manufacturer: WIZnet
 esphome:
-  platform: rp2040
+  platform: rp2
   board: wiznet_6300_evb_pico
 hardware:
   flash_size: 2MB

@@ -162,7 +162,7 @@ def _download_types_for(
 ) -> list[dict]:
     """Return ``get_download_types`` entries for *storage*'s platform.
 
-    Static platforms (esp32 / esp8266 / rp2040) come straight from the
+    Static platforms (esp32 / esp8266 / rp2) come straight from the
     precomputed catalog index. Build-dir-dependent platforms (libretiny / nrf52)
     are answered by the device-builder-helper subprocess, so the long-lived
     process never imports ``esphome.components.*``. A missing *storage_path* or a

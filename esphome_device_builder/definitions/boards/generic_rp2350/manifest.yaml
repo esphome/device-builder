@@ -3,7 +3,7 @@ name: RP2350
 description: Board by Generic with 16MB flash, 150MHz.
 manufacturer: Generic
 esphome:
-  platform: rp2040
+  platform: rp2
   board: generic_rp2350
   framework: arduino
 hardware:
@@ -11,7 +11,7 @@ hardware:
   ram_size: 524288
   cpu_frequency: 150MHz
 tags: []
-docs_url: https://esphome.io/components/rp2040.html
+docs_url: https://esphome.io/components/rp2.html
 product_url: https://www.raspberrypi.org/products/raspberry-pi-pico/
 pins:
 - gpio: 0

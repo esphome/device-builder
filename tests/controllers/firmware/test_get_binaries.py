@@ -5,7 +5,7 @@ downloadable artifacts for its ``target_platform``. Since the dashboard process
 must not import ``esphome.components.*``, the source of the platform's download
 types is split:
 
-- Static platforms (esp32 / esp8266 / rp2040) come from the generated
+- Static platforms (esp32 / esp8266 / rp2) come from the generated
   ``platform_capabilities.index.json``.
 - Build-dir-dependent platforms (libretiny / nrf52) are answered by the
   ``device-builder-helper`` subprocess.
@@ -122,7 +122,7 @@ def test_resolve_download_component_routes_every_libretiny_family_to_umbrella(
     assert _resolve_download_component(family) == "libretiny"
 
 
-@pytest.mark.parametrize("platform", ["rp2040", "host", "rtl8710b-unknown-vendor"])
+@pytest.mark.parametrize("platform", ["rp2", "host", "rtl8710b-unknown-vendor"])
 def test_resolve_download_component_passes_unmapped_platforms_through(
     platform: str,
 ) -> None:
@@ -331,9 +331,9 @@ async def test_get_binaries_logs_and_returns_empty_on_helper_failure(
     [
         ("esp32c3", {"firmware.factory.bin", "firmware.ota.bin"}),
         ("esp8266", {"firmware.bin"}),
-        ("rp2040", {"firmware.uf2", "firmware.ota.bin"}),
-        # rp2 folds to the rp2040-keyed index entries.
         ("rp2", {"firmware.uf2", "firmware.ota.bin"}),
+        # the deprecated rp2040 spelling folds to the rp2-keyed index entries.
+        ("rp2040", {"firmware.uf2", "firmware.ota.bin"}),
     ],
 )
 async def test_get_binaries_static_platform_uses_precomputed_index(

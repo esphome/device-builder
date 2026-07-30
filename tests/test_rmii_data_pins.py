@@ -88,7 +88,7 @@ def test_spi_ethernet_board_untouched() -> None:
 def test_non_esp32_board_skipped() -> None:
     """A non-esp32 board is skipped even with an RMII-looking ethernet block."""
     board = _board(
-        platform=Platform.RP2040,
+        platform=Platform.RP2,
         variant=None,
         eth_fields={"type": "LAN8720", "mdc_pin": "GPIO23"},
     )

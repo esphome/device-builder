@@ -29,7 +29,7 @@ def _base(board: str, mcu: str) -> BoardCatalogEntry:
         name=board,
         description="d",
         manufacturer="",
-        esphome=BoardEsphomeConfig(platform=Platform.RP2040, board=board, mcu=mcu),
+        esphome=BoardEsphomeConfig(platform=Platform.RP2, board=board, mcu=mcu),
         pins=pins,
     )
 
@@ -40,7 +40,7 @@ def _eth_board(*, board: str, mcu: str, fields: dict[str, str]) -> BoardCatalogE
         name=board,
         description="d",
         manufacturer="",
-        esphome=BoardEsphomeConfig(platform=Platform.RP2040, board=board, mcu=mcu),
+        esphome=BoardEsphomeConfig(platform=Platform.RP2, board=board, mcu=mcu),
         featured_components=[
             FeaturedComponent(
                 id="onboard_ethernet",
@@ -124,7 +124,7 @@ def test_non_ethernet_rp2040_board_skipped() -> None:
         name="x",
         description="d",
         manufacturer="",
-        esphome=BoardEsphomeConfig(platform=Platform.RP2040, board="x", mcu="rp2040"),
+        esphome=BoardEsphomeConfig(platform=Platform.RP2, board="x", mcu="rp2040"),
         pins=[],
     )
     _augment_rp2040_onboard_ethernet_pins([_base("rpipico", "rp2040"), board])

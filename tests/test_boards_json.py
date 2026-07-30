@@ -768,5 +768,5 @@ def test_every_board_has_a_docs_url() -> None:
     docs = {b.id: b.docs_url for b in load_board_index()}
     assert all(docs.values()), [bid for bid, url in docs.items() if not url]
     # Generated (unmanifested) boards take the per-platform default.
-    assert docs["MyRP_2350B"] == "https://esphome.io/components/rp2040.html"
-    assert docs["rpipico2w"] == "https://esphome.io/components/rp2040.html"
+    assert docs["MyRP_2350B"] == "https://esphome.io/components/rp2.html"
+    assert docs["rpipico2w"] == "https://esphome.io/components/rp2.html"
