@@ -145,7 +145,7 @@ manufacturer: "Acme Corp"
 
 # ESPHome configuration — maps directly to the ESPHome YAML platform block
 esphome:
-  platform: esp32              # esp32, esp8266, rp2040, bk72xx, rtl87xx, ln882x, nrf52, host
+  platform: esp32              # esp32, esp8266, rp2, bk72xx, rtl87xx, ln882x, nrf52, host
   board: esp32-s3-devkitc-1    # PlatformIO board ID
   variant: esp32s3             # ESP32 chip variant only (omit otherwise)
   framework: esp-idf           # arduino, esp-idf, or zephyr (omit for platform default)

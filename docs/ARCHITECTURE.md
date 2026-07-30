@@ -342,8 +342,8 @@ Green. Two mechanisms keep it out:
 
 - **Snapshot the static data.** Everything the dashboard needs that's keyed on
   the esphome version (esp32 variants + libretiny families for download
-  routing, esp32 no-wifi variants + rp2040 no-wifi boards for wifi inference,
-  and the static `get_download_types` lists for esp32/esp8266/rp2040) is
+  routing, esp32 no-wifi variants + rp2 no-wifi boards for wifi inference,
+  and the static `get_download_types` lists for esp32/esp8266/rp2) is
   generated into `definitions/platform_capabilities.index.json` by
   `script/sync_components.py` and read at runtime via
   `load_platform_capabilities_index`. The committed index is a subset of the

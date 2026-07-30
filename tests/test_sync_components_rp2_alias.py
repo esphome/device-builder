@@ -43,22 +43,23 @@ def _entry(component_id: str, **overrides: object) -> dict:
     return entry
 
 
-def test_fold_rekeys_rp2040_and_drops_shell() -> None:
-    legacy = _entry(
-        "rp2040",
-        name="RP2040 Platform",
-        description="Covers RP2040 and RP2350.",
-        docs_url="https://esphome.io/components/rp2",
-        config_entries=[{"key": "board"}, {"key": "variant"}],
-    )
-    shell = _entry(
+def test_fold_drops_the_alias_and_keeps_the_rich_rp2_body() -> None:
+    rich = _entry(
         "rp2",
         name="RP2 Platform",
         category="core",
+        description="Covers RP2040 and RP2350.",
+        docs_url="https://esphome.io/components/rp2",
         image_url="https://esphome.io/images/rp2.svg",
+        config_entries=[{"key": "board"}, {"key": "variant"}],
+    )
+    legacy = _entry(
+        "rp2040",
+        name="RP2040 Platform",
+        description="Sparse alias copy.",
         config_entries=[{"key": "variant"}],
     )
-    entries = [legacy, shell]
+    entries = [rich, legacy]
 
     sync_components._fold_rp2_component_alias(entries)
 
@@ -72,21 +73,23 @@ def test_fold_rekeys_rp2040_and_drops_shell() -> None:
     assert [e["key"] for e in folded["config_entries"]] == ["board", "variant"]
 
 
-def test_fold_rekeys_rp2040_without_shell() -> None:
+def test_fold_rekeys_a_lone_rp2040_entry() -> None:
     entries = [_entry("rp2040", name="RP2040 Platform")]
     sync_components._fold_rp2_component_alias(entries)
     assert [e["id"] for e in entries] == ["rp2"]
     assert entries[0]["name"] == "RP2040 Platform"
 
 
-def test_fold_keeps_rp2040_fields_over_empty_shell_fields() -> None:
+def test_fold_borrows_identity_fields_the_rich_entry_lacks() -> None:
     entries = [
-        _entry("rp2040", image_url="https://esphome.io/images/rp2040.svg"),
-        _entry("rp2", category="core", image_url=""),
+        _entry("rp2", category="core", image_url="", config_entries=[{"key": "variant"}]),
+        _entry("rp2040", image_url="https://esphome.io/images/rp2040.svg", category="misc"),
     ]
     sync_components._fold_rp2_component_alias(entries)
+    assert [e["id"] for e in entries] == ["rp2"]
     assert entries[0]["image_url"] == "https://esphome.io/images/rp2040.svg"
     assert entries[0]["category"] == "core"
+    assert [e["key"] for e in entries[0]["config_entries"]] == ["variant"]
 
 
 def test_fold_rewrites_dependencies() -> None:
@@ -118,8 +121,11 @@ def test_shipped_index_has_no_rp2040_alias() -> None:
 
 def test_shipped_rp2_body_is_the_real_schema() -> None:
     body = json.loads((_DEFINITIONS / "components" / "rp2.json").read_text())
-    keys = {entry["key"] for entry in body["config_entries"]}
-    assert "variant" in keys
+    entries = {entry["key"]: entry for entry in body["config_entries"]}
     # Variant-driven platform: ``board`` stays stripped (_DEPRECATED_FIELDS);
     # the board catalog supplies it.
-    assert "board" not in keys
+    assert "board" not in entries
+    # Value-level: the docs-repaired schema, not the sparse alias shell.
+    variant = entries["variant"]
+    assert "rp2350" in variant["description"]
+    assert variant.get("help_link")

@@ -1385,18 +1385,20 @@ def _fold_rp2_component_alias(entries: list[dict]) -> None:
     """
     Collapse the deprecated ``rp2040`` alias entry onto the canonical ``rp2`` id.
 
-    The alias schema is re-keyed, the canonical shell's identity fields
-    win, and ``dependencies`` are folded so blocks spelled with either
-    key satisfy them — see ``normalize_platform``.
+    Upstream ships the real (docs-repaired) schema under ``rp2``, so that
+    body always wins; the sparse alias entry is dropped, contributing
+    only identity fields ``rp2`` lacks. ``dependencies`` fold so blocks
+    spelled with either key satisfy them — see ``normalize_platform``.
     """
     by_id = {entry["id"]: entry for entry in entries}
-    if (rp2 := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
-        rp2["id"] = RP2_CANONICAL_PLATFORM
-        if (shell := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
+    if (legacy := by_id.get(RP2_ALIAS_PLATFORM)) is not None:
+        if (rich := by_id.get(RP2_CANONICAL_PLATFORM)) is not None:
             for key in ("name", "image_url", "category"):
-                if shell.get(key):
-                    rp2[key] = shell[key]
-            entries.remove(shell)
+                if not rich.get(key) and legacy.get(key):
+                    rich[key] = legacy[key]
+            entries.remove(legacy)
+        else:
+            legacy["id"] = RP2_CANONICAL_PLATFORM
     for entry in entries:
         deps = entry.get("dependencies")
         if deps and RP2_ALIAS_PLATFORM in deps:
