@@ -247,11 +247,10 @@ def test_emit_writes_the_empty_steady_state(
     assert orjson.loads(out_path.read_bytes()) == {"rules": []}
 
 
-def test_live_alias_sweep_emits_the_rp2_rule() -> None:
-    """The venv esphome's rp2 ALIASES entry lands as a component_key rule."""
+def test_live_alias_sweep_classifies_cleanly() -> None:
+    """Every alias the installed esphome declares is expressible or acknowledged."""
     pytest.importorskip("esphome.loader")
     _sweep_component_aliases()
-    assert ("component_key", "", "", "", "rp2040", "rp2") in _MIGRATION_RULES
     assert set() == _UNHANDLED_ALIASES
 
 
@@ -261,10 +260,11 @@ def _fake_loader(
     canonical: str,
     manifest: SimpleNamespace | None,
     platform_manifest: SimpleNamespace | None = None,
+    legacy: str = "legacy_x",
 ) -> None:
     loader = SimpleNamespace(
         get_alias_metadata=lambda: {
-            "legacy_x": SimpleNamespace(canonical=canonical, removal_version=None)
+            legacy: SimpleNamespace(canonical=canonical, removal_version=None)
         },
         get_component=lambda name: manifest,
         get_platform=lambda domain, stem: platform_manifest,
@@ -307,6 +307,21 @@ def test_unresolvable_alias_canonical_falls_to_the_canary(
     _fake_loader(monkeypatch, canonical="canon_x", manifest=None)
     _sweep_component_aliases()
     assert {("legacy_x", "canon_x")} == _UNHANDLED_ALIASES
+
+
+def test_target_platform_alias_needs_parser_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A target-platform alias whose canonical the dashboard can't parse is inexpressible."""
+    _fake_loader(
+        monkeypatch,
+        legacy="esp32",
+        canonical="esp32_new",
+        manifest=SimpleNamespace(is_platform_component=False),
+    )
+    _sweep_component_aliases()
+    assert set() == _MIGRATION_RULES
+    assert {("esp32", "esp32_new")} == _UNHANDLED_ALIASES
 
 
 def test_acknowledged_alias_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:

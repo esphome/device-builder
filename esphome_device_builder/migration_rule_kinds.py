@@ -6,9 +6,7 @@ pre-commit env.
 
 from __future__ import annotations
 
-#: Shapes the generic rules deliberately don't reach — check when the
-#: first real pair lands: flow-style list items, and the legacy
-#: bare-mapping ``ota:`` / ``time:`` form (implicit platform).
+#: Extra non-empty string fields each rule kind requires beyond old/new.
 MIGRATION_RULE_EXTRA_FIELDS: dict[str, tuple[str, ...]] = {
     "component_block_field": ("component",),
     "platform_item_field": ("domain", "platform"),

@@ -8314,14 +8314,16 @@ def _sweep_component_aliases() -> None:
     """
     Emit each esphome component ALIAS as a ``component_key`` migration rule.
 
-    An alias the top-level key respell can't cover falls to the canary:
-    the canonical registers platforms under a domain (the legacy name
-    appears as ``- platform:`` values) or is itself a platform domain.
+    An alias the respell can't safely cover falls to the canary: the
+    canonical registers platforms under a domain (the legacy name
+    appears as ``- platform:`` values), is itself a platform domain, or
+    is a target platform whose canonical spelling the dashboard's
+    parser doesn't know yet.
     """
     loader = _get_esphome_loader()
-    if loader is None:
+    if loader is None or getattr(loader, "get_alias_metadata", None) is None:
         raise SystemExit(
-            "esphome.loader unavailable; the component-ALIAS sweep can't guard this sync"
+            "esphome.loader lacks alias metadata; the component-ALIAS sweep can't guard this sync"
         )
     for legacy, meta in loader.get_alias_metadata().items():
         if legacy in _HANDLED_ALIASES:
@@ -8329,12 +8331,22 @@ def _sweep_component_aliases() -> None:
         manifest = loader.get_component(meta.canonical)
         if (
             manifest is None
-            or bool(getattr(manifest, "is_platform_component", False))
+            or manifest.is_platform_component
             or _enumerate_platform_manifests_by_domain(loader, meta.canonical)
+            or (_known_target_platform(legacy) and not _known_target_platform(meta.canonical))
         ):
             _UNHANDLED_ALIASES.add((legacy, meta.canonical))
             continue
         _MIGRATION_RULES.add(("component_key", "", "", "", legacy, meta.canonical))
+
+
+def _known_target_platform(name: str) -> bool:
+    """Report whether the dashboard's ``Platform`` enum resolves *name*."""
+    try:
+        Platform(name)
+    except ValueError:
+        return False
+    return True
 
 
 def _fail_on_unhandled_renames() -> None:
