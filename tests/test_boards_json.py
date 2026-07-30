@@ -774,7 +774,7 @@ def test_every_board_has_a_docs_url() -> None:
 
 
 def test_every_platform_has_generic_board_art() -> None:
-    """Each platform's ``_generic/<key>.svg`` fallback exists; a key rename must rename the art."""
+    """Each platform's ``_generic/<key>.svg`` art fallback exists."""
     generic_dir = (
         Path(esphome_device_builder.__file__).parent / "definitions" / "boards" / "_generic"
     )
