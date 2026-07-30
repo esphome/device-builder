@@ -975,6 +975,7 @@ def main() -> int:
         sum(1 for c in catalog if c.get("config_entries")),
     )
     _sweep_registry_rename_keys()
+    _sweep_component_aliases()
     _fail_on_unhandled_rename_keys()
 
     # Collected (and guarded) before any emit so the abort below leaves
@@ -3710,7 +3711,7 @@ def _emit_migration_rules_index() -> None:
         record = {"kind": kind, "old": old, "new": new}
         if kind == "component_block_field":
             record["component"] = component
-        else:
+        elif kind == "platform_item_field":
             record["domain"] = domain
             record["platform"] = platform
         rules.append(record)
@@ -8253,6 +8254,16 @@ _HANDLED_RENAME_KEYS = {
 
 _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
+#: Component ALIASES acknowledged as bespoke-handled on the dashboard
+#: side, keyed on the legacy name. Empty is the steady state: a
+#: top-level alias ships data-driven as a ``component_key`` rule.
+_HANDLED_ALIASES: set[str] = set()
+
+#: ``(legacy, canonical)`` aliases the ``component_key`` rule can't
+#: express (the alias sits on a platform component, whose legacy
+#: spelling also appears as ``- platform:`` values).
+_UNHANDLED_ALIASES: set[tuple[str, str]] = set()
+
 #: ``(kind, component, domain, platform, old, new)`` rows bound for the
 #: migration-rules artifact.
 _MIGRATION_RULES: set[tuple[str, str, str, str, str, str]] = set()
@@ -8298,28 +8309,58 @@ def _classify_rename_pairs(
             _UNHANDLED_RENAME_KEYS.add((component_id, old, new))
 
 
+def _sweep_component_aliases() -> None:
+    """
+    Emit each esphome component ALIAS as a ``component_key`` migration rule.
+
+    An alias on a platform component falls to the canary instead: its
+    legacy spelling also appears as ``- platform:`` values, which a
+    top-level key respell can't reach.
+    """
+    loader = _get_esphome_loader()
+    for legacy, meta in loader.get_alias_metadata().items():
+        if legacy in _HANDLED_ALIASES:
+            continue
+        manifest = loader.get_component(meta.canonical)
+        if manifest is None or manifest.is_platform_component:
+            _UNHANDLED_ALIASES.add((legacy, meta.canonical))
+            continue
+        _MIGRATION_RULES.add(("component_key", "", "", "", legacy, meta.canonical))
+
+
 def _fail_on_unhandled_rename_keys() -> None:
     """Abort the sync when upstream added a ``cv.rename_key`` we don't handle.
 
-    Also aborts when the sweep walked nothing at all — introspection's
-    best-effort early returns must not silence the canary.
+    Also aborts on an inexpressible component ALIAS, and when the sweep
+    walked nothing at all — introspection's best-effort early returns
+    must not silence the canary.
     """
     if _RENAME_SWEEP_COUNT[0] == 0:
         raise SystemExit(
             "the cv.rename_key sweep walked no schemas; introspection is "
             "broken and the rename canary can't guard this sync"
         )
-    if not _UNHANDLED_RENAME_KEYS:
-        return
-    rows = "\n".join(
-        f"  {component}: {old} -> {new}" for component, old, new in sorted(_UNHANDLED_RENAME_KEYS)
-    )
-    raise SystemExit(
-        "esphome added cv.rename_key pairs the dashboard doesn't handle:\n"
-        f"{rows}\n"
-        "Add hard-coded read support, a canonical respell on write, and a "
-        "migration helper for each, then extend _HANDLED_RENAME_KEYS."
-    )
+    if _UNHANDLED_RENAME_KEYS:
+        rows = "\n".join(
+            f"  {component}: {old} -> {new}"
+            for component, old, new in sorted(_UNHANDLED_RENAME_KEYS)
+        )
+        raise SystemExit(
+            "esphome added cv.rename_key pairs the dashboard doesn't handle:\n"
+            f"{rows}\n"
+            "Add hard-coded read support, a canonical respell on write, and a "
+            "migration helper for each, then extend _HANDLED_RENAME_KEYS."
+        )
+    if _UNHANDLED_ALIASES:
+        rows = "\n".join(
+            f"  {legacy} -> {canonical}" for legacy, canonical in sorted(_UNHANDLED_ALIASES)
+        )
+        raise SystemExit(
+            "esphome added component ALIASES the component_key migration "
+            "rule can't express:\n"
+            f"{rows}\n"
+            "Add bespoke handling for each, then acknowledge it in _HANDLED_ALIASES."
+        )
 
 
 def _collect_rename_keys(manifest: Any) -> dict[tuple[str, str], bool]:

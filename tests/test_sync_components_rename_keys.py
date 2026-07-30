@@ -12,12 +12,14 @@ from script import sync_components
 from script.sync_components import (  # type: ignore[import-not-found]
     _MIGRATION_RULES,
     _RENAME_SWEEP_COUNT,
+    _UNHANDLED_ALIASES,
     _UNHANDLED_RENAME_KEYS,
     _classify_rename_pairs,
     _collect_rename_keys,
     _emit_migration_rules_index,
     _fail_on_unhandled_rename_keys,
     _note_unhandled_rename_keys,
+    _sweep_component_aliases,
     introspect_component,
 )
 
@@ -35,10 +37,12 @@ def cv() -> ModuleType:
 @pytest.fixture(autouse=True)
 def _clean_accumulators():
     _UNHANDLED_RENAME_KEYS.clear()
+    _UNHANDLED_ALIASES.clear()
     _MIGRATION_RULES.clear()
     saved_sweeps = _RENAME_SWEEP_COUNT[0]
     yield
     _UNHANDLED_RENAME_KEYS.clear()
+    _UNHANDLED_ALIASES.clear()
     _MIGRATION_RULES.clear()
     _RENAME_SWEEP_COUNT[0] = saved_sweeps
 
@@ -216,11 +220,13 @@ def test_emit_writes_sorted_records(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", out_path)
     _MIGRATION_RULES.add(("platform_item_field", "", "sensor", "sgp4x", "voc", "voc_index"))
     _MIGRATION_RULES.add(("component_block_field", "ethernet", "", "", "old", "new"))
+    _MIGRATION_RULES.add(("component_key", "", "", "", "rp2040", "rp2"))
     _emit_migration_rules_index()
     payload = orjson.loads(out_path.read_bytes())
     assert payload == {
         "rules": [
             {"component": "ethernet", "kind": "component_block_field", "new": "new", "old": "old"},
+            {"kind": "component_key", "new": "rp2", "old": "rp2040"},
             {
                 "domain": "sensor",
                 "kind": "platform_item_field",
@@ -239,6 +245,58 @@ def test_emit_writes_the_empty_steady_state(
     monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", out_path)
     _emit_migration_rules_index()
     assert orjson.loads(out_path.read_bytes()) == {"rules": []}
+
+
+def test_live_alias_sweep_emits_the_rp2_rule() -> None:
+    """The venv esphome's rp2 ALIASES entry lands as a component_key rule."""
+    pytest.importorskip("esphome.loader")
+    _sweep_component_aliases()
+    assert ("component_key", "", "", "", "rp2040", "rp2") in _MIGRATION_RULES
+    assert set() == _UNHANDLED_ALIASES
+
+
+def _fake_loader(
+    monkeypatch: pytest.MonkeyPatch, *, canonical: str, manifest: SimpleNamespace | None
+) -> None:
+    loader = SimpleNamespace(
+        get_alias_metadata=lambda: {
+            "legacy_x": SimpleNamespace(canonical=canonical, removal_version=None)
+        },
+        get_component=lambda name: manifest,
+    )
+    monkeypatch.setattr(sync_components, "_get_esphome_loader", lambda: loader)
+
+
+def test_platform_component_alias_falls_to_the_canary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_loader(
+        monkeypatch, canonical="canon_x", manifest=SimpleNamespace(is_platform_component=True)
+    )
+    _sweep_component_aliases()
+    assert set() == _MIGRATION_RULES
+    assert {("legacy_x", "canon_x")} == _UNHANDLED_ALIASES
+    _RENAME_SWEEP_COUNT[0] = 1
+    with pytest.raises(SystemExit, match="legacy_x -> canon_x"):
+        _fail_on_unhandled_rename_keys()
+
+
+def test_unresolvable_alias_canonical_falls_to_the_canary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _fake_loader(monkeypatch, canonical="canon_x", manifest=None)
+    _sweep_component_aliases()
+    assert {("legacy_x", "canon_x")} == _UNHANDLED_ALIASES
+
+
+def test_acknowledged_alias_is_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    _fake_loader(
+        monkeypatch, canonical="canon_x", manifest=SimpleNamespace(is_platform_component=True)
+    )
+    monkeypatch.setattr(sync_components, "_HANDLED_ALIASES", {"legacy_x"})
+    _sweep_component_aliases()
+    assert set() == _MIGRATION_RULES
+    assert set() == _UNHANDLED_ALIASES
 
 
 def test_unhandled_pair_fails_the_sync() -> None:

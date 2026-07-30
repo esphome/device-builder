@@ -274,8 +274,10 @@ jobs:
               old_rules = []
 
           def rule_row(rule: dict) -> str:
-              anchor = rule.get("component") or f"{rule.get('domain')}/{rule.get('platform')}"
-              return f"{rule.get('kind')} {anchor}: {rule.get('old')} -> {rule.get('new')}"
+              anchor = rule.get("component") or rule.get("domain")
+              anchor = f"{anchor}/{rule.get('platform')}" if rule.get("platform") else anchor
+              prefix = f"{rule.get('kind')} {anchor}" if anchor else rule.get("kind")
+              return f"{prefix}: {rule.get('old')} -> {rule.get('new')}"
 
           old_rule_rows = {rule_row(r) for r in old_rules}
           new_rule_rows = {rule_row(r) for r in new_rules}

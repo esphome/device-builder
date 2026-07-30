@@ -562,7 +562,7 @@ def load_pin_registry_modes_index() -> dict[str, list[str]]:
 
 
 class MigrationRule(NamedTuple):
-    """One sync-discovered ``cv.rename_key`` applied generically by the migration engine."""
+    """One sync-discovered rename applied generically by the migration engine."""
 
     kind: str
     old: str
@@ -572,10 +572,12 @@ class MigrationRule(NamedTuple):
     platform: str = ""
 
 
-#: Shapes the generic rules deliberately don't reach — check when the
-#: first real pair lands: flow-style list items, and the legacy
-#: bare-mapping ``ota:`` / ``time:`` form (implicit platform).
-MIGRATION_RULE_KINDS = frozenset({"component_block_field", "platform_item_field"})
+#: ``component_key`` rows come from esphome component ALIASES; the field
+#: kinds from ``cv.rename_key``. Shapes the generic rules deliberately
+#: don't reach — check when the first real pair lands: flow-style list
+#: items, and the legacy bare-mapping ``ota:`` / ``time:`` form
+#: (implicit platform).
+MIGRATION_RULE_KINDS = frozenset({"component_block_field", "platform_item_field", "component_key"})
 
 
 @cache
@@ -632,11 +634,15 @@ def _coerce_migration_rule(record: Any) -> MigrationRule | None:
     new = _field("new")
     if kind not in MIGRATION_RULE_KINDS or old is None or new is None or old == new:
         return None
+    if kind == "component_key":
+        return MigrationRule(kind=kind, old=old, new=new)
     if kind == "component_block_field":
         component = _field("component")
-        if component is None:
-            return None
-        return MigrationRule(kind=kind, old=old, new=new, component=component)
+        return (
+            None
+            if component is None
+            else MigrationRule(kind=kind, old=old, new=new, component=component)
+        )
     domain = _field("domain")
     platform = _field("platform")
     if domain is None or platform is None:

@@ -437,7 +437,11 @@ wifi:
 """
 
 
-def test_rp2040_platform_key_respelled_to_rp2() -> None:
+_RP2_RULE = MigrationRule(kind="component_key", old="rp2040", new="rp2")
+
+
+def test_rp2040_platform_key_respelled_to_rp2(generated_rules: Callable[..., None]) -> None:
+    generated_rules(_RP2_RULE)
     new_text = _respell(_RP2040_YAML)
     assert "rp2:  # target platform\n" in new_text
     assert "rp2040" not in new_text
@@ -446,28 +450,38 @@ def test_rp2040_platform_key_respelled_to_rp2() -> None:
     assert "wifi:\n  ssid: foo\n" in new_text
 
 
-def test_rp2040_absent_untouched() -> None:
+def test_rp2040_absent_untouched(generated_rules: Callable[..., None]) -> None:
+    generated_rules(_RP2_RULE)
     assert render_migrations("esphome:\n  name: pico\n\nrp2:\n  board: rpipicow\n") is None
 
 
-def test_rp2040_beside_existing_rp2_untouched() -> None:
+def test_rp2040_beside_existing_rp2_untouched(generated_rules: Callable[..., None]) -> None:
+    generated_rules(_RP2_RULE)
     text = _RP2040_YAML + "\nrp2:\n  board: rpipico\n"
     assert render_migrations(text) is None
 
 
-def test_rp2040_prefixed_components_untouched() -> None:
+def test_rp2040_prefixed_components_untouched(generated_rules: Callable[..., None]) -> None:
+    generated_rules(_RP2_RULE)
     text = "rp2040:\n  board: rpipicow\n\noutput:\n  - platform: rp2040_pwm\n    pin: 1\n"
     new_text = _respell(text)
     assert new_text.startswith("rp2:\n")
     assert "platform: rp2040_pwm" in new_text
 
 
-def test_rp2040_composes_with_other_rules() -> None:
+def test_rp2040_composes_with_other_rules(generated_rules: Callable[..., None]) -> None:
+    generated_rules(_RP2_RULE)
     text = "api:\n  services:\n    - service: hi\n      then: []\n\n" + _RP2040_YAML
     new_text = _respell(text)
     assert "  actions:\n" in new_text
     assert "- action: hi\n" in new_text
     assert "rp2:  # target platform\n" in new_text
+
+
+def test_committed_artifact_migrates_rp2040() -> None:
+    """The shipped migration_rules.index.json carries the rp2040 → rp2 respell."""
+    new_text = _respell("rp2040:\n  board: rpipicow\n")
+    assert new_text.startswith("rp2:\n")
 
 
 _VOC_RULE = MigrationRule(

@@ -1,3 +1,9 @@
 {
-  "rules": []
+  "rules": [
+    {
+      "kind": "component_key",
+      "new": "rp2",
+      "old": "rp2040"
+    }
+  ]
 }

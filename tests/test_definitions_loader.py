@@ -374,7 +374,7 @@ def test_load_migration_rules_corrupt_returns_empty(tmp_path: Path) -> None:
     assert _load_migration_rules(json_path) == ()
 
 
-def test_load_migration_rules_reads_both_kinds(tmp_path: Path) -> None:
+def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
     json_path = tmp_path / "migration_rules.index.json"
     json_path.write_bytes(
         orjson.dumps(
@@ -393,6 +393,7 @@ def test_load_migration_rules_reads_both_kinds(tmp_path: Path) -> None:
                         "old": "voc",
                         "new": "voc_index",
                     },
+                    {"kind": "component_key", "old": "rp2040", "new": "rp2"},
                 ]
             }
         )
@@ -406,6 +407,7 @@ def test_load_migration_rules_reads_both_kinds(tmp_path: Path) -> None:
             domain="sensor",
             platform="sgp4x",
         ),
+        MigrationRule(kind="component_key", old="rp2040", new="rp2"),
     )
 
 
@@ -428,6 +430,7 @@ def test_load_migration_rules_reads_both_kinds(tmp_path: Path) -> None:
             {"kind": "platform_item_field", "domain": 5, "platform": "x", "old": "a", "new": "b"},
             id="non_string_domain",
         ),
+        pytest.param({"kind": "component_key", "old": "rp2040"}, id="component_key_no_new"),
     ],
 )
 def test_load_migration_rules_drops_malformed_records(tmp_path: Path, record: object) -> None:

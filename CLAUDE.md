@@ -408,11 +408,13 @@ against legacy behaviour before assuming the simpler version suffices.
   unhandled. Current bespoke entries: the api `services`→`actions` /
   `service`→`action` pair (#2396) and the homeassistant action's
   `service`→`action` field under both registered ids; the fold also
-  carries the legacy `homeassistant.service` node id, the ethernet
-  `clk_mode`→`clk` conversion, and the `_PLATFORM_KEY_RENAMES` table of
-  top-level platform block respells (`rp2040:`→`rp2:`; esphome component
-  ALIASES are invisible to the rename canary, so these are always
-  hand-added). The frontend's migrate nudge drives the
+  carries the legacy `homeassistant.service` node id and the ethernet
+  `clk_mode`→`clk` conversion. esphome component ALIASES (top-level
+  block renames like `rp2040:`→`rp2:`) ship data-driven too: the sync
+  reads `esphome.loader.get_alias_metadata()` and emits `component_key`
+  rules, failing when an alias sits on a platform component the
+  top-level respell can't express (acknowledge bespoke handling in
+  `_HANDLED_ALIASES`). The frontend's migrate nudge drives the
   one-click whole-file update; new migrations extend the artifact or
   add a rule function — never a new command.
 - **The long-lived process never imports `esphome.components.*`.**
@@ -922,7 +924,7 @@ When changing the sync script or catalog handling, watch for these:
 | `esphome_device_builder/definitions/boards.index.json` + `board_bodies/<id>.json` + `featured_components.index.json` | Generated; do not hand-edit. Slim board index + per-id lazy bodies (via `BoardCatalog._body_store`) + aggregated featured-components map (read once by the components controller's registry build). |
 | `esphome_device_builder/definitions/boards/<id>/manifest.yaml` | Curated; hand-edited. The body directory is `board_bodies/` (separate from this manifests dir) so the body-swap rmtree can't trample the hand-curated source. |
 | `esphome_device_builder/definitions/platform_capabilities.index.json` | Generated; do not hand-edit. esphome platform metadata the long-lived process reads instead of importing `esphome.components.*` (download routing, wifi-inference no-wifi sets, static download-types). Loaded via `load_platform_capabilities_index`. |
-| `esphome_device_builder/definitions/migration_rules.index.json` | Generated; do not hand-edit. Direct `cv.rename_key` pairs the sync discovered, folded as data-driven rules by `editor/migrate_config`. Empty until upstream adds such a pair. Loaded via `load_migration_rules_index`. |
+| `esphome_device_builder/definitions/migration_rules.index.json` | Generated; do not hand-edit. Direct `cv.rename_key` pairs and component-ALIAS key renames the sync discovered, folded as data-driven rules by `editor/migrate_config`. Backend-internal — never shipped over the WS API. Loaded via `load_migration_rules_index`. |
 | `esphome_device_builder/helper_cli.py` (`device-builder-helper`) | Subprocess for `get_download_types` on build-dir-dependent platforms (libretiny/nrf52), so the child imports `esphome.components.<X>`, not the dashboard process. |
 | `script/update_board.py` | One-step contributor wrapper: regenerate one board's JSON (`sync_boards.py`) + validate (`validate_definitions.py`). Auto-detects the edited board, or takes an id. |
 | `script/sync_boards.py` | Regenerates the split board catalog from the manifests; stamps the generating `esphome_version` into `boards.index.json`. Takes an optional board id to regenerate just one. Both modes guard installed `esphome` against that stamp; `--restamp` opts a full sync out to regenerate against a new esphome. |

@@ -144,6 +144,8 @@ def _apply_generated_renames(lines: list[str]) -> list[str]:
             out = _apply_component_block_field(out, rule)
         elif rule.kind == "platform_item_field":
             out = _apply_platform_item_field(out, rule)
+        elif rule.kind == "component_key":
+            out = _respell_top_level_key(out, rule.old, rule.new)
     return out
 
 
@@ -261,19 +263,6 @@ def _child_block_span(
             continue
         return idx, child_block_end(lines, idx, min(end, len(lines)), child_indent)
     return None
-
-
-# Deprecated top-level platform block keys and their canonical spellings
-# (esphome component ALIASES, invisible to the cv.rename_key sync canary).
-# rp2040 -> rp2: renamed in esphome 2026.7, alias removed in 2027.7.
-_PLATFORM_KEY_RENAMES = (("rp2040", "rp2"),)
-
-
-def _migrate_platform_keys(lines: list[str]) -> list[str]:
-    """Respell deprecated top-level platform block keys to their canonical names."""
-    for legacy, canonical in _PLATFORM_KEY_RENAMES:
-        lines = _respell_top_level_key(lines, legacy, canonical)
-    return lines
 
 
 def _respell_top_level_key(lines: list[str], legacy: str, canonical: str) -> list[str]:
@@ -453,6 +442,5 @@ _RULES = (
     _canonicalize_api_actions,
     _canonicalize_action_nodes,
     _migrate_ethernet_clk,
-    _migrate_platform_keys,
     _apply_generated_renames,
 )
