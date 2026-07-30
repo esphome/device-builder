@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from esphome import yaml_util
 
 from esphome_device_builder.controllers.components import ComponentCatalog
 from tests.conftest import make_add_component_controller
@@ -52,6 +53,11 @@ async def test_empty_add_with_secrets_fills_recovery_block(
     assert len(ap_password.strip('"')) == 12
     assert "\ncaptive_portal:" in response.yaml
     assert (tmp_path / "lamp.yaml").read_text("utf-8") == response.yaml
+    doc = yaml_util.load_yaml(tmp_path / "lamp.yaml")
+    assert doc["wifi"]["ssid"] == "HomeNet"
+    assert doc["wifi"]["password"] == "hunter2"
+    assert doc["wifi"]["ap"]["ssid"] == "Kitchen Lamp Fallback Hotspot"
+    assert "captive_portal" in doc
 
 
 async def test_empty_add_without_secrets_stays_bare(
