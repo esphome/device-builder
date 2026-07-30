@@ -1680,7 +1680,7 @@ def test_generate_component_yaml_quotes_yaml_keyword_strings(keyword: str) -> No
 
 @pytest.mark.parametrize(
     "value",
-    ["foo:bar", "foo #bar", "!secret api_key", "%"],
+    ["foo:bar", "foo #bar", "!include common.yaml", "%"],
     ids=["colon", "hash", "tag-prefix", "percent"],
 )
 def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -> None:
@@ -1693,6 +1693,25 @@ def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -
     crashing the downstream ``esphome`` load (``%`` is a YAML
     indicator character reserved for directives).
     """
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"v": value})
+    assert f'  v: "{value}"' in out
+
+
+def test_generate_component_yaml_emits_secret_reference_unquoted() -> None:
+    """A strict ``!secret <name>`` value emits as a tag, not a quoted literal."""
+    component = _component(component_id="myc", category=ComponentCategory.MISC)
+    out = generate_component_yaml(component, {"password": "!secret api_key"})
+    assert "  password: !secret api_key" in out
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["!secret foo bar", "!secret a#b", "!secretx", "!secret  double", "!secret "],
+    ids=["two-names", "hash-in-name", "no-space", "double-space", "no-name"],
+)
+def test_generate_component_yaml_quotes_loose_secret_shapes(value: str) -> None:
+    """Anything looser than ``!secret <name>`` keeps scalar-safe quoting."""
     component = _component(component_id="myc", category=ComponentCategory.MISC)
     out = generate_component_yaml(component, {"v": value})
     assert f'  v: "{value}"' in out

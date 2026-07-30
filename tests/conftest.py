@@ -354,6 +354,22 @@ class RemoteBuildTestHandles:
         await self.receiver.stop()
 
 
+def make_add_component_controller(catalog: ComponentCatalog, config_dir: Path) -> DevicesController:
+    """Build a DevicesController with just enough plumbing for ``add_component``."""
+    ctrl = DevicesController.__new__(DevicesController)
+    ctrl._db = MagicMock()
+    ctrl.state = DevicesState()
+    ctrl._yaml_write_locks = {}
+    ctrl._db.version_history = None
+    ctrl._db.settings.rel_path = lambda name: config_dir / name
+    ctrl._db.settings.config_dir = config_dir
+    ctrl._db.components = catalog
+    ctrl._scanner = MagicMock()
+    ctrl._scanner.scan = AsyncMock()
+    ctrl.state.esphome_cmd = []
+    return ctrl
+
+
 def make_remote_build_controller(
     *,
     config_dir: Path,

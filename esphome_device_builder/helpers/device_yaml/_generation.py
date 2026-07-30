@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import base64
 import secrets
-import string
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_CANONICAL_PLATFORM, Connectivity
 from ..yaml import (
     _safe_yaml_scalar,
+    fallback_ap_psk,
     fallback_ap_ssid,
     generate_api_encryption_key,
     merge_component_yaml,
@@ -37,14 +37,10 @@ _WIFI_FIRST_PLATFORMS: frozenset[str] = frozenset(
     {"esp8266", "bk72xx", "rtl87xx", "ln882x", "libretiny"}
 )
 
-# Fallback-hotspot psk alphabet + length, mirroring esphome's wizard.
-_AP_PSK_ALPHABET = string.ascii_letters + string.digits
-_AP_PSK_LENGTH = 12
-
 # Platforms supporting ``captive_portal:`` (esphome's ``cv.only_on``
 # allowlist). The fallback is emitted only here; a bare ``ap:`` without
 # a portal can't recover credentials, so other platforms get neither.
-_CAPTIVE_PORTAL_PLATFORMS: frozenset[str] = frozenset(
+CAPTIVE_PORTAL_PLATFORMS: frozenset[str] = frozenset(
     {"esp8266", "esp32", "bk72xx", "ln882x", RP2_CANONICAL_PLATFORM, "rtl87xx"}
 )
 
@@ -531,15 +527,14 @@ def generate_minimal_stub_yaml(
 
 def _fallback_recovery_lines(label: str, platform: str) -> list[str]:
     """Fallback hotspot + ``captive_portal:`` recovery lines; bare separator where unsupported."""
-    if platform not in _CAPTIVE_PORTAL_PLATFORMS:
+    if platform not in CAPTIVE_PORTAL_PLATFORMS:
         # No captive portal → no fallback, but keep the wifi block's
         # trailing blank-line separator from the unconditional old path.
         return [""]
-    psk = "".join(secrets.choice(_AP_PSK_ALPHABET) for _ in range(_AP_PSK_LENGTH))
     return [
         "  ap:",
         f"    ssid: {_safe_yaml_scalar(fallback_ap_ssid(label))}",
-        f'    password: "{psk}"',
+        f'    password: "{fallback_ap_psk()}"',
         "",
         "captive_portal:",
         "",

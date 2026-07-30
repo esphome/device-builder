@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import secrets
+import string
+
 from .scalar import (
     _safe_yaml_scalar,
     _strip_yaml_quotes,
@@ -13,6 +16,15 @@ from .scalar import (
 _AP_SSID_MAX_LEN = 32
 
 _WIFI_AP_SSID_PATH = ("wifi", "ap", "ssid")
+
+# Fallback-hotspot psk alphabet + length, mirroring esphome's wizard.
+_AP_PSK_ALPHABET = string.ascii_letters + string.digits
+_AP_PSK_LENGTH = 12
+
+
+def fallback_ap_psk() -> str:
+    """Random fallback-hotspot password in esphome's wizard shape."""
+    return "".join(secrets.choice(_AP_PSK_ALPHABET) for _ in range(_AP_PSK_LENGTH))
 
 
 def fallback_ap_ssid(label: str) -> str:

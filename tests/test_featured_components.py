@@ -19,7 +19,7 @@ from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import orjson
 import pytest
@@ -30,8 +30,6 @@ from esphome_device_builder.controllers.components._resolve import (
     _apply_preset_value,
     _featured_display_name,
 )
-from esphome_device_builder.controllers.devices import DevicesController
-from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices.add_component import _entry_gate_active
 from esphome_device_builder.controllers.devices.helpers import (
     _apply_featured_presets,
@@ -48,6 +46,7 @@ from esphome_device_builder.helpers.yaml import generate_component_yaml, merge_c
 from esphome_device_builder.models import ComponentCategory, ConfigEntry, ConfigEntryType, ErrorCode
 from esphome_device_builder.models.boards import FeaturedComponent
 from esphome_device_builder.models.common import FieldPreset
+from tests.conftest import make_add_component_controller
 
 # Pin every test in the file onto the same xdist worker as the rest of
 # the catalog-heavy suite so they share one ``ComponentCatalog.load``
@@ -1000,27 +999,12 @@ async def test_generate_yaml_skips_autofill_for_non_entity_subblocks(
 # ---------------------------------------------------------------------------
 
 
-def _make_controller(catalog: ComponentCatalog, tmp_path: Any) -> DevicesController:
-    """Build a DevicesController with just enough plumbing for ``add_component``."""
-    ctrl = DevicesController.__new__(DevicesController)
-    ctrl._db = MagicMock()
-    ctrl.state = DevicesState()
-    ctrl._yaml_write_locks = {}
-    ctrl._db.version_history = None
-    ctrl._db.settings.rel_path = lambda name: tmp_path / name
-    ctrl._db.components = catalog
-    ctrl._scanner = MagicMock()
-    ctrl._scanner.scan = AsyncMock()
-    ctrl.state.esphome_cmd = []
-    return ctrl
-
-
 async def test_add_component_featured_resets_dashed_id(
     catalog: ComponentCatalog, tmp_path: Any
 ) -> None:
     """Frontend's dashed featured suggestion gets replaced by the standard auto-id."""
     (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="plug.yaml",
@@ -1050,7 +1034,7 @@ async def test_add_component_featured_keeps_user_typed_id(
 ) -> None:
     """A clean user-typed id (no dashes) survives the featured id-reset."""
     (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="plug.yaml",
@@ -1065,7 +1049,7 @@ async def test_add_component_featured_unknown_id_raises(
     catalog: ComponentCatalog, tmp_path: Any
 ) -> None:
     """An unknown ``featured.*`` id surfaces as a ``CommandError(INVALID_ARGS)``."""
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     with pytest.raises(CommandError, match="Unknown featured component") as exc:
         await ctrl.add_component(
@@ -1086,7 +1070,7 @@ async def test_add_component_featured_missing_body_raises(
     The add-path raises a typed error instead of crashing on the
     ``None`` shape.
     """
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
     monkeypatch.setattr(catalog, "get_body", AsyncMock(return_value=None))
     with pytest.raises(CommandError, match="Unknown component body for featured ref") as exc:
         await ctrl.add_component(
@@ -1110,7 +1094,7 @@ async def test_add_component_featured_emits_explicit_name_and_id(
     with both, no runtime auto-derivation needed.
     """
     (tmp_path / "sonoff.yaml").write_text("esphome:\n  name: sonoff\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="sonoff.yaml",
@@ -1135,7 +1119,7 @@ async def test_add_component_featured_non_entity_emits_id_only(
     and the manifest is the only source for what fields land in the YAML.
     """
     (tmp_path / "sonoff.yaml").write_text("esphome:\n  name: sonoff\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="sonoff.yaml",
@@ -1160,7 +1144,7 @@ async def test_add_component_featured_drops_non_manifest_defaults(
     describes — no ``gamma_correct``/``is_rgbw``/``use_psram`` noise.
     """
     (tmp_path / "kit.yaml").write_text("esphome:\n  name: kit\napi:\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="kit.yaml",
@@ -1212,7 +1196,7 @@ async def test_add_component_strips_mqtt_fields_when_no_mqtt_block(
     honoured against the device YAML so the resulting block stays clean.
     """
     (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\napi:\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="plug.yaml",
@@ -1235,7 +1219,7 @@ async def test_add_component_keeps_mqtt_fields_when_mqtt_block_present(
     """When the device already has an ``mqtt:`` block, MQTT fields ride through."""
     existing = "esphome:\n  name: plug\napi:\nmqtt:\n  broker: mqtt.local\n"
     (tmp_path / "plug.yaml").write_text(existing, "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="plug.yaml",
@@ -1262,7 +1246,7 @@ async def test_add_component_handles_secret_tags_in_existing_yaml(
         "mqtt:\n  broker: !secret mqtt_broker\n  username: !secret mqtt_user\n"
     )
     (tmp_path / "plug.yaml").write_text(existing, "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="plug.yaml",
@@ -1280,7 +1264,7 @@ async def test_add_component_schedules_storage_regenerate(
 ) -> None:
     """``add_component`` schedules a StorageJSON regen after the write."""
     (tmp_path / "plug.yaml").write_text("esphome:\n  name: plug\n", "utf-8")
-    ctrl = _make_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(catalog, tmp_path)
     scheduled: list[str] = []
     monkeypatch.setattr(ctrl, "_schedule_storage_regenerate", scheduled.append, raising=False)
 
