@@ -246,6 +246,34 @@ def _migrate_ethernet_clk(lines: list[str]) -> list[str]:
     return lines
 
 
+# Deprecated top-level platform block keys and their canonical spellings
+# (esphome component ALIASES, invisible to the cv.rename_key sync canary).
+# rp2040 -> rp2: renamed in esphome 2026.7, alias removed in 2027.7.
+_PLATFORM_KEY_RENAMES = (("rp2040", "rp2"),)
+
+
+def _migrate_platform_keys(lines: list[str]) -> list[str]:
+    """Respell deprecated top-level platform block keys to their canonical names."""
+    for legacy, canonical in _PLATFORM_KEY_RENAMES:
+        lines = _respell_top_level_key(lines, legacy, canonical)
+    return lines
+
+
+def _respell_top_level_key(lines: list[str], legacy: str, canonical: str) -> list[str]:
+    """
+    Rename the column-0 ``legacy:`` block key to ``canonical``, body untouched.
+
+    An existing ``canonical:`` block leaves the file alone — merging
+    two blocks is not the rule's job.
+    """
+    idx = find_block_header(lines, legacy)
+    if idx is None or find_block_header(lines, canonical) is not None:
+        return lines
+    out = list(lines)
+    out[idx] = canonical + lines[idx][len(legacy) :]
+    return out
+
+
 def _child_block_span(
     lines: list[str],
     start: int,
@@ -426,5 +454,6 @@ _RULES = (
     _canonicalize_api_actions,
     _canonicalize_action_nodes,
     _migrate_ethernet_clk,
+    _migrate_platform_keys,
     _apply_generated_renames,
 )

@@ -424,6 +424,52 @@ def test_block_scalar_indent_indicator_untouched() -> None:
     assert render_migrations(text) is None
 
 
+_RP2040_YAML = """esphome:
+  name: pico
+
+rp2040:  # target platform
+  board: rpipicow
+  framework:
+    platform_version: 1.2.0
+
+wifi:
+  ssid: foo
+"""
+
+
+def test_rp2040_platform_key_respelled_to_rp2() -> None:
+    new_text = _respell(_RP2040_YAML)
+    assert "rp2:  # target platform\n" in new_text
+    assert "rp2040" not in new_text
+    assert "  board: rpipicow\n" in new_text
+    assert "    platform_version: 1.2.0\n" in new_text
+    assert "wifi:\n  ssid: foo\n" in new_text
+
+
+def test_rp2040_absent_untouched() -> None:
+    assert render_migrations("esphome:\n  name: pico\n\nrp2:\n  board: rpipicow\n") is None
+
+
+def test_rp2040_beside_existing_rp2_untouched() -> None:
+    text = _RP2040_YAML + "\nrp2:\n  board: rpipico\n"
+    assert render_migrations(text) is None
+
+
+def test_rp2040_prefixed_components_untouched() -> None:
+    text = "rp2040:\n  board: rpipicow\n\noutput:\n  - platform: rp2040_pwm\n    pin: 1\n"
+    new_text = _respell(text)
+    assert new_text.startswith("rp2:\n")
+    assert "platform: rp2040_pwm" in new_text
+
+
+def test_rp2040_composes_with_other_rules() -> None:
+    text = "api:\n  services:\n    - service: hi\n      then: []\n\n" + _RP2040_YAML
+    new_text = _respell(text)
+    assert "  actions:\n" in new_text
+    assert "- action: hi\n" in new_text
+    assert "rp2:  # target platform\n" in new_text
+
+
 _VOC_RULE = MigrationRule(
     kind="platform_item_field", old="voc", new="voc_index", domain="sensor", platform="sgp4x"
 )

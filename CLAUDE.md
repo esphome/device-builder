@@ -408,8 +408,11 @@ against legacy behaviour before assuming the simpler version suffices.
   unhandled. Current bespoke entries: the api `services`→`actions` /
   `service`→`action` pair (#2396) and the homeassistant action's
   `service`→`action` field under both registered ids; the fold also
-  carries the legacy `homeassistant.service` node id and the ethernet
-  `clk_mode`→`clk` conversion. The frontend's migrate nudge drives the
+  carries the legacy `homeassistant.service` node id, the ethernet
+  `clk_mode`→`clk` conversion, and the `_PLATFORM_KEY_RENAMES` table of
+  top-level platform block respells (`rp2040:`→`rp2:`; esphome component
+  ALIASES are invisible to the rename canary, so these are always
+  hand-added). The frontend's migrate nudge drives the
   one-click whole-file update; new migrations extend the artifact or
   add a rule function — never a new command.
 - **The long-lived process never imports `esphome.components.*`.**
