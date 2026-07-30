@@ -39,6 +39,12 @@ def _split_platform_id(component_id: str) -> tuple[str | None, str]:
     return (domain, stem) if sep else (None, component_id)
 
 
+def component_block_present(existing: str, component_id: str) -> bool:
+    """Whether *existing* has the top-level block the singleton merge no-ops on."""
+    lines = existing.splitlines(keepends=True)
+    return _find_top_level_block_bounds(lines, component_id) is not None
+
+
 def merge_component_yaml(
     existing: str,
     component: ComponentCatalogEntry,

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_CANONICAL_PLATFORM, Connectivity
+from ..secrets_state import WIFI_PASSWORD_SECRET_REF, WIFI_SSID_SECRET_REF
 from ..yaml import (
     _safe_yaml_scalar,
     fallback_ap_psk,
@@ -345,7 +346,7 @@ def _wifi_credentials_lines(ssid: str, psk: str) -> list[str]:
     """
     if ssid:
         return [f"  ssid: {_safe_yaml_scalar(ssid)}", f"  password: {_safe_yaml_scalar(psk)}"]
-    return ["  ssid: !secret wifi_ssid", "  password: !secret wifi_password"]
+    return [f"  ssid: {WIFI_SSID_SECRET_REF}", f"  password: {WIFI_PASSWORD_SECRET_REF}"]
 
 
 def _infer_native_wifi(board: BoardCatalogEntry) -> bool:
@@ -519,8 +520,8 @@ def generate_minimal_stub_yaml(
         f'    key: "{api_key}"\n\n'
         "ota:\n  - platform: esphome\n\n"
         "wifi:\n"
-        "  ssid: !secret wifi_ssid\n"
-        "  password: !secret wifi_password\n"
+        f"  ssid: {WIFI_SSID_SECRET_REF}\n"
+        f"  password: {WIFI_PASSWORD_SECRET_REF}\n"
         f"{recovery}"
     )
 

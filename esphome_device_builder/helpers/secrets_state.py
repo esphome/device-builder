@@ -37,6 +37,11 @@ from .yaml import load_yaml_fast_then_esphome, write_user_yaml
 
 _LOGGER = logging.getLogger(__name__)
 
+# The exact refs generated YAML uses for the shared Wi-Fi credentials;
+# every emitter spells them through these so the convention can't drift.
+WIFI_SSID_SECRET_REF = "!secret wifi_ssid"  # noqa: S105 — secret reference, not a credential
+WIFI_PASSWORD_SECRET_REF = "!secret wifi_password"  # noqa: S105 — secret reference, not a credential
+
 
 async def write_secrets_locked[T](lock: asyncio.Lock, fn: Callable[..., T], *args: Any) -> T:
     """

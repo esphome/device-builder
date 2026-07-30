@@ -10,16 +10,28 @@ from ...helpers.device_yaml import (
     CAPTIVE_PORTAL_PLATFORMS,
     parse_esphome_meta,
     parse_platform_from_yaml,
-    yaml_has_top_level_block,
 )
-from ...helpers.secrets_state import read_secrets_yaml, wifi_secrets_defined
-from ...helpers.yaml import fallback_ap_psk, fallback_ap_ssid, merge_component_yaml
+from ...helpers.secrets_state import (
+    WIFI_PASSWORD_SECRET_REF,
+    WIFI_SSID_SECRET_REF,
+    read_secrets_yaml,
+    wifi_secrets_defined,
+)
+from ...helpers.yaml import (
+    component_block_present,
+    fallback_ap_psk,
+    fallback_ap_ssid,
+    merge_component_yaml,
+)
 from ...models import AddComponentResponse, ErrorCode
 from ...models.boards import normalize_platform
 from .helpers import _apply_featured_presets, _drop_unconfigured_dependent_fields
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ...models import ComponentCatalogEntry, ConfigEntry
+    from ..components import ComponentCatalog
     from .controller import DevicesController
 
 
@@ -99,7 +111,13 @@ async def add_component(
     # does field-by-field on the input form.
     fields = _drop_unconfigured_dependent_fields(fields, component, existing)
     if underlying_component_id == "wifi":
-        new_yaml = await _merge_wifi_with_recovery(controller, component, fields, existing)
+        new_yaml = await _merge_wifi_with_recovery(
+            controller._db.components,
+            controller._db.settings.config_dir,
+            component,
+            fields,
+            existing,
+        )
     else:
         new_yaml = merge_component_yaml(existing, component, fields)
     if yaml is None:
@@ -113,27 +131,27 @@ async def add_component(
 
 
 async def _merge_wifi_with_recovery(
-    controller: DevicesController,
+    catalog: ComponentCatalog,
+    config_dir: Path,
     component: ComponentCatalogEntry,
     fields: dict[str, Any],
     existing: str,
 ) -> str:
     """Merge a ``wifi:`` add, filling the wizard's recovery defaults into a new block."""
-    add_portal = not yaml_has_top_level_block(existing, "wifi") and (
-        await _apply_wifi_recovery_defaults(controller, fields, existing)
-    )
+    if component_block_present(existing, "wifi"):
+        return merge_component_yaml(existing, component, fields)
+    add_portal = await _apply_wifi_recovery_defaults(config_dir, fields, existing)
     new_yaml = merge_component_yaml(existing, component, fields)
     if not add_portal:
         return new_yaml
-    assert controller._db.components is not None  # type narrowing
-    portal = await controller._db.components.get_component(component_id="captive_portal")
+    portal = await catalog.get_component(component_id="captive_portal")
     if portal is None:
         return new_yaml
     return merge_component_yaml(new_yaml, portal, {})
 
 
 async def _apply_wifi_recovery_defaults(
-    controller: DevicesController, fields: dict[str, Any], existing: str
+    config_dir: Path, fields: dict[str, Any], existing: str
 ) -> bool:
     """
     Fill wizard-parity recovery defaults into a new ``wifi:`` block's *fields*.
@@ -143,13 +161,13 @@ async def _apply_wifi_recovery_defaults(
     Returns whether ``captive_portal:`` should be merged in as well.
     No-op unless the shared Wi-Fi secrets are defined.
     """
-    secrets = await run_in_executor(read_secrets_yaml, controller._db.settings.config_dir)
+    secrets = await run_in_executor(read_secrets_yaml, config_dir)
     if not wifi_secrets_defined(secrets):
         return False
     if not fields.get("ssid"):
-        fields["ssid"] = "!secret wifi_ssid"
+        fields["ssid"] = WIFI_SSID_SECRET_REF
     if not fields.get("password"):
-        fields["password"] = "!secret wifi_password"  # noqa: S105 — secret reference, not a credential
+        fields["password"] = WIFI_PASSWORD_SECRET_REF
     platform, _, _ = parse_platform_from_yaml(existing)
     if normalize_platform(platform) not in CAPTIVE_PORTAL_PLATFORMS:
         return False

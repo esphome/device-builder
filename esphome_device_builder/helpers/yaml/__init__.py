@@ -51,6 +51,7 @@ from .component import _mapping_body_to_list_item as _mapping_body_to_list_item
 from .component import _normalize_multi_conf_block as _normalize_multi_conf_block
 from .component import _splice_into_domain_block as _splice_into_domain_block
 from .component import _splice_into_multi_conf_block as _splice_into_multi_conf_block
+from .component import component_block_present as component_block_present
 from .component import generate_component_yaml as generate_component_yaml
 from .component import merge_component_yaml as merge_component_yaml
 from .inline import SubEntityRef as SubEntityRef

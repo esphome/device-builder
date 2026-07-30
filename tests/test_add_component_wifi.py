@@ -28,12 +28,6 @@ nrf52:
 """
 
 
-@pytest.fixture
-def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:
-    """Reuse the session-scoped catalog (board catalog already wired in)."""
-    return session_component_catalog
-
-
 def _write_secrets(config_dir: Path) -> None:
     (config_dir / "secrets.yaml").write_text(
         'wifi_ssid: "HomeNet"\nwifi_password: "hunter2"\n', "utf-8"
@@ -41,12 +35,12 @@ def _write_secrets(config_dir: Path) -> None:
 
 
 async def test_empty_add_with_secrets_fills_recovery_block(
-    catalog: ComponentCatalog, tmp_path: Path
+    session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
     """An untouched wifi add lands the wizard-parity block, not a bare ``wifi:``."""
     (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
 
@@ -61,11 +55,11 @@ async def test_empty_add_with_secrets_fills_recovery_block(
 
 
 async def test_empty_add_without_secrets_stays_bare(
-    catalog: ComponentCatalog, tmp_path: Path
+    session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
     """Without shared Wi-Fi secrets the add keeps today's bare ``wifi:`` block."""
     (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
 
@@ -76,12 +70,12 @@ async def test_empty_add_without_secrets_stays_bare(
 
 
 async def test_typed_credentials_survive_and_gain_recovery(
-    catalog: ComponentCatalog, tmp_path: Path
+    session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
     """User-typed credentials stay inline; the fallback AP and portal still land."""
     (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="lamp.yaml",
@@ -96,11 +90,13 @@ async def test_typed_credentials_survive_and_gain_recovery(
     assert "\ncaptive_portal:" in response.yaml
 
 
-async def test_secret_picker_values_emit_as_tags(catalog: ComponentCatalog, tmp_path: Path) -> None:
+async def test_secret_picker_values_emit_as_tags(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
     """Picker-shaped ``!secret`` field values round-trip unquoted."""
     (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="lamp.yaml",
@@ -113,11 +109,13 @@ async def test_secret_picker_values_emit_as_tags(catalog: ComponentCatalog, tmp_
     assert '"!secret' not in response.yaml
 
 
-async def test_user_supplied_ap_is_preserved(catalog: ComponentCatalog, tmp_path: Path) -> None:
+async def test_user_supplied_ap_is_preserved(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
     """A caller-provided ``ap`` block is never overwritten by the fallback."""
     (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(
         configuration="lamp.yaml",
@@ -130,12 +128,14 @@ async def test_user_supplied_ap_is_preserved(catalog: ComponentCatalog, tmp_path
     assert "\ncaptive_portal:" in response.yaml
 
 
-async def test_existing_wifi_block_is_untouched(catalog: ComponentCatalog, tmp_path: Path) -> None:
+async def test_existing_wifi_block_is_untouched(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
     """Re-adding wifi to a config that has it stays a no-op — no defaults, no portal."""
     existing = _ESP32_YAML + "\nwifi:\n  ssid: OldNet\n  password: oldpw\n"
     (tmp_path / "lamp.yaml").write_text(existing, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
 
@@ -143,12 +143,12 @@ async def test_existing_wifi_block_is_untouched(catalog: ComponentCatalog, tmp_p
 
 
 async def test_non_captive_portal_platform_gets_credentials_only(
-    catalog: ComponentCatalog, tmp_path: Path
+    session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
     """A platform without captive-portal support fills credentials but no AP/portal."""
     (tmp_path / "lamp.yaml").write_text(_NRF52_YAML, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
 
@@ -159,13 +159,13 @@ async def test_non_captive_portal_platform_gets_credentials_only(
 
 
 async def test_rp2040_alias_platform_counts_as_captive_capable(
-    catalog: ComponentCatalog, tmp_path: Path
+    session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
     """The ``rp2040:`` platform spelling normalises onto the captive-portal allowlist."""
     yaml = _ESP32_YAML.replace("esp32:\n  board: esp32dev", "rp2040:\n  board: rpipicow")
     (tmp_path / "lamp.yaml").write_text(yaml, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
 
@@ -173,12 +173,14 @@ async def test_rp2040_alias_platform_counts_as_captive_capable(
     assert "\ncaptive_portal:" in response.yaml
 
 
-async def test_captive_portal_not_duplicated(catalog: ComponentCatalog, tmp_path: Path) -> None:
+async def test_captive_portal_not_duplicated(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
     """A config that already has ``captive_portal:`` doesn't gain a second one."""
     existing = _ESP32_YAML + "\ncaptive_portal:\n"
     (tmp_path / "lamp.yaml").write_text(existing, "utf-8")
     _write_secrets(tmp_path)
-    ctrl = make_add_component_controller(catalog, tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
 
     response = await ctrl.add_component(configuration="lamp.yaml", component_id="wifi", fields={})
 
