@@ -276,15 +276,15 @@ async def test_get_boards_filters_by_mcu_splitting_the_rp2040_platform() -> None
     assert {b.id for b in rp2040.boards} == {"rpipico"}
 
 
-async def test_get_boards_folds_renamed_rp2_platform() -> None:
-    """A ``platform="rp2"`` filter matches the rp2040 catalog."""
+async def test_get_boards_folds_legacy_rp2040_platform() -> None:
+    """A legacy ``platform="rp2040"`` filter matches the rp2 catalog."""
     cat = BoardCatalog()
     _seed_catalog(
         cat,
         [_board(board_id="rpipico", platform=Platform.RP2, pio_board="rpipico", mcu="rp2040")],
     )
 
-    result = await cat.get_boards(platform="rp2")
+    result = await cat.get_boards(platform="rp2040")
     assert {b.id for b in result.boards} == {"rpipico"}
 
 
