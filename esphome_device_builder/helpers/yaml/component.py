@@ -20,11 +20,11 @@ from .scan import block_end_index, find_block_header, leading_ws
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
 
-# Exactly ``!secret`` + one space + a plain snake/kebab name — the shape
-# the editor's secret picker submits. Only this form is safe to emit
-# unquoted; anything looser (extra whitespace, quoting-significant
+# Exactly ``!secret`` + one space + a plain dotted/snake/kebab name — the
+# shapes the editor's secret picker submits. Only this form is safe to
+# emit unquoted; anything looser (extra whitespace, quoting-significant
 # characters in the name) keeps scalar-safe quoting.
-_SECRET_REF_RE = re.compile(r"!secret [A-Za-z0-9_-]+")
+_SECRET_REF_RE = re.compile(r"!secret [A-Za-z0-9_.-]+")
 
 
 def _split_platform_id(component_id: str) -> tuple[str | None, str]:

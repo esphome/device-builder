@@ -1698,11 +1698,12 @@ def test_generate_component_yaml_quotes_strings_with_special_chars(value: str) -
     assert f'  v: "{value}"' in out
 
 
-def test_generate_component_yaml_emits_secret_reference_unquoted() -> None:
+@pytest.mark.parametrize("name", ["api_key", "mqtt.broker", "guest-wifi_2"], ids=str)
+def test_generate_component_yaml_emits_secret_reference_unquoted(name: str) -> None:
     """A strict ``!secret <name>`` value emits as a tag, not a quoted literal."""
     component = _component(component_id="myc", category=ComponentCategory.MISC)
-    out = generate_component_yaml(component, {"password": "!secret api_key"})
-    assert "  password: !secret api_key" in out
+    out = generate_component_yaml(component, {"password": f"!secret {name}"})
+    assert f"  password: !secret {name}" in out
 
 
 @pytest.mark.parametrize(

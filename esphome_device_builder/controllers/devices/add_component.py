@@ -160,11 +160,11 @@ async def _apply_wifi_recovery_defaults(
     Returns whether ``captive_portal:`` should be merged in as well.
     """
     secrets = await run_in_executor(read_secrets_yaml, config_dir)
-    if wifi_secrets_defined(secrets):
-        if not fields.get("ssid"):
-            fields["ssid"] = WIFI_SSID_SECRET_REF
-        if not fields.get("password"):
-            fields["password"] = WIFI_PASSWORD_SECRET_REF
+    # Credentials are a pair: filling one ref beside a typed other half
+    # would attach the shared secret to a network it doesn't belong to.
+    if wifi_secrets_defined(secrets) and not (fields.get("ssid") or fields.get("password")):
+        fields["ssid"] = WIFI_SSID_SECRET_REF
+        fields["password"] = WIFI_PASSWORD_SECRET_REF
     # No credentials typed and none to reference: generating an AP-only
     # device would surprise, so the bare add stays bare.
     if not fields.get("ssid"):

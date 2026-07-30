@@ -109,6 +109,41 @@ async def test_secret_picker_values_emit_as_tags(
     assert '"!secret' not in response.yaml
 
 
+async def test_half_typed_ssid_is_not_paired_with_shared_password(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
+    """A typed ssid with a blank password never gains the shared ``!secret`` PSK."""
+    (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
+    _write_secrets(tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="lamp.yaml", component_id="wifi", fields={"ssid": "OpenNet"}
+    )
+
+    assert "  ssid: OpenNet\n" in response.yaml
+    assert "!secret" not in response.yaml
+    assert "  ap:\n" in response.yaml
+
+
+async def test_half_typed_password_is_not_paired_with_shared_ssid(
+    session_component_catalog: ComponentCatalog, tmp_path: Path
+) -> None:
+    """A typed password with a blank ssid stays as typed — no ref fill, no recovery leg."""
+    (tmp_path / "lamp.yaml").write_text(_ESP32_YAML, "utf-8")
+    _write_secrets(tmp_path)
+    ctrl = make_add_component_controller(session_component_catalog, tmp_path)
+
+    response = await ctrl.add_component(
+        configuration="lamp.yaml", component_id="wifi", fields={"password": "pw12345"}
+    )
+
+    assert "  password: pw12345\n" in response.yaml
+    assert "!secret" not in response.yaml
+    assert "ap:" not in response.yaml
+    assert "captive_portal:" not in response.yaml
+
+
 async def test_typed_credentials_without_secrets_still_gain_recovery(
     session_component_catalog: ComponentCatalog, tmp_path: Path
 ) -> None:
