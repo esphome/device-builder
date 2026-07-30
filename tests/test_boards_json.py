@@ -27,8 +27,8 @@ import orjson
 import pytest
 from esphome.components.esp32.boards import BOARDS as ESP32_BOARDS
 
-import esphome_device_builder
 from esphome_device_builder.definitions import (
+    _generic_image_url,
     build_board_catalog_from_manifests,
     load_board_body_from_disk,
     load_board_catalog,
@@ -774,9 +774,12 @@ def test_every_board_has_a_docs_url() -> None:
 
 
 def test_every_platform_has_generic_board_art() -> None:
-    """Each platform's ``_generic/<key>.svg`` art fallback exists."""
-    generic_dir = (
-        Path(esphome_device_builder.__file__).parent / "definitions" / "boards" / "_generic"
-    )
+    """Each platform resolves generic art through the loader's fallback."""
     for platform in Platform:
-        assert (generic_dir / f"{platform.value}.svg").is_file(), platform.value
+        assert _generic_image_url(platform.value, None), platform.value
+
+
+def test_every_manifested_board_carries_art() -> None:
+    """Every hand-curated board lands in the catalog with a non-empty ``images``."""
+    catalog = build_board_catalog_from_manifests(strict=True)
+    assert [b.id for b in catalog.boards if not b.images] == []
