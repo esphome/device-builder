@@ -504,7 +504,7 @@ def _emit_field(key: str, value: Any, indent: str) -> list[str]:
 
 def _surface_identity_first(mapping: dict[str, Any]) -> dict[str, Any]:
     """Return *mapping* with ``name`` then ``id`` as the first keys when present."""
-    lead = {key: mapping[key] for key in ("name", "id") if key in mapping}
+    lead: dict[str, Any] = {key: mapping[key] for key in ("name", "id") if key in mapping}
     if not lead:
         return mapping
     return {**lead, **mapping}
