@@ -947,10 +947,10 @@ async def test_generate_yaml_autofills_subentity_name_and_id(
     # Top-level id auto-generated from the bare component stem and
     # surfaced right after the ``- platform:`` line.
     assert yaml.splitlines()[2] == "    id: hlw8012"
-    # Sub-entities get a ``<parent_id>_<key>`` id and a default ``name``
-    # (from the entry label), prepended id-first ahead of user-supplied keys.
-    assert yaml.index("id: hlw8012_current") < yaml.index("name: Current")
-    assert yaml.index("id: hlw8012_energy") < yaml.index("name: Energy")
+    # Sub-entities get a default ``name`` (from the entry label) and a
+    # ``<parent_id>_<key>`` id, prepended name-first ahead of user-supplied keys.
+    assert yaml.index("name: Current") < yaml.index("id: hlw8012_current")
+    assert yaml.index("name: Energy") < yaml.index("id: hlw8012_energy")
 
 
 async def test_generate_yaml_preserves_user_supplied_subentity_name(
@@ -969,8 +969,8 @@ async def test_generate_yaml_preserves_user_supplied_subentity_name(
     )
     assert "name: Plug Current" in yaml
     assert "id: plug_amps" in yaml
-    # A fully user-supplied sub-block still surfaces its id first.
-    assert yaml.index("id: plug_amps") < yaml.index("name: Plug Current")
+    # A fully user-supplied sub-block still surfaces name then id first.
+    assert yaml.index("name: Plug Current") < yaml.index("id: plug_amps")
     # And the auto-id prefix tracks the user's chosen parent id.
     assert "id: plug" in yaml
 
