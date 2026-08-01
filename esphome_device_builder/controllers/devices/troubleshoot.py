@@ -70,10 +70,11 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
     result.mdns_addresses = mdns.get_cached_addresses(f"{device.name}.local") or []
     result.mdns_has_cached_trace = mdns.has_cached_trace(device.name)
     result.mdns_has_live_anchor_ptr = mdns.has_live_anchor_ptr(device.name)
-    target = _pick_target(device, dns_addresses, result.mdns_addresses)
+    target, target_source = _pick_target(device, dns_addresses, result.mdns_addresses)
     if result.icmp_available and target:
         result.ping_attempted = True
         result.ping_target = target
+        result.ping_target_source = target_source
         result.ping_rtt_ms = await _ping(monitor, device, target)
     return result
 
@@ -82,13 +83,25 @@ async def _none() -> None:
     return None
 
 
-def _pick_target(device: Device, dns_addresses: list[str] | None, mdns_addresses: list[str]) -> str:
-    # The sweep's resolution chain, plus the persisted last-known IP so
-    # a dynamic-IP diagnosis still has something to probe.
-    addresses = dns_addresses or mdns_addresses or list(device.runtime_state.ip_addresses)
-    if not addresses and device.ip:
-        addresses = [device.ip]
-    return _pick_ipv4(addresses) if addresses else ""
+def _pick_target(
+    device: Device, dns_addresses: list[str] | None, mdns_addresses: list[str]
+) -> tuple[str, str]:
+    """
+    Return ``(target, source)`` down the sweep's resolution chain.
+
+    ``source`` distinguishes a live resolve from a last-known address:
+    a reply at a stale IP proves a host is there, not that it is this
+    device, and the dialog must say so.
+    """
+    if dns_addresses:
+        return _pick_ipv4(dns_addresses), "dns"
+    if mdns_addresses:
+        return _pick_ipv4(mdns_addresses), "mdns"
+    if device.runtime_state.ip_addresses:
+        return _pick_ipv4(list(device.runtime_state.ip_addresses)), "last_known"
+    if device.ip:
+        return device.ip, "last_known"
+    return "", ""
 
 
 async def _ping(monitor: DeviceStateMonitor, device: Device, target: str) -> float | None:

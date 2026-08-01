@@ -370,6 +370,9 @@ class DeviceTroubleshootResult(DashboardModel):
     mdns_has_live_anchor_ptr: bool = False
     ping_attempted: bool = False
     ping_target: str = ""
+    # "dns" / "mdns" (live resolve) or "last_known" (persisted address —
+    # a reply there is reachability of the address, not proof of identity).
+    ping_target_source: str = ""
     ping_rtt_ms: float | None = None
 
 

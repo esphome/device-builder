@@ -112,6 +112,7 @@ async def test_happy_path_wire_shape(
         "ping_attempted": True,
         # IPv4 preferred over the scoped IPv6 the resolver ordered first.
         "ping_target": "10.0.0.42",
+        "ping_target_source": "dns",
         "ping_rtt_ms": 4.2,
     }
     # A hit heals state through the normal ping source.
@@ -187,6 +188,7 @@ async def test_dns_failure_falls_back_to_mdns_cache(
     assert result.dns_resolved is False
     assert result.dns_had_cached_failure is True
     assert result.ping_target == "10.0.0.7"
+    assert result.ping_target_source == "mdns"
 
 
 async def test_runtime_addresses_then_persisted_ip_fallbacks(
@@ -198,10 +200,12 @@ async def test_runtime_addresses_then_persisted_ip_fallbacks(
 
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
     assert result.ping_target == "10.0.0.8"
+    assert result.ping_target_source == "last_known"
 
     device.runtime_state.ip_addresses = []
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
     assert result.ping_target == "10.0.0.9"
+    assert result.ping_target_source == "last_known"
 
 
 async def test_no_target_skips_ping(tmp_path: Path, make_controller: MakeControllerFactory) -> None:
