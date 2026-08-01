@@ -270,12 +270,19 @@ async def test_mdns_refresh_exception_degrades(
     assert result.ping_rtt_ms == 4.2
 
 
-async def test_cancellation_unwinds(tmp_path: Path, make_controller: MakeControllerFactory) -> None:
+@pytest.mark.parametrize("leg", ["dns", "mdns"])
+async def test_cancellation_unwinds(
+    tmp_path: Path, make_controller: MakeControllerFactory, leg: str
+) -> None:
     """A cancelled leg propagates instead of degrading into a verdict."""
     controller = make_controller(tmp_path)
     _seed_device(controller)
     monitor = _wire_monitor(controller)
-    monitor.mdns.refresh_mdns = AsyncMock(side_effect=asyncio.CancelledError)
+    cancelled = AsyncMock(side_effect=asyncio.CancelledError)
+    if leg == "dns":
+        monitor.state.dns_cache.async_resolve = cancelled
+    else:
+        monitor.mdns.refresh_mdns = cancelled
 
     with pytest.raises(asyncio.CancelledError):
         await controller.troubleshoot_device(configuration="kitchen.yaml")
