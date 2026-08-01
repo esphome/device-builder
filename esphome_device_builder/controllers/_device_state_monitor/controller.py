@@ -29,7 +29,7 @@ from functools import partial
 from typing import Any, Protocol
 
 from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit
-from ...helpers.ip import drop_unspecified_addresses, is_unspecified_address
+from ...helpers.ip import drop_unusable_addresses, is_unusable_address
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import (
     RUNTIME_STATE_FIELD_NAMES,
@@ -50,7 +50,7 @@ from .helpers import (
 from .importable import ImportableDiscovery
 from .mdns import MdnsSource
 from .ping import PingSource
-from .shared import _SOURCE_PRIORITY, should_ping
+from .shared import _SOURCE_PRIORITY, identity_source_owns, should_ping
 
 _LOGGER = logging.getLogger(__name__)
 # Cap on draining the ping / API-info / resolve tasks at shutdown.
@@ -412,7 +412,7 @@ class DeviceStateMonitor(TaskControllerBase):
         """
         if not ip:
             raise ValueError("empty ip; use clear_resolved_addresses")
-        if is_unspecified_address(ip):
+        if is_unusable_address(ip):
             return False
         devices = self._get_devices_by_name(name)
         if not devices:
@@ -435,7 +435,7 @@ class DeviceStateMonitor(TaskControllerBase):
         """
         if not addresses:
             raise ValueError("empty addresses; use clear_resolved_addresses")
-        usable = drop_unspecified_addresses(addresses)
+        usable = drop_unusable_addresses(addresses)
         if not usable:
             return False
         return self._dispatch_ip(name, _pick_ipv4(usable), usable)
@@ -633,6 +633,14 @@ class DeviceStateMonitor(TaskControllerBase):
         """Tell the owner *name*'s persisted *stale_ip* is proven stale; no-op when unwired."""
         if self._on_persisted_ip_invalidated is not None:
             self._on_persisted_ip_invalidated(name, stale_ip)
+
+    def address_retargeted(self, name: str) -> None:
+        """Drop stale resolved IPs and wake the sweep after *name*'s configured address changed."""
+        # mDNS / MQTT evidence is identity-carrying and address-
+        # independent, so their resolved set survives the retarget.
+        if not identity_source_owns(self, name):
+            self.clear_resolved_addresses(name)
+        self.probe_device_ping(name)
 
     def probe_device_ping(self, device_name: str) -> None:
         """

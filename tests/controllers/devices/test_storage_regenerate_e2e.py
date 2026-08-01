@@ -27,8 +27,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController
 from tests._storage_fixtures import write_storage_json
+from tests.conftest import make_device
 
 from .conftest import MakeControllerFactory
 
@@ -144,6 +146,48 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     assert controller.state.regenerate_pending == set()
     # Success → not in failed set.
     assert controller.state.regenerate_failed == set()
+
+
+async def test_out_of_band_network_edit_spawns_only_generate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A scanner UPDATED with a moved network block regenerates StorageJSON (#2486)."""
+    controller = make_controller(
+        tmp_path,
+        with_state_monitor=True,
+        with_regenerate_state=True,
+        esphome_cmd=["esphome"],
+    )
+    captured_cmd: list[list[str]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        captured_cmd.append(list(args))
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+    _seed_store(controller, "kitchen.yaml", network_fingerprint="pre-edit-digest")
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(name="kitchen", network_fingerprint="post-edit-digest"),
+    )
+    await _drain(controller)
+
+    assert captured_cmd == [
+        [
+            "esphome",
+            "--dashboard",
+            "compile",
+            "--only-generate",
+            str(tmp_path / "kitchen.yaml"),
+        ]
+    ]
 
 
 # ---------------------------------------------------------------------------

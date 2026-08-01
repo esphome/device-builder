@@ -191,6 +191,10 @@ class RecordingStateMonitor:
     def probe_device_ping(self, device_name: str) -> None:
         self.calls.append(("probe_device_ping", device_name))
 
+    def address_retargeted(self, name: str) -> None:
+        self.calls.append(("address_retargeted", name))
+        self.probe_device_ping(name)
+
     def probe_reachability(self, device_name: str) -> None:
         # Delegates like production so callers' per-probe call tuples
         # keep matching regardless of which entry point they used.

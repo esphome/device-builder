@@ -55,15 +55,18 @@ def on_scan_change(
     ):
         # The change swapped in a new address (a ``wifi.use_address``
         # edit, or the post-regen StorageJSON replacing the
-        # ``<file>.local`` fallback); without the wake the new address
-        # waits out the remainder of the periodic sweep interval.
-        controller._state_monitor.probe_device_ping(device.name)
+        # ``<file>.local`` fallback); without the retarget the sweep
+        # keeps pinging addresses resolved from the old one (#2486) or
+        # waits out the remainder of the periodic interval.
+        controller._state_monitor.address_retargeted(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.RELOADED, ScanChange.REMOVED):
         # YAML cache key changed (or a reload re-read it); clear any
         # prior failure marker so the next edit gets a fresh chance at
         # ``--only-generate`` (and re-creating a deleted file
         # later doesn't inherit the old failure).
         controller.state.regenerate_failed.discard(device.configuration)
+    if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
+        _sync_network_fingerprint(controller, kind, device)
     # First-sight devices with no compile output carry the
     # ``<filename>.local`` address fallback and an empty
     # ``loaded_integrations`` list. Schedule a background
@@ -112,3 +115,31 @@ def on_scan_change(
         # Idempotent for the controller-driven delete/archive
         # paths; the safety net is external ``rm`` / rename.
         controller._metadata_store.clear_volatile(device.configuration)
+
+
+def _sync_network_fingerprint(
+    controller: DevicesController, kind: ScanChange, device: Device
+) -> None:
+    """Seed the stored fingerprint; regen when an out-of-band edit moved it."""
+    if not device.network_fingerprint:
+        # Empty means the YAML was unreadable this sweep (or carries no
+        # address-source block at all): no information, so neither
+        # compare nor overwrite the stored digest.
+        return
+    stored = controller._metadata_store.get(device.configuration).get("network_fingerprint")
+    if stored == device.network_fingerprint:
+        return
+    # An out-of-band edit (git pull, external editor — live as UPDATED,
+    # or across a restart as ADDED) moved an address-source block;
+    # without a regen ``StorageJSON.address`` keeps the old
+    # ``use_address`` and the sweep pings a stale host (#2486).
+    # Deliberately over-broad — ``substitutions:`` / ``esphome:`` edits
+    # that touch no address cost one deduped regen. RELOADED is our own
+    # doing (API-path writes regen in ``_persist_yaml_mutation``) and
+    # only re-seeds; ``stored is None`` is first sight, nothing to
+    # compare.
+    if stored is not None and kind is not ScanChange.RELOADED:
+        controller._schedule_storage_regenerate(device.configuration)
+    controller._metadata_store.set_field(
+        device.configuration, "network_fingerprint", device.network_fingerprint
+    )

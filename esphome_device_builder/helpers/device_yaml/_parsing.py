@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from typing import NamedTuple
@@ -185,6 +186,39 @@ def device_uses_mqtt(yaml_content: str) -> bool:
     return yaml_has_top_level_block(yaml_content, "mqtt")
 
 
+# The network blocks whose ``use_address`` feeds ``StorageJSON.address``
+# (esphome's ``CORE.address`` reads the first present one), plus the
+# blocks that feed it indirectly: ``esphome:`` (an absent
+# ``use_address`` derives from ``name``), ``substitutions:`` for the
+# ``use_address: ${var}`` spelling, and ``packages:`` for a network
+# block pulled in by reference.
+_ADDRESS_SOURCE_KEYS = frozenset(
+    {"wifi", "ethernet", "openthread", "esphome", "substitutions", "packages"}
+)
+
+
+def extract_network_address_fingerprint(yaml_content: str) -> str:
+    """
+    Digest of the top-level blocks that can carry or derive ``use_address``.
+
+    Full-line comments and blank lines don't move it (inline comments
+    and reindentation do). An edit to a referenced package or
+    ``!include``d *file* stays invisible — it changes no device YAML,
+    so no scan event fires. Empty when no block exists.
+    """
+    captured: list[str] = []
+    in_block = False
+    for line in yaml_content.splitlines():
+        key = _match_top_level_key(line)
+        if key is not None:
+            in_block = key in _ADDRESS_SOURCE_KEYS
+        if in_block and line.strip() and not line.lstrip().startswith("#"):
+            captured.append(line)
+    if not captured:
+        return ""
+    return hashlib.sha256("\n".join(captured).encode()).hexdigest()
+
+
 _RAW_API_ENCRYPTION_RE = re.compile(
     # Matches an ``encryption:`` line that's indented under ``api:``
     # (any depth ≥ 1 space). Used as a draft-time heuristic — once
@@ -214,15 +248,36 @@ def yaml_has_api_encryption(yaml_content: str) -> bool:
 # esphome's ``cv.boolean`` truthy spellings.
 _TRUTHY_BOOL_STRINGS = frozenset({"true", "yes", "on", "enable"})
 
-_RAW_NAME_ADD_MAC_SUFFIX_RE = re.compile(
-    # Truthy ``name_add_mac_suffix:`` indented under ``esphome:``. The
-    # body alternatives are exclusive so the engine can't backtrack
+
+def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
+    # Truthy *key* indented under top-level *block*. The body
+    # alternatives are exclusive so the engine can't backtrack
     # exponentially on newline runs; case-folding is scoped to the value
     # (YAML keys are case-sensitive), and the value may be quoted.
-    r"^esphome:[^\n]*\n(?:[ \t][^\n]*\n|#[^\n]*\n|\n)*"
-    rf"""[ \t]+name_add_mac_suffix:[ \t]*["']?(?i:{"|".join(sorted(_TRUTHY_BOOL_STRINGS))})\b""",
-    re.MULTILINE,
-)
+    return re.compile(
+        rf"^{block}:[^\n]*\n(?:[ \t][^\n]*\n|#[^\n]*\n|\n)*"
+        rf"""[ \t]+{key}:[ \t]*["']?(?i:{"|".join(sorted(_TRUTHY_BOOL_STRINGS))})\b""",
+        re.MULTILINE,
+    )
+
+
+_RAW_NAME_ADD_MAC_SUFFIX_RE = _truthy_child_re("esphome", "name_add_mac_suffix")
+_RAW_MDNS_DISABLED_RE = _truthy_child_re("mdns", "disabled")
+
+
+def _config_truthy_child(config: dict | None, block_key: str, key: str) -> bool:
+    """Return True when resolved *config*'s *block_key* block sets a truthy *key*."""
+    if not isinstance(config, dict):
+        return False
+    block = config.get(block_key)
+    if not isinstance(block, dict):
+        return False
+    value = block.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in _TRUTHY_BOOL_STRINGS
+    return False
 
 
 def yaml_has_name_add_mac_suffix(yaml_content: str) -> bool:
@@ -232,17 +287,7 @@ def yaml_has_name_add_mac_suffix(yaml_content: str) -> bool:
 
 def config_name_add_mac_suffix(config: dict | None) -> bool:
     """Return True when the resolved ``esphome:`` block sets a truthy ``name_add_mac_suffix``."""
-    if not isinstance(config, dict):
-        return False
-    block = config.get("esphome")
-    if not isinstance(block, dict):
-        return False
-    value = block.get("name_add_mac_suffix")
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in _TRUTHY_BOOL_STRINGS
-    return False
+    return _config_truthy_child(config, "esphome", "name_add_mac_suffix")
 
 
 def name_add_mac_suffix_enabled(resolved_config: dict | None, yaml_content: str) -> bool:
@@ -254,6 +299,17 @@ def name_add_mac_suffix_enabled(resolved_config: dict | None, yaml_content: str)
     if resolved_config is not None:
         return config_name_add_mac_suffix(resolved_config)
     return yaml_has_name_add_mac_suffix(yaml_content)
+
+
+def mdns_disabled_enabled(resolved_config: dict | None, yaml_content: str) -> bool:
+    """
+    Detect a truthy ``mdns.disabled``: resolved config wins, raw text fills in.
+
+    The raw-text fallback applies only when resolution failed.
+    """
+    if resolved_config is not None:
+        return _config_truthy_child(resolved_config, "mdns", "disabled")
+    return bool(_RAW_MDNS_DISABLED_RE.search(yaml_content))
 
 
 def config_has_top_level_block(config: dict | None, key: str) -> bool:

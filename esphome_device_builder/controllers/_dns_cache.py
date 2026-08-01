@@ -26,7 +26,7 @@ from typing import cast
 from icmplib import NameLookupError, async_resolve
 
 from ..helpers.hostname import normalize_hostname
-from ..helpers.ip import drop_unspecified_addresses
+from ..helpers.ip import drop_unusable_addresses
 
 _DEFAULT_TTL_SECONDS = 120
 _RESOLVE_TIMEOUT_SECONDS = 3.0
@@ -75,6 +75,10 @@ class DNSCache:
         if expires_at <= time.monotonic() or not addresses:
             return None
         return list(addresses)
+
+    def invalidate(self, hostname: str) -> None:
+        """Drop the cached entry so the next resolve goes to the resolver."""
+        self._cache.pop(self._normalize(hostname), None)
 
     def has_cached_failure(self, hostname: str) -> bool:
         """
@@ -147,6 +151,7 @@ class DNSCache:
                 addresses = cast("list[str]", await async_resolve(hostname))
         except _RESOLVE_EXCEPTIONS:
             return None
-        # A sinkhole resolver answers with 0.0.0.0 / ::; an
-        # all-unspecified reply is a failed lookup, not a result.
-        return drop_unspecified_addresses(addresses) or None
+        # A sinkhole resolver answers with 0.0.0.0 / :: (or 127.0.0.1,
+        # Pi-hole style); an all-unusable reply is a failed lookup, not
+        # a result.
+        return drop_unusable_addresses(addresses) or None

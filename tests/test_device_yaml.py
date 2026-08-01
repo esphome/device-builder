@@ -45,6 +45,7 @@ from esphome_device_builder.helpers.device_yaml._parsing import (
     device_ap_label,
     extract_logger_baud_rate,
     extract_logger_interface,
+    extract_network_address_fingerprint,
     extract_ota_partition_access,
     resolve_esp32_variant,
     yaml_has_name_add_mac_suffix,
@@ -823,6 +824,51 @@ def test_extract_meta_from_config_no_esphome_block(config: Any) -> None:
     assert extract_esphome_meta_from_config(config) == (None, None, None, None)
 
 
+def test_extract_network_address_fingerprint_tracks_network_edits_only() -> None:
+    """The digest moves with the network blocks, not with surrounding edits."""
+    base = "esphome:\n  name: dev\nwifi:\n  ssid: s\n  use_address: 10.0.0.9\napi:\n"
+    assert extract_network_address_fingerprint(base) != extract_network_address_fingerprint(
+        base.replace("  use_address: 10.0.0.9\n", "")
+    )
+    assert extract_network_address_fingerprint(base) == extract_network_address_fingerprint(
+        base.replace("api:\n", "api:\n  encryption:\n    key: k\n")
+    )
+
+
+def test_extract_network_address_fingerprint_covers_all_source_blocks() -> None:
+    """Ethernet, openthread, substitutions, and packages edits each move the digest."""
+    yaml_content = (
+        "esphome:\n  name: dev\n"
+        "substitutions:\n  addr: 10.0.0.9\n"
+        "packages:\n  base: !include common/wifi.yaml\n"
+        "ethernet:\n  type: lan8720\nlogger:\nopenthread:\n  channel: 15\n"
+    )
+    for edit in (
+        ("  addr: 10.0.0.9", "  addr: 10.0.0.10"),
+        ("common/wifi.yaml", "common/wifi2.yaml"),
+        ("  type: lan8720", "  type: lan8721"),
+        ("  channel: 15", "  channel: 16"),
+        ("  name: dev", "  name: dev2"),
+    ):
+        assert extract_network_address_fingerprint(
+            yaml_content
+        ) != extract_network_address_fingerprint(yaml_content.replace(*edit))
+
+
+def test_extract_network_address_fingerprint_ignores_comments_and_blanks() -> None:
+    """Cosmetic edits inside a network block must not schedule a regen."""
+    plain = "wifi:\n  ssid: s\nota:\n"
+    cosmetic = "wifi:\n# a comment\n\n  ssid: s\nota:\n"
+    assert extract_network_address_fingerprint(plain) == extract_network_address_fingerprint(
+        cosmetic
+    )
+
+
+def test_extract_network_address_fingerprint_without_address_blocks() -> None:
+    """No address-source block yields the empty fingerprint."""
+    assert extract_network_address_fingerprint("logger:\napi:\n  reboot_timeout: 0s\n") == ""
+
+
 def test_extract_logger_baud_rate_int() -> None:
     """A plain integer baud is returned as-is."""
     assert extract_logger_baud_rate({"logger": {"baud_rate": 19200}}) == 19200
@@ -1140,6 +1186,29 @@ def test_load_device_from_storage_detects_name_add_mac_suffix(tmp_path: Path) ->
     quoted = tmp_path / "quoted.yaml"
     quoted.write_text('esphome:\n  name: kit\n  name_add_mac_suffix: "enable"\n', encoding="utf-8")
     assert load_device_from_storage(quoted).name_add_mac_suffix is True
+
+
+def test_load_device_from_storage_detects_mdns_disabled(tmp_path: Path) -> None:
+    """A truthy ``mdns.disabled`` sets the flag; absent, false, or bare block clears it."""
+    disabled = tmp_path / "disabled.yaml"
+    disabled.write_text("esphome:\n  name: quiet\nmdns:\n  disabled: true\n", encoding="utf-8")
+    assert load_device_from_storage(disabled).mdns_disabled is True
+
+    enabled = tmp_path / "enabled.yaml"
+    enabled.write_text("esphome:\n  name: loud\nmdns:\n  disabled: false\n", encoding="utf-8")
+    assert load_device_from_storage(enabled).mdns_disabled is False
+
+    bare = tmp_path / "bare.yaml"
+    bare.write_text("esphome:\n  name: bare\nmdns:\napi:\n", encoding="utf-8")
+    assert load_device_from_storage(bare).mdns_disabled is False
+
+    absent = tmp_path / "absent.yaml"
+    absent.write_text("esphome:\n  name: absent\napi:\n", encoding="utf-8")
+    assert load_device_from_storage(absent).mdns_disabled is False
+
+    draft = tmp_path / "draft.yaml"
+    draft.write_text("mdns:\n  disabled: yes\nwifi: [broken\n", encoding="utf-8")
+    assert load_device_from_storage(draft).mdns_disabled is True
 
 
 def test_load_device_name_add_mac_suffix_survives_invalid_draft(tmp_path: Path) -> None:

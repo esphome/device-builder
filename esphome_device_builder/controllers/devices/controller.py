@@ -41,6 +41,7 @@ from ...models import (
     DeviceReachabilityData,
     DevicesResponse,
     DeviceState,
+    DeviceTroubleshootResult,
     ErrorCode,
     EventType,
     ImportBundleResponse,
@@ -74,6 +75,7 @@ from . import (
     search,
     state_callbacks,
     storage_regen,
+    troubleshoot,
     validate,
 )
 from ._metadata_store import DeviceMetadataStore
@@ -994,6 +996,17 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         await reachability.subscribe(
             self, device_name=device_name, client=client, message_id=message_id
         )
+
+    @api_command("devices/troubleshoot")
+    async def troubleshoot_device(
+        self, *, configuration: str, **kwargs: Any
+    ) -> DeviceTroubleshootResult:
+        """
+        Probe DNS, mDNS, and ICMP for one device on demand.
+
+        A completed ping applies its verdict through the normal ping source.
+        """
+        return await troubleshoot.run(self, configuration)
 
     async def _reachability_refresh_loop(self, device_name: str) -> None:
         await reachability.refresh_loop(self, device_name)

@@ -206,6 +206,7 @@ def test_added_device_without_hash_triggers_regenerate(
     controller.state = DevicesState()
     controller.state.regenerate_failed = set()
     controller._state_monitor = RecordingStateMonitor()
+    controller._metadata_store = MagicMock(**{"get.return_value": {}})
     regenerated: list[str] = []
     monkeypatch.setattr(
         controller, "_schedule_storage_regenerate", regenerated.append, raising=False
@@ -250,6 +251,7 @@ def test_added_device_fully_populated_does_not_regenerate(
     controller.state = DevicesState()
     controller.state.regenerate_failed = set()
     controller._state_monitor = MagicMock()
+    controller._metadata_store = MagicMock(**{"get.return_value": {}})
     regenerated: list[str] = []
     monkeypatch.setattr(
         controller, "_schedule_storage_regenerate", regenerated.append, raising=False

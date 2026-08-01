@@ -6,7 +6,7 @@ import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -227,6 +227,30 @@ async def test_async_resolve_all_unspecified_is_a_cached_failure(fake_resolver) 
     assert result2 is None
     assert stub.calls == ["esp.example.com"]
     assert cache.has_cached_failure("esp.example.com")
+
+
+async def test_async_resolve_loopback_sinkhole_is_a_cached_failure(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A Pi-hole-style ``127.0.0.1`` sinkhole answer is a failed lookup, not a result."""
+    stub = fake_resolver(["127.0.0.1", "::1"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("esp.example.com")
+    assert result is None
+    assert cache.has_cached_failure("esp.example.com")
+
+
+async def test_async_resolve_returns_literal_loopback(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A literal loopback passes through verbatim — SSH-tunnel OTA workflows depend on it."""
+    stub = fake_resolver(["1.2.3.4"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("127.0.0.1")
+    assert result == ["127.0.0.1"]
+    assert stub.calls == []
 
 
 async def test_async_resolve_drops_unspecified_keeps_real(fake_resolver) -> None:
@@ -801,3 +825,19 @@ def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  
 
     for i in range(writer_count):
         assert get_board_id(tmp_path, f"device-{i}.yaml") == f"board-{i}"
+
+
+async def test_invalidate_forces_a_fresh_resolve() -> None:
+    """Invalidate normalises like resolve and tolerates unknown hosts."""
+    cache = DNSCache()
+    with patch(
+        "esphome_device_builder.controllers._dns_cache.async_resolve",
+        AsyncMock(return_value=["10.0.0.5"]),
+    ) as resolver:
+        await cache.async_resolve("kitchen.local")
+        assert cache.get_cached_addresses("kitchen.local") == ["10.0.0.5"]
+        cache.invalidate("Kitchen.LOCAL")
+        assert cache.get_cached_addresses("kitchen.local") is None
+        await cache.async_resolve("kitchen.local")
+        assert resolver.await_count == 2
+    cache.invalidate("never-seen.local")

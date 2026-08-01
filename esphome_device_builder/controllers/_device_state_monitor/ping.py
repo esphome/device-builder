@@ -10,6 +10,7 @@ from icmplib import async_ping as icmp_ping
 from icmplib.exceptions import ICMPLibError
 
 from ...helpers.hostname import is_local_hostname
+from ...helpers.ip import drop_unusable_addresses
 from ...models import Device, DeviceState
 from . import shared
 from ._sweep_source import SweepSource
@@ -107,6 +108,13 @@ class PingSource(SweepSource):
             # flooding the logs with stack traces.
             _LOGGER.debug("Ping of %s failed: %s", target, exc)
         return None
+
+    async def probe_target(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
+        """One budget-acquired probe of *target* for out-of-sweep callers."""
+        async with self.icmp_concurrency:
+            return await self._ping_device(device, target, apply=apply)
 
     async def _prepare(self) -> bool:
         privileged = await _can_use_icmp_lib_with_privilege()
@@ -215,16 +223,28 @@ class PingSource(SweepSource):
 
     async def _resolve_and_ping(self, device: Device) -> None:
         """Resolve *device.address* through the DNS cache and ICMP it."""
+        # Target order mirrors ``devices/troubleshoot``'s ``_pick_target``
+        # (which adds a persisted-IP tail the sweep must never take);
+        # keep the two chains in lockstep.
         monitor = self._monitor
         async with self.icmp_concurrency:
-            addresses = await monitor.state.dns_cache.async_resolve(device.address)
+            # Filter the resolve, not the merged chain: a literal
+            # loopback ``use_address`` rides the DNS cache's literal
+            # short-circuit past every apply-side filter, and pinging it
+            # would latch the device ONLINE off the dashboard host
+            # itself (#2486). The later sources arrive pre-filtered, so
+            # an all-unusable answer falls through to them instead of
+            # dead-ending.
+            addresses = drop_unusable_addresses(
+                await monitor.state.dns_cache.async_resolve(device.address) or []
+            )
             if not addresses and is_local_hostname(device.address):
                 # System resolver couldn't resolve the ``.local`` (no nss-mdns
                 # in most container images). Fall back to zeroconf's own mDNS
                 # cache, kept fresh by the ``AsyncServiceBrowser``, rather than
                 # giving up — but ping still decides liveness, so a stale or
                 # reflected entry demotes instead of latching ONLINE (#1776).
-                addresses = monitor.mdns.get_cached_addresses(device.address)
+                addresses = monitor.mdns.get_cached_addresses(device.address) or []
             if not addresses:
                 # mDNS-less devices: the ``.local`` won't resolve but a
                 # prior MQTT/DNS observation left a usable IP. Ping that so
@@ -248,7 +268,9 @@ class PingSource(SweepSource):
             monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
-    async def _ping_device(self, device: Device, target: str) -> None:
+    async def _ping_device(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
         # Skip the retry only for already-OFFLINE devices: the miss
         # just confirms the state, nothing to flap. ONLINE devices
         # get the retry to absorb a transient drop; UNKNOWN devices
@@ -258,4 +280,6 @@ class PingSource(SweepSource):
         # dropped packet.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt_ms = await self.ping_once(target, retry=needs_retry)
-        shared.apply_ping_result(self._monitor, device.name, rtt_ms)
+        if apply:
+            shared.apply_ping_result(self._monitor, device.name, rtt_ms)
+        return rtt_ms

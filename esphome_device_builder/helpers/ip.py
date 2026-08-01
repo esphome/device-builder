@@ -6,26 +6,30 @@ from collections.abc import Iterable
 from ipaddress import IPv4Address, IPv6Address, ip_address
 
 
-def is_unspecified_address(value: str) -> bool:
-    """Return True when *value* parses as an IP and is unspecified (``0.0.0.0`` / ``::``)."""
+def is_unusable_address(value: str) -> bool:
+    """Return True when *value* parses as an IP and is unspecified or loopback."""
     parsed = _parse(value)
-    return parsed is not None and parsed.is_unspecified
+    return parsed is not None and _is_unusable(parsed)
 
 
 def is_usable_ip(value: str) -> bool:
-    """Return True when *value* parses as an IP and is not unspecified."""
+    """Return True when *value* parses as an IP and is neither unspecified nor loopback."""
     parsed = _parse(value)
-    return parsed is not None and not parsed.is_unspecified
+    return parsed is not None and not _is_unusable(parsed)
 
 
-def drop_unspecified_addresses(addresses: Iterable[str]) -> list[str]:
+def drop_unusable_addresses(addresses: Iterable[str]) -> list[str]:
     """
-    Drop unspecified entries from *addresses*.
+    Drop unspecified and loopback entries from *addresses*.
 
     Entries that don't parse as an IP are kept unchanged — the
-    filter only removes recognizable unspecified addresses.
+    filter only removes recognizable unusable addresses.
     """
-    return [address for address in addresses if not is_unspecified_address(address)]
+    return [address for address in addresses if not is_unusable_address(address)]
+
+
+def _is_unusable(parsed: IPv4Address | IPv6Address) -> bool:
+    return parsed.is_unspecified or parsed.is_loopback
 
 
 def _parse(value: str) -> IPv4Address | IPv6Address | None:

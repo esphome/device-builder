@@ -29,9 +29,11 @@ from ._parsing import (
     extract_esphome_meta_from_config,
     extract_logger_baud_rate,
     extract_logger_interface,
+    extract_network_address_fingerprint,
     extract_ota_partition_access,
     get_api_encryption_block,
     has_top_level_block,
+    mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
     parse_esphome_meta,
     yaml_has_api_encryption,
@@ -318,6 +320,7 @@ def load_device_from_storage(
         # this on the next compile if the device picks a different
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
+        network_fingerprint=extract_network_address_fingerprint(yaml_content),
         ip=ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,
@@ -334,6 +337,7 @@ def load_device_from_storage(
         uses_mqtt=has_top_level_block(resolved_config, yaml_content, "mqtt"),
         uses_deep_sleep=has_top_level_block(resolved_config, yaml_content, "deep_sleep"),
         name_add_mac_suffix=name_add_mac_suffix_enabled(resolved_config, yaml_content),
+        mdns_disabled=mdns_disabled_enabled(resolved_config, yaml_content),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
         mac_address=mac_address,
