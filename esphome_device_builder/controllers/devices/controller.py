@@ -999,7 +999,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     @api_command("devices/troubleshoot")
     async def troubleshoot_device(
-        self, *, device_name: str, **kwargs: Any
+        self, *, configuration: str, **kwargs: Any
     ) -> DeviceTroubleshootResult:
         """
         Probe DNS, mDNS, and ICMP for one device on demand.
@@ -1007,7 +1007,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         Backs the offline troubleshooting dialog; a successful ping
         heals state through the normal ping source.
         """
-        return await troubleshoot.run(self, device_name)
+        return await troubleshoot.run(self, configuration)
 
     async def _reachability_refresh_loop(self, device_name: str) -> None:
         await reachability.refresh_loop(self, device_name)

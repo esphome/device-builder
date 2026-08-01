@@ -358,7 +358,7 @@ class DeviceTroubleshootResult(DashboardModel):
     the target didn't answer.
     """
 
-    device: str
+    configuration: str
     address: str
     icmp_available: bool | None
     zeroconf_running: bool
