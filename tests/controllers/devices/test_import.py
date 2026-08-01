@@ -983,12 +983,12 @@ async def test_import_device_keeps_same_url_siblings_discovered(
     ]
 
 
-async def test_import_device_rename_drops_only_the_resolved_sibling(
+async def test_import_device_rename_with_ambiguous_siblings_retires_none(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A rename-during-adopt retires one URL-matched row; the sibling stays discovered."""
+    """A rename-during-adopt among identical siblings retires no row and probes no guess."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     _seed_two_apollo_plt1_rows(ctrl)
@@ -1003,15 +1003,13 @@ async def test_import_device_rename_drops_only_the_resolved_sibling(
         package_import_url="github://apollo/plt-1.yaml",
     )
 
-    # The URL fallback resolves the first matching row; only that one
-    # is retired, and it also drives the cache lookup and probe.
-    assert "apollo-plt-1-aabbcc" not in ctrl.state.import_result
+    # Which sibling the user renamed is unknowable from the URL alone;
+    # a guessed retire strands that unit until restart, and a guessed
+    # probe stamps its IP onto the adopted device.
+    assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
     assert "apollo-plt-1-ddeeff" in ctrl.state.import_result
-    assert [(e.event_type, e.data) for e in captured] == [
-        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-aabbcc"})
-    ]
+    assert captured == []
     assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "apollo-plt-1-aabbcc.local"),
-        ("apply_ip_addresses", "kitchen", ["192.168.1.77"]),
-        ("probe_device", "kitchen", "apollo-plt-1-aabbcc"),
+        ("get_cached_addresses", "kitchen.local"),
+        ("probe_device", "kitchen", "kitchen"),
     ]

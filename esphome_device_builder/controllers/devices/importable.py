@@ -43,22 +43,7 @@ async def import_device(
     """Import / adopt a discovered device."""
     configuration = f"{name}.yaml"
     path = controller._db.settings.rel_path(configuration)
-    # Look up the adoptable by name first; factory firmware
-    # broadcasts a MAC-suffixed name (``apollo-plt-1-983300``)
-    # so each physical device has a unique key even when
-    # multiple identical products share the same
-    # ``package_import_url``. Fall back to a URL match for the
-    # rename-during-adopt case (the ``import_result`` key no
-    # longer matches the chosen YAML name); fall through to
-    # Wi-Fi when no row matches at all.
-    adoptable = controller.state.import_result.get(name) or next(
-        (
-            d
-            for d in controller.state.import_result.values()
-            if d.package_import_url == package_import_url
-        ),
-        None,
-    )
+    adoptable, mdns_name = _resolve_adoptable(controller, name, package_import_url)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     full_config_import = "full_config" in package_import_url.partition("?")[2]
     try:
@@ -141,7 +126,7 @@ async def import_device(
     except Exception:
         _LOGGER.exception("Scan after import failed; will pick up on next poll")
 
-    _drop_importable_row_and_probe(controller, name, adoptable.name if adoptable else name)
+    _drop_importable_row_and_probe(controller, name, mdns_name)
     result = {"configuration": configuration}
     if warning:
         result["warning"] = warning
@@ -239,6 +224,34 @@ def save_ignored_devices(controller: DevicesController) -> None:
     storage_path.write_bytes(
         dumps_indent({"ignored_devices": sorted(controller.state.ignored_devices)}),
     )
+
+
+def _resolve_adoptable(
+    controller: DevicesController,
+    name: str,
+    package_import_url: str,
+) -> tuple[AdoptableDevice | None, str]:
+    """
+    Resolve the discovered row being adopted and its broadcast name.
+
+    Factory firmware broadcasts a MAC-suffixed name, so the name-keyed
+    lookup is unambiguous even among identical products sharing one
+    ``package_import_url``. A rename-during-adopt falls back to a URL
+    match: any match supplies the network hint, but the broadcast name
+    is taken only from a *unique* match — among identical siblings any
+    pick is a guess, and retiring or probing a guessed row strands an
+    innocent unit, while a leftover ghost row is dismissible.
+    """
+    if (adoptable := controller.state.import_result.get(name)) is not None:
+        return adoptable, name
+    url_matches = [
+        d
+        for d in controller.state.import_result.values()
+        if d.package_import_url == package_import_url
+    ]
+    if len(url_matches) == 1:
+        return url_matches[0], url_matches[0].name
+    return (url_matches[0] if url_matches else None), name
 
 
 def _drop_importable_row_and_probe(
