@@ -113,9 +113,6 @@ async def test_import_device_omits_wifi_for_ethernet_network(
 
     Hard-coding ``CONF_WIFI`` produced a YAML with a Wi-Fi template
     that the user had to fix by hand on every Ethernet adoption.
-    Look up the discovered ``AdoptableDevice`` by the
-    ``package_import_url`` the dialog passes and honour its
-    ``network`` field.
     """
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
@@ -130,14 +127,12 @@ async def test_import_device_omits_wifi_for_ethernet_network(
     )
 
     await ctrl.import_device(
-        # User picked a shorter name in the dialog — discovery key
-        # still matches because we look up by URL.
-        name="garage",
+        name="olimex-poe-aabbcc",
         project_name="olimex.esp32-poe",
         package_import_url="github://olimex/esp32-poe.yaml",
     )
 
-    assert "wifi" not in (tmp_path / "garage.yaml").read_text(encoding="utf-8")
+    assert "wifi" not in (tmp_path / "olimex-poe-aabbcc.yaml").read_text(encoding="utf-8")
 
 
 async def test_import_device_uses_direct_name_lookup_with_duplicate_products(
@@ -841,40 +836,7 @@ async def test_import_device_applies_cached_ip_and_probes(
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
-        ("probe_device", "kitchen", "kitchen"),
-    ]
-
-
-async def test_import_device_rename_applies_the_factory_cached_ip_and_probes(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-) -> None:
-    """The factory name drives the cache lookup and probe; the chosen name receives the apply."""
-    ctrl = make_controller(tmp_path)
-    _seed_import_state(ctrl)
-    ctrl.state.import_result["apollo-plt-1-983300"] = AdoptableDevice(
-        name="apollo-plt-1-983300",
-        friendly_name="Apollo PLT-1",
-        package_import_url="github://apollo/plt-1.yaml",
-        project_name="apollo.plt-1",
-        project_version="26.3.2.1",
-        network="wifi",
-        ignored=False,
-    )
-    ctrl._state_monitor = RecordingStateMonitor(
-        cached_addresses={"apollo-plt-1-983300.local": ["192.168.1.77"]}
-    )
-
-    await ctrl.import_device(
-        name="kitchen",
-        project_name="apollo.plt-1",
-        package_import_url="github://apollo/plt-1.yaml",
-    )
-
-    assert ctrl._state_monitor.calls == [
-        ("get_cached_addresses", "apollo-plt-1-983300.local"),
-        ("apply_ip_addresses", "kitchen", ["192.168.1.77"]),
-        ("probe_device", "kitchen", "apollo-plt-1-983300"),
+        ("probe_device", "kitchen", None),
     ]
 
 
@@ -896,7 +858,7 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
 
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen", "kitchen"),
+        ("probe_device", "kitchen", None),
     ]
 
 
@@ -906,14 +868,7 @@ async def test_import_device_drops_matching_import_result_entry(
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """The discovery banner entry disappears the moment adoption finishes.
-
-    Before this fix, the discovered card stuck around until the next
-    discovery cycle filtered it out by name. Match the cache entry by
-    ``package_import_url`` (which uniquely identifies the firmware)
-    so we drop the right entry even when the user typed a different
-    YAML name in the dialog.
-    """
+    """The discovery banner entry disappears the moment adoption finishes."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
@@ -929,8 +884,7 @@ async def test_import_device_drops_matching_import_result_entry(
     ctrl.state.import_result["apollo-plt-1-983300"] = discovered
 
     await ctrl.import_device(
-        # User typed a shorter name (without the MAC suffix).
-        name="apollo-plt-1",
+        name="apollo-plt-1-983300",
         project_name="apollo.plt-1",
         package_import_url="github://apollo/plt-1.yaml",
     )
@@ -938,8 +892,7 @@ async def test_import_device_drops_matching_import_result_entry(
     assert "apollo-plt-1-983300" not in ctrl.state.import_result
     # Removal is broadcast so subscribed frontends drop the card.
     # Pin both count and payload so a future double-fire / regression
-    # surfaces here — there's exactly one matching import_result entry,
-    # so exactly one event should land on the bus.
+    # surfaces here — exactly one event should land on the bus.
     assert [(e.event_type, e.data) for e in captured] == [
         (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-983300"})
     ]
@@ -983,12 +936,12 @@ async def test_import_device_keeps_same_url_siblings_discovered(
     ]
 
 
-async def test_import_device_rename_with_ambiguous_siblings_retires_none(
+async def test_import_device_undiscovered_name_retires_nothing(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     capture_devices_events: CaptureDevicesEventsFactory,
 ) -> None:
-    """A rename-during-adopt among identical siblings retires no row and probes no guess."""
+    """Importing a name with no discovered row never retires or probes a URL match."""
     ctrl = make_controller(tmp_path)
     _seed_import_state(ctrl)
     _seed_two_apollo_plt1_rows(ctrl)
@@ -1003,13 +956,10 @@ async def test_import_device_rename_with_ambiguous_siblings_retires_none(
         package_import_url="github://apollo/plt-1.yaml",
     )
 
-    # Which sibling the user renamed is unknowable from the URL alone;
-    # a guessed retire strands that unit until restart, and a guessed
-    # probe stamps its IP onto the adopted device.
     assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
     assert "apollo-plt-1-ddeeff" in ctrl.state.import_result
     assert captured == []
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen", "kitchen"),
+        ("probe_device", "kitchen", None),
     ]
