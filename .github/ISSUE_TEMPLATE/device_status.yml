@@ -82,6 +82,32 @@ body:
       required: true
 
   - type: textarea
+    id: observed
+    attributes:
+      label: Dashboard-observed state
+      description: |
+        Prefilled when you report from the dashboard's feedback dialog: the
+        device's state, reachability source, IP, versions, and installation.
+        Leave it as generated, or fill it in by hand from the device drawer.
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Device YAML config
+      description: |
+        The YAML config of the affected device, with secrets redacted
+        (Wi-Fi credentials, API encryption key, OTA password); prefilled
+        with known credentials masked when you report from the dashboard.
+        Prefer the whole file; trim only if it's huge. If this report isn't
+        about a specific device, write "not device specific".
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
     id: network
     attributes:
       label: Network setup
