@@ -65,17 +65,8 @@ def on_scan_change(
         # ``--only-generate`` (and re-creating a deleted file
         # later doesn't inherit the old failure).
         controller.state.regenerate_failed.discard(device.configuration)
-    if (
-        kind is ScanChange.UPDATED
-        and previous is not None
-        and previous.network_fingerprint != device.network_fingerprint
-    ):
-        # An out-of-band edit (git pull, external editor) moved a
-        # network block; without a regen ``StorageJSON.address`` keeps
-        # the old ``use_address`` and the sweep pings a stale host
-        # (#2486). API-path writes regen unconditionally in
-        # ``_persist_yaml_mutation`` and surface here as RELOADED.
-        controller._schedule_storage_regenerate(device.configuration)
+    if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
+        _sync_network_fingerprint(controller, kind, device)
     # First-sight devices with no compile output carry the
     # ``<filename>.local`` address fallback and an empty
     # ``loaded_integrations`` list. Schedule a background
@@ -124,3 +115,26 @@ def on_scan_change(
         # Idempotent for the controller-driven delete/archive
         # paths; the safety net is external ``rm`` / rename.
         controller._metadata_store.clear_volatile(device.configuration)
+
+
+def _sync_network_fingerprint(
+    controller: DevicesController, kind: ScanChange, device: Device
+) -> None:
+    """Seed the stored fingerprint; regen when an out-of-band edit moved it."""
+    stored = controller._metadata_store.get(device.configuration).get("network_fingerprint")
+    if (stored or "") == device.network_fingerprint:
+        return
+    # An out-of-band edit (git pull, external editor — live as UPDATED,
+    # or across a restart as ADDED) moved an address-source block;
+    # without a regen ``StorageJSON.address`` keeps the old
+    # ``use_address`` and the sweep pings a stale host (#2486).
+    # Deliberately over-broad — ``substitutions:`` / ``esphome:`` edits
+    # that touch no address cost one deduped regen. RELOADED is our own
+    # doing (API-path writes regen in ``_persist_yaml_mutation``) and
+    # only re-seeds; ``stored is None`` is first sight, nothing to
+    # compare.
+    if stored is not None and kind is not ScanChange.RELOADED:
+        controller._schedule_storage_regenerate(device.configuration)
+    controller._metadata_store.set_field(
+        device.configuration, "network_fingerprint", device.network_fingerprint
+    )

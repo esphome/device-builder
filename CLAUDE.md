@@ -639,12 +639,14 @@ against legacy behaviour before assuming the simpler version suffices.
     instead of latching ONLINE off the dashboard host — while the DNS
     cache still returns literal loopback verbatim, keeping SSH-tunnel
     OTA workflows working. Out-of-band edits (git pull, external
-    editor) that move a top-level network, `substitutions:`, or
-    `packages:` block schedule a StorageJSON regen via the off-wire
-    `Device.network_fingerprint` change detector (API-path writes
-    already regen on every save). An edit to a referenced package
-    *file* stays uncovered — it changes no device YAML, so no scan
-    event fires.
+    editor) that move an address-source block (network blocks,
+    `esphome:`, `substitutions:`, `packages:`) schedule a StorageJSON
+    regen via the `network_fingerprint` digest — compared against the
+    metadata store, so edits made while the dashboard was down are
+    caught on the cold-start ADDED (API-path writes already regen on
+    every save; RELOADED only re-seeds the stored value). An edit to a
+    referenced package *file* stays uncovered — it changes no device
+    YAML, so no scan event fires.
   - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
     for a configured device without `api:`). Such a device never publishes
     `_esphomelib._tcp` (behind `USE_API`); its broadcast is the `_http._tcp`

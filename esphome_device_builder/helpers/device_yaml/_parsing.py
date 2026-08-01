@@ -187,19 +187,24 @@ def device_uses_mqtt(yaml_content: str) -> bool:
 
 
 # The network blocks whose ``use_address`` feeds ``StorageJSON.address``
-# (esphome's ``CORE.address`` reads the first present one), plus
-# ``substitutions:`` for the ``use_address: ${var}`` spelling and
-# ``packages:`` for a network block pulled in by reference.
-_ADDRESS_SOURCE_KEYS = frozenset({"wifi", "ethernet", "openthread", "substitutions", "packages"})
+# (esphome's ``CORE.address`` reads the first present one), plus the
+# blocks that feed it indirectly: ``esphome:`` (an absent
+# ``use_address`` derives from ``name``), ``substitutions:`` for the
+# ``use_address: ${var}`` spelling, and ``packages:`` for a network
+# block pulled in by reference.
+_ADDRESS_SOURCE_KEYS = frozenset(
+    {"wifi", "ethernet", "openthread", "esphome", "substitutions", "packages"}
+)
 
 
 def extract_network_address_fingerprint(yaml_content: str) -> str:
     """
-    Digest of the top-level blocks that can carry ``use_address``.
+    Digest of the top-level blocks that can carry or derive ``use_address``.
 
-    Comment and blank lines don't move it. An edit to a referenced
-    package *file* stays invisible — it changes no device YAML, so no
-    scan event fires. Empty when no block exists.
+    Full-line comments and blank lines don't move it (inline comments
+    and reindentation do). An edit to a referenced package *file* stays
+    invisible — it changes no device YAML, so no scan event fires.
+    Empty when no block exists.
     """
     captured: list[str] = []
     in_block = False

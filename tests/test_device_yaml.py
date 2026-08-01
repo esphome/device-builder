@@ -838,6 +838,7 @@ def test_extract_network_address_fingerprint_tracks_network_edits_only() -> None
 def test_extract_network_address_fingerprint_covers_all_source_blocks() -> None:
     """Ethernet, openthread, substitutions, and packages edits each move the digest."""
     yaml_content = (
+        "esphome:\n  name: dev\n"
         "substitutions:\n  addr: 10.0.0.9\n"
         "packages:\n  base: !include common/wifi.yaml\n"
         "ethernet:\n  type: lan8720\nlogger:\nopenthread:\n  channel: 15\n"
@@ -847,6 +848,7 @@ def test_extract_network_address_fingerprint_covers_all_source_blocks() -> None:
         ("common/wifi.yaml", "common/wifi2.yaml"),
         ("  type: lan8720", "  type: lan8721"),
         ("  channel: 15", "  channel: 16"),
+        ("  name: dev", "  name: dev2"),
     ):
         assert extract_network_address_fingerprint(
             yaml_content
@@ -862,9 +864,9 @@ def test_extract_network_address_fingerprint_ignores_comments_and_blanks() -> No
     )
 
 
-def test_extract_network_address_fingerprint_without_network_blocks() -> None:
-    """No network block yields the empty fingerprint."""
-    assert extract_network_address_fingerprint("esphome:\n  name: dev\napi:\n") == ""
+def test_extract_network_address_fingerprint_without_address_blocks() -> None:
+    """No address-source block yields the empty fingerprint."""
+    assert extract_network_address_fingerprint("logger:\napi:\n  reboot_timeout: 0s\n") == ""
 
 
 def test_extract_logger_baud_rate_int() -> None:

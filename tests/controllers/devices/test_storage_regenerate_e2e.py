@@ -171,14 +171,11 @@ async def test_out_of_band_network_edit_spawns_only_generate(
         _fake_spawn,
     )
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+    _seed_store(controller, "kitchen.yaml", network_fingerprint="pre-edit-digest")
 
     controller._on_scan_change(
         ScanChange.UPDATED,
-        make_device(name="kitchen", network_fingerprint="wifi:\n  ssid: s"),
-        make_device(
-            name="kitchen",
-            network_fingerprint="wifi:\n  ssid: s\n  use_address: 10.0.0.9",
-        ),
+        make_device(name="kitchen", network_fingerprint="post-edit-digest"),
     )
     await _drain(controller)
 
