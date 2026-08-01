@@ -348,6 +348,31 @@ class UpdateDeviceResponse(DashboardModel):
     board_id: str | None
 
 
+@dataclass
+class DeviceTroubleshootResult(DashboardModel):
+    """
+    Response for ``devices/troubleshoot``.
+
+    ``icmp_available`` is ``None`` while the startup privilege probe
+    hasn't landed; ``ping_rtt_ms`` is ``None`` when the probe ran and
+    the target didn't answer.
+    """
+
+    device: str
+    address: str
+    icmp_available: bool | None
+    zeroconf_running: bool
+    dns_resolved: bool = False
+    dns_addresses: list[str] = field(default_factory=list)
+    dns_had_cached_failure: bool = False
+    mdns_addresses: list[str] = field(default_factory=list)
+    mdns_has_cached_trace: bool = False
+    mdns_has_live_anchor_ptr: bool = False
+    ping_attempted: bool = False
+    ping_target: str = ""
+    ping_rtt_ms: float | None = None
+
+
 # ---------------------------------------------------------------------------
 # Event payload shapes (TypedDict so the bus.fire data dict is
 # type-checked at the call site without changing the wire shape).

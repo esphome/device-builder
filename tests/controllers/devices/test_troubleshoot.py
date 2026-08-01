@@ -1,0 +1,272 @@
+"""Coverage for the ``devices/troubleshoot`` on-demand probe."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from esphome_device_builder.controllers.devices import troubleshoot
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.models import (
+    Device,
+    DeviceRuntimeState,
+    DeviceState,
+    ErrorCode,
+)
+
+from .conftest import MakeControllerFactory
+
+
+def _seed_device(
+    controller: Any,
+    name: str = "kitchen",
+    *,
+    address: str = "kitchen.local",
+    ip: str = "",
+    ip_addresses: list[str] | None = None,
+) -> Device:
+    device = Device(
+        name=name,
+        friendly_name=name.title(),
+        configuration=f"{name}.yaml",
+        address=address,
+        ip=ip,
+        runtime_state=DeviceRuntimeState(ip_addresses=ip_addresses or []),
+    )
+    controller._scanner.get_by_name = lambda n: [device] if n == name else []
+    return device
+
+
+def _wire_monitor(
+    controller: Any,
+    *,
+    icmp_available: bool | None = True,
+    zeroconf_up: bool = True,
+    dns_addresses: list[str] | None = None,
+    dns_cached_failure: bool = False,
+    mdns_cached: list[str] | None = None,
+    has_trace: bool = False,
+    live_ptr: bool = False,
+    rtt: float | None = 5.0,
+) -> MagicMock:
+    monitor = MagicMock()
+    monitor.ping.icmp_available = icmp_available
+    monitor.ping.icmp_concurrency = asyncio.Semaphore(1)
+    monitor.ping.ping_once = AsyncMock(return_value=rtt)
+    monitor.mdns.zeroconf = object() if zeroconf_up else None
+    monitor.mdns.refresh_mdns = AsyncMock()
+    monitor.mdns.get_cached_addresses = MagicMock(return_value=mdns_cached)
+    monitor.mdns.has_cached_trace = MagicMock(return_value=has_trace)
+    monitor.mdns.has_live_anchor_ptr = MagicMock(return_value=live_ptr)
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=dns_addresses)
+    monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=dns_cached_failure)
+    controller._state_monitor = monitor
+    return monitor
+
+
+async def test_unknown_device_raises_not_found(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    controller._scanner.get_by_name = lambda _n: []
+    _wire_monitor(controller)
+
+    with pytest.raises(CommandError) as exc:
+        await controller.troubleshoot_device(device_name="nope")
+    assert exc.value.code == ErrorCode.NOT_FOUND
+
+
+async def test_happy_path_wire_shape(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """DNS resolves, mDNS is live, ping answers; every field lands on the wire."""
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(
+        controller,
+        dns_addresses=["fe80::1", "10.0.0.42"],
+        mdns_cached=["10.0.0.42"],
+        has_trace=True,
+        live_ptr=True,
+        rtt=4.2,
+    )
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    monitor.mdns.refresh_mdns.assert_awaited_once_with("kitchen")
+    monitor.state.dns_cache.async_resolve.assert_awaited_once_with("kitchen.local")
+    assert result.to_dict() == {
+        "device": "kitchen",
+        "address": "kitchen.local",
+        "icmp_available": True,
+        "zeroconf_running": True,
+        "dns_resolved": True,
+        "dns_addresses": ["fe80::1", "10.0.0.42"],
+        "dns_had_cached_failure": False,
+        "mdns_addresses": ["10.0.0.42"],
+        "mdns_has_cached_trace": True,
+        "mdns_has_live_anchor_ptr": True,
+        "ping_attempted": True,
+        # IPv4 preferred over the scoped IPv6 the resolver ordered first.
+        "ping_target": "10.0.0.42",
+        "ping_rtt_ms": 4.2,
+    }
+    # A hit heals state through the normal ping source.
+    monitor.apply.assert_called_once_with("kitchen", DeviceState.ONLINE, "ping")
+    monitor.state.reachability.record_ping_rtt.assert_called_once_with("kitchen", 4.2)
+
+
+async def test_zeroconf_down_degrades_mdns_fields(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(
+        controller, zeroconf_up=False, mdns_cached=None, dns_addresses=["10.0.0.42"]
+    )
+    monitor.mdns.has_cached_trace.return_value = False
+    monitor.mdns.has_live_anchor_ptr.return_value = False
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.zeroconf_running is False
+    assert result.mdns_addresses == []
+    assert result.mdns_has_cached_trace is False
+
+
+@pytest.mark.parametrize("icmp_available", [None, False], ids=["probing", "unavailable"])
+async def test_icmp_unavailable_skips_ping(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    icmp_available: bool | None,
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, icmp_available=icmp_available, dns_addresses=["10.0.0.42"])
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.icmp_available == icmp_available
+    assert result.ping_attempted is False
+    assert result.ping_target == ""
+    monitor.ping.ping_once.assert_not_awaited()
+    monitor.apply.assert_not_called()
+
+
+async def test_ping_miss_applies_offline(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"], rtt=None)
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.ping_attempted is True
+    assert result.ping_rtt_ms is None
+    monitor.apply.assert_called_once_with("kitchen", DeviceState.OFFLINE, "ping")
+    monitor.state.reachability.record_ping_rtt.assert_not_called()
+
+
+async def test_dns_failure_falls_back_to_mdns_cache(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    _wire_monitor(controller, dns_addresses=None, dns_cached_failure=True, mdns_cached=["10.0.0.7"])
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.dns_resolved is False
+    assert result.dns_had_cached_failure is True
+    assert result.ping_target == "10.0.0.7"
+
+
+async def test_runtime_addresses_then_persisted_ip_fallbacks(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    device = _seed_device(controller, ip="10.0.0.9", ip_addresses=["10.0.0.8"])
+    _wire_monitor(controller, dns_addresses=None, mdns_cached=None)
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+    assert result.ping_target == "10.0.0.8"
+
+    device.runtime_state.ip_addresses = []
+    result = await controller.troubleshoot_device(device_name="kitchen")
+    assert result.ping_target == "10.0.0.9"
+
+
+async def test_no_target_skips_ping(tmp_path: Path, make_controller: MakeControllerFactory) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, dns_addresses=None, mdns_cached=None)
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.ping_attempted is False
+    monitor.ping.ping_once.assert_not_awaited()
+
+
+async def test_empty_address_skips_dns(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller, address="")
+    monitor = _wire_monitor(controller, dns_cached_failure=True)
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.dns_resolved is False
+    assert result.dns_had_cached_failure is False
+    monitor.state.dns_cache.async_resolve.assert_not_awaited()
+    monitor.state.dns_cache.has_cached_failure.assert_not_called()
+
+
+async def test_dns_timeout_degrades(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, mdns_cached=None)
+
+    async def _hang(_address: str) -> list[str] | None:
+        await asyncio.sleep(30)
+        return None
+
+    monitor.state.dns_cache.async_resolve = _hang
+    monkeypatch.setattr(troubleshoot, "_DNS_TIMEOUT", 0.01)
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.dns_resolved is False
+    assert result.dns_addresses == []
+
+
+async def test_ping_timeout_degrades(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"])
+
+    async def _hang(_target: str, *, retry: bool) -> float | None:
+        await asyncio.sleep(30)
+        return None
+
+    monitor.ping.ping_once = _hang
+    monkeypatch.setattr(troubleshoot, "_PING_TIMEOUT", 0.01)
+
+    result = await controller.troubleshoot_device(device_name="kitchen")
+
+    assert result.ping_attempted is True
+    assert result.ping_rtt_ms is None
+    monitor.apply.assert_called_once_with("kitchen", DeviceState.OFFLINE, "ping")
