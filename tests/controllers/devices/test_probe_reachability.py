@@ -29,7 +29,7 @@ def test_probe_fires_for_unknown_device(
     controller.probe_reachability_if_unknown("kitchen.yaml")
 
     assert controller._state_monitor.calls == [
-        ("probe_device", "kitchen", None),
+        ("probe_device", "kitchen"),
         ("probe_device_ping", "kitchen"),
     ]
 

@@ -836,7 +836,7 @@ async def test_import_device_applies_cached_ip_and_probes(
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
         ("apply_ip_addresses", "kitchen", ["192.168.1.42"]),
-        ("probe_device", "kitchen", None),
+        ("probe_device", "kitchen"),
     ]
 
 
@@ -858,7 +858,7 @@ async def test_import_device_skips_apply_ip_when_zeroconf_cache_misses(
 
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen", None),
+        ("probe_device", "kitchen"),
     ]
 
 
@@ -961,5 +961,5 @@ async def test_import_device_undiscovered_name_retires_nothing(
     assert captured == []
     assert ctrl._state_monitor.calls == [
         ("get_cached_addresses", "kitchen.local"),
-        ("probe_device", "kitchen", None),
+        ("probe_device", "kitchen"),
     ]

@@ -231,7 +231,7 @@ def test_added_device_without_hash_triggers_regenerate(
     # dropped on disk outside the API path, and the paired ping probe
     # covers ping-only devices that never broadcast ``_esphomelib._tcp``.
     assert controller._state_monitor.calls == [
-        ("probe_device", "apollo", None),
+        ("probe_device", "apollo"),
         ("probe_device_ping", "apollo"),
     ]
 

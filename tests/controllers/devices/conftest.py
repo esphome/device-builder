@@ -65,8 +65,8 @@ class _RecordingAddressCache:
 class _RecordingMdnsSource(_RecordingAddressCache):
     """Typed fake for the monitor's public ``mdns`` source attribute."""
 
-    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
-        self._calls.append(("probe_device", device_name, service_name))
+    def probe_device(self, device_name: str) -> None:
+        self._calls.append(("probe_device", device_name))
 
 
 class _RecordingImportableSource:

@@ -681,19 +681,18 @@ against legacy behaviour before assuming the simpler version suffices.
     only behind a live PTR (`cache_apply_or_resolve`),
     `_apply_service_info` claims only behind the live PTR of the
     *device-named* service — the one whose `Removed` maps back to the
-    device — so a PTR-less wire answer and a cross-name resolve (the
-    adopt probe riding the factory service) apply their data but take
-    no ownership (in an ICMP-unavailable deployment no arbiter
-    replaces the skipped claim, so such a device waits for its
-    announce), and the non-API active resolve claims only behind the
-    live anchor PTR — a gate `refresh_mdns`'s drawer re-resolves share
-    via `apply_resolved_addresses`. The importable adopt path
-    (`devices/importable.py`) seeds no state — it applies the
-    factory broadcast's cached IP and probes the esphomelib
-    service (a same-name adopt claims mdns off the cache hit); a
-    rename-during-adopt has no PTR under the chosen name, so the
-    sweep arbitrates until the flashed firmware announces and
-    mdns takes over. There is
+    device — so a PTR-less wire answer and a cross-name resolve
+    apply their data but take no ownership (in an ICMP-unavailable
+    deployment no arbiter replaces the skipped claim, so such a
+    device waits for its announce), and the non-API active resolve
+    claims only behind the live anchor PTR — a gate `refresh_mdns`'s
+    drawer re-resolves share via `apply_resolved_addresses`. The
+    importable adopt path (`devices/importable.py`) seeds no state —
+    it applies the broadcast's cached IP and probes the esphomelib
+    service under the adopted name, claiming mdns off the cache hit;
+    the frontend always adopts under the factory broadcast name
+    (an edited name goes through the post-adopt rename flow), so
+    the probe never needs a cross-name lookup. There is
     deliberately **no** sweep re-claim of mdns ownership off SRV/A
     resolves (the #1999 resolve-first sweep manufactured un-demotable
     PTR-less claims): a PTR-lost device stays ONLINE via ping, and the

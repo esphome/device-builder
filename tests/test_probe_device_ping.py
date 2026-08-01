@@ -114,7 +114,7 @@ def test_probe_reachability_fires_both_probes(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(
         monitor.mdns,
         "probe_device",
-        lambda name, service_name=None: probed.append(name),
+        probed.append,
     )
 
     monitor.probe_reachability("garage")

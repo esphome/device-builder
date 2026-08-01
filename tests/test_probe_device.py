@@ -85,41 +85,6 @@ async def test_probe_device_cache_hit_applies_synchronously(monkeypatch) -> None
     assert not monitor._tasks
 
 
-async def test_probe_device_uses_service_name_when_provided(monkeypatch) -> None:
-    """``service_name`` overrides the lookup but apply still keys by ``device_name``.
-
-    Adoption surfaces a device whose mDNS-advertised name (the
-    factory firmware's hostname) differs from the user-chosen YAML
-    name. The probe needs to look up the broadcast under the OLD
-    name (which is what zeroconf has cached) but apply the data to
-    the configured device under its NEW name.
-    """
-    monitor = _make_monitor()
-    apply_calls = _capture_apply(monitor, monkeypatch)
-
-    fake_info = MagicMock()
-    fake_info.load_from_cache.return_value = True
-    constructor_args: list[tuple[Any, ...]] = []
-
-    def _info_ctor(service_type: Any, full_service: Any) -> Any:
-        constructor_args.append((service_type, full_service))
-        return fake_info
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers._device_state_monitor.mdns.AsyncServiceInfo",
-        _info_ctor,
-    )
-
-    monitor.mdns.probe_device("my-living-room", service_name="apollo-r-pro-1-eth-5938e0")
-
-    # Looked up under the OLD broadcast name…
-    assert constructor_args == [
-        ("_esphomelib._tcp.local.", "apollo-r-pro-1-eth-5938e0._esphomelib._tcp.local.")
-    ]
-    # …but applied under the NEW configured name.
-    assert apply_calls == [("my-living-room", fake_info)]
-
-
 async def test_probe_device_cache_miss_spawns_task(monkeypatch) -> None:
     """Cache miss → fire-and-forget resolve task tracked in ``_tasks``."""
     monitor = _make_monitor()

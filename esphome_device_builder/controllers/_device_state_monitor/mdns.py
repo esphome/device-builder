@@ -387,7 +387,7 @@ class MdnsSource:
             or self._cached_ptr(service_name, service_type) is not None
         )
 
-    def probe_device(self, device_name: str, service_name: str | None = None) -> None:
+    def probe_device(self, device_name: str) -> None:
         """
         Eagerly resolve a device's ``_esphomelib._tcp.local.`` service.
 
@@ -395,17 +395,10 @@ class MdnsSource:
         announce — flips the card from "Unknown" to fully-populated
         immediately by reading the zeroconf cache (sync hit) or
         kicking off a fire-and-forget ``async_request``.
-
-        ``service_name`` defaults to ``device_name``; pass it
-        explicitly when the device's mDNS-advertised name (its
-        original factory-firmware hostname) differs from the
-        user-chosen YAML name so the lookup hits the cache while
-        the apply still keys to the configured name.
         """
         if (zc := self._zeroconf) is None:
             return
-        broadcast = service_name or device_name
-        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{broadcast}.{_ESPHOME_SERVICE_TYPE}")
+        info = AsyncServiceInfo(_ESPHOME_SERVICE_TYPE, f"{device_name}.{_ESPHOME_SERVICE_TYPE}")
         self.cache_apply_or_resolve(zc.zeroconf, info, device_name)
 
     async def resolve_then(
