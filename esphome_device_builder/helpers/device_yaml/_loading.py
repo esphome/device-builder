@@ -32,6 +32,7 @@ from ._parsing import (
     extract_ota_partition_access,
     get_api_encryption_block,
     has_top_level_block,
+    name_add_mac_suffix_enabled,
     parse_esphome_meta,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
@@ -332,6 +333,7 @@ def load_device_from_storage(
         # mqtt for dashboard discovery" the way ``"api"`` does.
         uses_mqtt=has_top_level_block(resolved_config, yaml_content, "mqtt"),
         uses_deep_sleep=has_top_level_block(resolved_config, yaml_content, "deep_sleep"),
+        name_add_mac_suffix=name_add_mac_suffix_enabled(resolved_config, yaml_content),
         api_enabled=api_enabled,
         api_encrypted=api_encrypted,
         mac_address=mac_address,

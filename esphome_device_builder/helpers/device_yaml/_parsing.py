@@ -211,6 +211,51 @@ def yaml_has_api_encryption(yaml_content: str) -> bool:
     return bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
 
 
+# esphome's ``cv.boolean`` truthy spellings.
+_TRUTHY_BOOL_STRINGS = frozenset({"true", "yes", "on", "enable"})
+
+_RAW_NAME_ADD_MAC_SUFFIX_RE = re.compile(
+    # Truthy ``name_add_mac_suffix:`` indented under ``esphome:``. The
+    # body alternatives are exclusive so the engine can't backtrack
+    # exponentially on newline runs.
+    r"^esphome:[^\n]*\n(?:[ \t][^\n]*\n|\n)*"
+    rf"[ \t]+name_add_mac_suffix:[ \t]*(?:{'|'.join(sorted(_TRUTHY_BOOL_STRINGS))})\b",
+    re.MULTILINE | re.IGNORECASE,
+)
+
+
+def yaml_has_name_add_mac_suffix(yaml_content: str) -> bool:
+    """Heuristic: True when raw YAML sets a truthy ``esphome: name_add_mac_suffix:``."""
+    return bool(_RAW_NAME_ADD_MAC_SUFFIX_RE.search(yaml_content))
+
+
+def config_name_add_mac_suffix(config: dict | None) -> bool:
+    """Return True when the resolved ``esphome:`` block sets a truthy ``name_add_mac_suffix``."""
+    if not isinstance(config, dict):
+        return False
+    block = config.get("esphome")
+    if not isinstance(block, dict):
+        return False
+    value = block.get("name_add_mac_suffix")
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in _TRUTHY_BOOL_STRINGS
+    return False
+
+
+def name_add_mac_suffix_enabled(resolved_config: dict | None, yaml_content: str) -> bool:
+    """
+    Detect a truthy ``esphome.name_add_mac_suffix``: resolved config wins, raw text fills in.
+
+    The raw-text fallback applies only when resolution failed, keeping
+    the flag stable mid-edit.
+    """
+    if resolved_config is not None:
+        return config_name_add_mac_suffix(resolved_config)
+    return yaml_has_name_add_mac_suffix(yaml_content)
+
+
 def config_has_top_level_block(config: dict | None, key: str) -> bool:
     """Return True when *config* (a resolved device YAML) defines top-level *key*.
 
