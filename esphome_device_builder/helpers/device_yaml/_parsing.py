@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from typing import NamedTuple
@@ -183,6 +184,34 @@ def yaml_has_top_level_block(yaml_content: str, key: str) -> bool:
 def device_uses_mqtt(yaml_content: str) -> bool:
     """Return True when the raw YAML literally declares a top-level ``mqtt:`` block."""
     return yaml_has_top_level_block(yaml_content, "mqtt")
+
+
+# The network blocks whose ``use_address`` feeds ``StorageJSON.address``
+# (esphome's ``CORE.address`` reads the first present one), plus
+# ``substitutions:`` for the ``use_address: ${var}`` spelling and
+# ``packages:`` for a network block pulled in by reference.
+_ADDRESS_SOURCE_KEYS = frozenset({"wifi", "ethernet", "openthread", "substitutions", "packages"})
+
+
+def extract_network_address_fingerprint(yaml_content: str) -> str:
+    """
+    Digest of the top-level blocks that can carry ``use_address``.
+
+    Comment and blank lines don't move it. An edit to a referenced
+    package *file* stays invisible — it changes no device YAML, so no
+    scan event fires. Empty when no block exists.
+    """
+    captured: list[str] = []
+    in_block = False
+    for line in yaml_content.splitlines():
+        key = _match_top_level_key(line)
+        if key is not None:
+            in_block = key in _ADDRESS_SOURCE_KEYS
+        if in_block and line.strip() and not line.lstrip().startswith("#"):
+            captured.append(line)
+    if not captured:
+        return ""
+    return hashlib.sha256("\n".join(captured).encode()).hexdigest()
 
 
 _RAW_API_ENCRYPTION_RE = re.compile(

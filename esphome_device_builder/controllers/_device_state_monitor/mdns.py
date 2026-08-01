@@ -31,7 +31,7 @@ from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
 from ...helpers.async_ import drain_tasks, log_task_exit
 from ...helpers.hostname import normalize_hostname
-from ...helpers.ip import drop_unspecified_addresses
+from ...helpers.ip import drop_unusable_addresses
 from ...models import DeviceState
 from .._reachability_tracker import MdnsCacheInfo
 from .helpers import (
@@ -304,7 +304,7 @@ class MdnsSource:
         if not info.load_from_cache(self._zeroconf.zeroconf):
             return None
         addresses = info.parsed_scoped_addresses(IPVersion.All)
-        return drop_unspecified_addresses(addresses) or None
+        return drop_unusable_addresses(addresses) or None
 
     def reconcile_from_cache(self, device_name: str) -> None:
         """
@@ -542,7 +542,7 @@ class MdnsSource:
         announce never claims.
         """
         monitor = self._monitor
-        # Claimed before the apply-path unspecified-address filter, unlike
+        # Claimed before the apply-path unusable-address filter, unlike
         # the active-resolve path: a resolved service is liveness evidence
         # on its own (already claimed even when addressless), and the
         # browser's ``Removed`` lifecycle withdraws the claim so ping

@@ -57,6 +57,7 @@ from esphome_device_builder.controllers._reachability_tracker import (
 )
 from esphome_device_builder.models import Device, DeviceState
 
+from .conftest import RecordingMonitorCallbacks
 from .conftest import make_device as _make_device
 
 
@@ -259,6 +260,76 @@ async def test_resolve_and_ping_falls_back_to_known_ip() -> None:
 
     assert mock_ping.await_args.args[0] == "10.0.0.5"
     assert devices[0].runtime_state.state is DeviceState.ONLINE
+
+
+def _wire_resolved_addresses_clear(monitor: DeviceStateMonitor, devices: list[Device]) -> None:
+    """Wire the shared production-shaped cleared-callback recorder."""
+    monitor._on_resolved_addresses_cleared = RecordingMonitorCallbacks(
+        devices
+    ).on_resolved_addresses_cleared
+
+
+def test_address_retargeted_clears_stale_ips_under_ping_source() -> None:
+    """An address change drops the RAM set resolved from the old address (#2486)."""
+    devices = [_make_device(state=DeviceState.ONLINE, ip_addresses=["10.0.0.99"])]
+    monitor = _make_monitor(devices)
+    _wire_resolved_addresses_clear(monitor, devices)
+    monitor.state.state_source["kitchen"] = "ping"
+
+    monitor.address_retargeted("kitchen")
+
+    assert devices[0].runtime_state.ip_addresses == []
+
+
+@pytest.mark.parametrize("owner", ["mdns", "mqtt"])
+def test_address_retargeted_keeps_ips_under_identity_owner(owner: str) -> None:
+    """MDNS / MQTT evidence is address-independent; their resolved set survives."""
+    devices = [_make_device(state=DeviceState.ONLINE, ip_addresses=["10.0.0.99"])]
+    monitor = _make_monitor(devices)
+    _wire_resolved_addresses_clear(monitor, devices)
+    monitor.state.state_source["kitchen"] = owner
+
+    monitor.address_retargeted("kitchen")
+
+    assert devices[0].runtime_state.ip_addresses == ["10.0.0.99"]
+
+
+async def test_resolve_and_ping_offline_after_retarget_clears_stale_ip() -> None:
+    """Post-retarget, a failing resolve demotes instead of pinging the old RAM IP (#2486)."""
+    devices = [_make_device(state=DeviceState.ONLINE, ip_addresses=["10.0.0.99"])]
+    monitor = _make_monitor(devices)
+    _wire_resolved_addresses_clear(monitor, devices)
+    monitor.state.state_source["kitchen"] = "ping"
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=None)
+    monitor.mdns.get_cached_addresses = lambda _a: None
+
+    monitor.address_retargeted("kitchen")
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        AsyncMock(),
+    ) as mock_ping:
+        await monitor.ping._resolve_and_ping(devices[0])
+
+    mock_ping.assert_not_awaited()
+    assert devices[0].runtime_state.state is DeviceState.OFFLINE
+
+
+async def test_resolve_and_ping_loopback_use_address_never_claims_online() -> None:
+    """A loopback ``use_address`` must never latch ONLINE off the dashboard host (#2486)."""
+    devices = [_make_device(state=DeviceState.ONLINE, address="127.0.0.1")]
+    monitor = _make_monitor(devices)
+    monitor.state.state_source["kitchen"] = "ping"
+    # The DNS cache passes literal IPs through verbatim.
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["127.0.0.1"])
+
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        AsyncMock(),
+    ) as mock_ping:
+        await monitor.ping._resolve_and_ping(devices[0])
+
+    mock_ping.assert_not_awaited()
+    assert devices[0].runtime_state.state is DeviceState.OFFLINE
 
 
 async def test_ping_success_records_rtt_and_observation() -> None:

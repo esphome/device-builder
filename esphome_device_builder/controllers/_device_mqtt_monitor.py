@@ -662,8 +662,8 @@ def _extract_ip(data: dict[str, Any]) -> str:
     Pull the first usable IP field from a discovery payload.
 
     ESPHome devices expose their addresses as ``ip``, ``ip0``, ``ip1``,
-    ... — returns the first value that parses as a real, non-unspecified
-    IP (the payload is untrusted), or empty string when none qualify.
+    ... — returns the first value that parses as a real, usable IP
+    (the payload is untrusted), or empty string when none qualify.
     """
     for key in ("ip", "ip0", "ip1", "ip2"):
         value = data.get(key)

@@ -29,6 +29,7 @@ from ._parsing import (
     extract_esphome_meta_from_config,
     extract_logger_baud_rate,
     extract_logger_interface,
+    extract_network_address_fingerprint,
     extract_ota_partition_access,
     get_api_encryption_block,
     has_top_level_block,
@@ -318,6 +319,7 @@ def load_device_from_storage(
         # this on the next compile if the device picks a different
         # ``esphome.address``.
         address=(storage.address if storage and storage.address else f"{fallback_name}.local"),
+        network_fingerprint=extract_network_address_fingerprint(yaml_content),
         ip=ip,
         web_port=storage.web_port if storage else None,
         current_version=const.__version__,

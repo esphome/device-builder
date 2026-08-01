@@ -10,6 +10,7 @@ from icmplib import async_ping as icmp_ping
 from icmplib.exceptions import ICMPLibError
 
 from ...helpers.hostname import is_local_hostname
+from ...helpers.ip import drop_unusable_addresses
 from ...models import Device, DeviceState
 from . import shared
 from ._sweep_source import SweepSource
@@ -230,6 +231,11 @@ class PingSource(SweepSource):
                 # prior MQTT/DNS observation left a usable IP. Ping that so
                 # ping can confirm a device the network won't resolve.
                 addresses = list(device.runtime_state.ip_addresses)
+            # A literal loopback ``use_address`` rides the DNS cache's
+            # literal short-circuit past every apply-side filter; pinging
+            # it would latch the device ONLINE off the dashboard host
+            # itself (#2486).
+            addresses = drop_unusable_addresses(addresses)
             if not addresses:
                 shared.apply_ping_result(monitor, device.name, None)
                 return

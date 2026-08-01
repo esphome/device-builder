@@ -1194,6 +1194,86 @@ def test_on_scan_change_reloaded_without_previous_skips_ping(
     assert ("probe_device_ping", "kitchen") not in controller._state_monitor.calls
 
 
+def test_on_scan_change_address_change_retargets_monitor(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """An address change routes through ``address_retargeted``, not a bare ping wake."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(name="kitchen", address="kitchen.local"),
+        make_device(name="kitchen", address="192.168.1.50"),
+    )
+
+    assert ("address_retargeted", "kitchen") in controller._state_monitor.calls
+
+
+def test_on_scan_change_updated_network_change_schedules_regen(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-band edit that moves a network block schedules ``--only-generate``."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    regenerated: list[str] = []
+    monkeypatch.setattr(
+        controller, "_schedule_storage_regenerate", regenerated.append, raising=False
+    )
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(name="kitchen", network_fingerprint="wifi:\n  ssid: s"),
+        make_device(
+            name="kitchen", network_fingerprint="wifi:\n  ssid: s\n  use_address: 10.0.0.9"
+        ),
+    )
+
+    assert regenerated == ["kitchen.yaml"]
+
+
+def test_on_scan_change_updated_same_network_skips_regen(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-band edit leaving the network blocks alone schedules nothing."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    regenerated: list[str] = []
+    monkeypatch.setattr(
+        controller, "_schedule_storage_regenerate", regenerated.append, raising=False
+    )
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(name="kitchen", network_fingerprint="wifi:\n  ssid: s"),
+        make_device(name="kitchen", network_fingerprint="wifi:\n  ssid: s"),
+    )
+
+    assert regenerated == []
+
+
+def test_on_scan_change_reloaded_network_change_skips_regen(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metadata reload never schedules a regen, even across a fingerprint change."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    regenerated: list[str] = []
+    monkeypatch.setattr(
+        controller, "_schedule_storage_regenerate", regenerated.append, raising=False
+    )
+
+    controller._on_scan_change(
+        ScanChange.RELOADED,
+        make_device(name="kitchen", network_fingerprint="wifi:\n  ssid: s"),
+        make_device(name="kitchen", network_fingerprint="ethernet:\n  type: lan8720"),
+    )
+
+    assert regenerated == []
+
+
 def test_on_scan_change_removed_revisits_importables(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:

@@ -12,7 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.hostname import is_local_hostname
-from ...helpers.ip import drop_unspecified_addresses
+from ...helpers.ip import drop_unusable_addresses
 from ...models import Device, DeviceState, ReachabilitySource
 
 if TYPE_CHECKING:
@@ -56,8 +56,12 @@ def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
     """
     if device.runtime_state.state != DeviceState.ONLINE:
         return True
-    source = monitor.state.state_source.get(device.name, ReachabilitySource.UNKNOWN)
-    return _SOURCE_PRIORITY.get(source, 0) <= _SOURCE_PRIORITY[ReachabilitySource.PING]
+    return not identity_source_owns(monitor, device.name)
+
+
+def identity_source_owns(monitor: DeviceStateMonitor, name: str) -> bool:
+    """Return True when a higher-than-ping source (mDNS / MQTT) owns *name*."""
+    return _SOURCE_PRIORITY[monitor.priority_for(name)] > _SOURCE_PRIORITY[ReachabilitySource.PING]
 
 
 def apply_ping_result(monitor: DeviceStateMonitor, name: str, rtt_ms: float | None) -> None:
@@ -103,9 +107,9 @@ def apply_resolved_addresses(
     """
     if not isinstance(addresses, list):
         return
-    # Filter before the ONLINE claim — an all-unspecified answer must
+    # Filter before the ONLINE claim — an all-unusable answer must
     # not latch the device ONLINE while the apply refuses the IPs.
-    usable = drop_unspecified_addresses(addresses)
+    usable = drop_unusable_addresses(addresses)
     if not usable:
         return
     # The claim rides the live anchor PTR, whose ``Removed``

@@ -229,6 +229,30 @@ async def test_async_resolve_all_unspecified_is_a_cached_failure(fake_resolver) 
     assert cache.has_cached_failure("esp.example.com")
 
 
+async def test_async_resolve_loopback_sinkhole_is_a_cached_failure(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A Pi-hole-style ``127.0.0.1`` sinkhole answer is a failed lookup, not a result."""
+    stub = fake_resolver(["127.0.0.1", "::1"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("esp.example.com")
+    assert result is None
+    assert cache.has_cached_failure("esp.example.com")
+
+
+async def test_async_resolve_returns_literal_loopback(
+    fake_resolver: FakeResolverFactory,
+) -> None:
+    """A literal loopback passes through verbatim — SSH-tunnel OTA workflows depend on it."""
+    stub = fake_resolver(["1.2.3.4"])
+    cache = DNSCache(ttl=60)
+    with patch.object(dns_cache_mod, "async_resolve", stub):
+        result = await cache.async_resolve("127.0.0.1")
+    assert result == ["127.0.0.1"]
+    assert stub.calls == []
+
+
 async def test_async_resolve_drops_unspecified_keeps_real(fake_resolver) -> None:
     """Unspecified entries are dropped; real addresses survive."""
     stub = fake_resolver(["0.0.0.0", "10.0.0.7"])

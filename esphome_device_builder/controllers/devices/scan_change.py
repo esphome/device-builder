@@ -55,15 +55,27 @@ def on_scan_change(
     ):
         # The change swapped in a new address (a ``wifi.use_address``
         # edit, or the post-regen StorageJSON replacing the
-        # ``<file>.local`` fallback); without the wake the new address
-        # waits out the remainder of the periodic sweep interval.
-        controller._state_monitor.probe_device_ping(device.name)
+        # ``<file>.local`` fallback); without the retarget the sweep
+        # keeps pinging addresses resolved from the old one (#2486) or
+        # waits out the remainder of the periodic interval.
+        controller._state_monitor.address_retargeted(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.RELOADED, ScanChange.REMOVED):
         # YAML cache key changed (or a reload re-read it); clear any
         # prior failure marker so the next edit gets a fresh chance at
         # ``--only-generate`` (and re-creating a deleted file
         # later doesn't inherit the old failure).
         controller.state.regenerate_failed.discard(device.configuration)
+    if (
+        kind is ScanChange.UPDATED
+        and previous is not None
+        and previous.network_fingerprint != device.network_fingerprint
+    ):
+        # An out-of-band edit (git pull, external editor) moved a
+        # network block; without a regen ``StorageJSON.address`` keeps
+        # the old ``use_address`` and the sweep pings a stale host
+        # (#2486). API-path writes regen unconditionally in
+        # ``_persist_yaml_mutation`` and surface here as RELOADED.
+        controller._schedule_storage_regenerate(device.configuration)
     # First-sight devices with no compile output carry the
     # ``<filename>.local`` address fallback and an empty
     # ``loaded_integrations`` list. Schedule a background

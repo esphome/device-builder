@@ -624,6 +624,27 @@ against legacy behaviour before assuming the simpler version suffices.
     has no browser `Removed` counterpart, so it locks out `should_ping` and
     latches the device ONLINE forever (#1776). The `ping`-source result
     (priority 1) stays sweep-eligible so a dead entry demotes.
+  - **Configured-address changes drop the ping-learned RAM addresses**
+    (`DeviceStateMonitor.address_retargeted`, #2486). The sweep stores
+    what it resolved from `device.address` into
+    `runtime_state.ip_addresses` and falls back to that set when the
+    address stops resolving — so a `wifi.use_address` edit/removal
+    would keep pinging whatever answered at the *old* address and
+    re-latch ONLINE forever. The scan-change address branch clears the
+    resolved set (skipped while mDNS/MQTT owns the name — their
+    evidence is identity-carrying and address-independent) before
+    waking the sweep. Relatedly, loopback counts as unusable wherever
+    unspecified does (`helpers/ip.py`), and `_resolve_and_ping` filters
+    its final target list, so `use_address: 127.0.0.1` applies OFFLINE
+    instead of latching ONLINE off the dashboard host — while the DNS
+    cache still returns literal loopback verbatim, keeping SSH-tunnel
+    OTA workflows working. Out-of-band edits (git pull, external
+    editor) that move a top-level network, `substitutions:`, or
+    `packages:` block schedule a StorageJSON regen via the off-wire
+    `Device.network_fingerprint` change detector (API-path writes
+    already regen on every save). An edit to a referenced package
+    *file* stays uncovered — it changes no device YAML, so no scan
+    event fires.
   - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
     for a configured device without `api:`). Such a device never publishes
     `_esphomelib._tcp` (behind `USE_API`); its broadcast is the `_http._tcp`
