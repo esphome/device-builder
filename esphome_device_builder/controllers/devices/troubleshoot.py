@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...models import DeviceTroubleshootResult, PingTargetSource
-from .._device_state_monitor import _pick_ipv4
+from .._device_state_monitor import _pick_ipv4, should_ping
 from .helpers import raise_device_not_found
 
 if TYPE_CHECKING:
@@ -68,9 +68,11 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
     if dns_addresses:
         result.dns_resolved = True
         result.dns_addresses = dns_addresses
-        # The sweep records what it resolves before pinging; mirror it so
-        # a fresh dynamic-IP resolve reaches ``device.ip`` immediately.
-        monitor.apply_ip_addresses(device.name, dns_addresses)
+        # The sweep records what it resolves before pinging; mirror it —
+        # including its ownership gate, so an mDNS/MQTT-owned ONLINE
+        # device keeps its learned addresses over a unicast DNS answer.
+        if should_ping(monitor, device):
+            monitor.apply_ip_addresses(device.name, dns_addresses)
     result.mdns_addresses = mdns.get_cached_addresses(f"{device.name}.local") or []
     result.mdns_has_cached_trace = mdns.has_cached_trace(device.name)
     result.mdns_has_live_anchor_ptr = mdns.has_live_anchor_ptr(device.name)

@@ -108,6 +108,13 @@ class PingSource(SweepSource):
             _LOGGER.debug("Ping of %s failed: %s", target, exc)
         return None
 
+    async def probe_target(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
+        """One budget-acquired probe of *target* for out-of-sweep callers."""
+        async with self.icmp_concurrency:
+            return await self._ping_device(device, target, apply=apply)
+
     async def _prepare(self) -> bool:
         privileged = await _can_use_icmp_lib_with_privilege()
         self.icmp_available = privileged is not None
@@ -247,13 +254,6 @@ class PingSource(SweepSource):
             # whole set keeps a cached multi-IP device's secondary addresses.
             monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
-
-    async def probe_target(
-        self, device: Device, target: str, *, apply: bool = True
-    ) -> float | None:
-        """One budget-acquired probe of *target* for out-of-sweep callers."""
-        async with self.icmp_concurrency:
-            return await self._ping_device(device, target, apply=apply)
 
     async def _ping_device(
         self, device: Device, target: str, *, apply: bool = True

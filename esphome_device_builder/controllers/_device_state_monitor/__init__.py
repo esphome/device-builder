@@ -24,3 +24,4 @@ from .helpers import _decode_txt_bytes_to_sorted_pairs as _decode_txt_bytes_to_s
 from .helpers import _pick_ipv4 as _pick_ipv4
 from .helpers import device_name_from_service as device_name_from_service
 from .mdns import _MDNS_REFRESH_PADDING_SECONDS as _MDNS_REFRESH_PADDING_SECONDS
+from .shared import should_ping as should_ping

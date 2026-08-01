@@ -13,7 +13,9 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     Device,
     DeviceRuntimeState,
+    DeviceState,
     ErrorCode,
+    ReachabilitySource,
 )
 
 from .conftest import MakeControllerFactory
@@ -277,3 +279,19 @@ async def test_cancellation_unwinds(tmp_path: Path, make_controller: MakeControl
 
     with pytest.raises(asyncio.CancelledError):
         await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+
+async def test_owned_online_device_keeps_its_addresses(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The sweep's ownership gate also guards the probe's address write."""
+    controller = make_controller(tmp_path)
+    device = _seed_device(controller)
+    device.runtime_state.state = DeviceState.ONLINE
+    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.66"])
+    monitor.state.state_source = {"kitchen": ReachabilitySource.MDNS}
+
+    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+    assert result.dns_resolved is True
+    monitor.apply_ip_addresses.assert_not_called()
