@@ -104,7 +104,6 @@ def _pick_target(
         # Same rule as the sweep's ``_resolve_and_ping``: a loopback
         # ``use_address`` resolves to the dashboard host, and a verdict
         # there would fabricate ONLINE on the debug surface (#2492).
-        usable = drop_unusable_addresses(addresses)
-        if usable:
+        if usable := drop_unusable_addresses(addresses):
             return _pick_ipv4(usable), source
     return "", PingTargetSource.NONE
