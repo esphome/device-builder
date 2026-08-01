@@ -688,7 +688,6 @@ class DeviceStateMonitor(TaskControllerBase):
         matches = [
             candidate
             for candidate in bucket
-            if candidate.mac_address
-            and mac_suffix_from_address(candidate.mac_address) == suffix
+            if candidate.mac_address and mac_suffix_from_address(candidate.mac_address) == suffix
         ]
         return matches[0] if len(matches) == 1 else None
