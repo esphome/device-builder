@@ -151,6 +151,8 @@ class Device(DashboardModel):
     uses_deep_sleep: bool = False  # True if the YAML declares a top-level deep_sleep: block
     # Truthy esphome.name_add_mac_suffix; status tracking is unavailable for such configs.
     name_add_mac_suffix: bool = False
+    # Truthy mdns.disabled; the device never broadcasts mDNS by design.
+    mdns_disabled: bool = False
     # Native API surface flags — drive the lock-icon indicator in
     # the device list. Both fields are computed in
     # ``helpers.device_yaml.load_device_from_storage`` as the
