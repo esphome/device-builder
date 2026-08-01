@@ -37,6 +37,21 @@ class ReachabilitySource(StrEnum):
     MDNS = "mdns"
 
 
+class PingTargetSource(StrEnum):
+    """Where ``devices/troubleshoot`` found its ping target."""
+
+    NONE = ""
+    # Live resolves; a verdict at these targets is sweep-grade evidence.
+    DNS = "dns"
+    MDNS = "mdns"
+    # RAM-learned addresses; the sweep pings these too.
+    RUNTIME = "runtime"
+    # Sidecar-persisted last-known IP. A bare ICMP reply there is
+    # inadmissible as ONLINE evidence (#1776); the probe reports it
+    # but never applies a verdict from it.
+    PERSISTED = "persisted"
+
+
 @dataclass
 class DeviceRuntimeState(DashboardModel):
     """
@@ -376,9 +391,7 @@ class DeviceTroubleshootResult(DashboardModel):
     mdns_has_live_anchor_ptr: bool = False
     ping_attempted: bool = False
     ping_target: str = ""
-    # "dns" / "mdns" (live resolve) or "last_known" (persisted address —
-    # a reply there is reachability of the address, not proof of identity).
-    ping_target_source: str = ""
+    ping_target_source: PingTargetSource = PingTargetSource.NONE
     ping_rtt_ms: float | None = None
 
 

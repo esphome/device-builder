@@ -198,16 +198,23 @@ async def test_runtime_addresses_then_persisted_ip_fallbacks(
 ) -> None:
     controller = make_controller(tmp_path)
     device = _seed_device(controller, ip="10.0.0.9", ip_addresses=["10.0.0.8"])
-    _wire_monitor(controller, dns_addresses=None, mdns_cached=None)
+    monitor = _wire_monitor(controller, dns_addresses=None, mdns_cached=None)
 
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
     assert result.ping_target == "10.0.0.8"
-    assert result.ping_target_source == "last_known"
+    assert result.ping_target_source == "runtime"
+    # RAM-learned addresses are sweep-grade evidence; the verdict applies.
+    monitor.apply.assert_called_once()
 
+    monitor.apply.reset_mock()
     device.runtime_state.ip_addresses = []
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
     assert result.ping_target == "10.0.0.9"
-    assert result.ping_target_source == "last_known"
+    assert result.ping_target_source == "persisted"
+    assert result.ping_rtt_ms is not None
+    # A bare reply at the persisted IP is inadmissible (#1776): reported,
+    # never applied.
+    monitor.apply.assert_not_called()
 
 
 async def test_no_target_skips_ping(tmp_path: Path, make_controller: MakeControllerFactory) -> None:
@@ -277,6 +284,7 @@ async def test_mdns_refresh_exception_degrades(
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
 
     assert result.dns_resolved is True
+    assert result.mdns_inconclusive is True
     assert result.ping_rtt_ms == 4.2
 
 

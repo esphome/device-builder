@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
-from ...models import DeviceState, DeviceTroubleshootResult, ErrorCode
+from ...models import DeviceState, DeviceTroubleshootResult, ErrorCode, PingTargetSource
 from .._device_state_monitor import _pick_ipv4, apply_ping_result
 
 if TYPE_CHECKING:
@@ -22,10 +22,7 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
     """
     Probe DNS, mDNS, and ICMP for *configuration*'s device and report the evidence.
 
-    No probe budget of its own: every leg self-bounds (the resolver and
-    mDNS re-query carry internal timeouts, icmplib bounds each packet)
-    and a sweep-contended ICMP slot is waited for honestly. The
-    frontend's command timeout is the backstop.
+    No internal budget; the caller's command timeout is the bound.
     """
     device = controller.get_by_configuration(configuration)
     if device is None:
@@ -83,7 +80,11 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
         result.ping_attempted = True
         result.ping_target = target
         result.ping_target_source = target_source
-        result.ping_rtt_ms = await _ping(monitor, device, target)
+        # A bare reply at the sidecar-persisted IP is inadmissible as an
+        # ONLINE verdict (#1776); report it without applying.
+        result.ping_rtt_ms = await _ping(
+            monitor, device, target, apply=target_source is not PingTargetSource.PERSISTED
+        )
     return result
 
 
@@ -93,31 +94,28 @@ async def _none() -> None:
 
 def _pick_target(
     device: Device, dns_addresses: list[str] | None, mdns_addresses: list[str]
-) -> tuple[str, str]:
-    """
-    Return ``(target, source)`` down the sweep's resolution chain.
-
-    ``source`` distinguishes a live resolve from a last-known address:
-    a reply at a stale IP proves a host is there, not that it is this
-    device, and the dialog must say so.
-    """
+) -> tuple[str, PingTargetSource]:
+    """Return ``(target, source)`` down the sweep's resolution chain."""
     if dns_addresses:
-        return _pick_ipv4(dns_addresses), "dns"
+        return _pick_ipv4(dns_addresses), PingTargetSource.DNS
     if mdns_addresses:
-        return _pick_ipv4(mdns_addresses), "mdns"
+        return _pick_ipv4(mdns_addresses), PingTargetSource.MDNS
     if device.runtime_state.ip_addresses:
-        return _pick_ipv4(list(device.runtime_state.ip_addresses)), "last_known"
+        return _pick_ipv4(list(device.runtime_state.ip_addresses)), PingTargetSource.RUNTIME
     if device.ip:
-        return device.ip, "last_known"
-    return "", ""
+        return device.ip, PingTargetSource.PERSISTED
+    return "", PingTargetSource.NONE
 
 
-async def _ping(monitor: DeviceStateMonitor, device: Device, target: str) -> float | None:
-    """ICMP *target* under the shared budget and apply the verdict via the ping source."""
+async def _ping(
+    monitor: DeviceStateMonitor, device: Device, target: str, *, apply: bool
+) -> float | None:
+    """ICMP *target*; *apply* routes the verdict through the ping source."""
     async with monitor.ping.icmp_concurrency:
         # Sweep-mirrored retry policy: an already-OFFLINE device gets a
         # clean single-packet verdict instead of a slow retry cycle.
         retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt = await monitor.ping.ping_once(target, retry=retry)
-    apply_ping_result(monitor, device.name, rtt)
+    if apply:
+        apply_ping_result(monitor, device.name, rtt)
     return rtt
