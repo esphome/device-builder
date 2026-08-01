@@ -592,7 +592,7 @@ automatic commits alongside yours, this toggle is for you.
 
 Configs that keep `name_add_mac_suffix: true` show as offline. The
 option is a provisioning feature: one YAML flashed to a whole batch of
-devices, each announcing itself as `<name>-<last-3-MAC-bytes>` so the
+devices, each announcing itself as `<name>-<last-6-MAC-digits>` so the
 units can be told apart out of the box. The dashboard tracks one device
 per YAML file, keyed on `esphome.name`, so a suffixed broadcast can't
 be safely linked back to a config — several units may be running the

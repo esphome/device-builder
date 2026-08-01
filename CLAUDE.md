@@ -717,7 +717,7 @@ against legacy behaviour before assuming the simpler version suffices.
 
   **`name_add_mac_suffix: true` configs are out of scope for status
   tracking.** The option is a provisioning feature — one YAML flashed to
-  N units, each broadcasting `{name}-<last-3-MAC-bytes>` — and the adopt
+  N units, each broadcasting `{name}-<last-6-MAC-digits>` — and the adopt
   flow bakes the suffix into the literal name and turns it off. A
   `Device` row is 1:1 with a YAML file, so no row can represent the
   fleet, and a suffixed broadcast can't be bound to a row safely: the
