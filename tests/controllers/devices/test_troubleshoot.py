@@ -106,7 +106,9 @@ async def test_happy_path_wire_shape(
         "dns_resolved": True,
         "dns_addresses": ["fe80::1", "10.0.0.42"],
         "dns_had_cached_failure": False,
+        "dns_inconclusive": False,
         "mdns_addresses": ["10.0.0.42"],
+        "mdns_inconclusive": False,
         "mdns_has_cached_trace": True,
         "mdns_has_live_anchor_ptr": True,
         "ping_attempted": True,
@@ -260,6 +262,7 @@ async def test_resolver_exception_degrades(
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
 
     assert result.dns_resolved is False
+    assert result.dns_inconclusive is True
     assert result.ping_target == "10.0.0.7"
 
 
@@ -275,3 +278,14 @@ async def test_mdns_refresh_exception_degrades(
 
     assert result.dns_resolved is True
     assert result.ping_rtt_ms == 4.2
+
+
+async def test_cancellation_unwinds(tmp_path: Path, make_controller: MakeControllerFactory) -> None:
+    """A cancelled leg propagates instead of degrading into a verdict."""
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller)
+    monitor.mdns.refresh_mdns = AsyncMock(side_effect=asyncio.CancelledError)
+
+    with pytest.raises(asyncio.CancelledError):
+        await controller.troubleshoot_device(configuration="kitchen.yaml")

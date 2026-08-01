@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
 from ...models import DeviceState, DeviceTroubleshootResult, ErrorCode
-from .._device_state_monitor import shared
-from .._device_state_monitor.helpers import _pick_ipv4
+from .._device_state_monitor import _pick_ipv4, apply_ping_result
 
 if TYPE_CHECKING:
     from ...models import Device
@@ -52,12 +51,20 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
         mdns.refresh_mdns(device.name),
         return_exceptions=True,
     )
-    if isinstance(mdns_result, BaseException):
+    for leg in (dns_result, mdns_result):
+        # Cancellation must unwind the probe, not degrade into a verdict.
+        if isinstance(leg, BaseException) and not isinstance(leg, Exception):
+            raise leg
+    if isinstance(mdns_result, Exception):
+        result.mdns_inconclusive = True
         _LOGGER.warning(
             "mDNS re-query failed for %s; continuing", device.name, exc_info=mdns_result
         )
     dns_addresses: list[str] | None = None
-    if isinstance(dns_result, BaseException):
+    if isinstance(dns_result, Exception):
+        # An internal resolver failure proves nothing; it must not read
+        # as "the name does not resolve".
+        result.dns_inconclusive = True
         _LOGGER.warning("DNS resolve failed for %s; continuing", address, exc_info=dns_result)
     else:
         dns_addresses = dns_result
@@ -111,5 +118,5 @@ async def _ping(monitor: DeviceStateMonitor, device: Device, target: str) -> flo
         # clean single-packet verdict instead of a slow retry cycle.
         retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt = await monitor.ping.ping_once(target, retry=retry)
-    shared.apply_ping_result(monitor, device.name, rtt)
+    apply_ping_result(monitor, device.name, rtt)
     return rtt

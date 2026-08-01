@@ -365,7 +365,11 @@ class DeviceTroubleshootResult(DashboardModel):
     dns_resolved: bool = False
     dns_addresses: list[str] = field(default_factory=list)
     dns_had_cached_failure: bool = False
+    # An internal failure in the leg: the fields prove nothing, they are
+    # not a negative verdict.
+    dns_inconclusive: bool = False
     mdns_addresses: list[str] = field(default_factory=list)
+    mdns_inconclusive: bool = False
     mdns_has_cached_trace: bool = False
     mdns_has_live_anchor_ptr: bool = False
     ping_attempted: bool = False
