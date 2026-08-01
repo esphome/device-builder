@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from ...helpers.ip import drop_unusable_addresses
 from ...models import DeviceTroubleshootResult, PingTargetSource
 from .._device_state_monitor import _pick_ipv4, should_ping
 from .helpers import raise_device_not_found
@@ -93,12 +94,17 @@ def _pick_target(
     device: Device, dns_addresses: list[str] | None, mdns_addresses: list[str]
 ) -> tuple[str, PingTargetSource]:
     """Return ``(target, source)`` down the sweep's resolution chain."""
-    if dns_addresses:
-        return _pick_ipv4(dns_addresses), PingTargetSource.DNS
-    if mdns_addresses:
-        return _pick_ipv4(mdns_addresses), PingTargetSource.MDNS
-    if device.runtime_state.ip_addresses:
-        return _pick_ipv4(device.runtime_state.ip_addresses), PingTargetSource.RUNTIME
-    if device.ip:
-        return device.ip, PingTargetSource.PERSISTED
+    candidates = (
+        (dns_addresses or [], PingTargetSource.DNS),
+        (mdns_addresses, PingTargetSource.MDNS),
+        (device.runtime_state.ip_addresses, PingTargetSource.RUNTIME),
+        ([device.ip] if device.ip else [], PingTargetSource.PERSISTED),
+    )
+    for addresses, source in candidates:
+        # Same rule as the sweep's ``_resolve_and_ping``: a loopback
+        # ``use_address`` resolves to the dashboard host, and a verdict
+        # there would fabricate ONLINE on the debug surface (#2492).
+        usable = drop_unusable_addresses(addresses)
+        if usable:
+            return _pick_ipv4(usable), source
     return "", PingTargetSource.NONE

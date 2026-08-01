@@ -15,6 +15,7 @@ from esphome_device_builder.models import (
     DeviceRuntimeState,
     DeviceState,
     ErrorCode,
+    PingTargetSource,
     ReachabilitySource,
 )
 
@@ -63,6 +64,12 @@ def _wire_monitor(
     monitor.mdns.has_live_anchor_ptr = MagicMock(return_value=live_ptr)
     monitor.state.dns_cache.async_resolve = AsyncMock(return_value=dns_addresses)
     monitor.state.dns_cache.has_cached_failure = MagicMock(return_value=dns_cached_failure)
+    # Mirror production: the ownership gate reads ``priority_for``,
+    # which resolves through ``state.state_source``.
+    monitor.state.state_source = {}
+    monitor.priority_for = lambda name: ReachabilitySource(
+        monitor.state.state_source.get(name, ReachabilitySource.UNKNOWN)
+    )
     controller._state_monitor = monitor
     return monitor
 
@@ -221,6 +228,23 @@ async def test_no_target_skips_ping(tmp_path: Path, make_controller: MakeControl
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
 
     assert result.ping_attempted is False
+    monitor.ping.probe_target.assert_not_awaited()
+
+
+async def test_loopback_target_never_pings(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A loopback resolve must not fabricate a verdict off the dashboard host (#2492)."""
+    controller = make_controller(tmp_path)
+    device = _seed_device(controller)
+    device.runtime_state.ip_addresses = ["127.0.0.1"]
+    device.ip = "::1"
+    monitor = _wire_monitor(controller, dns_addresses=["127.0.0.1"], mdns_cached=None)
+
+    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+    assert result.ping_attempted is False
+    assert result.ping_target_source is PingTargetSource.NONE
     monitor.ping.probe_target.assert_not_awaited()
 
 
