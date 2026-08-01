@@ -248,7 +248,16 @@ class PingSource(SweepSource):
             monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
-    async def _ping_device(self, device: Device, target: str) -> None:
+    async def probe_target(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
+        """One budget-acquired probe of *target* for out-of-sweep callers."""
+        async with self.icmp_concurrency:
+            return await self._ping_device(device, target, apply=apply)
+
+    async def _ping_device(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
         # Skip the retry only for already-OFFLINE devices: the miss
         # just confirms the state, nothing to flap. ONLINE devices
         # get the retry to absorb a transient drop; UNKNOWN devices
@@ -258,4 +267,6 @@ class PingSource(SweepSource):
         # dropped packet.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt_ms = await self.ping_once(target, retry=needs_retry)
-        shared.apply_ping_result(self._monitor, device.name, rtt_ms)
+        if apply:
+            shared.apply_ping_result(self._monitor, device.name, rtt_ms)
+        return rtt_ms

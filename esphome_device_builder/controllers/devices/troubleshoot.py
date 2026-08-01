@@ -6,13 +6,12 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from ...helpers.api import CommandError
-from ...models import DeviceState, DeviceTroubleshootResult, ErrorCode, PingTargetSource
-from .._device_state_monitor import _pick_ipv4, apply_ping_result
+from ...models import DeviceTroubleshootResult, PingTargetSource
+from .._device_state_monitor import _pick_ipv4
+from .helpers import raise_device_not_found
 
 if TYPE_CHECKING:
     from ...models import Device
-    from .._device_state_monitor.controller import DeviceStateMonitor
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,7 +25,7 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
     """
     device = controller.get_by_configuration(configuration)
     if device is None:
-        raise CommandError(ErrorCode.NOT_FOUND, f"No configuration named {configuration!r}")
+        raise_device_not_found(configuration)
     monitor = controller._state_monitor
     mdns = monitor.mdns
     address = device.address
@@ -44,7 +43,7 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
         # a cached failure for the rest of its TTL.
         monitor.state.dns_cache.invalidate(address)
     dns_result, mdns_result = await asyncio.gather(
-        monitor.state.dns_cache.async_resolve(address) if address else _none(),
+        monitor.state.dns_cache.async_resolve(address) if address else asyncio.sleep(0),
         mdns.refresh_mdns(device.name),
         return_exceptions=True,
     )
@@ -82,14 +81,10 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
         result.ping_target_source = target_source
         # A bare reply at the sidecar-persisted IP is inadmissible as an
         # ONLINE verdict (#1776); report it without applying.
-        result.ping_rtt_ms = await _ping(
-            monitor, device, target, apply=target_source is not PingTargetSource.PERSISTED
+        result.ping_rtt_ms = await monitor.ping.probe_target(
+            device, target, apply=target_source is not PingTargetSource.PERSISTED
         )
     return result
-
-
-async def _none() -> None:
-    return None
 
 
 def _pick_target(
@@ -101,21 +96,7 @@ def _pick_target(
     if mdns_addresses:
         return _pick_ipv4(mdns_addresses), PingTargetSource.MDNS
     if device.runtime_state.ip_addresses:
-        return _pick_ipv4(list(device.runtime_state.ip_addresses)), PingTargetSource.RUNTIME
+        return _pick_ipv4(device.runtime_state.ip_addresses), PingTargetSource.RUNTIME
     if device.ip:
         return device.ip, PingTargetSource.PERSISTED
     return "", PingTargetSource.NONE
-
-
-async def _ping(
-    monitor: DeviceStateMonitor, device: Device, target: str, *, apply: bool
-) -> float | None:
-    """ICMP *target*; *apply* routes the verdict through the ping source."""
-    async with monitor.ping.icmp_concurrency:
-        # Sweep-mirrored retry policy: an already-OFFLINE device gets a
-        # clean single-packet verdict instead of a slow retry cycle.
-        retry = device.runtime_state.state is not DeviceState.OFFLINE
-        rtt = await monitor.ping.ping_once(target, retry=retry)
-    if apply:
-        apply_ping_result(monitor, device.name, rtt)
-    return rtt

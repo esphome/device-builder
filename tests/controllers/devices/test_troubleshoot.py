@@ -13,7 +13,6 @@ from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     Device,
     DeviceRuntimeState,
-    DeviceState,
     ErrorCode,
 )
 
@@ -54,8 +53,7 @@ def _wire_monitor(
 ) -> MagicMock:
     monitor = MagicMock()
     monitor.ping.icmp_available = icmp_available
-    monitor.ping.icmp_concurrency = asyncio.Semaphore(1)
-    monitor.ping.ping_once = AsyncMock(return_value=rtt)
+    monitor.ping.probe_target = AsyncMock(return_value=rtt)
     monitor.mdns.zeroconf = object() if zeroconf_up else None
     monitor.mdns.refresh_mdns = AsyncMock()
     monitor.mdns.get_cached_addresses = MagicMock(return_value=mdns_cached)
@@ -117,9 +115,9 @@ async def test_happy_path_wire_shape(
         "ping_target_source": "dns",
         "ping_rtt_ms": 4.2,
     }
-    # A hit heals state through the normal ping source.
-    monitor.apply.assert_called_once_with("kitchen", DeviceState.ONLINE, "ping")
-    monitor.state.reachability.record_ping_rtt.assert_called_once_with("kitchen", 4.2)
+    # The verdict routes through the shared sweep policy.
+    monitor.ping.probe_target.assert_awaited_once()
+    assert monitor.ping.probe_target.await_args.kwargs == {"apply": True}
     # Fresh resolve recorded like the sweep, and the cache dropped so
     # the resolve was live.
     monitor.apply_ip_addresses.assert_called_once_with("kitchen", ["fe80::1", "10.0.0.42"])
@@ -159,8 +157,7 @@ async def test_icmp_unavailable_skips_ping(
     assert result.icmp_available == icmp_available
     assert result.ping_attempted is False
     assert result.ping_target == ""
-    monitor.ping.ping_once.assert_not_awaited()
-    monitor.apply.assert_not_called()
+    monitor.ping.probe_target.assert_not_awaited()
 
 
 async def test_ping_miss_applies_offline(
@@ -168,14 +165,12 @@ async def test_ping_miss_applies_offline(
 ) -> None:
     controller = make_controller(tmp_path)
     _seed_device(controller)
-    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"], rtt=None)
+    _wire_monitor(controller, dns_addresses=["10.0.0.42"], rtt=None)
 
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
 
     assert result.ping_attempted is True
     assert result.ping_rtt_ms is None
-    monitor.apply.assert_called_once_with("kitchen", DeviceState.OFFLINE, "ping")
-    monitor.state.reachability.record_ping_rtt.assert_not_called()
 
 
 async def test_dns_failure_falls_back_to_mdns_cache(
@@ -204,9 +199,8 @@ async def test_runtime_addresses_then_persisted_ip_fallbacks(
     assert result.ping_target == "10.0.0.8"
     assert result.ping_target_source == "runtime"
     # RAM-learned addresses are sweep-grade evidence; the verdict applies.
-    monitor.apply.assert_called_once()
+    assert monitor.ping.probe_target.await_args.kwargs == {"apply": True}
 
-    monitor.apply.reset_mock()
     device.runtime_state.ip_addresses = []
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
     assert result.ping_target == "10.0.0.9"
@@ -214,7 +208,7 @@ async def test_runtime_addresses_then_persisted_ip_fallbacks(
     assert result.ping_rtt_ms is not None
     # A bare reply at the persisted IP is inadmissible (#1776): reported,
     # never applied.
-    monitor.apply.assert_not_called()
+    assert monitor.ping.probe_target.await_args.kwargs == {"apply": False}
 
 
 async def test_no_target_skips_ping(tmp_path: Path, make_controller: MakeControllerFactory) -> None:
@@ -225,7 +219,7 @@ async def test_no_target_skips_ping(tmp_path: Path, make_controller: MakeControl
     result = await controller.troubleshoot_device(configuration="kitchen.yaml")
 
     assert result.ping_attempted is False
-    monitor.ping.ping_once.assert_not_awaited()
+    monitor.ping.probe_target.assert_not_awaited()
 
 
 async def test_empty_address_skips_dns(
@@ -241,20 +235,6 @@ async def test_empty_address_skips_dns(
     assert result.dns_had_cached_failure is False
     monitor.state.dns_cache.async_resolve.assert_not_awaited()
     monitor.state.dns_cache.has_cached_failure.assert_not_called()
-
-
-async def test_offline_device_pings_without_retry(
-    tmp_path: Path, make_controller: MakeControllerFactory
-) -> None:
-    controller = make_controller(tmp_path)
-    device = _seed_device(controller)
-    device.runtime_state.state = DeviceState.OFFLINE
-    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"], rtt=None)
-
-    await controller.troubleshoot_device(configuration="kitchen.yaml")
-
-    monitor.ping.ping_once.assert_awaited_once_with("10.0.0.42", retry=False)
-    monitor.apply.assert_called_once_with("kitchen", DeviceState.OFFLINE, "ping")
 
 
 async def test_resolver_exception_degrades(
