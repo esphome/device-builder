@@ -314,6 +314,27 @@ async def test_resolve_and_ping_offline_after_retarget_clears_stale_ip() -> None
     assert devices[0].runtime_state.state is DeviceState.OFFLINE
 
 
+async def test_resolve_and_ping_loopback_falls_through_to_learned_ip() -> None:
+    """An all-unusable resolve falls through to the identity-learned RAM address."""
+    devices = [
+        _make_device(state=DeviceState.OFFLINE, address="127.0.0.1", ip_addresses=["10.0.0.5"])
+    ]
+    monitor = _make_monitor(devices)
+    monitor.state.dns_cache.async_resolve = AsyncMock(return_value=["127.0.0.1"])
+
+    fake_result = MagicMock()
+    fake_result.is_alive = True
+    fake_result.min_rtt = 1.0
+    with patch(
+        "esphome_device_builder.controllers._device_state_monitor.ping.icmp_ping",
+        AsyncMock(return_value=fake_result),
+    ) as mock_ping:
+        await monitor.ping._resolve_and_ping(devices[0])
+
+    assert mock_ping.await_args.args[0] == "10.0.0.5"
+    assert devices[0].runtime_state.state is DeviceState.ONLINE
+
+
 async def test_resolve_and_ping_loopback_use_address_never_claims_online() -> None:
     """A loopback ``use_address`` must never latch ONLINE off the dashboard host (#2486)."""
     devices = [_make_device(state=DeviceState.ONLINE, address="127.0.0.1")]
