@@ -121,8 +121,13 @@ def _sync_network_fingerprint(
     controller: DevicesController, kind: ScanChange, device: Device
 ) -> None:
     """Seed the stored fingerprint; regen when an out-of-band edit moved it."""
+    if not device.network_fingerprint:
+        # Empty means the YAML was unreadable this sweep (or carries no
+        # address-source block at all): no information, so neither
+        # compare nor overwrite the stored digest.
+        return
     stored = controller._metadata_store.get(device.configuration).get("network_fingerprint")
-    if (stored or "") == device.network_fingerprint:
+    if stored == device.network_fingerprint:
         return
     # An out-of-band edit (git pull, external editor — live as UPDATED,
     # or across a restart as ADDED) moved an address-source block;

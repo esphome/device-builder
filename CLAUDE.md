@@ -645,8 +645,8 @@ against legacy behaviour before assuming the simpler version suffices.
     metadata store, so edits made while the dashboard was down are
     caught on the cold-start ADDED (API-path writes already regen on
     every save; RELOADED only re-seeds the stored value). An edit to a
-    referenced package *file* stays uncovered — it changes no device
-    YAML, so no scan event fires.
+    referenced package or `!include`d *file* stays uncovered — it
+    changes no device YAML, so no scan event fires.
   - **`_http._tcp` identity fallback** (`MdnsSource._on_http_service_state_change`,
     for a configured device without `api:`). Such a device never publishes
     `_esphomelib._tcp` (behind `USE_API`); its broadcast is the `_http._tcp`

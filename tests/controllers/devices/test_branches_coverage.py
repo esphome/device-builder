@@ -1277,6 +1277,22 @@ async def test_on_scan_change_updated_same_network_skips_regen(
     assert regenerated == []
 
 
+async def test_on_scan_change_empty_fingerprint_is_no_information(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreadable YAML neither schedules a regen nor clobbers the stored digest."""
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
+
+    controller._on_scan_change(
+        ScanChange.UPDATED, make_device(name="kitchen", network_fingerprint="")
+    )
+
+    assert regenerated == []
+    assert controller._metadata_store.get("kitchen.yaml")["network_fingerprint"] == "old"
+
+
 async def test_on_scan_change_first_sight_seeds_without_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

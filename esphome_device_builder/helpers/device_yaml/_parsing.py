@@ -202,9 +202,9 @@ def extract_network_address_fingerprint(yaml_content: str) -> str:
     Digest of the top-level blocks that can carry or derive ``use_address``.
 
     Full-line comments and blank lines don't move it (inline comments
-    and reindentation do). An edit to a referenced package *file* stays
-    invisible — it changes no device YAML, so no scan event fires.
-    Empty when no block exists.
+    and reindentation do). An edit to a referenced package or
+    ``!include``d *file* stays invisible — it changes no device YAML,
+    so no scan event fires. Empty when no block exists.
     """
     captured: list[str] = []
     in_block = False
