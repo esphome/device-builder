@@ -29,6 +29,7 @@ from functools import partial
 from typing import Any, Protocol
 
 from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit
+from ...helpers.hostname import mac_suffix_from_address, split_mac_suffix_broadcast
 from ...helpers.ip import drop_unspecified_addresses, is_unspecified_address
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import (
@@ -657,5 +658,37 @@ class DeviceStateMonitor(TaskControllerBase):
     # ------------------------------------------------------------------
 
     def _find_device_by_name(self, name: str) -> Device | None:
+        """
+        Return a configured device for *name*.
+
+        Accepts either the YAML ``esphome.name`` or a live mDNS
+        broadcast shaped as ``{name}-{mac_suffix}`` when
+        ``name_add_mac_suffix`` is enabled.
+        """
         bucket = self._get_devices_by_name(name)
-        return bucket[0] if bucket else None
+        if bucket:
+            return bucket[0]
+
+        parsed = split_mac_suffix_broadcast(name)
+        if parsed is None:
+            return None
+        base_name, suffix = parsed
+        bucket = self._get_devices_by_name(base_name)
+        if not bucket:
+            return None
+
+        if len(bucket) == 1:
+            device = bucket[0]
+            if device.mac_address:
+                expected = mac_suffix_from_address(device.mac_address)
+                if expected and expected != suffix:
+                    return None
+            return device
+
+        matches = [
+            candidate
+            for candidate in bucket
+            if candidate.mac_address
+            and mac_suffix_from_address(candidate.mac_address) == suffix
+        ]
+        return matches[0] if len(matches) == 1 else None

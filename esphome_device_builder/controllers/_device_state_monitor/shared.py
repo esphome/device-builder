@@ -11,7 +11,11 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from ...helpers.hostname import is_local_hostname
+from ...helpers.hostname import (
+    broadcast_hostname_with_mac_suffix,
+    default_mdns_address,
+    is_local_hostname,
+)
 from ...helpers.ip import drop_unspecified_addresses
 from ...models import Device, DeviceState, ReachabilitySource
 
@@ -41,6 +45,18 @@ _MDNS_HOSTNAME_RESOLVE_TIMEOUT = 3.0
 # inside a single ICMP timeout window. One bound for every ICMP
 # consumer (ping sweep, reviver pre-filter).
 ICMP_BATCH_SIZE = 24
+
+
+def local_hostnames_for_device(device: Device) -> list[str]:
+    """Return ``device.address`` plus the ``name_add_mac_suffix`` hostname when known."""
+    hostnames = [device.address] if device.address else []
+    if device.mac_address:
+        suffixed = default_mdns_address(
+            broadcast_hostname_with_mac_suffix(device.name, device.mac_address)
+        )
+        if suffixed not in hostnames:
+            hostnames.append(suffixed)
+    return hostnames
 
 
 def should_ping(monitor: DeviceStateMonitor, device: Device) -> bool:
@@ -85,7 +101,10 @@ def sweep_has_no_target(monitor: DeviceStateMonitor, device: Device) -> bool:
         return True
     if not monitor.state.dns_cache.has_cached_failure(address):
         return False
-    return not (is_local_hostname(address) and monitor.mdns.get_cached_addresses(address))
+    for hostname in local_hostnames_for_device(device):
+        if is_local_hostname(hostname) and monitor.mdns.get_cached_addresses(hostname):
+            return False
+    return True
 
 
 def apply_resolved_addresses(

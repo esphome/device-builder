@@ -476,16 +476,17 @@ class MdnsSource:
         # ``AsyncServiceBrowser`` dispatches handlers on the
         # asyncio loop, so call apply methods directly.
         monitor = self._monitor
-        device_name = device_name_from_service(name)
-        _LOGGER.debug("mDNS: %s %s (raw: %s)", state_change, device_name, name)
+        broadcast_name = device_name_from_service(name)
+        _LOGGER.debug("mDNS: %s %s (raw: %s)", state_change, broadcast_name, name)
 
         # Short-circuit unconfigured devices so we don't spawn
         # ServiceInfo lookups for unrelated ESPHome nodes on the LAN.
-        if monitor._find_device_by_name(device_name) is None:
+        device = monitor._find_device_by_name(broadcast_name)
+        if device is None:
             return
 
         if state_change == ServiceStateChange.Removed:
-            self._on_service_removed(name, device_name, sibling_type=_HTTP_SERVICE_TYPE)
+            self._on_service_removed(name, device.name, sibling_type=_HTTP_SERVICE_TYPE)
             return
 
         # Don't claim ONLINE off a bare PTR — only once the service
@@ -495,7 +496,7 @@ class MdnsSource:
         # a stale PTR for a long-gone device); claiming here latched
         # it ONLINE forever with no IP, locking out the ICMP sweep.
         info = AsyncServiceInfo(service_type, name)
-        self.cache_apply_or_resolve(zeroconf, info, device_name)
+        self.cache_apply_or_resolve(zeroconf, info, device.name)
 
     def _on_browser_event(
         self, zeroconf: Any, service_type: str, name: str, state_change: ServiceStateChange
@@ -522,7 +523,7 @@ class MdnsSource:
         # withdraw only when no anchor remains. A goodbye burst byes
         # both services in one packet, so a sleeper's first Removed
         # already sees the sibling PTR evicted.
-        if self._has_live_ptr(device_name, sibling_type):
+        if self._has_live_ptr(device_name_from_service(name), sibling_type):
             return
         # A goodbye withdraws only the PTR (firmware never byes SRV/A,
         # which stay cached for their full TTLs), so a verify-resolve
@@ -550,8 +551,10 @@ class MdnsSource:
         # the *device-named* service — the one whose ``Removed`` maps
         # back to *device_name*: a PTR-less wire answer and a cross-name
         # resolve (the adopt probe riding the factory service) apply
-        # their data below but take no ownership.
-        if self._has_live_ptr(device_name, info.type):
+        # their data below but take no ownership. ``name_add_mac_suffix``
+        # is the exception: the PTR lives under the suffixed broadcast
+        # label, but it still anchors the matched YAML name.
+        if self._ptr_anchors_device(device_name, info):
             monitor.apply(device_name, DeviceState.ONLINE, "mdns", claim=True)
         else:
             _LOGGER.debug(
@@ -618,13 +621,13 @@ class MdnsSource:
         MQTT / ping paths.
         """
         monitor = self._monitor
-        device_name = device_name_from_service(name)
+        device = monitor._find_device_by_name(device_name_from_service(name))
         # Look at the whole name bucket, not just bucket[0]: sibling
         # YAMLs can share an ``esphome.name`` (a config + a ``foo (1)``
         # copy). An all-API bucket skips only the identity path below;
         # a ``Removed`` is evidence-gated instead (an api+web_server
         # bucket publishes both PTRs).
-        bucket = monitor._get_devices_by_name(device_name)
+        bucket = monitor._get_devices_by_name(device.name) if device is not None else []
         if not bucket:
             return
         if state_change == ServiceStateChange.Removed:
@@ -634,12 +637,12 @@ class MdnsSource:
             # compiled-without-api device whose YAML gained ``api:``
             # must still withdraw. ``source_withdrawn`` itself no-ops
             # for a name mdns doesn't own.
-            self._on_service_removed(name, device_name, sibling_type=_ESPHOME_SERVICE_TYPE)
+            self._on_service_removed(name, device.name, sibling_type=_ESPHOME_SERVICE_TYPE)
             return
-        if all(device.api_enabled for device in bucket):
+        if all(d.api_enabled for d in bucket):
             return
         info = AsyncServiceInfo(service_type, name)
-        self.cache_apply_or_resolve(zeroconf, info, device_name, self._apply_http_txt)
+        self.cache_apply_or_resolve(zeroconf, info, device.name, self._apply_http_txt)
 
     def _apply_http_txt(self, device_name: str, info: AsyncServiceInfo) -> None:
         """
@@ -669,6 +672,27 @@ class MdnsSource:
         return self._cached_ptr(f"{device_name}.{_ESPHOME_SERVICE_TYPE}") or self._cached_ptr(
             f"{device_name}.{_HTTP_SERVICE_TYPE}", _HTTP_SERVICE_TYPE
         )
+
+    def _ptr_anchors_device(self, device_name: str, info: AsyncServiceInfo) -> bool:
+        """
+        Report whether a live PTR on *info* can anchor *device_name*'s claim.
+
+        Normally the PTR must sit under *device_name* itself. When
+        ``name_add_mac_suffix`` is on, the wire PTR is under the
+        suffixed broadcast label while apply still keys to the YAML
+        name — allow that only when the broadcast resolves to the
+        same configured device. A cross-name adopt probe (factory
+        service, user-chosen name) must not claim.
+        """
+        if self._has_live_ptr(device_name, info.type):
+            return True
+        broadcast_name = device_name_from_service(info.name)
+        if broadcast_name == device_name:
+            return False
+        if not self._has_live_ptr(broadcast_name, info.type):
+            return False
+        device = self._monitor._find_device_by_name(broadcast_name)
+        return device is not None and device.name == device_name
 
     def _has_live_ptr(self, device_name: str, service_type: str) -> bool:
         """Whether the cache holds an unexpired *service_type* PTR for *device_name*."""

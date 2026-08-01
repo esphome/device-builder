@@ -188,6 +188,50 @@ async def test_handler_short_circuits_unknown_device(monkeypatch: pytest.MonkeyP
     assert not any(c[0] == "on_state_change" for c in callbacks.calls)
 
 
+async def test_handler_marks_mac_suffix_broadcast_online(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``name_add_mac_suffix`` broadcasts ``{name}-{mac}`` but YAML keeps the base name.
+
+    Pre-fix the handler looked up the broadcast label verbatim, found
+    no configured entry for ``example-node-aabbcc``, and the device
+    stayed Unknown/OFFLINE until a ping sweep against the wrong
+    ``example-node.local`` hostname failed.
+    """
+    devices = [_device("example-node")]
+    monitor, callbacks = make_state_monitor_with_callbacks(devices)
+
+    handler = await _capture_handler(monitor, monkeypatch)
+    handler(
+        MagicMock(),
+        "_esphomelib._tcp.local.",
+        "example-node-aabbcc._esphomelib._tcp.local.",
+        ServiceStateChange.Added,
+    )
+
+    assert (
+        "on_state_change",
+        "example-node",
+        DeviceState.ONLINE,
+        "mdns",
+    ) in callbacks.calls
+
+
+async def test_handler_short_circuits_unknown_mac_suffix_broadcast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A suffixed broadcast with no matching configured base name is ignored."""
+    monitor, callbacks = make_state_monitor_with_callbacks([_device("other-device")])
+
+    handler = await _capture_handler(monitor, monkeypatch)
+    handler(
+        MagicMock(),
+        "_esphomelib._tcp.local.",
+        "example-node-aabbcc._esphomelib._tcp.local.",
+        ServiceStateChange.Added,
+    )
+
+    assert not any(c[0] == "on_state_change" for c in callbacks.calls)
+
+
 async def test_mdns_takes_ownership_after_ping_set_online(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
