@@ -1137,6 +1137,10 @@ def test_load_device_from_storage_detects_name_add_mac_suffix(tmp_path: Path) ->
     plain.write_text("esphome:\n  name: plain\n", encoding="utf-8")
     assert load_device_from_storage(plain).name_add_mac_suffix is False
 
+    quoted = tmp_path / "quoted.yaml"
+    quoted.write_text('esphome:\n  name: kit\n  name_add_mac_suffix: "enable"\n', encoding="utf-8")
+    assert load_device_from_storage(quoted).name_add_mac_suffix is True
+
 
 def test_load_device_name_add_mac_suffix_survives_invalid_draft(tmp_path: Path) -> None:
     """The raw-text fallback keeps the flag set when the draft doesn't parse."""
@@ -1162,6 +1166,13 @@ def test_load_device_name_add_mac_suffix_survives_invalid_draft(tmp_path: Path) 
         pytest.param("esphome:\n  name: a\n", False, id="absent"),
         pytest.param("esphome:\n  name_add_mac_suffix: enabled\n", False, id="enabled_not_truthy"),
         pytest.param("esphome:\n  name_add_mac_suffix: 1\n", False, id="numeric_not_truthy"),
+        pytest.param('esphome:\n  name_add_mac_suffix: "true"\n', True, id="quoted_value"),
+        pytest.param("esphome:\n  Name_Add_Mac_Suffix: true\n", False, id="cased_key"),
+        pytest.param(
+            "esphome:\n  name: a\n# note\n  name_add_mac_suffix: true\n",
+            True,
+            id="column0_comment",
+        ),
     ],
 )
 def test_yaml_has_name_add_mac_suffix(content: str, expected: bool) -> None:

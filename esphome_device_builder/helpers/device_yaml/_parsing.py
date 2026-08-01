@@ -217,10 +217,11 @@ _TRUTHY_BOOL_STRINGS = frozenset({"true", "yes", "on", "enable"})
 _RAW_NAME_ADD_MAC_SUFFIX_RE = re.compile(
     # Truthy ``name_add_mac_suffix:`` indented under ``esphome:``. The
     # body alternatives are exclusive so the engine can't backtrack
-    # exponentially on newline runs.
-    r"^esphome:[^\n]*\n(?:[ \t][^\n]*\n|\n)*"
-    rf"[ \t]+name_add_mac_suffix:[ \t]*(?:{'|'.join(sorted(_TRUTHY_BOOL_STRINGS))})\b",
-    re.MULTILINE | re.IGNORECASE,
+    # exponentially on newline runs; case-folding is scoped to the value
+    # (YAML keys are case-sensitive), and the value may be quoted.
+    r"^esphome:[^\n]*\n(?:[ \t][^\n]*\n|#[^\n]*\n|\n)*"
+    rf"""[ \t]+name_add_mac_suffix:[ \t]*["']?(?i:{"|".join(sorted(_TRUTHY_BOOL_STRINGS))})\b""",
+    re.MULTILINE,
 )
 
 
