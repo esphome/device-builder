@@ -714,6 +714,20 @@ against legacy behaviour before assuming the simpler version suffices.
   proxies included); don't add detection or accommodations for
   fabricated records — close such issues pointing at the design-scope
   paragraph in docs/ARCHITECTURE.md "Discovery (mDNS)".
+
+  **`name_add_mac_suffix: true` configs are out of scope for status
+  tracking.** The option is a provisioning feature — one YAML flashed to
+  N units, each broadcasting `{name}-<last-6-MAC-digits>` — and the adopt
+  flow bakes the suffix into the literal name and turns it off. A
+  `Device` row is 1:1 with a YAML file, so no row can represent the
+  fleet, and a suffixed broadcast can't be bound to a row safely: the
+  MAC is only learned through name-keyed paths that never fire for a
+  never-matched device, first-match binding promotes an arbitrary unit,
+  and a base-name fallback in `_find_device_by_name` also feeds the
+  already-configured exclusion in `_device_state_monitor/importable.py`,
+  hiding new factory units from the adopt list. Close such issues
+  pointing at the README section "Device status and
+  `name_add_mac_suffix`" (#2480; declined PR #2481).
 - **Persisted-IP revival is identity-gated** (`api_reviver.py`). A
   stuck-offline `api:` device whose `.local` won't resolve and whose RAM
   `ip_addresses` are gone (an mDNS `Removed` withdrawal, or a restart) gets

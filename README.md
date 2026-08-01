@@ -588,6 +588,28 @@ automatic commits alongside yours, this toggle is for you.
 > described above, will be closed with a pointer to this section.
 > Bug reports about the feature misbehaving are always welcome.
 
+## Device status and `name_add_mac_suffix`
+
+Configs that keep `name_add_mac_suffix: true` are out of scope for
+status tracking; they show as offline or stay unknown. The
+option is a provisioning feature: one YAML flashed to a whole batch of
+devices, each announcing itself as `<name>-<last-6-MAC-digits>` so the
+units can be told apart out of the box. The dashboard tracks one device
+per YAML file, keyed on `esphome.name`, so a suffixed broadcast can't
+be safely linked back to a config — several units may be running the
+same YAML at once, and guessing promotes an arbitrary unit's address
+and version onto the card. Adopting the device is the supported path:
+the adopt flow bakes the suffixed name into `esphome.name` as a literal
+and turns the option off, which is the intended production state. If
+you manage the YAML by hand instead, give each device a unique literal
+name.
+
+> **Policy note.** Mapping suffixed broadcasts back to a base-named
+> config has been discussed and declined
+> ([issue #2480](https://github.com/esphome/device-builder/issues/2480)).
+> New issues asking for it will be closed with a pointer to this
+> section.
+
 ## Roadmap
 
 - ✅ Standalone backend with WS-first API, persistent compile queue, mDNS device discovery
