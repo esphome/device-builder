@@ -943,3 +943,75 @@ async def test_import_device_drops_matching_import_result_entry(
     assert [(e.event_type, e.data) for e in captured] == [
         (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-983300"})
     ]
+
+
+def _seed_two_apollo_plt1_rows(ctrl: DevicesController) -> None:
+    """Seed two discovered units of the same product (shared ``package_import_url``)."""
+    for suffix in ("aabbcc", "ddeeff"):
+        ctrl.state.import_result[f"apollo-plt-1-{suffix}"] = AdoptableDevice(
+            name=f"apollo-plt-1-{suffix}",
+            friendly_name="Apollo PLT-1",
+            package_import_url="github://apollo/plt-1.yaml",
+            project_name="apollo.plt-1",
+            project_version="26.3.2.1",
+            network="wifi",
+            ignored=False,
+        )
+
+
+async def test_import_device_keeps_same_url_siblings_discovered(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """Adopting one unit of a product batch keeps its siblings in the discovered list."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    _seed_two_apollo_plt1_rows(ctrl)
+    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    await ctrl.import_device(
+        name="apollo-plt-1-ddeeff",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    assert "apollo-plt-1-ddeeff" not in ctrl.state.import_result
+    assert "apollo-plt-1-aabbcc" in ctrl.state.import_result
+    assert [(e.event_type, e.data) for e in captured] == [
+        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-ddeeff"})
+    ]
+
+
+async def test_import_device_rename_drops_only_the_resolved_sibling(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A rename-during-adopt retires one URL-matched row; the sibling stays discovered."""
+    ctrl = make_controller(tmp_path)
+    _seed_import_state(ctrl)
+    _seed_two_apollo_plt1_rows(ctrl)
+    captured = capture_devices_events(ctrl, EventType.IMPORTABLE_DEVICE_REMOVED)
+    ctrl._state_monitor = RecordingStateMonitor(
+        cached_addresses={"apollo-plt-1-aabbcc.local": ["192.168.1.77"]}
+    )
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="apollo.plt-1",
+        package_import_url="github://apollo/plt-1.yaml",
+    )
+
+    # The URL fallback resolves the first matching row; only that one
+    # is retired, and it also drives the cache lookup and probe.
+    assert "apollo-plt-1-aabbcc" not in ctrl.state.import_result
+    assert "apollo-plt-1-ddeeff" in ctrl.state.import_result
+    assert [(e.event_type, e.data) for e in captured] == [
+        (EventType.IMPORTABLE_DEVICE_REMOVED, {"name": "apollo-plt-1-aabbcc"})
+    ]
+    assert ctrl._state_monitor.calls == [
+        ("get_cached_addresses", "apollo-plt-1-aabbcc.local"),
+        ("apply_ip_addresses", "kitchen", ["192.168.1.77"]),
+        ("probe_device", "kitchen", "apollo-plt-1-aabbcc"),
+    ]

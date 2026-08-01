@@ -141,7 +141,7 @@ async def import_device(
     except Exception:
         _LOGGER.exception("Scan after import failed; will pick up on next poll")
 
-    _drop_importable_rows_and_probe(controller, name, package_import_url)
+    _drop_importable_row_and_probe(controller, name, adoptable.name if adoptable else name)
     result = {"configuration": configuration}
     if warning:
         result["warning"] = warning
@@ -241,24 +241,18 @@ def save_ignored_devices(controller: DevicesController) -> None:
     )
 
 
-def _drop_importable_rows_and_probe(
+def _drop_importable_row_and_probe(
     controller: DevicesController,
     name: str,
-    package_import_url: str,
+    mdns_name: str,
 ) -> None:
-    """Retire the adopted device's importable rows and kick its first probe."""
-    # Drop any importable rows for this device (matched by URL,
-    # since the user may have edited the name during adoption)
-    # and remember the broadcast name for the zeroconf-cache
-    # lookup below.
-    cached_names = [
-        n
-        for n, d in controller.state.import_result.items()
-        if d.package_import_url == package_import_url
-    ]
-    for cached_name in cached_names:
-        controller._on_importable_removed(cached_name)
-    mdns_name = cached_names[0] if cached_names else name
+    """Retire the adopted device's importable row and kick its first probe."""
+    # ``mdns_name`` is the broadcast name of the row ``import_device``
+    # resolved before writing the YAML — dropping only that row keeps
+    # same-``package_import_url`` siblings (a batch of identical
+    # products) in the discovered list (#2490). The removal is a no-op
+    # on a same-name adopt whose post-write scan already pruned it.
+    controller._on_importable_removed(mdns_name)
 
     # No state seed — the real sources decide. Discovery is
     # mDNS-based, so a same-name adopt claims ONLINE via the
