@@ -51,17 +51,18 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
         mdns.refresh_mdns(device.name),
         return_exceptions=True,
     )
-    for leg in (dns_result, mdns_result):
+    if isinstance(mdns_result, BaseException):
         # Cancellation must unwind the probe, not degrade into a verdict.
-        if isinstance(leg, BaseException) and not isinstance(leg, Exception):
-            raise leg
-    if isinstance(mdns_result, Exception):
+        if not isinstance(mdns_result, Exception):
+            raise mdns_result
         result.mdns_inconclusive = True
         _LOGGER.warning(
             "mDNS re-query failed for %s; continuing", device.name, exc_info=mdns_result
         )
     dns_addresses: list[str] | None = None
-    if isinstance(dns_result, Exception):
+    if isinstance(dns_result, BaseException):
+        if not isinstance(dns_result, Exception):
+            raise dns_result
         # An internal resolver failure proves nothing; it must not read
         # as "the name does not resolve".
         result.dns_inconclusive = True
