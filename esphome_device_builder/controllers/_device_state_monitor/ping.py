@@ -222,6 +222,9 @@ class PingSource(SweepSource):
 
     async def _resolve_and_ping(self, device: Device) -> None:
         """Resolve *device.address* through the DNS cache and ICMP it."""
+        # Target order mirrors ``devices/troubleshoot``'s ``_pick_target``
+        # (which adds a persisted-IP tail the sweep must never take);
+        # keep the two chains in lockstep.
         monitor = self._monitor
         async with self.icmp_concurrency:
             addresses = await monitor.state.dns_cache.async_resolve(device.address)
