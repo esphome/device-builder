@@ -109,6 +109,13 @@ class PingSource(SweepSource):
             _LOGGER.debug("Ping of %s failed: %s", target, exc)
         return None
 
+    async def probe_target(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
+        """One budget-acquired probe of *target* for out-of-sweep callers."""
+        async with self.icmp_concurrency:
+            return await self._ping_device(device, target, apply=apply)
+
     async def _prepare(self) -> bool:
         privileged = await _can_use_icmp_lib_with_privilege()
         self.icmp_available = privileged is not None
@@ -216,6 +223,9 @@ class PingSource(SweepSource):
 
     async def _resolve_and_ping(self, device: Device) -> None:
         """Resolve *device.address* through the DNS cache and ICMP it."""
+        # Target order mirrors ``devices/troubleshoot``'s ``_pick_target``
+        # (which adds a persisted-IP tail the sweep must never take);
+        # keep the two chains in lockstep.
         monitor = self._monitor
         async with self.icmp_concurrency:
             addresses = await monitor.state.dns_cache.async_resolve(device.address)
@@ -254,7 +264,9 @@ class PingSource(SweepSource):
             monitor.apply_ip_addresses(device.name, addresses)
             await self._ping_device(device, target)
 
-    async def _ping_device(self, device: Device, target: str) -> None:
+    async def _ping_device(
+        self, device: Device, target: str, *, apply: bool = True
+    ) -> float | None:
         # Skip the retry only for already-OFFLINE devices: the miss
         # just confirms the state, nothing to flap. ONLINE devices
         # get the retry to absorb a transient drop; UNKNOWN devices
@@ -264,4 +276,6 @@ class PingSource(SweepSource):
         # dropped packet.
         needs_retry = device.runtime_state.state is not DeviceState.OFFLINE
         rtt_ms = await self.ping_once(target, retry=needs_retry)
-        shared.apply_ping_result(self._monitor, device.name, rtt_ms)
+        if apply:
+            shared.apply_ping_result(self._monitor, device.name, rtt_ms)
+        return rtt_ms

@@ -37,6 +37,21 @@ class ReachabilitySource(StrEnum):
     MDNS = "mdns"
 
 
+class PingTargetSource(StrEnum):
+    """Where ``devices/troubleshoot`` found its ping target."""
+
+    NONE = ""
+    # Live resolves; a verdict at these targets is sweep-grade evidence.
+    DNS = "dns"
+    MDNS = "mdns"
+    # RAM-learned addresses; the sweep pings these too.
+    RUNTIME = "runtime"
+    # Sidecar-persisted last-known IP. A bare ICMP reply there is
+    # inadmissible as ONLINE evidence (#1776); the probe reports it
+    # but never applies a verdict from it.
+    PERSISTED = "persisted"
+
+
 @dataclass
 class DeviceRuntimeState(DashboardModel):
     """
@@ -154,6 +169,8 @@ class Device(DashboardModel):
     uses_deep_sleep: bool = False  # True if the YAML declares a top-level deep_sleep: block
     # Truthy esphome.name_add_mac_suffix; status tracking is unavailable for such configs.
     name_add_mac_suffix: bool = False
+    # Truthy mdns.disabled; the device never broadcasts mDNS by design.
+    mdns_disabled: bool = False
     # Native API surface flags — drive the lock-icon indicator in
     # the device list. Both fields are computed in
     # ``helpers.device_yaml.load_device_from_storage`` as the
@@ -349,6 +366,36 @@ class UpdateDeviceResponse(DashboardModel):
     friendly_name: str
     comment: str | None
     board_id: str | None
+
+
+@dataclass
+class DeviceTroubleshootResult(DashboardModel):
+    """
+    Response for ``devices/troubleshoot``.
+
+    ``icmp_available`` is ``None`` while the startup privilege probe
+    hasn't landed; ``ping_rtt_ms`` is ``None`` when the probe ran and
+    the target didn't answer.
+    """
+
+    configuration: str
+    address: str
+    icmp_available: bool | None
+    zeroconf_running: bool
+    dns_resolved: bool = False
+    dns_addresses: list[str] = field(default_factory=list)
+    dns_had_cached_failure: bool = False
+    # An internal failure in the leg: the fields prove nothing, they are
+    # not a negative verdict.
+    dns_inconclusive: bool = False
+    mdns_addresses: list[str] = field(default_factory=list)
+    mdns_inconclusive: bool = False
+    mdns_has_cached_trace: bool = False
+    mdns_has_live_anchor_ptr: bool = False
+    ping_attempted: bool = False
+    ping_target: str = ""
+    ping_target_source: PingTargetSource = PingTargetSource.NONE
+    ping_rtt_ms: float | None = None
 
 
 # ---------------------------------------------------------------------------

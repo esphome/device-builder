@@ -6,7 +6,7 @@ import time
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import ClassVar
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -825,3 +825,19 @@ def test_metadata_transaction_serialises_concurrent_writers(tmp_path) -> None:  
 
     for i in range(writer_count):
         assert get_board_id(tmp_path, f"device-{i}.yaml") == f"board-{i}"
+
+
+async def test_invalidate_forces_a_fresh_resolve() -> None:
+    """Invalidate normalises like resolve and tolerates unknown hosts."""
+    cache = DNSCache()
+    with patch(
+        "esphome_device_builder.controllers._dns_cache.async_resolve",
+        AsyncMock(return_value=["10.0.0.5"]),
+    ) as resolver:
+        await cache.async_resolve("kitchen.local")
+        assert cache.get_cached_addresses("kitchen.local") == ["10.0.0.5"]
+        cache.invalidate("Kitchen.LOCAL")
+        assert cache.get_cached_addresses("kitchen.local") is None
+        await cache.async_resolve("kitchen.local")
+        assert resolver.await_count == 2
+    cache.invalidate("never-seen.local")

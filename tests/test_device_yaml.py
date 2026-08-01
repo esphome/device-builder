@@ -1188,6 +1188,29 @@ def test_load_device_from_storage_detects_name_add_mac_suffix(tmp_path: Path) ->
     assert load_device_from_storage(quoted).name_add_mac_suffix is True
 
 
+def test_load_device_from_storage_detects_mdns_disabled(tmp_path: Path) -> None:
+    """A truthy ``mdns.disabled`` sets the flag; absent, false, or bare block clears it."""
+    disabled = tmp_path / "disabled.yaml"
+    disabled.write_text("esphome:\n  name: quiet\nmdns:\n  disabled: true\n", encoding="utf-8")
+    assert load_device_from_storage(disabled).mdns_disabled is True
+
+    enabled = tmp_path / "enabled.yaml"
+    enabled.write_text("esphome:\n  name: loud\nmdns:\n  disabled: false\n", encoding="utf-8")
+    assert load_device_from_storage(enabled).mdns_disabled is False
+
+    bare = tmp_path / "bare.yaml"
+    bare.write_text("esphome:\n  name: bare\nmdns:\napi:\n", encoding="utf-8")
+    assert load_device_from_storage(bare).mdns_disabled is False
+
+    absent = tmp_path / "absent.yaml"
+    absent.write_text("esphome:\n  name: absent\napi:\n", encoding="utf-8")
+    assert load_device_from_storage(absent).mdns_disabled is False
+
+    draft = tmp_path / "draft.yaml"
+    draft.write_text("mdns:\n  disabled: yes\nwifi: [broken\n", encoding="utf-8")
+    assert load_device_from_storage(draft).mdns_disabled is True
+
+
 def test_load_device_name_add_mac_suffix_survives_invalid_draft(tmp_path: Path) -> None:
     """The raw-text fallback keeps the flag set when the draft doesn't parse."""
     draft = tmp_path / "draft.yaml"
