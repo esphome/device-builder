@@ -90,6 +90,19 @@ body:
       required: true
 
   - type: textarea
+    id: config
+    attributes:
+      label: Device YAML config
+      description: |
+        The YAML config of the affected device, with secrets redacted
+        (Wi-Fi credentials, API encryption key, OTA password). Prefer the
+        whole file; trim only if it's huge. If this report isn't about a
+        specific device, write "not device specific".
+      render: yaml
+    validations:
+      required: true
+
+  - type: textarea
     id: logs
     attributes:
       label: Relevant logs / errors
@@ -103,5 +116,5 @@ body:
     attributes:
       label: Anything else?
       description: |
-        Screenshots, related YAML config, board picked, anything else
-        that might help us reproduce.
+        Screenshots, board picked, anything else that might help us
+        reproduce.
