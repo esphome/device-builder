@@ -18,18 +18,16 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Generous backstops, not squeezes: an explicit diagnostic may take its
-# time, so every leg gets room to complete naturally (DNS 3s + 3s
-# ``.local`` fallback, a sweep-contended semaphore wait, a full retrying
-# ping). Worst case ~30s; the frontend calls with a 35s timeout, and a
-# tripped backstop degrades to its ``*_timed_out`` field.
-_DNS_TIMEOUT = 10.0
-_SEMAPHORE_TIMEOUT = 10.0
-_PING_TIMEOUT = 10.0
-
 
 async def run(controller: DevicesController, configuration: str) -> DeviceTroubleshootResult:
-    """Probe DNS, mDNS, and ICMP for *configuration*'s device and report the evidence."""
+    """
+    Probe DNS, mDNS, and ICMP for *configuration*'s device and report the evidence.
+
+    No probe budget of its own: every leg self-bounds (the resolver and
+    mDNS re-query carry internal timeouts, icmplib bounds each packet)
+    and a sweep-contended ICMP slot is waited for honestly. The
+    frontend's command timeout is the backstop.
+    """
     device = controller.get_by_configuration(configuration)
     if device is None:
         raise CommandError(ErrorCode.NOT_FOUND, f"No configuration named {configuration!r}")
@@ -50,7 +48,7 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
         # a cached failure for the rest of its TTL.
         monitor.state.dns_cache.invalidate(address)
     dns_result, mdns_result = await asyncio.gather(
-        _resolve_dns(monitor, address),
+        monitor.state.dns_cache.async_resolve(address) if address else _none(),
         mdns.refresh_mdns(device.name),
         return_exceptions=True,
     )
@@ -62,7 +60,7 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
     if isinstance(dns_result, BaseException):
         _LOGGER.warning("DNS resolve failed for %s; continuing", address, exc_info=dns_result)
     else:
-        dns_addresses, result.dns_timed_out = dns_result
+        dns_addresses = dns_result
     if dns_addresses:
         result.dns_resolved = True
         result.dns_addresses = dns_addresses
@@ -76,19 +74,12 @@ async def run(controller: DevicesController, configuration: str) -> DeviceTroubl
     if result.icmp_available and target:
         result.ping_attempted = True
         result.ping_target = target
-        await _ping(monitor, device, target, result)
+        result.ping_rtt_ms = await _ping(monitor, device, target)
     return result
 
 
-async def _resolve_dns(monitor: DeviceStateMonitor, address: str) -> tuple[list[str] | None, bool]:
-    """Resolve *address*; ``(addresses, timed_out)`` so a timeout isn't a verdict."""
-    if not address:
-        return None, False
-    try:
-        async with asyncio.timeout(_DNS_TIMEOUT):
-            return await monitor.state.dns_cache.async_resolve(address), False
-    except TimeoutError:
-        return None, True
+async def _none() -> None:
+    return None
 
 
 def _pick_target(device: Device, dns_addresses: list[str] | None, mdns_addresses: list[str]) -> str:
@@ -100,34 +91,12 @@ def _pick_target(device: Device, dns_addresses: list[str] | None, mdns_addresses
     return _pick_ipv4(addresses) if addresses else ""
 
 
-async def _ping(
-    monitor: DeviceStateMonitor, device: Device, target: str, result: DeviceTroubleshootResult
-) -> None:
-    """
-    ICMP *target* and apply a completed verdict through the ping source.
-
-    The shared-semaphore wait has its own budget so a busy sweep reads
-    as ``ping_timed_out``, not "unreachable"; a timed-out probe proves
-    nothing and never stamps OFFLINE.
-    """
-    ping = monitor.ping
-    try:
-        async with asyncio.timeout(_SEMAPHORE_TIMEOUT):
-            await ping.icmp_concurrency.acquire()
-    except TimeoutError:
-        result.ping_timed_out = True
-        return
-    try:
+async def _ping(monitor: DeviceStateMonitor, device: Device, target: str) -> float | None:
+    """ICMP *target* under the shared budget and apply the verdict via the ping source."""
+    async with monitor.ping.icmp_concurrency:
         # Sweep-mirrored retry policy: an already-OFFLINE device gets a
-        # clean single-packet verdict instead of burning the budget.
+        # clean single-packet verdict instead of a slow retry cycle.
         retry = device.runtime_state.state is not DeviceState.OFFLINE
-        try:
-            async with asyncio.timeout(_PING_TIMEOUT):
-                rtt = await ping.ping_once(target, retry=retry)
-        except TimeoutError:
-            result.ping_timed_out = True
-            return
-        result.ping_rtt_ms = rtt
-        shared.apply_ping_result(monitor, device.name, rtt)
-    finally:
-        ping.icmp_concurrency.release()
+        rtt = await monitor.ping.ping_once(target, retry=retry)
+    shared.apply_ping_result(monitor, device.name, rtt)
+    return rtt

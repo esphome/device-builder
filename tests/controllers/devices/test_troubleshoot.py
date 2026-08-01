@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers.devices import troubleshoot
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.models import (
     Device,
@@ -107,7 +106,6 @@ async def test_happy_path_wire_shape(
         "dns_resolved": True,
         "dns_addresses": ["fe80::1", "10.0.0.42"],
         "dns_had_cached_failure": False,
-        "dns_timed_out": False,
         "mdns_addresses": ["10.0.0.42"],
         "mdns_has_cached_trace": True,
         "mdns_has_live_anchor_ptr": True,
@@ -115,7 +113,6 @@ async def test_happy_path_wire_shape(
         # IPv4 preferred over the scoped IPv6 the resolver ordered first.
         "ping_target": "10.0.0.42",
         "ping_rtt_ms": 4.2,
-        "ping_timed_out": False,
     }
     # A hit heals state through the normal ping source.
     monitor.apply.assert_called_once_with("kitchen", DeviceState.ONLINE, "ping")
@@ -231,74 +228,6 @@ async def test_empty_address_skips_dns(
     assert result.dns_had_cached_failure is False
     monitor.state.dns_cache.async_resolve.assert_not_awaited()
     monitor.state.dns_cache.has_cached_failure.assert_not_called()
-
-
-async def test_dns_timeout_degrades(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    controller = make_controller(tmp_path)
-    _seed_device(controller)
-    monitor = _wire_monitor(controller, mdns_cached=None)
-
-    async def _hang(_address: str) -> list[str] | None:
-        await asyncio.sleep(30)
-        return None
-
-    monitor.state.dns_cache.async_resolve = _hang
-    monkeypatch.setattr(troubleshoot, "_DNS_TIMEOUT", 0.01)
-
-    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
-
-    assert result.dns_resolved is False
-    assert result.dns_addresses == []
-    assert result.dns_timed_out is True
-
-
-async def test_ping_timeout_degrades(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    controller = make_controller(tmp_path)
-    _seed_device(controller)
-    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"])
-
-    async def _hang(_target: str, *, retry: bool) -> float | None:
-        await asyncio.sleep(30)
-        return None
-
-    monitor.ping.ping_once = _hang
-    monkeypatch.setattr(troubleshoot, "_PING_TIMEOUT", 0.01)
-
-    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
-
-    assert result.ping_attempted is True
-    assert result.ping_rtt_ms is None
-    assert result.ping_timed_out is True
-    # A timed-out probe proves nothing; no OFFLINE stamp.
-    monitor.apply.assert_not_called()
-
-
-async def test_contended_semaphore_reads_as_timeout(
-    tmp_path: Path,
-    make_controller: MakeControllerFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A sweep holding every ICMP slot must not read as unreachable."""
-    controller = make_controller(tmp_path)
-    _seed_device(controller)
-    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"])
-    await monitor.ping.icmp_concurrency.acquire()
-    monkeypatch.setattr(troubleshoot, "_SEMAPHORE_TIMEOUT", 0.01)
-
-    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
-
-    assert result.ping_attempted is True
-    assert result.ping_timed_out is True
-    monitor.ping.ping_once.assert_not_awaited()
-    monitor.apply.assert_not_called()
 
 
 async def test_offline_device_pings_without_retry(
