@@ -247,11 +247,9 @@ def _drop_importable_row_and_probe(
     mdns_name: str,
 ) -> None:
     """Retire the adopted device's importable row and kick its first probe."""
-    # ``mdns_name`` is the broadcast name of the row ``import_device``
-    # resolved before writing the YAML — dropping only that row keeps
-    # same-``package_import_url`` siblings (a batch of identical
-    # products) in the discovered list (#2490). The removal is a no-op
-    # on a same-name adopt whose post-write scan already pruned it.
+    # Drop only the row resolved at adopt time — a URL-wide sweep would
+    # retire every sibling unit of the same product. The removal is a
+    # no-op on a same-name adopt whose post-write scan already pruned it.
     controller._on_importable_removed(mdns_name)
 
     # No state seed — the real sources decide. Discovery is
