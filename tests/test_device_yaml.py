@@ -1160,6 +1160,8 @@ def test_load_device_name_add_mac_suffix_survives_invalid_draft(tmp_path: Path) 
             id="other_block",
         ),
         pytest.param("esphome:\n  name: a\n", False, id="absent"),
+        pytest.param("esphome:\n  name_add_mac_suffix: enabled\n", False, id="enabled_not_truthy"),
+        pytest.param("esphome:\n  name_add_mac_suffix: 1\n", False, id="numeric_not_truthy"),
     ],
 )
 def test_yaml_has_name_add_mac_suffix(content: str, expected: bool) -> None:
@@ -1177,6 +1179,7 @@ def test_yaml_has_name_add_mac_suffix(content: str, expected: bool) -> None:
         pytest.param({"esphome": {"name_add_mac_suffix": "enable"}}, True, id="str_enable"),
         pytest.param({"esphome": {"name_add_mac_suffix": "disable"}}, False, id="str_disable"),
         pytest.param({"esphome": {"name_add_mac_suffix": 1}}, False, id="non_bool_scalar"),
+        pytest.param({"esphome": {"name_add_mac_suffix": "enabled"}}, False, id="str_enabled"),
         pytest.param({"esphome": {}}, False, id="absent"),
     ],
 )

@@ -248,8 +248,7 @@ def name_add_mac_suffix_enabled(resolved_config: dict | None, yaml_content: str)
     """
     Detect a truthy ``esphome.name_add_mac_suffix``: resolved config wins, raw text fills in.
 
-    The raw-text fallback applies only when resolution failed, keeping
-    the flag stable mid-edit.
+    The raw-text fallback applies only when resolution failed.
     """
     if resolved_config is not None:
         return config_name_add_mac_suffix(resolved_config)
