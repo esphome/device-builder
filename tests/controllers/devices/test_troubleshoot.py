@@ -107,6 +107,7 @@ async def test_happy_path_wire_shape(
         "dns_resolved": True,
         "dns_addresses": ["fe80::1", "10.0.0.42"],
         "dns_had_cached_failure": False,
+        "dns_timed_out": False,
         "mdns_addresses": ["10.0.0.42"],
         "mdns_has_cached_trace": True,
         "mdns_has_live_anchor_ptr": True,
@@ -114,10 +115,15 @@ async def test_happy_path_wire_shape(
         # IPv4 preferred over the scoped IPv6 the resolver ordered first.
         "ping_target": "10.0.0.42",
         "ping_rtt_ms": 4.2,
+        "ping_timed_out": False,
     }
     # A hit heals state through the normal ping source.
     monitor.apply.assert_called_once_with("kitchen", DeviceState.ONLINE, "ping")
     monitor.state.reachability.record_ping_rtt.assert_called_once_with("kitchen", 4.2)
+    # Fresh resolve recorded like the sweep, and the cache dropped so
+    # the resolve was live.
+    monitor.apply_ip_addresses.assert_called_once_with("kitchen", ["fe80::1", "10.0.0.42"])
+    monitor.state.dns_cache.invalidate.assert_called_once_with("kitchen.local")
 
 
 async def test_zeroconf_down_degrades_mdns_fields(
@@ -247,6 +253,7 @@ async def test_dns_timeout_degrades(
 
     assert result.dns_resolved is False
     assert result.dns_addresses == []
+    assert result.dns_timed_out is True
 
 
 async def test_ping_timeout_degrades(
@@ -269,5 +276,69 @@ async def test_ping_timeout_degrades(
 
     assert result.ping_attempted is True
     assert result.ping_rtt_ms is None
+    assert result.ping_timed_out is True
     # A timed-out probe proves nothing; no OFFLINE stamp.
     monitor.apply.assert_not_called()
+
+
+async def test_contended_semaphore_reads_as_timeout(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sweep holding every ICMP slot must not read as unreachable."""
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"])
+    await monitor.ping.icmp_concurrency.acquire()
+    monkeypatch.setattr(troubleshoot, "_SEMAPHORE_TIMEOUT", 0.01)
+
+    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+    assert result.ping_attempted is True
+    assert result.ping_timed_out is True
+    monitor.ping.ping_once.assert_not_awaited()
+    monitor.apply.assert_not_called()
+
+
+async def test_offline_device_pings_without_retry(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    device = _seed_device(controller)
+    device.runtime_state.state = DeviceState.OFFLINE
+    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"], rtt=None)
+
+    await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+    monitor.ping.ping_once.assert_awaited_once_with("10.0.0.42", retry=False)
+    monitor.apply.assert_called_once_with("kitchen", DeviceState.OFFLINE, "ping")
+
+
+async def test_resolver_exception_degrades(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A non-timeout resolver failure degrades instead of failing the command."""
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, mdns_cached=["10.0.0.7"])
+    monitor.state.dns_cache.async_resolve = AsyncMock(side_effect=OSError("resolver down"))
+
+    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+    assert result.dns_resolved is False
+    assert result.ping_target == "10.0.0.7"
+
+
+async def test_mdns_refresh_exception_degrades(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    controller = make_controller(tmp_path)
+    _seed_device(controller)
+    monitor = _wire_monitor(controller, dns_addresses=["10.0.0.42"], rtt=4.2)
+    monitor.mdns.refresh_mdns = AsyncMock(side_effect=RuntimeError("apply blew up"))
+
+    result = await controller.troubleshoot_device(configuration="kitchen.yaml")
+
+    assert result.dns_resolved is True
+    assert result.ping_rtt_ms == 4.2

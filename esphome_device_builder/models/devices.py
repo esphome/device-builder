@@ -355,7 +355,8 @@ class DeviceTroubleshootResult(DashboardModel):
 
     ``icmp_available`` is ``None`` while the startup privilege probe
     hasn't landed; ``ping_rtt_ms`` is ``None`` when the probe ran and
-    the target didn't answer.
+    the target didn't answer; the ``*_timed_out`` flags mark probes
+    that ran out of budget and prove nothing.
     """
 
     configuration: str
@@ -365,12 +366,14 @@ class DeviceTroubleshootResult(DashboardModel):
     dns_resolved: bool = False
     dns_addresses: list[str] = field(default_factory=list)
     dns_had_cached_failure: bool = False
+    dns_timed_out: bool = False
     mdns_addresses: list[str] = field(default_factory=list)
     mdns_has_cached_trace: bool = False
     mdns_has_live_anchor_ptr: bool = False
     ping_attempted: bool = False
     ping_target: str = ""
     ping_rtt_ms: float | None = None
+    ping_timed_out: bool = False
 
 
 # ---------------------------------------------------------------------------

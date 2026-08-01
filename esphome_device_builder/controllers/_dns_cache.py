@@ -76,6 +76,10 @@ class DNSCache:
             return None
         return list(addresses)
 
+    def invalidate(self, hostname: str) -> None:
+        """Drop the cached entry so the next resolve goes to the resolver."""
+        self._cache.pop(self._normalize(hostname), None)
+
     def has_cached_failure(self, hostname: str) -> bool:
         """
         Return ``True`` when *hostname* has a fresh cached failure entry.
