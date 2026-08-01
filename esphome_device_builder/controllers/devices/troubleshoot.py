@@ -76,10 +76,14 @@ def _pick_target(device: Device, dns_addresses: list[str] | None, mdns_addresses
 
 async def _ping(monitor: DeviceStateMonitor, name: str, target: str) -> float | None:
     rtt: float | None = None
+    completed = False
     with contextlib.suppress(TimeoutError):
         async with asyncio.timeout(_PING_TIMEOUT), monitor.ping.icmp_concurrency:
             rtt = await monitor.ping.ping_once(target, retry=True)
-    # A hit heals state through the normal ping source; a miss applies
-    # the same OFFLINE verdict the sweep would.
-    shared.apply_ping_result(monitor, name, rtt)
+            completed = True
+    # A completed probe applies the same verdict the sweep would (a hit
+    # heals state through the normal ping source); a timed-out probe
+    # proves nothing and must not stamp OFFLINE.
+    if completed:
+        shared.apply_ping_result(monitor, name, rtt)
     return rtt

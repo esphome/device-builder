@@ -269,4 +269,5 @@ async def test_ping_timeout_degrades(
 
     assert result.ping_attempted is True
     assert result.ping_rtt_ms is None
-    monitor.apply.assert_called_once_with("kitchen", DeviceState.OFFLINE, "ping")
+    # A timed-out probe proves nothing; no OFFLINE stamp.
+    monitor.apply.assert_not_called()

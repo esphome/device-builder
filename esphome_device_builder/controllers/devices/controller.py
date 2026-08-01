@@ -1004,8 +1004,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """
         Probe DNS, mDNS, and ICMP for one device on demand.
 
-        Backs the offline troubleshooting dialog; a successful ping
-        heals state through the normal ping source.
+        A completed ping applies its verdict through the normal ping source.
         """
         return await troubleshoot.run(self, configuration)
 
