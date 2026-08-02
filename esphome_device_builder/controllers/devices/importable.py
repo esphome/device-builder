@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -309,8 +310,12 @@ async def _mint_key_unless_package_encrypts(
     if not esphome_cmd:
         return
     try:
-        config = await run_esphome_config(esphome_cmd, path)
-    except EsphomeConfigUnavailableError:
+        # The adopt-time budget, not run_esphome_config's 60s ceiling —
+        # a slow package fetch must not hold the adopt dialog open when
+        # the timeout lands in the skip-the-mint branch anyway.
+        async with asyncio.timeout(IMPORT_VALIDATE_TIMEOUT):
+            config = await run_esphome_config(esphome_cmd, path)
+    except (EsphomeConfigUnavailableError, TimeoutError):
         config = None
     if config is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
@@ -320,7 +325,11 @@ async def _mint_key_unless_package_encrypts(
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
         return
-    new_content = upsert_api_encryption_key(content, generate_api_encryption_key())
+    new_key = generate_api_encryption_key()
+    new_content = upsert_api_encryption_key(content, new_key)
+    if not _key_round_trips(new_content, new_key):
+        _LOGGER.warning("Could not splice a key into %s; adopted without one", path.name)
+        return
     try:
         await run_in_executor(write_user_yaml, path, new_content)
     except Exception:
@@ -342,29 +351,42 @@ async def _splice_pending_key_or_cleanup(
     indirected key (``!secret`` / ``${…}``) IS competing but can't be
     rewritten safely — the warning says so.
     """
-    indirection_warning = (
-        "The imported config supplies its own API encryption key via "
-        "!secret or a substitution; the key Home Assistant provisioned "
-        "was not applied, so installing this config may cut Home "
-        "Assistant off until it re-provisions."
+    not_applied_tail = (
+        " The key Home Assistant provisioned was not applied and stays "
+        "stored; installing this config may cut Home Assistant off "
+        "until it re-provisions."
     )
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and _strip_yaml_quotes(existing) == key:
         return None
     if existing is None and not component_block_present(content, "api"):
-        return None
+        return (
+            "The imported config does not declare an api: block, so there "
+            "is nowhere to put the Home Assistant provisioned key." + not_applied_tail
+        )
     try:
         spliced = upsert_api_encryption_key(content, key)
-    except YamlUpsertNotSupportedError:
-        return indirection_warning
+    except YamlUpsertNotSupportedError as exc:
+        return f"{exc}{not_applied_tail}"
     if spliced == content:
-        return indirection_warning
+        return (
+            "The imported config supplies its own API encryption key via "
+            "!secret or a substitution." + not_applied_tail
+        )
+    if not _key_round_trips(spliced, key):
+        return "The imported config's shape defeated the key splice." + not_applied_tail
     try:
         await run_in_executor(write_user_yaml, path, spliced)
     except Exception:
         await run_in_executor(cleanup)
         raise
     return None
+
+
+def _key_round_trips(content: str, key: str) -> bool:
+    """Report whether *content* reads back with ``api.encryption.key`` == *key*."""
+    reread = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
+    return reread is not None and _strip_yaml_quotes(reread) == key
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

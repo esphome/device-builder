@@ -62,8 +62,11 @@ async def set_encryption_key(
         outcome, why = await _apply_to_device(controller, device, key)
         outcomes.add(outcome)
         reason = reason or why
-    # A configured name must not keep a stale pending entry around.
-    controller._pending_keys.pop(name)
+    # Consume the stale pending entry only once the key actually landed
+    # (or already matches) — an all-refused push must not destroy the
+    # only stored copy.
+    if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
+        controller._pending_keys.pop(name)
 
     response: dict[str, Any] = {"configurations": [d.configuration for d in devices]}
     if KeyHandoffResult.UPDATED in outcomes:

@@ -341,13 +341,13 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """No upstream literal key → nothing to splice; the NVS-stored key stays valid."""
+    """No upstream ``api:`` block → YAML stays verbatim, key stays stored, user warned."""
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
 
-    await ctrl.import_device(
+    result = await ctrl.import_device(
         name="kitchen",
         project_name="x",
         package_import_url="github://x/y.yaml@main?full_config",
@@ -355,7 +355,8 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
 
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert PENDING_KEY not in content
-    assert ctrl._pending_keys.get("kitchen") is None
+    assert "does not declare an api: block" in result["warning"]
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
 async def test_import_device_mints_key_when_package_lacks_encryption(

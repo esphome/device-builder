@@ -203,6 +203,22 @@ async def test_set_encryption_key_drops_pending_once_configured(
     assert ctrl._pending_keys.get("kitchen") is None
 
 
+async def test_set_encryption_key_all_refused_keeps_pending(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An all-refused push must not destroy the only stored copy of the key."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    ctrl._pending_keys.set("kitchen", KEY)
+    yaml_text = "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n"
+    _configure(ctrl, tmp_path, yaml_text)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
 async def test_set_encryption_key_rejects_non_base64_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
