@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
@@ -28,6 +29,15 @@ _LOGGER = logging.getLogger(__name__)
 _KEY_BYTES = 32
 
 
+class KeyHandoffResult(StrEnum):
+    """Wire ``result`` values for the HA encryption-key handoff."""
+
+    STORED = "stored"
+    UPDATED = "updated"
+    UNCHANGED = "unchanged"
+    NOT_WRITABLE = "not_writable"
+
+
 async def set_encryption_key(
     controller: DevicesController, *, name: str, key: str, mac: str = ""
 ) -> dict[str, Any]:
@@ -44,9 +54,9 @@ async def set_encryption_key(
     if not devices:
         controller._pending_keys.set(name, key, normalized_mac)
         _LOGGER.info("Stored pending API encryption key for unadopted device %s", name)
-        return {"result": "stored"}
+        return {"result": KeyHandoffResult.STORED}
 
-    outcomes: set[str] = set()
+    outcomes: set[KeyHandoffResult] = set()
     reason = ""
     for device in devices:
         outcome, why = await _apply_to_device(controller, device, key)
@@ -56,12 +66,12 @@ async def set_encryption_key(
     controller._pending_keys.pop(name)
 
     response: dict[str, Any] = {"configurations": [d.configuration for d in devices]}
-    if "updated" in outcomes:
-        response["result"] = "updated"
-    elif "unchanged" in outcomes:
-        response["result"] = "unchanged"
+    if KeyHandoffResult.UPDATED in outcomes:
+        response["result"] = KeyHandoffResult.UPDATED
+    elif KeyHandoffResult.UNCHANGED in outcomes:
+        response["result"] = KeyHandoffResult.UNCHANGED
     else:
-        response["result"] = "not_writable"
+        response["result"] = KeyHandoffResult.NOT_WRITABLE
         response["reason"] = reason
     return response
 
@@ -80,23 +90,23 @@ def _match_devices(controller: DevicesController, name: str, mac: str) -> list[D
 
 async def _apply_to_device(
     controller: DevicesController, device: Device, key: str
-) -> tuple[str, str]:
+) -> tuple[KeyHandoffResult, str]:
     """Splice *key* into *device*'s YAML; returns ``(outcome, reason)``."""
     configuration = device.configuration
     content = await _read_device_yaml_or_raise(controller, configuration)
 
     existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and _strip_yaml_quotes(existing) == key:
-        return "unchanged", ""
+        return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
-        return "not_writable", "the configuration does not enable the native API"
+        return KeyHandoffResult.NOT_WRITABLE, "the configuration does not enable the native API"
 
     try:
         new_content = upsert_api_encryption_key(content, key)
     except YamlUpsertNotSupportedError as exc:
-        return "not_writable", str(exc)
+        return KeyHandoffResult.NOT_WRITABLE, str(exc)
     if new_content == content:
-        return "not_writable", "the key is provided via !secret or a substitution"
+        return KeyHandoffResult.NOT_WRITABLE, "the key is provided via !secret or a substitution"
 
     reread = read_yaml_scalar(new_content, API_ENCRYPTION_KEY_PATH)
     if reread is None or _strip_yaml_quotes(reread) != key:
@@ -110,7 +120,7 @@ async def _apply_to_device(
     await controller._persist_yaml_mutation(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )
-    return "updated", ""
+    return KeyHandoffResult.UPDATED, ""
 
 
 def _validate_key(key: str) -> None:
