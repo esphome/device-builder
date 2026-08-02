@@ -113,6 +113,8 @@ async def test_set_encryption_key_refuses_apiless_configuration(
     assert result["result"] == "not_writable"
     assert "native API" in result["reason"]
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+    # The only copy of the key is kept for a later push / readopt.
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 async def test_set_encryption_key_refuses_secret_indirection(
@@ -238,6 +240,39 @@ async def test_set_encryption_key_all_refused_keeps_pending(
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
+
+
+async def test_set_encryption_key_never_compiled_package_device_keeps_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A package device with no compile yet refuses honestly and keeps the key."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY, mac="aabbccddeeff")
+
+    assert result["result"] == "not_writable"
+    assert "may not have been installed yet" in result["reason"]
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY, "mac": "AA:BB:CC:DD:EE:FF"}
+
+
+async def test_set_encryption_key_validator_timeout_is_typed_and_keeps_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A validator timeout refuses cleanly instead of escaping as a 500."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML)
+    ctrl._db.editor.validate_yaml = AsyncMock(side_effect=TimeoutError())
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "validated in time" in result["reason"]
+    assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 

@@ -30,8 +30,12 @@ def _decode(raw: bytes) -> dict[str, dict[str, str]]:
         _LOGGER.warning("pending keys store: corrupt JSON, starting empty")
         return {}
     if not isinstance(obj, dict):
+        _LOGGER.warning("pending keys store: non-mapping JSON, starting empty")
         return {}
-    return {k: v for k, v in obj.items() if isinstance(k, str) and _valid_entry(v)}
+    decoded = {k: v for k, v in obj.items() if isinstance(k, str) and _valid_entry(v)}
+    if dropped := len(obj) - len(decoded):
+        _LOGGER.warning("pending keys store: dropped %d malformed entries", dropped)
+    return decoded
 
 
 def _valid_entry(entry: object) -> bool:

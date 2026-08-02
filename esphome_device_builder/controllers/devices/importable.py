@@ -277,9 +277,9 @@ async def _finalize_adoption_key(
     Land the right API key after validation; owns pending-key consumption.
 
     A pending HA-provisioned key wins; otherwise an encryption-flagged
-    adoption mints unless the package already enables encryption. The
-    returned warning means the pending key was NOT consumed (it stays
-    stored for a later handoff).
+    adoption mints unless the package already enables encryption. A
+    returned warning means no key landed; on the pending branch it also
+    means the entry was kept for a later handoff.
     """
     if pending:
         warning = None
@@ -289,7 +289,7 @@ async def _finalize_adoption_key(
             controller._pending_keys.pop(name)
         return warning
     if encryption and not full_config_import:
-        await _mint_key_unless_package_encrypts(controller, path, content, cleanup)
+        return await _mint_key_unless_package_encrypts(controller, path, content, cleanup)
     return None
 
 
@@ -298,17 +298,18 @@ async def _mint_key_unless_package_encrypts(
     path: Path,
     content: str,
     cleanup: Callable[[], None],
-) -> None:
+) -> str | None:
     """
     Bake a fresh API key unless the resolved package already enables encryption.
 
     A package-provided ``encryption:`` means the running device may hold
     an NVS key a competing baked key would break; an unresolvable
-    package skips the mint for the same reason.
+    package skips the mint for the same reason. Returns a user-facing
+    warning when the adoption ships without a key.
     """
     esphome_cmd = controller.state.esphome_cmd
     if not esphome_cmd:
-        return
+        return None
     try:
         # The adopt-time budget, not run_esphome_config's 60s ceiling —
         # a slow package fetch must not hold the adopt dialog open when
@@ -319,22 +320,27 @@ async def _mint_key_unless_package_encrypts(
         config = None
     if config is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
-        return
+        return (
+            "The package could not be resolved during adoption, so no API "
+            "encryption key was generated; edit and install the device to "
+            "add one, or let Home Assistant provision it."
+        )
     api_block = config.get("api")
     # Presence check, not get_api_encryption_block: a bare ``encryption:``
     # can resolve to null and must still count as package-provided.
     if isinstance(api_block, dict) and "encryption" in api_block:
-        return
+        return None
     new_key = generate_api_encryption_key()
     new_content = upsert_api_encryption_key(content, new_key)
     if not _key_round_trips(new_content, new_key):
         _LOGGER.warning("Could not splice a key into %s; adopted without one", path.name)
-        return
+        return "A generated API encryption key could not be spliced in; adopted without one."
     try:
         await run_in_executor(write_user_yaml, path, new_content)
     except Exception:
         await run_in_executor(cleanup)
         raise
+    return None
 
 
 async def _splice_pending_key_or_cleanup(

@@ -435,6 +435,7 @@ async def test_import_device_skips_mint_when_resolve_unavailable(
     )
 
     assert result["configuration"] == "kitchen.yaml"
+    assert "no API encryption key was generated" in result["warning"]
     assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
@@ -648,6 +649,63 @@ async def test_import_device_mint_write_failure_rolls_back(
         )
 
     assert not (tmp_path / "kitchen.yaml").exists()
+
+
+async def test_import_device_mint_round_trip_failure_warns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A mint whose splice doesn't read back ships keyless with a warning."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.upsert_api_encryption_key",
+        lambda content, key: content + "# junk\n",
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert "could not be spliced" in result["warning"]
+    assert "key:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_import_device_full_config_splice_round_trip_failure_keeps_pending(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A splice whose result doesn't read back warns and keeps the pending key."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption:\n"),
+    )
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.upsert_api_encryption_key",
+        lambda content, key: content + "# junk\n",
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "defeated the key splice" in result["warning"]
+    assert PENDING_KEY not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
 async def test_import_device_validation_failure_keeps_pending_key(

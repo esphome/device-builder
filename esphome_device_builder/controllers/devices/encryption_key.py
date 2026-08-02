@@ -18,6 +18,7 @@ from ...helpers.yaml import (
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
+from ..editor import ValidatorUnavailableError
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -62,11 +63,13 @@ async def set_encryption_key(
         outcome, why = await _apply_to_device(controller, device, key)
         outcomes.add(outcome)
         reason = reason or why
-    # Consume the stale pending entry only once the key actually landed
-    # (or already matches) — an all-refused push must not destroy the
-    # only stored copy.
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:
+        # Consume the pending entry only once the key actually landed.
         controller._pending_keys.pop(name)
+    else:
+        # Nothing accepted the key — keep a copy so a later push, the
+        # post-install retry, or a delete-and-readopt can consume it.
+        controller._pending_keys.set(name, key, normalized_mac)
 
     response: dict[str, Any] = {"configurations": [d.configuration for d in devices]}
     if KeyHandoffResult.UPDATED in outcomes:
@@ -105,7 +108,14 @@ async def _apply_to_device(
     if existing is not None and _strip_yaml_quotes(existing) == key:
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
-        return KeyHandoffResult.NOT_WRITABLE, "the configuration does not enable the native API"
+        # Also the shape of a package device that has never been
+        # compiled: loaded_integrations only exists after an install.
+        reason = (
+            "the native API could not be confirmed for this configuration "
+            "(it may not have been installed yet); the key was kept for a "
+            "later attempt"
+        )
+        return KeyHandoffResult.NOT_WRITABLE, reason
 
     try:
         new_content = upsert_api_encryption_key(content, key)
@@ -120,9 +130,16 @@ async def _apply_to_device(
             ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
 
-    await controller._validate_rewritten_yaml_or_raise(
-        configuration, new_content, action="update encryption key"
-    )
+    try:
+        await controller._validate_rewritten_yaml_or_raise(
+            configuration, new_content, action="update encryption key"
+        )
+    except (TimeoutError, ValidatorUnavailableError):
+        reason = (
+            "the rewritten configuration could not be validated in time; "
+            "the key was kept for a later attempt"
+        )
+        return KeyHandoffResult.NOT_WRITABLE, reason
     await controller._persist_yaml_mutation(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )

@@ -78,6 +78,8 @@ async def yaml_content_for_create(
         # mac-suffixed broadcast. The Wi-Fi opt-in doesn't apply: a package
         # with an onboard network pins that network upstream (ESPHome rejects
         # wifi beside ethernet), so credentials only land when needed.
+        # Unlike adoption, this path mints a key unconditionally — the
+        # target is a fresh serial-flash device with no NVS key to break.
         return (
             generate_adoption_yaml(
                 name,
