@@ -736,3 +736,18 @@ Baked into the ESPHome container. Legacy dashboard deprecated.
 ## Legacy HA Compatibility
 
 `api/legacy.py` serves: `GET /devices`, `GET /ping`, `GET /json-config`, `POST /encryption-key` (HA key handoff, trusted + peer-guarded ingress site only), `/compile`, `/upload` (spawn protocol).
+
+### HA encryption-key handoff
+
+HA dynamically provisions Noise API keys onto keyless devices and pushes each one here (`POST /encryption-key`, name + key + optional MAC) so the dashboard and HA never hold competing keys — without the push, adoption used to mint a different key, the flash baked it in, and HA's stored PSK died. The endpoint is accepted only on the supervisor channel; a pushed key is spliced into the matching configured YAML (`controllers/devices/encryption_key.py`), stashed in the pending store for an unadopted name, and **kept in the pending store on every refusal** — no outcome destroys the only dashboard copy. HA re-pushes on every connect (its side never latches), so refusals that clear up (first install populating `loaded_integrations`, a warmed package cache) self-heal.
+
+**Adoption semantics — the intended shape.** The adopt dialog's encryption checkbox controls whether adoption *enables* encryption; a pending HA-provisioned key is proof encryption is already live on the device (HA set it over the native API), so it is always applied, checkbox or not:
+
+| Checkbox | Pending HA key | Adoption result |
+|---|---|---|
+| unchecked | none | No `api:` block; encryption is never enabled behind the user's back |
+| checked | none | Fresh key minted — unless the resolved package itself ships `encryption:` (the running device may hold an NVS-provisioned key a competing baked key would break) or the resolve fails; both skip the mint and warn in the adopt dialog |
+| unchecked | present | Key applied anyway (`api_encryption_key` forces the `api:` block) |
+| checked | present | Pending key applied verbatim; no fresh mint, no package resolve |
+
+The same never-mint-a-competing-key rule drives the push path: a missing `api:` block is only refused after resolving the config confirms the API genuinely isn't there (packages provide `api:` invisibly, and the push itself proves the device's API is up). The wizard's package-board create is the deliberate exception — it mints unconditionally because its target is a fresh serial-flash device with no NVS key to break. Pinned by the checkbox x pending matrix in `tests/controllers/devices/test_import.py` and the splice suite in `test_encryption_key.py`.

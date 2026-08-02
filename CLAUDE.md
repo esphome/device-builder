@@ -750,6 +750,15 @@ against legacy behaviour before assuming the simpler version suffices.
   hiding new factory units from the adopt list. Close such issues
   pointing at the README section "Device status and
   `name_add_mac_suffix`" (#2480; declined PR #2481).
+- **HA-provisioned API keys flow one way: never mint a competing key.**
+  HA pushes dynamically provisioned Noise keys via `POST
+  /encryption-key` (supervisor channel only); refusals always keep the
+  key in the pending store. At adoption the encryption checkbox only
+  controls *enabling* encryption — a pending HA key is always applied
+  regardless, and a fresh key is minted only when the resolved package
+  doesn't already ship `encryption:` (an NVS-provisioned key must
+  never be clobbered by a competing baked key). Full matrix +
+  rationale: docs/ARCHITECTURE.md "HA encryption-key handoff".
 - **Persisted-IP revival is identity-gated** (`api_reviver.py`). A
   stuck-offline `api:` device whose `.local` won't resolve and whose RAM
   `ip_addresses` are gone (an mDNS `Removed` withdrawal, or a restart) gets
