@@ -62,7 +62,13 @@ async def set_encryption_key(
     outcomes: set[KeyHandoffResult] = set()
     reason = ""
     for device in devices:
-        outcome, why = await _apply_to_device(controller, device, key)
+        try:
+            outcome, why = await _apply_to_device(controller, device, key)
+        except CommandError as err:
+            # A failing sibling (validation rejection, vanished file)
+            # must not unwind the loop: the key-retention policy and
+            # the other devices' outcomes still apply.
+            outcome, why = KeyHandoffResult.NOT_WRITABLE, err.message
         outcomes.add(outcome)
         reason = reason or why
     if outcomes & {KeyHandoffResult.UPDATED, KeyHandoffResult.UNCHANGED}:

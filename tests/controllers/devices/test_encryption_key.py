@@ -360,10 +360,13 @@ async def test_set_encryption_key_validation_failure_leaves_file_untouched(
         return_value={"yaml_errors": [{"message": "boom"}], "validation_errors": []}
     )
 
-    with pytest.raises(CommandError):
-        await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
+    assert result["result"] == "not_writable"
+    assert "boom" in result["reason"]
     assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    # The invariant: no refusal shape ever loses the only copy.
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 async def test_set_encryption_key_refuses_flow_style_api_block(
@@ -395,11 +398,12 @@ async def test_set_encryption_key_round_trip_guard_raises_internal_error(
         lambda content, key: content + "# garbage\n",
     )
 
-    with pytest.raises(CommandError) as excinfo:
-        await ctrl.set_encryption_key(name="kitchen", key=KEY)
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
-    assert excinfo.value.code == ErrorCode.INTERNAL_ERROR
+    assert result["result"] == "not_writable"
+    assert "round-trip" in result["reason"]
     assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
 async def test_pending_keys_store_decode_tolerates_bad_disk_state(tmp_path: Path) -> None:
