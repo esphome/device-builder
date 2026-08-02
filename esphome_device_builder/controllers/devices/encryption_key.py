@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import logging
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
+from ...helpers.device_yaml import EsphomeConfigUnavailableError, run_esphome_config
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
     API_ENCRYPTION_KEY_PATH,
@@ -18,7 +20,7 @@ from ...helpers.yaml import (
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
-from ..editor import ValidatorUnavailableError
+from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -108,14 +110,19 @@ async def _apply_to_device(
     if existing is not None and _strip_yaml_quotes(existing) == key:
         return KeyHandoffResult.UNCHANGED, ""
     if existing is None and not device.api_enabled and not component_block_present(content, "api"):
-        # Also the shape of a package device that has never been
-        # compiled: loaded_integrations only exists after an install.
-        reason = (
-            "the native API could not be confirmed for this configuration "
-            "(it may not have been installed yet); the key was kept for a "
-            "later attempt"
-        )
-        return KeyHandoffResult.NOT_WRITABLE, reason
+        # The push itself proves the device's API is up (HA set the key
+        # over it), but a package device that has never been compiled is
+        # indistinguishable from a config the user stripped api: out of
+        # — resolve the config and let ground truth decide.
+        has_api = await _resolved_config_has_api(controller, configuration)
+        if not has_api:
+            reason = (
+                "the resolved configuration does not enable the native API"
+                if has_api is False
+                else "the configuration could not be resolved to confirm the "
+                "native API; the key was kept for a later attempt"
+            )
+            return KeyHandoffResult.NOT_WRITABLE, reason
 
     try:
         new_content = upsert_api_encryption_key(content, key)
@@ -144,6 +151,24 @@ async def _apply_to_device(
         configuration, new_content, message=f"Update API encryption key in {configuration}"
     )
     return KeyHandoffResult.UPDATED, ""
+
+
+async def _resolved_config_has_api(
+    controller: DevicesController, configuration: str
+) -> bool | None:
+    """Whether the fully resolved config carries ``api:``; ``None`` when unresolvable."""
+    esphome_cmd = controller.state.esphome_cmd
+    if not esphome_cmd:
+        return None
+    path = controller._db.settings.rel_path(configuration)
+    try:
+        async with asyncio.timeout(IMPORT_VALIDATE_TIMEOUT):
+            config = await run_esphome_config(esphome_cmd, path)
+    except (EsphomeConfigUnavailableError, TimeoutError):
+        return None
+    if config is None:
+        return None
+    return "api" in config
 
 
 def _validate_key(key: str) -> None:

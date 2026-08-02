@@ -11,6 +11,7 @@ import pytest
 
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.helpers.storage import drain_shutdown_callbacks
 from esphome_device_builder.models import ErrorCode
 from tests.conftest import make_device
@@ -99,19 +100,24 @@ async def test_set_encryption_key_inserts_block_for_package_provided_api(
     assert yaml_text in new_yaml
 
 
-async def test_set_encryption_key_refuses_apiless_configuration(
+async def test_set_encryption_key_refuses_resolved_apiless_configuration(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """No ``api:`` block and no loaded ``api`` integration → refuse, don't enable the API."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    """The resolved config genuinely lacks ``api:`` → refuse, don't re-enable it."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}, "mqtt": {}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     yaml_text = "esphome:\n  name: kitchen\n\nmqtt:\n  broker: b\n"
     _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["mqtt", "wifi"], api_enabled=False)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
     assert result["result"] == "not_writable"
-    assert "native API" in result["reason"]
+    assert "does not enable the native API" in result["reason"]
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
     # The only copy of the key is kept for a later push / readopt.
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
@@ -243,19 +249,47 @@ async def test_set_encryption_key_all_refused_keeps_pending(
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY}
 
 
-async def test_set_encryption_key_never_compiled_package_device_keeps_key(
+async def test_set_encryption_key_never_compiled_package_device_gets_key(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A package device with no compile yet refuses honestly and keeps the key."""
-    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    """A package device with no compile yet still gets the key once resolve confirms api."""
+    resolve = AsyncMock(return_value={"api": None, "esphome": {"name": "kitchen"}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
+    # The bypass-init _db mock would swallow the post-persist regen
+    # task's coroutine; pre-marking pending short-circuits the schedule.
+    ctrl.state.regenerate_pending.add("kitchen.yaml")
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY, mac="aabbccddeeff")
+
+    assert result["result"] == "updated"
+    assert f'key: "{KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_set_encryption_key_unresolvable_config_keeps_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An unresolvable config refuses without guessing and keeps the key."""
+    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
     _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY, mac="aabbccddeeff")
 
     assert result["result"] == "not_writable"
-    assert "may not have been installed yet" in result["reason"]
+    assert "could not be resolved" in result["reason"]
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY, "mac": "AA:BB:CC:DD:EE:FF"}
 
 
