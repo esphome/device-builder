@@ -138,8 +138,13 @@ async def _apply_to_device(
         )
 
     try:
+        # The adopt budget, not the editor's 30s default — the same
+        # cold github:// package fetch, and HA is holding the request.
         await controller._validate_rewritten_yaml_or_raise(
-            configuration, new_content, action="update encryption key"
+            configuration,
+            new_content,
+            action="update encryption key",
+            timeout=IMPORT_VALIDATE_TIMEOUT,
         )
     except (TimeoutError, ValidatorUnavailableError):
         reason = (
