@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 from typing import TYPE_CHECKING
 
@@ -39,13 +40,21 @@ def _decode(raw: bytes) -> dict[str, dict[str, str]]:
 
 
 def _valid_entry(entry: object) -> bool:
-    """Entry shape guard: consumers index ``entry["key"]`` unconditionally."""
-    return (
+    """Entry shape guard: consumers index ``entry["key"]`` unconditionally.
+
+    The key must be base64 of exactly 32 bytes — consumers interpolate
+    it into generated YAML, so nothing else may enter RAM.
+    """
+    if not (
         isinstance(entry, dict)
         and isinstance(entry.get("key"), str)
-        and bool(entry["key"])
         and all(isinstance(v, str) for v in entry.values())
-    )
+    ):
+        return False
+    try:
+        return len(base64.b64decode(entry["key"], validate=True)) == 32
+    except ValueError:
+        return False
 
 
 class PendingKeysStore:

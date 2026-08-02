@@ -281,10 +281,14 @@ async def _finalize_adoption_key(
     returned warning means no key landed; on the pending branch it also
     means the entry was kept for a later handoff.
     """
-    if pending:
+    # Re-peek: a push can land during the validate window, after the
+    # generate-time peek; minting over it would bake a competing key.
+    fresh = controller._pending_keys.get(name) or pending
+    if fresh:
+        baked = fresh == pending and not full_config_import
         warning = None
-        if full_config_import:
-            warning = await _splice_pending_key_or_cleanup(path, content, pending["key"], cleanup)
+        if not baked:
+            warning = await _splice_pending_key_or_cleanup(path, content, fresh["key"], cleanup)
         if warning is None:
             controller._pending_keys.pop(name)
         return warning

@@ -403,13 +403,15 @@ async def test_set_encryption_key_round_trip_guard_raises_internal_error(
 
 
 async def test_pending_keys_store_decode_tolerates_bad_disk_state(tmp_path: Path) -> None:
-    """Corrupt JSON, non-dict roots, and non-dict entries all load as empty/filtered."""
+    """Corrupt JSON, malformed entries, and non-base64 keys all load as empty/filtered."""
     store_path = tmp_path / ".device-builder-pending-keys.json"
+    good = f'"good": {{"key": "{KEY}"}}'
     for raw, expected in (
         (b"{not json", None),
         (b'["list"]', None),
-        (b'{"good": {"key": "K=="}, "bad": "str", "nokey": {"mac": "x"}}', {"key": "K=="}),
-        (b'{"good": {"key": "K=="}, "bad": {"key": 5}, "empty": {"key": ""}}', {"key": "K=="}),
+        (f'{{{good}, "bad": "str", "nokey": {{"mac": "x"}}}}'.encode(), {"key": KEY}),
+        (f'{{{good}, "bad": {{"key": 5}}, "empty": {{"key": ""}}}}'.encode(), {"key": KEY}),
+        (f'{{{good}, "bad": {{"key": "not-base64-32!"}}}}'.encode(), {"key": KEY}),
     ):
         store_path.write_bytes(raw)
         store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)
