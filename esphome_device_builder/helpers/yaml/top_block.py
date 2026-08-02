@@ -10,6 +10,7 @@ from .scalar import (
     _safe_yaml_scalar,
     read_yaml_scalar,
 )
+from .scan import normalize_trailing_newline, trim_trailing_blanks
 from .substitution import rewrite_name_or_substitution
 
 
@@ -84,6 +85,15 @@ def _find_prepend_anchor(lines: list[str]) -> int:
     return anchor
 
 
+def _prepend_top_block(lines: list[str], block: str, nl: str) -> str:
+    """Prepend *block* (newline-terminated) below any leading directives / ``---`` markers."""
+    anchor = _find_prepend_anchor(lines)
+    prefix = "".join(lines[:anchor])
+    rest = "".join(lines[anchor:])
+    sep = "" if not rest or rest.startswith(("\n", "\r")) else nl
+    return f"{prefix}{block}{sep}{rest}"
+
+
 def upsert_yaml_leaf_under_top_block(
     yaml_text: str,
     block_key: str,
@@ -119,22 +129,15 @@ def upsert_yaml_leaf_under_top_block(
         return rewrite_name_or_substitution(yaml_text, leaf_path, new_value)
 
     rendered = _safe_yaml_scalar(new_value)
+    yaml_text, nl = normalize_trailing_newline(yaml_text)
     lines = yaml_text.splitlines(keepends=True)
     located = _locate_top_block(lines, block_key)
 
     if located is None:
-        anchor = _find_prepend_anchor(lines)
-        prefix = "".join(lines[:anchor])
-        rest = "".join(lines[anchor:])
-        sep = "" if not rest or rest.startswith("\n") else "\n"
-        new_block = f"{block_key}:\n{ESPHOME_YAML_INDENT}{leaf_key}: {rendered}\n{sep}"
-        return f"{prefix}{new_block}{rest}"
+        block = f"{block_key}:{nl}{ESPHOME_YAML_INDENT}{leaf_key}: {rendered}{nl}"
+        return _prepend_top_block(lines, block, nl)
 
     block_start, block_end, indent = located
-    # Trim trailing blank lines so the insert lands right after
-    # the block's last content line, not after the visual gap.
-    insert_at = block_end
-    while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
-        insert_at -= 1
-    new_line = f"{indent}{leaf_key}: {rendered}\n"
+    insert_at = trim_trailing_blanks(lines, block_start, block_end)
+    new_line = f"{indent}{leaf_key}: {rendered}{nl}"
     return "".join([*lines[:insert_at], new_line, *lines[insert_at:]])

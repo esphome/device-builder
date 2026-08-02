@@ -60,6 +60,19 @@ def _import_config_stub(
     return _stub
 
 
+def _full_config_stub(api_tail: str) -> Callable[..., None]:
+    """Stub ``import_config`` writing an esphome header plus *api_tail*."""
+
+    def _stub(*args: Any, **_kw: Any) -> None:
+        args[0].write_text(f"esphome:\n  name: {args[1]}\n{api_tail}", encoding="utf-8")
+
+    return _stub
+
+
+def _boom(path: Path, content: str) -> None:
+    raise OSError("disk full")
+
+
 def test_import_config_resolves_at_import_time() -> None:
     """Regression guard for the upstream import path.
 
@@ -303,14 +316,10 @@ async def test_import_device_full_config_splices_pending_ha_key(
     make_controller: MakeControllerFactory,
 ) -> None:
     """A ``?full_config`` import replaces the upstream literal key with HA's."""
-
-    def _stub(*args: Any, **_kw: Any) -> None:
-        args[0].write_text(
-            f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "OLDKEY=="\n',
-            encoding="utf-8",
-        )
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub('api:\n  encryption:\n    key: "OLDKEY=="\n'),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -459,14 +468,10 @@ async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
     make_controller: MakeControllerFactory,
 ) -> None:
     """An upstream ``!secret`` key IS competing; warn and keep the pending key."""
-
-    def _stub(*args: Any, **_kw: Any) -> None:
-        args[0].write_text(
-            f"esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: !secret api_key\n",
-            encoding="utf-8",
-        )
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -483,20 +488,66 @@ async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
+async def test_import_device_full_config_inserts_key_under_bare_encryption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A keyless upstream ``encryption:`` gets the pending key inserted, not dropped."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption:\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "warning" not in result
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'    key: "{PENDING_KEY}"' in content
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_full_config_flow_style_encryption_warns_and_keeps_pending(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A flow-style upstream ``encryption:`` can't be edited; warn and keep the key."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption: {key: OLDKEY==}\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "warning" in result
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+
+
 async def test_import_device_full_config_equal_key_is_noop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
     """Upstream already carries the pending key verbatim → no rewrite, entry consumed."""
-
-    def _stub(*args: Any, **_kw: Any) -> None:
-        args[0].write_text(
-            f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "{PENDING_KEY}"\n',
-            encoding="utf-8",
-        )
-
-    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub(f'api:\n  encryption:\n    key: "{PENDING_KEY}"\n'),
+    )
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     _seed_import_state(ctrl)
     ctrl._pending_keys.set("kitchen", PENDING_KEY)
@@ -523,9 +574,6 @@ async def test_import_device_full_config_splice_write_failure_rolls_back(
             f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "OLDKEY=="\n',
             encoding="utf-8",
         )
-
-    def _boom(path: Path, content: str) -> None:
-        raise OSError("disk full")
 
     monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
     monkeypatch.setattr(
@@ -556,9 +604,6 @@ async def test_import_device_mint_write_failure_rolls_back(
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
     )
-
-    def _boom(path: Path, content: str) -> None:
-        raise OSError("disk full")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.importable.write_user_yaml", _boom

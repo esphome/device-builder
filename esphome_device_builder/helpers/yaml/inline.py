@@ -16,6 +16,7 @@ from .scan import (
     key_line_res,
     leading_ws,
     top_list_item_starts,
+    trim_trailing_blanks,
 )
 
 
@@ -337,9 +338,7 @@ def _apply_handler_upsert(
         return new_text, handler_start + 1, handler_end, rendered_text
     # Insert a new handler at the end of the instance, before any
     # trailing blank lines.
-    insert_at = instance_end
-    while insert_at > instance_start + 1 and not lines[insert_at - 1].strip():
-        insert_at -= 1
+    insert_at = trim_trailing_blanks(lines, instance_start, instance_end)
     new_lines = [*lines[:insert_at], rendered_text, *lines[insert_at:]]
     new_text = "".join(new_lines)
     # Pure-insert: ``toLine == fromLine - 1`` flags the empty

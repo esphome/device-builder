@@ -39,7 +39,7 @@ import asyncio
 import base64
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp import web
@@ -49,6 +49,7 @@ from esphome_device_builder.api import legacy
 from esphome_device_builder.api.legacy import create_legacy_routes
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.device_builder import DeviceBuilder
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
@@ -69,8 +70,7 @@ def _make_app(
     devices: object | None = None,
     firmware: object | None = None,
     bus: EventBus | None = None,
-    trusted_site: bool = False,
-    peer_guarded: bool = False,
+    supervisor_channel: bool = False,
 ) -> web.Application:
     """Build an aiohttp app wired to just enough DeviceBuilder shape.
 
@@ -101,8 +101,7 @@ def _make_app(
 
     app = web.Application()
     app["device_builder"] = type("DB", (), db_attrs)()
-    app["trusted_site"] = trusted_site
-    app["peer_guarded"] = peer_guarded
+    app["supervisor_channel"] = supervisor_channel
     app.add_routes(create_legacy_routes())
     return app
 
@@ -1392,7 +1391,7 @@ def _make_key_devices_mock(result: dict[str, Any]) -> MagicMock:
 
 
 def _ingress_app(tmp_path: Path, devices: MagicMock) -> web.Application:
-    return _make_app(tmp_path, devices=devices, trusted_site=True, peer_guarded=True)
+    return _make_app(tmp_path, devices=devices, supervisor_channel=True)
 
 
 async def test_encryption_key_forwards_to_controller(
@@ -1427,19 +1426,20 @@ async def test_encryption_key_refused_off_ingress(
     devices.set_encryption_key.assert_not_awaited()
 
 
-async def test_encryption_key_refused_on_front_door_open_site(
-    tmp_path: Path, aiohttp_client: AiohttpClient
-) -> None:
-    """Trusted but not peer-guarded (front-door-open) is not the ingress channel."""
-    devices = _make_key_devices_mock({"result": "stored"})
-    client = await aiohttp_client(
-        _make_app(tmp_path, devices=devices, trusted_site=True, peer_guarded=False)
-    )
-
-    resp = await client.post("/encryption-key", json={"device_name": "kitchen", "key": VALID_KEY})
-
-    assert resp.status == 403
-    devices.set_encryption_key.assert_not_awaited()
+def test_supervisor_channel_flag_requires_trusted_and_peer_guarded() -> None:
+    """Only the trusted + peer-guarded shape (the ingress site) sets the flag."""
+    db = DeviceBuilder.__new__(DeviceBuilder)
+    db.settings = DashboardSettings()
+    db.settings.dev_mode = False
+    with patch.object(DeviceBuilder, "_get_frontend_dir", return_value=None):
+        assert db.create_app(trusted=True, with_lifecycle=False)["supervisor_channel"] is True
+        assert db.create_app(with_lifecycle=False)["supervisor_channel"] is False
+        assert (
+            db.create_app(trusted=True, peer_guard=False, with_lifecycle=False)[
+                "supervisor_channel"
+            ]
+            is False
+        )
 
 
 async def test_encryption_key_rejects_malformed_json(

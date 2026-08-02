@@ -407,6 +407,20 @@ def test_upsert_yaml_leaf_preserves_tab_indent() -> None:
     assert after == "esphome:\n\tname: kitchen\n\tfriendly_name: Kitchen\n"
 
 
+def test_upsert_yaml_leaf_handles_missing_final_newline() -> None:
+    """An end-of-file insert must not splice onto a bare last line."""
+    out = upsert_yaml_leaf_under_top_block("esphome:\n  name: x", "esphome", "friendly_name", "V")
+    assert out == "esphome:\n  name: x\n  friendly_name: V\n"
+
+
+def test_upsert_yaml_leaf_preserves_crlf_line_endings() -> None:
+    """Inserted lines match a CRLF file's endings."""
+    out = upsert_yaml_leaf_under_top_block(
+        "esphome:\r\n  name: x\r\n", "esphome", "friendly_name", "V"
+    )
+    assert out == "esphome:\r\n  name: x\r\n  friendly_name: V\r\n"
+
+
 def test_upsert_yaml_leaf_prepends_new_block_when_missing() -> None:
     """No ``esphome:`` block at all — prepend a fresh one with the leaf.
 

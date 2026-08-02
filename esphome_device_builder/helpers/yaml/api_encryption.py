@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import re
 import secrets
 
 from .scalar import (
@@ -13,9 +14,10 @@ from .scalar import (
     read_yaml_scalar,
     rewrite_yaml_scalar,
 )
-from .top_block import _find_prepend_anchor, _locate_top_block
+from .scan import key_line_res, normalize_trailing_newline, trim_trailing_blanks
+from .top_block import _locate_top_block, _prepend_top_block
 
-_API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
+API_ENCRYPTION_KEY_PATH = ("api", "encryption", "key")
 
 
 def generate_api_encryption_key() -> str:
@@ -55,7 +57,7 @@ def rewrite_api_encryption_key(yaml_text: str, new_key: str) -> str:
             return None
         return rendered
 
-    return rewrite_yaml_scalar(yaml_text, _API_ENCRYPTION_KEY_PATH, _swap)
+    return rewrite_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH, _swap)
 
 
 def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
@@ -67,28 +69,20 @@ def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
     :class:`YamlUpsertNotSupportedError` for shapes the line-based
     walker can't safely edit.
     """
-    if read_yaml_scalar(yaml_text, _API_ENCRYPTION_KEY_PATH) is not None:
+    if read_yaml_scalar(yaml_text, API_ENCRYPTION_KEY_PATH) is not None:
         return rewrite_api_encryption_key(yaml_text, new_key)
 
     rendered = _quote(new_key)
-    nl = "\r\n" if "\r\n" in yaml_text else "\n"
-    # A final line without an ending would swallow an end-of-file insert
-    # onto itself (splitlines keeps the last element bare).
-    if yaml_text and not yaml_text.endswith(("\n", "\r")):
-        yaml_text += nl
+    yaml_text, nl = normalize_trailing_newline(yaml_text)
     lines = yaml_text.splitlines(keepends=True)
     located = _locate_top_block(lines, "api")
 
     if located is None:
-        anchor = _find_prepend_anchor(lines)
-        prefix = "".join(lines[:anchor])
-        rest = "".join(lines[anchor:])
-        sep = "" if not rest or rest.startswith(("\n", "\r\n")) else nl
         block = (
             f"api:{nl}{ESPHOME_YAML_INDENT}encryption:{nl}"
-            f"{ESPHOME_YAML_INDENT * 2}key: {rendered}{nl}{sep}"
+            f"{ESPHOME_YAML_INDENT * 2}key: {rendered}{nl}"
         )
-        return f"{prefix}{block}{rest}"
+        return _prepend_top_block(lines, block, nl)
 
     block_start, block_end, indent = located
     enc_idx = _find_encryption_header(lines, block_start, block_end, indent)
@@ -96,11 +90,7 @@ def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
         new_line = f"{indent}{ESPHOME_YAML_INDENT}key: {rendered}{nl}"
         return "".join([*lines[: enc_idx + 1], new_line, *lines[enc_idx + 1 :]])
 
-    # Trim trailing blank lines so the insert lands right after the
-    # block's last content line, not after the visual gap.
-    insert_at = block_end
-    while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
-        insert_at -= 1
+    insert_at = trim_trailing_blanks(lines, block_start, block_end)
     new_lines = [
         f"{indent}encryption:{nl}",
         f"{indent}{ESPHOME_YAML_INDENT}key: {rendered}{nl}",
@@ -112,19 +102,14 @@ def _find_encryption_header(
     lines: list[str], block_start: int, block_end: int, indent: str
 ) -> int | None:
     """Find the ``encryption:`` header at *indent* inside the ``api:`` block span."""
+    header_re, scalar_re = key_line_res("encryption", prefix=f"^{re.escape(indent)}")
     for i in range(block_start + 1, block_end):
-        body = lines[i].rstrip("\n\r")
-        stripped = body.lstrip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if body[: len(body) - len(stripped)] != indent:
-            continue
-        if not stripped.startswith("encryption:"):
-            continue
-        if stripped[len("encryption:") :].split("#", 1)[0].strip():
+        content = lines[i].rstrip("\n\r")
+        if header_re.match(content):
+            return i
+        if scalar_re.match(content):
             raise YamlUpsertNotSupportedError(
                 "api.encryption uses an inline value or flow-style mapping; "
                 "the line-based upsert can't safely edit it."
             )
-        return i
     return None

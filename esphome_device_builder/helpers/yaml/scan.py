@@ -104,3 +104,23 @@ def top_list_item_starts(lines: list[str], start: int, end: int) -> list[int]:
 def leading_ws(line: str) -> str:
     """Leading spaces of *line* (YAML indentation is spaces-only; a tab counts as content)."""
     return line[: len(line) - len(line.lstrip(" "))]
+
+
+def normalize_trailing_newline(yaml_text: str) -> tuple[str, str]:
+    """
+    Return ``(text, nl)``: the text's newline style, with a bare final line ended.
+
+    ``splitlines(keepends=True)`` leaves the last element bare, so an
+    end-of-file insert would otherwise splice onto it.
+    """
+    nl = "\r\n" if "\r\n" in yaml_text else "\n"
+    if yaml_text and not yaml_text.endswith(("\n", "\r")):
+        yaml_text += nl
+    return yaml_text, nl
+
+
+def trim_trailing_blanks(lines: list[str], block_start: int, insert_at: int) -> int:
+    """Back *insert_at* over blank lines so an insert lands after the last content line."""
+    while insert_at > block_start + 1 and not lines[insert_at - 1].strip():
+        insert_at -= 1
+    return insert_at

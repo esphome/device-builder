@@ -15,7 +15,7 @@ from .scalar import (
     block_body_is_list,
     is_lambda_sentinel,
 )
-from .scan import block_end_index, find_block_header, leading_ws
+from .scan import block_end_index, find_block_header, leading_ws, trim_trailing_blanks
 
 if TYPE_CHECKING:
     from ...models import ComponentCatalogEntry
@@ -289,9 +289,7 @@ def _find_top_level_block_bounds(file_lines: list[str], key: str) -> tuple[int, 
         return None
 
     block_end = block_end_index(file_lines, block_start)
-    while block_end > block_start + 1 and not file_lines[block_end - 1].strip():
-        block_end -= 1
-    return block_start, block_end
+    return block_start, trim_trailing_blanks(file_lines, block_start, block_end)
 
 
 def _list_item_indent(file_lines: list[str], header_idx: int, end_idx: int) -> str:

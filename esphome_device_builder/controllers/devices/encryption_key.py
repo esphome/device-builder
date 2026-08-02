@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import base64
-import binascii
 import logging
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.api import CommandError
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.yaml import (
+    API_ENCRYPTION_KEY_PATH,
     YamlUpsertNotSupportedError,
     _strip_yaml_quotes,
     component_block_present,
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-_KEY_PATH = ("api", "encryption", "key")
 _KEY_BYTES = 32
 
 
@@ -41,37 +40,42 @@ async def set_encryption_key(
     """
     _validate_key(key)
     normalized_mac = normalize_mac(mac)
-    devices = controller._scanner.get_by_name(name)
-    if not devices and normalized_mac:
-        devices = [d for d in controller.get_devices() if d.mac_address == normalized_mac]
+    devices = _match_devices(controller, name, normalized_mac)
     if not devices:
         controller._pending_keys.set(name, key, normalized_mac)
         _LOGGER.info("Stored pending API encryption key for unadopted device %s", name)
         return {"result": "stored"}
 
-    updated: list[str] = []
-    unchanged: list[str] = []
+    outcomes: set[str] = set()
     reason = ""
     for device in devices:
         outcome, why = await _apply_to_device(controller, device, key)
-        if outcome == "updated":
-            updated.append(device.configuration)
-        elif outcome == "unchanged":
-            unchanged.append(device.configuration)
-        else:
-            reason = reason or why
+        outcomes.add(outcome)
+        reason = reason or why
     # A configured name must not keep a stale pending entry around.
     controller._pending_keys.pop(name)
 
     response: dict[str, Any] = {"configurations": [d.configuration for d in devices]}
-    if updated:
+    if "updated" in outcomes:
         response["result"] = "updated"
-    elif unchanged:
+    elif "unchanged" in outcomes:
         response["result"] = "unchanged"
     else:
         response["result"] = "not_writable"
         response["reason"] = reason
     return response
+
+
+def _match_devices(controller: DevicesController, name: str, mac: str) -> list[Device]:
+    """Match by name, disambiguating duplicate-name buckets (and misses) by MAC."""
+    devices = controller._scanner.get_by_name(name)
+    if mac and len(devices) > 1:
+        by_mac = [d for d in devices if d.mac_address == mac]
+        if by_mac:
+            return by_mac
+    if not devices and mac:
+        return [d for d in controller.get_devices() if d.mac_address == mac]
+    return devices
 
 
 async def _apply_to_device(
@@ -81,14 +85,10 @@ async def _apply_to_device(
     configuration = device.configuration
     content = await _read_device_yaml_or_raise(controller, configuration)
 
-    existing = read_yaml_scalar(content, _KEY_PATH)
+    existing = read_yaml_scalar(content, API_ENCRYPTION_KEY_PATH)
     if existing is not None and _strip_yaml_quotes(existing) == key:
         return "unchanged", ""
-    if (
-        existing is None
-        and not component_block_present(content, "api")
-        and "api" not in device.loaded_integrations
-    ):
+    if existing is None and not device.api_enabled and not component_block_present(content, "api"):
         return "not_writable", "the configuration does not enable the native API"
 
     try:
@@ -98,12 +98,10 @@ async def _apply_to_device(
     if new_content == content:
         return "not_writable", "the key is provided via !secret or a substitution"
 
-    reread = read_yaml_scalar(new_content, _KEY_PATH)
+    reread = read_yaml_scalar(new_content, API_ENCRYPTION_KEY_PATH)
     if reread is None or _strip_yaml_quotes(reread) != key:
         raise CommandError(
-            ErrorCode.INTERNAL_ERROR,
-            "Edited YAML doesn't round-trip through the reader — the "
-            "line-based upsert produced a shape the parser misinterprets.",
+            ErrorCode.INTERNAL_ERROR, "Edited YAML doesn't round-trip through the reader"
         )
 
     await controller._validate_rewritten_yaml_or_raise(
@@ -119,7 +117,7 @@ def _validate_key(key: str) -> None:
     """Require a base64 literal decoding to exactly 32 bytes."""
     try:
         decoded = base64.b64decode(key, validate=True)
-    except (binascii.Error, ValueError) as exc:
+    except ValueError as exc:
         raise CommandError(ErrorCode.INVALID_ARGS, "key must be base64") from exc
     if len(decoded) != _KEY_BYTES:
         raise CommandError(ErrorCode.INVALID_ARGS, "key must decode to exactly 32 bytes")

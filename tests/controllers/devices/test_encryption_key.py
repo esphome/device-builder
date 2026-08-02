@@ -89,7 +89,7 @@ async def test_set_encryption_key_inserts_block_for_package_provided_api(
     """No ``api:`` in the YAML but the package loads it → block inserted locally."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
-    _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["api", "wifi"])
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=True)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
@@ -106,7 +106,7 @@ async def test_set_encryption_key_refuses_apiless_configuration(
     """No ``api:`` block and no loaded ``api`` integration → refuse, don't enable the API."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = "esphome:\n  name: kitchen\n\nmqtt:\n  broker: b\n"
-    _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["mqtt", "wifi"])
+    _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["mqtt", "wifi"], api_enabled=False)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
@@ -144,6 +144,28 @@ async def test_set_encryption_key_matches_by_mac_fallback(
 
     assert result["result"] == "updated"
     assert f'key: "{KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_set_encryption_key_mac_disambiguates_duplicate_names(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A duplicate-name bucket is narrowed to the device broadcasting the pushed MAC."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(API_KEY_YAML, encoding="utf-8")
+    (tmp_path / "kitchen (1).yaml").write_text(API_KEY_YAML, encoding="utf-8")
+    right = make_device("kitchen", mac_address="AA:BB:CC:DD:EE:FF")
+    wrong = make_device(
+        "kitchen", configuration="kitchen (1).yaml", mac_address="11:22:33:44:55:66"
+    )
+    ctrl._scanner._devices_by_name["kitchen"] = [right, wrong]
+    ctrl._scanner.devices = [right, wrong]
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY, mac="aabbccddeeff")
+
+    assert result == {"result": "updated", "configurations": ["kitchen.yaml"]}
+    assert KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert KEY not in (tmp_path / "kitchen (1).yaml").read_text(encoding="utf-8")
 
 
 async def test_set_encryption_key_stores_pending_for_unadopted_device(
@@ -229,7 +251,7 @@ async def test_set_encryption_key_refuses_flow_style_api_block(
     """A flow-style ``api: {...}`` the line walker can't edit refuses cleanly."""
     ctrl = make_controller(tmp_path, with_state_monitor=True)
     yaml_text = "esphome:\n  name: kitchen\n\napi: {reboot_timeout: 0s}\n"
-    _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["api", "wifi"])
+    _configure(ctrl, tmp_path, yaml_text, api_enabled=True)
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
 
@@ -264,7 +286,8 @@ async def test_pending_keys_store_decode_tolerates_bad_disk_state(tmp_path: Path
     for raw, expected in (
         (b"{not json", None),
         (b'["list"]', None),
-        (b'{"good": {"key": "K=="}, "bad": "str", "1": {"key": "J=="}}', {"key": "K=="}),
+        (b'{"good": {"key": "K=="}, "bad": "str", "nokey": {"mac": "x"}}', {"key": "K=="}),
+        (b'{"good": {"key": "K=="}, "bad": {"key": 5}, "empty": {"key": ""}}', {"key": "K=="}),
     ):
         store_path.write_bytes(raw)
         store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)

@@ -31,7 +31,17 @@ def _decode(raw: bytes) -> dict[str, dict[str, str]]:
         return {}
     if not isinstance(obj, dict):
         return {}
-    return {k: v for k, v in obj.items() if isinstance(k, str) and isinstance(v, dict)}
+    return {k: v for k, v in obj.items() if isinstance(k, str) and _valid_entry(v)}
+
+
+def _valid_entry(entry: object) -> bool:
+    """Entry shape guard: consumers index ``entry["key"]`` unconditionally."""
+    return (
+        isinstance(entry, dict)
+        and isinstance(entry.get("key"), str)
+        and bool(entry["key"])
+        and all(isinstance(v, str) for v in entry.values())
+    )
 
 
 class PendingKeysStore:
