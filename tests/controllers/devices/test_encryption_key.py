@@ -272,17 +272,30 @@ async def test_set_encryption_key_never_compiled_package_device_gets_key(
     assert f'key: "{KEY}"' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
+@pytest.mark.parametrize(
+    "mode",
+    [
+        pytest.param("unavailable", id="resolve_unavailable"),
+        pytest.param("invalid", id="resolve_invalid"),
+        pytest.param("no_cli", id="no_esphome_cmd"),
+    ],
+)
 async def test_set_encryption_key_unresolvable_config_keeps_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    mode: str,
 ) -> None:
-    """An unresolvable config refuses without guessing and keeps the key."""
-    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
+    """An unconfirmable config refuses without guessing and keeps the key."""
+    if mode == "unavailable":
+        resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
+    else:
+        resolve = AsyncMock(return_value=None)
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.encryption_key.run_esphome_config", resolve
     )
-    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    esphome_cmd = [] if mode == "no_cli" else ["esphome"]
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=esphome_cmd)
     yaml_text = "substitutions:\n  name: kitchen\n\npackages:\n  v: github://x/y.yaml\n"
     _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
 
@@ -291,6 +304,8 @@ async def test_set_encryption_key_unresolvable_config_keeps_key(
     assert result["result"] == "not_writable"
     assert "could not be resolved" in result["reason"]
     assert ctrl._pending_keys.get("kitchen") == {"key": KEY, "mac": "AA:BB:CC:DD:EE:FF"}
+    if mode == "no_cli":
+        resolve.assert_not_awaited()
 
 
 async def test_set_encryption_key_validator_timeout_is_typed_and_keeps_key(
