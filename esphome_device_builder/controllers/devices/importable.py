@@ -164,8 +164,8 @@ async def import_device(
 
     _drop_importable_row_and_probe(controller, name)
     result = {"configuration": configuration}
-    if combined_warning := (warning or key_warning):
-        result["warning"] = combined_warning
+    if warnings := [w for w in (warning, key_warning) if w]:
+        result["warning"] = "\n".join(warnings)
     return result
 
 

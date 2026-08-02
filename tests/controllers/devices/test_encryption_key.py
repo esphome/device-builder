@@ -168,6 +168,28 @@ async def test_set_encryption_key_mac_disambiguates_duplicate_names(
     assert KEY not in (tmp_path / "kitchen (1).yaml").read_text(encoding="utf-8")
 
 
+async def test_set_encryption_key_partial_refusal_keeps_reason(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A refused duplicate-name sibling stays visible next to the aggregate success."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    (tmp_path / "kitchen.yaml").write_text(API_KEY_YAML, encoding="utf-8")
+    (tmp_path / "kitchen (1).yaml").write_text(
+        "esphome:\n  name: kitchen\n\napi:\n  encryption:\n    key: !secret api_key\n",
+        encoding="utf-8",
+    )
+    writable = make_device("kitchen")
+    refused = make_device("kitchen", configuration="kitchen (1).yaml")
+    ctrl._scanner._devices_by_name["kitchen"] = [writable, refused]
+    ctrl._scanner.devices = [writable, refused]
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "updated"
+    assert "!secret" in result["reason"]
+
+
 async def test_set_encryption_key_stores_pending_for_unadopted_device(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

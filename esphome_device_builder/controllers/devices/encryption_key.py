@@ -75,6 +75,9 @@ async def set_encryption_key(
         response["result"] = KeyHandoffResult.UNCHANGED
     else:
         response["result"] = KeyHandoffResult.NOT_WRITABLE
+    # A duplicate-name sibling that refused must not vanish behind the
+    # aggregate success — its YAML still carries a competing key.
+    if KeyHandoffResult.NOT_WRITABLE in outcomes:
         response["reason"] = reason
     return response
 

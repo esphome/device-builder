@@ -539,6 +539,33 @@ async def test_import_device_full_config_flow_style_encryption_warns_and_keeps_p
     assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
+async def test_import_device_joins_validation_and_key_warnings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A validation warning must not swallow the key-not-applied warning."""
+    monkeypatch.setattr(
+        "esphome.components.dashboard_import.import_config",
+        _full_config_stub("api:\n  encryption:\n    key: !secret api_key\n"),
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    ctrl._validate_rewritten_yaml_or_raise = AsyncMock(  # type: ignore[method-assign]
+        return_value="Validator unavailable; import kept."
+    )
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "Validator unavailable" in result["warning"]
+    assert "supplies its own API encryption key" in result["warning"]
+
+
 async def test_import_device_full_config_equal_key_is_noop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
