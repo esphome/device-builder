@@ -62,6 +62,7 @@ from . import (
     api_key,
     archive,
     backtrace,
+    encryption_key,
     firmware_sync,
     importable,
     logs,
@@ -79,6 +80,7 @@ from . import (
     validate,
 )
 from ._metadata_store import DeviceMetadataStore
+from ._pending_keys_store import PendingKeysStore
 from ._shared_sidecar import SharedSidecarClient
 from ._state import DevicesState
 from ._yaml_search_cache import YamlSearchCache
@@ -133,6 +135,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._shutdown_callbacks: list[ShutdownCallback] = []
         self._metadata_store = DeviceMetadataStore(
             config_dir=self._db.settings.config_dir,
+            data_dir=Path(CORE.data_dir),
+            shutdown_register=self._shutdown_callbacks.append,
+        )
+        # HA-provisioned API keys for devices not yet adopted; consumed
+        # by ``import_device`` so adoption doesn't mint a competing key.
+        self._pending_keys = PendingKeysStore(
             data_dir=Path(CORE.data_dir),
             shutdown_register=self._shutdown_callbacks.append,
         )
@@ -265,6 +273,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Seed the store (and migrate on first post-upgrade boot)
         # before the scanner runs — resolver reads off it.
         await self._metadata_store.async_load()
+        await self._pending_keys.async_load()
         await self.migrate_board_id_user_set()
         await run_in_executor(self._load_ignored_devices)
         await self._scanner.scan()
@@ -911,6 +920,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def toggle_ignore(self, *, name: str, ignore: bool = True, **kwargs: Any) -> None:
         """Mark a discovered device as ignored / visible in the import list."""
         await importable.toggle_ignore(self, name=name, ignore=ignore)
+
+    async def set_encryption_key(self, *, name: str, key: str, mac: str = "") -> dict[str, Any]:
+        """Apply an HA-provisioned API encryption key, or stash it for adoption."""
+        return await encryption_key.set_encryption_key(self, name=name, key=key, mac=mac)
 
     # ------------------------------------------------------------------
     # API commands — per-connection streams (validate, logs)

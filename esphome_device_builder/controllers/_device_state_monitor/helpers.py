@@ -21,11 +21,6 @@ _ESPHOME_SERVICE_TYPE = "_esphomelib._tcp.local."
 # get ``web_port`` from the YAML (``web_server:``).
 _HTTP_SERVICE_TYPE = "_http._tcp.local."
 
-# Strip ``-`` (Windows) and ``.`` (Cisco) too so a vendored tool or
-# future firmware can't slip a non-canonical form into the dedupe
-# path or the sidecar.
-_MAC_SEPARATORS = str.maketrans("", "", ":-.")
-
 
 def device_name_from_service(service_name: str) -> str:
     """
@@ -36,24 +31,6 @@ def device_name_from_service(service_name: str) -> str:
     the catalog lookup matches on that exact value.
     """
     return service_name.split(".", maxsplit=1)[0]
-
-
-def _normalize_mac(value: str) -> str:
-    """
-    Canonicalise a broadcast MAC to ``XX:XX:XX:XX:XX:XX`` form.
-
-    Returns ``""`` when the input doesn't shape into a 48-bit hex
-    MAC — callers treat that the same as "TXT absent" and skip
-    the apply path.
-    """
-    stripped = value.translate(_MAC_SEPARATORS).upper()
-    if len(stripped) != 12:
-        return ""
-    try:
-        int(stripped, 16)
-    except ValueError:
-        return ""
-    return ":".join(stripped[i : i + 2] for i in range(0, 12, 2))
 
 
 def _http_url_from_service_info(device_name: str, info: AsyncServiceInfo) -> str:

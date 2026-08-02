@@ -234,7 +234,7 @@ class Device(DashboardModel):
     # firmware so a blank typically means "device hasn't been
     # seen this session". The wire form ESPHome currently
     # broadcasts is lowercase 12-hex-char with no separators; we
-    # normalize at ingest (``_normalize_mac``) so the in-memory
+    # normalize at ingest (``normalize_mac``) so the in-memory
     # model, sidecar, and frontend wire all carry one canonical
     # form regardless of what the firmware happens to send. On
     # ESP32 this is the Wi-Fi STA MAC (which equals the eFuse

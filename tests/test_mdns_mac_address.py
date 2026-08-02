@@ -200,7 +200,7 @@ def test_apply_mac_address_rejects_correct_length_non_hex() -> None:
     """A 12-char-after-stripping value with non-hex chars is dropped.
 
     The length check passes (12 chars) but ``int(_, 16)`` raises
-    ``ValueError``; ``_normalize_mac`` catches and returns empty so
+    ``ValueError``; ``normalize_mac`` catches and returns empty so
     a corrupt TXT can't pollute the sidecar with a value that
     looks the right shape but doesn't decode to a real MAC.
     """

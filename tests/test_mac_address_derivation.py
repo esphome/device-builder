@@ -11,7 +11,7 @@ firmware to broadcast each one.
 
 All MACs in / out of :func:`derive_interface_macs` are in the
 canonical ``XX:XX:XX:XX:XX:XX`` form that
-:func:`controllers._device_state_monitor._normalize_mac` produces.
+:func:`normalize_mac` produces.
 """
 
 from __future__ import annotations
@@ -159,7 +159,7 @@ def test_uncanonical_primary_yields_empty() -> None:
     """Compact 12-hex-char input (the broadcast form) is rejected.
 
     ``derive_interface_macs`` is wired downstream of
-    ``_normalize_mac``; a non-canonical input here means a caller
+    ``normalize_mac``; a non-canonical input here means a caller
     skipped the normalization step. Returning empty rather than
     guessing keeps the offset math from operating on
     unvalidated bytes.

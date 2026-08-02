@@ -57,6 +57,7 @@ from esphome_device_builder.helpers.yaml import (
     rewrite_name_or_substitution,
     rewrite_rename_content,
     rewrite_yaml_scalar,
+    upsert_api_encryption_key,
     upsert_yaml_leaf_under_top_block,
     write_user_yaml,
 )
@@ -1025,6 +1026,106 @@ def test_rewrite_api_encryption_key_handles_block_with_comments() -> None:
     )
     out = rewrite_api_encryption_key(yaml, "NEW==")
     assert 'key: "NEW=="  # do not share' in out
+
+
+def test_upsert_api_encryption_key_rewrites_existing_literal() -> None:
+    """An existing literal key is overwritten in place, comments intact."""
+    yaml = 'api:\n  encryption:\n    key: "OLDKEYBASE64=="  # provisioned\nwifi:\n  ssid: x\n'
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert 'key: "NEW=="  # provisioned' in out
+    assert "OLDKEYBASE64" not in out
+
+
+def test_upsert_api_encryption_key_inserts_key_under_existing_encryption() -> None:
+    """A bare ``encryption:`` child gets ``key:`` inserted right below it."""
+    yaml = "api:\n  reboot_timeout: 0s\n  encryption:\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == 'api:\n  reboot_timeout: 0s\n  encryption:\n    key: "NEW=="\nwifi:\n  ssid: x\n'
+
+
+def test_upsert_api_encryption_key_inserts_encryption_into_existing_api_block() -> None:
+    """An ``api:`` block without ``encryption:`` gets both lines at the block tail."""
+    yaml = "api:\n  reboot_timeout: 0s\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert (
+        out == 'api:\n  reboot_timeout: 0s\n  encryption:\n    key: "NEW=="\n\nwifi:\n  ssid: x\n'
+    )
+
+
+def test_upsert_api_encryption_key_inserts_into_empty_api_block() -> None:
+    """A bare ``api:`` header gets the encryption block as its only child."""
+    yaml = "esphome:\n  name: x\n\napi:\n\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert 'api:\n  encryption:\n    key: "NEW=="\n\nwifi:' in out
+
+
+def test_upsert_api_encryption_key_prepends_block_when_api_missing() -> None:
+    """No ``api:`` block at all → a full block lands above the existing content."""
+    yaml = "substitutions:\n  name: x\n\npackages:\n  a: github://x/y.yaml\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out.startswith('api:\n  encryption:\n    key: "NEW=="\n\n')
+    assert out.endswith(yaml)
+
+
+def test_upsert_api_encryption_key_anchors_below_doc_marker() -> None:
+    """The prepended block lands after ``---`` so the document still parses."""
+    yaml = "---\nwifi:\n  ssid: x\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out.startswith("---\napi:\n")
+
+
+def test_upsert_api_encryption_key_leaves_secret_indirection_alone() -> None:
+    """A ``!secret`` key refuses the rewrite by returning the input unchanged."""
+    yaml = "api:\n  encryption:\n    key: !secret api_key\n"
+    assert upsert_api_encryption_key(yaml, "NEW==") == yaml
+
+
+def test_upsert_api_encryption_key_leaves_substitution_indirection_alone() -> None:
+    """A ``${var}`` key refuses the rewrite by returning the input unchanged."""
+    yaml = "api:\n  encryption:\n    key: ${api_key}\n"
+    assert upsert_api_encryption_key(yaml, "NEW==") == yaml
+
+
+def test_upsert_api_encryption_key_rejects_inline_api_value() -> None:
+    """Flow-style ``api: {...}`` raises instead of guessing at an edit."""
+    yaml = "api: {reboot_timeout: 0s}\n"
+    with pytest.raises(YamlUpsertNotSupportedError):
+        upsert_api_encryption_key(yaml, "NEW==")
+
+
+def test_upsert_api_encryption_key_rejects_inline_encryption_value() -> None:
+    """Flow-style ``encryption: {...}`` raises instead of guessing at an edit."""
+    yaml = "api:\n  encryption: {key: OLD==}\n"
+    with pytest.raises(YamlUpsertNotSupportedError):
+        upsert_api_encryption_key(yaml, "NEW==")
+
+
+def test_upsert_api_encryption_key_ignores_encryption_inside_list() -> None:
+    """An ``encryption`` mapping nested in a list item is not the api child."""
+    yaml = "api:\n  actions:\n    - action: x\n      encryption: y\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert "encryption: y" in out
+    expected = yaml + '  encryption:\n    key: "NEW=="\n'
+    assert out == expected
+
+
+def test_upsert_api_encryption_key_preserves_crlf_line_endings() -> None:
+    """Inserted lines match a CRLF file's endings."""
+    yaml = "api:\r\n  reboot_timeout: 0s\r\n"
+    out = upsert_api_encryption_key(yaml, "NEW==")
+    assert out == 'api:\r\n  reboot_timeout: 0s\r\n  encryption:\r\n    key: "NEW=="\r\n'
+
+
+def test_upsert_api_encryption_key_is_idempotent() -> None:
+    """A second pass with the same key is a no-op for every insert shape."""
+    for text in (
+        'api:\n  encryption:\n    key: "OLD=="\n',
+        "api:\n  encryption:\n",
+        "api:\n",
+        "wifi:\n  ssid: x\n",
+    ):
+        once = upsert_api_encryption_key(text, "NEW==")
+        assert upsert_api_encryption_key(once, "NEW==") == once
 
 
 def test_generate_api_encryption_key_yields_distinct_base64_values() -> None:

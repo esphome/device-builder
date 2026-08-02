@@ -15,6 +15,7 @@ from ...helpers.atomic_io import atomic_write_exclusive
 from ...helpers.device_yaml import generate_adoption_yaml
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
+from ...helpers.yaml import rewrite_api_encryption_key, write_user_yaml
 from ...models import (
     AdoptableDevice,
     ErrorCode,
@@ -26,6 +27,9 @@ from ..editor import IMPORT_VALIDATE_TIMEOUT
 from .mutations_yaml import packages_block_span
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
@@ -50,6 +54,8 @@ async def import_device(
     adoptable = controller.state.import_result.get(name)
     network = adoptable.network if adoptable and adoptable.network else const.CONF_WIFI
     full_config_import = "full_config" in package_import_url.partition("?")[2]
+    # Peek, don't pop — a failed import must keep the key for retry.
+    pending = controller._pending_keys.get(name)
     try:
         if full_config_import:
             # A ``?full_config`` import downloads and rewrites the whole
@@ -79,6 +85,7 @@ async def import_device(
                 package_import_url,
                 network_provided=network != const.CONF_WIFI,
                 api_encryption=bool(encryption),
+                api_encryption_key=pending["key"] if pending else None,
             )
 
             def _write_exclusive() -> None:
@@ -106,6 +113,8 @@ async def import_device(
     except (OSError, UnicodeDecodeError):
         await run_in_executor(_cleanup)
         raise
+    if pending and full_config_import:
+        content = await _splice_pending_key_or_cleanup(path, content, pending["key"], _cleanup)
     warning = await controller._validate_rewritten_yaml_or_raise(
         configuration,
         content,
@@ -121,6 +130,7 @@ async def import_device(
     )
 
     await controller._commit_history(configuration, f"Import {configuration}")
+    controller._pending_keys.pop(name)
 
     # Post-write scan is best-effort; the next periodic scan
     # will catch the new YAML and failing here would mislead the
@@ -228,6 +238,29 @@ def save_ignored_devices(controller: DevicesController) -> None:
     storage_path.write_bytes(
         dumps_indent({"ignored_devices": sorted(controller.state.ignored_devices)}),
     )
+
+
+async def _splice_pending_key_or_cleanup(
+    path: Path,
+    content: str,
+    key: str,
+    cleanup: Callable[[], None],
+) -> str:
+    """
+    Replace a full-config import's literal key with the HA-provisioned one.
+
+    No literal key (or an indirection) is left alone — a config carrying
+    no competing key keeps the device's NVS-stored key working.
+    """
+    spliced = rewrite_api_encryption_key(content, key)
+    if spliced == content:
+        return content
+    try:
+        await run_in_executor(write_user_yaml, path, spliced)
+    except Exception:
+        await run_in_executor(cleanup)
+        raise
+    return spliced
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

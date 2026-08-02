@@ -28,6 +28,7 @@ from esphome_device_builder.controllers._reachability_tracker import Reachabilit
 from esphome_device_builder.controllers.config import get_device_metadata, set_device_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
+from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
 from esphome_device_builder.controllers.devices._state import DevicesState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
@@ -526,6 +527,10 @@ def make_controller() -> MakeControllerFactory:
         controller._shutdown_callbacks = []
         controller._metadata_store = DeviceMetadataStore(
             config_dir=config_dir,
+            data_dir=config_dir,
+            shutdown_register=controller._shutdown_callbacks.append,
+        )
+        controller._pending_keys = PendingKeysStore(
             data_dir=config_dir,
             shutdown_register=controller._shutdown_callbacks.append,
         )

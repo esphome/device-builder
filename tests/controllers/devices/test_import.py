@@ -10,6 +10,7 @@ exists the write raises ``FileExistsError``, re-surfaced as a
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -266,6 +267,108 @@ async def test_import_device_full_config_url_delegates_to_dashboard_import(
     )
 
     assert captured["args"][4] == "github://x/y.yaml@main?full_config"
+
+
+PENDING_KEY = base64.b64encode(b"p" * 32).decode()
+
+
+async def test_import_device_uses_pending_ha_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Adoption reuses the HA-provisioned key instead of minting a competing one."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption=None,
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    # The pending key forces the api block even without the mDNS encryption flag.
+    assert f'    key: "{PENDING_KEY}"\n' in content
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_full_config_splices_pending_ha_key(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A ``?full_config`` import replaces the upstream literal key with HA's."""
+
+    def _stub(*args: Any, **_kw: Any) -> None:
+        args[0].write_text(
+            f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "OLDKEY=="\n',
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert f'key: "{PENDING_KEY}"' in content
+    assert "OLDKEY" not in content
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """No upstream literal key → nothing to splice; the NVS-stored key stays valid."""
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _import_config_stub())
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert PENDING_KEY not in content
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_validation_failure_keeps_pending_key(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A rolled-back import keeps the pending key so a retry still uses it."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+    ctrl._db.editor.validate_yaml = AsyncMock(
+        return_value={
+            "yaml_errors": [],
+            "validation_errors": [{"message": "boom"}],
+        }
+    )
+
+    with pytest.raises(CommandError):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x",
+        )
+
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
 
 
 async def test_import_device_translates_file_exists_to_command_error(

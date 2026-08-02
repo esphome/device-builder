@@ -35,6 +35,29 @@ _ESP32_PLATFORMS: frozenset[str] = frozenset(
 # derive there.
 _SINGLE_MAC_PLATFORMS: frozenset[str] = frozenset({"rp2350"}) | RP2_PLATFORM_ALIASES
 
+# Strip ``-`` (Windows) and ``.`` (Cisco) too so a vendored tool or
+# future firmware can't slip a non-canonical form into the dedupe
+# path or the sidecar.
+_MAC_SEPARATORS = str.maketrans("", "", ":-.")
+
+
+def normalize_mac(value: str) -> str:
+    """
+    Canonicalise a MAC to ``XX:XX:XX:XX:XX:XX`` form.
+
+    Returns ``""`` when the input doesn't shape into a 48-bit hex
+    MAC — callers treat that the same as "absent" and skip their
+    apply path.
+    """
+    stripped = value.translate(_MAC_SEPARATORS).upper()
+    if len(stripped) != 12:
+        return ""
+    try:
+        int(stripped, 16)
+    except ValueError:
+        return ""
+    return ":".join(stripped[i : i + 2] for i in range(0, 12, 2))
+
 
 def _has_ethernet(loaded_integrations: list[str]) -> bool:
     """Return whether the resolved YAML loads the ``ethernet`` component."""
@@ -57,7 +80,7 @@ def _offset_last_octet(primary: str, offset: int) -> str:
     """Return *primary* with the last octet incremented by *offset* (mod 256).
 
     *primary* is the canonical ``XX:XX:XX:XX:XX:XX`` form
-    :func:`controllers._device_state_monitor._normalize_mac` produces.
+    :func:`normalize_mac` produces.
     The last two hex chars cover the trailing octet; we wrap modulo
     256 to mirror the ESP-IDF behaviour where the offset addition
     can roll a high-byte value (``0xFF`` + 3 → ``0x02``) without
@@ -82,7 +105,7 @@ def derive_interface_macs(
     ethernet just renders one row.
 
     *primary* must be in the canonical ``XX:XX:XX:XX:XX:XX`` form
-    that :func:`controllers._device_state_monitor._normalize_mac`
+    that :func:`normalize_mac`
     produces; all output MACs match that shape so the wire
     surface is uniform.
 

@@ -45,6 +45,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.cooldown import CooldownLedger
+from ...helpers.mac_addresses import normalize_mac
 from ...models import Device, DeviceState
 from . import shared
 from ._api_probe import (
@@ -53,7 +54,6 @@ from ._api_probe import (
     api_worker_available,
     apply_worker_info,
 )
-from .helpers import _normalize_mac
 
 if TYPE_CHECKING:
     from .controller import DeviceStateMonitor
@@ -234,8 +234,8 @@ class ApiReviverSource(ApiSweepSource):
             self._record_dial_failure(key)
             monitor.invalidate_persisted_ip(device.name, ip)
             return
-        mac = _normalize_mac(info.get("mac_address", ""))
-        persisted_mac = _normalize_mac(device.mac_address)
+        mac = normalize_mac(info.get("mac_address", ""))
+        persisted_mac = normalize_mac(device.mac_address)
         if mac and persisted_mac and mac != persisted_mac:
             _LOGGER.warning(
                 "Device at %s reports name %s but MAC %s != persisted %s; not claiming ONLINE",

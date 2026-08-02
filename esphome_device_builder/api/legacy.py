@@ -7,6 +7,7 @@ migrates to the /ws multiplexed API.
 HA uses:
 - GET /devices (list configured + importable devices)
 - GET /json-config?configuration=... (parsed YAML as JSON)
+- POST /encryption-key (HA-provisioned API key handoff; ingress site only)
 - /compile (WebSocket, spawn protocol)
 - /upload (WebSocket, spawn protocol)
 
@@ -47,6 +48,7 @@ from ..models import (
     TERMINAL_JOB_STATUSES,
     Device,
     DeviceState,
+    ErrorCode,
     EventType,
     FirmwareJob,
     JobType,
@@ -337,6 +339,52 @@ async def _json_config_response(db: DeviceBuilder, configuration: str) -> web.Re
     return json_response(config)
 
 
+def _parse_encryption_key_payload(raw: bytes) -> tuple[str, str, str] | str:
+    """Parse the POST /encryption-key body; ``(device_name, key, mac)`` or an error message."""
+    try:
+        body = loads(raw)
+    except JSONDecodeError:
+        return "invalid JSON body"
+    if not isinstance(body, dict):
+        return "invalid JSON body"
+    device_name = body.get("device_name")
+    key = body.get("key")
+    mac = body.get("mac", "")
+    if not isinstance(device_name, str) or not device_name:
+        return "device_name is required"
+    if not isinstance(key, str) or not key:
+        return "key is required"
+    if not isinstance(mac, str):
+        return "mac must be a string"
+    return device_name, key, mac
+
+
+async def _encryption_key_response(request: web.Request) -> web.Response:
+    """
+    Land an HA-provisioned key via the devices controller.
+
+    Only accepted on the trusted, peer-guarded ingress site: the key is
+    secret material and the supervisor-authenticated ingress path is the
+    one channel where the caller is known to be Home Assistant.
+    """
+    if not (request.app.get("trusted_site") and request.app.get("peer_guarded")):
+        return json_response(
+            {"error": "encryption-key is only accepted over the Home Assistant ingress"},
+            status=403,
+        )
+    parsed = _parse_encryption_key_payload(await request.read())
+    if isinstance(parsed, str):
+        return json_response({"error": parsed}, status=400)
+    device_name, key, mac = parsed
+    db = request.app["device_builder"]
+    try:
+        result = await db.devices.set_encryption_key(name=device_name, key=key, mac=mac)
+    except CommandError as err:
+        status = 400 if err.code is ErrorCode.INVALID_ARGS else 500
+        return json_response({"error": err.message}, status=status)
+    return json_response(result)
+
+
 def create_legacy_routes() -> web.RouteTableDef:
     """Create backward-compatible REST + WS routes for HA."""
     routes = web.RouteTableDef()
@@ -395,6 +443,11 @@ def create_legacy_routes() -> web.RouteTableDef:
         """
         db = request.app["device_builder"]
         return await _json_config_response(db, request.query.get("configuration", ""))
+
+    @routes.post("/encryption-key")
+    async def legacy_encryption_key(request: web.Request) -> web.Response:
+        """HA-provisioned Noise API key — splice into a configured YAML or stash for adoption."""
+        return await _encryption_key_response(request)
 
     @routes.get("/compile")
     async def legacy_compile(request: web.Request) -> web.WebSocketResponse:

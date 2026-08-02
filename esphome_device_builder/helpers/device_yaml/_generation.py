@@ -162,6 +162,7 @@ def generate_adoption_yaml(
     psk: str = "",
     wifi_secrets_available: bool = True,
     api_encryption: bool = True,
+    api_encryption_key: str | None = None,
 ) -> str:
     """
     Generate the adoption-shape YAML referencing a remote package.
@@ -187,10 +188,10 @@ def generate_adoption_yaml(
     if friendly_name:
         lines.append("  friendly_name: ${friendly_name}")
     lines.append("")
-    if api_encryption:
+    if api_encryption or api_encryption_key:
         lines.append("api:")
         lines.append("  encryption:")
-        lines.append(f'    key: "{generate_api_encryption_key()}"')
+        lines.append(f'    key: "{api_encryption_key or generate_api_encryption_key()}"')
         lines.append("")
     if not network_provided and (bool(ssid) or wifi_secrets_available):
         lines.append("wifi:")

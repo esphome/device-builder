@@ -36,6 +36,7 @@ exercised — not just the handler bodies.
 from __future__ import annotations
 
 import asyncio
+import base64
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -68,6 +69,8 @@ def _make_app(
     devices: object | None = None,
     firmware: object | None = None,
     bus: EventBus | None = None,
+    trusted_site: bool = False,
+    peer_guarded: bool = False,
 ) -> web.Application:
     """Build an aiohttp app wired to just enough DeviceBuilder shape.
 
@@ -98,6 +101,8 @@ def _make_app(
 
     app = web.Application()
     app["device_builder"] = type("DB", (), db_attrs)()
+    app["trusted_site"] = trusted_site
+    app["peer_guarded"] = peer_guarded
     app.add_routes(create_legacy_routes())
     return app
 
@@ -1373,6 +1378,136 @@ async def test_spawn_ws_round_trip_through_real_event_bus(
 
 
 # ---------------------------------------------------------------------------
+# POST /encryption-key
+# ---------------------------------------------------------------------------
+
+VALID_KEY = base64.b64encode(b"k" * 32).decode()
+
+
+def _make_key_devices_mock(result: dict[str, Any]) -> MagicMock:
+    """Spec'd devices mock whose ``set_encryption_key`` resolves to *result*."""
+    devices = MagicMock(spec=DevicesController)
+    devices.set_encryption_key = AsyncMock(return_value=result)
+    return devices
+
+
+def _ingress_app(tmp_path: Path, devices: MagicMock) -> web.Application:
+    return _make_app(tmp_path, devices=devices, trusted_site=True, peer_guarded=True)
+
+
+async def test_encryption_key_forwards_to_controller(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Happy path on the ingress site: body forwarded, controller result passed through."""
+    devices = _make_key_devices_mock({"result": "stored"})
+    client = await aiohttp_client(_ingress_app(tmp_path, devices))
+
+    resp = await client.post(
+        "/encryption-key",
+        json={"device_name": "kitchen", "key": VALID_KEY, "mac": "aabbccddeeff"},
+    )
+
+    assert resp.status == 200
+    assert await resp.json() == {"result": "stored"}
+    devices.set_encryption_key.assert_awaited_once_with(
+        name="kitchen", key=VALID_KEY, mac="aabbccddeeff"
+    )
+
+
+async def test_encryption_key_refused_off_ingress(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """The public site refuses the push outright; the controller is never reached."""
+    devices = _make_key_devices_mock({"result": "stored"})
+    client = await aiohttp_client(_make_app(tmp_path, devices=devices))
+
+    resp = await client.post("/encryption-key", json={"device_name": "kitchen", "key": VALID_KEY})
+
+    assert resp.status == 403
+    devices.set_encryption_key.assert_not_awaited()
+
+
+async def test_encryption_key_refused_on_front_door_open_site(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    """Trusted but not peer-guarded (front-door-open) is not the ingress channel."""
+    devices = _make_key_devices_mock({"result": "stored"})
+    client = await aiohttp_client(
+        _make_app(tmp_path, devices=devices, trusted_site=True, peer_guarded=False)
+    )
+
+    resp = await client.post("/encryption-key", json={"device_name": "kitchen", "key": VALID_KEY})
+
+    assert resp.status == 403
+    devices.set_encryption_key.assert_not_awaited()
+
+
+async def test_encryption_key_rejects_malformed_json(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    devices = _make_key_devices_mock({"result": "stored"})
+    client = await aiohttp_client(_ingress_app(tmp_path, devices))
+
+    resp = await client.post("/encryption-key", data=b"{not json")
+
+    assert resp.status == 400
+    devices.set_encryption_key.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param({"key": VALID_KEY}, id="missing_name"),
+        pytest.param({"device_name": "kitchen"}, id="missing_key"),
+        pytest.param({"device_name": "", "key": VALID_KEY}, id="empty_name"),
+        pytest.param({"device_name": "kitchen", "key": ""}, id="empty_key"),
+        pytest.param({"device_name": 5, "key": VALID_KEY}, id="non_string_name"),
+        pytest.param({"device_name": "kitchen", "key": VALID_KEY, "mac": 5}, id="non_string_mac"),
+        pytest.param(["kitchen"], id="non_object_body"),
+    ],
+)
+async def test_encryption_key_rejects_invalid_bodies(
+    tmp_path: Path, aiohttp_client: AiohttpClient, body: Any
+) -> None:
+    devices = _make_key_devices_mock({"result": "stored"})
+    client = await aiohttp_client(_ingress_app(tmp_path, devices))
+
+    resp = await client.post("/encryption-key", json=body)
+
+    assert resp.status == 400
+    devices.set_encryption_key.assert_not_awaited()
+
+
+async def test_encryption_key_maps_invalid_args_to_400(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    devices = MagicMock(spec=DevicesController)
+    devices.set_encryption_key = AsyncMock(
+        side_effect=CommandError(ErrorCode.INVALID_ARGS, "key must be base64")
+    )
+    client = await aiohttp_client(_ingress_app(tmp_path, devices))
+
+    resp = await client.post("/encryption-key", json={"device_name": "kitchen", "key": "bad"})
+
+    assert resp.status == 400
+    assert (await resp.json())["error"] == "key must be base64"
+
+
+async def test_encryption_key_maps_internal_error_to_500(
+    tmp_path: Path, aiohttp_client: AiohttpClient
+) -> None:
+    devices = MagicMock(spec=DevicesController)
+    devices.set_encryption_key = AsyncMock(
+        side_effect=CommandError(ErrorCode.INTERNAL_ERROR, "round-trip failed")
+    )
+    client = await aiohttp_client(_ingress_app(tmp_path, devices))
+
+    resp = await client.post("/encryption-key", json={"device_name": "kitchen", "key": VALID_KEY})
+
+    assert resp.status == 500
+
+
+# ---------------------------------------------------------------------------
 # Frame-shape parity with upstream
 # ---------------------------------------------------------------------------
 
@@ -1384,4 +1519,11 @@ def test_legacy_module_exposes_only_documented_routes() -> None:
         route.path  # type: ignore[union-attr]
         for route in routes
     }
-    assert paths == {"/devices", "/ping", "/json-config", "/compile", "/upload"}
+    assert paths == {
+        "/devices",
+        "/ping",
+        "/json-config",
+        "/encryption-key",
+        "/compile",
+        "/upload",
+    }

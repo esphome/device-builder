@@ -30,6 +30,7 @@ from typing import Any, Protocol
 
 from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit
 from ...helpers.ip import drop_unusable_addresses, is_unusable_address
+from ...helpers.mac_addresses import normalize_mac
 from ...helpers.subscriber_presence import SubscriberPresence
 from ...models import (
     RUNTIME_STATE_FIELD_NAMES,
@@ -44,7 +45,6 @@ from ._state import MonitorState
 from .api_info import ApiInfoSource
 from .api_reviver import ApiReviverSource
 from .helpers import (
-    _normalize_mac,
     _pick_ipv4,
 )
 from .importable import ImportableDiscovery
@@ -96,7 +96,7 @@ ConfigHashChangeCallback = Callable[[str, str], None]
 ApiEncryptionChangeCallback = Callable[[str, str], None]
 
 # mDNS ``mac`` TXT change. The value has already been normalised by
-# :func:`_normalize_mac` to ``XX:XX:XX:XX:XX:XX`` so the frontend
+# :func:`normalize_mac` to ``XX:XX:XX:XX:XX:XX`` so the frontend
 # renders it directly. Empty / non-hex skips the callback so older
 # firmware without the broadcast doesn't blank a known MAC.
 MacAddressChangeCallback = Callable[[str, str], None]
@@ -528,7 +528,7 @@ class DeviceStateMonitor(TaskControllerBase):
         """
         Record a MAC-address observation from the device's mDNS TXT.
 
-        Normalised via :func:`_normalize_mac` so the dedupe /
+        Normalised via :func:`normalize_mac` so the dedupe /
         sidecar / wire all stay canonical regardless of which case
         or separator style the firmware emits. Empty / non-hex
         inputs are dropped so a broadcast that omits the ``mac``
@@ -536,7 +536,7 @@ class DeviceStateMonitor(TaskControllerBase):
         """
         if (forward := self._on_mac_address_change) is None:
             return False
-        normalized = _normalize_mac(mac)
+        normalized = normalize_mac(mac)
         if not normalized:
             return False
         return self._apply_observation(name, "mac_address", normalized, forward, name, normalized)
