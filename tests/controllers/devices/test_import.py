@@ -21,6 +21,7 @@ import pytest
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.editor import ValidatorUnavailableError
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.device_yaml import EsphomeConfigUnavailableError
 from esphome_device_builder.models import AdoptableDevice, ErrorCode, EventType
 
 from .conftest import (
@@ -96,7 +97,9 @@ async def test_import_device_writes_adoption_yaml_and_returns_path(
     assert "  friendly_name: Kitchen" in content
     assert '  acme.kitchen: "github://acme/firmware.yaml@main"' in content
     assert "name_add_mac_suffix: false" in content
-    assert "api:" in content  # encryption flag truthy → fresh key
+    # No esphome available → the package can't be resolved, so no key
+    # is minted (a competing key risks locking HA out).
+    assert "api:" not in content
     # No matching importable cache entry → fall back to wifi (legacy behaviour).
     assert "ssid: !secret wifi_ssid" in content
     # ``import_device`` calls ``scan()`` exactly once on the happy
@@ -344,6 +347,234 @@ async def test_import_device_full_config_without_literal_key_leaves_yaml_alone(
     content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
     assert PENDING_KEY not in content
     assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_mints_key_when_package_lacks_encryption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The resolved package has no ``encryption:`` → legacy behaviour, mint a key."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    resolve.assert_awaited_once()
+    assert 'api:\n  encryption:\n    key: "' in content
+
+
+@pytest.mark.parametrize(
+    "encryption_value",
+    [pytest.param(None, id="bare_null"), pytest.param({}, id="empty_mapping")],
+)
+async def test_import_device_skips_mint_when_package_encrypts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    encryption_value: dict | None,
+) -> None:
+    """A package-provided ``encryption:`` means an NVS key may exist — never mint."""
+    resolve = AsyncMock(return_value={"api": {"encryption": encryption_value}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "api:" not in content
+    assert "key:" not in content
+
+
+async def test_import_device_skips_mint_when_resolve_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An unresolvable package skips the mint; plaintext self-heals, a competing key doesn't."""
+    resolve = AsyncMock(side_effect=EsphomeConfigUnavailableError("timed out"))
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    assert result["configuration"] == "kitchen.yaml"
+    assert "api:" not in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_import_device_pending_key_skips_package_resolve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A pending HA key is baked directly; no resolve subprocess runs."""
+    resolve = AsyncMock()
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main",
+        encryption="true",
+    )
+
+    resolve.assert_not_awaited()
+    assert f'    key: "{PENDING_KEY}"\n' in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_import_device_full_config_indirected_key_warns_and_keeps_pending(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """An upstream ``!secret`` key IS competing; warn and keep the pending key."""
+
+    def _stub(*args: Any, **_kw: Any) -> None:
+        args[0].write_text(
+            f"esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: !secret api_key\n",
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "supplies its own API encryption key" in result["warning"]
+    content = (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+    assert "!secret api_key" in content
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+
+
+async def test_import_device_full_config_equal_key_is_noop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Upstream already carries the pending key verbatim → no rewrite, entry consumed."""
+
+    def _stub(*args: Any, **_kw: Any) -> None:
+        args[0].write_text(
+            f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "{PENDING_KEY}"\n',
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    result = await ctrl.import_device(
+        name="kitchen",
+        project_name="x",
+        package_import_url="github://x/y.yaml@main?full_config",
+    )
+
+    assert "warning" not in result
+    assert ctrl._pending_keys.get("kitchen") is None
+
+
+async def test_import_device_full_config_splice_write_failure_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A failed splice write cleans up the half-imported YAML."""
+
+    def _stub(*args: Any, **_kw: Any) -> None:
+        args[0].write_text(
+            f'esphome:\n  name: {args[1]}\napi:\n  encryption:\n    key: "OLDKEY=="\n',
+            encoding="utf-8",
+        )
+
+    def _boom(path: Path, content: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr("esphome.components.dashboard_import.import_config", _stub)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.write_user_yaml", _boom
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _seed_import_state(ctrl)
+    ctrl._pending_keys.set("kitchen", PENDING_KEY)
+
+    with pytest.raises(OSError, match="disk full"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main?full_config",
+        )
+
+    assert not (tmp_path / "kitchen.yaml").exists()
+    assert ctrl._pending_keys.get("kitchen") == {"key": PENDING_KEY}
+
+
+async def test_import_device_mint_write_failure_rolls_back(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A failed mint write cleans up the half-imported YAML."""
+    resolve = AsyncMock(return_value={"esphome": {"name": "kitchen"}})
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.run_esphome_config", resolve
+    )
+
+    def _boom(path: Path, content: str) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.importable.write_user_yaml", _boom
+    )
+    ctrl = make_controller(tmp_path, with_state_monitor=True, esphome_cmd=["esphome"])
+    _seed_import_state(ctrl)
+
+    with pytest.raises(OSError, match="disk full"):
+        await ctrl.import_device(
+            name="kitchen",
+            project_name="x",
+            package_import_url="github://x/y.yaml@main",
+            encryption="true",
+        )
+
+    assert not (tmp_path / "kitchen.yaml").exists()
 
 
 async def test_import_device_validation_failure_keeps_pending_key(

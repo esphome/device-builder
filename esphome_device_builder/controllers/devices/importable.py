@@ -12,10 +12,19 @@ from esphome.storage_json import ignored_devices_storage_path
 from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write_exclusive
-from ...helpers.device_yaml import generate_adoption_yaml
+from ...helpers.device_yaml import (
+    EsphomeConfigUnavailableError,
+    generate_adoption_yaml,
+    run_esphome_config,
+)
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
 from ...helpers.lazy_module import async_import_module
-from ...helpers.yaml import rewrite_api_encryption_key, write_user_yaml
+from ...helpers.yaml import (
+    _strip_yaml_quotes,
+    read_yaml_scalar,
+    rewrite_api_encryption_key,
+    write_user_yaml,
+)
 from ...models import (
     AdoptableDevice,
     ErrorCode,
@@ -78,13 +87,16 @@ async def import_device(
                 encryption,
             )
         else:
+            # A pending HA key IS the device's key; without one the
+            # fresh-key decision waits for the post-validate package
+            # resolve (see _mint_key_unless_package_encrypts).
             content = generate_adoption_yaml(
                 name,
                 friendly_name,
                 project_name,
                 package_import_url,
                 network_provided=network != const.CONF_WIFI,
-                api_encryption=bool(encryption),
+                api_encryption=False,
                 api_encryption_key=pending["key"] if pending else None,
             )
 
@@ -113,8 +125,6 @@ async def import_device(
     except (OSError, UnicodeDecodeError):
         await run_in_executor(_cleanup)
         raise
-    if pending and full_config_import:
-        content = await _splice_pending_key_or_cleanup(path, content, pending["key"], _cleanup)
     warning = await controller._validate_rewritten_yaml_or_raise(
         configuration,
         content,
@@ -129,8 +139,28 @@ async def import_device(
         failure_tail=". The import was rolled back; nothing was written.",
     )
 
+    content, key_warning = await _finalize_adoption_key(
+        controller,
+        path=path,
+        content=content,
+        pending=pending,
+        encryption=encryption,
+        full_config_import=full_config_import,
+        cleanup=_cleanup,
+        regenerate=lambda: generate_adoption_yaml(
+            name,
+            friendly_name,
+            project_name,
+            package_import_url,
+            network_provided=network != const.CONF_WIFI,
+        ),
+    )
+
     await controller._commit_history(configuration, f"Import {configuration}")
-    controller._pending_keys.pop(name)
+    # A warning means the pending key wasn't consumed — keep it for a
+    # later handoff instead of throwing away the only dashboard copy.
+    if key_warning is None:
+        controller._pending_keys.pop(name)
 
     # Post-write scan is best-effort; the next periodic scan
     # will catch the new YAML and failing here would mislead the
@@ -142,8 +172,10 @@ async def import_device(
 
     _drop_importable_row_and_probe(controller, name)
     result = {"configuration": configuration}
-    if warning:
-        result["warning"] = warning
+    # Mutually exclusive in practice: the validation warning only arises
+    # on the generated-shape path, the key warning only on full-config.
+    if combined_warning := (warning or key_warning):
+        result["warning"] = combined_warning
     return result
 
 
@@ -240,27 +272,111 @@ def save_ignored_devices(controller: DevicesController) -> None:
     )
 
 
+async def _finalize_adoption_key(
+    controller: DevicesController,
+    *,
+    path: Path,
+    content: str,
+    pending: dict[str, str] | None,
+    encryption: str | None,
+    full_config_import: bool,
+    cleanup: Callable[[], None],
+    regenerate: Callable[[], str],
+) -> tuple[str, str | None]:
+    """
+    Land the right API key after validation: pending splice, fresh mint, or none.
+
+    A pending HA-provisioned key wins; a full-config import without one
+    stays verbatim; otherwise an encryption-flagged adoption mints unless
+    the package already enables encryption. Returns ``(content,
+    warning)``; a warning means the pending key was NOT consumed.
+    """
+    if pending:
+        if not full_config_import:
+            return content, None  # already baked into the generated YAML
+        return await _splice_pending_key_or_cleanup(path, content, pending["key"], cleanup)
+    if encryption and not full_config_import:
+        content = await _mint_key_unless_package_encrypts(
+            controller, path, content, cleanup, regenerate=regenerate
+        )
+    return content, None
+
+
+async def _mint_key_unless_package_encrypts(
+    controller: DevicesController,
+    path: Path,
+    content: str,
+    cleanup: Callable[[], None],
+    *,
+    regenerate: Callable[[], str],
+) -> str:
+    """
+    Bake a fresh API key unless the resolved package already enables encryption.
+
+    A package shipping its own ``encryption:`` means the running device
+    may hold a dynamically provisioned NVS key, and flashing a competing
+    baked key locks its Home Assistant entry out. Resolution failures
+    also skip the mint: a plaintext API self-heals through HA's dynamic
+    provisioning and key push, a competing key doesn't.
+    """
+    esphome_cmd = controller.state.esphome_cmd
+    if not esphome_cmd:
+        return content
+    try:
+        config = await run_esphome_config(esphome_cmd, path)
+    except EsphomeConfigUnavailableError:
+        config = None
+    if config is None:
+        _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
+        return content
+    api_block = config.get("api")
+    # Presence check, not get_api_encryption_block: a bare ``encryption:``
+    # can resolve to null and must still count as package-provided.
+    if isinstance(api_block, dict) and "encryption" in api_block:
+        return content
+    new_content = regenerate()
+    try:
+        await run_in_executor(write_user_yaml, path, new_content)
+    except Exception:
+        await run_in_executor(cleanup)
+        raise
+    return new_content
+
+
 async def _splice_pending_key_or_cleanup(
     path: Path,
     content: str,
     key: str,
     cleanup: Callable[[], None],
-) -> str:
+) -> tuple[str, str | None]:
     """
     Replace a full-config import's literal key with the HA-provisioned one.
 
-    No literal key (or an indirection) is left alone — a config carrying
-    no competing key keeps the device's NVS-stored key working.
+    Returns ``(content, warning)``. No literal key is left alone — a
+    config carrying no competing key keeps the device's NVS-stored key
+    working. An indirected key (``!secret`` / ``${…}``) IS competing but
+    can't be rewritten safely; the warning says so and the pending key
+    is kept for a later handoff.
     """
+    existing = read_yaml_scalar(content, ("api", "encryption", "key"))
+    if existing is not None and _strip_yaml_quotes(existing) == key:
+        return content, None
     spliced = rewrite_api_encryption_key(content, key)
     if spliced == content:
-        return content
+        if existing is not None:
+            return content, (
+                "The imported config supplies its own API encryption key via "
+                "!secret or a substitution; the key Home Assistant provisioned "
+                "was not applied, so installing this config may cut Home "
+                "Assistant off until it re-provisions."
+            )
+        return content, None
     try:
         await run_in_executor(write_user_yaml, path, spliced)
     except Exception:
         await run_in_executor(cleanup)
         raise
-    return spliced
+    return spliced, None
 
 
 def _drop_importable_row_and_probe(controller: DevicesController, name: str) -> None:

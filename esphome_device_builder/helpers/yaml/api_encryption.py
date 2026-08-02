@@ -72,6 +72,10 @@ def upsert_api_encryption_key(yaml_text: str, new_key: str) -> str:
 
     rendered = _quote(new_key)
     nl = "\r\n" if "\r\n" in yaml_text else "\n"
+    # A final line without an ending would swallow an end-of-file insert
+    # onto itself (splitlines keeps the last element bare).
+    if yaml_text and not yaml_text.endswith(("\n", "\r")):
+        yaml_text += nl
     lines = yaml_text.splitlines(keepends=True)
     located = _locate_top_block(lines, "api")
 

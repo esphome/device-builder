@@ -222,6 +222,67 @@ async def test_set_encryption_key_validation_failure_leaves_file_untouched(
     assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
 
 
+async def test_set_encryption_key_refuses_flow_style_api_block(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A flow-style ``api: {...}`` the line walker can't edit refuses cleanly."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    yaml_text = "esphome:\n  name: kitchen\n\napi: {reboot_timeout: 0s}\n"
+    _configure(ctrl, tmp_path, yaml_text, loaded_integrations=["api", "wifi"])
+
+    result = await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert result["result"] == "not_writable"
+    assert "flow-style" in result["reason"] or "inline value" in result["reason"]
+    assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
+
+
+async def test_set_encryption_key_round_trip_guard_raises_internal_error(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rewrite the reader can't read back never lands on disk."""
+    ctrl = make_controller(tmp_path, with_state_monitor=True)
+    _configure(ctrl, tmp_path, API_KEY_YAML)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.encryption_key.upsert_api_encryption_key",
+        lambda content, key: content + "# garbage\n",
+    )
+
+    with pytest.raises(CommandError) as excinfo:
+        await ctrl.set_encryption_key(name="kitchen", key=KEY)
+
+    assert excinfo.value.code == ErrorCode.INTERNAL_ERROR
+    assert OTHER_KEY in (tmp_path / "kitchen.yaml").read_text(encoding="utf-8")
+
+
+async def test_pending_keys_store_decode_tolerates_bad_disk_state(tmp_path: Path) -> None:
+    """Corrupt JSON, non-dict roots, and non-dict entries all load as empty/filtered."""
+    store_path = tmp_path / ".device-builder-pending-keys.json"
+    for raw, expected in (
+        (b"{not json", None),
+        (b'["list"]', None),
+        (b'{"good": {"key": "K=="}, "bad": "str", "1": {"key": "J=="}}', {"key": "K=="}),
+    ):
+        store_path.write_bytes(raw)
+        store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)
+        await store.async_load()
+        assert store.get("good") == expected
+        assert store.get("bad") is None
+
+
+async def test_pending_keys_store_set_same_entry_skips_save(tmp_path: Path) -> None:
+    """Re-pushing the identical entry schedules no redundant write."""
+    store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)
+    store.set("a", KEY, "AA:BB:CC:DD:EE:FF")
+    saves: list[object] = []
+    store._store.async_delay_save = lambda *a, **kw: saves.append(a)  # type: ignore[method-assign]
+    store.set("a", KEY, "AA:BB:CC:DD:EE:FF")
+    assert saves == []
+
+
 async def test_pending_keys_store_set_and_pop_roundtrip(tmp_path: Path) -> None:
     """RAM semantics: set overwrites, pop returns and clears, mac optional."""
     store = PendingKeysStore(data_dir=tmp_path, shutdown_register=lambda cb: None)

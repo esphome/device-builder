@@ -1109,6 +1109,15 @@ def test_upsert_api_encryption_key_ignores_encryption_inside_list() -> None:
     assert out == expected
 
 
+def test_upsert_api_encryption_key_handles_missing_final_newline() -> None:
+    """An end-of-file insert must not splice onto a bare last line."""
+    out = upsert_api_encryption_key("esphome:\n  name: x\napi:\n  reboot_timeout: 0s", "NEW==")
+    assert out.endswith('api:\n  reboot_timeout: 0s\n  encryption:\n    key: "NEW=="\n')
+    out = upsert_api_encryption_key("api:\n  encryption:", "NEW==")
+    assert out == 'api:\n  encryption:\n    key: "NEW=="\n'
+    assert _strip_yaml_quotes(read_yaml_scalar(out, ("api", "encryption", "key"))) == "NEW=="
+
+
 def test_upsert_api_encryption_key_preserves_crlf_line_endings() -> None:
     """Inserted lines match a CRLF file's endings."""
     yaml = "api:\r\n  reboot_timeout: 0s\r\n"

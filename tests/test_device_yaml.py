@@ -3122,6 +3122,10 @@ def test_generate_adoption_yaml_variants() -> None:
     assert "wifi" not in no_creds
     no_api = generate_adoption_yaml("p", "P", "k", "github://x/y.yaml@main", api_encryption=False)
     assert "api:" not in no_api
+    supplied = generate_adoption_yaml(
+        "p", "P", "k", "github://x/y.yaml@main", api_encryption=False, api_encryption_key="K=="
+    )
+    assert '    key: "K=="' in supplied
 
 
 def test_board_provides_network_for_package_boards() -> None:

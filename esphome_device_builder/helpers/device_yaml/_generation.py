@@ -169,10 +169,11 @@ def generate_adoption_yaml(
 
     One shape for both consumers — ``devices/import`` (adopt) and a
     ``package_import_url`` board create: ``substitutions`` + ``packages:``
-    + ``esphome:`` overrides + a fresh API key, with a ``wifi:`` block
-    only when the package doesn't provide the network. The name rides
-    through ``substitutions`` because vendor packages may reference
-    ``${name}`` internally.
+    + ``esphome:`` overrides + an API key (*api_encryption_key*, else
+    freshly generated), with a ``wifi:`` block only when the package
+    doesn't provide the network. The name rides through
+    ``substitutions`` because vendor packages may reference ``${name}``
+    internally.
     """
     lines: list[str] = ["substitutions:"]
     lines.append(f"  name: {name}")
