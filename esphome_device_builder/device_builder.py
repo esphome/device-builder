@@ -86,6 +86,13 @@ _BACKGROUND_POLL_INTERVAL_SECONDS = 5
 # bug in a slow handler can't silently extend shutdown to a minute.
 _SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
+# Upper bound on the advertise chain's wait for ``notify_serving``.
+# Every production path opens the gate within milliseconds of
+# ``start()`` returning; the timeout exists so a future serving path
+# that forgets the call self-reports instead of silently never
+# advertising.
+_SERVING_GATE_TIMEOUT_SECONDS = 60.0
+
 # Cache policy for the SPA shell:
 #   - ``index.html`` and any non-hashed top-level file: must always
 #     revalidate so a re-deployed wheel doesn't get masked by a
@@ -425,7 +432,14 @@ class DeviceBuilder:
         self, zeroconf: AsyncEsphomeZeroconf | None
     ) -> None:
         """Once serving, register the dashboard mDNS advertise, then start peer discovery."""
-        await self._serving_event.wait()
+        try:
+            await asyncio.wait_for(self._serving_event.wait(), _SERVING_GATE_TIMEOUT_SECONDS)
+        except TimeoutError:
+            _LOGGER.warning(
+                "Serving gate never opened after %ss — a serving path is missing "
+                "notify_serving(); advertising anyway",
+                _SERVING_GATE_TIMEOUT_SECONDS,
+            )
         if self._dashboard_advertiser is not None and zeroconf is not None:
             # The legs are independent: a failed advertise must neither
             # die silently nor keep the peer browse from starting.

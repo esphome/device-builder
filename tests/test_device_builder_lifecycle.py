@@ -230,6 +230,28 @@ async def test_advertise_task_starts_discovery_after_register(
     assert order == ["register", "discovery"]
 
 
+async def test_forgotten_serving_gate_warns_and_advertises_anyway(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A never-opened serving gate self-reports and still runs the chain."""
+    monkeypatch.setattr("esphome_device_builder.device_builder._SERVING_GATE_TIMEOUT_SECONDS", 0.01)
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    db.remote_build_offloader = MagicMock()
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.start_peer_discovery",
+        calls.append,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="esphome_device_builder.device_builder"):
+        await db._advertise_and_start_peer_discovery(None)
+
+    assert calls == [db.remote_build_offloader]
+    assert any("Serving gate never opened" in rec.getMessage() for rec in caplog.records)
+
+
 async def test_advertise_failure_still_starts_discovery(
     make_settings: MakeSettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
