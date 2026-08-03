@@ -1078,7 +1078,8 @@ async def test_device_builder_advertises_in_ha_addon_mode(
         # default-off, so no pin / port is pushed into the advertise.
         adv.set_pin_sha256.assert_not_called()  # type: ignore[attr-defined]
         adv.set_remote_build_port.assert_not_called()  # type: ignore[attr-defined]
-        adv.refresh.assert_not_awaited()  # type: ignore[attr-defined]
+        # The chained task's post-register re-diff is the only refresh.
+        adv.refresh.assert_awaited_once()  # type: ignore[attr-defined]
     finally:
         await db.stop()
 

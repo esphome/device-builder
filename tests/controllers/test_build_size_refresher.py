@@ -324,28 +324,37 @@ async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path
     assert refresher.pending == set()
 
 
-async def test_initial_sweep_delay_holds_sweep_and_stop_cancels_cleanly(
+async def test_initial_sweep_delay_holds_sweep_but_drains_requests(
     tmp_path: Path,
 ) -> None:
-    """A configured delay parks the fleet sweep; requests accumulate; mid-delay stop cancels."""
+    """A configured delay parks only the fleet sweep; the drain loop is live from the start."""
     calls: list[bool] = []
 
     def _filenames() -> list[str]:
         calls.append(True)
         return []
 
-    refresher, _, _ = _make(tmp_path, initial_sweep_delay=3600.0)
+    refresher, refreshed, _ = _make(tmp_path, initial_sweep_delay=3600.0)
     refresher._get_filenames = _filenames
     refresher.start()
     await asyncio.sleep(0)
-    refresher.request("kitchen.yaml")
-    await asyncio.sleep(0)
+    assert calls == []  # sweep held on the delay
 
-    assert calls == []  # sweep still held on the delay
-    assert refresher.pending == {"kitchen.yaml"}  # parked, not drained
+    with patch(
+        "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
+        return_value=BuildSizeRefreshResult(
+            size_bytes=1, signal=BuildDirSignal(dir_mtime=1, info_mtime=1)
+        ),
+    ):
+        refresher.request("kitchen.yaml")
+        await asyncio.wait_for(refresher.wait_idle(), _TIMEOUT)
+
+    assert refreshed == ["kitchen.yaml"]  # drained while the sweep is still held
+    assert calls == []
 
     await refresher.stop()
     assert refresher._task is None
+    assert refresher._sweep_task is None
 
 
 # ----------------------------------------------------------------------

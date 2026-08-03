@@ -364,12 +364,8 @@ class DeviceBuilder:
             self._startup_timer.mark(name)
 
     def _print_banner_and_notify_serving(self, banner: str) -> None:
-        """``web.run_app`` post-bind hook: release the advertise gate, keep the banner.
-
-        ``run_app`` invokes ``print`` only after every site's socket is
-        bound and accepting, making it the one signal that serving has
-        actually begun.
-        """
+        """``web.run_app`` post-bind hook: release the advertise gate, keep the banner."""
+        # run_app invokes print only after every site's socket is bound.
         self.notify_serving()
         print(banner)  # noqa: T201 — aiohttp's own run_app banner, kept on stdout
 
@@ -401,19 +397,13 @@ class DeviceBuilder:
     async def _advertise_and_start_peer_discovery(
         self, zeroconf: AsyncEsphomeZeroconf | None
     ) -> None:
-        """
-        Once serving, register the dashboard mDNS advertise, then start peer discovery.
-
-        Held on ``notify_serving`` so the announce can never point peers
-        at a dashboard whose socket isn't accepting yet. The browse
-        starts only after the register completes so the browser can
-        capture our own service-instance name (``allow_name_change`` may
-        rename it mid-probe) and filter our broadcast out of the
-        discovered list.
-        """
+        """Once serving, register the dashboard mDNS advertise, then start peer discovery."""
         await self._serving_event.wait()
         if self._dashboard_advertiser is not None and zeroconf is not None:
             await self._dashboard_advertiser.register(zeroconf)
+            # A TXT setter racing the register's probe window no-ops its
+            # own refresh (``_info`` not yet set); re-diff to publish it.
+            await self._dashboard_advertiser.refresh()
         if (offloader := self.remote_build_offloader) is not None:
             start_peer_discovery(offloader)
 

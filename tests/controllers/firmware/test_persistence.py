@@ -54,7 +54,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -67,25 +67,10 @@ from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 @pytest.fixture
 def patch_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Mock the subprocess bits of ``start()`` so it runs without spawning.
-
-    ``start()`` calls ``_find_esphome_cmd`` (which probes
-    ``sys.executable``) and ``_verify_esphome_importable`` (which
-    spawns ``esphome --version``). Neither is the subject of this
-    test file; replace both so ``start()``'s persistence-load
-    branch is the only thing exercised.
-    """
+    """Stub ``_find_esphome_cmd`` so ``start()`` runs without probing the interpreter."""
     monkeypatch.setattr(
         "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
         lambda: ["fake-esphome"],
-    )
-
-    async def _verify(_cmd: list[str]) -> tuple[bool, str]:
-        return True, "fake-version"
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller._verify_esphome_importable",
-        _verify,
     )
 
 
@@ -464,20 +449,12 @@ async def test_non_dict_entry_in_metadata_does_not_crash_warning_path(
 # ---------------------------------------------------------------------------
 
 
-async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
+async def test_log_esphome_sanity_logs_error_with_install_hint(
     firmware_controller_factory: FirmwareControllerFactory,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A failed ``_verify_esphome_importable`` surfaces an actionable error log.
-
-    The log line is the only signal a user has that their
-    install will fail on first compile — every job will FAIL
-    the same way otherwise. Pin both the ``ERROR`` level (so a
-    future "downgrade to warning" refactor surfaces here) and
-    the install-hint substring so the message stays
-    actionable.
-    """
+    """A failed ``_verify_esphome_importable`` logs ERROR with the install hint."""
 
     async def _verify_fail(_cmd: list[str]) -> tuple[bool, str]:
         return False, "No module named esphome"
@@ -515,7 +492,7 @@ async def test_start_schedules_esphome_sanity_probe(
         "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
         lambda: ["fake-esphome"],
     )
-    spy = AsyncMock()
+    spy = MagicMock()
     monkeypatch.setattr(FirmwareController, "_log_esphome_sanity", spy)
     controller = _persistent_controller(firmware_controller_factory)
     await controller.start()
@@ -532,7 +509,7 @@ async def test_start_skips_esphome_sanity_probe_on_prebuilt_environment(
         "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
         lambda: ["fake-esphome"],
     )
-    spy = AsyncMock()
+    spy = MagicMock()
     monkeypatch.setattr(FirmwareController, "_log_esphome_sanity", spy)
     controller = _persistent_controller(firmware_controller_factory)
     controller._db.settings.on_ha_addon = True

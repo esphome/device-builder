@@ -85,6 +85,7 @@ class BuildSizeRefresher(WakeWorker[str]):
         self._persist_size = persist_size
         self._on_refreshed = on_refreshed
         self._initial_sweep_delay = initial_sweep_delay
+        self._sweep_task: asyncio.Task[None] | None = None
 
     async def enqueue_stale_fleet(self) -> None:
         """
@@ -107,12 +108,27 @@ class BuildSizeRefresher(WakeWorker[str]):
         for configuration in stale:
             self.request(configuration)
 
+    async def stop(self) -> None:
+        """Cancel the pending delayed sweep, then the worker."""
+        if self._sweep_task is not None:
+            self._sweep_task.cancel()
+            self._sweep_task = None
+        await super().stop()
+
     async def _on_start(self) -> None:
-        # Hold the initial sweep out of the cold-start window so its
-        # fleet-wide disk walk doesn't compete with store loads and
-        # job restore; requests accumulate in ``pending`` meanwhile.
+        # The delay holds only the fleet-wide disk walk out of the
+        # cold-start window; the drain loop stays live for per-device
+        # requests the whole time.
         if self._initial_sweep_delay:
-            await asyncio.sleep(self._initial_sweep_delay)
+            self._sweep_task = asyncio.create_task(self._delayed_initial_sweep())
+            return
+        await self._run_initial_sweep()
+
+    async def _delayed_initial_sweep(self) -> None:
+        await asyncio.sleep(self._initial_sweep_delay)
+        await self._run_initial_sweep()
+
+    async def _run_initial_sweep(self) -> None:
         try:
             await self.enqueue_stale_fleet()
         except Exception:

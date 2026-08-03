@@ -195,12 +195,7 @@ async def test_start_spawns_background_polling_task(
 async def test_advertise_task_starts_discovery_after_register(
     make_settings: MakeSettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The chained startup task registers the advertise before the peer browse.
-
-    The browse must observe the post-register service-instance name
-    (``allow_name_change`` may rename it mid-probe) to filter our own
-    broadcast out of the discovered list.
-    """
+    """The chained startup task registers the advertise before the peer browse."""
     db = DeviceBuilder(make_settings(with_core_path=True))
     order: list[str] = []
 
@@ -210,6 +205,7 @@ async def test_advertise_task_starts_discovery_after_register(
         order.append("register")
 
     advertiser.register = _register
+    advertiser.refresh = AsyncMock()
     db._dashboard_advertiser = advertiser
     db.remote_build_offloader = MagicMock()
     monkeypatch.setattr(
@@ -227,12 +223,7 @@ async def test_start_schedules_advertise_and_discovery_task(
     _hermetic_lifecycle: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``start()`` parks the advertise + browse chain until the socket is bound.
-
-    Advertising before the bind would point peers at a dashboard that
-    isn't accepting yet; ``notify_serving`` (fired by ``run_app``'s
-    post-bind ``print`` hook) is what releases the chain.
-    """
+    """``start()`` parks the advertise + browse chain until ``notify_serving``."""
     calls: list[object] = []
     monkeypatch.setattr(
         "esphome_device_builder.device_builder.start_peer_discovery",
