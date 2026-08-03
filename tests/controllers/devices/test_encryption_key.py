@@ -385,7 +385,7 @@ async def test_set_encryption_key_refuses_flow_style_api_block(
     assert (tmp_path / "kitchen.yaml").read_text(encoding="utf-8") == yaml_text
 
 
-async def test_set_encryption_key_round_trip_guard_raises_internal_error(
+async def test_set_encryption_key_round_trip_guard_refuses_and_keeps_key(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
     monkeypatch: pytest.MonkeyPatch,

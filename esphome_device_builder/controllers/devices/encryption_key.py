@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import logging
 from enum import StrEnum
@@ -20,7 +19,7 @@ from ...helpers.yaml import (
     upsert_api_encryption_key,
 )
 from ...models import ErrorCode
-from ..editor import IMPORT_VALIDATE_TIMEOUT, ValidatorUnavailableError
+from ..editor import ValidatorUnavailableError
 from .mutations_simple import _read_device_yaml_or_raise
 
 if TYPE_CHECKING:
@@ -90,6 +89,7 @@ async def set_encryption_key(
     # aggregate success — its YAML still carries a competing key.
     if KeyHandoffResult.NOT_WRITABLE in outcomes:
         response["reason"] = reason
+        _LOGGER.info("HA key handoff for %s refused: %s", name, reason)
     return response
 
 
@@ -144,13 +144,8 @@ async def _apply_to_device(
         )
 
     try:
-        # The adopt budget, not the editor's 30s default — the same
-        # cold github:// package fetch, and HA is holding the request.
         await controller._validate_rewritten_yaml_or_raise(
-            configuration,
-            new_content,
-            action="update encryption key",
-            timeout=IMPORT_VALIDATE_TIMEOUT,
+            configuration, new_content, action="update encryption key"
         )
     except (TimeoutError, ValidatorUnavailableError):
         reason = (
@@ -173,9 +168,8 @@ async def _resolved_config_has_api(
         return None
     path = controller._db.settings.rel_path(configuration)
     try:
-        async with asyncio.timeout(IMPORT_VALIDATE_TIMEOUT):
-            config = await run_esphome_config(esphome_cmd, path)
-    except (EsphomeConfigUnavailableError, TimeoutError):
+        config = await run_esphome_config(esphome_cmd, path)
+    except EsphomeConfigUnavailableError:
         return None
     if config is None:
         return None

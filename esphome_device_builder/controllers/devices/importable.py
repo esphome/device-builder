@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING
@@ -315,12 +314,11 @@ async def _mint_key_unless_package_encrypts(
     if not esphome_cmd:
         return None
     try:
-        # The adopt-time budget, not run_esphome_config's 60s ceiling —
-        # a slow package fetch must not hold the adopt dialog open when
-        # the timeout lands in the skip-the-mint branch anyway.
-        async with asyncio.timeout(IMPORT_VALIDATE_TIMEOUT):
-            config = await run_esphome_config(esphome_cmd, path)
-    except (EsphomeConfigUnavailableError, TimeoutError):
+        # Deliberately unbudgeted (run_esphome_config's own 60s ceiling
+        # governs): adoption is user-triggered, and whether the device
+        # gets a key at all outweighs dialog latency.
+        config = await run_esphome_config(esphome_cmd, path)
+    except EsphomeConfigUnavailableError:
         config = None
     if config is None:
         _LOGGER.warning("Could not resolve %s; adopted without a generated API key", path.name)
