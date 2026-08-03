@@ -192,6 +192,57 @@ async def test_start_spawns_background_polling_task(
         await db.stop()
 
 
+async def test_advertise_task_starts_discovery_after_register(
+    make_settings: MakeSettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The chained startup task registers the advertise before the peer browse.
+
+    The browse must observe the post-register service-instance name
+    (``allow_name_change`` may rename it mid-probe) to filter our own
+    broadcast out of the discovered list.
+    """
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    order: list[str] = []
+
+    advertiser = MagicMock()
+
+    async def _register(_zeroconf: object) -> None:
+        order.append("register")
+
+    advertiser.register = _register
+    db._dashboard_advertiser = advertiser
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.start_peer_discovery",
+        lambda _offloader: order.append("discovery"),
+    )
+
+    await db._advertise_and_start_peer_discovery(MagicMock())
+    assert order == ["register", "discovery"]
+
+
+async def test_start_schedules_advertise_and_discovery_task(
+    make_settings: MakeSettingsFactory,
+    _hermetic_lifecycle: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``start()`` hands the advertise + browse chain to a background task."""
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.start_peer_discovery",
+        calls.append,
+    )
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    try:
+        await db.start()
+        # Eager task + no advertiser (zeroconf is None under the
+        # hermetic fixture) → the chain completes inline.
+        assert calls == [db.remote_build_offloader]
+        assert db._advertise_task is not None
+        assert db._advertise_task.done()
+    finally:
+        await db.stop()
+
+
 async def test_background_poll_skips_when_no_subscribers(
     make_settings: MakeSettingsFactory, _hermetic_lifecycle: None
 ) -> None:

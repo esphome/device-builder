@@ -54,6 +54,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -477,10 +478,6 @@ async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
     the install-hint substring so the message stays
     actionable.
     """
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
-        lambda: ["fake-esphome"],
-    )
 
     async def _verify_fail(_cmd: list[str]) -> tuple[bool, str]:
         return False, "No module named esphome"
@@ -491,11 +488,12 @@ async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
     )
 
     controller = _persistent_controller(firmware_controller_factory)
+    controller.state.esphome_cmd = ["fake-esphome"]
     with caplog.at_level(
         logging.ERROR,
         logger="esphome_device_builder.controllers.firmware.controller",
     ):
-        await controller.start()
+        await controller._log_esphome_sanity()
 
     failures = [
         rec
@@ -506,6 +504,41 @@ async def test_start_logs_error_when_esphome_cli_sanity_check_fails(
     msg = failures[0].getMessage()
     assert "No module named esphome" in msg
     assert "pip install" in msg
+
+
+async def test_start_schedules_esphome_sanity_probe(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pip/dev install gets the CLI sanity probe as a background task."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
+        lambda: ["fake-esphome"],
+    )
+    spy = AsyncMock()
+    monkeypatch.setattr(FirmwareController, "_log_esphome_sanity", spy)
+    controller = _persistent_controller(firmware_controller_factory)
+    await controller.start()
+
+    assert spy.call_count == 1
+
+
+async def test_start_skips_esphome_sanity_probe_on_prebuilt_environment(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-built environment (HA add-on, desktop app) schedules no sanity probe."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
+        lambda: ["fake-esphome"],
+    )
+    spy = AsyncMock()
+    monkeypatch.setattr(FirmwareController, "_log_esphome_sanity", spy)
+    controller = _persistent_controller(firmware_controller_factory)
+    controller._db.settings.on_ha_addon = True
+    await controller.start()
+
+    assert spy.call_count == 0
 
 
 def _inject_job(tmp_path: Path, job: FirmwareJob) -> None:

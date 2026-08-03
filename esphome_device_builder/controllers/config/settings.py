@@ -362,6 +362,11 @@ class DashboardSettings:
         return bool(self.desktop_bin)
 
     @property
+    def prebuilt_esphome_environment(self) -> bool:
+        """Whether esphome ships pre-installed (HA add-on container or desktop app)."""
+        return self.on_ha_addon or bool(self.desktop_version) or bool(self.desktop_bin)
+
+    @property
     def front_door_open(self) -> bool:
         """Operator disabled external auth (legacy leave_front_door_open env var)."""
         return self.on_ha_addon and get_bool_env("DISABLE_HA_AUTHENTICATION")

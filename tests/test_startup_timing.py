@@ -113,7 +113,17 @@ async def test_start_marks_controllers_and_logs_summary(
     try:
         with caplog.at_level(logging.INFO, logger="esphome_device_builder.device_builder"):
             await db.start()
-        assert "controllers=" in timer.summary()
+        summary = timer.summary()
+        for phase in (
+            "prefs=",
+            "devices=",
+            "firmware=",
+            "editor=",
+            "history=",
+            "remote_build=",
+            "controllers=",
+        ):
+            assert phase in summary
         assert any("Startup phases" in rec.getMessage() for rec in caplog.records)
     finally:
         await db.stop()

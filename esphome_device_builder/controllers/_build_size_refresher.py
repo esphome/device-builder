@@ -27,6 +27,7 @@ Design constraints driving the class shape:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
@@ -75,12 +76,15 @@ class BuildSizeRefresher(WakeWorker[str]):
         get_metadata_snapshot: Callable[[], dict[str, dict[str, Any]]],
         persist_size: Callable[[str, BuildSizeRefreshResult], None],
         on_refreshed: RefreshedCallback,
+        *,
+        initial_sweep_delay: float = 0.0,
     ) -> None:
         super().__init__()
         self._get_filenames = get_filenames
         self._get_metadata_snapshot = get_metadata_snapshot
         self._persist_size = persist_size
         self._on_refreshed = on_refreshed
+        self._initial_sweep_delay = initial_sweep_delay
 
     async def enqueue_stale_fleet(self) -> None:
         """
@@ -104,6 +108,11 @@ class BuildSizeRefresher(WakeWorker[str]):
             self.request(configuration)
 
     async def _on_start(self) -> None:
+        # Hold the initial sweep out of the cold-start window so its
+        # fleet-wide disk walk doesn't compete with store loads and
+        # job restore; requests accumulate in ``pending`` meanwhile.
+        if self._initial_sweep_delay:
+            await asyncio.sleep(self._initial_sweep_delay)
         try:
             await self.enqueue_stale_fleet()
         except Exception:

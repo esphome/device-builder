@@ -15,7 +15,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
 from esphome.const import __version__ as esphome_version
@@ -42,6 +42,7 @@ from .controllers.firmware.download import http_download as firmware_http_downlo
 from .controllers.labels import LabelsController
 from .controllers.onboarding import OnboardingController
 from .controllers.remote_build import OffloaderController, ReceiverController
+from .controllers.remote_build.discovery import start_discovery as start_peer_discovery
 from .controllers.version_history import VersionHistoryController
 from .helpers.api import CommandHandler, collect_api_commands
 from .helpers.async_ import create_eager_task, drain_tasks
@@ -57,6 +58,9 @@ from .helpers.secrets_state import write_secrets_locked
 from .helpers.startup_timing import StartupTimer
 from .helpers.subscriber_presence import SubscriberPresence
 from .models import EventType
+
+if TYPE_CHECKING:
+    from esphome.zeroconf import AsyncEsphomeZeroconf
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -267,6 +271,7 @@ class DeviceBuilder:
         # Background tasks
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
+        self._advertise_task: asyncio.Task | None = None
         self._bg_poll: _BackgroundPollLoop | None = None
 
         # Latches the one-time network teardown so it can run early (in the
@@ -352,18 +357,13 @@ class DeviceBuilder:
             raise RuntimeError(msg)
         self.loop.set_default_executor(self._executor)
 
-    async def start(self) -> None:
-        """Start the application — load catalogs, initialize controllers."""
-        self.loop = asyncio.get_running_loop()
-        # Re-arm the network-teardown latch so a restart-in-place teardown runs.
-        self._network_stopped = False
-        # Pool itself was constructed in ``__init__`` (so callers
-        # probing ``self._executor`` pre-start see the right value);
-        # here we just register it as the loop's default. See
-        # ``_EXECUTOR_MAX_WORKERS`` for the why behind the pool size.
-        self._install_default_executor()
+    def _mark_startup_phase(self, name: str) -> None:
+        """Record a startup sub-phase when a timer is attached."""
+        if self._startup_timer is not None:
+            self._startup_timer.mark(name)
 
-        # Initialize controllers
+    def _construct_controllers(self) -> None:
+        """Construct every controller and load the board/component catalogs."""
         self.auth = AuthController(self)
         self.boards = BoardCatalog()
         self.boards.load()
@@ -380,16 +380,49 @@ class DeviceBuilder:
         self.remote_build_offloader = OffloaderController(self)
         self.remote_build_receiver = ReceiverController(self)
         self.version_history = VersionHistoryController(self)
+
+    async def _advertise_and_start_peer_discovery(
+        self, zeroconf: AsyncEsphomeZeroconf | None
+    ) -> None:
+        """
+        Register the dashboard mDNS advertise, then start peer discovery.
+
+        The browse starts only after the register completes so the browser
+        can capture our own service-instance name (``allow_name_change``
+        may rename it mid-probe) and filter our broadcast out of the
+        discovered list.
+        """
+        if self._dashboard_advertiser is not None and zeroconf is not None:
+            await self._dashboard_advertiser.register(zeroconf)
+        start_peer_discovery(self.remote_build_offloader)
+
+    async def start(self) -> None:
+        """Start the application — load catalogs, initialize controllers."""
+        self.loop = asyncio.get_running_loop()
+        # Re-arm the network-teardown latch so a restart-in-place teardown runs.
+        self._network_stopped = False
+        # Pool itself was constructed in ``__init__`` (so callers
+        # probing ``self._executor`` pre-start see the right value);
+        # here we just register it as the loop's default. See
+        # ``_EXECUTOR_MAX_WORKERS`` for the why behind the pool size.
+        self._install_default_executor()
+
+        self._construct_controllers()
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
         await self.config.async_load()
         # Default pre-existing installs to the YAML experience before
         # any onboarding command can be served.
         await self.onboarding.migrate_preexisting_install()
+        self._mark_startup_phase("prefs")
         await self.devices.start()
+        self._mark_startup_phase("devices")
         await self.firmware.start()
+        self._mark_startup_phase("firmware")
         await self.editor.start()
+        self._mark_startup_phase("editor")
         await self.version_history.start()
+        self._mark_startup_phase("history")
 
         # Advertise this dashboard on mDNS so peer dashboards (and
         # the future ESPHome Desktop welcome screen) can discover it.
@@ -436,18 +469,20 @@ class DeviceBuilder:
         # initial announce and flap the wire-visible TXT keys.
         await self._remote_build_lifecycle.maybe_start()
 
-        if self._dashboard_advertiser is not None and zeroconf is not None:
-            await self._dashboard_advertiser.register(zeroconf)
-
         # Remote-build peer browse (issue #106): browse the same
-        # service type to surface peer dashboards.
-        # ``OffloaderController.start`` is itself a no-op on the
-        # mDNS path when zeroconf is unavailable — same fail-soft
-        # contract as the advertise — so we don't gate it here.
-        # Started AFTER the advertiser so the browser can capture
-        # our own service-instance name and filter our broadcast
-        # out of the discovered list.
+        # service type to surface peer dashboards. ``start`` loads the
+        # pairings store and spawns peer-link clients so the first
+        # ``subscribe_events`` snapshot sees them; the mDNS browse
+        # itself starts in the background task below.
         await self.remote_build_offloader.start()
+        self._mark_startup_phase("remote_build")
+
+        # ``async_register_service`` awaits its ~1.2s probe cycle, and
+        # the browse must follow the register, so both run off the
+        # startup critical path.
+        self._advertise_task = self.create_background_task(
+            self._advertise_and_start_peer_discovery(zeroconf)
+        )
 
         # Collect command handlers from all controllers
         for controller in (
@@ -942,8 +977,7 @@ class DeviceBuilder:
                 # site stays unauthenticated for same-origin and non-browser
                 # clients (which omit Origin) without paying the open-origin cost.
                 app = self.create_app(trusted=False, peer_guard=False)
-                if self._startup_timer is not None:
-                    self._startup_timer.mark("app")
+                self._mark_startup_phase("app")
                 hosts = resolve_bind_host(settings.host) if settings.unix_socket is None else []
                 ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
                 web.run_app(
@@ -990,8 +1024,7 @@ class DeviceBuilder:
                     settings.port,
                 )
             app = self.create_app(trusted=True, with_ingress_site=False)
-            if self._startup_timer is not None:
-                self._startup_timer.mark("app")
+            self._mark_startup_phase("app")
             hosts = settings.ingress_bind_hosts
             ensure_single_host_for_ephemeral_port(hosts, settings.ingress_port, "--ingress-port")
             web.run_app(
@@ -1003,8 +1036,7 @@ class DeviceBuilder:
             )
             return
         app = self.create_app()
-        if self._startup_timer is not None:
-            self._startup_timer.mark("app")
+        self._mark_startup_phase("app")
         hosts = resolve_bind_host(settings.host) if settings.unix_socket is None else []
         ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
         # ``handle_signals=False``: keep our ``__main__`` SIGTERM/SIGBREAK trap

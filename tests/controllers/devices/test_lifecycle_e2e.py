@@ -34,6 +34,7 @@ from unittest.mock import patch
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices.controller import _BUILD_SIZE_SWEEP_DELAY_SECONDS
 from esphome_device_builder.models import EventType
 
 from .conftest import MakeDbFactory
@@ -176,6 +177,28 @@ async def test_start_runs_full_initialisation_chain(
     # JOB_COMPLETED listener registered via the real ``EventBus``-shaped stub.
     assert db.bus.listeners == [(EventType.JOB_COMPLETED, controller._on_firmware_job_completed)]
     assert controller._unsub_job_completed is not None
+
+
+async def test_build_size_worker_starts_live_with_delayed_sweep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
+) -> None:
+    """The worker spawns at ``start()`` with its fleet sweep held on the cold-start delay."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        lambda: ["python", "-m", "esphome"],
+    )
+    db = make_db(tmp_path)
+    controller = DevicesController(db)
+    with _capture_inner_lifecycle(controller):
+        await controller.start()
+
+    assert controller._build_size._task is not None
+    assert controller._build_size._initial_sweep_delay == _BUILD_SIZE_SWEEP_DELAY_SECONDS
+
+    with _capture_inner_lifecycle(controller):
+        await controller.stop()
+
+    assert controller._build_size._task is None
 
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@ def _make(
     on_refreshed=None,
     metadata: dict[str, dict[str, Any]] | None = None,
     persist_size=None,
+    initial_sweep_delay: float = 0.0,
 ) -> tuple[BuildSizeRefresher, list[str], list[tuple[str, BuildSizeRefreshResult]]]:
     """Build a refresher + the lists its callbacks append to.
 
@@ -66,6 +67,7 @@ def _make(
         get_metadata_snapshot=lambda: snapshot,
         persist_size=persist_size or _default_persist,
         on_refreshed=on_refreshed or _default_callback,
+        initial_sweep_delay=initial_sweep_delay,
     )
     return refresher, refreshed, persisted
 
@@ -320,6 +322,30 @@ async def test_enqueue_stale_fleet_empty_filenames_skips_executor(tmp_path: Path
 
     assert calls == []  # short-circuited before scheduling anything
     assert refresher.pending == set()
+
+
+async def test_initial_sweep_delay_holds_sweep_and_stop_cancels_cleanly(
+    tmp_path: Path,
+) -> None:
+    """A configured delay parks the fleet sweep; requests accumulate; mid-delay stop cancels."""
+    calls: list[bool] = []
+
+    def _filenames() -> list[str]:
+        calls.append(True)
+        return []
+
+    refresher, _, _ = _make(tmp_path, initial_sweep_delay=3600.0)
+    refresher._get_filenames = _filenames
+    refresher.start()
+    await asyncio.sleep(0)
+    refresher.request("kitchen.yaml")
+    await asyncio.sleep(0)
+
+    assert calls == []  # sweep still held on the delay
+    assert refresher.pending == {"kitchen.yaml"}  # parked, not drained
+
+    await refresher.stop()
+    assert refresher._task is None
 
 
 # ----------------------------------------------------------------------

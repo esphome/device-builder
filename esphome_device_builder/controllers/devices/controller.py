@@ -109,6 +109,10 @@ _LOGGER = logging.getLogger(__name__)
 # row doesn't churn through 10 spawns on the same broken config.
 _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 
+# Keeps the fleet-wide build-tree walk out of the cold-start window
+# where store loads and job restore need the disk.
+_BUILD_SIZE_SWEEP_DELAY_SECONDS: float = 20.0
+
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     DeviceMetadataBase,
@@ -202,6 +206,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             get_metadata_snapshot=self._metadata_store.snapshot_all,
             persist_size=self._persist_build_size,
             on_refreshed=self._scanner.reload,
+            initial_sweep_delay=_BUILD_SIZE_SWEEP_DELAY_SECONDS,
         )
         # Build the state monitor first so the reachability tracker
         # can take its ``get_mdns_cache_info`` bound method directly
@@ -284,10 +289,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._unsub_job_completed = self._db.bus.add_listener(
             EventType.JOB_COMPLETED, self._on_firmware_job_completed
         )
-        # Build-size worker — runs its own initial fleet sweep
-        # on first iteration to pick up CLI-compile drift, then
-        # drains per-device requests as they arrive from the
-        # job-completion hook.
+        # Build-size worker — runs its own (delayed) initial fleet
+        # sweep to pick up CLI-compile drift, then drains per-device
+        # requests as they arrive from the job-completion hook.
         self._build_size.start()
 
     async def stop(self) -> None:

@@ -203,17 +203,10 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
             " ".join(self.state.esphome_cmd),
             sys.executable,
         )
-        ok, detail = await _verify_esphome_importable(self.state.esphome_cmd)
-        if ok:
-            _LOGGER.info("ESPHome CLI sanity check OK — %s", detail)
-        else:
-            _LOGGER.error(
-                "ESPHome CLI sanity check FAILED — %s. Compile/upload jobs "
-                "will fail with this command. Make sure esphome is installed "
-                "in the same environment as the dashboard "
-                "(e.g. ``pip install -e '.[esphome]'`` from the project root).",
-                detail,
-            )
+        # A pre-built environment (HA add-on container, desktop app) ships
+        # esphome by construction, so the probe is pure startup cost there.
+        if not self._db.settings.prebuilt_esphome_environment:
+            self._db.create_background_task(self._log_esphome_sanity())
         await self._load_jobs()
         self._runner_task = self._db.create_background_task(self._run_queue())
 
@@ -778,6 +771,20 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     def _prune_history(self) -> None:
         persistence.prune_history(self)
+
+    async def _log_esphome_sanity(self) -> None:
+        """Probe the esphome CLI and log the outcome."""
+        ok, detail = await _verify_esphome_importable(self.state.esphome_cmd)
+        if ok:
+            _LOGGER.info("ESPHome CLI sanity check OK — %s", detail)
+        else:
+            _LOGGER.error(
+                "ESPHome CLI sanity check FAILED — %s. Compile/upload jobs "
+                "will fail with this command. Make sure esphome is installed "
+                "in the same environment as the dashboard "
+                "(e.g. ``pip install -e '.[esphome]'`` from the project root).",
+                detail,
+            )
 
     # ------------------------------------------------------------------
     # Internals — persistence

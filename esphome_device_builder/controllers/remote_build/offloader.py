@@ -134,7 +134,6 @@ class OffloaderController(_RemoteBuildBase):
         self._subscribe(
             EventType.REMOTE_BUILD_IDENTITY_ROTATED, self._on_remote_build_identity_rotated
         )
-        self._start_discovery()
 
     async def stop(self) -> None:
         """Cancel the browser, drain tasks, flush store, clear dicts."""
@@ -194,7 +193,7 @@ class OffloaderController(_RemoteBuildBase):
         which can happen in lean env paths that drop the
         transitive dep). Fail-soft: the next ``aiohttp`` connect
         falls back to the OS resolver in either case, same
-        contract as :meth:`_start_discovery`.
+        contract as :func:`discovery.start_discovery`.
         """
         if self._db.devices is None:
             return
@@ -209,10 +208,6 @@ class OffloaderController(_RemoteBuildBase):
                 "will fall back to the OS resolver"
             )
             self.state.peer_link_resolver = None
-
-    def _start_discovery(self) -> None:
-        """Bring up the mDNS service browser for peer discovery."""
-        discovery.start_discovery(self)
 
     def _on_offloader_pair_pin_mismatch(self, event: Event[OffloaderPairPinMismatchData]) -> None:
         """Cache the alert in ``_offloader_alerts`` for late-subscriber snapshot."""
