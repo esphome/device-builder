@@ -192,6 +192,17 @@ async def test_start_spawns_background_polling_task(
         await db.stop()
 
 
+def test_print_banner_hook_notifies_serving_and_prints(
+    make_settings: MakeSettingsFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The ``run_app`` print hook opens the serving gate and keeps the banner."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    assert not db._serving_event.is_set()
+    db._print_banner_and_notify_serving("======== Running on http://0.0.0.0:6052 ========")
+    assert db._serving_event.is_set()
+    assert "Running on" in capsys.readouterr().out
+
+
 async def test_advertise_task_starts_discovery_after_register(
     make_settings: MakeSettingsFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
