@@ -417,8 +417,10 @@ async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
     db = DeviceBuilder(settings)
     try:
         await db.start()
-        # The register runs in the chained background task; drain it
-        # before asserting on the published ServiceInfo.
+        # The register runs in the chained background task, gated on the
+        # socket bind; release the gate and drain it before asserting on
+        # the published ServiceInfo.
+        db.notify_serving()
         assert db._advertise_task is not None
         await asyncio.wait_for(db._advertise_task, timeout=5)
 

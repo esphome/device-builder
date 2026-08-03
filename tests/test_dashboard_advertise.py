@@ -1054,6 +1054,7 @@ async def test_device_builder_advertises_in_ha_addon_mode(
             self.refresh = AsyncMock()
             self.hostname = "esphome-builder-test.local"
             self.addresses = []
+            self.service_instance_name = "esphome-builder-test._esphomebuilder._tcp.local."
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
@@ -1066,6 +1067,10 @@ async def test_device_builder_advertises_in_ha_addon_mode(
     db = DeviceBuilder(settings)
     try:
         await db.start()
+        # The register is gated on the socket bind; release and drain it.
+        db.notify_serving()
+        assert db._advertise_task is not None
+        await asyncio.wait_for(db._advertise_task, timeout=5)
         assert len(instances) == 1
         adv = instances[0]
         adv.register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]
@@ -1105,6 +1110,7 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
             self.refresh = AsyncMock()
             self.hostname = "esphome-builder-test.local"
             self.addresses = []
+            self.service_instance_name = "esphome-builder-test._esphomebuilder._tcp.local."
             instances.append(self)
 
     monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
@@ -1125,6 +1131,10 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
     adv: object | None = None
     try:
         await db.start()
+        # The register is gated on the socket bind; release and drain it.
+        db.notify_serving()
+        assert db._advertise_task is not None
+        await asyncio.wait_for(db._advertise_task, timeout=5)
         assert len(instances) == 1
         adv = instances[0]
         adv.register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]

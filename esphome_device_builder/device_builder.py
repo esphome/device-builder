@@ -272,6 +272,7 @@ class DeviceBuilder:
         self._background_tasks: set[asyncio.Task] = set()
         self._bg_task: asyncio.Task | None = None
         self._advertise_task: asyncio.Task | None = None
+        self._serving_event = asyncio.Event()
         self._bg_poll: _BackgroundPollLoop | None = None
 
         # Latches the one-time network teardown so it can run early (in the
@@ -362,8 +363,74 @@ class DeviceBuilder:
         if self._startup_timer is not None:
             self._startup_timer.mark(name)
 
-    def _construct_controllers(self) -> None:
-        """Construct every controller and load the board/component catalogs."""
+    def _print_banner_and_notify_serving(self, banner: str) -> None:
+        """``web.run_app`` post-bind hook: release the advertise gate, keep the banner.
+
+        ``run_app`` invokes ``print`` only after every site's socket is
+        bound and accepting, making it the one signal that serving has
+        actually begun.
+        """
+        self.notify_serving()
+        print(banner)  # noqa: T201 — aiohttp's own run_app banner, kept on stdout
+
+    def _register_command_handlers(self) -> None:
+        """Collect ``@api_command`` handlers from every controller, plus built-ins."""
+        for controller in (
+            self.auth,
+            self.boards,
+            self.components,
+            self.config,
+            self.desktop,
+            self.devices,
+            self.automations,
+            self.firmware,
+            self.editor,
+            self.labels,
+            self.onboarding,
+            self.remote_build_offloader,
+            self.remote_build_receiver,
+            self.version_history,
+        ):
+            self.command_handlers.update(collect_api_commands(controller))
+        self.command_handlers["ping"] = self._cmd_ping
+        self.command_handlers["subscribe_events"] = self._cmd_subscribe_events
+        # `auth` is an alias for `auth/login` so both forms work on the wire.
+        if "auth/login" in self.command_handlers:
+            self.command_handlers["auth"] = self.command_handlers["auth/login"]
+
+    async def _advertise_and_start_peer_discovery(
+        self, zeroconf: AsyncEsphomeZeroconf | None
+    ) -> None:
+        """
+        Once serving, register the dashboard mDNS advertise, then start peer discovery.
+
+        Held on ``notify_serving`` so the announce can never point peers
+        at a dashboard whose socket isn't accepting yet. The browse
+        starts only after the register completes so the browser can
+        capture our own service-instance name (``allow_name_change`` may
+        rename it mid-probe) and filter our broadcast out of the
+        discovered list.
+        """
+        await self._serving_event.wait()
+        if self._dashboard_advertiser is not None and zeroconf is not None:
+            await self._dashboard_advertiser.register(zeroconf)
+        if (offloader := self.remote_build_offloader) is not None:
+            start_peer_discovery(offloader)
+
+    async def start(self) -> None:
+        """Start the application — load catalogs, initialize controllers."""
+        self.loop = asyncio.get_running_loop()
+        # Re-arm the network-teardown latch so a restart-in-place teardown runs.
+        self._network_stopped = False
+        # Pool itself was constructed in ``__init__`` (so callers
+        # probing ``self._executor`` pre-start see the right value);
+        # here we just register it as the loop's default. See
+        # ``_EXECUTOR_MAX_WORKERS`` for the why behind the pool size.
+        self._install_default_executor()
+        # Fresh gate each start so a restart-in-place waits for its own bind.
+        self._serving_event = asyncio.Event()
+
+        # Initialize controllers
         self.auth = AuthController(self)
         self.boards = BoardCatalog()
         self.boards.load()
@@ -380,34 +447,6 @@ class DeviceBuilder:
         self.remote_build_offloader = OffloaderController(self)
         self.remote_build_receiver = ReceiverController(self)
         self.version_history = VersionHistoryController(self)
-
-    async def _advertise_and_start_peer_discovery(
-        self, zeroconf: AsyncEsphomeZeroconf | None
-    ) -> None:
-        """
-        Register the dashboard mDNS advertise, then start peer discovery.
-
-        The browse starts only after the register completes so the browser
-        can capture our own service-instance name (``allow_name_change``
-        may rename it mid-probe) and filter our broadcast out of the
-        discovered list.
-        """
-        if self._dashboard_advertiser is not None and zeroconf is not None:
-            await self._dashboard_advertiser.register(zeroconf)
-        start_peer_discovery(self.remote_build_offloader)
-
-    async def start(self) -> None:
-        """Start the application — load catalogs, initialize controllers."""
-        self.loop = asyncio.get_running_loop()
-        # Re-arm the network-teardown latch so a restart-in-place teardown runs.
-        self._network_stopped = False
-        # Pool itself was constructed in ``__init__`` (so callers
-        # probing ``self._executor`` pre-start see the right value);
-        # here we just register it as the loop's default. See
-        # ``_EXECUTOR_MAX_WORKERS`` for the why behind the pool size.
-        self._install_default_executor()
-
-        self._construct_controllers()
         # Seed the RAM-canonical preferences (and migrate them out of the shared
         # sidecar on first run) before onboarding reads or mutates them.
         await self.config.async_load()
@@ -484,31 +523,7 @@ class DeviceBuilder:
             self._advertise_and_start_peer_discovery(zeroconf)
         )
 
-        # Collect command handlers from all controllers
-        for controller in (
-            self.auth,
-            self.boards,
-            self.components,
-            self.config,
-            self.desktop,
-            self.devices,
-            self.automations,
-            self.firmware,
-            self.editor,
-            self.labels,
-            self.onboarding,
-            self.remote_build_offloader,
-            self.remote_build_receiver,
-            self.version_history,
-        ):
-            self.command_handlers.update(collect_api_commands(controller))
-
-        # Register built-in commands
-        self.command_handlers["ping"] = self._cmd_ping
-        self.command_handlers["subscribe_events"] = self._cmd_subscribe_events
-        # `auth` is an alias for `auth/login` so both forms work on the wire.
-        if "auth/login" in self.command_handlers:
-            self.command_handlers["auth"] = self.command_handlers["auth/login"]
+        self._register_command_handlers()
 
         # Start background polling
         self._bg_poll = _BackgroundPollLoop(self)
@@ -523,6 +538,10 @@ class DeviceBuilder:
         if self._startup_timer is not None:
             self._startup_timer.mark("controllers")
             _LOGGER.info("Startup phases: %s", self._startup_timer.summary())
+
+    def notify_serving(self) -> None:
+        """Unblock work gated on the listening socket being bound (mDNS advertise)."""
+        self._serving_event.set()
 
     async def stop(self) -> None:
         """Shut down the application: free network sockets first, then flush local state."""
@@ -987,6 +1006,7 @@ class DeviceBuilder:
                     path=settings.unix_socket,
                     shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
                     handle_signals=False,
+                    print=self._print_banner_and_notify_serving,
                 )
                 return
             if settings.front_door_open:
@@ -1033,6 +1053,7 @@ class DeviceBuilder:
                 port=settings.ingress_port,
                 shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
                 handle_signals=False,
+                print=self._print_banner_and_notify_serving,
             )
             return
         app = self.create_app()
@@ -1054,6 +1075,7 @@ class DeviceBuilder:
             path=settings.unix_socket,
             shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
             handle_signals=False,
+            print=self._print_banner_and_notify_serving,
         )
 
     @staticmethod

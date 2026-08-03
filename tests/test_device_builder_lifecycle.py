@@ -211,11 +211,13 @@ async def test_advertise_task_starts_discovery_after_register(
 
     advertiser.register = _register
     db._dashboard_advertiser = advertiser
+    db.remote_build_offloader = MagicMock()
     monkeypatch.setattr(
         "esphome_device_builder.device_builder.start_peer_discovery",
         lambda _offloader: order.append("discovery"),
     )
 
+    db.notify_serving()
     await db._advertise_and_start_peer_discovery(MagicMock())
     assert order == ["register", "discovery"]
 
@@ -225,7 +227,12 @@ async def test_start_schedules_advertise_and_discovery_task(
     _hermetic_lifecycle: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``start()`` hands the advertise + browse chain to a background task."""
+    """``start()`` parks the advertise + browse chain until the socket is bound.
+
+    Advertising before the bind would point peers at a dashboard that
+    isn't accepting yet; ``notify_serving`` (fired by ``run_app``'s
+    post-bind ``print`` hook) is what releases the chain.
+    """
     calls: list[object] = []
     monkeypatch.setattr(
         "esphome_device_builder.device_builder.start_peer_discovery",
@@ -234,11 +241,16 @@ async def test_start_schedules_advertise_and_discovery_task(
     db = DeviceBuilder(make_settings(with_core_path=True))
     try:
         await db.start()
-        # Eager task + no advertiser (zeroconf is None under the
-        # hermetic fixture) → the chain completes inline.
+        task = db._advertise_task
+        assert task is not None
+        assert not task.done()
+        assert calls == []
+
+        db.notify_serving()
+        await asyncio.wait_for(task, timeout=5)
+        # No advertiser (zeroconf is None under the hermetic fixture),
+        # so the chain goes straight to the peer browse.
         assert calls == [db.remote_build_offloader]
-        assert db._advertise_task is not None
-        assert db._advertise_task.done()
     finally:
         await db.stop()
 

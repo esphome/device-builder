@@ -89,6 +89,9 @@ async def _serve(db: DeviceBuilder) -> int:
             db.settings.remote_build_port,
         )
         return _EXIT_NOT_SERVING
+    # No HTTP site in this mode; the peer-link listener just checked
+    # above is the served surface, so the advertise gate opens here.
+    db.notify_serving()
     if receiver.state.approved_peers:
         peer = next(iter(receiver.state.approved_peers.values()))
         _LOGGER.info(

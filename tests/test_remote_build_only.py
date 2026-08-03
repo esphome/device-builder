@@ -101,6 +101,10 @@ class _FakeDB:
         self._stop_error = stop_error
         self.started = False
         self.stopped = False
+        self.serving_notified = False
+
+    def notify_serving(self) -> None:
+        self.serving_notified = True
 
     async def start(self) -> None:
         self.started = True
