@@ -1,5 +1,5 @@
 id: geekmagic_ultra
-name: GeekMagic Ultra
+name: GeekMagic SmallTV / SmallTV Ultra
 description: Imported from devices.esphome.io — see linked docs for community notes.
 esphome:
   platform: esp8266
@@ -15,7 +15,6 @@ pins:
   available: false
   occupied_by: pwm_output
 docs_url: https://devices.esphome.io/devices/geekmagic-ultra/
-product_url: https://www.aliexpress.com//item/1005011742070248.html
 featured_components:
 - id: backlight
   component_id: light.monochromatic
@@ -46,5 +45,5 @@ source:
   type: esphome-devices
   remote_id: geekmagic-ultra
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/geekmagic-ultra/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
-  content_hash: ebfdb4b2d29edb6d392a3ce70b36c57298c677ef128cdc7f4b85fe13e8cfc2dd
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  content_hash: e10cec77b41bb25529246eefcba6fc8a336e1050fa1cde934dd12e3d1b30552d

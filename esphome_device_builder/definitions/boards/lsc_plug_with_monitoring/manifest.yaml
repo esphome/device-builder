@@ -112,5 +112,5 @@ source:
   type: esphome-devices
   remote_id: LSC-Plug-With-Monitoring
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LSC-Plug-With-Monitoring/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: aa8a8783c823cf454116baf7fd400b0a0207d2af4de7d7f9926cf8be41819bb1

@@ -126,5 +126,5 @@ source:
   type: esphome-devices
   remote_id: Strong-Helo-PLUSB
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Strong-Helo-PLUSB/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 2bfa925fc6ae942ca9d465d64df977783ebce983160d25db0266a404bda58e3b

@@ -93,5 +93,5 @@ source:
   type: esphome-devices
   remote_id: Athom-BR30-Bulb
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-BR30-Bulb/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 5903b9acdd01807b36d90f075d6029bf7e8623041bd491764b7201654921bdd5

@@ -62,5 +62,5 @@ source:
   type: esphome-devices
   remote_id: Tuya-USB-HC-S050-WIFI
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Tuya-USB-HC-S050-WIFI/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 7b4aab56389d8bd9457e493eb7606978095ae77b3124653fe1c5c2e1ef82251d

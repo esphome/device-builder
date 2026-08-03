@@ -100,5 +100,5 @@ source:
   type: esphome-devices
   remote_id: NX-SP201-Smart-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/NX-SP201-Smart-Plug/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 5320b33b173a21175e8df7aa69634aa1bdba0e09cc1004b5d168ae239ec31f77

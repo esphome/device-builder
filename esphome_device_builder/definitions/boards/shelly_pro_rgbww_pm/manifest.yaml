@@ -219,5 +219,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-Pro-RGBWW-PM
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-Pro-RGBWW-PM/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 5f24aab4c8c3048068f2902f6f18d77cb719e8f780007212e97be11407c5488e

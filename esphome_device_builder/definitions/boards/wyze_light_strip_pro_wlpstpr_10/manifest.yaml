@@ -98,5 +98,5 @@ source:
   type: esphome-devices
   remote_id: WYZE-Light-Strip-Pro-WLPSTPR-10
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/WYZE-Light-Strip-Pro-WLPSTPR-10/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: cb175743751847e14ff9acfdac3f1ed434695743a9f6e525875637910f51ff5c

@@ -63,5 +63,5 @@ source:
   type: esphome-devices
   remote_id: Brilliant-Smart-Wi-Fi-RGB-Garden-Light
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Brilliant-Smart-Wi-Fi-RGB-Garden-Light/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: c72ff8d4dafecdd25c20ac94e112a427bb1077d4f3b9f248f1464ba622336203

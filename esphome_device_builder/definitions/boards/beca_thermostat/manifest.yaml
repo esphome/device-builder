@@ -92,5 +92,5 @@ source:
   type: esphome-devices
   remote_id: Beca-Thermostat
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Beca-Thermostat/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 3f55e0a4523c197e4fea339bf538c2a622f099773e89949cabfa52bb513b2530

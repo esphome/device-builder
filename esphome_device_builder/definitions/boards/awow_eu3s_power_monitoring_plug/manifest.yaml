@@ -115,5 +115,5 @@ source:
   type: esphome-devices
   remote_id: Awow-EU3S-Power-Monitoring-Plug
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Awow-EU3S-Power-Monitoring-Plug/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 955f9311687d779c1e92ef13c42c57e386146ebdec22b5651d78b22800e6caf4

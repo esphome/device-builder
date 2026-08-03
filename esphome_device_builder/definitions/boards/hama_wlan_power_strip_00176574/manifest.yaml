@@ -101,5 +101,5 @@ source:
   type: esphome-devices
   remote_id: Hama-WLAN-Power-Strip-00176574
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Hama-WLAN-Power-Strip-00176574/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: b267e6c34add60ef8dad390073978c0f3469b946e6fbbdb6813e7aa43a2ecc6c

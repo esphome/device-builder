@@ -128,5 +128,5 @@ source:
   type: esphome-devices
   remote_id: M5Stack-Dial
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/M5Stack-Dial/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: a54556103154ce7822a68f57658d77b7b861e16505c2e29512fe06f346784d6a

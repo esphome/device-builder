@@ -84,5 +84,5 @@ source:
   type: esphome-devices
   remote_id: Athom-Smart-Plug-AU
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Athom-Smart-Plug-AU/index.md
-  upstream_revision: 25b1835608d64cef0ee89e078ea584e96d32f722
+  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
   content_hash: 9bdc0d10332ba04862e79a69453cb70f10e7d174859e7a49d71f9e3f2394c1b7
