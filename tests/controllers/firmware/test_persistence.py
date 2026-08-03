@@ -492,6 +492,9 @@ async def test_start_schedules_esphome_sanity_probe(
         "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
         lambda: ["fake-esphome"],
     )
+    # A desktop-app shell exporting these would flip the prebuilt gate.
+    monkeypatch.delenv("ESPHOME_DESKTOP_VERSION", raising=False)
+    monkeypatch.delenv("ESPHOME_DESKTOP_BIN", raising=False)
     spy = MagicMock()
     monkeypatch.setattr(FirmwareController, "_log_esphome_sanity", spy)
     controller = _persistent_controller(firmware_controller_factory)

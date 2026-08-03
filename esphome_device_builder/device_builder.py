@@ -427,7 +427,12 @@ class DeviceBuilder:
         """Once serving, register the dashboard mDNS advertise, then start peer discovery."""
         await self._serving_event.wait()
         if self._dashboard_advertiser is not None and zeroconf is not None:
-            await self._dashboard_advertiser.register(zeroconf)
+            # The legs are independent: a failed advertise must neither
+            # die silently nor keep the peer browse from starting.
+            try:
+                await self._dashboard_advertiser.register(zeroconf)
+            except Exception:
+                _LOGGER.exception("Dashboard mDNS advertise failed; starting peer discovery anyway")
         if (offloader := self.remote_build_offloader) is not None:
             start_peer_discovery(offloader)
 

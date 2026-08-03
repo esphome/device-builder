@@ -18,6 +18,7 @@ loads and the command-handler registration walk.
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -227,6 +228,32 @@ async def test_advertise_task_starts_discovery_after_register(
     db.notify_serving()
     await db._advertise_and_start_peer_discovery(MagicMock())
     assert order == ["register", "discovery"]
+
+
+async def test_advertise_failure_still_starts_discovery(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising register logs and the peer browse still starts."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+
+    advertiser = MagicMock()
+    advertiser.register = AsyncMock(side_effect=RuntimeError("ifaddr exploded"))
+    db._dashboard_advertiser = advertiser
+    db.remote_build_offloader = MagicMock()
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "esphome_device_builder.device_builder.start_peer_discovery",
+        calls.append,
+    )
+
+    db.notify_serving()
+    with caplog.at_level(logging.ERROR, logger="esphome_device_builder.device_builder"):
+        await db._advertise_and_start_peer_discovery(MagicMock())
+
+    assert calls == [db.remote_build_offloader]
+    assert any("advertise failed" in rec.getMessage() for rec in caplog.records)
 
 
 async def test_start_schedules_advertise_and_discovery_task(
