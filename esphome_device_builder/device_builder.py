@@ -369,6 +369,33 @@ class DeviceBuilder:
         self.notify_serving()
         print(banner)  # noqa: T201 — aiohttp's own run_app banner, kept on stdout
 
+    def _run_web_app(
+        self,
+        app: web.Application,
+        *,
+        host: list[str],
+        port: int,
+        path: str | None = None,
+    ) -> None:
+        """Serve *app* until stop, opening the serving gate once bound."""
+        # ``handle_signals=False``: keep our ``__main__`` SIGTERM/SIGBREAK trap
+        # as the sole handler for the whole lifecycle. aiohttp's own
+        # ``add_signal_handler`` is armed inside ``runner.setup()`` *before*
+        # ``on_startup`` runs and would otherwise replace our trap, so a stop
+        # landing mid-startup would take aiohttp's path and bypass the
+        # clean-exit bookkeeping in ``main``. Our trap defers ``GracefulExit``
+        # to the loop just the same, so ``run_app`` still drains ``on_cleanup``
+        # while serving.
+        web.run_app(
+            app,
+            host=host,
+            port=port,
+            path=path,
+            shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
+            handle_signals=False,
+            print=self._print_banner_and_notify_serving,
+        )
+
     def _register_command_handlers(self) -> None:
         """Collect ``@api_command`` handlers from every controller, plus built-ins."""
         for controller in (
@@ -401,9 +428,6 @@ class DeviceBuilder:
         await self._serving_event.wait()
         if self._dashboard_advertiser is not None and zeroconf is not None:
             await self._dashboard_advertiser.register(zeroconf)
-            # A TXT setter racing the register's probe window no-ops its
-            # own refresh (``_info`` not yet set); re-diff to publish it.
-            await self._dashboard_advertiser.refresh()
         if (offloader := self.remote_build_offloader) is not None:
             start_peer_discovery(offloader)
 
@@ -989,15 +1013,7 @@ class DeviceBuilder:
                 self._mark_startup_phase("app")
                 hosts = resolve_bind_host(settings.host) if settings.unix_socket is None else []
                 ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
-                web.run_app(
-                    app,
-                    host=hosts,
-                    port=settings.port,
-                    path=settings.unix_socket,
-                    shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
-                    handle_signals=False,
-                    print=self._print_banner_and_notify_serving,
-                )
+                self._run_web_app(app, host=hosts, port=settings.port, path=settings.unix_socket)
                 return
             if settings.front_door_open:
                 # Front door open but the port isn't mapped, so there's
@@ -1037,36 +1053,13 @@ class DeviceBuilder:
             self._mark_startup_phase("app")
             hosts = settings.ingress_bind_hosts
             ensure_single_host_for_ephemeral_port(hosts, settings.ingress_port, "--ingress-port")
-            web.run_app(
-                app,
-                host=hosts,
-                port=settings.ingress_port,
-                shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
-                handle_signals=False,
-                print=self._print_banner_and_notify_serving,
-            )
+            self._run_web_app(app, host=hosts, port=settings.ingress_port)
             return
         app = self.create_app()
         self._mark_startup_phase("app")
         hosts = resolve_bind_host(settings.host) if settings.unix_socket is None else []
         ensure_single_host_for_ephemeral_port(hosts, settings.port, "--port")
-        # ``handle_signals=False``: keep our ``__main__`` SIGTERM/SIGBREAK trap
-        # as the sole handler for the whole lifecycle. aiohttp's own
-        # ``add_signal_handler`` is armed inside ``runner.setup()`` *before*
-        # ``on_startup`` runs and would otherwise replace our trap, so a stop
-        # landing mid-startup would take aiohttp's path and bypass the
-        # clean-exit bookkeeping in ``main``. Our trap defers ``GracefulExit``
-        # to the loop just the same, so ``run_app`` still drains ``on_cleanup``
-        # while serving.
-        web.run_app(
-            app,
-            host=hosts,
-            port=settings.port,
-            path=settings.unix_socket,
-            shutdown_timeout=_SHUTDOWN_TIMEOUT_SECONDS,
-            handle_signals=False,
-            print=self._print_banner_and_notify_serving,
-        )
+        self._run_web_app(app, host=hosts, port=settings.port, path=settings.unix_socket)
 
     @staticmethod
     def _get_frontend_dir() -> Path | None:

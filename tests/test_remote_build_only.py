@@ -524,6 +524,7 @@ def test_runner_serves_until_graceful_exit(
 
     assert db.started
     assert db.stopped
+    assert db.serving_notified
     assert any("already paired with 'Main builder'" in r.getMessage() for r in caplog.records)
 
 

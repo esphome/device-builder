@@ -35,6 +35,8 @@ from esphome_device_builder.helpers.dashboard_advertise import (
     default_friendly_name,
 )
 
+from .conftest import release_and_drain_advertise
+
 
 def _make_advertiser(
     *,
@@ -997,6 +999,31 @@ async def test_unregister_swallows_zeroconf_errors() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _fake_advertiser_cls() -> tuple[type, list[object]]:
+    """Build a stand-in ``DashboardAdvertiser`` class plus its instance log."""
+    instances: list[object] = []
+
+    class _FakeAdvertiser:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+            self.register = AsyncMock()
+            self.registered = False
+            self.unregister = AsyncMock()
+            # ``db.start()`` binds the (default-on) peer-link site and
+            # pushes pin + port into the advertiser via
+            # ``_publish_remote_build_advertise``; stub the setters so
+            # that path doesn't raise on a missing attribute.
+            self.set_pin_sha256 = MagicMock()
+            self.set_remote_build_port = MagicMock()
+            self.refresh = AsyncMock()
+            self.hostname = "esphome-builder-test.local"
+            self.addresses = []
+            self.service_instance_name = "esphome-builder-test._esphomebuilder._tcp.local."
+            instances.append(self)
+
+    return _FakeAdvertiser, instances
+
+
 async def test_device_builder_skips_advertise_when_zeroconf_unavailable(
     monkeypatch: pytest.MonkeyPatch,
     make_settings,
@@ -1041,23 +1068,8 @@ async def test_device_builder_advertises_in_ha_addon_mode(
     gated, so ``start()`` must construct and register the advertiser.
     """
     fake_zc = MagicMock()
-    instances: list[object] = []
-
-    class _FakeAdvertiser:
-        def __init__(self, **kwargs: object) -> None:
-            self.kwargs = kwargs
-            self.register = AsyncMock()
-            self.registered = False
-            self.unregister = AsyncMock()
-            self.set_pin_sha256 = MagicMock()
-            self.set_remote_build_port = MagicMock()
-            self.refresh = AsyncMock()
-            self.hostname = "esphome-builder-test.local"
-            self.addresses = []
-            self.service_instance_name = "esphome-builder-test._esphomebuilder._tcp.local."
-            instances.append(self)
-
-    monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
+    fake_cls, instances = _fake_advertiser_cls()
+    monkeypatch.setattr(db_module, "DashboardAdvertiser", fake_cls)
     monkeypatch.setattr(MdnsSource, "zeroconf", property(lambda self: fake_zc))
 
     settings = make_settings(with_core_path=True)
@@ -1067,10 +1079,7 @@ async def test_device_builder_advertises_in_ha_addon_mode(
     db = DeviceBuilder(settings)
     try:
         await db.start()
-        # The register is gated on the socket bind; release and drain it.
-        db.notify_serving()
-        assert db._advertise_task is not None
-        await asyncio.wait_for(db._advertise_task, timeout=5)
+        await release_and_drain_advertise(db)
         assert len(instances) == 1
         adv = instances[0]
         adv.register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]
@@ -1078,8 +1087,7 @@ async def test_device_builder_advertises_in_ha_addon_mode(
         # default-off, so no pin / port is pushed into the advertise.
         adv.set_pin_sha256.assert_not_called()  # type: ignore[attr-defined]
         adv.set_remote_build_port.assert_not_called()  # type: ignore[attr-defined]
-        # The chained task's post-register re-diff is the only refresh.
-        adv.refresh.assert_awaited_once()  # type: ignore[attr-defined]
+        adv.refresh.assert_not_awaited()  # type: ignore[attr-defined]
     finally:
         await db.stop()
 
@@ -1091,30 +1099,8 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
 ) -> None:
     """Non-addon mode + zeroconf up → advertise is registered and unregistered."""
     fake_zc = MagicMock()
-    instances: list[object] = []
-
-    class _FakeAdvertiser:
-        def __init__(self, **kwargs: object) -> None:
-            self.kwargs = kwargs
-            self.register = AsyncMock()
-            self.registered = False
-            self.unregister = AsyncMock()
-            # With the default-on remote-build setting,
-            # ``db.start()`` now binds the peer-link site and
-            # then pushes pin + port into the advertiser via
-            # ``_publish_remote_build_advertise``. Stub the
-            # setter calls so the test can keep asserting on
-            # advertiser-construction without the bind path
-            # raising on a missing attribute.
-            self.set_pin_sha256 = MagicMock()
-            self.set_remote_build_port = MagicMock()
-            self.refresh = AsyncMock()
-            self.hostname = "esphome-builder-test.local"
-            self.addresses = []
-            self.service_instance_name = "esphome-builder-test._esphomebuilder._tcp.local."
-            instances.append(self)
-
-    monkeypatch.setattr(db_module, "DashboardAdvertiser", _FakeAdvertiser)
+    fake_cls, instances = _fake_advertiser_cls()
+    monkeypatch.setattr(db_module, "DashboardAdvertiser", fake_cls)
     monkeypatch.setattr(MdnsSource, "zeroconf", property(lambda self: fake_zc))
 
     settings = make_settings(with_core_path=True)
@@ -1132,10 +1118,7 @@ async def test_device_builder_constructs_advertiser_when_zeroconf_present(
     adv: object | None = None
     try:
         await db.start()
-        # The register is gated on the socket bind; release and drain it.
-        db.notify_serving()
-        assert db._advertise_task is not None
-        await asyncio.wait_for(db._advertise_task, timeout=5)
+        await release_and_drain_advertise(db)
         assert len(instances) == 1
         adv = instances[0]
         adv.register.assert_awaited_once_with(fake_zc)  # type: ignore[attr-defined]

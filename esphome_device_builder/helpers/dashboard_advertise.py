@@ -565,6 +565,14 @@ class DashboardAdvertiser:
         self._refresh_task = asyncio.create_task(
             self._refresh_loop(), name="dashboard-advertise-refresh"
         )
+        # A TXT setter landing during the probe await above no-ops its
+        # own refresh (``_info`` was still None); re-diff so the register
+        # publishes the state current at return time. Fail-soft like the
+        # refresh loop — the next tick retries.
+        try:
+            await self.refresh()
+        except Exception:
+            _LOGGER.debug("Post-register advertise re-diff raised", exc_info=True)
 
     async def _refresh_loop(self) -> None:
         """

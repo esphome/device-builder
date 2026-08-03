@@ -45,7 +45,7 @@ from esphome_device_builder.helpers.dashboard_identity import rotate_identity
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.models import EventType, RemoteBuildListenerChangedData
 
-from .conftest import MakeSettingsFactory
+from .conftest import MakeSettingsFactory, release_and_drain_advertise
 from .conftest import RemoteBuildTestHandles as RemoteBuildController
 
 
@@ -417,12 +417,7 @@ async def test_start_registers_advertiser_with_all_txt_keys_in_one_announce(
     db = DeviceBuilder(settings)
     try:
         await db.start()
-        # The register runs in the chained background task, gated on the
-        # socket bind; release the gate and drain it before asserting on
-        # the published ServiceInfo.
-        db.notify_serving()
-        assert db._advertise_task is not None
-        await asyncio.wait_for(db._advertise_task, timeout=5)
+        await release_and_drain_advertise(db)
 
         # One register published a ServiceInfo with all 4 keys; no
         # follow-up ``async_update_service`` raced the announce.

@@ -898,6 +898,13 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(CORE, "config_path", None)
 
 
+async def release_and_drain_advertise(db: Any) -> None:
+    """Open the serving gate and await ``DeviceBuilder``'s chained advertise task."""
+    db.notify_serving()
+    assert db._advertise_task is not None
+    await asyncio.wait_for(db._advertise_task, timeout=5)
+
+
 # ---------------------------------------------------------------------------
 # Bypass-init DevicesController + real EventBus + captured listener
 #

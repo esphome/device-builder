@@ -26,6 +26,7 @@ are exercised in their own dedicated tests.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -34,7 +35,6 @@ from unittest.mock import patch
 import pytest
 
 from esphome_device_builder.controllers.devices import DevicesController
-from esphome_device_builder.controllers.devices.controller import _BUILD_SIZE_SWEEP_DELAY_SECONDS
 from esphome_device_builder.models import EventType
 
 from .conftest import MakeDbFactory
@@ -191,9 +191,11 @@ async def test_build_size_worker_starts_live_with_delayed_sweep(
     controller = DevicesController(db)
     with _capture_inner_lifecycle(controller):
         await controller.start()
+    await asyncio.sleep(0)
 
     assert controller._build_size._task is not None
-    assert controller._build_size._initial_sweep_delay == _BUILD_SIZE_SWEEP_DELAY_SECONDS
+    # The armed sweep task is the behavioral proof the delay is wired.
+    assert controller._build_size._sweep_task is not None
 
     with _capture_inner_lifecycle(controller):
         await controller.stop()

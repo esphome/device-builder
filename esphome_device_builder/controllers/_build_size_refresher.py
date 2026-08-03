@@ -32,7 +32,7 @@ import logging
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
 
-from ..helpers.async_ import run_in_executor
+from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.build_size import (
     BuildDirSignal,
     BuildSizeRefreshResult,
@@ -109,9 +109,9 @@ class BuildSizeRefresher(WakeWorker[str]):
             self.request(configuration)
 
     async def stop(self) -> None:
-        """Cancel the pending delayed sweep, then the worker."""
+        """Drain the pending delayed sweep, then the worker."""
         if self._sweep_task is not None:
-            self._sweep_task.cancel()
+            await drain_tasks((self._sweep_task,))
             self._sweep_task = None
         await super().stop()
 
@@ -120,15 +120,15 @@ class BuildSizeRefresher(WakeWorker[str]):
         # cold-start window; the drain loop stays live for per-device
         # requests the whole time.
         if self._initial_sweep_delay:
-            self._sweep_task = asyncio.create_task(self._delayed_initial_sweep())
+            self._sweep_task = asyncio.create_task(
+                self._run_initial_sweep(), name=f"{type(self).__name__} sweep"
+            )
             return
         await self._run_initial_sweep()
 
-    async def _delayed_initial_sweep(self) -> None:
-        await asyncio.sleep(self._initial_sweep_delay)
-        await self._run_initial_sweep()
-
     async def _run_initial_sweep(self) -> None:
+        if self._initial_sweep_delay:
+            await asyncio.sleep(self._initial_sweep_delay)
         try:
             await self.enqueue_stale_fleet()
         except Exception:

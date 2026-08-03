@@ -328,17 +328,12 @@ async def test_initial_sweep_delay_holds_sweep_but_drains_requests(
     tmp_path: Path,
 ) -> None:
     """A configured delay parks only the fleet sweep; the drain loop is live from the start."""
-    calls: list[bool] = []
-
-    def _filenames() -> list[str]:
-        calls.append(True)
-        return []
-
     refresher, refreshed, _ = _make(tmp_path, initial_sweep_delay=3600.0)
-    refresher._get_filenames = _filenames
     refresher.start()
     await asyncio.sleep(0)
-    assert calls == []  # sweep held on the delay
+    sweep = refresher._sweep_task
+    assert sweep is not None
+    assert not sweep.done()  # fleet walk held on the delay
 
     with patch(
         "esphome_device_builder.controllers._build_size_refresher.refresh_build_size_if_stale",
@@ -350,7 +345,7 @@ async def test_initial_sweep_delay_holds_sweep_but_drains_requests(
         await asyncio.wait_for(refresher.wait_idle(), _TIMEOUT)
 
     assert refreshed == ["kitchen.yaml"]  # drained while the sweep is still held
-    assert calls == []
+    assert not sweep.done()
 
     await refresher.stop()
     assert refresher._task is None
