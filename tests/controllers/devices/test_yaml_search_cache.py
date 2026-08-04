@@ -168,17 +168,7 @@ async def test_unreadable_file_returns_none_and_clears_stale(tmp_path: Path) -> 
 
     # Now make the read fail on the next call. Stat still works
     # (the path is real); the failure is read-side only.
-    call_count = 0
-
-    def _failing_read(target: Path) -> tuple[int, list[str]] | None:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            msg = "I/O error mid-read"
-            raise OSError(msg)
-        return _read_for_cache(target)
-
-    with patch.object(cache_module, "_read_for_cache", _failing_read):
+    with patch.object(cache_module, "_read_for_cache", side_effect=OSError("I/O error mid-read")):
         result = await cache.get_lines("kitchen.yaml", path)
 
     assert result is None
@@ -236,14 +226,7 @@ async def test_concurrent_misses_against_same_file_read_once(tmp_path: Path) -> 
     path = tmp_path / "kitchen.yaml"
     path.write_text("wifi:\n", encoding="utf-8")
 
-    call_count = 0
-
-    def _counting_read(target: Path) -> tuple[int, list[str]] | None:
-        nonlocal call_count
-        call_count += 1
-        return _read_for_cache(target)
-
-    with patch.object(cache_module, "_read_for_cache", _counting_read):
+    with patch.object(cache_module, "_read_for_cache", wraps=_read_for_cache) as mock_read:
         a, b = await asyncio.gather(
             cache.get_lines("kitchen.yaml", path),
             cache.get_lines("kitchen.yaml", path),
@@ -252,7 +235,7 @@ async def test_concurrent_misses_against_same_file_read_once(tmp_path: Path) -> 
     assert a == b == ["wifi:"]
     # One read, not two — the lock collapsed the second miss into
     # a cache hit once the first finished.
-    assert call_count == 1
+    assert mock_read.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -278,18 +261,12 @@ async def test_oversize_file_returns_none_without_loading(tmp_path: Path) -> Non
     # One byte past the cap — minimum to exercise the >cap branch.
     path.write_bytes(b"x" * (MAX_FILE_BYTES + 1))
 
-    read_calls = 0
-
-    def _counting_read(target: Path) -> tuple[int, list[str]] | None:
-        nonlocal read_calls
-        read_calls += 1
-        return _read_for_cache(target)
-
-    with patch.object(cache_module, "_read_for_cache", _counting_read):
+    with patch.object(
+        cache_module, "_read_for_cache", side_effect=AssertionError("oversize must not be read")
+    ):
         result = await cache.get_lines("huge.yaml", path)
 
     assert result is None
-    assert read_calls == 0
 
 
 async def test_oversize_file_drops_stale_cache_entry(tmp_path: Path) -> None:
@@ -335,18 +312,21 @@ async def test_file_growing_past_cap_between_stat_and_open_is_skipped(
     path.write_text("wifi:\n", encoding="utf-8")
     first = await cache.get_lines("kitchen.yaml", path)
     assert first == ["wifi:"]
+    cached_mtime = path.stat().st_mtime_ns
 
     path.write_bytes(b"x" * (MAX_FILE_BYTES + 1))
     # A stat snapshot from before the growth: under the cap, mtime
     # differing from the cached key so the read path is reached.
-    stale_stat = SimpleNamespace(st_size=7, st_mtime_ns=path.stat().st_mtime_ns + 1)
+    stale_stat = SimpleNamespace(st_size=7, st_mtime_ns=cached_mtime + 1)
 
     with patch.object(Path, "stat", return_value=stale_stat):
         second = await cache.get_lines("kitchen.yaml", path)
 
     assert second is None
-    # The entry was dropped, not shadowed — a shrunk file repopulates.
+    # The entry was dropped, not shadowed: restore the cached mtime
+    # onto new content — a surviving stale entry would be returned.
     path.write_text("api:\n", encoding="utf-8")
+    os.utime(path, ns=(cached_mtime, cached_mtime))
     third = await cache.get_lines("kitchen.yaml", path)
     assert third == ["api:"]
 

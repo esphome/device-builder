@@ -77,12 +77,8 @@ class YamlSearchCache:
           they're routine in a fleet that's actively being edited
           — and never propagate; ``yaml/search`` is best-effort
           across the fleet, not a per-device contract);
-        - the file's on-disk size exceeds ``MAX_FILE_BYTES``. The
-          byte ceiling is checked from ``stat.st_size`` *before*
-          opening and re-checked off the open handle before the
-          read, so a pathological multi-megabyte YAML never gets
-          loaded into Python memory — the cache stays bounded
-          regardless of what the filesystem holds.
+        - the file's size exceeds ``MAX_FILE_BYTES`` (the file is
+          never loaded into memory).
         """
         async with self._lock:
             try:
