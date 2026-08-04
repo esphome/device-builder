@@ -119,6 +119,7 @@ class DeviceMqttExtract:
     """
 
     yaml_mtime: float
+    yaml_size: int
     secrets_mtime: float
     main_block: dict[str, Any] | None
     main_substitutions: dict[str, str]

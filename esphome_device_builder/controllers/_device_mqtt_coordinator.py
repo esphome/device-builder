@@ -11,6 +11,7 @@ broker login. Re-runs lifecycle on each poll so monitors track edits.
 from __future__ import annotations
 
 import logging
+import os
 import ssl
 from collections.abc import Callable
 from pathlib import Path
@@ -205,16 +206,18 @@ class DeviceMqttCoordinator:
             seen_devices.add(device.configuration)
             yaml_path = self._config_dir / device.configuration
             try:
-                yaml_mtime = yaml_path.stat().st_mtime
-                broker = _resolve_fast(device.mqtt_extract, yaml_path, yaml_mtime, secrets_map)
+                yaml_stat = yaml_path.stat()
+                broker = _resolve_fast(device.mqtt_extract, yaml_path, yaml_stat, secrets_map)
             except OSError:
-                # Skip silently — the WARNING is reserved for
+                # Covers the stat and the fallback read (a CA parse
+                # failure is caught deeper and returns None). Skip
+                # silently — the WARNING is reserved for
                 # present-but-unresolvable YAMLs, not deleted ones.
                 _LOGGER.debug("Could not read %s for MQTT broker config", device.configuration)
                 continue
             if broker is None:
                 broker = self._resolve_slow(
-                    yaml_path, device.mqtt_extract, (yaml_mtime, secrets_mtime)
+                    yaml_path, device.mqtt_extract, (yaml_stat.st_mtime, secrets_mtime)
                 )
             if isinstance(broker, _ClientCertUnsupported):
                 client_cert_devices.add(device.configuration)
@@ -359,11 +362,15 @@ def _extract_broker_from_config(
 def _resolve_fast(
     extract: DeviceMqttExtract | None,
     yaml_path: Path,
-    yaml_mtime: float,
+    yaml_stat: os.stat_result,
     secrets_map: dict[str, Any],
 ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
     """Main-file tier: a fresh scan extraction, else read + tolerant-parse."""
-    if extract is not None and extract.yaml_mtime == yaml_mtime:
+    if (
+        extract is not None
+        and extract.yaml_mtime == yaml_stat.st_mtime
+        and extract.yaml_size == yaml_stat.st_size
+    ):
         return _broker_from_mqtt_dict(extract.main_block, secrets_map, extract.main_substitutions)
     # Scan raced an edit (or the device predates the scanner carrying
     # extractions) — fall back to reading the file.

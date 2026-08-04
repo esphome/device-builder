@@ -917,13 +917,13 @@ def test_extract_broker_from_config_returns_none_for_non_dict() -> None:
     assert _extract_broker_from_config({}) is None
 
 
-async def test_coordinator_handles_stat_race_after_successful_read(
+async def test_coordinator_skips_device_whose_yaml_vanishes_at_stat(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    # Race: read_text succeeds, file disappears before stat(). Skip
-    # silently — the WARNING is reserved for fixable configs.
+    # The file disappears at the fast tier's stat(). Skip silently —
+    # the WARNING is reserved for fixable configs.
     yaml_path = tmp_path / "alpha.yaml"
     yaml_path.write_text("esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n")
     device = Device(

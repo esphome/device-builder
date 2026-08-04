@@ -22,7 +22,11 @@ from tests._mqtt_fixtures import (
 _BROKER_YAML = "mqtt:\n  broker: 192.168.1.10\n"
 
 
-def _seed_package_device(tmp_path: Path, resolved_block: dict[str, Any] | None) -> Device:
+def _seed_package_device(
+    tmp_path: Path,
+    resolved_block: dict[str, Any] | None,
+    resolved_substitutions: dict[str, str] | None = None,
+) -> Device:
     """Build a package-sourced mqtt device whose extract carries *resolved_block*."""
     yaml = "esphome:\n  name: pkg\n\npackages:\n  core: !include core.yaml\n"
     path = tmp_path / "pkg.yaml"
@@ -33,7 +37,7 @@ def _seed_package_device(tmp_path: Path, resolved_block: dict[str, Any] | None) 
         friendly_name="pkg",
         configuration="pkg.yaml",
         uses_mqtt=True,
-        mqtt_extract=build_test_extract(path, yaml, resolved),
+        mqtt_extract=build_test_extract(path, yaml, resolved, resolved_substitutions),
     )
 
 
@@ -43,11 +47,11 @@ async def test_fresh_extract_skips_reading_the_yaml(
 ) -> None:
     """A fresh carried extract resolves the broker without touching the file."""
     device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
-    # Rewrite the file with a different broker but restore the original
-    # mtime — the carried extract must win, proving no re-read happened.
+    # Rewrite with a same-length broker and restore the original mtime —
+    # the carried extract must win, proving no re-read happened.
     path = tmp_path / "kitchen.yaml"
     original_mtime = path.stat().st_mtime
-    path.write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: 10.0.0.9\n")
+    path.write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: 192.168.1.99\n")
     os.utime(path, (original_mtime, original_mtime))
 
     coord = make_mqtt_coordinator(tmp_path, [device])
@@ -93,6 +97,24 @@ async def test_resolved_seed_avoids_the_full_parse(
 
     assert [m.broker.host for m in stub_monitor.instances] == ["10.1.1.1"]
     assert parses["n"] == 0
+
+
+async def test_seed_resolves_package_substitutions(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The seed resolves ``${var}`` against the package-merged substitutions."""
+    device = _seed_package_device(tmp_path, {"broker": "${host}"}, {"host": "10.4.4.4"})
+
+    def _no_parse(_path: Path) -> dict:
+        raise AssertionError("seed should have resolved without the full parse")
+
+    monkeypatch.setattr(coordinator_module, "load_device_yaml", _no_parse)
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert [m.broker.host for m in stub_monitor.instances] == ["10.4.4.4"]
 
 
 async def test_stale_seed_falls_back_to_the_full_parse(

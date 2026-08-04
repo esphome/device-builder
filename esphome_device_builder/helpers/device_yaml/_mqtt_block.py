@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -50,7 +51,7 @@ def build_mqtt_extract(
     path: Path,
     yaml_content: str,
     resolved_config: dict[str, Any] | None,
-    yaml_mtime: float,
+    yaml_stat: os.stat_result,
     resolved_substitutions: dict[str, str],
 ) -> DeviceMqttExtract:
     """Build the scan-time extraction the MQTT coordinator consumes."""
@@ -59,7 +60,8 @@ def build_mqtt_extract(
     if not isinstance(resolved_block, dict):
         resolved_block = None
     return DeviceMqttExtract(
-        yaml_mtime=yaml_mtime,
+        yaml_mtime=yaml_stat.st_mtime,
+        yaml_size=yaml_stat.st_size,
         secrets_mtime=safe_mtime(path.parent / SECRETS_FILENAME),
         main_block=main_block,
         main_substitutions=main_subs,

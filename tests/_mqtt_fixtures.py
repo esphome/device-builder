@@ -47,19 +47,24 @@ class RecordingMonitor:
 
 
 def build_test_extract(
-    path: Path, yaml_content: str, resolved_config: dict | None = None
+    path: Path,
+    yaml_content: str,
+    resolved_config: dict | None = None,
+    resolved_substitutions: dict[str, str] | None = None,
 ) -> DeviceMqttExtract:
     """Assemble a ``DeviceMqttExtract`` for *path* from *yaml_content* and *resolved_config*."""
     main_block, main_subs = extract_mqtt_block(yaml_content)
     resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
     secrets = path.parent / "secrets.yaml"
+    stat = path.stat()
     return DeviceMqttExtract(
-        yaml_mtime=path.stat().st_mtime,
+        yaml_mtime=stat.st_mtime,
+        yaml_size=stat.st_size,
         secrets_mtime=secrets.stat().st_mtime if secrets.exists() else 0.0,
         main_block=main_block,
         main_substitutions=main_subs,
         resolved_block=resolved_block if isinstance(resolved_block, dict) else None,
-        resolved_substitutions={},
+        resolved_substitutions=resolved_substitutions or {},
     )
 
 

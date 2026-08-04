@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -114,13 +115,16 @@ def load_device_from_storage(
     # Stat BEFORE the read: an edit landing during the (long) esphome
     # parse below then yields a stale mtime with fresh content — the
     # safe direction, since a stale mtime only forces a re-read.
-    yaml_mtime: float | None
+    yaml_stat: os.stat_result | None
     try:
-        yaml_mtime = path.stat().st_mtime
+        yaml_stat = path.stat()
+    except OSError:
+        yaml_stat = None
+    try:
         yaml_content = path.read_text(encoding="utf-8")
     except OSError:
-        yaml_mtime = None
         yaml_content = ""
+    yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
     # YAML would miss configs that pull the api block in via include
@@ -206,8 +210,8 @@ def load_device_from_storage(
 
     uses_mqtt = has_top_level_block(resolved_config, yaml_content, "mqtt")
     mqtt_extract = (
-        build_mqtt_extract(path, yaml_content, resolved_config, yaml_mtime, extra_subs)
-        if uses_mqtt and yaml_mtime is not None
+        build_mqtt_extract(path, yaml_content, resolved_config, yaml_stat, extra_subs)
+        if uses_mqtt and yaml_stat is not None
         else None
     )
 
