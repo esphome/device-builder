@@ -111,11 +111,12 @@ RUNTIME_STATE_FIELD_NAMES = frozenset(f.name for f in fields(DeviceRuntimeState)
 
 @dataclass(repr=False)
 class DeviceMqttExtract:
-    """Scan-time ``mqtt:`` extraction consumed by the MQTT coordinator.
+    """
+    Scan-time ``mqtt:`` extraction consumed by the MQTT coordinator.
 
     ``main_block`` keeps ``!secret`` markers unresolved; ``resolved_block``
     is the package-merged config's block with secrets baked in, valid only
-    while both mtimes match the files on disk.
+    while both files' ``(mtime_ns, size)`` stamps match the disk.
     """
 
     yaml_mtime_ns: int
