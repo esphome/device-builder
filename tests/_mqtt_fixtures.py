@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
+from esphome_device_builder.constants import SECRETS_FILENAME
 from esphome_device_builder.controllers._device_mqtt_coordinator import DeviceMqttCoordinator
 from esphome_device_builder.controllers._device_mqtt_monitor import MqttBrokerConfig
-from esphome_device_builder.helpers.device_yaml import extract_mqtt_block
+from esphome_device_builder.helpers.device_yaml import build_mqtt_extract
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device
 from esphome_device_builder.models.devices import DeviceMqttExtract
@@ -52,19 +53,14 @@ def build_test_extract(
     resolved_config: dict | None = None,
     resolved_substitutions: dict[str, str] | None = None,
 ) -> DeviceMqttExtract:
-    """Assemble a ``DeviceMqttExtract`` for *path* from *yaml_content* and *resolved_config*."""
-    main_block, main_subs = extract_mqtt_block(yaml_content)
-    resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
-    secrets = path.parent / "secrets.yaml"
-    stat = path.stat()
-    return DeviceMqttExtract(
-        yaml_mtime=stat.st_mtime,
-        yaml_size=stat.st_size,
-        secrets_mtime=secrets.stat().st_mtime if secrets.exists() else 0.0,
-        main_block=main_block,
-        main_substitutions=main_subs,
-        resolved_block=resolved_block if isinstance(resolved_block, dict) else None,
-        resolved_substitutions=resolved_substitutions or {},
+    """Assemble a ``DeviceMqttExtract`` for *path* via the production builder."""
+    # Stats stay in this test frame so async tests don't trip blockbuster.
+    try:
+        secrets_mtime_ns = (path.parent / SECRETS_FILENAME).stat().st_mtime_ns
+    except OSError:
+        secrets_mtime_ns = 0
+    return build_mqtt_extract(
+        yaml_content, resolved_config, path.stat(), secrets_mtime_ns, resolved_substitutions or {}
     )
 
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Any
 
 import yaml
@@ -50,7 +49,7 @@ def build_mqtt_extract(
     yaml_content: str,
     resolved_config: dict[str, Any] | None,
     yaml_stat: os.stat_result,
-    secrets_mtime: float,
+    secrets_mtime_ns: int,
     resolved_substitutions: dict[str, str],
 ) -> DeviceMqttExtract:
     """Build the scan-time extraction the MQTT coordinator consumes."""
@@ -59,22 +58,14 @@ def build_mqtt_extract(
     if not isinstance(resolved_block, dict):
         resolved_block = None
     return DeviceMqttExtract(
-        yaml_mtime=yaml_stat.st_mtime,
+        yaml_mtime_ns=yaml_stat.st_mtime_ns,
         yaml_size=yaml_stat.st_size,
-        secrets_mtime=secrets_mtime,
+        secrets_mtime_ns=secrets_mtime_ns,
         main_block=main_block,
         main_substitutions=main_subs,
         resolved_block=resolved_block,
-        resolved_substitutions=resolved_substitutions if resolved_block is not None else {},
+        resolved_substitutions=resolved_substitutions,
     )
-
-
-def safe_mtime(path: Path) -> float:
-    """Return *path*'s mtime, or ``0.0`` when the file is missing."""
-    try:
-        return path.stat().st_mtime
-    except OSError:
-        return 0.0
 
 
 class _TolerantYamlLoader(FastestSafeLoader):

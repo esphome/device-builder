@@ -29,7 +29,7 @@ from ..helpers.device_yaml import (
     _resolve_substitutions,
     extract_mqtt_block,
     load_device_yaml,
-    safe_mtime,
+    safe_mtime_ns,
 )
 from ..helpers.subscriber_presence import SubscriberPresence
 from ..helpers.yaml import load_yaml_fast_then_esphome
@@ -90,12 +90,12 @@ class DeviceMqttCoordinator:
         self._on_ip_change = on_ip_change
         self._presence = presence
         self._monitors: dict[BrokerKey, DeviceMqttMonitor] = {}
-        # Positive-only slow-path cache keyed on ``(yaml_mtime,
-        # secrets_mtime)``. Package / ``!include`` edits on a
-        # previously-cached device won't invalidate — user needs a
+        # Positive-only slow-path cache keyed on ``(yaml_mtime_ns,
+        # yaml_size, secrets_mtime_ns)``. Package / ``!include`` edits on
+        # a previously-cached device won't invalidate — user needs a
         # device-YAML touch or dashboard restart for those.
         self._broker_cache: dict[
-            str, tuple[tuple[float, float], MqttBrokerConfig | _ClientCertUnsupported]
+            str, tuple[tuple[int, int, int], MqttBrokerConfig | _ClientCertUnsupported]
         ] = {}
         # Per-device dedupe for the broker-unresolvable WARNING —
         # WARNING once, DEBUG on repeats.
@@ -194,30 +194,38 @@ class DeviceMqttCoordinator:
             monitor.set_publisher(value=elected[key[:2]] is monitor)
 
     def _collect_brokers(self) -> list[MqttBrokerConfig]:
+        mqtt_devices = [d for d in self._get_devices() if d.uses_mqtt]
+        if not mqtt_devices:
+            # Equivalent to an empty loop pass: clear the warn gates and
+            # cache so a re-added device warns fresh, and skip the
+            # secrets read + parse the common no-mqtt fleet never needs.
+            self._unresolved_logged.clear()
+            self._client_cert_logged.clear()
+            self._conflict_logged.clear()
+            self._broker_cache.clear()
+            return []
         secrets_map = _load_secrets(self._config_dir)
-        secrets_mtime = safe_mtime(self._config_dir / SECRETS_FILENAME)
+        secrets_mtime_ns = safe_mtime_ns(self._config_dir / SECRETS_FILENAME)
         seen: dict[BrokerKey, MqttBrokerConfig] = {}
         seen_devices: set[str] = set()
         client_cert_devices: set[str] = set()
         conflicts: set[BrokerKey] = set()
-        for device in self._get_devices():
-            if not device.uses_mqtt:
-                continue
+        for device in mqtt_devices:
             seen_devices.add(device.configuration)
             yaml_path = self._config_dir / device.configuration
             try:
                 yaml_stat = yaml_path.stat()
                 broker = _resolve_fast(device.mqtt_extract, yaml_path, yaml_stat, secrets_map)
             except OSError:
-                # Covers the stat and the fallback read (a CA parse
-                # failure is caught deeper and returns None). Skip
-                # silently — the WARNING is reserved for
+                # Reaches the whole fast tier (stat + fallback read;
+                # deeper failures resolve to None instead of raising).
+                # Skip silently — the WARNING is reserved for
                 # present-but-unresolvable YAMLs, not deleted ones.
                 _LOGGER.debug("Could not read %s for MQTT broker config", device.configuration)
                 continue
             if broker is None:
                 broker = self._resolve_slow(
-                    yaml_path, device.mqtt_extract, yaml_stat, secrets_mtime
+                    yaml_path, device.mqtt_extract, yaml_stat, secrets_mtime_ns
                 )
             if isinstance(broker, _ClientCertUnsupported):
                 client_cert_devices.add(device.configuration)
@@ -250,10 +258,10 @@ class DeviceMqttCoordinator:
         yaml_path: Path,
         extract: DeviceMqttExtract | None,
         yaml_stat: os.stat_result,
-        secrets_mtime: float,
+        secrets_mtime_ns: int,
     ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
         """Resolve a package-sourced broker: cache, then scan seed, then full parse."""
-        cache_key = (yaml_stat.st_mtime, secrets_mtime)
+        cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, secrets_mtime_ns)
         cached = self._broker_cache.get(yaml_path.name)
         if cached is not None and cached[0] == cache_key:
             return cached[1]
@@ -263,8 +271,7 @@ class DeviceMqttCoordinator:
         if (
             extract is not None
             and extract.resolved_block is not None
-            and (extract.yaml_mtime, extract.secrets_mtime) == cache_key
-            and extract.yaml_size == yaml_stat.st_size
+            and (extract.yaml_mtime_ns, extract.yaml_size, extract.secrets_mtime_ns) == cache_key
         ):
             broker = _broker_from_mqtt_dict(
                 extract.resolved_block, {}, extract.resolved_substitutions
@@ -371,7 +378,7 @@ def _resolve_fast(
     """Main-file tier: a fresh scan extraction, else read + tolerant-parse."""
     if (
         extract is not None
-        and extract.yaml_mtime == yaml_stat.st_mtime
+        and extract.yaml_mtime_ns == yaml_stat.st_mtime_ns
         and extract.yaml_size == yaml_stat.st_size
     ):
         return _broker_from_mqtt_dict(extract.main_block, secrets_map, extract.main_substitutions)

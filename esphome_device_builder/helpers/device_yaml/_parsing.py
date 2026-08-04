@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from pathlib import Path
 from typing import NamedTuple
 
 from esphome import const
@@ -868,6 +869,14 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
             break
 
     return value
+
+
+def safe_mtime_ns(path: Path) -> int:
+    """Return *path*'s mtime in nanoseconds, or ``0`` when the file is missing."""
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return 0
 
 
 def _extract_resolved_substitutions(config: dict | None) -> dict[str, str]:

@@ -23,6 +23,19 @@ from tests._mqtt_fixtures import (
 _BROKER_YAML = "mqtt:\n  broker: 192.168.1.10\n"
 
 
+def _rewrite_keeping_mtime(path: Path, text: str) -> None:
+    """Rewrite *path* while restoring its original mtime (ns-exact)."""
+    original_ns = path.stat().st_mtime_ns
+    path.write_text(text, encoding="utf-8")
+    os.utime(path, ns=(original_ns, original_ns))
+
+
+def _bump_mtime(path: Path) -> None:
+    """Push *path*'s mtime into the future so freshness checks see an edit."""
+    future_ns = path.stat().st_mtime_ns + 5_000_000_000
+    os.utime(path, ns=(future_ns, future_ns))
+
+
 def _seed_package_device(
     tmp_path: Path,
     resolved_block: dict[str, Any] | None,
@@ -51,9 +64,7 @@ async def test_fresh_extract_skips_reading_the_yaml(
     # Rewrite with a same-length broker and restore the original mtime —
     # the carried extract must win, proving no re-read happened.
     path = tmp_path / "kitchen.yaml"
-    original_mtime = path.stat().st_mtime
-    path.write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: 192.168.1.99\n")
-    os.utime(path, (original_mtime, original_mtime))
+    _rewrite_keeping_mtime(path, "esphome:\n  name: kitchen\n\nmqtt:\n  broker: 192.168.1.99\n")
 
     coord = make_mqtt_coordinator(tmp_path, [device])
     await coord.reconcile()
@@ -69,8 +80,7 @@ async def test_stale_extract_falls_back_and_sees_the_edit(
     device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
     path = tmp_path / "kitchen.yaml"
     path.write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: 10.0.0.9\n")
-    future = path.stat().st_mtime + 5
-    os.utime(path, (future, future))
+    _bump_mtime(path)
 
     coord = make_mqtt_coordinator(tmp_path, [device])
     await coord.reconcile()
@@ -191,13 +201,16 @@ async def test_extract_and_fallback_paths_agree(
 
     coord_a = make_mqtt_coordinator(tmp_path, [carried])
     await coord_a.reconcile()
-    brokers_a = sorted(m.broker for m in coord_a._monitors.values())
+    brokers_a = sorted((m.broker for m in coord_a._monitors.values()), key=lambda b: str(b.key))
 
     coord_b = make_mqtt_coordinator(tmp_path, [fallback])
     await coord_b.reconcile()
 
     assert sorted(b.host for b in brokers_a) == expected_hosts
-    assert sorted(m.broker for m in coord_b._monitors.values()) == brokers_a
+    assert (
+        sorted((m.broker for m in coord_b._monitors.values()), key=lambda b: str(b.key))
+        == brokers_a
+    )
 
 
 def test_secrets_edit_during_parse_stamps_the_pre_edit_mtime(
@@ -206,20 +219,19 @@ def test_secrets_edit_during_parse_stamps_the_pre_edit_mtime(
     """A secrets write racing the esphome parse leaves a stale stamp, not a poisoned seed."""
     secrets = tmp_path / "secrets.yaml"
     secrets.write_text("mqtt_host: 10.0.0.1\n")
-    pre_edit_mtime = secrets.stat().st_mtime
+    pre_edit_mtime_ns = secrets.stat().st_mtime_ns
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: x\n")
 
     def _parse_and_race(_path: Path) -> dict:
         secrets.write_text("mqtt_host: 10.0.0.2\n")
-        future = secrets.stat().st_mtime + 5
-        os.utime(secrets, (future, future))
+        _bump_mtime(secrets)
         return {"mqtt": {"broker": "10.0.0.1"}}
 
     monkeypatch.setattr(loading_module, "load_device_yaml", _parse_and_race)
     device = load_device_from_storage(tmp_path / "kitchen.yaml", "", "", "", "", 0, ())
 
     assert device.mqtt_extract is not None
-    assert device.mqtt_extract.secrets_mtime == pre_edit_mtime
+    assert device.mqtt_extract.secrets_mtime_ns == pre_edit_mtime_ns
 
 
 async def test_seed_rejected_when_yaml_size_changes_under_same_mtime(
@@ -230,9 +242,7 @@ async def test_seed_rejected_when_yaml_size_changes_under_same_mtime(
     """A same-mtime size change invalidates the seed like the scanner's own cache key."""
     device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
     path = tmp_path / "pkg.yaml"
-    original_mtime = path.stat().st_mtime
-    path.write_text(path.read_text() + "# grew\n")
-    os.utime(path, (original_mtime, original_mtime))
+    _rewrite_keeping_mtime(path, path.read_text() + "# grew\n")
 
     def _parse(_path: Path) -> dict:
         return {"mqtt": {"broker": "10.5.5.5"}}

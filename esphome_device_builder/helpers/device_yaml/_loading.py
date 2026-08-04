@@ -19,7 +19,7 @@ from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
-from ._mqtt_block import build_mqtt_extract, safe_mtime
+from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
     _extract_resolved_substitutions,
@@ -39,6 +39,7 @@ from ._parsing import (
     mdns_disabled_enabled,
     name_add_mac_suffix_enabled,
     parse_esphome_meta,
+    safe_mtime_ns,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
@@ -113,7 +114,7 @@ def load_device_from_storage(
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
 
-    yaml_stat, yaml_content, secrets_mtime = _snapshot_source_files(path)
+    yaml_stat, yaml_content, secrets_mtime_ns = _snapshot_source_files(path)
     yaml_mtime = yaml_stat.st_mtime if yaml_stat is not None else None
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
@@ -200,7 +201,7 @@ def load_device_from_storage(
 
     uses_mqtt = has_top_level_block(resolved_config, yaml_content, "mqtt")
     mqtt_extract = (
-        build_mqtt_extract(yaml_content, resolved_config, yaml_stat, secrets_mtime, extra_subs)
+        build_mqtt_extract(yaml_content, resolved_config, yaml_stat, secrets_mtime_ns, extra_subs)
         if uses_mqtt and yaml_stat is not None
         else None
     )
@@ -370,13 +371,8 @@ def load_device_from_storage(
     )
 
 
-def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, float]:
-    """Stat + read the YAML and stamp the secrets mtime before the esphome parse.
-
-    Sampling everything before ``load_device_yaml`` makes a racing edit
-    yield a stale stamp — the safe direction, since staleness only
-    forces a re-read / re-resolve, never a fresh-looking poisoned seed.
-    """
+def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, int]:
+    """Stat + read the YAML and stamp the secrets mtime before the esphome parse."""
     yaml_stat: os.stat_result | None
     try:
         yaml_stat = path.stat()
@@ -386,7 +382,7 @@ def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, floa
         yaml_content = path.read_text(encoding="utf-8")
     except OSError:
         yaml_content = ""
-    return yaml_stat, yaml_content, safe_mtime(path.parent / SECRETS_FILENAME)
+    return yaml_stat, yaml_content, safe_mtime_ns(path.parent / SECRETS_FILENAME)
 
 
 def compute_has_pending_changes(

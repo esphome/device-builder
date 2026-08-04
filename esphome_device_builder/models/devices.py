@@ -118,9 +118,9 @@ class DeviceMqttExtract:
     while both mtimes match the files on disk.
     """
 
-    yaml_mtime: float
+    yaml_mtime_ns: int
     yaml_size: int
-    secrets_mtime: float
+    secrets_mtime_ns: int
     main_block: dict[str, Any] | None
     main_substitutions: dict[str, str]
     resolved_block: dict[str, Any] | None
