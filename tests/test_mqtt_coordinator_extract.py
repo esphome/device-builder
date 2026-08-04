@@ -72,6 +72,21 @@ async def test_fresh_extract_skips_reading_the_yaml(
     assert [m.broker.host for m in stub_monitor.instances] == ["192.168.1.10"]
 
 
+async def test_fast_tier_rejects_extract_when_size_changes_under_same_mtime(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A same-mtime size change invalidates the carried block; the re-read wins."""
+    device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
+    path = tmp_path / "kitchen.yaml"
+    _rewrite_keeping_mtime(path, "esphome:\n  name: kitchen\n\nmqtt:\n  broker: 10.0.0.9\n")
+
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert [m.broker.host for m in stub_monitor.instances] == ["10.0.0.9"]
+
+
 async def test_stale_extract_falls_back_and_sees_the_edit(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],

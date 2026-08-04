@@ -109,7 +109,7 @@ class DeviceRuntimeState(DashboardModel):
 RUNTIME_STATE_FIELD_NAMES = frozenset(f.name for f in fields(DeviceRuntimeState))
 
 
-@dataclass
+@dataclass(repr=False)
 class DeviceMqttExtract:
     """Scan-time ``mqtt:`` extraction consumed by the MQTT coordinator.
 
