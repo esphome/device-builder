@@ -35,6 +35,7 @@ from esphome_device_builder.controllers.components import (
 )
 from esphome_device_builder.controllers.components import _resolve as components_module
 from esphome_device_builder.controllers.components import controller as comp_controller
+from esphome_device_builder.controllers.components._resolve import FeaturedView
 from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 from esphome_device_builder.models import (
     ComponentCatalogEntry,
@@ -322,8 +323,7 @@ async def test_get_components_provides_filters_featured_entries() -> None:
         ),
         "sensor.dht": _make_entry(entry_id="sensor.dht", category=ComponentCategory.SENSOR),
     }
-    cat._featured_built = True  # manual seed below is the registry under test
-    cat._featured_by_id = {
+    featured_by_id = {
         "featured.b.adc": _FeaturedRecord(
             full_id="featured.b.adc",
             board_id="b",
@@ -337,7 +337,7 @@ async def test_get_components_provides_filters_featured_entries() -> None:
             underlying_id="sensor.dht",
         ),
     }
-    cat._featured_by_board = {"b": ["featured.b.adc", "featured.b.dht"]}
+    cat._featured._view = FeaturedView(featured_by_id, {"b": ["featured.b.adc", "featured.b.dht"]})
     res = await cat.get_components(
         category=ComponentCategory.FEATURED.value, board_id="b", provides="voltage_sampler"
     )
@@ -351,8 +351,7 @@ async def test_get_components_query_ranks_featured_entries() -> None:
         "sensor.hub": _make_entry(entry_id="sensor.hub", category=ComponentCategory.SENSOR),
         "uart": _make_entry(entry_id="uart", name="UART Bus", category=ComponentCategory.SENSOR),
     }
-    cat._featured_built = True  # manual seed below is the registry under test
-    cat._featured_by_id = {
+    featured_by_id = {
         "featured.b.hub": _FeaturedRecord(
             full_id="featured.b.hub",
             board_id="b",
@@ -370,7 +369,7 @@ async def test_get_components_query_ranks_featured_entries() -> None:
     }
     # Curated order lists the description-only hub first; ranking floats the
     # exact name match (uart) above it.
-    cat._featured_by_board = {"b": ["featured.b.hub", "featured.b.uart"]}
+    cat._featured._view = FeaturedView(featured_by_id, {"b": ["featured.b.hub", "featured.b.uart"]})
     res = await cat.get_components(
         category=ComponentCategory.FEATURED.value, board_id="b", query="uart"
     )
@@ -537,13 +536,13 @@ async def test_featured_registry_hydrates_on_first_use() -> None:
     """``load()`` leaves the featured registry empty; ``ensure`` builds it."""
     cat = ComponentCatalog(_Container(boards=None))
     await asyncio.to_thread(cat.load)
-    assert cat._featured_by_id == {}
-    assert not cat._featured_built
+    assert cat._featured._view is None
 
     await cat.ensure_featured_registry()
 
-    assert cat._featured_built
-    assert cat._featured_by_id
+    view = cat._featured._view
+    assert view is not None
+    assert view.by_id
 
 
 async def test_ensure_featured_registry_builds_once_under_concurrency(
@@ -572,8 +571,7 @@ async def test_ensure_featured_registry_skips_build_on_empty_catalog() -> None:
 
     await cat.ensure_featured_registry()
 
-    assert cat._featured_built
-    assert cat._featured_by_id == {}
+    assert cat._featured._view == FeaturedView({}, {})
 
 
 def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
@@ -616,17 +614,19 @@ def test_featured_components_for_board_skips_underlying_missing_from_index() -> 
     """
     cat = ComponentCatalog()
     cat._by_id = {}  # underlying "switch.gpio" deliberately not present
-    cat._featured_by_id = {
-        "featured.bench-board.relay": _FeaturedRecord(
-            full_id="featured.bench-board.relay",
-            board_id="bench-board",
-            featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
-            underlying_id="switch.gpio",
-        )
-    }
-    cat._featured_by_board = {"bench-board": ["featured.bench-board.relay"]}
+    view = FeaturedView(
+        {
+            "featured.bench-board.relay": _FeaturedRecord(
+                full_id="featured.bench-board.relay",
+                board_id="bench-board",
+                featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
+                underlying_id="switch.gpio",
+            )
+        },
+        {"bench-board": ["featured.bench-board.relay"]},
+    )
 
-    entries = cat._featured_components_for_board("bench-board", query=None)
+    entries = cat._featured_components_for_board(view, "bench-board", query=None)
 
     assert entries == []
 
@@ -639,9 +639,8 @@ def test_featured_components_for_board_skips_records_missing_from_index() -> Non
     rebuild-mid-flight recover gracefully.
     """
     cat = ComponentCatalog()
-    cat._featured_by_board = {"phantom-board": ["featured.phantom-board.ghost"]}
-    cat._featured_by_id = {}  # diverged: id missing
-    out = cat._featured_components_for_board("phantom-board", query=None)
+    view = FeaturedView({}, {"phantom-board": ["featured.phantom-board.ghost"]})
+    out = cat._featured_components_for_board(view, "phantom-board", query=None)
     assert out == []
 
 
@@ -977,7 +976,7 @@ async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
     executor hop that reads every missing body sequentially.
     """
     cat = ComponentCatalog()
-    cat._featured_built = True  # keep the counted hop to the body batch alone
+    cat._featured._view = FeaturedView({}, {})  # keep the counted hop to the body batch alone
     cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(10)}
     cat._components = list(cat._by_id.values())
     bodies_dir = tmp_path / "components"
@@ -1074,14 +1073,17 @@ async def test_get_component_bodies_skips_featured_with_missing_body(
     cat = ComponentCatalog()
     cat._by_id = {"switch.gpio": _make_entry(entry_id="switch.gpio")}
     cat._components = list(cat._by_id.values())
-    cat._featured_by_id = {
-        "featured.test-board.relay": _FeaturedRecord(
-            full_id="featured.test-board.relay",
-            board_id="test-board",
-            featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
-            underlying_id="switch.gpio",
-        )
-    }
+    cat._featured._view = FeaturedView(
+        {
+            "featured.test-board.relay": _FeaturedRecord(
+                full_id="featured.test-board.relay",
+                board_id="test-board",
+                featured=FeaturedComponent(id="relay", component_id="switch.gpio"),
+                underlying_id="switch.gpio",
+            )
+        },
+        {},
+    )
     bodies_dir = tmp_path / "components"
     bodies_dir.mkdir()
     # NOTE: deliberately don't write switch.gpio.json — the body
@@ -1200,7 +1202,7 @@ async def test_resolve_network_components_returns_only_first_match() -> None:
     eth_body = ComponentCatalogEntry(
         id="ethernet", name="ethernet", description="", category=ComponentCategory.CORE
     )
-    cat._featured_by_id = {
+    featured_by_id = {
         "featured.dual-net.eth_a": _FeaturedRecord(
             full_id="featured.dual-net.eth_a",
             board_id="dual-net",
@@ -1222,6 +1224,8 @@ async def test_resolve_network_components_returns_only_first_match() -> None:
             underlying_id="ethernet",
         ),
     }
+
+    cat._featured._view = FeaturedView(featured_by_id, {})
 
     async def fake_load(component_ids: list[str]) -> dict[str, ComponentCatalogEntry]:
         return {"ethernet": eth_body}

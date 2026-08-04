@@ -295,19 +295,25 @@ def catalog(session_component_catalog: ComponentCatalog) -> ComponentCatalog:
     return session_component_catalog
 
 
+def _view(catalog: ComponentCatalog):
+    """Return the pre-hydrated featured view (the session fixture ran the ensure)."""
+    view = catalog._featured._view
+    assert view is not None
+    return view
+
+
 def test_registry_indexes_known_boards(catalog: ComponentCatalog) -> None:
     """Tier-1 manifests register their featured components under the right ids."""
-    assert "featured.sonoff-basic.relay" in catalog._featured_by_id
-    assert "featured.apollo-esk-1.motion_module" in catalog._featured_by_id
-    assert "featured.athom-smart-plug-v3.relay" in catalog._featured_by_id
+    assert "featured.sonoff-basic.relay" in _view(catalog).by_id
+    assert "featured.apollo-esk-1.motion_module" in _view(catalog).by_id
+    assert "featured.athom-smart-plug-v3.relay" in _view(catalog).by_id
 
 
 def test_registry_groups_per_board(catalog: ComponentCatalog) -> None:
-    """``_featured_by_board`` lets get_components scope the featured listing."""
-    assert "featured.sonoff-basic.relay" in catalog._featured_by_board["sonoff-basic"]
+    """The per-board grouping lets get_components scope the featured listing."""
+    assert "featured.sonoff-basic.relay" in _view(catalog).by_board["sonoff-basic"]
     assert all(
-        bid.startswith("featured.apollo-esk-1.")
-        for bid in catalog._featured_by_board["apollo-esk-1"]
+        bid.startswith("featured.apollo-esk-1.") for bid in _view(catalog).by_board["apollo-esk-1"]
     )
 
 
@@ -331,14 +337,15 @@ async def test_get_component_suggestions(catalog: ComponentCatalog) -> None:
     # swap a synthetic record into the catalog for the duration of the
     # test to exercise the full materialisation path.
     full_id = "featured.apollo-esk-1.motion_module"
-    original = catalog._featured_by_id[full_id]
+    by_id = _view(catalog).by_id
+    original = by_id[full_id]
     patched = deepcopy(original)
     patched.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
-    catalog._featured_by_id[full_id] = patched
+    by_id[full_id] = patched
     try:
         entry = await catalog.get_component(component_id=full_id)
     finally:
-        catalog._featured_by_id[full_id] = original
+        by_id[full_id] = original
     assert entry is not None
     pin = next(ce for ce in entry.config_entries if ce.key == "pin")
     assert pin.default_value == 4
@@ -393,7 +400,7 @@ _APOLLO_PIR_IMAGE = (
 
 def test_shipped_apollo_featured_carries_module_image(catalog: ComponentCatalog) -> None:
     """The shipped apollo-esk-1 featured registry keeps its module photo (no regen drop)."""
-    record = catalog._featured_by_id["featured.apollo-esk-1.motion_module"]
+    record = _view(catalog).by_id["featured.apollo-esk-1.motion_module"]
     assert record.featured.image_url == _APOLLO_PIR_IMAGE
 
 
@@ -574,7 +581,7 @@ async def test_get_categories_surfaces_featured_count(
     """``board_id`` makes the synthetic ``featured`` category appear."""
     cats = await catalog.get_categories(board_id="apollo-esk-1")
     featured = next(c for c in cats if c["id"] == "featured")
-    assert int(featured["count"]) == len(catalog._featured_by_board["apollo-esk-1"])
+    assert int(featured["count"]) == len(_view(catalog).by_board["apollo-esk-1"])
 
 
 async def test_get_categories_no_featured_without_board(
