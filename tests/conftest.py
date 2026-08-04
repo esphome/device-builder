@@ -42,6 +42,7 @@ from esphome_device_builder.controllers._device_state_monitor import mdns as _md
 from esphome_device_builder.controllers._device_state_monitor import ping as _ping_module
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.components import ComponentCatalog
+from esphome_device_builder.controllers.components._resolve import FeaturedView
 from esphome_device_builder.controllers.config import DashboardSettings
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
@@ -664,7 +665,9 @@ def session_component_catalog(session_board_catalog: BoardCatalog) -> ComponentC
     container.boards = session_board_catalog
     container.components = ComponentCatalog(container)
     container.components.load()
-    asyncio.run(container.components.ensure_featured_registry())
+    # Hydrate directly: ``asyncio.run`` would bind the registry lock to a
+    # throwaway loop.
+    container.components._featured._view = FeaturedView(*container.components._build_featured())
     return container.components
 
 

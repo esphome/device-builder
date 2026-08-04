@@ -277,12 +277,13 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self.state.esphome_cmd = _find_esphome_cmd()
         # Store seed + migrations + ignore-list are independent; all
         # must land before the scanner (the resolver reads off them).
-        await asyncio.gather(
-            self._metadata_store.async_load(),
-            self._pending_keys.async_load(),
-            self.migrate_board_id_user_set(),
-            run_in_executor(self._load_ignored_devices),
-        )
+        # TaskGroup so a failing leg cancels its siblings instead of
+        # orphaning them past the aborted start.
+        async with asyncio.TaskGroup() as group:
+            group.create_task(self._metadata_store.async_load())
+            group.create_task(self._pending_keys.async_load())
+            group.create_task(self.migrate_board_id_user_set())
+            group.create_task(run_in_executor(self._load_ignored_devices))
         await self._scanner.scan()
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))

@@ -7,7 +7,6 @@ import stat
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -62,10 +61,9 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     with _METADATA_LOCK:
         if not _HAS_FCNTL:
             data = _load_metadata(config_dir)
-            before = deepcopy(data)
+            before = dumps_indent(data)
             yield data
-            if data != before:
-                _save_metadata(config_dir, data)
+            _save_metadata_if_changed(config_dir, data, before)
             return
         lock_path = config_dir / _METADATA_LOCK_FILE
         with open(lock_path, "a+", encoding="utf-8", opener=_open_metadata_lock_file) as lock_fh:
@@ -82,12 +80,9 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
             # not fail.
             fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
             data = _load_metadata(config_dir)
-            before = deepcopy(data)
+            before = dumps_indent(data)
             yield data
-            # No-op transactions (migration already ran, entry absent,
-            # read-only probe) must not churn the sidecar every boot.
-            if data != before:
-                _save_metadata(config_dir, data)
+            _save_metadata_if_changed(config_dir, data, before)
 
 
 def _load_metadata(config_dir: Path) -> dict[str, Any]:
@@ -108,6 +103,16 @@ def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
     # Atomic so lock-free readers never observe a partial write.
     # ``dumps_indent`` yields bytes; the on-disk file stays readable / diffable.
     atomic_write(config_dir / _METADATA_FILE, dumps_indent(data))
+
+
+def _save_metadata_if_changed(config_dir: Path, data: dict[str, Any], before: bytes) -> None:
+    # Byte-compare against the serialized pre-image: no-op transactions
+    # (migration already ran, entry absent, read-only probe) must not
+    # churn the sidecar every boot, and serialization equality is
+    # exactly "would this write change the file".
+    serialized = dumps_indent(data)
+    if serialized != before:
+        atomic_write(config_dir / _METADATA_FILE, serialized)
 
 
 def get_board_id(config_dir: Path, filename: str) -> str:
