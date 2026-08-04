@@ -77,8 +77,8 @@ class YamlSearchCache:
           they're routine in a fleet that's actively being edited
           — and never propagate; ``yaml/search`` is best-effort
           across the fleet, not a per-device contract);
-        - the file's size exceeds ``MAX_FILE_BYTES`` (the file is
-          never loaded into memory).
+        - the file's size exceeds ``MAX_FILE_BYTES`` (reads stay
+          bounded at the cap and oversize content is never cached).
         """
         async with self._lock:
             try:

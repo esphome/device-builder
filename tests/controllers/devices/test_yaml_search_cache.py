@@ -367,6 +367,11 @@ async def test_replace_between_stat_and_read_caches_the_read_version(
 
     # The pre-replace handle's bytes, keyed on that version's mtime.
     assert first == ["wifi:"]
+    # Guarantee the replacement's mtime differs from the cached key —
+    # on a coarse-granularity filesystem the replace can land in the
+    # same tick as the original write.
+    new_mtime = path.stat().st_mtime_ns + 1_000_000_000
+    os.utime(path, ns=(new_mtime, new_mtime))
     # The next call's fresh stat misses the old key and reads the
     # replacement.
     second = await cache.get_lines("kitchen.yaml", path)
