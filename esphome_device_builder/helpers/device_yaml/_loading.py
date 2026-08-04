@@ -111,9 +111,15 @@ def load_device_from_storage(
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
 
+    # Stat BEFORE the read: an edit landing during the (long) esphome
+    # parse below then yields a stale mtime with fresh content — the
+    # safe direction, since a stale mtime only forces a re-read.
+    yaml_mtime: float | None
     try:
+        yaml_mtime = path.stat().st_mtime
         yaml_content = path.read_text(encoding="utf-8")
     except OSError:
+        yaml_mtime = None
         yaml_content = ""
     # Full resolved config (``!include`` / packages / ``!secret``
     # expanded) drives the api-encryption flag — a bare regex on raw
@@ -168,7 +174,6 @@ def load_device_from_storage(
     storage_area = getattr(storage, "area", None) if storage else None
     area = _pick_meta(yaml_meta.area, cfg_meta.area, storage_area) or ""
 
-    yaml_mtime = path.stat().st_mtime if path.exists() else None
     bin_mtime: float | None = None
     if storage and storage.firmware_bin_path and storage.firmware_bin_path.exists():
         bin_mtime = storage.firmware_bin_path.stat().st_mtime

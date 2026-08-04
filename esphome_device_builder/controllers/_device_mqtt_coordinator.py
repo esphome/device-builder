@@ -28,8 +28,8 @@ from ..helpers.device_yaml import (
     _resolve_substitutions,
     extract_mqtt_block,
     load_device_yaml,
+    safe_mtime,
 )
-from ..helpers.device_yaml._mqtt_block import safe_mtime
 from ..helpers.subscriber_presence import SubscriberPresence
 from ..helpers.yaml import load_yaml_fast_then_esphome
 from ..models import Device

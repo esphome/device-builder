@@ -49,7 +49,7 @@ class RecordingMonitor:
 def build_test_extract(
     path: Path, yaml_content: str, resolved_config: dict | None = None
 ) -> DeviceMqttExtract:
-    """Assemble an extract with test-frame stats so blockbuster stays quiet on the loop."""
+    """Assemble a ``DeviceMqttExtract`` for *path* from *yaml_content* and *resolved_config*."""
     main_block, main_subs = extract_mqtt_block(yaml_content)
     resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
     secrets = path.parent / "secrets.yaml"

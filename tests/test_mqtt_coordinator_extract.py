@@ -138,15 +138,18 @@ async def test_seed_deriving_none_falls_through_to_the_full_parse(
 
 
 @pytest.mark.parametrize(
-    "mqtt_yaml",
+    ("mqtt_yaml", "expected_hosts"),
     [
-        pytest.param("mqtt:\n  broker: 192.168.1.10\n", id="plain"),
-        pytest.param("mqtt:\n  broker: !secret mqtt_host\n", id="secret"),
+        pytest.param("mqtt:\n  broker: 192.168.1.10\n", ["192.168.1.10"], id="plain"),
+        pytest.param("mqtt:\n  broker: !secret mqtt_host\n", ["172.16.0.2"], id="secret"),
         pytest.param(
-            "substitutions:\n  host: 10.9.9.9\n\nmqtt:\n  broker: ${host}\n", id="substitution"
+            "substitutions:\n  host: 10.9.9.9\n\nmqtt:\n  broker: ${host}\n",
+            ["10.9.9.9"],
+            id="substitution",
         ),
         pytest.param(
             "mqtt:\n  broker: h\n  client_certificate: c\n  client_certificate_key: k\n",
+            [],
             id="client-cert",
         ),
     ],
@@ -155,8 +158,9 @@ async def test_extract_and_fallback_paths_agree(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
     mqtt_yaml: str,
+    expected_hosts: list[str],
 ) -> None:
-    """Both tiers produce the same broker set, so monitors never churn on a rescan."""
+    """Both tiers produce the expected brokers, so monitors never churn on a rescan."""
     (tmp_path / "secrets.yaml").write_text("mqtt_host: 172.16.0.2\n")
     carried = write_mqtt_device(tmp_path, "kitchen", mqtt_yaml)
     fallback = write_mqtt_device(tmp_path, "kitchen", mqtt_yaml)
@@ -164,12 +168,13 @@ async def test_extract_and_fallback_paths_agree(
 
     coord_a = make_mqtt_coordinator(tmp_path, [carried])
     await coord_a.reconcile()
-    keys_a = sorted(map(str, coord_a._monitors))
+    brokers_a = sorted(m.broker for m in coord_a._monitors.values())
 
     coord_b = make_mqtt_coordinator(tmp_path, [fallback])
     await coord_b.reconcile()
 
-    assert sorted(map(str, coord_b._monitors)) == keys_a
+    assert sorted(b.host for b in brokers_a) == expected_hosts
+    assert sorted(m.broker for m in coord_b._monitors.values()) == brokers_a
 
 
 def test_extract_mqtt_block_rejects_non_mapping_yaml() -> None:

@@ -391,10 +391,13 @@ async def test_coordinator_rewarns_client_cert_after_recovery(
     target = "esphome_device_builder.controllers._device_mqtt_coordinator"
     with caplog.at_level("DEBUG", logger=target):
         await coord.reconcile()
-        write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: b.example\n")
+        # Re-seed so the carried extract tracks the rewrite; a same-mtime
+        # rewrite would otherwise serve the stale block on coarse
+        # filesystem clocks (Windows CI).
+        devices[0] = write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: b.example\n")
         await coord.reconcile()
         assert coord.active_brokers == 1
-        write_mqtt_device(tmp_path, "alpha", client_cert_block)
+        devices[0] = write_mqtt_device(tmp_path, "alpha", client_cert_block)
         await coord.reconcile()
     warnings = [
         r
@@ -417,7 +420,7 @@ async def test_coordinator_replaces_monitor_when_tls_added(
     (first,) = stub_monitor.instances
     assert first.broker.certificate_authority is None
 
-    (tmp_path / "alpha.yaml").write_text(f"esphome:\n  name: alpha\n\n{_tls_mqtt_yaml()}")
+    devices[0] = write_mqtt_device(tmp_path, "alpha", _tls_mqtt_yaml())
     await coord.reconcile()
 
     assert first.stopped is True

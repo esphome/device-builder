@@ -22,22 +22,6 @@ class SecretRef:
         self.name = name
 
 
-class _TolerantYamlLoader(FastestSafeLoader):
-    """SafeLoader that captures ``!secret`` and ignores other custom tags."""
-
-
-def _construct_secret(loader: yaml.Loader, node: yaml.ScalarNode) -> SecretRef:
-    return SecretRef(loader.construct_scalar(node))
-
-
-def _ignore_unknown_tag(_loader: yaml.Loader, _tag_suffix: str, _node: yaml.Node) -> None:
-    return None
-
-
-_TolerantYamlLoader.add_constructor("!secret", _construct_secret)
-_TolerantYamlLoader.add_multi_constructor("!", _ignore_unknown_tag)
-
-
 def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """
     Tolerant-parse *yaml_content*; return its ``mqtt:`` dict and substitutions.
@@ -90,3 +74,19 @@ def safe_mtime(path: Path) -> float:
         return path.stat().st_mtime
     except OSError:
         return 0.0
+
+
+class _TolerantYamlLoader(FastestSafeLoader):
+    """SafeLoader that captures ``!secret`` and ignores other custom tags."""
+
+
+def _construct_secret(loader: yaml.Loader, node: yaml.ScalarNode) -> SecretRef:
+    return SecretRef(loader.construct_scalar(node))
+
+
+def _ignore_unknown_tag(_loader: yaml.Loader, _tag_suffix: str, _node: yaml.Node) -> None:
+    return None
+
+
+_TolerantYamlLoader.add_constructor("!secret", _construct_secret)
+_TolerantYamlLoader.add_multi_constructor("!", _ignore_unknown_tag)
