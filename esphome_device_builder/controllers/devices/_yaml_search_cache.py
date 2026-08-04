@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -78,10 +79,10 @@ class YamlSearchCache:
           across the fleet, not a per-device contract);
         - the file's on-disk size exceeds ``MAX_FILE_BYTES``. The
           byte ceiling is checked from ``stat.st_size`` *before*
-          ``read_text``, so a pathological multi-megabyte YAML
-          never gets loaded into Python memory in the first place
-          — the cache stays bounded regardless of what the
-          filesystem holds.
+          opening and re-checked off the open handle before the
+          read, so a pathological multi-megabyte YAML never gets
+          loaded into Python memory — the cache stays bounded
+          regardless of what the filesystem holds.
         """
         async with self._lock:
             try:
@@ -109,15 +110,24 @@ class YamlSearchCache:
                 return cached[1]
 
             try:
-                text = await asyncio.to_thread(path.read_text, encoding="utf-8", errors="replace")
+                entry = await asyncio.to_thread(_read_for_cache, path)
             except OSError as exc:
                 _LOGGER.debug("yaml-search-cache: read %s failed: %s", configuration, exc)
                 self._entries.pop(configuration, None)
                 return None
 
-            lines = text.splitlines()
-            self._entries[configuration] = (stat.st_mtime_ns, lines)
-            return lines
+            if entry is None:
+                _LOGGER.debug(
+                    "yaml-search-cache: %s grew over the %d-byte cap between stat and "
+                    "open — skipped",
+                    configuration,
+                    MAX_FILE_BYTES,
+                )
+                self._entries.pop(configuration, None)
+                return None
+
+            self._entries[configuration] = entry
+            return entry[1]
 
     def prune(self, live_configurations: Iterable[str]) -> None:
         """Drop entries for configurations not in *live_configurations*.
@@ -129,3 +139,17 @@ class YamlSearchCache:
         live = set(live_configurations)
         for stale in [k for k in self._entries if k not in live]:
             del self._entries[stale]
+
+
+def _read_for_cache(path: Path) -> tuple[int, list[str]] | None:
+    """
+    Read *path* off one open handle, keyed on the handle's ``fstat``.
+
+    ``None`` when the handle's size exceeds ``MAX_FILE_BYTES``.
+    """
+    with path.open("rb") as fh:
+        file_stat = os.fstat(fh.fileno())
+        if file_stat.st_size > MAX_FILE_BYTES:
+            return None
+        data = fh.read()
+    return file_stat.st_mtime_ns, data.decode("utf-8", errors="replace").splitlines()
