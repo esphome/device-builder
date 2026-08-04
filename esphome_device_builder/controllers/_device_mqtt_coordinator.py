@@ -498,7 +498,10 @@ def _ca_pem_is_loadable(certificate_authority: str) -> bool:
     """
     try:
         ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=certificate_authority)
-    except ssl.SSLError as err:
+    except (ssl.SSLError, TypeError, ValueError) as err:
+        # TypeError/ValueError cover non-ASCII bytes and other bad-input
+        # shapes ``load_verify_locations`` raises outside SSLError; an
+        # escape here aborts the whole fleet's reconcile.
         # The gated unresolved warning is generic; keep the concrete
         # parse failure recoverable from the logs.
         _LOGGER.debug("certificate_authority failed to parse: %s", err)

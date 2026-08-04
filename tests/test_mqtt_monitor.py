@@ -256,6 +256,21 @@ def test_parse_mqtt_block_corrupt_ca_returns_none(caplog: pytest.LogCaptureFixtu
     assert any("failed to parse" in r.getMessage() for r in caplog.records)
 
 
+def test_parse_mqtt_block_non_ascii_ca_returns_none(caplog: pytest.LogCaptureFixture) -> None:
+    # A smart quote from copy-paste makes ``load_verify_locations`` raise
+    # TypeError, not SSLError; an escape aborts the fleet's reconcile.
+    yaml = (
+        "mqtt:\n  broker: broker.example\n  certificate_authority: |\n"
+        "    -----BEGIN CERTIFICATE-----\n"
+        "    MIIB\u2019x\n"
+        "    -----END CERTIFICATE-----\n"
+    )
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("DEBUG", logger=target):
+        assert parse_mqtt_block(yaml) is None
+    assert any("failed to parse" in r.getMessage() for r in caplog.records)
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
