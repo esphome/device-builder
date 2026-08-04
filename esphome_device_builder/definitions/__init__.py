@@ -499,11 +499,10 @@ def load_board_body_from_disk(board_id: str) -> BoardCatalogEntry | None:
 def load_featured_components_index() -> dict[str, list[FeaturedComponent]]:
     """Load the aggregated ``{board_id: list[FeaturedComponent]}`` index.
 
-    Read once at startup by the components controller to build its
-    cross-catalog featured-component registry without ever touching
-    per-board body files. Missing / malformed artefact yields an
-    empty map; the registry just has no featured components for any
-    board in that degenerate case.
+    Read once by the components controller's lazy registry build
+    without ever touching per-board body files. Missing / malformed
+    artefact yields an empty map; the registry just has no featured
+    components for any board in that degenerate case.
     """
     empty: dict[str, list[FeaturedComponent]] = {}
     return _load_json_artifact(
