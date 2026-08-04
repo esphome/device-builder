@@ -39,6 +39,7 @@ from esphome_device_builder.helpers.device_yaml import (
     parse_platform_from_yaml,
     pending_changes_via_hash,
 )
+from esphome_device_builder.helpers.device_yaml._loading import _snapshot_source_files
 from esphome_device_builder.helpers.device_yaml._parsing import (
     _is_valid_esphome_name,
     config_name_add_mac_suffix,
@@ -2214,8 +2215,7 @@ def test_load_device_falls_back_to_empty_yaml_on_read_error(
     """An OSError reading the YAML produces an empty content string, not a crash.
 
     The scanner can race a file rename / unlink; if the YAML
-    disappears between ``Path.exists()`` (in the caller) and
-    ``read_text()``, the loader must still return a usable
+    can't be opened, the loader must still return a usable
     Device rather than blowing up the whole rebuild. Pin the
     catch so a regression that re-raised the OSError would
     surface here as a hard failure.
@@ -2224,15 +2224,15 @@ def test_load_device_falls_back_to_empty_yaml_on_read_error(
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     write_storage_json(tmp_path, "kitchen.yaml")
 
-    real_read_text = Path.read_text
+    real_open = Path.open
 
-    def _failing_read(self: Path, *args: Any, **kwargs: Any) -> str:
+    def _failing_open(self: Path, *args: Any, **kwargs: Any) -> Any:
         if self.name == "kitchen.yaml":
             msg = "permission denied"
             raise OSError(msg)
-        return real_read_text(self, *args, **kwargs)
+        return real_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", _failing_read)
+    monkeypatch.setattr(Path, "open", _failing_open)
 
     device = load_device_from_storage(yaml_path)
 
@@ -2240,6 +2240,29 @@ def test_load_device_falls_back_to_empty_yaml_on_read_error(
     # so the loader leans on StorageJSON for those fields.
     assert device.name == "kitchen"  # from StorageJSON.name (write_storage_json default)
     assert device.configuration == "kitchen.yaml"
+
+
+def test_snapshot_degrades_to_a_bare_stat_when_open_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A present-but-unreadable YAML keeps its mtime with empty content."""
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    expected_mtime_ns = path.stat().st_mtime_ns
+
+    real_open = Path.open
+
+    def _denied(self: Path, *args: Any, **kwargs: Any) -> Any:
+        if self.name == "kitchen.yaml":
+            raise PermissionError("denied")
+        return real_open(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", _denied)
+    yaml_stat, yaml_content, _secrets_key = _snapshot_source_files(path)
+
+    assert yaml_content == ""
+    assert yaml_stat is not None
+    assert yaml_stat.st_mtime_ns == expected_mtime_ns
 
 
 @pytest.mark.usefixtures("_redirect_ext_storage")

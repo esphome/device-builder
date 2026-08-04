@@ -15,7 +15,45 @@ from esphome_device_builder.helpers.atomic_io import (
     atomic_write_exclusive,
     atomic_write_preserving_mode,
     read_bytes_with_retry,
+    read_text_with_stat,
 )
+
+
+def test_read_text_with_stat_pairs_content_with_the_handle_stat(tmp_path: Path) -> None:
+    """The returned stat describes exactly the bytes read."""
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    file_stat, content = read_text_with_stat(path)
+
+    assert content == "esphome:\n  name: kitchen\n"
+    assert file_stat.st_size == len(content.encode())
+    assert file_stat.st_mtime_ns == path.stat().st_mtime_ns
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="cannot replace a file with an open handle")
+def test_read_text_with_stat_survives_an_atomic_replace_mid_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A replace between open and read yields the pre-replace stat and content together."""
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("old: 1\n", encoding="utf-8")
+
+    real_open = Path.open
+
+    def _replace_after_open(self: Path, *args: object, **kwargs: object) -> object:
+        fh = real_open(self, *args, **kwargs)
+        if self.name == "kitchen.yaml":
+            staged = tmp_path / "staged.yaml"
+            staged.write_text("new: 2 and longer\n", encoding="utf-8")
+            staged.replace(path)
+        return fh
+
+    monkeypatch.setattr(Path, "open", _replace_after_open)
+    file_stat, content = read_text_with_stat(path)
+
+    assert content == "old: 1\n"
+    assert file_stat.st_size == len(content.encode())
 
 
 def test_atomic_write_cleans_up_tempfile_on_error(

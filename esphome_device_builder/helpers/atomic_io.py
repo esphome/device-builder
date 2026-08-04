@@ -96,6 +96,16 @@ def read_bytes_with_retry(path: Path) -> bytes:
     return _retry_windows_permission(path.read_bytes)
 
 
+def read_text_with_stat(path: Path) -> tuple[os.stat_result, str]:
+    """Read *path* off one open handle, pairing the content with the handle's ``fstat``."""
+
+    def _read() -> tuple[os.stat_result, str]:
+        with path.open(encoding="utf-8") as fh:
+            return os.fstat(fh.fileno()), fh.read()
+
+    return _retry_windows_permission(_read)
+
+
 def _staged_write(
     path: Path,
     data: bytes,

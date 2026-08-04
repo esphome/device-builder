@@ -22,6 +22,7 @@ from esphome.core import EsphomeError
 
 from ..constants import SECRETS_FILENAME
 from ..helpers.async_ import run_in_executor
+from ..helpers.atomic_io import read_text_with_stat
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
     SecretRef,
@@ -229,8 +230,10 @@ class DeviceMqttCoordinator:
             else:
                 # Scan raced an edit (or the device predates the scanner
                 # carrying extractions) — fall back to reading the file.
+                # ``fstat`` off the read handle keeps the slow-path cache
+                # key coherent with the content actually parsed.
                 try:
-                    yaml_content = yaml_path.read_text(encoding="utf-8")
+                    yaml_stat, yaml_content = read_text_with_stat(yaml_path)
                 except OSError:
                     _LOGGER.debug(_UNREADABLE_DEBUG, device.configuration)
                     continue
