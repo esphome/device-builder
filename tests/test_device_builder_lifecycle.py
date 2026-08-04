@@ -24,6 +24,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from esphome_device_builder.api.ws import close_active_websockets
+from esphome_device_builder.controllers.components import ComponentCatalog
 from esphome_device_builder.device_builder import DeviceBuilder
 
 from .conftest import MakeSettingsFactory
@@ -289,6 +290,8 @@ async def test_start_schedules_advertise_and_discovery_task(
         "esphome_device_builder.device_builder.start_peer_discovery",
         calls.append,
     )
+    prewarm = AsyncMock()
+    monkeypatch.setattr(ComponentCatalog, "ensure_featured_registry", prewarm)
     db = DeviceBuilder(make_settings(with_core_path=True))
     try:
         await db.start()
@@ -296,15 +299,15 @@ async def test_start_schedules_advertise_and_discovery_task(
         assert task is not None
         assert not task.done()
         assert calls == []
+        prewarm.assert_not_called()
 
         db.notify_serving()
         await asyncio.wait_for(task, timeout=5)
         # No advertiser (zeroconf is None under the hermetic fixture),
         # so the chain goes straight to the peer browse.
         assert calls == [db.remote_build_offloader]
-        # Final leg pre-warmed the featured registry.
-        assert db.components is not None
-        assert db.components._featured_built
+        # The chain scheduled the featured pre-warm as a sibling task.
+        assert prewarm.call_count == 1
     finally:
         await db.stop()
 
