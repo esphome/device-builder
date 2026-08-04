@@ -57,6 +57,8 @@ _CLIENT_CERT_FIELDS = ("client_certificate", "client_certificate_key")
 
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
 
+_UNREADABLE_DEBUG = "Could not read %s for MQTT broker config"
+
 
 class _ClientCertUnsupported:
     """Sentinel: the ``mqtt:`` block uses client-certificate auth."""
@@ -215,36 +217,29 @@ class DeviceMqttCoordinator:
             yaml_path = self._config_dir / device.configuration
             try:
                 yaml_stat = yaml_path.stat()
-                broker = _resolve_fast(device.mqtt_extract, yaml_path, yaml_stat, secrets_map)
             except OSError:
-                # Reaches the whole fast tier (stat + fallback read;
-                # deeper failures resolve to None instead of raising).
                 # Skip silently — the WARNING is reserved for
                 # present-but-unresolvable YAMLs, not deleted ones.
-                _LOGGER.debug("Could not read %s for MQTT broker config", device.configuration)
+                _LOGGER.debug(_UNREADABLE_DEBUG, device.configuration)
                 continue
+            if (extract := device.mqtt_extract) is not None and _extract_fresh(extract, yaml_stat):
+                broker = _broker_from_mqtt_dict(
+                    extract.main_block, secrets_map, extract.main_substitutions
+                )
+            else:
+                # Scan raced an edit (or the device predates the scanner
+                # carrying extractions) — fall back to reading the file.
+                try:
+                    yaml_content = yaml_path.read_text(encoding="utf-8")
+                except OSError:
+                    _LOGGER.debug(_UNREADABLE_DEBUG, device.configuration)
+                    continue
+                broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
                 broker = self._resolve_slow(
                     yaml_path, device.mqtt_extract, yaml_stat, secrets_mtime_ns
                 )
-            if isinstance(broker, _ClientCertUnsupported):
-                client_cert_devices.add(device.configuration)
-                self._log_client_cert_unsupported(device.configuration)
-                continue
-            if broker is None:
-                self._log_broker_unresolved(device.configuration)
-                continue
-            self._unresolved_logged.discard(device.configuration)
-            self._client_cert_logged.discard(device.configuration)
-            existing = seen.get(broker.key)
-            if existing is None:
-                seen[broker.key] = broker
-                continue
-            # Same host/port/username but a different password: the login
-            # is ambiguous, so the first device's password wins.
-            if existing.password != broker.password:
-                conflicts.add(broker.key)
-                self._log_credential_conflict(broker)
+            self._track_outcome(device.configuration, broker, seen, client_cert_devices, conflicts)
         # Drop tracking for devices no longer declaring ``mqtt:`` and
         # logins that no longer conflict, so a recurrence re-warns.
         self._unresolved_logged &= seen_devices
@@ -252,6 +247,34 @@ class DeviceMqttCoordinator:
         self._conflict_logged &= conflicts
         self._broker_cache = {k: v for k, v in self._broker_cache.items() if k in seen_devices}
         return list(seen.values())
+
+    def _track_outcome(
+        self,
+        configuration: str,
+        broker: MqttBrokerConfig | _ClientCertUnsupported | None,
+        seen: dict[BrokerKey, MqttBrokerConfig],
+        client_cert_devices: set[str],
+        conflicts: set[BrokerKey],
+    ) -> None:
+        """Record one device's resolution outcome into the reconcile accumulators."""
+        if isinstance(broker, _ClientCertUnsupported):
+            client_cert_devices.add(configuration)
+            self._log_client_cert_unsupported(configuration)
+            return
+        if broker is None:
+            self._log_broker_unresolved(configuration)
+            return
+        self._unresolved_logged.discard(configuration)
+        self._client_cert_logged.discard(configuration)
+        existing = seen.get(broker.key)
+        if existing is None:
+            seen[broker.key] = broker
+            return
+        # Same host/port/username but a different password: the login
+        # is ambiguous, so the first device's password wins.
+        if existing.password != broker.password:
+            conflicts.add(broker.key)
+            self._log_credential_conflict(broker)
 
     def _resolve_slow(
         self,
@@ -369,22 +392,9 @@ def _extract_broker_from_config(
     return _broker_from_mqtt_dict(config.get("mqtt"), {}, _extract_resolved_substitutions(config))
 
 
-def _resolve_fast(
-    extract: DeviceMqttExtract | None,
-    yaml_path: Path,
-    yaml_stat: os.stat_result,
-    secrets_map: dict[str, Any],
-) -> MqttBrokerConfig | _ClientCertUnsupported | None:
-    """Main-file tier: a fresh scan extraction, else read + tolerant-parse."""
-    if (
-        extract is not None
-        and extract.yaml_mtime_ns == yaml_stat.st_mtime_ns
-        and extract.yaml_size == yaml_stat.st_size
-    ):
-        return _broker_from_mqtt_dict(extract.main_block, secrets_map, extract.main_substitutions)
-    # Scan raced an edit (or the device predates the scanner carrying
-    # extractions) — fall back to reading the file.
-    return parse_mqtt_block(yaml_path.read_text(encoding="utf-8"), secrets_map)
+def _extract_fresh(extract: DeviceMqttExtract, yaml_stat: os.stat_result) -> bool:
+    """Whether the scan-time extraction still matches the file on disk."""
+    return extract.yaml_mtime_ns == yaml_stat.st_mtime_ns and extract.yaml_size == yaml_stat.st_size
 
 
 def _broker_from_mqtt_dict(
