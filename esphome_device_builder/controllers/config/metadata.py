@@ -108,6 +108,11 @@ def get_board_id(config_dir: Path, filename: str) -> str:
     return str(_load_metadata(config_dir).get(filename, {}).get("board_id", ""))
 
 
+def read_metadata_snapshot(config_dir: Path) -> dict[str, Any]:
+    """Lock-free snapshot of the whole metadata sidecar."""
+    return _load_metadata(config_dir)
+
+
 def set_device_metadata(
     config_dir: Path,
     filename: str,
