@@ -664,6 +664,7 @@ def session_component_catalog(session_board_catalog: BoardCatalog) -> ComponentC
     container.boards = session_board_catalog
     container.components = ComponentCatalog(container)
     container.components.load()
+    asyncio.run(container.components.ensure_featured_registry())
     return container.components
 
 

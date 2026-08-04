@@ -428,10 +428,8 @@ class DeviceBuilder:
         if "auth/login" in self.command_handlers:
             self.command_handlers["auth"] = self.command_handlers["auth/login"]
 
-    async def _advertise_and_start_peer_discovery(
-        self, zeroconf: AsyncEsphomeZeroconf | None
-    ) -> None:
-        """Once serving, register the dashboard mDNS advertise, then start peer discovery."""
+    async def _post_serving_startup(self, zeroconf: AsyncEsphomeZeroconf | None) -> None:
+        """Once serving: advertise, start peer discovery, pre-warm the featured registry."""
         try:
             await asyncio.wait_for(self._serving_event.wait(), _SERVING_GATE_TIMEOUT_SECONDS)
         except TimeoutError:
@@ -449,6 +447,8 @@ class DeviceBuilder:
                 _LOGGER.exception("Dashboard mDNS advertise failed; starting peer discovery anyway")
         if (offloader := self.remote_build_offloader) is not None:
             start_peer_discovery(offloader)
+        if self.components is not None:
+            await self.components.ensure_featured_registry()
 
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""
@@ -552,9 +552,7 @@ class DeviceBuilder:
         # ``async_register_service`` awaits its ~1.2s probe cycle, and
         # the browse must follow the register, so both run off the
         # startup critical path.
-        self._advertise_task = self.create_background_task(
-            self._advertise_and_start_peer_discovery(zeroconf)
-        )
+        self._advertise_task = self.create_background_task(self._post_serving_startup(zeroconf))
 
         self._register_command_handlers()
 

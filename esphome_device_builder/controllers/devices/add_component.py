@@ -68,7 +68,7 @@ async def add_component(
     is_featured = component_id.startswith("featured.")
 
     if is_featured:
-        record = controller._db.components.get_featured_record(component_id)
+        record = await controller._db.components.get_featured_record(component_id)
         if record is None:
             msg = f"Unknown featured component: {component_id}"
             raise CommandError(ErrorCode.INVALID_ARGS, msg)

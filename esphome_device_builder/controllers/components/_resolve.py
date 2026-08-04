@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ...definitions import load_featured_components_index
 from ...helpers.json import loads
 from ...helpers.lazy_catalog import is_unsafe_catalog_id
 from ...models import (
@@ -92,6 +93,44 @@ class _FeaturedRecord:
     board_id: str
     featured: FeaturedComponent
     underlying_id: str
+
+
+def build_featured_registry(
+    by_id: Mapping[str, ComponentCatalogIndexEntry],
+) -> tuple[dict[str, _FeaturedRecord], dict[str, list[str]]]:
+    """Index every featured component from the precomputed map.
+
+    Reads ``definitions/featured_components.index.json`` directly
+    rather than walking per-board bodies — the index carries
+    every ``FeaturedComponent`` aggregated by board id, so the
+    registry build pays zero board-body loads.
+    """
+    featured_by_id: dict[str, _FeaturedRecord] = {}
+    featured_by_board: dict[str, list[str]] = {}
+    for board_id, featured in load_featured_components_index().items():
+        ids: list[str] = []
+        for fc in featured:
+            full_id = f"{_FEATURED_PREFIX}{board_id}.{fc.id}"
+            underlying = by_id.get(fc.component_id)
+            if underlying is None:
+                _LOGGER.warning(
+                    "Board %s featured.%s references unknown component %s — skipping",
+                    board_id,
+                    fc.id,
+                    fc.component_id,
+                )
+                continue
+            featured_by_id[full_id] = _FeaturedRecord(
+                full_id=full_id,
+                board_id=board_id,
+                featured=fc,
+                underlying_id=underlying.id,
+            )
+            ids.append(full_id)
+        if ids:
+            featured_by_board[board_id] = ids
+    _LOGGER.info("Featured-component registry built: %d entries", len(featured_by_id))
+    return featured_by_id, featured_by_board
 
 
 def _featured_display_name(fc: FeaturedComponent, underlying_name: str) -> str:

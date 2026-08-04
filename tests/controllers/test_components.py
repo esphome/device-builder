@@ -322,6 +322,7 @@ async def test_get_components_provides_filters_featured_entries() -> None:
         ),
         "sensor.dht": _make_entry(entry_id="sensor.dht", category=ComponentCategory.SENSOR),
     }
+    cat._featured_built = True  # manual seed below is the registry under test
     cat._featured_by_id = {
         "featured.b.adc": _FeaturedRecord(
             full_id="featured.b.adc",
@@ -350,6 +351,7 @@ async def test_get_components_query_ranks_featured_entries() -> None:
         "sensor.hub": _make_entry(entry_id="sensor.hub", category=ComponentCategory.SENSOR),
         "uart": _make_entry(entry_id="uart", name="UART Bus", category=ComponentCategory.SENSOR),
     }
+    cat._featured_built = True  # manual seed below is the registry under test
     cat._featured_by_id = {
         "featured.b.hub": _FeaturedRecord(
             full_id="featured.b.hub",
@@ -523,13 +525,56 @@ def test_build_featured_registry_is_empty_when_index_is_empty(
     cleanly without crashing.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.components.controller.load_featured_components_index",
+        "esphome_device_builder.controllers.components._resolve.load_featured_components_index",
         dict,
     )
     cat = ComponentCatalog(_Container(boards=None))
     cat._build_featured_registry()
     assert cat._featured_by_id == {}
     assert cat._featured_by_board == {}
+
+
+async def test_featured_registry_hydrates_on_first_use() -> None:
+    """``load()`` leaves the featured registry empty; ``ensure`` builds it."""
+    cat = ComponentCatalog(_Container(boards=None))
+    cat.load()
+    assert cat._featured_by_id == {}
+    assert not cat._featured_built
+
+    await cat.ensure_featured_registry()
+
+    assert cat._featured_built
+    assert cat._featured_by_id
+
+
+async def test_ensure_featured_registry_builds_once_under_concurrency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Concurrent first touches serialize on the lock and build exactly once."""
+    cat = ComponentCatalog(_Container(boards=None))
+    cat.load()
+    calls = {"n": 0}
+    real = cat._build_featured_registry
+
+    def _counting() -> None:
+        calls["n"] += 1
+        real()
+
+    monkeypatch.setattr(cat, "_build_featured_registry", _counting)
+    await asyncio.gather(cat.ensure_featured_registry(), cat.ensure_featured_registry())
+    await cat.ensure_featured_registry()
+
+    assert calls["n"] == 1
+
+
+async def test_ensure_featured_registry_skips_build_on_empty_catalog() -> None:
+    """An unloaded catalog marks the registry built without reading the index."""
+    cat = ComponentCatalog(_Container(boards=None))
+
+    await cat.ensure_featured_registry()
+
+    assert cat._featured_built
+    assert cat._featured_by_id == {}
 
 
 def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
@@ -550,7 +595,7 @@ def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
     cat = ComponentCatalog(_Container(boards=None))
     phantom = FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.components.controller.load_featured_components_index",
+        "esphome_device_builder.controllers.components._resolve.load_featured_components_index",
         lambda: {"some_board": [phantom]},
     )
     with caplog.at_level(logging.WARNING):
@@ -934,6 +979,7 @@ async def test_get_component_bodies_bulk_loads_in_one_executor_hop(
     executor hop that reads every missing body sequentially.
     """
     cat = ComponentCatalog()
+    cat._featured_built = True  # keep the counted hop to the body batch alone
     cat._by_id = {f"comp_{i}": _make_entry(entry_id=f"comp_{i}") for i in range(10)}
     cat._components = list(cat._by_id.values())
     bodies_dir = tmp_path / "components"

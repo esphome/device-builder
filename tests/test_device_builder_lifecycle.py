@@ -226,7 +226,7 @@ async def test_advertise_task_starts_discovery_after_register(
     )
 
     db.notify_serving()
-    await db._advertise_and_start_peer_discovery(MagicMock())
+    await db._post_serving_startup(MagicMock())
     assert order == ["register", "discovery"]
 
 
@@ -246,7 +246,7 @@ async def test_forgotten_serving_gate_warns_and_advertises_anyway(
     )
 
     with caplog.at_level(logging.WARNING, logger="esphome_device_builder.device_builder"):
-        await db._advertise_and_start_peer_discovery(None)
+        await db._post_serving_startup(None)
 
     assert calls == [db.remote_build_offloader]
     assert any("Serving gate never opened" in rec.getMessage() for rec in caplog.records)
@@ -272,7 +272,7 @@ async def test_advertise_failure_still_starts_discovery(
 
     db.notify_serving()
     with caplog.at_level(logging.ERROR, logger="esphome_device_builder.device_builder"):
-        await db._advertise_and_start_peer_discovery(MagicMock())
+        await db._post_serving_startup(MagicMock())
 
     assert calls == [db.remote_build_offloader]
     assert any("advertise failed" in rec.getMessage() for rec in caplog.records)
@@ -302,6 +302,9 @@ async def test_start_schedules_advertise_and_discovery_task(
         # No advertiser (zeroconf is None under the hermetic fixture),
         # so the chain goes straight to the peer browse.
         assert calls == [db.remote_build_offloader]
+        # Final leg pre-warmed the featured registry.
+        assert db.components is not None
+        assert db.components._featured_built
     finally:
         await db.stop()
 

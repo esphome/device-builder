@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from ...definitions import (
-    load_featured_components_index,
     load_pin_registry_modes_index,
     load_platform_capabilities_index,
 )
@@ -36,6 +36,7 @@ from ._resolve import (
     _materialise,
     _materialise_featured,
     _materialise_featured_index,
+    build_featured_registry,
 )
 
 if TYPE_CHECKING:
@@ -87,6 +88,8 @@ class ComponentCatalog:
         # board's recommendations rather than the whole catalog.
         self._featured_by_id: dict[str, _FeaturedRecord] = {}
         self._featured_by_board: dict[str, list[str]] = {}
+        self._featured_lock = asyncio.Lock()
+        self._featured_built = False
         # ``{provider_key: [allowed_mode_flags]}`` — lets the frontend scope
         # the long-form pin Mode checkboxes for external pin providers (an
         # expander like pca9554 allows only input/output). Loaded in ``load()``;
@@ -127,24 +130,23 @@ class ComponentCatalog:
             if c.get("id") not in INTERNAL_COMPONENT_IDS
         ]
         self._by_id = {c.id: c for c in self._components}
-        self._build_featured_registry()
         self._pin_registry_modes = load_pin_registry_modes_index()
         _LOGGER.info(
-            "Component catalog loaded: %d components (slim index), %d featured, %d pin registries",
+            "Component catalog loaded: %d components (slim index), %d pin registries",
             len(self._components),
-            len(self._featured_by_id),
             len(self._pin_registry_modes),
         )
 
-    @property
-    def categories(self) -> list[dict[str, str | int]]:
-        """
-        Return all component categories sorted by count (highest first).
-
-        Each entry is a ``{id, name, count}`` dict suitable for direct
-        use in the catalog UI's filter list.
-        """
-        return self._categories_for_board(None)
+    async def ensure_featured_registry(self) -> None:
+        """Build the featured-component registry off-loop; idempotent."""
+        if self._featured_built:
+            return
+        async with self._featured_lock:
+            if self._featured_built:
+                return
+            if self._by_id:
+                await asyncio.to_thread(self._build_featured_registry)
+            self._featured_built = True
 
     @api_command("components/get_categories")
     async def get_categories(
@@ -160,6 +162,7 @@ class ComponentCatalog:
         ``featured`` entry whose count reflects the recommended components
         for that board (omitted entirely when the board has none).
         """
+        await self.ensure_featured_registry()
         return self._categories_for_board(board_id)
 
     @api_command("components/get_pin_registry_modes")
@@ -331,6 +334,7 @@ class ComponentCatalog:
         ``board_id`` falls back to the record's own board so the
         right per-board defaults land.
         """
+        await self.ensure_featured_registry()
         unique_ids = list(dict.fromkeys(component_ids))
         # Collect every underlying body the batch touches and load
         # them in one executor hop; the per-id materialise pass
@@ -403,6 +407,7 @@ class ComponentCatalog:
         demand via ``components/get_component_bodies`` when the user
         opens a card.
         """
+        await self.ensure_featured_registry()
         target_platform = self._resolve_platform(platform, board_id)
         include_set = _as_category_set(category) if category else None
         exclude_set = _as_category_set(exclude_category) if exclude_category else None
@@ -540,8 +545,9 @@ class ComponentCatalog:
                     result[name] = family
                     break
 
-    def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
+    async def get_featured_record(self, component_id: str) -> _FeaturedRecord | None:
         """Return the registry record for a ``featured.*`` id, or ``None``."""
+        await self.ensure_featured_registry()
         return self._featured_by_id.get(component_id)
 
     def _underlying_id(self, component_id: str) -> str | None:
@@ -610,6 +616,7 @@ class ComponentCatalog:
         warning — the manifest validator is the contract that
         keeps these from reaching runtime.
         """
+        await self.ensure_featured_registry()
         # Collect every underlying body the board's defaults touch
         # so we can load them in one executor hop, mirroring
         # ``get_component_bodies``. Pre-classifying each entry into
@@ -661,6 +668,7 @@ class ComponentCatalog:
         list (at most one) so the caller can ``extend`` *defaults*; empty
         when the board offers no provider.
         """
+        await self.ensure_featured_registry()
         for fc in board.featured_components:
             if fc.component_id not in NETWORK_PROVIDER_COMPONENT_IDS:
                 continue
@@ -678,37 +686,8 @@ class ComponentCatalog:
         return []
 
     def _build_featured_registry(self) -> None:
-        """Index every featured component from the precomputed map.
-
-        Reads ``definitions/featured_components.index.json`` directly
-        rather than walking per-board bodies — the index carries
-        every ``FeaturedComponent`` aggregated by board id, so the
-        registry build pays zero board-body loads at startup.
-        """
-        self._featured_by_id = {}
-        self._featured_by_board = {}
-        for board_id, featured in load_featured_components_index().items():
-            ids: list[str] = []
-            for fc in featured:
-                full_id = f"{_FEATURED_PREFIX}{board_id}.{fc.id}"
-                underlying = self._by_id.get(fc.component_id)
-                if underlying is None:
-                    _LOGGER.warning(
-                        "Board %s featured.%s references unknown component %s — skipping",
-                        board_id,
-                        fc.id,
-                        fc.component_id,
-                    )
-                    continue
-                self._featured_by_id[full_id] = _FeaturedRecord(
-                    full_id=full_id,
-                    board_id=board_id,
-                    featured=fc,
-                    underlying_id=underlying.id,
-                )
-                ids.append(full_id)
-            if ids:
-                self._featured_by_board[board_id] = ids
+        """Populate the featured lookups from the aggregate index."""
+        self._featured_by_id, self._featured_by_board = build_featured_registry(self._by_id)
 
     def _categories_for_board(
         self,

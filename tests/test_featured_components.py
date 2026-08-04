@@ -623,7 +623,7 @@ async def test_shipped_onboard_ethernet_preset_satisfies_required_gate(
     catalog: ComponentCatalog,
 ) -> None:
     """KC868-A128 ethernet preset carries nested ``clk`` (normalized from clk_mode at ingest)."""
-    record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
+    record = await catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
     assert record is not None
     assert record.featured.locked_pins["clk.pin"] == 17
     body = await catalog.get_body(record.underlying_id)
@@ -645,7 +645,7 @@ async def test_bundle_reincluded_ethernet_provider_is_idempotent(
     catalog: ComponentCatalog,
 ) -> None:
     """Re-adding a board's onboard ethernet over a config that already has it is a no-op."""
-    record = catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
+    record = await catalog.get_featured_record("featured.kincony_kc868_a128.onboard_ethernet")
     assert record is not None
     body = await catalog.get_body(record.underlying_id)
     assert body is not None
@@ -662,7 +662,7 @@ async def test_bundle_reincluded_ethernet_provider_is_idempotent(
 
 async def test_apply_presets_locked_fills_in(catalog: ComponentCatalog) -> None:
     """Empty user input picks up the locked + default values from the preset."""
-    record = catalog.get_featured_record("featured.sonoff-basic.relay")
+    record = await catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
     out = await _apply(catalog, record, {})
     assert out["pin"] == 12
@@ -673,7 +673,7 @@ async def test_apply_presets_locked_rejects_override(
     catalog: ComponentCatalog,
 ) -> None:
     """Submitting a different value for a locked field raises ValueError."""
-    record = catalog.get_featured_record("featured.sonoff-basic.relay")
+    record = await catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
     with pytest.raises(ValueError, match="locked"):
         await _apply(catalog, record, {"pin": 5})
@@ -683,7 +683,7 @@ async def test_apply_presets_locked_accepts_matching_value(
     catalog: ComponentCatalog,
 ) -> None:
     """Submitting the exact locked value is allowed (idempotent)."""
-    record = catalog.get_featured_record("featured.sonoff-basic.relay")
+    record = await catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
     out = await _apply(catalog, record, {"pin": 12, "name": "MyRelay"})
     assert out["pin"] == 12
@@ -695,7 +695,7 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
     # apollo-esk-1 starter kit moved to fixed pin assignments — so the
     # suggestion-logic tests build their fixture inline by overriding
     # the ``pin`` preset on a deepcopy of a real record.
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
+    record = deepcopy(await catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     out = await _apply(catalog, record, {"pin": 5})
@@ -706,7 +706,7 @@ async def test_apply_presets_suggestion_in_set(catalog: ComponentCatalog) -> Non
 async def test_apply_presets_suggestion_rejects_off_list(
     catalog: ComponentCatalog,
 ) -> None:
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
+    record = deepcopy(await catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
@@ -724,7 +724,7 @@ async def test_apply_presets_suggestion_accepts_rich_pin_form(
     — and the rich dict rides through to the merger unchanged so the
     YAML keeps its full pin block.
     """
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
+    record = deepcopy(await catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     rich_pin = {"number": 5, "mode": {"input": True}}
@@ -736,7 +736,7 @@ async def test_apply_presets_suggestion_rejects_rich_pin_off_list(
     catalog: ComponentCatalog,
 ) -> None:
     """Rich pin form whose ``number`` is off-list still raises."""
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
+    record = deepcopy(await catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     with pytest.raises(ValueError, match="must be one of"):
@@ -747,7 +747,7 @@ async def test_apply_presets_locked_accepts_rich_pin_form(
     catalog: ComponentCatalog,
 ) -> None:
     """A bare-int locked pin must also accept the rich-form echo from the frontend."""
-    record = catalog.get_featured_record("featured.sonoff-basic.relay")
+    record = await catalog.get_featured_record("featured.sonoff-basic.relay")
     assert record is not None
     rich_pin = {"number": 12, "mode": {"output": True}}
     out = await _apply(catalog, record, {"pin": rich_pin})
@@ -760,7 +760,7 @@ async def test_apply_presets_suggestion_falls_back_to_value(
     catalog: ComponentCatalog,
 ) -> None:
     """Omitting a suggestion field falls back to the preset's initial value."""
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
+    record = deepcopy(await catalog.get_featured_record("featured.apollo-esk-1.motion_module"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=4, suggestions=[4, 5])
     out = await _apply(catalog, record, {})
@@ -769,7 +769,7 @@ async def test_apply_presets_suggestion_falls_back_to_value(
 
 async def test_apply_presets_default_overridable(catalog: ComponentCatalog) -> None:
     """Plain defaults (no locked/suggestions) are overridable by user input."""
-    record = catalog.get_featured_record("featured.apollo-esk-1.motion_module")
+    record = await catalog.get_featured_record("featured.apollo-esk-1.motion_module")
     assert record is not None
     out: dict[str, Any] = await _apply(catalog, record, {"device_class": "occupancy"})
     assert out["device_class"] == "occupancy"
@@ -779,7 +779,7 @@ async def test_apply_presets_locked_without_value_fails_fast(
     catalog: ComponentCatalog,
 ) -> None:
     """A malformed manifest (locked=True with no value) fails fast at add time."""
-    record = deepcopy(catalog.get_featured_record("featured.sonoff-basic.relay"))
+    record = deepcopy(await catalog.get_featured_record("featured.sonoff-basic.relay"))
     assert record is not None
     record.featured.fields["pin"] = FieldPreset(value=None, locked=True)
     with pytest.raises(ValueError, match="locked=true without a value"):
@@ -798,7 +798,7 @@ async def test_apply_presets_drops_non_manifest_fields(
     (a light's ``gamma_correct: 2.8``, an output's ``frequency: 1kHz``,
     ...). Required keys still ride through as a safety net.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
+    record = await catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
     out = await _apply(
         catalog,
@@ -842,7 +842,7 @@ async def test_apply_presets_keeps_user_overridden_optional_field(
     the default is real user intent and must ride through, even when
     the manifest doesn't curate the key.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
+    record = await catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
     out = await _apply(
         catalog,
@@ -875,7 +875,7 @@ async def test_apply_presets_strips_numeric_default_echo_across_types(
     stringified compare bridges the two so the unmodified default is
     still recognised as noise.
     """
-    record = catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
+    record = await catalog.get_featured_record("featured.apollo-esk-1.rgb_leds")
     assert record is not None
     out = await _apply(catalog, record, {"gamma_correct": 2.8})
     assert "gamma_correct" not in out
@@ -889,7 +889,7 @@ async def test_apply_presets_keeps_required_field_outside_manifest(
     # then submit one of the underlying component's required fields and
     # confirm it survives the filter rather than being treated as
     # incidental frontend padding.
-    record = deepcopy(catalog.get_featured_record("featured.apollo-esk-1.rgb_leds"))
+    record = deepcopy(await catalog.get_featured_record("featured.apollo-esk-1.rgb_leds"))
     assert record is not None
     record.featured.fields = {"id": FieldPreset(value="rgb_leds")}
     out = await _apply(catalog, record, {"pin": 14, "num_leds": 10, "rgb_order": "GRB"})

@@ -702,7 +702,7 @@ async def test_add_component_featured_skips_required_field_gate(
         ),
     ]
     controller._db.components = MagicMock()
-    controller._db.components.get_featured_record = MagicMock(
+    controller._db.components.get_featured_record = AsyncMock(
         return_value=MagicMock(underlying_id="ethernet")
     )
     controller._db.components.get_body = AsyncMock(return_value=MagicMock())
