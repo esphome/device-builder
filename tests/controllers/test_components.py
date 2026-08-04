@@ -536,7 +536,7 @@ def test_build_featured_registry_is_empty_when_index_is_empty(
 async def test_featured_registry_hydrates_on_first_use() -> None:
     """``load()`` leaves the featured registry empty; ``ensure`` builds it."""
     cat = ComponentCatalog(_Container(boards=None))
-    cat.load()
+    await asyncio.to_thread(cat.load)
     assert cat._featured_by_id == {}
     assert not cat._featured_built
 
@@ -551,7 +551,7 @@ async def test_ensure_featured_registry_builds_once_under_concurrency(
 ) -> None:
     """Concurrent first touches serialize on the lock and build exactly once."""
     cat = ComponentCatalog(_Container(boards=None))
-    cat.load()
+    await asyncio.to_thread(cat.load)
     calls = {"n": 0}
     real = comp_controller.build_featured_registry
 
