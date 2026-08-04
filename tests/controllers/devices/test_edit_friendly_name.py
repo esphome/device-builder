@@ -848,7 +848,7 @@ async def test_edit_friendly_name_end_to_end_through_real_scanner(
     metadata = DeviceFileMetadata(board_id="", ip="")
     real_scanner = DeviceScanner(
         tmp_path,
-        get_metadata=lambda _cdir, _name: metadata,
+        make_metadata_resolver=lambda: lambda _cdir, _name: metadata,
         on_change=lambda _kind, _device, _previous: None,
     )
     ctrl = make_controller(tmp_path, with_state_monitor=True)

@@ -40,7 +40,7 @@ def _fake_load(path: Path, *_args: object, **_kwargs: object) -> Device:
 def _make_scanner(config_dir: Path) -> DeviceScanner:
     return DeviceScanner(
         config_dir=config_dir,
-        get_metadata=_stub_metadata,
+        make_metadata_resolver=lambda: _stub_metadata,
         on_change=lambda _kind, _device, _previous: None,
     )
 

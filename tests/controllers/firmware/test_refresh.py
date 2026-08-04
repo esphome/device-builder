@@ -72,7 +72,9 @@ async def test_reload_rereads_state_and_fires_reloaded(tmp_path: Path) -> None:
     changes: list[tuple[ScanChange, Device]] = []
     scanner = DeviceScanner(
         config_dir=tmp_path,
-        get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
+        make_metadata_resolver=lambda: (
+            lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip="")
+        ),
         on_change=lambda kind, device, _previous: changes.append((kind, device)),
     )
 
@@ -94,7 +96,9 @@ async def test_reload_unknown_filename_is_noop(tmp_path: Path) -> None:
     changes: list[tuple[ScanChange, Device]] = []
     scanner = DeviceScanner(
         config_dir=tmp_path,
-        get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
+        make_metadata_resolver=lambda: (
+            lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip="")
+        ),
         on_change=lambda kind, device, _previous: changes.append((kind, device)),
     )
 
@@ -752,7 +756,9 @@ def test_scanner_get_by_configuration(tmp_path: Path) -> None:
     """The indexed lookup returns the device for a tracked filename, else ``None``."""
     scanner = DeviceScanner(
         config_dir=tmp_path,
-        get_metadata=lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip=""),
+        make_metadata_resolver=lambda: (
+            lambda _config_dir, _filename: DeviceFileMetadata(board_id="", ip="")
+        ),
         on_change=lambda _kind, _device, _previous: None,
     )
     device = _device()

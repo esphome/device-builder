@@ -230,7 +230,7 @@ async def test_chain_success_carries_labels_to_the_renamed_device(
     devices._shared_sidecar = SharedSidecarClient(tmp_path)
     scanner = DeviceScanner(
         tmp_path,
-        get_metadata=devices._resolve_device_metadata,
+        make_metadata_resolver=devices._make_metadata_resolver,
         on_change=lambda _kind, _device, _previous: None,
     )
     devices._scanner = scanner

@@ -83,6 +83,10 @@ ScanCallback = Callable[[ScanChange, Device, Device | None], None]
 # file. Called once per (added or updated) file during a scan.
 MetadataResolver = Callable[[Path, str], DeviceFileMetadata]
 
+# Called once per scan batch (in the executor) so the resolver can
+# snapshot shared state instead of re-reading it per file.
+MetadataResolverFactory = Callable[[], MetadataResolver]
+
 
 class _DeviceIndex:
     """
@@ -271,12 +275,12 @@ class DeviceScanner(WakeWorker[str]):
     def __init__(
         self,
         config_dir: Path,
-        get_metadata: MetadataResolver,
+        make_metadata_resolver: MetadataResolverFactory,
         on_change: ScanCallback,
     ) -> None:
         super().__init__()
         self._config_dir = config_dir
-        self._get_metadata = get_metadata
+        self._make_metadata_resolver = make_metadata_resolver
         self._on_change = on_change
         self._index = _DeviceIndex()
         self._lock = asyncio.Lock()
@@ -443,9 +447,10 @@ class DeviceScanner(WakeWorker[str]):
     def _load_devices(self, paths: set[Path]) -> dict[Path, Device]:
         """Materialise Device models for *paths*. Logs and skips on failure."""
         result: dict[Path, Device] = {}
+        get_metadata = self._make_metadata_resolver()
         for path in paths:
             try:
-                metadata = self._get_metadata(self._config_dir, path.name)
+                metadata = get_metadata(self._config_dir, path.name)
                 result[path] = load_device_from_storage(
                     path,
                     metadata.board_id,

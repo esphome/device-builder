@@ -18,7 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from esphome_device_builder.controllers._device_scanner import ScanChange
+from esphome_device_builder.controllers._device_scanner import DeviceScanner, ScanChange
+from esphome_device_builder.controllers.config import metadata as config_metadata
 from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._metadata_store import (
     STORE_FIELDS,
@@ -84,6 +85,54 @@ def _seed_metadata(
     if store:
         existing = controller._metadata_store._state.get(filename, {})
         controller._metadata_store._state[filename] = {**existing, **store}
+
+
+async def test_scan_batch_reads_sidecar_once(tmp_path: Path, monkeypatch: Any) -> None:
+    """A scan resolves every device off one sidecar parse."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    for name in ("kitchen", "livingroom", "porch"):
+        (tmp_path / f"{name}.yaml").write_text(f"esphome:\n  name: {name}\n", encoding="utf-8")
+
+    calls = {"n": 0}
+    real = config_metadata._load_metadata
+
+    def _counting(config_dir: Path) -> dict[str, Any]:
+        calls["n"] += 1
+        return real(config_dir)
+
+    monkeypatch.setattr(config_metadata, "_load_metadata", _counting)
+    scanner = DeviceScanner(
+        tmp_path,
+        make_metadata_resolver=controller._make_metadata_resolver,
+        on_change=lambda _kind, _device, _previous: None,
+    )
+    await scanner.scan()
+
+    assert len(scanner.devices) == 3
+    assert calls["n"] == 1
+
+
+def test_batch_resolver_tolerates_non_dict_entry(tmp_path: Path, monkeypatch: Any) -> None:
+    """A corrupt sidecar entry resolves like an absent one."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    (tmp_path / ".device-builder.json").write_text('{"kitchen.yaml": "corrupt"}', encoding="utf-8")
+
+    metadata = controller._make_metadata_resolver()(tmp_path, "kitchen.yaml")
+
+    assert metadata.board_id == "esp32-c3-devkitm-1"
+    assert metadata.labels == ()
+
+
+def test_each_batch_gets_a_fresh_sidecar_snapshot(tmp_path: Path, monkeypatch: Any) -> None:
+    """A sidecar write after one batch is visible to the next; the old snapshot is not."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    stale = controller._make_metadata_resolver()
+    assert stale(tmp_path, "kitchen.yaml").labels == ()
+
+    controller._shared_sidecar.update_sync("kitchen.yaml", labels=["tag-a"])
+
+    assert controller._make_metadata_resolver()(tmp_path, "kitchen.yaml").labels == ("tag-a",)
+    assert stale(tmp_path, "kitchen.yaml").labels == ()
 
 
 def test_build_info_hash_wins_over_stale_sidecar(tmp_path: Path, monkeypatch: Any) -> None:

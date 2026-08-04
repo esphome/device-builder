@@ -193,7 +193,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
         self._scanner = DeviceScanner(
             config_dir=self._db.settings.config_dir,
-            get_metadata=self._resolve_device_metadata,
+            make_metadata_resolver=self._make_metadata_resolver,
             on_change=self._on_scan_change,
         )
         # Single-worker build-size refresher. Bulk operations

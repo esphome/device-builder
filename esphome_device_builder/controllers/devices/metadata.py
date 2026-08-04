@@ -13,7 +13,7 @@ from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.ip import is_unusable_address
 from .._device_builder_base import DeviceBuilderBase
-from .._device_scanner import DeviceFileMetadata
+from .._device_scanner import DeviceFileMetadata, MetadataResolver
 from ..config import metadata_transaction, read_metadata_snapshot
 from ._metadata_store import STORE_FIELDS
 
@@ -92,7 +92,9 @@ class DeviceMetadataBase(DeviceBuilderBase):
     _metadata_store: DeviceMetadataStore
     _shared_sidecar: SharedSidecarClient
 
-    def _resolve_device_metadata(self, config_dir: Path, filename: str) -> DeviceFileMetadata:
+    def _resolve_device_metadata(
+        self, config_dir: Path, filename: str, shared_md: dict[str, Any] | None = None
+    ) -> DeviceFileMetadata:
         """Resolve identity (shared sidecar) + live state (store) for *filename*.
 
         ``expected_config_hash`` prefers ``build_info.json`` over
@@ -100,7 +102,8 @@ class DeviceMetadataBase(DeviceBuilderBase):
         stale pre-codegen hash to the sidecar.
         """
         store_md = self._metadata_store.get(filename)
-        shared_md = self._shared_sidecar.get_sync(filename)
+        if shared_md is None:
+            shared_md = self._shared_sidecar.get_sync(filename)
         ip = str(store_md.get("ip", ""))
         if ip and is_unusable_address(ip):
             # A persisted sidecar can hold a poisoned IP the runtime
@@ -142,6 +145,18 @@ class DeviceMetadataBase(DeviceBuilderBase):
             queued_update=queued_update,
             api_encryption_active=api_encryption_active,
         )
+
+    def _make_metadata_resolver(self) -> MetadataResolver:
+        """Per-batch resolver sharing one sidecar snapshot across every file."""
+        shared_all = self._shared_sidecar.get_all_sync()
+
+        def _resolve(config_dir: Path, filename: str) -> DeviceFileMetadata:
+            entry = shared_all.get(filename)
+            return self._resolve_device_metadata(
+                config_dir, filename, entry if isinstance(entry, dict) else {}
+            )
+
+        return _resolve
 
     async def migrate_board_id_user_set(self) -> None:
         """One-shot back-fill of ``board_id_user_set`` for pre-flag picks."""

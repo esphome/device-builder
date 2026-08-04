@@ -225,7 +225,7 @@ async def test_migrate_reloads_a_device_the_mtime_cache_would_skip(
     controller._db.boards = None
     scanner = DeviceScanner(
         tmp_path,
-        get_metadata=controller._resolve_device_metadata,
+        make_metadata_resolver=controller._make_metadata_resolver,
         on_change=lambda _kind, _device, _previous: None,
     )
     controller._scanner = scanner
