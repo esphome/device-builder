@@ -48,7 +48,8 @@ class WakeWorker[T]:
             exc = prior.exception()
             if exc is not None:
                 _LOGGER.error("Worker %s crashed; restarting", prior.get_name(), exc_info=exc)
-        # ``wait_idle`` right after ``start`` parks past ``_on_start``.
+        # ``wait_idle`` right after ``start`` parks past ``_on_start`` —
+        # which may only *schedule* deferred work (delayed initial sweep).
         self._idle.clear()
         self._task = asyncio.create_task(self._run_loop(), name=type(self).__name__)
 
