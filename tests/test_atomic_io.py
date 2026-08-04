@@ -22,7 +22,9 @@ from esphome_device_builder.helpers.atomic_io import (
 def test_read_text_with_stat_pairs_content_with_the_handle_stat(tmp_path: Path) -> None:
     """The returned stat describes exactly the bytes read."""
     path = tmp_path / "kitchen.yaml"
-    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    # newline="\n" keeps the on-disk bytes LF-only so the size
+    # comparison holds under Windows' \r\n translation.
+    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8", newline="\n")
 
     file_stat, content = read_text_with_stat(path)
 
