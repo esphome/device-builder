@@ -331,6 +331,18 @@ async def test_file_growing_past_cap_between_stat_and_open_is_skipped(
     assert third == ["api:"]
 
 
+def test_read_for_cache_bounds_a_file_growing_after_the_fstat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An in-place grow past the cap after the fstat still returns ``None``."""
+    path = tmp_path / "kitchen.yaml"
+    path.write_bytes(b"x" * (MAX_FILE_BYTES + 1))
+    pre_growth = SimpleNamespace(st_size=7, st_mtime_ns=123)
+    monkeypatch.setattr(cache_module.os, "fstat", lambda _fd: pre_growth)
+
+    assert _read_for_cache(path) is None
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="cannot replace a file with an open handle")
 async def test_replace_between_stat_and_read_caches_the_read_version(
     tmp_path: Path,

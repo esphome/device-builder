@@ -141,11 +141,15 @@ def _read_for_cache(path: Path) -> tuple[int, list[str]] | None:
     """
     Read *path* off one open handle, keyed on the handle's ``fstat``.
 
-    ``None`` when the handle's size exceeds ``MAX_FILE_BYTES``.
+    ``None`` when the content exceeds ``MAX_FILE_BYTES``.
     """
     with path.open("rb") as fh:
         file_stat = os.fstat(fh.fileno())
         if file_stat.st_size > MAX_FILE_BYTES:
             return None
-        data = fh.read()
+        # Bounded read: an in-place append after the fstat could
+        # otherwise grow the read past the cap.
+        data = fh.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        return None
     return file_stat.st_mtime_ns, data.decode("utf-8", errors="replace").splitlines()
