@@ -29,7 +29,7 @@ from ..helpers.device_yaml import (
     _resolve_substitutions,
     extract_mqtt_block,
     load_device_yaml,
-    safe_mtime_ns,
+    safe_stat_key,
 )
 from ..helpers.subscriber_presence import SubscriberPresence
 from ..helpers.yaml import load_yaml_fast_then_esphome
@@ -92,12 +92,12 @@ class DeviceMqttCoordinator:
         self._on_ip_change = on_ip_change
         self._presence = presence
         self._monitors: dict[BrokerKey, DeviceMqttMonitor] = {}
-        # Positive-only slow-path cache keyed on ``(yaml_mtime_ns,
-        # yaml_size, secrets_mtime_ns)``. Package / ``!include`` edits on
-        # a previously-cached device won't invalidate — user needs a
-        # device-YAML touch or dashboard restart for those.
+        # Positive-only slow-path cache keyed on the YAML's
+        # ``(mtime_ns, size)`` plus the secrets file's. Package /
+        # ``!include`` edits on a previously-cached device won't
+        # invalidate — user needs a device-YAML touch or restart.
         self._broker_cache: dict[
-            str, tuple[tuple[int, int, int], MqttBrokerConfig | _ClientCertUnsupported]
+            str, tuple[tuple[int, int, int, int], MqttBrokerConfig | _ClientCertUnsupported]
         ] = {}
         # Per-device dedupe for the broker-unresolvable WARNING —
         # WARNING once, DEBUG on repeats.
@@ -207,7 +207,7 @@ class DeviceMqttCoordinator:
             self._broker_cache.clear()
             return []
         secrets_map = _load_secrets(self._config_dir)
-        secrets_mtime_ns = safe_mtime_ns(self._config_dir / SECRETS_FILENAME)
+        secrets_key = safe_stat_key(self._config_dir / SECRETS_FILENAME)
         seen: dict[BrokerKey, MqttBrokerConfig] = {}
         seen_devices: set[str] = set()
         client_cert_devices: set[str] = set()
@@ -236,9 +236,7 @@ class DeviceMqttCoordinator:
                     continue
                 broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
-                broker = self._resolve_slow(
-                    yaml_path, device.mqtt_extract, yaml_stat, secrets_mtime_ns
-                )
+                broker = self._resolve_slow(yaml_path, device.mqtt_extract, yaml_stat, secrets_key)
             self._track_outcome(device.configuration, broker, seen, client_cert_devices, conflicts)
         # Drop tracking for devices no longer declaring ``mqtt:`` and
         # logins that no longer conflict, so a recurrence re-warns.
@@ -281,10 +279,10 @@ class DeviceMqttCoordinator:
         yaml_path: Path,
         extract: DeviceMqttExtract | None,
         yaml_stat: os.stat_result,
-        secrets_mtime_ns: int,
+        secrets_key: tuple[int, int],
     ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
         """Resolve a package-sourced broker: cache, then scan seed, then full parse."""
-        cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, secrets_mtime_ns)
+        cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, *secrets_key)
         cached = self._broker_cache.get(yaml_path.name)
         if cached is not None and cached[0] == cache_key:
             return cached[1]
@@ -294,7 +292,13 @@ class DeviceMqttCoordinator:
         if (
             extract is not None
             and extract.resolved_block is not None
-            and (extract.yaml_mtime_ns, extract.yaml_size, extract.secrets_mtime_ns) == cache_key
+            and (
+                extract.yaml_mtime_ns,
+                extract.yaml_size,
+                extract.secrets_mtime_ns,
+                extract.secrets_size,
+            )
+            == cache_key
         ):
             broker = _broker_from_mqtt_dict(
                 extract.resolved_block, {}, extract.resolved_substitutions

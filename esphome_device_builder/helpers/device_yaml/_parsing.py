@@ -871,12 +871,13 @@ def _resolve_substitutions(value: str | None, subs: dict[str, str]) -> str | Non
     return value
 
 
-def safe_mtime_ns(path: Path) -> int:
-    """Return *path*'s mtime in nanoseconds, or ``0`` when the file is missing."""
+def safe_stat_key(path: Path) -> tuple[int, int]:
+    """Return *path*'s ``(mtime_ns, size)``, or ``(0, 0)`` when the file is missing."""
     try:
-        return path.stat().st_mtime_ns
+        st = path.stat()
     except OSError:
-        return 0
+        return (0, 0)
+    return (st.st_mtime_ns, st.st_size)
 
 
 def _extract_resolved_substitutions(config: dict | None) -> dict[str, str]:

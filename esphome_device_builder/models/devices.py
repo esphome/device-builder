@@ -121,6 +121,7 @@ class DeviceMqttExtract:
     yaml_mtime_ns: int
     yaml_size: int
     secrets_mtime_ns: int
+    secrets_size: int
     main_block: dict[str, Any] | None
     main_substitutions: dict[str, str]
     resolved_block: dict[str, Any] | None

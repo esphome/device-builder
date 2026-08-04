@@ -56,11 +56,12 @@ def build_test_extract(
     """Assemble a ``DeviceMqttExtract`` for *path* via the production builder."""
     # Stats stay in this test frame so async tests don't trip blockbuster.
     try:
-        secrets_mtime_ns = (path.parent / SECRETS_FILENAME).stat().st_mtime_ns
+        secrets_stat = (path.parent / SECRETS_FILENAME).stat()
+        secrets_key = (secrets_stat.st_mtime_ns, secrets_stat.st_size)
     except OSError:
-        secrets_mtime_ns = 0
+        secrets_key = (0, 0)
     return build_mqtt_extract(
-        yaml_content, resolved_config, path.stat(), secrets_mtime_ns, resolved_substitutions or {}
+        yaml_content, resolved_config, path.stat(), secrets_key, resolved_substitutions or {}
     )
 
 

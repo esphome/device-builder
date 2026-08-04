@@ -63,7 +63,7 @@ from ._parsing import (
     parse_platform_from_yaml,
     resolved_device_name,
     retarget_fallback_ap_ssid,
-    safe_mtime_ns,
+    safe_stat_key,
     yaml_has_api_encryption,
     yaml_has_top_level_block,
 )
@@ -113,7 +113,7 @@ __all__ = [
     "resolved_device_name",
     "retarget_fallback_ap_ssid",
     "run_esphome_config",
-    "safe_mtime_ns",
+    "safe_stat_key",
     "yaml_has_api_encryption",
     "yaml_has_top_level_block",
 ]

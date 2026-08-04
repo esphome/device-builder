@@ -277,6 +277,49 @@ def test_load_device_from_storage_survives_a_vanished_yaml(tmp_path: Path) -> No
     assert device.mqtt_extract is None
 
 
+async def test_yaml_vanishing_between_stat_and_read_is_skipped(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A file that disappears after the stat skips the device silently."""
+    device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
+    _bump_mtime(tmp_path / "kitchen.yaml")  # stale extract → fallback read
+
+    real_read_text = Path.read_text
+
+    def _gone(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self.name == "kitchen.yaml":
+            raise OSError("vanished")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _gone)
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert stub_monitor.instances == []
+
+
+async def test_seed_rejected_when_secrets_size_changes_under_same_mtime(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A same-mtime secrets replacement invalidates the seed's baked credentials."""
+    (tmp_path / "secrets.yaml").write_text("mqtt_pass: old\n")
+    device = _seed_package_device(tmp_path, {"broker": "10.6.6.6"})
+    _rewrite_keeping_mtime(tmp_path / "secrets.yaml", "mqtt_pass: rotated\n")
+
+    def _parse(_path: Path) -> dict:
+        return {"mqtt": {"broker": "10.7.7.7"}}
+
+    monkeypatch.setattr(coordinator_module, "load_device_yaml", _parse)
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert [m.broker.host for m in stub_monitor.instances] == ["10.7.7.7"]
+
+
 def test_extract_mqtt_block_rejects_non_mapping_yaml() -> None:
     """A YAML document that isn't a mapping yields no block."""
     assert extract_mqtt_block("- just\n- a\n- list\n") == (None, {})
