@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers import _device_mqtt_coordinator as coordinator_module
+from esphome_device_builder.helpers.device_yaml import _loading as loading_module
 from esphome_device_builder.helpers.device_yaml import extract_mqtt_block
 from esphome_device_builder.helpers.device_yaml._loading import load_device_from_storage
 from esphome_device_builder.models import Device
@@ -197,6 +198,50 @@ async def test_extract_and_fallback_paths_agree(
 
     assert sorted(b.host for b in brokers_a) == expected_hosts
     assert sorted(m.broker for m in coord_b._monitors.values()) == brokers_a
+
+
+def test_secrets_edit_during_parse_stamps_the_pre_edit_mtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A secrets write racing the esphome parse leaves a stale stamp, not a poisoned seed."""
+    secrets = tmp_path / "secrets.yaml"
+    secrets.write_text("mqtt_host: 10.0.0.1\n")
+    pre_edit_mtime = secrets.stat().st_mtime
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n\nmqtt:\n  broker: x\n")
+
+    def _parse_and_race(_path: Path) -> dict:
+        secrets.write_text("mqtt_host: 10.0.0.2\n")
+        future = secrets.stat().st_mtime + 5
+        os.utime(secrets, (future, future))
+        return {"mqtt": {"broker": "10.0.0.1"}}
+
+    monkeypatch.setattr(loading_module, "load_device_yaml", _parse_and_race)
+    device = load_device_from_storage(tmp_path / "kitchen.yaml", "", "", "", "", 0, ())
+
+    assert device.mqtt_extract is not None
+    assert device.mqtt_extract.secrets_mtime == pre_edit_mtime
+
+
+async def test_seed_rejected_when_yaml_size_changes_under_same_mtime(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A same-mtime size change invalidates the seed like the scanner's own cache key."""
+    device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
+    path = tmp_path / "pkg.yaml"
+    original_mtime = path.stat().st_mtime
+    path.write_text(path.read_text() + "# grew\n")
+    os.utime(path, (original_mtime, original_mtime))
+
+    def _parse(_path: Path) -> dict:
+        return {"mqtt": {"broker": "10.5.5.5"}}
+
+    monkeypatch.setattr(coordinator_module, "load_device_yaml", _parse)
+    coord = make_mqtt_coordinator(tmp_path, [device])
+    await coord.reconcile()
+
+    assert [m.broker.host for m in stub_monitor.instances] == ["10.5.5.5"]
 
 
 def test_extract_mqtt_block_rejects_non_mapping_yaml() -> None:

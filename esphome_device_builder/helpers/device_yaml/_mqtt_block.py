@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml
 
-from ...constants import SECRETS_FILENAME
 from ...models.devices import DeviceMqttExtract
 from ..yaml import FastestSafeLoader
 from ._parsing import _extract_resolved_substitutions
@@ -48,10 +47,10 @@ def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[s
 
 
 def build_mqtt_extract(
-    path: Path,
     yaml_content: str,
     resolved_config: dict[str, Any] | None,
     yaml_stat: os.stat_result,
+    secrets_mtime: float,
     resolved_substitutions: dict[str, str],
 ) -> DeviceMqttExtract:
     """Build the scan-time extraction the MQTT coordinator consumes."""
@@ -62,7 +61,7 @@ def build_mqtt_extract(
     return DeviceMqttExtract(
         yaml_mtime=yaml_stat.st_mtime,
         yaml_size=yaml_stat.st_size,
-        secrets_mtime=safe_mtime(path.parent / SECRETS_FILENAME),
+        secrets_mtime=secrets_mtime,
         main_block=main_block,
         main_substitutions=main_subs,
         resolved_block=resolved_block,

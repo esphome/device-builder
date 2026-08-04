@@ -217,7 +217,7 @@ class DeviceMqttCoordinator:
                 continue
             if broker is None:
                 broker = self._resolve_slow(
-                    yaml_path, device.mqtt_extract, (yaml_stat.st_mtime, secrets_mtime)
+                    yaml_path, device.mqtt_extract, yaml_stat, secrets_mtime
                 )
             if isinstance(broker, _ClientCertUnsupported):
                 client_cert_devices.add(device.configuration)
@@ -249,9 +249,11 @@ class DeviceMqttCoordinator:
         self,
         yaml_path: Path,
         extract: DeviceMqttExtract | None,
-        cache_key: tuple[float, float],
+        yaml_stat: os.stat_result,
+        secrets_mtime: float,
     ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
         """Resolve a package-sourced broker: cache, then scan seed, then full parse."""
+        cache_key = (yaml_stat.st_mtime, secrets_mtime)
         cached = self._broker_cache.get(yaml_path.name)
         if cached is not None and cached[0] == cache_key:
             return cached[1]
@@ -262,6 +264,7 @@ class DeviceMqttCoordinator:
             extract is not None
             and extract.resolved_block is not None
             and (extract.yaml_mtime, extract.secrets_mtime) == cache_key
+            and extract.yaml_size == yaml_stat.st_size
         ):
             broker = _broker_from_mqtt_dict(
                 extract.resolved_block, {}, extract.resolved_substitutions
