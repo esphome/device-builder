@@ -1,5 +1,5 @@
 """
-Atomic filesystem writes for dashboard-internal artefacts.
+Atomic writes and replace-race-coherent reads for dashboard-internal artefacts.
 
 For cert / key / token / metadata-sidecar files, plus the
 mode-preserving rewrite of user-editable YAML.
@@ -39,6 +39,10 @@ _HARDLINK_UNSUPPORTED_ERRNOS = frozenset({errno.EPERM, errno.EOPNOTSUPP, errno.E
 _REPLACE_RETRIES = 15
 _REPLACE_RETRY_BACKOFF_S = 0.05
 _REPLACE_RETRY_BACKOFF_CAP_S = 0.5
+# Reads sit on per-device scan / reconcile loops, so a persistently
+# unreadable file must fail fast; five attempts (~0.75s worst case)
+# still clears the common sub-second replace window.
+_READ_RETRIES = 5
 
 
 def atomic_write(
@@ -94,6 +98,16 @@ def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> Non
 def read_bytes_with_retry(path: Path) -> bytes:
     """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
     return _retry_windows_permission(path.read_bytes)
+
+
+def read_text_with_stat(path: Path) -> tuple[os.stat_result, str]:
+    """Read *path* off one open handle, pairing the content with the handle's ``fstat``."""
+
+    def _read() -> tuple[os.stat_result, str]:
+        with path.open(encoding="utf-8") as fh:
+            return os.fstat(fh.fileno()), fh.read()
+
+    return _retry_windows_permission(_read, retries=_READ_RETRIES)
 
 
 def _staged_write(
@@ -173,18 +187,18 @@ def _replace_with_retry(src: Path, dst: Path) -> None:
     _retry_windows_permission(lambda: src.replace(dst))
 
 
-def _retry_windows_permission[T](op: Callable[[], T]) -> T:
+def _retry_windows_permission[T](op: Callable[[], T], retries: int = _REPLACE_RETRIES) -> T:
     """
     Run *op*, retrying a transient Windows ``PermissionError`` with backoff.
 
     POSIX never hits the transient class, so a ``PermissionError``
     there is real and surfaces without a retry.
     """
-    for attempt in range(_REPLACE_RETRIES):
+    for attempt in range(retries):
         try:
             return op()
         except PermissionError:
-            if not _IS_WINDOWS or attempt == _REPLACE_RETRIES - 1:
+            if not _IS_WINDOWS or attempt == retries - 1:
                 raise
             time.sleep(min(_REPLACE_RETRY_BACKOFF_S * 2**attempt, _REPLACE_RETRY_BACKOFF_CAP_S))
     raise AssertionError("unreachable: loop returns or raises")  # pragma: no cover

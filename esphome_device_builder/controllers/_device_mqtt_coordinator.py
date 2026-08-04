@@ -22,6 +22,7 @@ from esphome.core import EsphomeError
 
 from ..constants import SECRETS_FILENAME
 from ..helpers.async_ import run_in_executor
+from ..helpers.atomic_io import read_text_with_stat
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
     SecretRef,
@@ -228,9 +229,11 @@ class DeviceMqttCoordinator:
                 )
             else:
                 # Scan raced an edit (or the device predates the scanner
-                # carrying extractions) — fall back to reading the file.
+                # carrying extractions) — fall back to reading the file;
+                # the handle stat keys _resolve_slow's extract-seed
+                # comparison.
                 try:
-                    yaml_content = yaml_path.read_text(encoding="utf-8")
+                    yaml_stat, yaml_content = read_text_with_stat(yaml_path)
                 except OSError:
                     _LOGGER.debug(_UNREADABLE_DEBUG, device.configuration)
                     continue
@@ -498,7 +501,9 @@ def _ca_pem_is_loadable(certificate_authority: str) -> bool:
     """
     try:
         ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_verify_locations(cadata=certificate_authority)
-    except ssl.SSLError as err:
+    except (ssl.SSLError, TypeError, ValueError) as err:
+        # ``load_verify_locations`` raises TypeError for non-ASCII cadata
+        # and ValueError for empty data, not SSLError.
         # The gated unresolved warning is generic; keep the concrete
         # parse failure recoverable from the logs.
         _LOGGER.debug("certificate_authority failed to parse: %s", err)

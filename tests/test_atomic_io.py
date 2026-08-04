@@ -1,4 +1,4 @@
-"""Tests for the shared :mod:`helpers.atomic_io` write primitive."""
+"""Tests for the shared :mod:`helpers.atomic_io` read and write primitives."""
 
 from __future__ import annotations
 
@@ -11,11 +11,71 @@ from pathlib import Path
 import pytest
 
 from esphome_device_builder.helpers.atomic_io import (
+    _READ_RETRIES,
     atomic_write,
     atomic_write_exclusive,
     atomic_write_preserving_mode,
     read_bytes_with_retry,
+    read_text_with_stat,
 )
+
+
+def test_read_text_with_stat_pairs_content_with_the_handle_stat(tmp_path: Path) -> None:
+    """The returned stat describes exactly the bytes read."""
+    path = tmp_path / "kitchen.yaml"
+    # newline="\n" keeps the on-disk bytes LF-only so the size
+    # comparison holds under Windows' \r\n translation.
+    path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8", newline="\n")
+
+    file_stat, content = read_text_with_stat(path)
+
+    assert content == "esphome:\n  name: kitchen\n"
+    assert file_stat.st_size == len(content.encode())
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="cannot replace a file with an open handle")
+def test_read_text_with_stat_survives_an_atomic_replace_mid_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A replace between open and read yields the pre-replace stat and content together."""
+    path = tmp_path / "kitchen.yaml"
+    path.write_text("old: 1\n", encoding="utf-8")
+
+    real_open = Path.open
+
+    def _replace_after_open(self: Path, *args: object, **kwargs: object) -> object:
+        fh = real_open(self, *args, **kwargs)
+        if self.name == "kitchen.yaml":
+            staged = tmp_path / "staged.yaml"
+            staged.write_text("new: 2 and longer\n", encoding="utf-8")
+            staged.replace(path)
+        return fh
+
+    monkeypatch.setattr(Path, "open", _replace_after_open)
+    file_stat, content = read_text_with_stat(path)
+
+    assert content == "old: 1\n"
+    assert file_stat.st_size == len(content.encode())
+
+
+def test_read_text_with_stat_uses_the_bounded_read_retry_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A persistently unreadable file surfaces after the bounded read retries."""
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io._IS_WINDOWS", True)
+    monkeypatch.setattr("esphome_device_builder.helpers.atomic_io.time.sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def _denied(self: Path, *args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch.setattr(Path, "open", _denied)
+    with pytest.raises(PermissionError):
+        read_text_with_stat(tmp_path / "demo.yaml")
+
+    # The bounded read window, not the 15-attempt write policy.
+    assert calls["n"] == _READ_RETRIES
 
 
 def test_atomic_write_cleans_up_tempfile_on_error(

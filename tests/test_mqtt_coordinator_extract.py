@@ -286,14 +286,14 @@ async def test_yaml_vanishing_between_stat_and_read_is_skipped(
     device = write_mqtt_device(tmp_path, "kitchen", _BROKER_YAML)
     _bump_mtime(tmp_path / "kitchen.yaml")  # stale extract → fallback read
 
-    real_read_text = Path.read_text
+    real_open = Path.open
 
-    def _gone(self: Path, *args: Any, **kwargs: Any) -> str:
+    def _gone(self: Path, *args: Any, **kwargs: Any) -> Any:
         if self.name == "kitchen.yaml":
             raise OSError("vanished")
-        return real_read_text(self, *args, **kwargs)
+        return real_open(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_text", _gone)
+    monkeypatch.setattr(Path, "open", _gone)
     coord = make_mqtt_coordinator(tmp_path, [device])
     await coord.reconcile()
 

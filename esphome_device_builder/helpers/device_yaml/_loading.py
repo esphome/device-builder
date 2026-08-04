@@ -17,6 +17,7 @@ from esphome.storage_json import StorageJSON
 from ...constants import SECRETS_FILENAME
 from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
+from ..atomic_io import read_text_with_stat
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
 from ._mqtt_block import build_mqtt_extract
@@ -372,16 +373,20 @@ def load_device_from_storage(
 
 
 def _snapshot_source_files(path: Path) -> tuple[os.stat_result | None, str, tuple[int, int]]:
-    """Stat + read the YAML and stamp the secrets mtime before the esphome parse."""
+    """
+    Read the YAML off one handle and stamp the secrets mtime before the esphome parse.
+
+    An open failure degrades to a bare ``stat`` with empty content.
+    """
     yaml_stat: os.stat_result | None
     try:
-        yaml_stat = path.stat()
-    except OSError:
-        yaml_stat = None
-    try:
-        yaml_content = path.read_text(encoding="utf-8")
+        yaml_stat, yaml_content = read_text_with_stat(path)
     except OSError:
         yaml_content = ""
+        try:
+            yaml_stat = path.stat()
+        except OSError:
+            yaml_stat = None
     return yaml_stat, yaml_content, safe_stat_key(path.parent / SECRETS_FILENAME)
 
 
