@@ -146,8 +146,8 @@ class DeviceMetadataBase(DeviceBuilderBase):
         try:
             shared_all = self._shared_sidecar.get_all_sync()
         except OSError:
-            # Fall back to per-file reads so one unreadable sidecar keeps
-            # the scan's per-item skip contract instead of failing the batch.
+            # Fall back to per-file reads so a failed snapshot read (e.g. a
+            # transient sharing violation) can't abort the whole batch.
             _LOGGER.warning("Sidecar snapshot read failed; resolving per file", exc_info=True)
             return self._resolve_device_metadata
 

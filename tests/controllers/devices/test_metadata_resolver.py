@@ -119,7 +119,7 @@ async def test_scan_batch_reads_sidecar_once(tmp_path: Path, monkeypatch: Any) -
 async def test_snapshot_read_failure_falls_back_to_per_file_resolution(
     tmp_path: Path, monkeypatch: Any
 ) -> None:
-    """An unreadable sidecar degrades to per-file reads; the scan still loads devices."""
+    """A failed snapshot read degrades to per-file resolution instead of aborting the batch."""
     controller = _make_controller(monkeypatch, tmp_path)
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
