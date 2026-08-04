@@ -528,10 +528,9 @@ def test_build_featured_registry_is_empty_when_index_is_empty(
         "esphome_device_builder.controllers.components._resolve.load_featured_components_index",
         dict,
     )
-    cat = ComponentCatalog(_Container(boards=None))
-    cat._build_featured_registry()
-    assert cat._featured_by_id == {}
-    assert cat._featured_by_board == {}
+    featured_by_id, featured_by_board = components_module.build_featured_registry({})
+    assert featured_by_id == {}
+    assert featured_by_board == {}
 
 
 async def test_featured_registry_hydrates_on_first_use() -> None:
@@ -554,13 +553,13 @@ async def test_ensure_featured_registry_builds_once_under_concurrency(
     cat = ComponentCatalog(_Container(boards=None))
     cat.load()
     calls = {"n": 0}
-    real = cat._build_featured_registry
+    real = comp_controller.build_featured_registry
 
-    def _counting() -> None:
+    def _counting(by_id):
         calls["n"] += 1
-        real()
+        return real(by_id)
 
-    monkeypatch.setattr(cat, "_build_featured_registry", _counting)
+    monkeypatch.setattr(comp_controller, "build_featured_registry", _counting)
     await asyncio.gather(cat.ensure_featured_registry(), cat.ensure_featured_registry())
     await cat.ensure_featured_registry()
 
@@ -592,16 +591,15 @@ def test_build_featured_registry_skips_and_warns_on_unknown_component_id(
     ``featured_components.index.json`` rather than board bodies, so
     monkeypatch the loader directly to inject the phantom.
     """
-    cat = ComponentCatalog(_Container(boards=None))
     phantom = FeaturedComponent(id="zzz_test_phantom", component_id="not.a.real.component")
     monkeypatch.setattr(
         "esphome_device_builder.controllers.components._resolve.load_featured_components_index",
         lambda: {"some_board": [phantom]},
     )
     with caplog.at_level(logging.WARNING):
-        cat._build_featured_registry()
+        featured_by_id, _featured_by_board = components_module.build_featured_registry({})
     assert any("references unknown component" in rec.message for rec in caplog.records)
-    assert not any(full_id.endswith(".zzz_test_phantom") for full_id in cat._featured_by_id)
+    assert not any(full_id.endswith(".zzz_test_phantom") for full_id in featured_by_id)
 
 
 # ── _featured_components_for_board() ────────────────────────────────

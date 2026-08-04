@@ -438,6 +438,10 @@ class DeviceBuilder:
                 "notify_serving(); advertising anyway",
                 _SERVING_GATE_TIMEOUT_SECONDS,
             )
+        # Sibling task: the pre-warm has no ordering dependency on the
+        # advertise probe below and shouldn't queue behind it.
+        if self.components is not None:
+            self.create_background_task(self.components.ensure_featured_registry())
         if self._dashboard_advertiser is not None and zeroconf is not None:
             # The legs are independent: a failed advertise must neither
             # die silently nor keep the peer browse from starting.
@@ -447,8 +451,6 @@ class DeviceBuilder:
                 _LOGGER.exception("Dashboard mDNS advertise failed; starting peer discovery anyway")
         if (offloader := self.remote_build_offloader) is not None:
             start_peer_discovery(offloader)
-        if self.components is not None:
-            await self.components.ensure_featured_registry()
 
     async def start(self) -> None:
         """Start the application — load catalogs, initialize controllers."""

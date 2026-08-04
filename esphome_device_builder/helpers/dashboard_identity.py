@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..controllers.config import metadata_transaction, read_metadata_snapshot
+from ..controllers.config import metadata_transaction
 from .async_ import run_in_executor
 from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
@@ -139,16 +139,6 @@ def get_or_create_dashboard_id(config_dir: Path) -> str:
 
 def _get_or_create_dashboard_id(config_dir: Path) -> str:
     """Return the persistent ``dashboard_id``, migrating a legacy copy or minting one."""
-    # Lock-free fast path: the transaction rewrites the sidecar on exit,
-    # so a boot with an existing id (and no legacy co-tenant to sweep)
-    # must not open it at all.
-    snapshot = read_metadata_snapshot(config_dir)
-    if not isinstance(snapshot.get(_LEGACY_REMOTE_BUILD_KEY), dict):
-        block = snapshot.get(_DASHBOARD_IDENTITY_KEY)
-        if isinstance(block, dict):
-            existing = block.get(_DASHBOARD_ID_KEY)
-            if isinstance(existing, str) and existing:
-                return existing
     with metadata_transaction(config_dir) as data:
         # Sweep any legacy co-tenant first so a stale copy can't
         # linger even when the new block already answers the read.

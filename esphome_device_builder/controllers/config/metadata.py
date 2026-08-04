@@ -7,6 +7,7 @@ import stat
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -61,8 +62,10 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     with _METADATA_LOCK:
         if not _HAS_FCNTL:
             data = _load_metadata(config_dir)
+            before = deepcopy(data)
             yield data
-            _save_metadata(config_dir, data)
+            if data != before:
+                _save_metadata(config_dir, data)
             return
         lock_path = config_dir / _METADATA_LOCK_FILE
         with open(lock_path, "a+", encoding="utf-8", opener=_open_metadata_lock_file) as lock_fh:
@@ -79,8 +82,12 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
             # not fail.
             fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
             data = _load_metadata(config_dir)
+            before = deepcopy(data)
             yield data
-            _save_metadata(config_dir, data)
+            # No-op transactions (migration already ran, entry absent,
+            # read-only probe) must not churn the sidecar every boot.
+            if data != before:
+                _save_metadata(config_dir, data)
 
 
 def _load_metadata(config_dir: Path) -> dict[str, Any]:
@@ -106,11 +113,6 @@ def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
 def get_board_id(config_dir: Path, filename: str) -> str:
     """Get the board_id for a device."""
     return str(_load_metadata(config_dir).get(filename, {}).get("board_id", ""))
-
-
-def read_metadata_snapshot(config_dir: Path) -> dict[str, Any]:
-    """Lock-free snapshot of the whole metadata sidecar."""
-    return _load_metadata(config_dir)
 
 
 def set_device_metadata(

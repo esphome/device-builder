@@ -98,13 +98,7 @@ class _FeaturedRecord:
 def build_featured_registry(
     by_id: Mapping[str, ComponentCatalogIndexEntry],
 ) -> tuple[dict[str, _FeaturedRecord], dict[str, list[str]]]:
-    """Index every featured component from the precomputed map.
-
-    Reads ``definitions/featured_components.index.json`` directly
-    rather than walking per-board bodies — the index carries
-    every ``FeaturedComponent`` aggregated by board id, so the
-    registry build pays zero board-body loads.
-    """
+    """Index the aggregate featured map by full id and by board id."""
     featured_by_id: dict[str, _FeaturedRecord] = {}
     featured_by_board: dict[str, list[str]] = {}
     for board_id, featured in load_featured_components_index().items():

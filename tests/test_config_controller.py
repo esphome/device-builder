@@ -2259,6 +2259,47 @@ def test_metadata_transaction_persists_without_fcntl(
     assert raw == {"kitchen.yaml": {"board_id": "esp32"}}
 
 
+def test_metadata_transaction_skips_the_write_when_nothing_changed(tmp_path: Path) -> None:
+    """A no-op transaction leaves the sidecar file untouched on disk."""
+    with metadata_transaction(tmp_path) as data:
+        data["kitchen.yaml"] = {"board_id": "esp32"}
+    sidecar = tmp_path / ".device-builder.json"
+    before = sidecar.stat().st_mtime_ns
+
+    with metadata_transaction(tmp_path) as data:
+        assert data["kitchen.yaml"]["board_id"] == "esp32"
+
+    assert sidecar.stat().st_mtime_ns == before
+
+
+def test_metadata_transaction_nested_mutation_still_persists(tmp_path: Path) -> None:
+    """A mutation deep inside an existing entry is detected and written."""
+    with metadata_transaction(tmp_path) as data:
+        data["kitchen.yaml"] = {"board_id": "esp32"}
+
+    with metadata_transaction(tmp_path) as data:
+        data["kitchen.yaml"]["board_id"] = "esp32-c3-devkitm-1"
+
+    raw = json.loads((tmp_path / ".device-builder.json").read_bytes())
+    assert raw["kitchen.yaml"]["board_id"] == "esp32-c3-devkitm-1"
+
+
+def test_metadata_transaction_no_fcntl_skips_unchanged_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The degraded path applies the same no-op write suppression."""
+    monkeypatch.setattr(config_module.metadata, "_HAS_FCNTL", False)
+    with metadata_transaction(tmp_path) as data:
+        data["kitchen.yaml"] = {"board_id": "esp32"}
+    sidecar = tmp_path / ".device-builder.json"
+    before = sidecar.stat().st_mtime_ns
+
+    with metadata_transaction(tmp_path):
+        pass
+
+    assert sidecar.stat().st_mtime_ns == before
+
+
 def test_clear_volatile_device_metadata_drops_emptied_entry(tmp_path: Path) -> None:
     """Clearing the last volatile field drops the now-empty entry; mixed entries survive."""
     (tmp_path / ".device-builder.json").write_bytes(

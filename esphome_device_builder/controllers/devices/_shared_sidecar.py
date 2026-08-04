@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from ..config import (
+    _load_metadata,
     clear_volatile_device_metadata,
     get_device_metadata,
-    read_metadata_snapshot,
     remove_device_metadata,
     rename_device_metadata,
     set_device_metadata,
@@ -28,7 +28,7 @@ class SharedSidecarClient:
 
     def get_all_sync(self) -> dict[str, Any]:
         """Read the whole sidecar in one parse; safe from any thread."""
-        return read_metadata_snapshot(self._config_dir)
+        return _load_metadata(self._config_dir)
 
     async def get(self, filename: str) -> dict[str, Any]:
         """Read *filename*'s entry off-loop."""

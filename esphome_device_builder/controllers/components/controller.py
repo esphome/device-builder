@@ -13,6 +13,7 @@ from ...definitions import (
     load_platform_capabilities_index,
 )
 from ...helpers.api import api_command
+from ...helpers.async_ import run_in_executor
 from ...helpers.device_yaml import NETWORK_PROVIDER_COMPONENT_IDS
 from ...helpers.json import loads
 from ...helpers.lazy_catalog import LazyBodyStore
@@ -145,7 +146,9 @@ class ComponentCatalog:
             if self._featured_built:
                 return
             if self._by_id:
-                await asyncio.to_thread(self._build_featured_registry)
+                self._featured_by_id, self._featured_by_board = await run_in_executor(
+                    build_featured_registry, self._by_id
+                )
             self._featured_built = True
 
     @api_command("components/get_categories")
@@ -684,10 +687,6 @@ class ComponentCatalog:
                 continue
             return [(body, _apply_featured_presets(record, {}, body))]
         return []
-
-    def _build_featured_registry(self) -> None:
-        """Populate the featured lookups from the aggregate index."""
-        self._featured_by_id, self._featured_by_board = build_featured_registry(self._by_id)
 
     def _categories_for_board(
         self,

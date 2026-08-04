@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -152,38 +151,16 @@ def test_migration_is_one_shot(tmp_path: Path, real_catalog: BoardCatalog) -> No
     assert "board_id_user_set" not in get_device_metadata(tmp_path, "apollo2.yaml")
 
 
-def test_already_migrated_boot_never_writes(
-    tmp_path: Path, real_catalog: BoardCatalog, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A boot after the migration neither rewrites the sidecar nor opens the transaction."""
+def test_already_migrated_boot_never_writes(tmp_path: Path, real_catalog: BoardCatalog) -> None:
+    """A boot after the migration leaves the sidecar untouched on disk."""
     set_device_metadata(tmp_path, "apollo.yaml", board_id=_APOLLO)
     assert _migrate_board_id_user_set_sync(tmp_path, real_catalog) == 1
     sidecar = tmp_path / ".device-builder.json"
     before = sidecar.stat().st_mtime_ns
 
-    transaction = MagicMock()
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.metadata_transaction",
-        transaction,
-    )
     assert _migrate_board_id_user_set_sync(tmp_path, real_catalog) == 0
 
-    transaction.assert_not_called()
     assert sidecar.stat().st_mtime_ns == before
-
-
-def test_marker_landing_after_precheck_is_honored_under_the_lock(
-    tmp_path: Path, real_catalog: BoardCatalog, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A marker written between the lock-free pre-check and the transaction still wins."""
-    set_device_metadata(tmp_path, "apollo.yaml", board_id=_APOLLO)
-    assert _migrate_board_id_user_set_sync(tmp_path, real_catalog) == 1
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.metadata.read_metadata_snapshot",
-        lambda _config_dir: {},
-    )
-
-    assert _migrate_board_id_user_set_sync(tmp_path, real_catalog) == 0
 
 
 async def test_migrate_then_resolve_matches_fleet_outcome(

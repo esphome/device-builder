@@ -101,6 +101,10 @@ async def test_scan_batch_reads_sidecar_once(tmp_path: Path, monkeypatch: Any) -
         return real(config_dir)
 
     monkeypatch.setattr(config_metadata, "_load_metadata", _counting)
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices._shared_sidecar._load_metadata",
+        _counting,
+    )
     scanner = DeviceScanner(
         tmp_path,
         make_metadata_resolver=controller._make_metadata_resolver,

@@ -14,7 +14,7 @@ from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.ip import is_unusable_address
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata, MetadataResolver
-from ..config import metadata_transaction, read_metadata_snapshot
+from ..config import metadata_transaction
 from ._metadata_store import STORE_FIELDS
 
 if TYPE_CHECKING:
@@ -43,11 +43,6 @@ def _migrate_board_id_user_set_sync(config_dir: Path, boards: BoardCatalog) -> i
     scan. devices.esphome.io imports are intentionally left unflagged:
     they are the stale auto-derived ids the re-derivation heals.
     """
-    # Lock-free pre-check: opening the transaction rewrites the sidecar
-    # on exit even when there is nothing to migrate, so an already-
-    # migrated boot must not enter it at all.
-    if read_metadata_snapshot(config_dir).get(_USER_SET_MIGRATED_KEY):
-        return 0
     stamped = 0
     with metadata_transaction(config_dir) as data:
         if data.get(_USER_SET_MIGRATED_KEY):
