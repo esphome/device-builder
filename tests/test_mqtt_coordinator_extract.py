@@ -244,6 +244,14 @@ async def test_seed_rejected_when_yaml_size_changes_under_same_mtime(
     assert [m.broker.host for m in stub_monitor.instances] == ["10.5.5.5"]
 
 
+def test_load_device_from_storage_survives_a_vanished_yaml(tmp_path: Path) -> None:
+    """A file deleted before the load still builds a Device with no extract."""
+    device = load_device_from_storage(tmp_path / "gone.yaml", "", "", "", "", 0, ())
+
+    assert device.uses_mqtt is False
+    assert device.mqtt_extract is None
+
+
 def test_extract_mqtt_block_rejects_non_mapping_yaml() -> None:
     """A YAML document that isn't a mapping yields no block."""
     assert extract_mqtt_block("- just\n- a\n- list\n") == (None, {})
