@@ -137,6 +137,16 @@ async def test_concurrent_async_get_or_create_returns_one_id(tmp_path: Path) -> 
     assert len({identity.dashboard_id for identity in results}) == 1
 
 
+def test_existing_dashboard_id_read_never_rewrites_the_sidecar(tmp_path: Path) -> None:
+    """A boot with an already-minted id neither rewrites the sidecar nor takes the lock."""
+    first = _get_or_create_dashboard_id(tmp_path)
+    sidecar = tmp_path / ".device-builder.json"
+    before = sidecar.stat().st_mtime_ns
+
+    assert _get_or_create_dashboard_id(tmp_path) == first
+    assert sidecar.stat().st_mtime_ns == before
+
+
 async def test_rotate_identity_keeps_dashboard_id(tmp_path: Path) -> None:
     """``rotate_identity`` swaps the X25519 key but preserves the id."""
     first = await get_or_create_identity(tmp_path, PeerLinkIdentityStore(tmp_path))
