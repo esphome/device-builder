@@ -143,7 +143,13 @@ class DeviceMetadataBase(DeviceBuilderBase):
 
     def _make_metadata_resolver(self) -> MetadataResolver:
         """Per-batch resolver sharing one sidecar snapshot across every file."""
-        shared_all = self._shared_sidecar.get_all_sync()
+        try:
+            shared_all = self._shared_sidecar.get_all_sync()
+        except OSError:
+            # Fall back to per-file reads so one unreadable sidecar keeps
+            # the scan's per-item skip contract instead of failing the batch.
+            _LOGGER.warning("Sidecar snapshot read failed; resolving per file", exc_info=True)
+            return self._resolve_device_metadata
 
         def _resolve(config_dir: Path, filename: str) -> DeviceFileMetadata:
             entry = shared_all.get(filename)

@@ -428,6 +428,15 @@ class DeviceBuilder:
         if "auth/login" in self.command_handlers:
             self.command_handlers["auth"] = self.command_handlers["auth/login"]
 
+    async def _prewarm_featured_registry(self) -> None:
+        """Hydrate the featured registry; a failure logs instead of vanishing."""
+        if (components := self.components) is None:
+            return
+        try:
+            await components.ensure_featured_registry()
+        except Exception:
+            _LOGGER.exception("Featured-registry pre-warm failed; first catalog use retries")
+
     async def _post_serving_startup(self, zeroconf: AsyncEsphomeZeroconf | None) -> None:
         """Once serving: advertise, start peer discovery, pre-warm the featured registry."""
         try:
@@ -440,8 +449,7 @@ class DeviceBuilder:
             )
         # Sibling task: the pre-warm has no ordering dependency on the
         # advertise probe below and shouldn't queue behind it.
-        if self.components is not None:
-            self.create_background_task(self.components.ensure_featured_registry())
+        self.create_background_task(self._prewarm_featured_registry())
         if self._dashboard_advertiser is not None and zeroconf is not None:
             # The legs are independent: a failed advertise must neither
             # die silently nor keep the peer browse from starting.

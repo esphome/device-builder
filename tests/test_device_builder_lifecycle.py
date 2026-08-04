@@ -210,6 +210,7 @@ async def test_advertise_task_starts_discovery_after_register(
 ) -> None:
     """The chained startup task registers the advertise before the peer browse."""
     db = DeviceBuilder(make_settings(with_core_path=True))
+    db.loop = asyncio.get_running_loop()
     order: list[str] = []
 
     advertiser = MagicMock()
@@ -239,6 +240,7 @@ async def test_forgotten_serving_gate_warns_and_advertises_anyway(
     """A never-opened serving gate self-reports and still runs the chain."""
     monkeypatch.setattr("esphome_device_builder.device_builder._SERVING_GATE_TIMEOUT_SECONDS", 0.01)
     db = DeviceBuilder(make_settings(with_core_path=True))
+    db.loop = asyncio.get_running_loop()
     db.remote_build_offloader = MagicMock()
     calls: list[object] = []
     monkeypatch.setattr(
@@ -253,6 +255,22 @@ async def test_forgotten_serving_gate_warns_and_advertises_anyway(
     assert any("Serving gate never opened" in rec.getMessage() for rec in caplog.records)
 
 
+async def test_featured_prewarm_failure_is_logged(
+    make_settings: MakeSettingsFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A raising pre-warm surfaces in the log instead of vanishing with the task."""
+    db = DeviceBuilder(make_settings(with_core_path=True))
+    db.components = MagicMock()
+    db.components.ensure_featured_registry = AsyncMock(side_effect=RuntimeError("index exploded"))
+
+    with caplog.at_level(logging.ERROR, logger="esphome_device_builder.device_builder"):
+        await db._prewarm_featured_registry()
+
+    assert any("pre-warm failed" in rec.getMessage() for rec in caplog.records)
+
+
 async def test_advertise_failure_still_starts_discovery(
     make_settings: MakeSettingsFactory,
     monkeypatch: pytest.MonkeyPatch,
@@ -260,6 +278,7 @@ async def test_advertise_failure_still_starts_discovery(
 ) -> None:
     """A raising register logs and the peer browse still starts."""
     db = DeviceBuilder(make_settings(with_core_path=True))
+    db.loop = asyncio.get_running_loop()
 
     advertiser = MagicMock()
     advertiser.register = AsyncMock(side_effect=RuntimeError("ifaddr exploded"))

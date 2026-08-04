@@ -116,6 +116,27 @@ async def test_scan_batch_reads_sidecar_once(tmp_path: Path, monkeypatch: Any) -
     assert calls["n"] == 1
 
 
+async def test_snapshot_read_failure_falls_back_to_per_file_resolution(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """An unreadable sidecar degrades to per-file reads; the scan still loads devices."""
+    controller = _make_controller(monkeypatch, tmp_path)
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    def _boom() -> dict[str, Any]:
+        raise PermissionError("sidecar unreadable")
+
+    monkeypatch.setattr(controller._shared_sidecar, "get_all_sync", _boom)
+    scanner = DeviceScanner(
+        tmp_path,
+        make_metadata_resolver=controller._make_metadata_resolver,
+        on_change=lambda _kind, _device, _previous: None,
+    )
+    await scanner.scan()
+
+    assert len(scanner.devices) == 1
+
+
 def test_batch_resolver_tolerates_non_dict_entry(tmp_path: Path, monkeypatch: Any) -> None:
     """A corrupt sidecar entry resolves like an absent one."""
     controller = _make_controller(monkeypatch, tmp_path)
