@@ -2212,14 +2212,7 @@ def _redirect_ext_storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 def test_load_device_falls_back_to_empty_yaml_on_read_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """An OSError reading the YAML produces an empty content string, not a crash.
-
-    The scanner can race a file rename / unlink; if the YAML
-    can't be opened, the loader must still return a usable
-    Device rather than blowing up the whole rebuild. Pin the
-    catch so a regression that re-raised the OSError would
-    surface here as a hard failure.
-    """
+    """An OSError opening the YAML yields an empty-content Device, not a crash."""
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     write_storage_json(tmp_path, "kitchen.yaml")

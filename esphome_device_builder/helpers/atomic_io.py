@@ -1,5 +1,5 @@
 """
-Atomic filesystem writes for dashboard-internal artefacts.
+Atomic writes and replace-race-coherent reads for dashboard-internal artefacts.
 
 For cert / key / token / metadata-sidecar files, plus the
 mode-preserving rewrite of user-editable YAML.

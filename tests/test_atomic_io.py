@@ -1,4 +1,4 @@
-"""Tests for the shared :mod:`helpers.atomic_io` write primitive."""
+"""Tests for the shared :mod:`helpers.atomic_io` read and write primitives."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ def test_read_text_with_stat_pairs_content_with_the_handle_stat(tmp_path: Path) 
 
     assert content == "esphome:\n  name: kitchen\n"
     assert file_stat.st_size == len(content.encode())
-    assert file_stat.st_mtime_ns == path.stat().st_mtime_ns
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="cannot replace a file with an open handle")

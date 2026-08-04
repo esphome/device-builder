@@ -229,9 +229,9 @@ class DeviceMqttCoordinator:
                 )
             else:
                 # Scan raced an edit (or the device predates the scanner
-                # carrying extractions) — fall back to reading the file.
-                # ``fstat`` off the read handle keeps the slow-path cache
-                # key coherent with the content actually parsed.
+                # carrying extractions) — fall back to reading the file,
+                # re-statting off the read handle so the slow-path cache
+                # key matches the parsed content.
                 try:
                     yaml_stat, yaml_content = read_text_with_stat(yaml_path)
                 except OSError:
