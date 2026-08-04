@@ -9,10 +9,15 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers import _device_mqtt_coordinator as coordinator_module
-from esphome_device_builder.helpers.device_yaml import build_mqtt_extract, extract_mqtt_block
+from esphome_device_builder.helpers.device_yaml import extract_mqtt_block
 from esphome_device_builder.helpers.device_yaml._loading import load_device_from_storage
 from esphome_device_builder.models import Device
-from tests._mqtt_fixtures import RecordingMonitor, make_mqtt_coordinator, write_mqtt_device
+from tests._mqtt_fixtures import (
+    RecordingMonitor,
+    build_test_extract,
+    make_mqtt_coordinator,
+    write_mqtt_device,
+)
 
 _BROKER_YAML = "mqtt:\n  broker: 192.168.1.10\n"
 
@@ -28,7 +33,7 @@ def _seed_package_device(tmp_path: Path, resolved_block: dict[str, Any] | None) 
         friendly_name="pkg",
         configuration="pkg.yaml",
         uses_mqtt=True,
-        mqtt_extract=build_mqtt_extract(path, yaml, resolved, path.stat().st_mtime, {}),
+        mqtt_extract=build_test_extract(path, yaml, resolved),
     )
 
 

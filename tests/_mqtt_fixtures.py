@@ -7,9 +7,10 @@ from typing import ClassVar
 
 from esphome_device_builder.controllers._device_mqtt_coordinator import DeviceMqttCoordinator
 from esphome_device_builder.controllers._device_mqtt_monitor import MqttBrokerConfig
-from esphome_device_builder.helpers.device_yaml import build_mqtt_extract
+from esphome_device_builder.helpers.device_yaml import extract_mqtt_block
 from esphome_device_builder.helpers.subscriber_presence import SubscriberPresence
 from esphome_device_builder.models import Device
+from esphome_device_builder.models.devices import DeviceMqttExtract
 
 
 class RecordingMonitor:
@@ -45,6 +46,23 @@ class RecordingMonitor:
         self.stopped = True
 
 
+def build_test_extract(
+    path: Path, yaml_content: str, resolved_config: dict | None = None
+) -> DeviceMqttExtract:
+    """Assemble an extract with test-frame stats so blockbuster stays quiet on the loop."""
+    main_block, main_subs = extract_mqtt_block(yaml_content)
+    resolved_block = resolved_config.get("mqtt") if isinstance(resolved_config, dict) else None
+    secrets = path.parent / "secrets.yaml"
+    return DeviceMqttExtract(
+        yaml_mtime=path.stat().st_mtime,
+        secrets_mtime=secrets.stat().st_mtime if secrets.exists() else 0.0,
+        main_block=main_block,
+        main_substitutions=main_subs,
+        resolved_block=resolved_block if isinstance(resolved_block, dict) else None,
+        resolved_substitutions={},
+    )
+
+
 def write_mqtt_device(config_dir: Path, name: str, mqtt_yaml: str | None) -> Device:
     """Write a device YAML and build its Device with the scan-time mqtt extract."""
     yaml = f"esphome:\n  name: {name}\n"
@@ -57,11 +75,7 @@ def write_mqtt_device(config_dir: Path, name: str, mqtt_yaml: str | None) -> Dev
         friendly_name=name,
         configuration=f"{name}.yaml",
         uses_mqtt=mqtt_yaml is not None,
-        mqtt_extract=(
-            build_mqtt_extract(path, yaml, None, path.stat().st_mtime, {})
-            if mqtt_yaml is not None
-            else None
-        ),
+        mqtt_extract=build_test_extract(path, yaml) if mqtt_yaml is not None else None,
     )
 
 
