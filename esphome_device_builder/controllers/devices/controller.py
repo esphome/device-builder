@@ -275,12 +275,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
         self._stopped = False
         self.state.esphome_cmd = _find_esphome_cmd()
-        # Seed the store (and migrate on first post-upgrade boot)
-        # before the scanner runs — resolver reads off it.
-        await self._metadata_store.async_load()
-        await self._pending_keys.async_load()
-        await self.migrate_board_id_user_set()
-        await run_in_executor(self._load_ignored_devices)
+        # Store seed + migrations + ignore-list are independent; all
+        # must land before the scanner (the resolver reads off them).
+        await asyncio.gather(
+            self._metadata_store.async_load(),
+            self._pending_keys.async_load(),
+            self.migrate_board_id_user_set(),
+            run_in_executor(self._load_ignored_devices),
+        )
         await self._scanner.scan()
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))

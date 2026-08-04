@@ -30,7 +30,7 @@ import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -177,6 +177,40 @@ async def test_start_runs_full_initialisation_chain(
     # JOB_COMPLETED listener registered via the real ``EventBus``-shaped stub.
     assert db.bus.listeners == [(EventType.JOB_COMPLETED, controller._on_firmware_job_completed)]
     assert controller._unsub_job_completed is not None
+
+
+async def test_start_pre_scan_loads_complete_before_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
+) -> None:
+    """The gathered store/migration/ignore loads all land before the scanner runs."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        lambda: ["python", "-m", "esphome"],
+    )
+    db = make_db(tmp_path)
+    controller = DevicesController(db)
+    log: list[str] = []
+
+    def _async_recorder(name: str):
+        async def _run() -> None:
+            log.append(name)
+
+        return _run
+
+    monkeypatch.setattr(controller._metadata_store, "async_load", _async_recorder("metadata"))
+    monkeypatch.setattr(controller._pending_keys, "async_load", _async_recorder("pending_keys"))
+    monkeypatch.setattr(controller, "migrate_board_id_user_set", _async_recorder("migrate"))
+    monkeypatch.setattr(controller, "_load_ignored_devices", lambda: log.append("ignored"))
+    monkeypatch.setattr(controller._scanner, "scan", _async_recorder("scan"))
+    with (
+        patch.multiple(controller._state_monitor, start=AsyncMock(), stop=AsyncMock()),
+        patch.multiple(controller._mqtt_coordinator, reconcile=AsyncMock(), stop=AsyncMock()),
+    ):
+        await controller.start()
+        await controller.stop()
+
+    assert set(log[:4]) == {"metadata", "pending_keys", "migrate", "ignored"}
+    assert log[4] == "scan"
 
 
 async def test_build_size_worker_starts_live_with_delayed_sweep(
