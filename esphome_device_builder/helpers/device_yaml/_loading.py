@@ -17,6 +17,7 @@ from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..mac_addresses import derive_interface_macs
 from ..storage_path import resolve_compiled_config_path, resolve_storage_path
+from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
     _extract_resolved_substitutions,
@@ -198,6 +199,13 @@ def load_device_from_storage(
         runtime.deployed_version and runtime.deployed_version != const.__version__
     )
 
+    uses_mqtt = has_top_level_block(resolved_config, yaml_content, "mqtt")
+    mqtt_extract = (
+        build_mqtt_extract(path, yaml_content, resolved_config, yaml_mtime, extra_subs)
+        if uses_mqtt and yaml_mtime is not None
+        else None
+    )
+
     # ``Device.target_platform`` is the lowercase platform *key*
     # (``esp32``, ``esp8266``, ``rp2``, …) — the value the
     # frontend's PLATFORM column renders. Source order:
@@ -334,7 +342,8 @@ def load_device_from_storage(
         # wins, raw-text fills in mid-edit, and we don't have a
         # ``loaded_integrations`` entry that maps cleanly to "uses
         # mqtt for dashboard discovery" the way ``"api"`` does.
-        uses_mqtt=has_top_level_block(resolved_config, yaml_content, "mqtt"),
+        uses_mqtt=uses_mqtt,
+        mqtt_extract=mqtt_extract,
         uses_deep_sleep=has_top_level_block(resolved_config, yaml_content, "deep_sleep"),
         name_add_mac_suffix=name_add_mac_suffix_enabled(resolved_config, yaml_content),
         mdns_disabled=mdns_disabled_enabled(resolved_config, yaml_content),

@@ -68,6 +68,7 @@ from esphome_device_builder.models import (
     QueueStatus,
     ReachabilitySource,
 )
+from tests._mqtt_fixtures import RecordingMonitor
 
 if TYPE_CHECKING:
     from blockbuster import BlockBuster
@@ -900,6 +901,17 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     # monkeypatch a leaked ``config_path`` poisons sibling tests in
     # the same xdist worker.
     monkeypatch.setattr(CORE, "config_path", None)
+
+
+@pytest.fixture
+def stub_monitor(monkeypatch: pytest.MonkeyPatch) -> type[RecordingMonitor]:
+    """Swap ``DeviceMqttMonitor`` for the recording stand-in."""
+    RecordingMonitor.instances = []
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers._device_mqtt_coordinator.DeviceMqttMonitor",
+        RecordingMonitor,
+    )
+    return RecordingMonitor
 
 
 async def release_and_drain_advertise(db: Any) -> None:

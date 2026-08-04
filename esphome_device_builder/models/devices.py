@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from .common import DashboardModel
 
@@ -110,6 +110,23 @@ RUNTIME_STATE_FIELD_NAMES = frozenset(f.name for f in fields(DeviceRuntimeState)
 
 
 @dataclass
+class DeviceMqttExtract:
+    """Scan-time ``mqtt:`` extraction consumed by the MQTT coordinator.
+
+    ``main_block`` keeps ``!secret`` markers unresolved; ``resolved_block``
+    is the package-merged config's block with secrets baked in, valid only
+    while both mtimes match the files on disk.
+    """
+
+    yaml_mtime: float
+    secrets_mtime: float
+    main_block: dict[str, Any] | None
+    main_substitutions: dict[str, str]
+    resolved_block: dict[str, Any] | None
+    resolved_substitutions: dict[str, str]
+
+
+@dataclass
 class Device(DashboardModel):
     """A configured ESPHome device."""
 
@@ -166,6 +183,11 @@ class Device(DashboardModel):
     pending_changes_via_hash: bool = False
     update_available: bool = False  # True if compiled with older ESPHome version
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
+    # Server-side only; ``repr=False`` because the resolved block can
+    # carry baked-in credentials.
+    mqtt_extract: DeviceMqttExtract | None = field(
+        default=None, repr=False, metadata={"serialize": "omit"}
+    )
     uses_deep_sleep: bool = False  # True if the YAML declares a top-level deep_sleep: block
     # Truthy esphome.name_add_mac_suffix; status tracking is unavailable for such configs.
     name_add_mac_suffix: bool = False

@@ -34,6 +34,11 @@ from ._loading import (
     load_device_yaml,
     pending_changes_via_hash,
 )
+from ._mqtt_block import (
+    SecretRef,
+    build_mqtt_extract,
+    extract_mqtt_block,
+)
 from ._parsing import (
     _UNRESOLVED_SUBSTITUTION_RE,
     DEFAULT_API_PORT,
@@ -71,6 +76,7 @@ __all__ = [
     "_UNRESOLVED_SUBSTITUTION_RE",
     "EsphomeConfigUnavailableError",
     "EsphomeMeta",
+    "SecretRef",
     "StorageJSON",
     "_extract_resolved_substitutions",
     "_has_native_wifi",
@@ -79,6 +85,7 @@ __all__ = [
     "_resolve_substitutions",
     "board_provides_network",
     "board_requires_wifi",
+    "build_mqtt_extract",
     "compute_has_pending_changes",
     "config_has_top_level_block",
     "configuration_filename",
@@ -88,6 +95,7 @@ __all__ = [
     "device_uses_mqtt",
     "extract_directly_referenced_integrations",
     "extract_esphome_meta_from_config",
+    "extract_mqtt_block",
     "generate_adoption_yaml",
     "generate_device_yaml",
     "generate_minimal_stub_yaml",
