@@ -258,7 +258,7 @@ def test_parse_mqtt_block_corrupt_ca_returns_none(caplog: pytest.LogCaptureFixtu
 
 def test_parse_mqtt_block_non_ascii_ca_returns_none(caplog: pytest.LogCaptureFixture) -> None:
     # A smart quote from copy-paste makes ``load_verify_locations`` raise
-    # TypeError, not SSLError; an escape aborts the fleet's reconcile.
+    # TypeError, not SSLError.
     yaml = (
         "mqtt:\n  broker: broker.example\n  certificate_authority: |\n"
         "    -----BEGIN CERTIFICATE-----\n"
