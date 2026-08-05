@@ -364,7 +364,8 @@ precomputes it into the index or runs in the helper, never an in-process import.
 
 The other cold-start cost is the initial device scan: the resolved YAML parse
 (`yaml_util.load_yaml` + `resolve_packages`) is single-threaded and, with
-remote `packages:` needing git clones, can block startup for tens of seconds.
+remote `packages:` needing git clones, can block startup for tens of seconds —
+minutes, or even hours, on slow connections.
 `DevicesController.start()` therefore seeds the fleet **shallow** — StorageJSON
 plus sidecars plus the raw-text pass only (`scan(shallow=True)`, skipping the
 resolved parse and the validated-config read) — serves immediately, then a
