@@ -297,7 +297,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
-        await self._mqtt_coordinator.reconcile()
+        # Fast pass: inline brokers connect immediately; one needing
+        # the resolved parse defers to the refine's trailing reconcile
+        # instead of deep-parsing on the critical path (and again in
+        # the refine's deep reload).
+        await self._mqtt_coordinator.reconcile(allow_slow_resolve=False)
         self._unsub_job_completed = self._db.bus.add_listener(
             EventType.JOB_COMPLETED, self._on_firmware_job_completed
         )
@@ -324,8 +328,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._refine_task is not None:
             await drain_tasks([self._refine_task], log_exceptions=True)
             self._refine_task = None
-        await self._scanner.stop()
+        # Build-size first: its drain's ``on_refreshed`` requests a
+        # scanner reload, which a stopped worker would drop silently.
         await self._build_size.stop()
+        await self._scanner.stop()
         await self._mqtt_coordinator.stop()
         await self._state_monitor.stop()
         await drain_shutdown_callbacks(self._shutdown_callbacks)

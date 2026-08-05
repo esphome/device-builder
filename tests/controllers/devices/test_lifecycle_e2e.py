@@ -89,7 +89,7 @@ def _capture_monitor_and_mqtt(controller: DevicesController) -> Iterator[list[st
     async def _state_monitor_stop() -> None:
         log.append("state_monitor.stop")
 
-    async def _mqtt_reconcile() -> None:
+    async def _mqtt_reconcile(**_kw: object) -> None:
         log.append("mqtt.reconcile")
 
     async def _mqtt_stop() -> None:
@@ -268,6 +268,7 @@ async def test_start_refines_shallow_seed_then_reconciles(
         await controller._refine_task
         await controller.stop()
 
+    # The fast pass in start() plus the refine's trailing full pass.
     assert log.count("mqtt.reconcile") == 2
     fired = [event_type for event_type, _data in db.bus.fired]
     assert EventType.DEVICE_ADDED in fired
@@ -306,6 +307,27 @@ async def test_stop_cancels_refine_mid_drain(
     assert task.done()
     assert controller._refine_task is None
     assert log.count("mqtt.reconcile") == 1
+
+
+async def test_stop_stops_build_size_before_scanner(tmp_path: Path, make_db: MakeDbFactory) -> None:
+    """Build-size stops first: its drain's ``on_refreshed`` requests a scanner reload."""
+    controller = DevicesController(make_db(tmp_path))
+    log: list[str] = []
+
+    async def _build_size_stop() -> None:
+        log.append("build_size.stop")
+
+    async def _scanner_stop() -> None:
+        log.append("scanner.stop")
+
+    with (
+        _capture_monitor_and_mqtt(controller),
+        patch.multiple(controller._build_size, stop=_build_size_stop),
+        patch.multiple(controller._scanner, stop=_scanner_stop),
+    ):
+        await controller.stop()
+
+    assert log.index("build_size.stop") < log.index("scanner.stop")
 
 
 # ---------------------------------------------------------------------------

@@ -11,10 +11,12 @@ broker login. Re-runs lifecycle on each poll so monitors track edits.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import ssl
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -60,6 +62,10 @@ _CLIENT_CERT_FIELDS = ("client_certificate", "client_certificate_key")
 _PEM_CERT_MARKER = "-----BEGIN CERTIFICATE-----"
 
 _UNREADABLE_DEBUG = "Could not read %s for MQTT broker config"
+
+# How long ``stop()`` waits for an in-flight reconcile before stopping
+# the registered monitors without the lock.
+_STOP_LOCK_TIMEOUT_SECONDS = 5.0
 
 
 class _ClientCertUnsupported:
@@ -120,8 +126,13 @@ class DeviceMqttCoordinator:
         """Return the number of brokers currently being monitored."""
         return len(self._monitors)
 
-    async def reconcile(self) -> None:
-        """Sync running monitors to the brokers referenced by device YAML."""
+    async def reconcile(self, *, allow_slow_resolve: bool = True) -> None:
+        """
+        Sync running monitors to the brokers referenced by device YAML.
+
+        ``allow_slow_resolve=False`` skips devices whose broker needs
+        the resolved-config parse; the caller owes a later full pass.
+        """
         if not DeviceMqttMonitor.is_available():
             if any(d.uses_mqtt for d in self._get_devices()):
                 _LOGGER.warning(
@@ -131,9 +142,13 @@ class DeviceMqttCoordinator:
             return
 
         async with self._reconcile_lock:
-            brokers = await run_in_executor(self._collect_brokers)
+            brokers = await run_in_executor(
+                partial(self._collect_brokers, allow_slow_resolve=allow_slow_resolve)
+            )
             wanted_keys = {b.key for b in brokers}
-            existing_keys = set(self._monitors.keys())
+            # A fast pass may have treated slow-resolve brokers as
+            # absent, so it is additive-only — never a teardown signal.
+            existing_keys = set(self._monitors.keys()) if allow_slow_resolve else wanted_keys
 
             for key in existing_keys - wanted_keys:
                 _LOGGER.info(
@@ -169,10 +184,21 @@ class DeviceMqttCoordinator:
 
     async def stop(self) -> None:
         """Stop every active monitor and clear state."""
-        async with self._reconcile_lock:
+        # Bounded: a legacy-REST reconcile stuck in a package fetch
+        # inside ``_collect_brokers`` must not stall shutdown; on
+        # timeout, stop what's registered without the lock.
+        acquired = False
+        with contextlib.suppress(TimeoutError):
+            async with asyncio.timeout(_STOP_LOCK_TIMEOUT_SECONDS):
+                await self._reconcile_lock.acquire()
+                acquired = True
+        try:
             for monitor in list(self._monitors.values()):
                 await monitor.stop()
             self._monitors.clear()
+        finally:
+            if acquired:
+                self._reconcile_lock.release()
 
     # ------------------------------------------------------------------
     # Internals
@@ -208,7 +234,7 @@ class DeviceMqttCoordinator:
         for key, monitor in self._monitors.items():
             monitor.set_publisher(value=elected[key[:2]] is monitor)
 
-    def _collect_brokers(self) -> list[MqttBrokerConfig]:
+    def _collect_brokers(self, *, allow_slow_resolve: bool = True) -> list[MqttBrokerConfig]:
         mqtt_devices = [d for d in self._get_devices() if d.uses_mqtt]
         if not mqtt_devices:
             # Equivalent to an empty loop pass: clear the warn gates and
@@ -251,6 +277,11 @@ class DeviceMqttCoordinator:
                     continue
                 broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
+                if not allow_slow_resolve:
+                    # Cold-start fast pass: skip silently (no warn-gate
+                    # consumption) — the refine's trailing reconcile
+                    # re-runs with resolved extracts.
+                    continue
                 broker = self._resolve_slow(yaml_path, device.mqtt_extract, yaml_stat, secrets_key)
             self._track_outcome(device.configuration, broker, seen, client_cert_devices, conflicts)
         # Drop tracking for devices no longer declaring ``mqtt:`` and

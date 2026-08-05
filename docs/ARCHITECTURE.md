@@ -371,9 +371,13 @@ plus sidecars plus the raw-text pass only (`scan(shallow=True)`, skipping the
 resolved parse and the validated-config read) — serves immediately, then a
 background refine task (`controllers/devices/refine.py`) deep-reloads every
 device through the scanner's request/drain worker and finally re-runs the MQTT
-reconcile. That trailing reconcile is load-bearing: `_collect_brokers` gates on
-`uses_mqtt`, which a shallow row can't see for a package-sourced `mqtt:` block,
-and the presence-gated `poll()` never runs on a headless install. Shallow rows
+reconcile. MQTT starts in two passes: `start()` runs a fast, additive-only
+reconcile (`allow_slow_resolve=False`) so inline brokers connect immediately
+without the resolved parse a package-sourced broker value would need, and the
+refine's trailing full reconcile is load-bearing for the rest —
+`_collect_brokers` gates on `uses_mqtt`, which a shallow row can't see for a
+package-sourced `mqtt:` block, and the presence-gated `poll()` never runs on a
+headless install. Shallow rows
 are sticky against the mtime cache — only a `reload` / `request` deepens them —
 which is exactly what the refine provides; steady-state scans stay deep.
 
@@ -384,7 +388,10 @@ Two rules the refine established that every later caller inherits:
   Dataclass equality spans every field the wire serializes (and more), so a
   suppressed frame is provably a no-op for clients; `device_updated` from any
   reload-driven path (labels, build size, post-compile refresh) now means "the
-  row changed", not "a reload ran".
+  row changed", not "a reload ran". The gate suppresses every RELOADED side
+  effect in `on_scan_change`, not just the frame — all are implied by row
+  equality except `regenerate_failed.discard`, whose real repair path is a
+  YAML edit (`UPDATED`) anyway.
 - **The refine emits `RELOADED`, never `UPDATED`.** `DEVICE_YAML_UPDATED`
   (version-history commits) keys on `UPDATED`, and the network-fingerprint
   regen deliberately skips `RELOADED` (it fires on `ADDED`/`UPDATED` to catch

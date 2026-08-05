@@ -45,12 +45,9 @@ from ._wake_worker import WakeWorker
 _LOGGER = logging.getLogger(__name__)
 
 # Callback fired after a successful refresh actually changed the
-# cached triple. The owner uses it to reload the device through
-# the scanner so the in-memory ``Device.build_size_bytes`` picks
-# up the freshly-persisted value via the metadata resolver. The
-# return value is ignored — typed ``Awaitable[Any]`` so the
-# scanner's existing ``async def reload(...) -> bool`` can be
-# wired directly without a no-return adapter wrapper.
+# cached triple. The owner uses it to queue a scanner reload so the
+# in-memory ``Device.build_size_bytes`` picks up the freshly-persisted
+# value via the metadata resolver. The return value is ignored.
 RefreshedCallback = Callable[[str], Awaitable[Any]]
 
 

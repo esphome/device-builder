@@ -2905,3 +2905,63 @@ async def test_coordinator_cancel_mid_stop_keeps_monitor_registered(
     await coord.stop()
     assert coord.active_brokers == 0
     assert monitor.stopped is True
+
+
+async def test_coordinator_stop_bounded_when_reconcile_lock_held(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A wedged reconcile can't stall shutdown; ``stop()`` times out and still stops monitors."""
+    devices = [write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.1.10\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    monitor = stub_monitor.instances[0]
+    monkeypatch.setattr(coordinator_module, "_STOP_LOCK_TIMEOUT_SECONDS", 0.01)
+    await coord._reconcile_lock.acquire()
+
+    await coord.stop()
+
+    assert monitor.stopped is True
+    assert coord.active_brokers == 0
+    # The holder's lock is untouched — stop() never acquired it.
+    assert coord._reconcile_lock.locked()
+
+
+async def test_coordinator_fast_pass_defers_slow_resolve_devices(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """``allow_slow_resolve=False`` skips an unresolvable broker without warning or parse."""
+    devices = [
+        write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.1.10\n"),
+        write_mqtt_device(tmp_path, "beta", "mqtt:\n  broker: ${package_host}\n"),
+    ]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+
+    with patch.object(
+        coordinator_module.DeviceMqttCoordinator,
+        "_resolve_slow",
+        side_effect=AssertionError("slow resolve ran in the fast pass"),
+    ):
+        await coord.reconcile(allow_slow_resolve=False)
+
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.host == "192.168.1.10"
+
+
+async def test_coordinator_fast_pass_is_additive_only(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A fast pass never stops a running monitor its skip made look absent."""
+    devices = [write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.1.10\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+
+    devices[0] = write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: ${package_host}\n")
+    await coord.reconcile(allow_slow_resolve=False)
+
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].stopped is False
