@@ -260,3 +260,58 @@ async def test_request_coalesces_into_the_running_drain_batch(tmp_path: Path) ->
             await scanner.stop()
 
     assert reload_calls.count(queued) == 1
+
+
+async def test_cancelled_drain_requeues_the_unprocessed_remainder(tmp_path: Path) -> None:
+    """Items still queued when the worker is cancelled land back in pending."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    _write_yaml(cfg, "bedroom")
+
+    first_started = asyncio.Event()
+
+    async def _parked(self: DeviceScanner, filename: str) -> bool:
+        first_started.set()
+        await asyncio.Event().wait()
+        return True
+
+    with (
+        patch(
+            "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+            side_effect=_stub_load,
+        ),
+        patch.object(DeviceScanner, "reload", _parked),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan()
+        scanner.request("kitchen.yaml")
+        scanner.request("bedroom.yaml")
+        scanner.start()
+        await first_started.wait()
+        await scanner.stop()
+
+    # One file was parked mid-reload; the other never left the batch and
+    # must survive into pending for a restarted worker.
+    assert len(scanner.pending) == 1
+
+
+async def test_request_drains_reload_that_returns_false(tmp_path: Path) -> None:
+    """A drain whose reload reports no update completes quietly."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+
+    async def _no_update(self: DeviceScanner, filename: str) -> bool:
+        return False
+
+    with patch.object(DeviceScanner, "reload", _no_update):
+        scanner, _ = _make_scanner(cfg)
+        scanner.start()
+        try:
+            scanner.request("kitchen.yaml")
+            await scanner.wait_idle()
+        finally:
+            await scanner.stop()
+
+    assert scanner.pending == set()
