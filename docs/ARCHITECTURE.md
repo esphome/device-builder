@@ -381,7 +381,7 @@ raw text or a fresh extract seed becomes a queued scanner reload
 can't know the unresolved devices' broker keys, so teardown waits for the
 pass after their reloads land). Each deep reload that changes a device's
 mqtt surface fires the scan-change pipeline, which schedules a debounced
-reconcile (`_schedule_mqtt_reconcile`, ~1s) — so monitors come up
+reconcile (`schedule_mqtt_reconcile`, a few seconds) — so monitors come up
 incrementally as parses land, on cold start and steady state alike, with no
 concurrent-parse hazard by construction and no dependence on the
 presence-gated `poll()` for headless installs. The `from_shallow_load` stamp

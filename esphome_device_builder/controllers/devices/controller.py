@@ -115,9 +115,9 @@ _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 # where store loads and job restore need the disk.
 _BUILD_SIZE_SWEEP_DELAY_SECONDS: float = 20.0
 
-# Coalesces the refine burst's per-device scan changes into ~one MQTT
-# reconcile per second of landing parses.
-_MQTT_RECONCILE_DEBOUNCE_SECONDS: float = 1.0
+# Coalesces the refine burst's per-device scan changes into one MQTT
+# reconcile per few seconds of landing parses.
+_MQTT_RECONCILE_DEBOUNCE_SECONDS: float = 3.0
 
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
