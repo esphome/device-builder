@@ -13,12 +13,12 @@ from ...helpers.api import CommandError
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import (
     remove_device_files,
-    unlink_compiled_config,
     unlink_storage_sidecar,
     wipe_device_build_dir,
 )
 from ...helpers.device_yaml import parse_esphome_meta
 from ...helpers.storage_path import resolve_storage_path
+from ...helpers.validated_config_cache import unlink_validated_cache
 from ...models import ErrorCode
 from .helpers import _validate_archive_configuration, require_file_exists
 
@@ -75,7 +75,7 @@ async def archive_single(controller: DevicesController, configuration: str) -> N
         wipe_device_build_dir(configuration)
         shutil.move(str(config_path), str(target))
         unlink_storage_sidecar(configuration)
-        unlink_compiled_config(configuration)
+        unlink_validated_cache(configuration)
 
     # Hold the per-file write lock across the move + history commit so a
     # concurrent editor save to the same config can't interleave with the
@@ -166,7 +166,7 @@ async def delete_archived_single(controller: DevicesController, configuration: s
             # sidecars now; leave them alone.
             return False
         unlink_storage_sidecar(configuration)
-        unlink_compiled_config(configuration)
+        unlink_validated_cache(configuration)
         return True
 
     with _translate_archive_fs_errors(configuration, archived=True):

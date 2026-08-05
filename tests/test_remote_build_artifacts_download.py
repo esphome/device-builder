@@ -52,9 +52,12 @@ from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
 from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
 from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
 from esphome_device_builder.helpers.storage_path import (
-    resolve_compiled_config_path,
     resolve_idedata_path,
     resolve_storage_path,
+)
+from esphome_device_builder.helpers.validated_config_cache import (
+    json_cache_path,
+    legacy_yaml_cache_path,
 )
 from esphome_device_builder.models import (
     DownloadArtifactsFrameData,
@@ -610,6 +613,7 @@ def _write_receiver_state(
     extras: list[tuple[str, str]] | None = None,
     extra_build_files: dict[str, bytes] | None = None,
     validated_yaml: bytes | None = None,
+    validated_json: bytes | None = None,
     native_idf: bool = False,
 ) -> dict[str, Path]:
     """Lay down a minimal receiver-side build state on disk.
@@ -714,10 +718,15 @@ def _write_receiver_state(
         )
         paths["idedata_path"] = idedata_path
     if validated_yaml is not None:
-        validated_yaml_path = resolve_compiled_config_path(configuration)
+        validated_yaml_path = legacy_yaml_cache_path(configuration)
         validated_yaml_path.parent.mkdir(parents=True, exist_ok=True)
         validated_yaml_path.write_bytes(validated_yaml)
         paths["validated_yaml_path"] = validated_yaml_path
+    if validated_json is not None:
+        validated_json_path = json_cache_path(configuration)
+        validated_json_path.parent.mkdir(parents=True, exist_ok=True)
+        validated_json_path.write_bytes(validated_json)
+        paths["validated_json_path"] = validated_json_path
     return paths
 
 

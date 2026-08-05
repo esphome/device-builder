@@ -33,7 +33,6 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
-    VALIDATED_YAML_MEMBER_NAME,
     pack_build_artifacts,
 )
 from esphome_device_builder.helpers.config_hash import read_build_info_hash
@@ -44,9 +43,15 @@ from esphome_device_builder.helpers.remote_artifacts_materialise import (
     materialise_remote_artifacts,
 )
 from esphome_device_builder.helpers.storage_path import (
-    resolve_compiled_config_path,
     resolve_idedata_path,
     resolve_storage_path,
+)
+from esphome_device_builder.helpers.validated_config_cache import (
+    JSON_CACHE_MEMBER_NAME,
+    LEGACY_YAML_CACHE_MEMBER_NAME,
+    find_validated_cache,
+    json_cache_path,
+    legacy_yaml_cache_path,
 )
 from tests.test_remote_build_artifacts_download import _write_receiver_state
 
@@ -213,13 +218,55 @@ def test_materialise_stages_validated_yaml_for_esphome_fast_path(
 
     sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
     with patch.object(CORE, "config_path", sentinel):
-        staged = resolve_compiled_config_path("kitchen.yaml")
+        staged = legacy_yaml_cache_path("kitchen.yaml")
     assert staged.read_bytes() == cache_body
     # 0600 because the cache resolves !secret inline. POSIX mode bits
     # are inapplicable on Windows -- the offloader's chmod call is a
     # no-op there, so skip the assertion rather than fight ACL shape.
     if sys.platform != "win32":
         assert (staged.stat().st_mode & 0o777) == 0o600
+
+
+def test_materialise_stages_validated_json_for_esphome_fast_path(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """A 2026.8+ receiver ships the JSON cache; it stages at the JSON path."""
+    receiver_root, offloader_root = paired_roots
+    cache_body = b'{"v": 1, "esphome": "2026.8.0", "config": {"esphome": {"name": "kitchen"}}}'
+    tarball = _pack_in_tmp(receiver_root, validated_json=cache_body)
+
+    with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
+        assert JSON_CACHE_MEMBER_NAME in tar.getnames()
+
+    _materialise_in_tmp(tarball, offloader_root)
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        staged = json_cache_path("kitchen.yaml")
+    assert staged.read_bytes() == cache_body
+    if sys.platform != "win32":
+        assert (staged.stat().st_mode & 0o777) == 0o600
+
+
+def test_materialise_json_cache_drops_stale_yaml_sibling(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """Staging one format removes the other so a stale sibling can't shadow it."""
+    receiver_root, offloader_root = paired_roots
+    cache_body = b'{"v": 1, "esphome": "2026.8.0", "config": {"esphome": {"name": "kitchen"}}}'
+    tarball = _pack_in_tmp(receiver_root, validated_json=cache_body)
+
+    sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
+    with patch.object(CORE, "config_path", sentinel):
+        stale_yaml = legacy_yaml_cache_path("kitchen.yaml")
+        stale_yaml.parent.mkdir(parents=True, exist_ok=True)
+        stale_yaml.write_bytes(b"esphome:\n  name: stale\n")
+
+    _materialise_in_tmp(tarball, offloader_root)
+
+    with patch.object(CORE, "config_path", sentinel):
+        assert not legacy_yaml_cache_path("kitchen.yaml").exists()
+        assert json_cache_path("kitchen.yaml").read_bytes() == cache_body
 
 
 def test_materialise_handles_missing_validated_yaml(
@@ -232,8 +279,7 @@ def test_materialise_handles_missing_validated_yaml(
 
     sentinel = offloader_root / "___DASHBOARD_SENTINEL___.yaml"
     with patch.object(CORE, "config_path", sentinel):
-        staged = resolve_compiled_config_path("kitchen.yaml")
-    assert not staged.exists()
+        assert find_validated_cache("kitchen.yaml") is None
 
 
 def test_pack_skips_stale_validated_yaml_after_esphome_downgrade(
@@ -258,11 +304,11 @@ def test_pack_skips_stale_validated_yaml_after_esphome_downgrade(
         tarball = pack_build_artifacts("kitchen.yaml").tarball
 
     with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tar:
-        assert VALIDATED_YAML_MEMBER_NAME not in tar.getnames()
+        assert LEGACY_YAML_CACHE_MEMBER_NAME not in tar.getnames()
 
     _materialise_in_tmp(tarball, offloader_root)
     with patch.object(CORE, "config_path", offloader_root / "___DASHBOARD_SENTINEL___.yaml"):
-        assert not resolve_compiled_config_path("kitchen.yaml").exists()
+        assert find_validated_cache("kitchen.yaml") is None
 
 
 def test_materialise_handles_missing_build_info_json(

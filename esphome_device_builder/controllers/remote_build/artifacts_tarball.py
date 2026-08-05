@@ -64,12 +64,13 @@ from ...constants import TOOLCHAIN_ESP_IDF
 from ...helpers.build_artifacts import _firmware_offset_for_platform, iter_flash_images
 from ...helpers.cross_os_path import cross_os_basename
 from ...helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
-from ...helpers.storage_path import (
-    resolve_compiled_config_path,
-    resolve_idedata_path,
-    resolve_storage_path,
-)
+from ...helpers.storage_path import resolve_idedata_path, resolve_storage_path
 from ...helpers.tarball_read import parse_json_object, read_member
+from ...helpers.validated_config_cache import (
+    CACHE_MEMBER_NAMES,
+    find_validated_cache,
+    member_name_for,
+)
 from .artifact_platforms import build_files_for_platform
 
 if TYPE_CHECKING:
@@ -93,15 +94,16 @@ BUILD_INFO_MEMBER_NAME = "build_info.json"
 # Receiver-side esphome >= 2026.6.0 dumps the validated config alongside
 # the StorageJSON sidecar; reusing it on the offloader lets `esphome
 # upload` / `esphome logs` skip the full `read_config()` pipeline. Optional
-# member: skipped when the receiver predates the cache.
-VALIDATED_YAML_MEMBER_NAME = "validated.yaml"
+# member — skipped when the receiver predates the cache — shipped under
+# whichever member name matches the format the receiver's esphome wrote
+# (``validated.yaml`` before 2026.8, ``validated.json`` after).
 _METADATA_MEMBERS: frozenset[str] = frozenset(
     {
         STORAGE_MEMBER_NAME,
         IDEDATA_MEMBER_NAME,
         PLATFORMIO_INI_MEMBER_NAME,
         BUILD_INFO_MEMBER_NAME,
-        VALIDATED_YAML_MEMBER_NAME,
+        *CACHE_MEMBER_NAMES,
     }
 )
 
@@ -114,7 +116,7 @@ _METADATA_MEMBERS: frozenset[str] = frozenset(
 # sidecar by more than this many seconds -- generous enough to cover
 # `clean_build` + `clean_cmake_cache` running between the two writes,
 # tight enough to never accept a cache from a prior compile cycle.
-_VALIDATED_YAML_STALE_THRESHOLD_S = 60.0
+_VALIDATED_CACHE_STALE_THRESHOLD_S = 60.0
 
 
 # ---------------------------------------------------------------------------
@@ -216,7 +218,7 @@ def _collect_pack_members(  # noqa: C901
             raise FileNotFoundError(msg)
 
     build_info_path = build_path / BUILD_INFO_MEMBER_NAME
-    validated_yaml_path = resolve_compiled_config_path(configuration)
+    validated_cache_path = find_validated_cache(configuration)
     members: list[tuple[str, Path]] = [(STORAGE_MEMBER_NAME, storage_path)]
     if idedata_cache_path.is_file():
         members.append((IDEDATA_MEMBER_NAME, idedata_cache_path))
@@ -224,8 +226,10 @@ def _collect_pack_members(  # noqa: C901
         members.append((PLATFORMIO_INI_MEMBER_NAME, platformio_ini))
     if build_info_path.is_file():
         members.append((BUILD_INFO_MEMBER_NAME, build_info_path))
-    if _validated_yaml_is_fresh(validated_yaml_path, storage_path):
-        members.append((VALIDATED_YAML_MEMBER_NAME, validated_yaml_path))
+    if validated_cache_path is not None and _validated_cache_is_fresh(
+        validated_cache_path, storage_path
+    ):
+        members.append((member_name_for(validated_cache_path), validated_cache_path))
     # Dedupe by basename, not full path: the WS-unpack adapter
     # keys flash images by basename, so a build emitting both
     # ``.pioenvs/<name>/firmware.factory.bin`` and
@@ -268,8 +272,8 @@ def _collect_pack_members(  # noqa: C901
     return members
 
 
-def _validated_yaml_is_fresh(validated_yaml: Path, storage_json: Path) -> bool:
-    """Test that *validated_yaml* was written by the same compile as *storage_json*.
+def _validated_cache_is_fresh(validated_cache: Path, storage_json: Path) -> bool:
+    """Test that *validated_cache* was written by the same compile as *storage_json*.
 
     esphome >= 2026.6 writes both inside one ``update_storage_json``
     call. If the receiver later downgrades to an esphome that doesn't
@@ -279,10 +283,10 @@ def _validated_yaml_is_fresh(validated_yaml: Path, storage_json: Path) -> bool:
     """
     try:
         storage_mtime = storage_json.stat().st_mtime
-        validated_mtime = validated_yaml.stat().st_mtime
+        validated_mtime = validated_cache.stat().st_mtime
     except OSError:
         return False
-    return storage_mtime - validated_mtime <= _VALIDATED_YAML_STALE_THRESHOLD_S
+    return storage_mtime - validated_mtime <= _VALIDATED_CACHE_STALE_THRESHOLD_S
 
 
 def _download_type_files(storage: StorageJSON, storage_path: Path) -> list[str]:

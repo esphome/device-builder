@@ -6,7 +6,10 @@ hand-rolled text scanning makes regression risk meaningful.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import time
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
@@ -2453,6 +2456,50 @@ def test_load_device_ota_partition_access_from_validated_cache(tmp_path: Path) -
     device = load_device_from_storage(yaml_path)
 
     assert device.ota_partition_access is True
+
+
+def test_load_device_ota_partition_access_from_json_cache(tmp_path: Path) -> None:
+    """The 2026.8+ JSON cache arms the flag the same way the YAML cache did."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    cache = tmp_path / ".esphome" / "storage" / "lamp.yaml.validated.json"
+    cache.write_text(
+        json.dumps(
+            {
+                "v": 1,
+                "esphome": "2026.8.0",
+                "config": {"ota": [{"platform": "esphome", "allow_partition_access": True}]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is True
+
+
+def test_load_device_ota_partition_access_prefers_newer_json_cache(tmp_path: Path) -> None:
+    """With both formats on disk, the newer file decides."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    storage_dir = tmp_path / ".esphome" / "storage"
+    stale_yaml = storage_dir / "lamp.yaml.validated.yaml"
+    stale_yaml.write_text(
+        "ota:\n- platform: esphome\n  allow_partition_access: true\n", encoding="utf-8"
+    )
+    old = time.time() - 3600
+    os.utime(stale_yaml, (old, old))
+    fresh_json = storage_dir / "lamp.yaml.validated.json"
+    fresh_json.write_text(
+        json.dumps({"v": 1, "config": {"ota": [{"platform": "esphome"}]}}), encoding="utf-8"
+    )
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is False
 
 
 def test_load_device_ota_partition_access_cache_without_flag(tmp_path: Path) -> None:

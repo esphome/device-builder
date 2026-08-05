@@ -25,17 +25,22 @@ from tests._storage_fixtures import write_storage_json
 from .conftest import MakeControllerFactory
 
 
-def _cache_paths(config_dir: Path, configuration: str) -> tuple[Path, Path]:
-    """Return ``(idedata_cache, validated_config_cache)`` for *configuration*.
+def _cache_paths(config_dir: Path, configuration: str) -> tuple[Path, Path, Path]:
+    """Return ``(idedata_cache, validated_yaml, validated_json)`` for *configuration*.
 
     The idedata cache is keyed on the device ``name`` (the YAML
-    stem here); the validated-config cache is keyed on the YAML
-    filename — matching esphome's own layout under ``.esphome``.
+    stem here); the validated-config caches are keyed on the YAML
+    filename — matching esphome's own layout under ``.esphome``
+    (YAML before 2026.8, JSON after).
     """
     stem = Path(configuration).stem
     idedata = config_dir / ".esphome" / "idedata" / f"{stem}.json"
-    validated = config_dir / ".esphome" / "storage" / f"{configuration}.validated.yaml"
-    return idedata, validated
+    storage_dir = config_dir / ".esphome" / "storage"
+    return (
+        idedata,
+        storage_dir / f"{configuration}.validated.yaml",
+        storage_dir / f"{configuration}.validated.json",
+    )
 
 
 def _seed_device(
@@ -60,11 +65,12 @@ def _seed_device(
         (build_path / "src").mkdir()
         (build_path / "src" / "main.cpp").write_text("// fake\n", encoding="utf-8")
 
-    idedata, validated = _cache_paths(config_dir, configuration)
+    idedata, validated_yaml, validated_json = _cache_paths(config_dir, configuration)
     idedata.parent.mkdir(parents=True, exist_ok=True)
     idedata.write_text("{}", encoding="utf-8")
-    validated.parent.mkdir(parents=True, exist_ok=True)
-    validated.write_text("esphome: {}\n", encoding="utf-8")
+    validated_yaml.parent.mkdir(parents=True, exist_ok=True)
+    validated_yaml.write_text("esphome: {}\n", encoding="utf-8")
+    validated_json.write_text('{"v": 1, "config": {"esphome": {}}}', encoding="utf-8")
 
     write_storage_json(
         config_dir,
@@ -86,7 +92,7 @@ async def test_delete_wipes_build_directory(
     """
     controller = make_controller(tmp_path)
     yaml_path, build_path = _seed_device(tmp_path, "kitchen.yaml")
-    idedata, validated = _cache_paths(tmp_path, "kitchen.yaml")
+    idedata, validated_yaml, validated_json = _cache_paths(tmp_path, "kitchen.yaml")
 
     await controller._delete_single("kitchen.yaml")
 
@@ -94,9 +100,10 @@ async def test_delete_wipes_build_directory(
     assert not build_path.exists()
     assert not (tmp_path / ".esphome" / "storage" / "kitchen.yaml.json").exists()
     # Regenerable build caches keyed off the device go too, so a
-    # recycled name doesn't pick up stale idedata / validated YAML.
+    # recycled name doesn't pick up stale idedata / validated config.
     assert not idedata.exists()
-    assert not validated.exists()
+    assert not validated_yaml.exists()
+    assert not validated_json.exists()
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -107,7 +114,7 @@ async def test_delete_wipes_idedata_when_no_build_path(
     controller = make_controller(tmp_path)
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-    idedata, _ = _cache_paths(tmp_path, "kitchen.yaml")
+    idedata, _, _ = _cache_paths(tmp_path, "kitchen.yaml")
     idedata.parent.mkdir(parents=True, exist_ok=True)
     idedata.write_text("{}", encoding="utf-8")
     write_storage_json(tmp_path, "kitchen.yaml", overrides={"build_path": None})
@@ -125,7 +132,7 @@ async def test_delete_tolerates_idedata_unlink_failure(
     """An OSError unlinking the idedata cache doesn't unwind the delete."""
     controller = make_controller(tmp_path)
     yaml_path, _ = _seed_device(tmp_path, "kitchen.yaml")
-    idedata, _ = _cache_paths(tmp_path, "kitchen.yaml")
+    idedata, _, _ = _cache_paths(tmp_path, "kitchen.yaml")
     # Swap the cache file for a directory so unlink() raises OSError.
     idedata.unlink()
     idedata.mkdir()
@@ -142,15 +149,15 @@ async def test_delete_tolerates_compiled_config_unlink_failure(
     """An OSError unlinking the validated-config cache is logged, not raised."""
     controller = make_controller(tmp_path)
     yaml_path, _ = _seed_device(tmp_path, "kitchen.yaml")
-    _, validated = _cache_paths(tmp_path, "kitchen.yaml")
-    validated.unlink()
-    validated.mkdir()
+    _, validated_yaml, _ = _cache_paths(tmp_path, "kitchen.yaml")
+    validated_yaml.unlink()
+    validated_yaml.mkdir()
 
     with caplog.at_level(logging.DEBUG):
         await controller._delete_single("kitchen.yaml")
 
     assert not yaml_path.exists()
-    assert any("unlink_compiled_config" in rec.message for rec in caplog.records)
+    assert any("unlink_validated_cache" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.usefixtures("redirect_storage_path")

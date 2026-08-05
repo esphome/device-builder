@@ -58,11 +58,8 @@ from esphome.helpers import rmtree
 from esphome.storage_json import StorageJSON
 
 from .json import loads as json_loads
-from .storage_path import (
-    resolve_compiled_config_path,
-    resolve_idedata_path,
-    resolve_storage_path,
-)
+from .storage_path import resolve_idedata_path, resolve_storage_path
+from .validated_config_cache import unlink_validated_cache
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -293,18 +290,6 @@ def wipe_device_build_dir(configuration: str) -> None:
         _LOGGER.debug("wipe_device_build_dir: rmtree(%s) failed: %s", storage.build_path, exc)
 
 
-def unlink_compiled_config(configuration: str) -> None:
-    """Remove the validated-config cache (``<file>.validated.yaml``); no-op if absent."""
-    compiled_path = resolve_compiled_config_path(configuration)
-    try:
-        compiled_path.unlink(missing_ok=True)
-    except OSError as exc:
-        # Same best-effort level + detail as the idedata wipe above:
-        # both are regenerable caches, debug-logged with the exception
-        # so a permissions vs FS failure is distinguishable.
-        _LOGGER.debug("unlink_compiled_config: unlink(%s) failed: %s", compiled_path, exc)
-
-
 def unlink_storage_sidecar(configuration: str) -> None:
     """Remove the StorageJSON sidecar file (no-op if absent).
 
@@ -328,7 +313,7 @@ def remove_device_files(yaml_path: Path, configuration: str) -> None:
     """
     wipe_device_build_dir(configuration)
     unlink_storage_sidecar(configuration)
-    unlink_compiled_config(configuration)
+    unlink_validated_cache(configuration)
     yaml_path.unlink(missing_ok=True)
 
 

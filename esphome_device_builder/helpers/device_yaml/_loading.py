@@ -19,7 +19,8 @@ from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..atomic_io import read_text_with_stat
 from ..mac_addresses import derive_interface_macs
-from ..storage_path import resolve_compiled_config_path, resolve_storage_path
+from ..storage_path import resolve_storage_path
+from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._mqtt_block import build_mqtt_extract
 from ._parsing import (
     _CONF_ALLOW_PARTITION_ACCESS,
@@ -528,29 +529,21 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
     """
     Report whether the last compile's validated-config cache enables partition access.
 
-    ``<data_dir>/storage/<basename>.validated.yaml`` is written by every
-    esphome compile with substitutions, packages (including remote ones
-    the in-process loader can't fetch), and secrets fully resolved. The
-    raw-text scan short-circuits the full parse for the common no-flag
-    case — the cache is the whole resolved config, materially larger than
-    the source YAML, and this runs per device reload. ``clear_secrets=False``
-    mirrors ``esphome.compiled_config``: the read must not wipe the
-    process-wide secrets registry mid-scan.
+    The cache is written by every esphome compile with substitutions,
+    packages (including remote ones the in-process loader can't fetch),
+    and secrets fully resolved. The raw-text scan short-circuits the full
+    parse for the common no-flag case — the cache is the whole resolved
+    config, materially larger than the source YAML, and this runs per
+    device reload.
     """
-    path = resolve_compiled_config_path(configuration)
+    path = find_validated_cache(configuration)
+    if path is None:
+        return False
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
     if _CONF_ALLOW_PARTITION_ACCESS not in text:
         return False
-    try:
-        config = yaml_util.load_yaml(path, clear_secrets=False)
-    except EsphomeError as err:
-        # Reached only after the raw-text scan matched, so a cache esphome
-        # itself wrote won't parse — log it or the vanished dialog option is
-        # undiagnosable. Class only: yaml error marks can quote lines from
-        # the secrets-bearing cache.
-        _LOGGER.debug("Validated-config cache %s did not parse (%s)", path, type(err).__name__)
-        return False
-    return isinstance(config, dict) and extract_ota_partition_access(config)
+    config = parse_validated_cache(path)
+    return config is not None and extract_ota_partition_access(config)
