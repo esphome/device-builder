@@ -298,3 +298,79 @@ async def test_scan_removed_passes_none_previous(tmp_path: Path) -> None:
     assert [(kind, dev.name, prev) for kind, dev, prev in events] == [
         (ScanChange.REMOVED, "kitchen", None)
     ]
+
+
+# ---------------------------------------------------------------------------
+# index-before-callback ordering
+# ---------------------------------------------------------------------------
+
+
+async def test_reload_rebuckets_index_before_firing_callback(tmp_path: Path) -> None:
+    """A rename reload re-keys the name index before ``on_change`` observes it."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    names = iter(["old-kitchen", "kitchen"])
+    observed: list[tuple[list[Device], list[Device]]] = []
+    holder: list[DeviceScanner] = []
+
+    def _on_change(kind: ScanChange, _device: Device, _previous: Device | None) -> None:
+        if kind is ScanChange.RELOADED:
+            observed.append(
+                (holder[0].get_by_name("old-kitchen"), holder[0].get_by_name("kitchen"))
+            )
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=next(names), friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner = DeviceScanner(
+            config_dir=cfg,
+            make_metadata_resolver=lambda: _stub_metadata,
+            on_change=_on_change,
+        )
+        holder.append(scanner)
+        await scanner.scan()
+        assert await scanner.reload("kitchen.yaml") is True
+
+    old_bucket, new_bucket = observed[0]
+    assert old_bucket == []
+    assert [d.name for d in new_bucket] == ["kitchen"]
+
+
+async def test_scan_rebuckets_index_before_firing_callback(tmp_path: Path) -> None:
+    """An UPDATED rename scan re-keys the name index before ``on_change`` observes it."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    yaml_path = _write_yaml(cfg, "kitchen")
+    names = iter(["old-kitchen", "kitchen"])
+    observed: list[tuple[list[Device], list[Device]]] = []
+    holder: list[DeviceScanner] = []
+
+    def _on_change(kind: ScanChange, _device: Device, _previous: Device | None) -> None:
+        if kind is ScanChange.UPDATED:
+            observed.append(
+                (holder[0].get_by_name("old-kitchen"), holder[0].get_by_name("kitchen"))
+            )
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=next(names), friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner = DeviceScanner(
+            config_dir=cfg,
+            make_metadata_resolver=lambda: _stub_metadata,
+            on_change=_on_change,
+        )
+        holder.append(scanner)
+        await scanner.scan()
+        yaml_path.write_text("esphome:\n  name: kitchen\n# touched\n", encoding="utf-8")
+        await scanner.scan()
+
+    old_bucket, new_bucket = observed[0]
+    assert old_bucket == []
+    assert [d.name for d in new_bucket] == ["kitchen"]
