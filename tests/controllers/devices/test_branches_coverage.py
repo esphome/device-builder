@@ -1403,6 +1403,57 @@ def test_on_scan_change_added_without_importable_row_is_silent(
     assert captured == []
 
 
+def test_on_scan_change_reloaded_name_change_prunes_importable_row(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A reload that corrects the name drops the importable row for the new name."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.RELOADED, _device("kitchen"), _device("kitchen-yaml"))
+
+    assert "kitchen" not in controller.state.import_result
+    assert [e.data["name"] for e in captured] == ["kitchen"]
+    assert ("revisit_importable", "kitchen-yaml") in controller._state_monitor.calls
+
+
+def test_on_scan_change_updated_name_change_prunes_importable_row(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A YAML edit that renames the device drops the importable row for the new name."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.UPDATED, _device("kitchen"), _device("old-kitchen"))
+
+    assert "kitchen" not in controller.state.import_result
+    assert [e.data["name"] for e in captured] == ["kitchen"]
+    assert ("revisit_importable", "old-kitchen") in controller._state_monitor.calls
+
+
+def test_on_scan_change_reloaded_same_name_skips_importable_prune(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    capture_devices_events: CaptureDevicesEventsFactory,
+) -> None:
+    """A same-name reload leaves the importable table untouched."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller.state.import_result["kitchen"] = _adoptable("kitchen")
+    captured = capture_devices_events(controller, EventType.IMPORTABLE_DEVICE_REMOVED)
+
+    controller._on_scan_change(ScanChange.RELOADED, _device("kitchen"), _device("kitchen"))
+
+    assert "kitchen" in controller.state.import_result
+    assert captured == []
+    assert ("revisit_importable", "kitchen") not in controller._state_monitor.calls
+
+
 # ---------------------------------------------------------------------------
 # _stream_subprocess line_transform hook
 # ---------------------------------------------------------------------------

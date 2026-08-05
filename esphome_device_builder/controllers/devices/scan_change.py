@@ -48,6 +48,7 @@ def on_scan_change(
         # clients stop showing the adopt banner once the device is
         # configured. Idempotent: fires REMOVED only if a row existed.
         controller._on_importable_removed(device.name)
+    _reconcile_importables_on_rename(controller, kind, device, previous)
     if (
         kind in (ScanChange.UPDATED, ScanChange.RELOADED)
         and previous is not None
@@ -115,6 +116,30 @@ def on_scan_change(
         # Idempotent for the controller-driven delete/archive
         # paths; the safety net is external ``rm`` / rename.
         controller._metadata_store.clear_volatile(device.configuration)
+
+
+def _reconcile_importables_on_rename(
+    controller: DevicesController,
+    kind: ScanChange,
+    device: Device,
+    previous: Device | None,
+) -> None:
+    """Retract the corrected name's importable row and resurface the freed one."""
+    if (
+        kind not in (ScanChange.UPDATED, ScanChange.RELOADED)
+        or previous is None
+        or previous.name == device.name
+    ):
+        return
+    # The ADDED retraction keyed on the name at add time; when a later
+    # reload corrects it (a rename, or a package-provided name the
+    # first load couldn't resolve), the importable row for the
+    # corrected name would otherwise stay visible to connected clients
+    # until the next ADDED/REMOVED. The freed old name is the other
+    # half of the transition: a cached announcement the configured-name
+    # filter was suppressing can resurface now.
+    controller._on_importable_removed(device.name)
+    controller._state_monitor.importable.revisit_importable(previous.name)
 
 
 def _sync_network_fingerprint(
