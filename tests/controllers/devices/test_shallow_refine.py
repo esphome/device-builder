@@ -20,3 +20,16 @@ async def test_refine_requests_every_device_then_drains() -> None:
     assert ("request", "kitchen.yaml") in scanner.calls
     assert ("request", "porch.yaml") in scanner.calls
     assert scanner.calls[-1] == ("wait_idle",)
+
+
+async def test_refine_retries_poisoned_rows_once() -> None:
+    """Failed reloads get one in-refine retry; survivors are warned about."""
+    scanner = RecordingScanner()
+    scanner.devices = [make_device(name="kitchen")]
+    scanner.poisoned = ["kitchen.yaml"]
+    controller = SimpleNamespace(_scanner=scanner)
+
+    await refine_shallow_scan(controller)
+
+    assert scanner.calls.count(("request", "kitchen.yaml")) == 2
+    assert scanner.calls.count(("wait_idle",)) == 2

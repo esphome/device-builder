@@ -1543,13 +1543,26 @@ async def test_stream_subprocess_applies_line_transform(
     assert payloads == ["<first>", "<second>"]
 
 
-def test_on_scan_change_added_nudges_mqtt_reconcile(
+def test_on_scan_change_added_mqtt_device_nudges_reconcile(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A first-sight device schedules the debounced MQTT reconcile."""
+    """A first-sight mqtt device schedules the debounced reconcile; a plain one doesn't."""
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
 
-    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+    controller._on_scan_change(ScanChange.ADDED, make_device(name="kitchen", uses_mqtt=True))
+    controller._on_scan_change(ScanChange.ADDED, _device("porch"))
+
+    assert controller.mqtt_nudges == 1
+
+
+def test_on_scan_change_removed_mqtt_device_nudges_reconcile(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """Deleting an mqtt device schedules the teardown reconcile; a plain one doesn't."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(ScanChange.REMOVED, make_device(name="kitchen", uses_mqtt=True))
+    controller._on_scan_change(ScanChange.REMOVED, _device("porch"))
 
     assert controller.mqtt_nudges == 1
 

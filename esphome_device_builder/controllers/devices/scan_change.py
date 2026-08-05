@@ -68,7 +68,7 @@ def on_scan_change(
         controller.state.regenerate_failed.discard(device.configuration)
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
         _sync_network_fingerprint(controller, kind, device)
-        _nudge_mqtt(controller, device, previous)
+    _nudge_mqtt(controller, kind, device, previous)
     # First-sight devices with no compile output carry the
     # ``<filename>.local`` address fallback and an empty
     # ``loaded_integrations`` list. Schedule a background
@@ -149,15 +149,18 @@ def _reconcile_rename(
 
 def _nudge_mqtt(
     controller: DevicesController,
+    kind: ScanChange,
     device: Device,
     previous: Device | None,
 ) -> None:
     """Schedule the debounced MQTT reconcile when a change touched the mqtt surface."""
-    if (
-        previous is None
-        or previous.uses_mqtt != device.uses_mqtt
-        or previous.mqtt_extract != device.mqtt_extract
-    ):
+    if kind is ScanChange.REMOVED or previous is None:
+        # First sight and deletion both matter only for mqtt devices —
+        # anything else contributes nothing to the broker set.
+        if device.uses_mqtt:
+            controller.schedule_mqtt_reconcile()
+        return
+    if previous.uses_mqtt != device.uses_mqtt or previous.mqtt_extract != device.mqtt_extract:
         controller.schedule_mqtt_reconcile()
 
 

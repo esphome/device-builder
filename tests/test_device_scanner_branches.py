@@ -120,6 +120,7 @@ async def test_reload_returns_false_when_loader_fails(tmp_path: Path) -> None:
     assert ok is False
     # The scanner did not fire an UPDATED event for the failed reload.
     assert events == []
+    assert scanner.poisoned_configurations() == ["kitchen.yaml"]
 
     # The failure poisoned the cache key: the next scan re-reads the
     # unchanged file instead of trusting the stale row forever.
@@ -136,6 +137,7 @@ async def test_reload_returns_false_when_loader_fails(tmp_path: Path) -> None:
         await scanner.scan()
 
     assert retried == ["kitchen.yaml"]
+    assert scanner.poisoned_configurations() == []
 
 
 async def test_reload_swallows_oserror_on_post_load_stat(tmp_path: Path) -> None:

@@ -266,13 +266,12 @@ async def test_start_refines_shallow_seed_then_reconciles(
         await controller.start()
         assert controller._refine_task is not None
         await controller._refine_task
-        # The ADDED scan change nudged the debounced reconcile.
-        assert controller._mqtt_reconcile_handle is not None
+        # A non-mqtt fleet arms no nudge; the mqtt-gated conditions are
+        # pinned in test_branches_coverage.
+        assert controller._mqtt_reconcile_handle is None
         await controller.stop()
 
     assert log.count("mqtt.reconcile") == 1
-    # stop() cancelled the pending nudge before it fired.
-    assert controller._mqtt_reconcile_handle is None
     fired = [event_type for event_type, _data in db.bus.fired]
     assert EventType.DEVICE_ADDED in fired
     assert EventType.DEVICE_UPDATED in fired

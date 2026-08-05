@@ -19,7 +19,8 @@ class RecordingScanner:
 
     Mirrors every public method on the production ``DeviceScanner``
     (``scan`` / ``reload`` / ``request`` / ``start`` / ``stop`` /
-    ``wait_idle`` / ``get_by_name`` / ``devices`` / ``by_path``). Calls to the
+    ``wait_idle`` / ``get_by_name`` / ``devices`` / ``by_path`` /
+    ``poisoned_configurations``). Calls to the
     recordable ones land in ``self.calls`` as
     ``(method_name, *args)``; tests assert on the list directly
     instead of scattering ``MagicMock.assert_awaited_*`` lines.
@@ -58,6 +59,7 @@ class RecordingScanner:
         # default; tests that need a populated catalog can assign.
         self.devices: list[object] = []
         self.by_path: dict[Path, object] = {}
+        self.poisoned: list[str] = []
 
     async def scan(self, *, shallow: bool = False) -> None:
         self.calls.append(("scan", shallow))
@@ -83,6 +85,10 @@ class RecordingScanner:
         # Fresh list snapshot — mirrors production semantics so
         # callers can iterate / mutate without poisoning the index.
         return list(self._devices_by_name.get(name, []))
+
+    def poisoned_configurations(self) -> list[str]:
+        # Read accessor — seedable via the attribute; not recorded.
+        return list(self.poisoned)
 
     def get_by_configuration(self, configuration: str) -> object | None:
         # A read accessor like ``devices`` / ``by_path`` — not recorded in

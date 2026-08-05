@@ -168,6 +168,10 @@ class _DeviceIndex:
         """Return the Device whose YAML filename equals *configuration*, or ``None``."""
         return self._devices_by_configuration.get(configuration)
 
+    def poisoned_configurations(self) -> list[str]:
+        """Filenames carrying the poisoned cache key."""
+        return [p.name for p, key in self._cache_keys.items() if key == _POISONED_CACHE_KEY]
+
     def cache_key(self, path: Path) -> _CacheKey:
         """Return the change-detection cache key for a tracked *path*.
 
@@ -324,6 +328,10 @@ class DeviceScanner(WakeWorker[str]):
     def get_by_configuration(self, configuration: str) -> Device | None:
         """Return the configured device for YAML filename *configuration*, or ``None``."""
         return self._index.get_by_configuration(configuration)
+
+    def poisoned_configurations(self) -> list[str]:
+        """Filenames whose last reload failed and await a re-read."""
+        return self._index.poisoned_configurations()
 
     async def scan(self, *, shallow: bool = False) -> None:
         """
