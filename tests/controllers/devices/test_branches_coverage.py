@@ -1541,3 +1541,44 @@ async def test_stream_subprocess_applies_line_transform(
     output_events = [call for call in client.send_event.await_args_list if call.args[1] == "output"]
     payloads = [call.args[2] for call in output_events]
     assert payloads == ["<first>", "<second>"]
+
+
+def test_on_scan_change_added_nudges_mqtt_reconcile(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A first-sight device schedules the debounced MQTT reconcile."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(ScanChange.ADDED, _device("kitchen"))
+
+    assert controller.mqtt_nudges == 1
+
+
+def test_on_scan_change_reloaded_mqtt_delta_nudges_reconcile(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A reload that flips ``uses_mqtt`` schedules the debounced reconcile."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(
+        ScanChange.RELOADED,
+        make_device(name="kitchen", uses_mqtt=True),
+        make_device(name="kitchen", uses_mqtt=False),
+    )
+
+    assert controller.mqtt_nudges == 1
+
+
+def test_on_scan_change_reloaded_without_mqtt_delta_skips_nudge(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A reload that changed nothing mqtt-visible schedules no reconcile."""
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+
+    controller._on_scan_change(
+        ScanChange.RELOADED,
+        make_device(name="kitchen", friendly_name="Kitchen"),
+        make_device(name="kitchen", friendly_name="Old Kitchen"),
+    )
+
+    assert controller.mqtt_nudges == 0

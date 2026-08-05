@@ -127,6 +127,10 @@ class DeviceMqttExtract:
     main_substitutions: dict[str, str]
     resolved_block: dict[str, Any] | None
     resolved_substitutions: dict[str, str]
+    # Distinguishes "shallow load, a deep reload will fill
+    # ``resolved_block``" from "deep parse ran and failed" — the
+    # coordinator only requests a reload for the former.
+    from_shallow_load: bool = False
 
 
 @dataclass

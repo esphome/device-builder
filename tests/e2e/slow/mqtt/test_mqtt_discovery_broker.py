@@ -91,6 +91,7 @@ async def test_broker_restart_resubscribes_and_recovers(
         on_state_change=lambda n, s: events.append((n, s)),
         on_ip_change=lambda *_: None,
         presence=presence,
+        request_reload=lambda _configuration: None,
     )
 
     try:
@@ -162,6 +163,7 @@ async def test_six_devices_two_logins_single_broadcaster(
         on_state_change=states.__setitem__,
         on_ip_change=ips.__setitem__,
         presence=presence,
+        request_reload=lambda _configuration: None,
     )
 
     try:

@@ -12,12 +12,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def refine_shallow_scan(controller: DevicesController) -> None:
-    """Deep-reload every shallow-seeded device, then re-sync MQTT monitors."""
+    """Deep-reload every shallow-seeded device through the scanner's drain worker."""
     for device in controller._scanner.devices:
         controller._scanner.request(device.configuration)
     await controller._scanner.wait_idle()
-    # ``_collect_brokers`` gates on ``uses_mqtt``, and ``poll()`` only
-    # runs while a client is subscribed — without this a headless
-    # install never starts monitors for package-sourced brokers.
-    await controller._mqtt_coordinator.reconcile()
     _LOGGER.debug("Cold-start refine complete — %d devices", len(controller._scanner.devices))

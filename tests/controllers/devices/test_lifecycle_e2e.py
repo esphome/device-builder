@@ -266,10 +266,13 @@ async def test_start_refines_shallow_seed_then_reconciles(
         await controller.start()
         assert controller._refine_task is not None
         await controller._refine_task
+        # The ADDED scan change nudged the debounced reconcile.
+        assert controller._mqtt_reconcile_handle is not None
         await controller.stop()
 
-    # The fast pass in start() plus the refine's trailing full pass.
-    assert log.count("mqtt.reconcile") == 2
+    assert log.count("mqtt.reconcile") == 1
+    # stop() cancelled the pending nudge before it fired.
+    assert controller._mqtt_reconcile_handle is None
     fired = [event_type for event_type, _data in db.bus.fired]
     assert EventType.DEVICE_ADDED in fired
     assert EventType.DEVICE_UPDATED in fired
@@ -410,26 +413,37 @@ async def test_poll_is_noop_after_stop(tmp_path: Path, make_db: MakeDbFactory) -
     assert log == []
 
 
-async def test_poll_reconciles_fast_only_while_refining(
-    tmp_path: Path, make_db: MakeDbFactory
+async def test_mqtt_nudge_debounce_coalesces_and_fires(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
 ) -> None:
-    """A poll during the refine drain defers slow broker resolution to the refine."""
+    """Repeated nudges share one timer, and its firing runs a single reconcile."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller._MQTT_RECONCILE_DEBOUNCE_SECONDS",
+        0.0,
+    )
     controller = DevicesController(make_db(tmp_path))
-    flags: list[bool] = []
 
-    async def _reconcile(*, allow_slow_resolve: bool = True) -> None:
-        flags.append(allow_slow_resolve)
+    with _capture_monitor_and_mqtt(controller) as log:
+        controller._schedule_mqtt_reconcile()
+        first = controller._mqtt_reconcile_handle
+        assert first is not None
+        controller._schedule_mqtt_reconcile()
+        assert controller._mqtt_reconcile_handle is first
+        await asyncio.sleep(0.01)
+        assert controller._mqtt_reconcile_task is not None
+        await controller._mqtt_reconcile_task
 
-    with (
-        patch.multiple(controller._scanner, scan=AsyncMock()),
-        patch.multiple(controller._mqtt_coordinator, reconcile=_reconcile),
-    ):
-        controller._refine_task = asyncio.get_running_loop().create_task(asyncio.sleep(60))
-        try:
-            await controller.poll()
-        finally:
-            controller._refine_task.cancel()
-        controller._refine_task = None
-        await controller.poll()
+    assert log == ["mqtt.reconcile"]
 
-    assert flags == [False, True]
+
+async def test_stop_cancels_pending_mqtt_nudge(tmp_path: Path, make_db: MakeDbFactory) -> None:
+    """A nudge still in its debounce window is cancelled by stop(), not fired."""
+    controller = DevicesController(make_db(tmp_path))
+
+    with _capture_monitor_and_mqtt(controller) as log:
+        controller._schedule_mqtt_reconcile()
+        assert controller._mqtt_reconcile_handle is not None
+        await controller.stop()
+
+    assert controller._mqtt_reconcile_handle is None
+    assert "mqtt.reconcile" not in log

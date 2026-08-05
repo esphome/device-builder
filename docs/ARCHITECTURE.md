@@ -375,15 +375,19 @@ reconcile. Shallow rows are sticky against the mtime cache — only a `reload` /
 `request` deepens them — which is exactly what the refine provides;
 steady-state scans stay deep.
 
-MQTT starts in two passes. `start()` runs a fast, additive-only reconcile
-(`allow_slow_resolve=False`) so inline brokers connect immediately without the
-resolved parse a package-sourced broker value would need. The refine's trailing
-full reconcile is load-bearing for the rest: `_collect_brokers` gates on
-`uses_mqtt`, which a shallow row can't see for a package-sourced `mqtt:` block,
-and the presence-gated `poll()` never runs on a headless install. While the
-refine drain runs, `poll()` also reconciles fast-only — a full pass would
-deep-parse the same files the drain is parsing, concurrently, and esphome's
-`yaml_util` is not parallel-parse safe.
+MQTT rides the same invariant: **the scanner owns all YAML parsing**. The
+coordinator never calls `load_device_yaml` — a broker it can't resolve from
+raw text or a fresh extract seed becomes a queued scanner reload
+(`request_reload` → `scanner.request`), and that pass is additive-only (it
+can't know the unresolved devices' broker keys, so teardown waits for the
+pass after their reloads land). Each deep reload that changes a device's
+mqtt surface fires the scan-change pipeline, which schedules a debounced
+reconcile (`_schedule_mqtt_reconcile`, ~1s) — so monitors come up
+incrementally as parses land, on cold start and steady state alike, with no
+concurrent-parse hazard by construction and no dependence on the
+presence-gated `poll()` for headless installs. The `from_shallow_load` stamp
+on the extract is what keeps this loop-free: a fresh deep extract that still
+can't resolve warns as unresolvable instead of re-requesting forever.
 
 Two rules the refine established that every later caller inherits:
 

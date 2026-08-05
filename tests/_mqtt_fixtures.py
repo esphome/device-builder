@@ -52,6 +52,8 @@ def build_test_extract(
     yaml_content: str,
     resolved_config: dict | None = None,
     resolved_substitutions: dict[str, str] | None = None,
+    *,
+    shallow: bool = False,
 ) -> DeviceMqttExtract:
     """Assemble a ``DeviceMqttExtract`` for *path* via the production builder."""
     # Stats stay in this test frame so async tests don't trip blockbuster.
@@ -61,7 +63,12 @@ def build_test_extract(
     except OSError:
         secrets_key = (0, 0)
     return build_mqtt_extract(
-        yaml_content, resolved_config, path.stat(), secrets_key, resolved_substitutions or {}
+        yaml_content,
+        resolved_config,
+        path.stat(),
+        secrets_key,
+        resolved_substitutions or {},
+        shallow=shallow,
     )
 
 
@@ -85,6 +92,7 @@ def make_mqtt_coordinator(
     config_dir: Path,
     devices: list[Device],
     presence: SubscriberPresence | None = None,
+    reload_requests: list[str] | None = None,
 ) -> DeviceMqttCoordinator:
     return DeviceMqttCoordinator(
         config_dir=config_dir,
@@ -92,4 +100,5 @@ def make_mqtt_coordinator(
         on_state_change=lambda *_args: None,
         on_ip_change=lambda *_args: None,
         presence=presence,
+        request_reload=(reload_requests.append if reload_requests is not None else lambda _c: None),
     )

@@ -567,6 +567,16 @@ def make_controller() -> MakeControllerFactory:
         # giving everyone the production class keeps the bypass
         # closer to ``__init__``'s wiring.
         controller._reachability = ReachabilityTracker()
+        # Recording stub — the real method needs a running loop for its
+        # ``call_later`` debounce; handler tests only care that the
+        # nudge fired. Real scheduling is covered by the lifecycle
+        # suite's fully-constructed controllers.
+        controller.mqtt_nudges = 0
+
+        def _record_mqtt_nudge() -> None:
+            controller.mqtt_nudges += 1
+
+        controller._schedule_mqtt_reconcile = _record_mqtt_nudge
 
         if with_state_monitor:
             controller._state_monitor = RecordingStateMonitor()

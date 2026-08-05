@@ -1229,6 +1229,11 @@ def test_load_device_from_storage_shallow_mqtt_extract_from_raw_text(tmp_path: P
     assert device.mqtt_extract is not None
     assert device.mqtt_extract.main_block == {"broker": "10.0.0.5"}
     assert device.mqtt_extract.resolved_block is None
+    assert device.mqtt_extract.from_shallow_load is True
+
+    deep = load_device_from_storage(yaml_file)
+    assert deep.mqtt_extract is not None
+    assert deep.mqtt_extract.from_shallow_load is False
 
 
 def test_load_device_from_storage_detects_deep_sleep(tmp_path: Path) -> None:

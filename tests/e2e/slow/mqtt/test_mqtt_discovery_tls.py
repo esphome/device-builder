@@ -112,6 +112,7 @@ def _make_coordinator(
         on_state_change=states.__setitem__,
         on_ip_change=lambda *_: None,
         presence=presence,
+        request_reload=lambda _configuration: None,
     )
 
 

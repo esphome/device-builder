@@ -51,6 +51,8 @@ def build_mqtt_extract(
     yaml_stat: os.stat_result,
     secrets_key: tuple[int, int],
     resolved_substitutions: dict[str, str],
+    *,
+    shallow: bool = False,
 ) -> DeviceMqttExtract:
     """Build the scan-time extraction the MQTT coordinator consumes."""
     main_block, main_subs = extract_mqtt_block(yaml_content)
@@ -66,6 +68,7 @@ def build_mqtt_extract(
         main_substitutions=main_subs,
         resolved_block=resolved_block,
         resolved_substitutions=resolved_substitutions,
+        from_shallow_load=shallow,
     )
 
 

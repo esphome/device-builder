@@ -1,11 +1,15 @@
 """
 Coordinator for per-broker MQTT discovery monitors.
 
-Consumes each MQTT-using device's scan-time ``mqtt:`` extraction (falling
-back to reading the YAML when the extraction is stale), resolves
+Consumes each MQTT-using device's scan-time ``mqtt:`` extraction, resolves
 ``!secret`` references via ``secrets.yaml``, groups by broker
 host/port/username, and runs one :class:`DeviceMqttMonitor` per unique
 broker login. Re-runs lifecycle on each poll so monitors track edits.
+
+The scanner owns all YAML parsing: a broker that can't be resolved from
+raw text or a fresh extract seed becomes a queued scanner reload
+(``request_reload``), never an in-coordinator parse — the scan-change
+nudge reconciles again once the resolved extract lands.
 """
 
 from __future__ import annotations
@@ -16,7 +20,6 @@ import logging
 import os
 import ssl
 from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -29,10 +32,8 @@ from ..helpers.atomic_io import read_text_with_stat
 from ..helpers.device_yaml import (
     _UNRESOLVED_SUBSTITUTION_RE,
     SecretRef,
-    _extract_resolved_substitutions,
     _resolve_substitutions,
     extract_mqtt_block,
-    load_device_yaml,
     safe_stat_key,
 )
 from ..helpers.subscriber_presence import SubscriberPresence
@@ -93,9 +94,12 @@ class DeviceMqttCoordinator:
         on_state_change: StateCallback,
         on_ip_change: IPCallback,
         presence: SubscriberPresence | None = None,
+        *,
+        request_reload: Callable[[str], None],
     ) -> None:
         self._config_dir = config_dir
         self._get_devices = get_devices
+        self._request_reload = request_reload
         self._on_state_change = on_state_change
         self._on_ip_change = on_ip_change
         self._presence = presence
@@ -127,13 +131,8 @@ class DeviceMqttCoordinator:
         """Return the number of brokers currently being monitored."""
         return len(self._monitors)
 
-    async def reconcile(self, *, allow_slow_resolve: bool = True) -> None:
-        """
-        Sync running monitors to the brokers referenced by device YAML.
-
-        ``allow_slow_resolve=False`` skips devices whose broker needs
-        the resolved-config parse; the caller owes a later full pass.
-        """
+    async def reconcile(self) -> None:
+        """Sync running monitors to the brokers referenced by device YAML."""
         if not DeviceMqttMonitor.is_available():
             if any(d.uses_mqtt for d in self._get_devices()):
                 _LOGGER.warning(
@@ -143,18 +142,18 @@ class DeviceMqttCoordinator:
             return
 
         async with self._reconcile_lock:
-            brokers = await run_in_executor(
-                partial(self._collect_brokers, allow_slow_resolve=allow_slow_resolve)
-            )
+            brokers, needs_reload = await run_in_executor(self._collect_brokers)
             if self._stopped:
                 # A reconcile that outlived ``stop()`` (wedged in the
                 # executor past the lock timeout, or queued on the lock)
                 # must not restart monitors on a closing loop.
                 return
-            if allow_slow_resolve:
-                # A fast pass may have treated slow-resolve brokers as
-                # absent, so it is additive-only — never a teardown
-                # signal.
+            for configuration in needs_reload:
+                self._request_reload(configuration)
+            if not needs_reload:
+                # A pass with unresolved devices can't know their broker
+                # keys, so it is additive-only — teardown waits for the
+                # pass after their reloads land.
                 for key in set(self._monitors) - {b.key for b in brokers}:
                     _LOGGER.info(
                         "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
@@ -240,7 +239,8 @@ class DeviceMqttCoordinator:
         for key, monitor in self._monitors.items():
             monitor.set_publisher(value=elected[key[:2]] is monitor)
 
-    def _collect_brokers(self, *, allow_slow_resolve: bool = True) -> list[MqttBrokerConfig]:
+    def _collect_brokers(self) -> tuple[list[MqttBrokerConfig], list[str]]:
+        """Resolve broker configs; second element lists devices needing a scanner reload."""
         mqtt_devices = [d for d in self._get_devices() if d.uses_mqtt]
         if not mqtt_devices:
             # Equivalent to an empty loop pass: clear the warn gates and
@@ -250,13 +250,14 @@ class DeviceMqttCoordinator:
             self._client_cert_logged.clear()
             self._conflict_logged.clear()
             self._broker_cache.clear()
-            return []
+            return [], []
         secrets_map = _load_secrets(self._config_dir)
         secrets_key = safe_stat_key(self._config_dir / SECRETS_FILENAME)
         seen: dict[BrokerKey, MqttBrokerConfig] = {}
         seen_devices: set[str] = set()
         client_cert_devices: set[str] = set()
         conflicts: set[BrokerKey] = set()
+        needs_reload: list[str] = []
         for device in mqtt_devices:
             seen_devices.add(device.configuration)
             yaml_path = self._config_dir / device.configuration
@@ -274,8 +275,7 @@ class DeviceMqttCoordinator:
             else:
                 # Scan raced an edit (or the device predates the scanner
                 # carrying extractions) — fall back to reading the file;
-                # the handle stat keys _resolve_slow's extract-seed
-                # comparison.
+                # the handle stat keys the extract-seed comparison.
                 try:
                     yaml_stat, yaml_content = read_text_with_stat(yaml_path)
                 except OSError:
@@ -283,11 +283,15 @@ class DeviceMqttCoordinator:
                     continue
                 broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
-                if not allow_slow_resolve:
-                    # Skip silently — no warn-gate consumption; the
-                    # caller owes a full pass.
+                extract = device.mqtt_extract
+                cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, *secrets_key)
+                if _extract_needs_reload(extract, cache_key):
+                    # The scanner owns all YAML parsing: queue a deep
+                    # reload and skip silently — the scan-change nudge
+                    # reconciles once the resolved extract lands.
+                    needs_reload.append(device.configuration)
                     continue
-                broker = self._resolve_slow(yaml_path, device.mqtt_extract, yaml_stat, secrets_key)
+                broker = self._resolve_from_seed(yaml_path.name, extract, cache_key)
             self._track_outcome(device.configuration, broker, seen, client_cert_devices, conflicts)
         # Drop tracking for devices no longer declaring ``mqtt:`` and
         # logins that no longer conflict, so a recurrence re-warns.
@@ -295,7 +299,7 @@ class DeviceMqttCoordinator:
         self._client_cert_logged &= client_cert_devices
         self._conflict_logged &= conflicts
         self._broker_cache = {k: v for k, v in self._broker_cache.items() if k in seen_devices}
-        return list(seen.values())
+        return list(seen.values()), needs_reload
 
     def _track_outcome(
         self,
@@ -325,44 +329,27 @@ class DeviceMqttCoordinator:
             conflicts.add(broker.key)
             self._log_credential_conflict(broker)
 
-    def _resolve_slow(
+    def _resolve_from_seed(
         self,
-        yaml_path: Path,
+        configuration: str,
         extract: DeviceMqttExtract | None,
-        yaml_stat: os.stat_result,
-        secrets_key: tuple[int, int],
+        cache_key: tuple[int, int, int, int],
     ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
-        """Resolve a package-sourced broker: cache, then scan seed, then full parse."""
-        cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, *secrets_key)
-        cached = self._broker_cache.get(yaml_path.name)
+        """Resolve a package-sourced broker from the cache or the scan-time seed."""
+        cached = self._broker_cache.get(configuration)
         if cached is not None and cached[0] == cache_key:
             return cached[1]
-        # A fresh scan-time extraction of the package-merged config
-        # stands in for the full parse; only a positive outcome is
-        # cached so a broken package edit keeps re-resolving.
-        if (
-            extract is not None
-            and extract.resolved_block is not None
-            and (
-                extract.yaml_mtime_ns,
-                extract.yaml_size,
-                extract.secrets_mtime_ns,
-                extract.secrets_size,
-            )
-            == cache_key
-        ):
+        # Only a positive outcome is cached so a broken package edit
+        # keeps re-resolving.
+        broker = None
+        if extract is not None and extract.resolved_block is not None:
             broker = _broker_from_mqtt_dict(
                 extract.resolved_block, {}, extract.resolved_substitutions
             )
-            if broker is not None:
-                self._broker_cache[yaml_path.name] = (cache_key, broker)
-                return broker
-        resolved = load_device_yaml(yaml_path)
-        broker = _extract_broker_from_config(resolved)
         if broker is not None:
-            self._broker_cache[yaml_path.name] = (cache_key, broker)
+            self._broker_cache[configuration] = (cache_key, broker)
         else:
-            self._broker_cache.pop(yaml_path.name, None)
+            self._broker_cache.pop(configuration, None)
         return broker
 
     def _log_broker_unresolved(self, configuration: str) -> None:
@@ -433,23 +420,29 @@ def parse_mqtt_block(
     return _broker_from_mqtt_dict(mqtt, secrets_map or {}, subs)
 
 
-def _extract_broker_from_config(
-    config: dict | None,
-) -> MqttBrokerConfig | _ClientCertUnsupported | None:
-    """Extract broker parameters from a fully-resolved ESPHome config.
-
-    ``load_device_yaml`` merges ``packages:`` / ``!include`` but skips the
-    substitution pass, so resolve ``${var}`` against the merged
-    ``substitutions:`` block here too.
-    """
-    if not isinstance(config, dict):
-        return None
-    return _broker_from_mqtt_dict(config.get("mqtt"), {}, _extract_resolved_substitutions(config))
-
-
 def _extract_fresh(extract: DeviceMqttExtract, yaml_stat: os.stat_result) -> bool:
     """Whether the scan-time extraction still matches the file on disk."""
     return extract.yaml_mtime_ns == yaml_stat.st_mtime_ns and extract.yaml_size == yaml_stat.st_size
+
+
+def _extract_needs_reload(
+    extract: DeviceMqttExtract | None, cache_key: tuple[int, int, int, int]
+) -> bool:
+    """
+    Whether a deep scanner reload could resolve this device's broker.
+
+    True for an absent, stale, or shallow-load extract; False for a
+    fresh deep extract — its parse already ran, so re-requesting would
+    loop forever on a genuinely unresolvable config.
+    """
+    if extract is None or extract.from_shallow_load:
+        return True
+    return (
+        extract.yaml_mtime_ns,
+        extract.yaml_size,
+        extract.secrets_mtime_ns,
+        extract.secrets_size,
+    ) != cache_key
 
 
 def _broker_from_mqtt_dict(

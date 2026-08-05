@@ -45,6 +45,9 @@ def _make_controller(monkeypatch: Any, tmp_path: Path, board_id: str = "esp32-c3
     """
     controller = DevicesController.__new__(DevicesController)
     controller._shutdown_callbacks = []
+    controller._stopped = False
+    controller._mqtt_reconcile_handle = None
+    controller._mqtt_reconcile_task = None
     controller._metadata_store = DeviceMetadataStore(
         config_dir=tmp_path,
         data_dir=tmp_path,
@@ -285,6 +288,7 @@ def test_added_device_without_hash_triggers_regenerate(
     monkeypatch.setattr(
         controller, "_schedule_storage_regenerate", regenerated.append, raising=False
     )
+    monkeypatch.setattr(controller, "_schedule_mqtt_reconcile", lambda: None, raising=False)
     captured = capture_devices_events(controller, EventType.DEVICE_ADDED)
 
     device = Device(
@@ -330,6 +334,7 @@ def test_added_device_fully_populated_does_not_regenerate(
     monkeypatch.setattr(
         controller, "_schedule_storage_regenerate", regenerated.append, raising=False
     )
+    monkeypatch.setattr(controller, "_schedule_mqtt_reconcile", lambda: None, raising=False)
 
     device = Device(
         name="apollo",
@@ -347,6 +352,9 @@ def _resolver_controller(tmp_path: Path) -> DevicesController:
     """Build a bare ``DevicesController`` with a real store + shared sidecar."""
     controller = DevicesController.__new__(DevicesController)
     controller._shutdown_callbacks = []
+    controller._stopped = False
+    controller._mqtt_reconcile_handle = None
+    controller._mqtt_reconcile_task = None
     controller._metadata_store = DeviceMetadataStore(
         config_dir=tmp_path,
         data_dir=tmp_path,

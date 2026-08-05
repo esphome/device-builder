@@ -115,6 +115,10 @@ _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 # where store loads and job restore need the disk.
 _BUILD_SIZE_SWEEP_DELAY_SECONDS: float = 20.0
 
+# Coalesces the refine burst's per-device scan changes into ~one MQTT
+# reconcile per second of landing parses.
+_MQTT_RECONCILE_DEBOUNCE_SECONDS: float = 1.0
+
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     DeviceMetadataBase,
@@ -136,6 +140,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # en masse in stop().
         self._reprobe_timers: dict[str, asyncio.TimerHandle] = {}
         self._refine_task: asyncio.Task[None] | None = None
+        # Debounced scan-change → MQTT reconcile nudge (see
+        # ``_schedule_mqtt_reconcile``).
+        self._mqtt_reconcile_handle: asyncio.TimerHandle | None = None
+        self._mqtt_reconcile_task: asyncio.Task[None] | None = None
 
         # Constructed before the scanner so the first
         # ``_resolve_device_metadata`` reads off the store.
@@ -259,6 +267,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             on_state_change=lambda n, s: self._state_monitor.apply(n, s, "mqtt"),
             on_ip_change=self._state_monitor.apply_ip,
             presence=self._db.subscriber_presence,
+            # The scanner owns all YAML parsing; an unresolvable broker
+            # becomes a queued deep reload, never an in-coordinator parse.
+            request_reload=self._scanner.request,
         )
 
     @property
@@ -296,9 +307,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
-        # Fast pass — inline brokers only; the refine's trailing
-        # reconcile does the full pass.
-        await self._mqtt_coordinator.reconcile(allow_slow_resolve=False)
+        await self._mqtt_coordinator.reconcile()
         self._unsub_job_completed = self._db.bus.add_listener(
             EventType.JOB_COMPLETED, self._on_firmware_job_completed
         )
@@ -319,8 +328,14 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
+        if self._mqtt_reconcile_handle is not None:
+            self._mqtt_reconcile_handle.cancel()
+            self._mqtt_reconcile_handle = None
+        if self._mqtt_reconcile_task is not None:
+            await drain_tasks([self._mqtt_reconcile_task], log_exceptions=True)
+            self._mqtt_reconcile_task = None
         # Before scanner.stop(): the worker's teardown sets its idle
-        # event, which would release the refine's wait_idle and let it
+        # event, which would release the refine's wait_idle into a
         # reconcile against a torn-down coordinator.
         if self._refine_task is not None:
             await drain_tasks([self._refine_task], log_exceptions=True)
@@ -338,11 +353,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._stopped:
             return
         await self._scanner.scan()
-        # Fast-only while the refine drain runs: a full pass would
-        # deep-parse the same files the drain is parsing, concurrently
-        # (esphome yaml_util is not parallel-parse safe).
-        refining = self._refine_task is not None and not self._refine_task.done()
-        await self._mqtt_coordinator.reconcile(allow_slow_resolve=not refining)
+        await self._mqtt_coordinator.reconcile()
 
     def get_devices(self) -> list[Device]:
         """Snapshot of the currently-loaded devices."""
@@ -1271,6 +1282,26 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _schedule_version_reprobe(self, configuration: str) -> None:
         firmware_sync.schedule_version_reprobe(self, configuration)
+
+    def _schedule_mqtt_reconcile(self) -> None:
+        """Debounced MQTT reconcile; scan changes with mqtt deltas coalesce into one pass."""
+        if self._stopped or self._mqtt_reconcile_handle is not None:
+            return
+
+        def _fire() -> None:
+            self._mqtt_reconcile_handle = None
+            if self._stopped:
+                return
+            self._mqtt_reconcile_task = asyncio.create_task(
+                self._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
+            )
+            self._mqtt_reconcile_task.add_done_callback(
+                partial(log_task_exit, "MQTT reconcile nudge")
+            )
+
+        self._mqtt_reconcile_handle = asyncio.get_running_loop().call_later(
+            _MQTT_RECONCILE_DEBOUNCE_SECONDS, _fire
+        )
 
     def _cancel_reprobe_timers(self) -> None:
         """Cancel any pending post-flash re-probe timers."""

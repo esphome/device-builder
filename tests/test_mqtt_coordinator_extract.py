@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-from esphome_device_builder.controllers import _device_mqtt_coordinator as coordinator_module
 from esphome_device_builder.helpers.device_yaml import _loading as loading_module
 from esphome_device_builder.helpers.device_yaml import extract_mqtt_block
 from esphome_device_builder.helpers.device_yaml._loading import load_device_from_storage
@@ -103,86 +102,69 @@ async def test_stale_extract_falls_back_and_sees_the_edit(
     assert [m.broker.host for m in stub_monitor.instances] == ["10.0.0.9"]
 
 
-async def test_resolved_seed_avoids_the_full_parse(
+async def test_resolved_seed_resolves_without_a_reload(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A package-sourced broker derives from the scan seed with no esphome parse."""
+    """A package-sourced broker derives from the scan seed with no reload request."""
     device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
-    parses = {"n": 0}
-
-    def _no_parse(_path: Path) -> dict:
-        parses["n"] += 1
-        return {}
-
-    monkeypatch.setattr(coordinator_module, "load_device_yaml", _no_parse)
-    coord = make_mqtt_coordinator(tmp_path, [device])
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
     await coord.reconcile()
     await coord.reconcile()
 
     assert [m.broker.host for m in stub_monitor.instances] == ["10.1.1.1"]
-    assert parses["n"] == 0
+    assert reloads == []
 
 
 async def test_seed_resolves_package_substitutions(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The seed resolves ``${var}`` against the package-merged substitutions."""
     device = _seed_package_device(tmp_path, {"broker": "${host}"}, {"host": "10.4.4.4"})
-
-    def _no_parse(_path: Path) -> dict:
-        raise AssertionError("seed should have resolved without the full parse")
-
-    monkeypatch.setattr(coordinator_module, "load_device_yaml", _no_parse)
-    coord = make_mqtt_coordinator(tmp_path, [device])
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
     await coord.reconcile()
 
     assert [m.broker.host for m in stub_monitor.instances] == ["10.4.4.4"]
+    assert reloads == []
 
 
-async def test_stale_seed_falls_back_to_the_full_parse(
+async def test_stale_seed_requests_a_reload(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A secrets-mtime bump invalidates the seed; the full parse runs once then caches."""
+    """A secrets-mtime bump invalidates the seed; the pass defers to a reload."""
     device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
     (tmp_path / "secrets.yaml").write_text("added: after-scan\n")
 
-    parses = {"n": 0}
-
-    def _parse(_path: Path) -> dict:
-        parses["n"] += 1
-        return {"mqtt": {"broker": "10.2.2.2"}}
-
-    monkeypatch.setattr(coordinator_module, "load_device_yaml", _parse)
-    coord = make_mqtt_coordinator(tmp_path, [device])
-    await coord.reconcile()
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
     await coord.reconcile()
 
-    assert [m.broker.host for m in stub_monitor.instances] == ["10.2.2.2"]
-    assert parses["n"] == 1
+    assert stub_monitor.instances == []
+    assert reloads == ["pkg.yaml"]
 
 
-async def test_seed_deriving_none_falls_through_to_the_full_parse(
+async def test_seed_deriving_none_warns_without_reload_churn(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
-    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """An unresolvable seed keeps the full-parse freshness path."""
+    """A fresh deep seed that still can't resolve warns; no reload loop."""
     device = _seed_package_device(tmp_path, {"broker": "${never_defined}"})
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
 
-    def _parse(_path: Path) -> dict:
-        return {"mqtt": {"broker": "10.3.3.3"}}
+    target = "esphome_device_builder.controllers._device_mqtt_coordinator"
+    with caplog.at_level("WARNING", logger=target):
+        await coord.reconcile()
 
-    monkeypatch.setattr(coordinator_module, "load_device_yaml", _parse)
-    coord = make_mqtt_coordinator(tmp_path, [device])
-    await coord.reconcile()
-
-    assert [m.broker.host for m in stub_monitor.instances] == ["10.3.3.3"]
+    assert stub_monitor.instances == []
+    assert reloads == []
+    warnings = [r for r in caplog.records if r.name == target and r.levelname == "WARNING"]
+    assert len(warnings) == 1
 
 
 @pytest.mark.parametrize(
@@ -252,21 +234,18 @@ def test_secrets_edit_during_parse_stamps_the_pre_edit_mtime(
 async def test_seed_rejected_when_yaml_size_changes_under_same_mtime(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A same-mtime size change invalidates the seed like the scanner's own cache key."""
     device = _seed_package_device(tmp_path, {"broker": "10.1.1.1"})
     path = tmp_path / "pkg.yaml"
     _rewrite_keeping_mtime(path, path.read_text() + "# grew\n")
 
-    def _parse(_path: Path) -> dict:
-        return {"mqtt": {"broker": "10.5.5.5"}}
-
-    monkeypatch.setattr(coordinator_module, "load_device_yaml", _parse)
-    coord = make_mqtt_coordinator(tmp_path, [device])
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
     await coord.reconcile()
 
-    assert [m.broker.host for m in stub_monitor.instances] == ["10.5.5.5"]
+    assert stub_monitor.instances == []
+    assert reloads == ["pkg.yaml"]
 
 
 def test_load_device_from_storage_survives_a_vanished_yaml(tmp_path: Path) -> None:
@@ -303,21 +282,18 @@ async def test_yaml_vanishing_between_stat_and_read_is_skipped(
 async def test_seed_rejected_when_secrets_size_changes_under_same_mtime(
     tmp_path: Path,
     stub_monitor: type[RecordingMonitor],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A same-mtime secrets replacement invalidates the seed's baked credentials."""
     (tmp_path / "secrets.yaml").write_text("mqtt_pass: old\n")
     device = _seed_package_device(tmp_path, {"broker": "10.6.6.6"})
     _rewrite_keeping_mtime(tmp_path / "secrets.yaml", "mqtt_pass: rotated\n")
 
-    def _parse(_path: Path) -> dict:
-        return {"mqtt": {"broker": "10.7.7.7"}}
-
-    monkeypatch.setattr(coordinator_module, "load_device_yaml", _parse)
-    coord = make_mqtt_coordinator(tmp_path, [device])
+    reloads: list[str] = []
+    coord = make_mqtt_coordinator(tmp_path, [device], reload_requests=reloads)
     await coord.reconcile()
 
-    assert [m.broker.host for m in stub_monitor.instances] == ["10.7.7.7"]
+    assert stub_monitor.instances == []
+    assert reloads == ["pkg.yaml"]
 
 
 def test_extract_mqtt_block_rejects_non_mapping_yaml() -> None:

@@ -207,7 +207,9 @@ def load_device_from_storage(
 
     uses_mqtt = has_top_level_block(resolved_config, yaml_content, "mqtt")
     mqtt_extract = (
-        build_mqtt_extract(yaml_content, resolved_config, yaml_stat, secrets_key, extra_subs)
+        build_mqtt_extract(
+            yaml_content, resolved_config, yaml_stat, secrets_key, extra_subs, shallow=shallow
+        )
         if uses_mqtt and yaml_stat is not None
         else None
     )
