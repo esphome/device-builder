@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, fields
 from enum import StrEnum
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, NamedTuple, TypedDict
 
 from .common import DashboardModel
 
@@ -109,6 +109,15 @@ class DeviceRuntimeState(DashboardModel):
 RUNTIME_STATE_FIELD_NAMES = frozenset(f.name for f in fields(DeviceRuntimeState))
 
 
+class MqttFreshnessStamp(NamedTuple):
+    """Freshness key for a scan-time ``mqtt:`` extraction."""
+
+    yaml_mtime_ns: int
+    yaml_size: int
+    secrets_mtime_ns: int
+    secrets_size: int
+
+
 @dataclass(repr=False)
 class DeviceMqttExtract:
     """
@@ -133,9 +142,11 @@ class DeviceMqttExtract:
     from_shallow_load: bool = False
 
     @property
-    def stamp(self) -> tuple[int, int, int, int]:
-        """Freshness stamp: (yaml_mtime_ns, yaml_size, secrets_mtime_ns, secrets_size)."""
-        return (self.yaml_mtime_ns, self.yaml_size, self.secrets_mtime_ns, self.secrets_size)
+    def stamp(self) -> MqttFreshnessStamp:
+        """Return the freshness key this extraction was built at."""
+        return MqttFreshnessStamp(
+            self.yaml_mtime_ns, self.yaml_size, self.secrets_mtime_ns, self.secrets_size
+        )
 
 
 @dataclass

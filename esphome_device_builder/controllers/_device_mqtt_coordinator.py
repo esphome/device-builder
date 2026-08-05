@@ -39,7 +39,7 @@ from ..helpers.device_yaml import (
 from ..helpers.subscriber_presence import SubscriberPresence
 from ..helpers.yaml import load_yaml_fast_then_esphome
 from ..models import Device
-from ..models.devices import DeviceMqttExtract
+from ..models.devices import DeviceMqttExtract, MqttFreshnessStamp
 from ._device_mqtt_monitor import (
     BrokerKey,
     DeviceMqttMonitor,
@@ -109,7 +109,7 @@ class DeviceMqttCoordinator:
         # ``!include`` edits on a previously-cached device won't
         # invalidate — user needs a device-YAML touch or restart.
         self._broker_cache: dict[
-            str, tuple[tuple[int, int, int, int], MqttBrokerConfig | _ClientCertUnsupported]
+            str, tuple[MqttFreshnessStamp, MqttBrokerConfig | _ClientCertUnsupported]
         ] = {}
         # Per-device dedupe for the broker-unresolvable WARNING —
         # WARNING once, DEBUG on repeats.
@@ -296,7 +296,9 @@ class DeviceMqttCoordinator:
                     continue
                 broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
-                cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, *secrets_key)
+                cache_key = MqttFreshnessStamp(
+                    yaml_stat.st_mtime_ns, yaml_stat.st_size, *secrets_key
+                )
                 if _extract_needs_reload(extract, cache_key):
                     # Skip silently — no warn-gate consumption.
                     needs_reload.append(device.configuration)
@@ -343,7 +345,7 @@ class DeviceMqttCoordinator:
         self,
         configuration: str,
         extract: DeviceMqttExtract | None,
-        cache_key: tuple[int, int, int, int],
+        cache_key: MqttFreshnessStamp,
     ) -> MqttBrokerConfig | _ClientCertUnsupported | None:
         """Resolve a package-sourced broker from the cache or the scan-time seed."""
         cached = self._broker_cache.get(configuration)
@@ -432,12 +434,11 @@ def parse_mqtt_block(
 
 def _extract_fresh(extract: DeviceMqttExtract, yaml_stat: os.stat_result) -> bool:
     """Whether the scan-time extraction still matches the file on disk."""
-    return extract.stamp[:2] == (yaml_stat.st_mtime_ns, yaml_stat.st_size)
+    stamp = extract.stamp
+    return stamp.yaml_mtime_ns == yaml_stat.st_mtime_ns and stamp.yaml_size == yaml_stat.st_size
 
 
-def _extract_needs_reload(
-    extract: DeviceMqttExtract | None, cache_key: tuple[int, int, int, int]
-) -> bool:
+def _extract_needs_reload(extract: DeviceMqttExtract | None, cache_key: MqttFreshnessStamp) -> bool:
     """Return True for an absent, stale, or shallow-load extract."""
     if extract is None or extract.from_shallow_load:
         return True
