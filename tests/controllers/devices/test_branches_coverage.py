@@ -1541,3 +1541,14 @@ async def test_stream_subprocess_applies_line_transform(
     output_events = [call for call in client.send_event.await_args_list if call.args[1] == "output"]
     payloads = [call.args[2] for call in output_events]
     assert payloads == ["<first>", "<second>"]
+
+
+async def test_request_scanner_reload_queues_coalescing_reload(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The build-size ``on_refreshed`` adapter queues through the wake worker."""
+    controller = make_controller(tmp_path)
+
+    await controller._request_scanner_reload("kitchen.yaml")
+
+    assert ("request", "kitchen.yaml") in controller._scanner.calls
