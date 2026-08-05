@@ -163,8 +163,12 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
 
 # Each upload sleeps a per-device staggered duration (indexed by the
 # uN.yaml number), then exits 0 — a burst of woken deep-sleep devices
-# whose OTAs take different times.
-_STAGGER_DELAYS = [0.2, 0.05, 0.35, 0.1, 0.05, 0.15, 0.25, 0.1, 0.3, 0.05, 0.2, 0.15, 0.1, 0.25]
+# whose OTAs take different times. Cycled to twice the cap so the list
+# tracks slot-count bumps instead of silently under-seeding the burst.
+_STAGGER_PATTERN = (0.2, 0.05, 0.35, 0.1, 0.05, 0.15, 0.25, 0.1, 0.3)
+_STAGGER_DELAYS = [
+    _STAGGER_PATTERN[i % len(_STAGGER_PATTERN)] for i in range(MAX_CONCURRENT_UPLOADS * 2)
+]
 _STAGGERED_UPLOAD = (
     "import os, sys, time\n"
     "cfg = os.path.basename(next(a for a in sys.argv if a.endswith('.yaml')))\n"
@@ -189,7 +193,6 @@ async def test_upload_burst_drains_cap_at_a_time(
     wire_real_queue(controller)
     _wire_devices(controller)
     controller.state.esphome_cmd = [sys.executable, "-c", _STAGGERED_UPLOAD]
-    assert len(_STAGGER_DELAYS) >= MAX_CONCURRENT_UPLOADS * 2
     names = [f"u{i}.yaml" for i in range(1, MAX_CONCURRENT_UPLOADS * 2 + 1)]
     seed_yamls(tmp_path, *names)
 
@@ -295,7 +298,7 @@ def test_upload_lane_concurrency_defaults() -> None:
     ],
 )
 def test_max_concurrent_uploads_version_gate(version: str, expected: int) -> None:
-    """Esphome 2026.8+ runs the lazy-import upload and log subprocesses, earning 8 slots."""
+    """2026.8+ earns 8 upload slots; older and unknown versions keep 4."""
     assert max_concurrent_uploads(version) == expected
 
 

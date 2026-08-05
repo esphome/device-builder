@@ -200,9 +200,9 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
 - Three concurrent lanes — a compile lane (CPU, one job at a time), an
   upload lane (network, up to `MAX_CONCURRENT_UPLOADS` flashes at once:
   4, or 8 when the installed esphome is 2026.8 or later, whose upload
-  subprocess lazy-loads codegen, config validation, voluptuous and the
-  bundle machinery — ~28 MiB per flash (esphome/esphome#17684,
-  esphome/esphome#18093) — and whose log sessions defer the
+  subprocess defers codegen, config validation, voluptuous and the
+  bundle machinery for ~28 MiB per flash — esphome/esphome#17684 and
+  esphome/esphome#18093 — and whose log sessions defer the
   stacktrace-decoder platform import and so hand back ~10 MiB of host
   budget per open esp32 log stream, esphome/esphome#18048), and a
   single-slot thread upload lane. The lanes run in parallel
