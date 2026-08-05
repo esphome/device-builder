@@ -2,11 +2,11 @@
 Validated-config cache (esphome's ``compiled_config``) awareness.
 
 esphome < 2026.8 writes ``<basename>.validated.yaml`` (a raw YAML dump);
-2026.8+ writes ``<basename>.validated.json`` (a ``{"v", "esphome",
-"config"}`` envelope) and removes the legacy file on save. Single source
-of truth for the dashboard side: path resolution, newest-cache
-discovery, format-detected parsing, removal, and the remote-build
-tarball member naming.
+2026.8+ writes ``<basename>.validated.json`` wrapped in a
+``{"v", "esphome", "config"}`` envelope and removes the legacy file on
+save. Single source of truth for the dashboard side: path resolution,
+newest-cache discovery, format-detected parsing, removal, and the
+remote-build tarball member naming.
 """
 
 from __future__ import annotations
@@ -69,11 +69,11 @@ def find_validated_cache(configuration: str) -> Path | None:
     return freshest
 
 
-def parse_validated_cache(path: Path, text: str | None = None) -> dict[Any, Any] | None:
+def parse_validated_cache(path: Path, text: str | bytes | None = None) -> dict[Any, Any] | None:
     """
     Parse the cache at *path* (format from suffix) into a plain config dict.
 
-    *text* skips a re-read when the caller already has the JSON bytes.
+    *text* skips a re-read when the caller already holds the JSON content.
     JSON caches keep their lambda sentinels as dicts (no ``Lambda``
     revival — the dashboard only reads flags); the YAML parse keeps
     ``clear_secrets=False`` so the read never wipes the process-wide
