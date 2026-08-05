@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,7 +20,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import drain_tasks, run_in_executor
+from ...helpers.async_ import drain_tasks, log_task_exit, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
@@ -208,9 +209,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             get_filenames=lambda: (d.configuration for d in self._get_devices()),
             get_metadata_snapshot=self._metadata_store.snapshot_all,
             persist_size=self._persist_build_size,
-            # ``request`` (not ``reload``) so a refresh landing while the
-            # cold-start refine drain is running coalesces into it
-            # instead of deep-parsing the same file twice.
+            # ``request`` (not ``reload``) so the build-size worker never
+            # blocks on a deep parse (or the scanner lock) inside
+            # ``on_refreshed``; a request still in the refine drain's
+            # pending set also dedupes into it.
             on_refreshed=self._request_scanner_reload,
             initial_sweep_delay=_BUILD_SIZE_SWEEP_DELAY_SECONDS,
         )
@@ -305,7 +307,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # requests as they arrive from the job-completion hook.
         self._build_size.start()
         if self._scanner.devices:
-            self._refine_task = asyncio.create_task(refine.refine_shallow_scan(self))
+            # A silent crash here would leave rows permanently shallow
+            # (sticky cache key) with no visible cause until stop().
+            self._refine_task = asyncio.create_task(
+                refine.refine_shallow_scan(self), name="Cold-start refine"
+            )
+            self._refine_task.add_done_callback(partial(log_task_exit, "Cold-start refine"))
 
     async def stop(self) -> None:
         """Stop background monitors so the process exits cleanly."""
@@ -362,8 +369,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         in the YAML's mtime (labels, IP cache after restart-driven
         re-resolution, etc.) — the scanner's mtime-based cache would
         otherwise skip the file. Fires ``DEVICE_UPDATED`` via the
-        scanner's existing scan-change pipeline. Returns ``True``
-        when the device exists and was reloaded.
+        scanner's existing scan-change pipeline when the reload
+        changed the row. Returns ``True`` when the device exists and
+        was reloaded.
         """
         return await self._scanner.reload(filename)
 

@@ -2876,3 +2876,32 @@ def test_decode_payload_returns_empty_for_unsupported_types() -> None:
     assert _decode_payload(12345) == ""
     assert _decode_payload({"not": "supported"}) == ""
     assert _decode_payload(["nope"]) == ""
+
+
+async def test_coordinator_cancel_mid_stop_keeps_monitor_registered(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cancel during a monitor's teardown re-registers it for ``stop()`` to find."""
+    devices = [write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.1.10\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    monitor = stub_monitor.instances[0]
+
+    async def _cancelled_stop() -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(monitor, "stop", _cancelled_stop)
+    devices[0] = write_mqtt_device(tmp_path, "alpha", None)
+
+    with pytest.raises(asyncio.CancelledError):
+        await coord.reconcile()
+
+    assert coord.active_brokers == 1
+    monkeypatch.undo()
+
+    await coord.stop()
+    assert coord.active_brokers == 0
+    assert monitor.stopped is True

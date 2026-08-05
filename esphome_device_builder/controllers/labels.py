@@ -204,9 +204,9 @@ class LabelsController:
             raise CommandError(ErrorCode.NOT_FOUND, f"Label {label_id!r} not found")
 
         # Reload every affected device so the live ``Device`` model picks up
-        # its trimmed labels list. Each reload fires its own
-        # ``DEVICE_UPDATED`` via the scanner's existing scan-change
-        # pipeline, so we don't refire here.
+        # its trimmed labels list. Each reload that changes the row fires
+        # its own ``DEVICE_UPDATED`` via the scanner's existing
+        # scan-change pipeline, so we don't refire here.
         devices = self._db.devices
         if devices is not None:
             for filename in affected:
