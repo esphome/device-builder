@@ -142,44 +142,45 @@ class DeviceMqttCoordinator:
             return
 
         async with self._reconcile_lock:
-            brokers, needs_reload = await run_in_executor(self._collect_brokers)
+            await self._reconcile_locked()
+
+    async def _reconcile_locked(self) -> None:
+        brokers, needs_reload = await run_in_executor(self._collect_brokers)
+        if self._stopped:
+            # A reconcile that outlived ``stop()`` (wedged in the
+            # executor past the lock timeout, or queued on the lock)
+            # must not restart monitors on a closing loop.
+            return
+        for configuration in needs_reload:
+            self._request_reload(configuration)
+        # A pass with unresolved devices can't know their broker keys,
+        # so it is additive-only — teardown waits for the pass after
+        # their reloads land.
+        if not needs_reload and not await self._stop_unwanted_monitors({b.key for b in brokers}):
+            return
+
+        new_monitors: list[DeviceMqttMonitor] = []
+        for broker in brokers:
+            if broker.key in self._monitors:
+                continue
+            monitor = DeviceMqttMonitor(
+                broker,
+                self._on_state_change,
+                self._on_ip_change,
+                presence=self._presence,
+                on_connection_change=self._assign_publishers,
+            )
+            self._monitors[broker.key] = monitor
+            new_monitors.append(monitor)
+
+        # Election runs before start() so a new monitor never connects
+        # wearing the default publisher flag, and again on every
+        # connection change via the callback above.
+        self._assign_publishers()
+        for monitor in new_monitors:
             if self._stopped:
-                # A reconcile that outlived ``stop()`` (wedged in the
-                # executor past the lock timeout, or queued on the lock)
-                # must not restart monitors on a closing loop.
                 return
-            for configuration in needs_reload:
-                self._request_reload(configuration)
-            # A pass with unresolved devices can't know their broker
-            # keys, so it is additive-only — teardown waits for the
-            # pass after their reloads land.
-            if not needs_reload and not await self._stop_unwanted_monitors(
-                {b.key for b in brokers}
-            ):
-                return
-
-            new_monitors: list[DeviceMqttMonitor] = []
-            for broker in brokers:
-                if broker.key in self._monitors:
-                    continue
-                monitor = DeviceMqttMonitor(
-                    broker,
-                    self._on_state_change,
-                    self._on_ip_change,
-                    presence=self._presence,
-                    on_connection_change=self._assign_publishers,
-                )
-                self._monitors[broker.key] = monitor
-                new_monitors.append(monitor)
-
-            # Election runs before start() so a new monitor never connects
-            # wearing the default publisher flag, and again on every
-            # connection change via the callback above.
-            self._assign_publishers()
-            for monitor in new_monitors:
-                if self._stopped:
-                    return
-                await monitor.start()
+            await monitor.start()
 
     async def _stop_unwanted_monitors(self, wanted: set[BrokerKey]) -> bool:
         """Stop monitors for logins no longer referenced; False when ``stop()`` intervened."""

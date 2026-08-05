@@ -418,16 +418,16 @@ async def test_mqtt_nudge_debounce_coalesces_and_fires(
 ) -> None:
     """Repeated nudges share one timer, and its firing runs a single reconcile."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.scan_change._MQTT_RECONCILE_DEBOUNCE_SECONDS",
+        "esphome_device_builder.controllers.devices.controller._MQTT_RECONCILE_DEBOUNCE_SECONDS",
         0.0,
     )
     controller = DevicesController(make_db(tmp_path))
 
     with _capture_monitor_and_mqtt(controller) as log:
-        controller._schedule_mqtt_reconcile()
+        controller.schedule_mqtt_reconcile()
         first = controller._mqtt_reconcile_handle
         assert first is not None
-        controller._schedule_mqtt_reconcile()
+        controller.schedule_mqtt_reconcile()
         assert controller._mqtt_reconcile_handle is first
         await asyncio.sleep(0.01)
         assert controller._mqtt_reconcile_task is not None
@@ -441,7 +441,7 @@ async def test_stop_cancels_pending_mqtt_nudge(tmp_path: Path, make_db: MakeDbFa
     controller = DevicesController(make_db(tmp_path))
 
     with _capture_monitor_and_mqtt(controller) as log:
-        controller._schedule_mqtt_reconcile()
+        controller.schedule_mqtt_reconcile()
         assert controller._mqtt_reconcile_handle is not None
         await controller.stop()
 

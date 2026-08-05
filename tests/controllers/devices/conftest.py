@@ -576,7 +576,7 @@ def make_controller() -> MakeControllerFactory:
         def _record_mqtt_nudge() -> None:
             controller.mqtt_nudges += 1
 
-        controller._schedule_mqtt_reconcile = _record_mqtt_nudge
+        controller.schedule_mqtt_reconcile = _record_mqtt_nudge
 
         if with_state_monitor:
             controller._state_monitor = RecordingStateMonitor()
