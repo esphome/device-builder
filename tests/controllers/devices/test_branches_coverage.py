@@ -52,6 +52,7 @@ from esphome_device_builder.models import (
     JobStatus,
     JobType,
 )
+from tests._recording_scanner import RecordingScanner
 from tests.conftest import make_device
 
 from .conftest import (
@@ -1452,6 +1453,34 @@ def test_on_scan_change_reloaded_same_name_skips_importable_prune(
     assert "kitchen" in controller.state.import_result
     assert captured == []
     assert ("revisit_importable", "kitchen") not in controller._state_monitor.calls
+
+
+def test_on_scan_change_rename_migrates_monitor_state(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A rename probes the corrected name and forgets the freed name's monitor state."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    controller._reachability.observe("old-kitchen", "ping")
+
+    controller._on_scan_change(ScanChange.RELOADED, _device("kitchen"), _device("old-kitchen"))
+
+    assert ("probe_device_ping", "kitchen") in controller._state_monitor.calls
+    assert ("forget", "old-kitchen") in controller._state_monitor.calls
+    assert "old-kitchen" not in controller._reachability._ping_last_seen
+
+
+def test_on_scan_change_rename_keeps_state_for_surviving_sibling(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """The freed name's monitor state survives while a sibling YAML still owns it."""
+    controller = make_controller(tmp_path, with_state_monitor=True)
+    sibling = _device("old-kitchen")
+    controller._scanner = RecordingScanner(devices_by_name={"old-kitchen": [sibling]})
+
+    controller._on_scan_change(ScanChange.RELOADED, _device("kitchen"), _device("old-kitchen"))
+
+    assert ("forget", "old-kitchen") not in controller._state_monitor.calls
+    assert ("probe_device_ping", "kitchen") in controller._state_monitor.calls
 
 
 # ---------------------------------------------------------------------------

@@ -48,7 +48,7 @@ def on_scan_change(
         # clients stop showing the adopt banner once the device is
         # configured. Idempotent: fires REMOVED only if a row existed.
         controller._on_importable_removed(device.name)
-    _reconcile_importables_on_rename(controller, kind, device, previous)
+    _reconcile_rename(controller, kind, device, previous)
     if (
         kind in (ScanChange.UPDATED, ScanChange.RELOADED)
         and previous is not None
@@ -118,13 +118,13 @@ def on_scan_change(
         controller._metadata_store.clear_volatile(device.configuration)
 
 
-def _reconcile_importables_on_rename(
+def _reconcile_rename(
     controller: DevicesController,
     kind: ScanChange,
     device: Device,
     previous: Device | None,
 ) -> None:
-    """Retract the corrected name's importable row and resurface the freed one."""
+    """Reconcile importables and per-name monitor state after a name correction."""
     if (
         kind not in (ScanChange.UPDATED, ScanChange.RELOADED)
         or previous is None
@@ -135,6 +135,15 @@ def _reconcile_importables_on_rename(
     # name may have a suppressed announcement worth resurfacing.
     controller._on_importable_removed(device.name)
     controller._state_monitor.importable.revisit_importable(previous.name)
+    # The corrected name is as new to the monitor as an ADDED one.
+    controller._state_monitor.probe_reachability(device.name)
+    if not controller._scanner.get_by_name(previous.name):
+        # No sibling YAML still owns the freed name (the scanner index
+        # is already re-keyed when this fires); drop its ledger and
+        # reachability history like the REMOVED branch, or a later
+        # re-add of the name inherits the stale state_source.
+        controller._reachability.clear(previous.name)
+        controller._state_monitor.forget(previous.name)
 
 
 def _sync_network_fingerprint(
