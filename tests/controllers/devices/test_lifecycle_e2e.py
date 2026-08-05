@@ -294,8 +294,10 @@ async def test_stop_cancels_refine_mid_drain(
         return True
 
     with _capture_monitor_and_mqtt(controller) as log:
-        await controller.start()
+        # Patched before start() so any refine-triggered drain is
+        # guaranteed to block in the parked reload.
         monkeypatch.setattr(controller._scanner, "reload", _parked_reload)
+        await controller.start()
         task = controller._refine_task
         assert task is not None
         await asyncio.sleep(0)
