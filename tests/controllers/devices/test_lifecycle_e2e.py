@@ -430,10 +430,10 @@ async def test_mqtt_nudge_debounce_coalesces_and_fires(
         controller.schedule_mqtt_reconcile()
         assert controller._mqtt_reconcile_handle is first
         await asyncio.sleep(0.01)
-        assert controller._mqtt_reconcile_task is not None
-        await controller._mqtt_reconcile_task
 
     assert log == ["mqtt.reconcile"]
+    # The eagerly-run task completed and discarded itself from tracking.
+    assert controller._mqtt_reconcile_tasks == set()
 
 
 async def test_stop_cancels_pending_mqtt_nudge(tmp_path: Path, make_db: MakeDbFactory) -> None:
@@ -468,12 +468,11 @@ async def test_stop_drains_a_running_mqtt_nudge_task(
     ):
         controller.schedule_mqtt_reconcile()
         await asyncio.sleep(0.01)
-        task = controller._mqtt_reconcile_task
-        assert task is not None
+        (task,) = controller._mqtt_reconcile_tasks
         await controller.stop()
 
     assert task.done()
-    assert controller._mqtt_reconcile_task is None
+    assert controller._mqtt_reconcile_tasks == set()
 
 
 async def test_mqtt_nudge_fire_skips_reconcile_when_stopped(
@@ -491,5 +490,5 @@ async def test_mqtt_nudge_fire_skips_reconcile_when_stopped(
         controller._stopped = True
         await asyncio.sleep(0.01)
 
-    assert controller._mqtt_reconcile_task is None
+    assert controller._mqtt_reconcile_tasks == set()
     assert "mqtt.reconcile" not in log

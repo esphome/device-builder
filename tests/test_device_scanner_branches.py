@@ -121,6 +121,22 @@ async def test_reload_returns_false_when_loader_fails(tmp_path: Path) -> None:
     # The scanner did not fire an UPDATED event for the failed reload.
     assert events == []
 
+    # The failure poisoned the cache key: the next scan re-reads the
+    # unchanged file instead of trusting the stale row forever.
+    retried: list[str] = []
+
+    def _retry(path: Path, *_a: Any, **_kw: Any) -> Device:
+        retried.append(path.name)
+        return Device(name=path.stem, friendly_name=path.stem, configuration=path.name)
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=_retry,
+    ):
+        await scanner.scan()
+
+    assert retried == ["kitchen.yaml"]
+
 
 async def test_reload_swallows_oserror_on_post_load_stat(tmp_path: Path) -> None:
     """A stat failure after a successful load doesn't break the reload.

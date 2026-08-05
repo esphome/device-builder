@@ -41,6 +41,10 @@ class WakeWorker[T]:
             # pass reads current state, so a re-add would only process
             # it twice.
             return
+        if self._task is None:
+            _LOGGER.debug(
+                "%s request for %r queued with no worker running", type(self).__name__, item
+            )
         self.pending.add(item)
         self._idle.clear()
         self._wake.set()
@@ -127,6 +131,12 @@ class WakeWorker[T]:
         try:
             yield
         finally:
+            if self._draining:
+                # An aborted batch re-queues its unprocessed remainder —
+                # base-owned so a subclass raise can't strand items in
+                # the set ``request`` skips.
+                self.pending |= self._draining
+                self._draining = set()
             # Re-arm wake on non-empty so a ``_drain`` that raises
             # mid-pending isn't stranded; ``Event.set()`` is idempotent.
             if not self.pending:

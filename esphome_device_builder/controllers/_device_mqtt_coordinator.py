@@ -126,6 +126,10 @@ class DeviceMqttCoordinator:
         self._reconcile_lock = asyncio.Lock()
         self._stopped = False
 
+    def resume(self) -> None:
+        """Clear the stop latch so a restarted owner can reconcile again."""
+        self._stopped = False
+
     @property
     def active_brokers(self) -> int:
         """Return the number of brokers currently being monitored."""
@@ -153,6 +157,10 @@ class DeviceMqttCoordinator:
             return
         for configuration in needs_reload:
             self._request_reload(configuration)
+        if needs_reload:
+            _LOGGER.debug(
+                "Deferring monitor teardown; %d device(s) awaiting reload", len(needs_reload)
+            )
         # A pass with unresolved devices can't know their broker keys,
         # so it is additive-only — teardown waits for the pass after
         # their reloads land.
@@ -210,6 +218,8 @@ class DeviceMqttCoordinator:
             async with asyncio.timeout(_STOP_LOCK_TIMEOUT_SECONDS):
                 await self._reconcile_lock.acquire()
                 acquired = True
+        if not acquired:
+            _LOGGER.warning("Stopping MQTT monitors without the reconcile lock; a pass is wedged")
         try:
             for monitor in list(self._monitors.values()):
                 await monitor.stop()

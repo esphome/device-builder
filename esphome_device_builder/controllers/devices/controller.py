@@ -143,7 +143,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Debounced scan-change → MQTT reconcile nudge (see
         # ``schedule_mqtt_reconcile``).
         self._mqtt_reconcile_handle: asyncio.TimerHandle | None = None
-        self._mqtt_reconcile_task: asyncio.Task[None] | None = None
+        # A set: a fire can land while the previous reconcile is still
+        # stopping monitors, and an overwritten ref would escape
+        # ``stop()``'s drain.
+        self._mqtt_reconcile_tasks: set[asyncio.Task[None]] = set()
 
         # Constructed before the scanner so the first
         # ``_resolve_device_metadata`` reads off the store.
@@ -291,6 +294,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def start(self) -> None:
         """Initialise — load state, scan files, start mDNS + ping + MQTT discovery."""
         self._stopped = False
+        self._mqtt_coordinator.resume()
         self.state.esphome_cmd = _find_esphome_cmd()
         # Store seed + migrations + ignore-list are independent; all
         # must land before the scanner (the resolver reads off them).
@@ -334,12 +338,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()
             self._mqtt_reconcile_handle = None
-        if self._mqtt_reconcile_task is not None:
-            await drain_tasks([self._mqtt_reconcile_task], log_exceptions=True)
-            self._mqtt_reconcile_task = None
-        # Before scanner.stop(): the worker's teardown sets its idle
-        # event, which would release the refine's wait_idle into a
-        # reconcile against a torn-down coordinator.
+        await drain_tasks(self._mqtt_reconcile_tasks, log_exceptions=True)
+        self._mqtt_reconcile_tasks.clear()
+        # Drain the refine before its scanner worker goes away.
         if self._refine_task is not None:
             await drain_tasks([self._refine_task], log_exceptions=True)
             self._refine_task = None
@@ -367,12 +368,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._mqtt_reconcile_handle = None
             if self._stopped:
                 return
-            self._mqtt_reconcile_task = create_eager_task(
+            task = create_eager_task(
                 self._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
             )
-            self._mqtt_reconcile_task.add_done_callback(
-                partial(log_task_exit, "MQTT reconcile nudge")
-            )
+            self._mqtt_reconcile_tasks.add(task)
+            task.add_done_callback(partial(log_task_exit, "MQTT reconcile nudge"))
+            task.add_done_callback(self._mqtt_reconcile_tasks.discard)
 
         self._mqtt_reconcile_handle = asyncio.get_running_loop().call_later(
             _MQTT_RECONCILE_DEBOUNCE_SECONDS, _fire

@@ -3066,3 +3066,20 @@ async def test_coordinator_skips_monitor_starts_when_stopped_mid_pass(
         await coord.reconcile()
 
     assert stub_monitor.instances[0].started is False
+
+
+async def test_coordinator_resume_clears_the_stop_latch(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A restarted owner reconciles again after ``resume()``."""
+    devices = [write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 10.0.0.1\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+
+    await coord.stop()
+    await coord.reconcile()
+    assert coord.active_brokers == 0
+
+    coord.resume()
+    await coord.reconcile()
+    assert coord.active_brokers == 1

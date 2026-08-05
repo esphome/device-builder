@@ -30,6 +30,10 @@ _LOGGER = logging.getLogger(__name__)
 # (inode, device, mtime, size) — combined cache key for change detection.
 _CacheKey = tuple[int, int, float, int]
 
+# Never matches a real stat: assigning it forces the next scan to
+# re-read the file.
+_POISONED_CACHE_KEY: _CacheKey = (-1, -1, -1.0, -1)
+
 
 class DeviceFileMetadata(NamedTuple):
     """Persisted sidecar fields the scanner threads into each ``Device``."""
@@ -363,6 +367,12 @@ class DeviceScanner(WakeWorker[str]):
             loaded = await run_in_executor(self._load_devices, {path})
             device = loaded.get(path)
             if device is None:
+                if previous is not None:
+                    # Poison the cache key so the next scan re-reads the
+                    # file instead of trusting the stale row — a shallow
+                    # seed would otherwise stay shallow forever.
+                    self._index.set(path, previous, _POISONED_CACHE_KEY)
+                    _LOGGER.warning("Reload of %s failed; will retry on the next scan", filename)
                 return False
             # Refresh the cache key; if the YAML disappears in the
             # race window between load and re-stat, keep the
@@ -392,27 +402,18 @@ class DeviceScanner(WakeWorker[str]):
     async def _drain(self) -> None:
         """Reload every filename currently queued."""
         pending = self.swap_pending()
-        try:
-            while pending:
-                filename = pending.pop()
-                try:
-                    reloaded = await self.reload(filename)
-                except Exception:
-                    _LOGGER.exception("Background reload of %s failed", filename)
-                    continue
-                if not reloaded:
-                    # Tracked at request time but gone by drain time
-                    # (concurrent delete / atomic-save mid-flight).
-                    # Debug-level: the drain doesn't fail, but the
-                    # vanished save is otherwise invisible.
-                    _LOGGER.debug(
-                        "Background reload skipped: %s is no longer tracked",
-                        filename,
-                    )
-        finally:
-            # Same object as ``_draining`` — a raise mid-batch must not
-            # leave ``request`` skipping re-adds for lost items.
-            pending.clear()
+        while pending:
+            filename = pending.pop()
+            try:
+                reloaded = await self.reload(filename)
+            except Exception:
+                _LOGGER.exception("Background reload of %s failed", filename)
+                continue
+            if not reloaded:
+                # Untracked (concurrent delete / atomic-save mid-flight)
+                # or a failed load — the latter already warned and
+                # poisoned its cache key in ``reload``.
+                _LOGGER.debug("Background reload of %s returned no update", filename)
 
     async def _do_scan(self, *, shallow: bool = False) -> None:
         path_to_cache_key = await run_in_executor(self._build_cache_keys)

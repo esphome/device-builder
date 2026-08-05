@@ -20,6 +20,15 @@ class SecretRef:
     def __init__(self, name: str) -> None:
         self.name = name
 
+    def __eq__(self, other: object) -> bool:
+        # Value equality so an extract rebuild compares equal — identity
+        # eq would defeat the reload event suppression and the mqtt
+        # nudge gate for every ``!secret``-bearing block.
+        return isinstance(other, SecretRef) and other.name == self.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[str, str]]:
     """

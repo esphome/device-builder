@@ -3612,3 +3612,13 @@ def test_device_to_dict_emits_runtime_state_when_all_default() -> None:
         "api_encryption_active": None,
         "deployed_identity_live": False,
     }
+
+
+def test_secret_bearing_rebuild_compares_equal(tmp_path: Path) -> None:
+    """Two loads of a ``!secret`` mqtt device compare equal, so reload suppression engages."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: kitchen\nmqtt:\n  broker: 10.0.0.5\n  password: !secret mqtt_pass\n",
+        encoding="utf-8",
+    )
+    assert load_device_from_storage(yaml_file) == load_device_from_storage(yaml_file)
