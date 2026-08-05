@@ -210,9 +210,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             persist_size=self._persist_build_size,
             # ``request`` (not ``reload``) so the build-size worker never
             # blocks on a deep parse (or the scanner lock) inside
-            # ``on_refreshed``; a request still in the refine drain's
-            # pending set also dedupes into it.
-            on_refreshed=self._request_scanner_reload,
+            # ``on_refreshed``.
+            on_refreshed=self._scanner.request,
             initial_sweep_delay=_BUILD_SIZE_SWEEP_DELAY_SECONDS,
         )
         # Build the state monitor first so the reachability tracker
@@ -297,10 +296,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
-        # Fast pass: inline brokers connect immediately; one needing
-        # the resolved parse defers to the refine's trailing reconcile
-        # instead of deep-parsing on the critical path (and again in
-        # the refine's deep reload).
+        # Fast pass — inline brokers only; the refine's trailing
+        # reconcile does the full pass.
         await self._mqtt_coordinator.reconcile(allow_slow_resolve=False)
         self._unsub_job_completed = self._db.bus.add_listener(
             EventType.JOB_COMPLETED, self._on_firmware_job_completed
@@ -341,7 +338,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._stopped:
             return
         await self._scanner.scan()
-        await self._mqtt_coordinator.reconcile()
+        # Fast-only while the refine drain runs: a full pass would
+        # deep-parse the same files the drain is parsing, concurrently
+        # (esphome yaml_util is not parallel-parse safe).
+        refining = self._refine_task is not None and not self._refine_task.done()
+        await self._mqtt_coordinator.reconcile(allow_slow_resolve=not refining)
 
     def get_devices(self) -> list[Device]:
         """Snapshot of the currently-loaded devices."""
@@ -1276,10 +1277,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         for handle in self._reprobe_timers.values():
             handle.cancel()
         self._reprobe_timers.clear()
-
-    async def _request_scanner_reload(self, configuration: str) -> None:
-        """Queue a coalescing background reload of *configuration*."""
-        self._scanner.request(configuration)
 
     def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
         """Merge a fresh build-size triple into the metadata store."""

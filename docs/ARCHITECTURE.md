@@ -371,15 +371,19 @@ plus sidecars plus the raw-text pass only (`scan(shallow=True)`, skipping the
 resolved parse and the validated-config read) — serves immediately, then a
 background refine task (`controllers/devices/refine.py`) deep-reloads every
 device through the scanner's request/drain worker and finally re-runs the MQTT
-reconcile. MQTT starts in two passes: `start()` runs a fast, additive-only
-reconcile (`allow_slow_resolve=False`) so inline brokers connect immediately
-without the resolved parse a package-sourced broker value would need, and the
-refine's trailing full reconcile is load-bearing for the rest —
-`_collect_brokers` gates on `uses_mqtt`, which a shallow row can't see for a
-package-sourced `mqtt:` block, and the presence-gated `poll()` never runs on a
-headless install. Shallow rows
-are sticky against the mtime cache — only a `reload` / `request` deepens them —
-which is exactly what the refine provides; steady-state scans stay deep.
+reconcile. Shallow rows are sticky against the mtime cache — only a `reload` /
+`request` deepens them — which is exactly what the refine provides;
+steady-state scans stay deep.
+
+MQTT starts in two passes. `start()` runs a fast, additive-only reconcile
+(`allow_slow_resolve=False`) so inline brokers connect immediately without the
+resolved parse a package-sourced broker value would need. The refine's trailing
+full reconcile is load-bearing for the rest: `_collect_brokers` gates on
+`uses_mqtt`, which a shallow row can't see for a package-sourced `mqtt:` block,
+and the presence-gated `poll()` never runs on a headless install. While the
+refine drain runs, `poll()` also reconciles fast-only — a full pass would
+deep-parse the same files the drain is parsing, concurrently, and esphome's
+`yaml_util` is not parallel-parse safe.
 
 Two rules the refine established that every later caller inherits:
 

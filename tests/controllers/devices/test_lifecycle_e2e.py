@@ -408,3 +408,28 @@ async def test_poll_is_noop_after_stop(tmp_path: Path, make_db: MakeDbFactory) -
         await controller.poll()
 
     assert log == []
+
+
+async def test_poll_reconciles_fast_only_while_refining(
+    tmp_path: Path, make_db: MakeDbFactory
+) -> None:
+    """A poll during the refine drain defers slow broker resolution to the refine."""
+    controller = DevicesController(make_db(tmp_path))
+    flags: list[bool] = []
+
+    async def _reconcile(*, allow_slow_resolve: bool = True) -> None:
+        flags.append(allow_slow_resolve)
+
+    with (
+        patch.multiple(controller._scanner, scan=AsyncMock()),
+        patch.multiple(controller._mqtt_coordinator, reconcile=_reconcile),
+    ):
+        controller._refine_task = asyncio.get_running_loop().create_task(asyncio.sleep(60))
+        try:
+            await controller.poll()
+        finally:
+            controller._refine_task.cancel()
+        controller._refine_task = None
+        await controller.poll()
+
+    assert flags == [False, True]

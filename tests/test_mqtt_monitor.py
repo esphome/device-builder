@@ -2965,3 +2965,45 @@ async def test_coordinator_fast_pass_is_additive_only(
 
     assert coord.active_brokers == 1
     assert stub_monitor.instances[0].stopped is False
+
+
+async def test_coordinator_reconcile_after_stop_starts_nothing(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A reconcile that outlives ``stop()`` must not restart monitors."""
+    devices = [write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 192.168.1.10\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+
+    await coord.stop()
+    await coord.reconcile()
+
+    assert coord.active_brokers == 0
+    assert stub_monitor.instances == []
+
+
+async def test_coordinator_full_pass_starts_broker_the_fast_pass_deferred(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """The fast pass's skip leaves no state that blocks the follow-up full pass."""
+    (tmp_path / "common.yaml").write_text(
+        "substitutions:\n  mqtt_host: 192.168.1.77\nmqtt:\n  broker: ${mqtt_host}\n"
+    )
+    (tmp_path / "alpha.yaml").write_text(
+        "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
+    )
+    device = Device(
+        name="alpha",
+        friendly_name="alpha",
+        configuration="alpha.yaml",
+        uses_mqtt=True,
+    )
+    coord = make_mqtt_coordinator(tmp_path, [device])
+
+    await coord.reconcile(allow_slow_resolve=False)
+    assert coord.active_brokers == 0
+
+    await coord.reconcile()
+    assert coord.active_brokers == 1
+    assert stub_monitor.instances[0].broker.host == "192.168.1.77"

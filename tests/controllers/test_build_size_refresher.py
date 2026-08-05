@@ -55,7 +55,7 @@ def _make(
     refreshed: list[str] = []
     persisted: list[tuple[str, BuildSizeRefreshResult]] = []
 
-    async def _default_callback(configuration: str) -> None:
+    def _default_callback(configuration: str) -> None:
         refreshed.append(configuration)
 
     def _default_persist(configuration: str, result: BuildSizeRefreshResult) -> None:
@@ -114,7 +114,7 @@ async def test_worker_drains_pending_and_fires_on_refreshed(tmp_path: Path) -> N
     done = asyncio.Event()
     refreshed: list[str] = []
 
-    async def _on_refreshed(configuration: str) -> None:
+    def _on_refreshed(configuration: str) -> None:
         refreshed.append(configuration)
         done.set()
 
@@ -152,7 +152,7 @@ async def test_worker_skips_callback_when_refresh_returns_none(tmp_path: Path) -
     """
     refreshed: list[str] = []
 
-    async def _on_refreshed(configuration: str) -> None:
+    def _on_refreshed(configuration: str) -> None:
         refreshed.append(configuration)
 
     refresh_done = asyncio.Event()
@@ -205,7 +205,7 @@ async def test_worker_logs_and_continues_on_refresh_exception(tmp_path: Path, ca
             if "Build-size refresh failed for broken.yaml" in record.getMessage():
                 error_seen.set()
 
-    async def _on_refreshed(configuration: str) -> None:
+    def _on_refreshed(configuration: str) -> None:
         refreshed.append(configuration)
         success_seen.set()
 
@@ -252,7 +252,7 @@ async def test_worker_logs_and_continues_on_callback_exception(tmp_path: Path, c
             if "on_refreshed callback failed for broken.yaml" in record.getMessage():
                 error_seen.set()
 
-    async def _bad_callback(configuration: str) -> None:
+    def _bad_callback(configuration: str) -> None:
         if configuration == "broken.yaml":
             raise RuntimeError("scanner blew up")
         success_seen.set()
@@ -369,7 +369,7 @@ async def test_worker_logs_when_initial_fleet_sweep_raises(tmp_path: Path, caplo
 
     refreshed: list[str] = []
 
-    async def _on_refreshed(configuration: str) -> None:
+    def _on_refreshed(configuration: str) -> None:
         refreshed.append(configuration)
         success.set()
 

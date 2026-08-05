@@ -120,6 +120,7 @@ class DeviceMqttCoordinator:
         # both see a broker absent and leak one running monitor on the
         # dict overwrite.
         self._reconcile_lock = asyncio.Lock()
+        self._stopped = False
 
     @property
     def active_brokers(self) -> int:
@@ -145,21 +146,25 @@ class DeviceMqttCoordinator:
             brokers = await run_in_executor(
                 partial(self._collect_brokers, allow_slow_resolve=allow_slow_resolve)
             )
-            wanted_keys = {b.key for b in brokers}
-            # A fast pass may have treated slow-resolve brokers as
-            # absent, so it is additive-only — never a teardown signal.
-            existing_keys = set(self._monitors.keys()) if allow_slow_resolve else wanted_keys
-
-            for key in existing_keys - wanted_keys:
-                _LOGGER.info(
-                    "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
-                )
-                # Deregister only after a completed teardown so a cancel
-                # mid-stop (refine drained during shutdown) can't orphan
-                # a started monitor outside the registry ``stop()``
-                # walks; ``monitor.stop()`` is idempotent.
-                await self._monitors[key].stop()
-                del self._monitors[key]
+            if self._stopped:
+                # A reconcile that outlived ``stop()`` (wedged in the
+                # executor past the lock timeout, or queued on the lock)
+                # must not restart monitors on a closing loop.
+                return
+            if allow_slow_resolve:
+                # A fast pass may have treated slow-resolve brokers as
+                # absent, so it is additive-only — never a teardown
+                # signal.
+                for key in set(self._monitors) - {b.key for b in brokers}:
+                    _LOGGER.info(
+                        "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
+                    )
+                    # Deregister only after a completed teardown so a
+                    # cancel mid-stop can't orphan a started monitor
+                    # outside the registry ``stop()`` walks;
+                    # ``monitor.stop()`` is idempotent.
+                    await self._monitors[key].stop()
+                    del self._monitors[key]
 
             new_monitors: list[DeviceMqttMonitor] = []
             for broker in brokers:
@@ -184,9 +189,10 @@ class DeviceMqttCoordinator:
 
     async def stop(self) -> None:
         """Stop every active monitor and clear state."""
-        # Bounded: a legacy-REST reconcile stuck in a package fetch
-        # inside ``_collect_brokers`` must not stall shutdown; on
-        # timeout, stop what's registered without the lock.
+        self._stopped = True
+        # Bounded: a reconcile stuck in a package fetch inside
+        # ``_collect_brokers`` must not stall shutdown; on timeout,
+        # stop what's registered without the lock.
         acquired = False
         with contextlib.suppress(TimeoutError):
             async with asyncio.timeout(_STOP_LOCK_TIMEOUT_SECONDS):
@@ -278,9 +284,8 @@ class DeviceMqttCoordinator:
                 broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
                 if not allow_slow_resolve:
-                    # Cold-start fast pass: skip silently (no warn-gate
-                    # consumption) — the refine's trailing reconcile
-                    # re-runs with resolved extracts.
+                    # Skip silently — no warn-gate consumption; the
+                    # caller owes a full pass.
                     continue
                 broker = self._resolve_slow(yaml_path, device.mqtt_extract, yaml_stat, secrets_key)
             self._track_outcome(device.configuration, broker, seen, client_cert_devices, conflicts)

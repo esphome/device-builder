@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from ..helpers.async_ import drain_tasks, run_in_executor
@@ -47,8 +47,8 @@ _LOGGER = logging.getLogger(__name__)
 # Callback fired after a successful refresh actually changed the
 # cached triple. The owner uses it to queue a scanner reload so the
 # in-memory ``Device.build_size_bytes`` picks up the freshly-persisted
-# value via the metadata resolver. The return value is ignored.
-RefreshedCallback = Callable[[str], Awaitable[Any]]
+# value via the metadata resolver. Sync; the return value is ignored.
+RefreshedCallback = Callable[[str], Any]
 
 
 class BuildSizeRefresher(WakeWorker[str]):
@@ -165,6 +165,6 @@ class BuildSizeRefresher(WakeWorker[str]):
                 "build_size_info_mtime": result.signal.info_mtime,
             }
             try:
-                await self._on_refreshed(configuration)
+                self._on_refreshed(configuration)
             except Exception:
                 _LOGGER.exception("on_refreshed callback failed for %s", configuration)
