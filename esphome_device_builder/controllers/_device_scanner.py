@@ -391,22 +391,28 @@ class DeviceScanner(WakeWorker[str]):
 
     async def _drain(self) -> None:
         """Reload every filename currently queued."""
-        pending, self.pending = self.pending, set()
-        for filename in pending:
-            try:
-                reloaded = await self.reload(filename)
-            except Exception:
-                _LOGGER.exception("Background reload of %s failed", filename)
-                continue
-            if not reloaded:
-                # Tracked at request time but gone by drain time
-                # (concurrent delete / atomic-save mid-flight).
-                # Debug-level: the drain doesn't fail, but the
-                # vanished save is otherwise invisible.
-                _LOGGER.debug(
-                    "Background reload skipped: %s is no longer tracked",
-                    filename,
-                )
+        pending = self.swap_pending()
+        try:
+            while pending:
+                filename = pending.pop()
+                try:
+                    reloaded = await self.reload(filename)
+                except Exception:
+                    _LOGGER.exception("Background reload of %s failed", filename)
+                    continue
+                if not reloaded:
+                    # Tracked at request time but gone by drain time
+                    # (concurrent delete / atomic-save mid-flight).
+                    # Debug-level: the drain doesn't fail, but the
+                    # vanished save is otherwise invisible.
+                    _LOGGER.debug(
+                        "Background reload skipped: %s is no longer tracked",
+                        filename,
+                    )
+        finally:
+            # Same object as ``_draining`` — a raise mid-batch must not
+            # leave ``request`` skipping re-adds for lost items.
+            pending.clear()
 
     async def _do_scan(self, *, shallow: bool = False) -> None:
         path_to_cache_key = await run_in_executor(self._build_cache_keys)

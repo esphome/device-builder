@@ -157,7 +157,7 @@ def test_parse_mqtt_block_resolves_substitutions() -> None:
 
 def test_parse_mqtt_block_unresolved_substitution_returns_none() -> None:
     # No local substitutions block defines mqtt_host; the token must not
-    # become a host, so the caller falls through to the slow path.
+    # become a host, so the caller defers to the seed / reload path.
     yaml = "mqtt:\n  broker: ${mqtt_host}\n"
     assert parse_mqtt_block(yaml) is None
 
@@ -229,7 +229,7 @@ def test_parse_mqtt_block_resolves_ca_secret() -> None:
 
 def test_parse_mqtt_block_ca_include_returns_none() -> None:
     # An ``!include``d CA is invisible to the tolerant loader; a plaintext
-    # broker here would be wrong, so the caller must take the slow path.
+    # broker here would be wrong, so the caller must miss the fast tier.
     yaml = "mqtt:\n  broker: broker.example\n  certificate_authority: !include ca.pem\n"
     assert parse_mqtt_block(yaml) is None
 
@@ -828,41 +828,6 @@ async def test_coordinator_resolves_port_from_substitution(
     await coord.reconcile()
     assert coord.active_brokers == 1
     assert stub_monitor.instances[0].broker.port == 8883
-
-
-async def test_coordinator_resolves_broker_substitution_via_package(
-    tmp_path: Path,
-    stub_monitor: type[RecordingMonitor],
-) -> None:
-    alpha_yaml = "esphome:\n  name: alpha\npackages:\n  shared: !include common.yaml\n"
-    alpha_path = tmp_path / "alpha.yaml"
-    alpha_path.write_text(alpha_yaml)
-    device = Device(
-        name="alpha",
-        friendly_name="alpha",
-        configuration="alpha.yaml",
-        uses_mqtt=True,
-    )
-    devices = [device]
-    reloads: list[str] = []
-    coord = make_mqtt_coordinator(tmp_path, devices, reload_requests=reloads)
-
-    await coord.reconcile()
-    assert coord.active_brokers == 0
-    assert reloads == ["alpha.yaml"]
-
-    devices[0] = replace(
-        device,
-        mqtt_extract=build_test_extract(
-            alpha_path,
-            alpha_yaml,
-            {"mqtt": {"broker": "${mqtt_host}"}},
-            {"mqtt_host": "192.168.1.77"},
-        ),
-    )
-    await coord.reconcile()
-    assert coord.active_brokers == 1
-    assert stub_monitor.instances[0].broker.host == "192.168.1.77"
 
 
 async def test_coordinator_skips_unresolved_substitution(
@@ -3053,3 +3018,34 @@ async def test_coordinator_defers_teardown_while_reloads_pending(
     assert stub_monitor.instances[0].stopped is True
     assert coord.active_brokers == 1
     assert stub_monitor.instances[1].broker.host == "10.9.9.9"
+
+
+async def test_coordinator_reconcile_survives_stop_during_teardown(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A ``stop()`` landing mid-teardown neither crashes the pass nor restarts monitors."""
+    devices = [
+        write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 10.0.0.1\n"),
+        write_mqtt_device(tmp_path, "beta", "mqtt:\n  broker: 10.0.0.2\n"),
+    ]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+    await coord.reconcile()
+    assert coord.active_brokers == 2
+
+    async def _concurrent_stop() -> None:
+        coord._stopped = True
+        coord._monitors.clear()
+
+    devices[:] = [
+        write_mqtt_device(tmp_path, "alpha", None),
+        write_mqtt_device(tmp_path, "beta", None),
+    ]
+    with (
+        patch.object(stub_monitor.instances[0], "stop", _concurrent_stop),
+        patch.object(stub_monitor.instances[1], "stop", _concurrent_stop),
+    ):
+        await coord.reconcile()
+
+    assert coord.active_brokers == 0
+    assert len(stub_monitor.instances) == 2

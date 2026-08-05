@@ -104,7 +104,7 @@ class DeviceMqttCoordinator:
         self._on_ip_change = on_ip_change
         self._presence = presence
         self._monitors: dict[BrokerKey, DeviceMqttMonitor] = {}
-        # Positive-only slow-path cache keyed on the YAML's
+        # Positive-only seed-resolution cache keyed on the YAML's
         # ``(mtime_ns, size)`` plus the secrets file's. Package /
         # ``!include`` edits on a previously-cached device won't
         # invalidate — user needs a device-YAML touch or restart.
@@ -150,20 +150,13 @@ class DeviceMqttCoordinator:
                 return
             for configuration in needs_reload:
                 self._request_reload(configuration)
-            if not needs_reload:
-                # A pass with unresolved devices can't know their broker
-                # keys, so it is additive-only — teardown waits for the
-                # pass after their reloads land.
-                for key in set(self._monitors) - {b.key for b in brokers}:
-                    _LOGGER.info(
-                        "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
-                    )
-                    # Deregister only after a completed teardown so a
-                    # cancel mid-stop can't orphan a started monitor
-                    # outside the registry ``stop()`` walks;
-                    # ``monitor.stop()`` is idempotent.
-                    await self._monitors[key].stop()
-                    del self._monitors[key]
+            # A pass with unresolved devices can't know their broker
+            # keys, so it is additive-only — teardown waits for the
+            # pass after their reloads land.
+            if not needs_reload and not await self._stop_unwanted_monitors(
+                {b.key for b in brokers}
+            ):
+                return
 
             new_monitors: list[DeviceMqttMonitor] = []
             for broker in brokers:
@@ -184,7 +177,26 @@ class DeviceMqttCoordinator:
             # connection change via the callback above.
             self._assign_publishers()
             for monitor in new_monitors:
+                if self._stopped:
+                    return
                 await monitor.start()
+
+    async def _stop_unwanted_monitors(self, wanted: set[BrokerKey]) -> bool:
+        """Stop monitors for logins no longer referenced; False when ``stop()`` intervened."""
+        for key in set(self._monitors) - wanted:
+            _LOGGER.info(
+                "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
+            )
+            # Deregister only after a completed teardown so a cancel
+            # mid-stop can't orphan a started monitor outside the
+            # registry ``stop()`` walks; ``monitor.stop()`` is
+            # idempotent. ``pop`` because a timed-out ``stop()`` may
+            # have walked the registry mid-await.
+            await self._monitors[key].stop()
+            self._monitors.pop(key, None)
+            if self._stopped:
+                return False
+        return True
 
     async def stop(self) -> None:
         """Stop every active monitor and clear state."""
@@ -283,12 +295,9 @@ class DeviceMqttCoordinator:
                     continue
                 broker = parse_mqtt_block(yaml_content, secrets_map)
             if broker is None:
-                extract = device.mqtt_extract
                 cache_key = (yaml_stat.st_mtime_ns, yaml_stat.st_size, *secrets_key)
                 if _extract_needs_reload(extract, cache_key):
-                    # The scanner owns all YAML parsing: queue a deep
-                    # reload and skip silently — the scan-change nudge
-                    # reconciles once the resolved extract lands.
+                    # Skip silently — no warn-gate consumption.
                     needs_reload.append(device.configuration)
                     continue
                 broker = self._resolve_from_seed(yaml_path.name, extract, cache_key)
@@ -412,7 +421,7 @@ def parse_mqtt_block(
     to parse. ``!secret xyz`` references and ``${var}`` / ``$var``
     substitutions from the file's own ``substitutions:`` block are
     resolved; a broker still carrying an unresolved token returns
-    ``None`` so the caller falls through to the package-aware slow path.
+    ``None`` so the caller defers to the seed or a scanner reload.
     ``CLIENT_CERT_UNSUPPORTED`` flags a block using client-certificate
     auth, which discovery cannot do.
     """
@@ -422,27 +431,16 @@ def parse_mqtt_block(
 
 def _extract_fresh(extract: DeviceMqttExtract, yaml_stat: os.stat_result) -> bool:
     """Whether the scan-time extraction still matches the file on disk."""
-    return extract.yaml_mtime_ns == yaml_stat.st_mtime_ns and extract.yaml_size == yaml_stat.st_size
+    return extract.stamp[:2] == (yaml_stat.st_mtime_ns, yaml_stat.st_size)
 
 
 def _extract_needs_reload(
     extract: DeviceMqttExtract | None, cache_key: tuple[int, int, int, int]
 ) -> bool:
-    """
-    Whether a deep scanner reload could resolve this device's broker.
-
-    True for an absent, stale, or shallow-load extract; False for a
-    fresh deep extract — its parse already ran, so re-requesting would
-    loop forever on a genuinely unresolvable config.
-    """
+    """Return True for an absent, stale, or shallow-load extract."""
     if extract is None or extract.from_shallow_load:
         return True
-    return (
-        extract.yaml_mtime_ns,
-        extract.yaml_size,
-        extract.secrets_mtime_ns,
-        extract.secrets_size,
-    ) != cache_key
+    return extract.stamp != cache_key
 
 
 def _broker_from_mqtt_dict(

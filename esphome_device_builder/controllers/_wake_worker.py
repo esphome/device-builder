@@ -22,6 +22,9 @@ class WakeWorker[T]:
 
     def __init__(self) -> None:
         self.pending: set[T] = set()
+        # Items swapped out by the running drain cycle and not yet
+        # processed; ``request`` coalesces into it.
+        self._draining: set[T] = set()
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
         self._idle = asyncio.Event()
@@ -33,6 +36,11 @@ class WakeWorker[T]:
         Requires :meth:`start` to be in effect for progress;
         otherwise :meth:`wait_idle` will park until ``stop``.
         """
+        if item in self._draining:
+            # Still queued in the running drain cycle — its upcoming
+            # pass reads current state, so a re-add would only process
+            # it twice.
+            return
         self.pending.add(item)
         self._idle.clear()
         self._wake.set()
@@ -67,6 +75,11 @@ class WakeWorker[T]:
             _LOGGER.exception("Worker %s failed during shutdown", task.get_name())
         self._task = None
         self._idle.set()
+
+    def swap_pending(self) -> set[T]:
+        """Take the pending set for a drain cycle; clear it when the cycle ends."""
+        self._draining, self.pending = self.pending, set()
+        return self._draining
 
     async def wait_idle(self) -> None:
         """Park until pending is empty and no drain is in progress."""

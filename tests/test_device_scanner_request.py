@@ -16,6 +16,7 @@ ordering / failure-mode coverage lives in
 
 from __future__ import annotations
 
+import asyncio
 from itertools import count
 from pathlib import Path
 from typing import Any
@@ -215,3 +216,47 @@ async def test_worker_survives_failing_reload(tmp_path: Path) -> None:
 
     # Failing reload ran once and the worker survived to handle bedroom.
     assert reloaded == ["kitchen.yaml", "bedroom.yaml"]
+
+
+async def test_request_coalesces_into_the_running_drain_batch(tmp_path: Path) -> None:
+    """A request for a file still queued in the running cycle is not re-added."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    _write_yaml(cfg, "bedroom")
+
+    reload_calls: list[str] = []
+    first_started = asyncio.Event()
+    release = asyncio.Event()
+    real_reload = DeviceScanner.reload
+
+    async def _gated(self: DeviceScanner, filename: str) -> bool:
+        reload_calls.append(filename)
+        if len(reload_calls) == 1:
+            first_started.set()
+            await release.wait()
+        return await real_reload(self, filename)
+
+    with (
+        patch(
+            "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+            side_effect=_stub_load,
+        ),
+        patch.object(DeviceScanner, "reload", _gated),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan()
+        scanner.request("kitchen.yaml")
+        scanner.request("bedroom.yaml")
+        scanner.start()
+        try:
+            await first_started.wait()
+            queued = "bedroom.yaml" if reload_calls[0] == "kitchen.yaml" else "kitchen.yaml"
+            # Still awaiting its turn in the swapped batch — coalesces.
+            scanner.request(queued)
+            release.set()
+            await scanner.wait_idle()
+        finally:
+            await scanner.stop()
+
+    assert reload_calls.count(queued) == 1

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from functools import partial
 from typing import TYPE_CHECKING
 
+from ...helpers.async_ import log_task_exit
 from ...models import Device, DeviceEventData, EventType
 from .._device_scanner import ScanChange
 
@@ -12,6 +15,10 @@ if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
+
+# Coalesces the refine burst's per-device scan changes into ~one MQTT
+# reconcile per second of landing parses.
+_MQTT_RECONCILE_DEBOUNCE_SECONDS: float = 1.0
 
 
 def on_scan_change(
@@ -145,6 +152,27 @@ def _reconcile_rename(
         # re-add of the name inherits the stale state_source.
         controller._reachability.clear(previous.name)
         controller._state_monitor.forget(previous.name)
+
+
+def schedule_mqtt_reconcile(controller: DevicesController) -> None:
+    """Debounced MQTT reconcile; scan changes with mqtt deltas coalesce into one pass."""
+    if controller._stopped or controller._mqtt_reconcile_handle is not None:
+        return
+
+    def _fire() -> None:
+        controller._mqtt_reconcile_handle = None
+        if controller._stopped:
+            return
+        controller._mqtt_reconcile_task = asyncio.create_task(
+            controller._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
+        )
+        controller._mqtt_reconcile_task.add_done_callback(
+            partial(log_task_exit, "MQTT reconcile nudge")
+        )
+
+    controller._mqtt_reconcile_handle = asyncio.get_running_loop().call_later(
+        _MQTT_RECONCILE_DEBOUNCE_SECONDS, _fire
+    )
 
 
 def _nudge_mqtt(

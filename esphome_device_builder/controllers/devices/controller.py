@@ -115,10 +115,6 @@ _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 # where store loads and job restore need the disk.
 _BUILD_SIZE_SWEEP_DELAY_SECONDS: float = 20.0
 
-# Coalesces the refine burst's per-device scan changes into ~one MQTT
-# reconcile per second of landing parses.
-_MQTT_RECONCILE_DEBOUNCE_SECONDS: float = 1.0
-
 
 class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods need a refactor first)
     DeviceMetadataBase,
@@ -1284,24 +1280,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         firmware_sync.schedule_version_reprobe(self, configuration)
 
     def _schedule_mqtt_reconcile(self) -> None:
-        """Debounced MQTT reconcile; scan changes with mqtt deltas coalesce into one pass."""
-        if self._stopped or self._mqtt_reconcile_handle is not None:
-            return
-
-        def _fire() -> None:
-            self._mqtt_reconcile_handle = None
-            if self._stopped:
-                return
-            self._mqtt_reconcile_task = asyncio.create_task(
-                self._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
-            )
-            self._mqtt_reconcile_task.add_done_callback(
-                partial(log_task_exit, "MQTT reconcile nudge")
-            )
-
-        self._mqtt_reconcile_handle = asyncio.get_running_loop().call_later(
-            _MQTT_RECONCILE_DEBOUNCE_SECONDS, _fire
-        )
+        scan_change.schedule_mqtt_reconcile(self)
 
     def _cancel_reprobe_timers(self) -> None:
         """Cancel any pending post-flash re-probe timers."""

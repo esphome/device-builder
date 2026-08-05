@@ -132,6 +132,11 @@ class DeviceMqttExtract:
     # coordinator only requests a reload for the former.
     from_shallow_load: bool = False
 
+    @property
+    def stamp(self) -> tuple[int, int, int, int]:
+        """Freshness stamp: (yaml_mtime_ns, yaml_size, secrets_mtime_ns, secrets_size)."""
+        return (self.yaml_mtime_ns, self.yaml_size, self.secrets_mtime_ns, self.secrets_size)
+
 
 @dataclass
 class Device(DashboardModel):

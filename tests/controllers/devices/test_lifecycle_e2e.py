@@ -418,7 +418,7 @@ async def test_mqtt_nudge_debounce_coalesces_and_fires(
 ) -> None:
     """Repeated nudges share one timer, and its firing runs a single reconcile."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller._MQTT_RECONCILE_DEBOUNCE_SECONDS",
+        "esphome_device_builder.controllers.devices.scan_change._MQTT_RECONCILE_DEBOUNCE_SECONDS",
         0.0,
     )
     controller = DevicesController(make_db(tmp_path))
