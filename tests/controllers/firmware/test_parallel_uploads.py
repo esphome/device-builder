@@ -288,14 +288,14 @@ def test_upload_lane_concurrency_defaults() -> None:
     ("version", "expected"),
     [
         pytest.param("2026.7.0", 4, id="pre_lean_release"),
-        pytest.param("2026.8.0", 9, id="lean_release"),
-        pytest.param("2026.8.0-dev", 9, id="lean_dev"),
-        pytest.param("2027.1.0", 9, id="later_release"),
+        pytest.param("2026.8.0", 8, id="lean_release"),
+        pytest.param("2026.8.0-dev", 8, id="lean_dev"),
+        pytest.param("2027.1.0", 8, id="later_release"),
         pytest.param("", 4, id="unknown_version"),
     ],
 )
 def test_max_concurrent_uploads_version_gate(version: str, expected: int) -> None:
-    """Esphome 2026.8+ runs the lazy-import upload and log subprocesses, earning 9 slots."""
+    """Esphome 2026.8+ runs the lazy-import upload and log subprocesses, earning 8 slots."""
     assert max_concurrent_uploads(version) == expected
 
 

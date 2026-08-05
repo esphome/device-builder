@@ -199,7 +199,7 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
 
 - Three concurrent lanes — a compile lane (CPU, one job at a time), an
   upload lane (network, up to `MAX_CONCURRENT_UPLOADS` flashes at once:
-  4, or 9 when the installed esphome is 2026.8 or later, whose upload
+  4, or 8 when the installed esphome is 2026.8 or later, whose upload
   subprocess lazy-loads codegen, config validation, voluptuous and the
   bundle machinery — ~28 MiB per flash (esphome/esphome#17684,
   esphome/esphome#18093) — and whose log sessions defer the

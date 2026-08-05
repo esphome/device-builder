@@ -37,18 +37,18 @@ _JOBS_KEY = "_firmware_jobs"
 # measured), and lazily resolves the stacktrace decoder out of log
 # sessions (esphome/esphome#18048), handing back ~10 MiB of host
 # budget per open esp32 log stream, so that release line and later
-# earn five more slots. The gate trusts every 2026.8 build to carry
+# earn four more slots. The gate trusts every 2026.8 build to carry
 # these changes; a dev/beta snapshot from
 # before they merged briefly overclaims. OpenThread
 # flashes don't count against the cap — they serialize on their own
 # single-slot lane — so peak concurrency is this plus one thread flash.
 _UPLOAD_SLOTS = 4
-_UPLOAD_SLOTS_LEAN_SUBPROCESS = 9
+_UPLOAD_SLOTS_LEAN_SUBPROCESS = 8
 _LEAN_UPLOAD_RELEASE = (2026, 8)
 
 
 def max_concurrent_uploads(esphome_version: str) -> int:
-    """Upload-lane slot count for *esphome_version*: 9 on 2026.8+, else 4."""
+    """Upload-lane slot count for *esphome_version*: 8 on 2026.8+, else 4."""
     if release_line_at_least(esphome_version, _LEAN_UPLOAD_RELEASE):
         return _UPLOAD_SLOTS_LEAN_SUBPROCESS
     return _UPLOAD_SLOTS
