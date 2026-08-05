@@ -81,7 +81,7 @@ class WakeWorker[T]:
         self._idle.set()
 
     def swap_pending(self) -> set[T]:
-        """Take the pending set for a drain cycle; clear it when the cycle ends."""
+        """Take the pending set for a drain cycle; unprocessed items re-queue at cycle end."""
         self._draining, self.pending = self.pending, set()
         return self._draining
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import yaml
@@ -12,22 +13,15 @@ from ..yaml import FastestSafeLoader
 from ._parsing import _extract_resolved_substitutions
 
 
+@dataclass(frozen=True, slots=True)
 class SecretRef:
-    """Marker for an unresolved ``!secret <name>`` reference."""
+    """Marker for an unresolved ``!secret <name>`` reference.
 
-    __slots__ = ("name",)
+    Value equality matters: identity eq would defeat the reload event
+    suppression and the mqtt nudge gate for ``!secret`` blocks.
+    """
 
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def __eq__(self, other: object) -> bool:
-        # Value equality so an extract rebuild compares equal — identity
-        # eq would defeat the reload event suppression and the mqtt
-        # nudge gate for every ``!secret``-bearing block.
-        return isinstance(other, SecretRef) and other.name == self.name
-
-    def __hash__(self) -> int:
-        return hash(self.name)
+    name: str
 
 
 def extract_mqtt_block(yaml_content: str) -> tuple[dict[str, Any] | None, dict[str, str]]:

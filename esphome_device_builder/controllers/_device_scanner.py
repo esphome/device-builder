@@ -363,16 +363,15 @@ class DeviceScanner(WakeWorker[str]):
             # makes a miss here impossible since
             # ``find_path_by_filename`` just located *path*.
             previous_cache_key = self._index.cache_key(path)
-            previous = self._index.by_path.get(path)
+            previous = self._index.by_path[path]
             loaded = await run_in_executor(self._load_devices, {path})
             device = loaded.get(path)
             if device is None:
-                if previous is not None:
-                    # Poison the cache key so the next scan re-reads the
-                    # file instead of trusting the stale row — a shallow
-                    # seed would otherwise stay shallow forever.
-                    self._index.set(path, previous, _POISONED_CACHE_KEY)
-                    _LOGGER.warning("Reload of %s failed; will retry on the next scan", filename)
+                # Poison the cache key so the next scan re-reads the
+                # file instead of trusting the stale row — a shallow
+                # seed would otherwise stay shallow forever.
+                self._index.set(path, previous, _POISONED_CACHE_KEY)
+                _LOGGER.warning("Reload of %s failed; will retry on the next scan", filename)
                 return False
             # Refresh the cache key; if the YAML disappears in the
             # race window between load and re-stat, keep the
