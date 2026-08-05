@@ -57,6 +57,25 @@ def test_load_devices_fleet(
         scanner._load_devices(paths_set)
 
 
+@pytest.mark.parametrize("fleet_size", [5])
+def test_load_devices_fleet_shallow(
+    benchmark: BenchmarkFixture,
+    tmp_path: Path,
+    fleet_size: int,
+) -> None:
+    """Per-device cold-start seed cost with the resolved parse skipped."""
+    paths = synthesize_fleet(tmp_path, fleet_size)
+    paths_set = set(paths)
+    scanner = _make_scanner(tmp_path)
+
+    warm = scanner._load_devices(paths_set, shallow=True)
+    assert len(warm) == fleet_size
+
+    @benchmark
+    def run() -> None:
+        scanner._load_devices(paths_set, shallow=True)
+
+
 @pytest.mark.parametrize("fleet_size", [50, 200])
 def test_build_cache_keys_fleet(
     benchmark: BenchmarkFixture,

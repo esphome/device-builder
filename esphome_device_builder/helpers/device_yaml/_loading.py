@@ -66,6 +66,7 @@ def load_device_from_storage(
     queued_update: bool = False,
     api_encryption_active: str | None = None,
     previous: Device | None = None,
+    shallow: bool = False,
 ) -> Device:
     """
     Build a Device model from a YAML config file and its StorageJSON.
@@ -111,6 +112,10 @@ def load_device_from_storage(
     *previous* is the prior in-memory Device for this path, when one
     exists. Its ``runtime_state`` carries forward whole so a reload
     doesn't wipe what mDNS / ping has already discovered.
+
+    *shallow* skips the resolved-config parse and the validated-config
+    read; resolved-only fields degrade to their raw-text / StorageJSON
+    fallbacks.
     """
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
@@ -122,7 +127,7 @@ def load_device_from_storage(
     # YAML would miss configs that pull the api block in via include
     # or split it across packages. ``None`` on parse failure is fine;
     # ``api_encrypted`` falls back to False.
-    resolved_config = load_device_yaml(path)
+    resolved_config = None if shallow else load_device_yaml(path)
     # Feed the merged ``substitutions:`` from the resolved config back
     # into the meta readers so ``esphome.friendly_name: $room`` resolves
     # against substitutions contributed by ``packages:`` / ``!include``
@@ -365,6 +370,7 @@ def load_device_from_storage(
         # (same gap the ``api_enabled`` union closes via
         # ``loaded_integrations``; this flag has no StorageJSON field).
         ota_partition_access=target_platform == "esp32"
+        and not shallow
         and (
             extract_ota_partition_access(resolved_config)
             or compiled_config_has_ota_partition_access(filename)

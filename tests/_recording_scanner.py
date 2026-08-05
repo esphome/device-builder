@@ -19,7 +19,7 @@ class RecordingScanner:
 
     Mirrors every public method on the production ``DeviceScanner``
     (``scan`` / ``reload`` / ``request`` / ``start`` / ``stop`` /
-    ``get_by_name`` / ``devices`` / ``by_path``). Calls to the
+    ``wait_idle`` / ``get_by_name`` / ``devices`` / ``by_path``). Calls to the
     recordable ones land in ``self.calls`` as
     ``(method_name, *args)``; tests assert on the list directly
     instead of scattering ``MagicMock.assert_awaited_*`` lines.
@@ -59,12 +59,15 @@ class RecordingScanner:
         self.devices: list[object] = []
         self.by_path: dict[Path, object] = {}
 
-    async def scan(self) -> None:
+    async def scan(self, shallow: bool = False) -> None:
         self.calls.append(("scan",))
 
     async def reload(self, filename: str) -> bool:
         self.calls.append(("reload", filename))
         return self._reload_returns
+
+    async def wait_idle(self) -> None:
+        self.calls.append(("wait_idle",))
 
     def request(self, filename: str) -> None:
         self.calls.append(("request", filename))

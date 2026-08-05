@@ -374,3 +374,70 @@ async def test_scan_rebuckets_index_before_firing_callback(tmp_path: Path) -> No
     old_bucket, new_bucket = observed[0]
     assert old_bucket == []
     assert [d.name for d in new_bucket] == ["kitchen"]
+
+
+# ---------------------------------------------------------------------------
+# shallow scan threading
+# ---------------------------------------------------------------------------
+
+
+def _shallow_capturing_loader(seen: list[bool]) -> Any:
+    """Loader stub recording the ``shallow`` kwarg it was called with."""
+
+    def _capture(path: Path, *_a: Any, **kw: Any) -> Device:
+        seen.append(kw.get("shallow", False))
+        return Device(name=path.stem, friendly_name=path.stem, configuration=path.name)
+
+    return _capture
+
+
+async def test_scan_shallow_threads_to_loader(tmp_path: Path) -> None:
+    """``scan(shallow=True)`` passes the flag through to ``load_device_from_storage``."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    seen: list[bool] = []
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=_shallow_capturing_loader(seen),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan(shallow=True)
+
+    assert seen == [True]
+
+
+async def test_scan_default_is_deep(tmp_path: Path) -> None:
+    """A bare ``scan()`` loads deep."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    seen: list[bool] = []
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=_shallow_capturing_loader(seen),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan()
+
+    assert seen == [False]
+
+
+async def test_reload_after_shallow_scan_is_deep(tmp_path: Path) -> None:
+    """``reload`` always loads deep, even for a device seeded by a shallow scan."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    seen: list[bool] = []
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=_shallow_capturing_loader(seen),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan(shallow=True)
+        assert await scanner.reload("kitchen.yaml") is True
+
+    assert seen == [True, False]

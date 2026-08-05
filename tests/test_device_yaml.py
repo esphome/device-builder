@@ -1155,6 +1155,82 @@ def test_load_device_from_storage_resolves_config_once_for_packages(tmp_path: Pa
     assert spy.call_count == 1
 
 
+def test_load_device_from_storage_shallow_skips_resolved_parse(tmp_path: Path) -> None:
+    """``shallow=True`` never parses the resolved config or reads the validated cache."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome:\n  name: kitchen\nesp32:\n  board: esp32dev\n", encoding="utf-8")
+    with (
+        mock.patch(
+            "esphome_device_builder.helpers.device_yaml._loading.load_device_yaml",
+            side_effect=AssertionError("resolved parse ran in shallow mode"),
+        ),
+        mock.patch(
+            "esphome_device_builder.helpers.device_yaml._loading."
+            "compiled_config_has_ota_partition_access",
+            side_effect=AssertionError("validated-config read ran in shallow mode"),
+        ),
+    ):
+        device = load_device_from_storage(yaml_file, shallow=True)
+    assert device.name == "kitchen"
+    assert device.target_platform == "esp32"
+    assert device.ota_partition_access is False
+
+
+def test_load_device_from_storage_shallow_matches_deep_for_inline_meta(tmp_path: Path) -> None:
+    """Inline meta and the network fingerprint come from raw text, identical either way."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text(
+        "substitutions:\n"
+        "  room: Kitchen\n"
+        "esphome:\n"
+        "  name: kitchen\n"
+        "  friendly_name: ${room} Sensor\n"
+        "  comment: window sill\n"
+        "  area: kitchen\n"
+        "wifi:\n"
+        "  use_address: 192.168.1.50\n",
+        encoding="utf-8",
+    )
+    shallow = load_device_from_storage(yaml_file, shallow=True)
+    deep = load_device_from_storage(yaml_file)
+    assert shallow.name == deep.name == "kitchen"
+    assert shallow.friendly_name == deep.friendly_name == "Kitchen Sensor"
+    assert shallow.comment == deep.comment == "window sill"
+    assert shallow.area == deep.area == "kitchen"
+    assert shallow.network_fingerprint == deep.network_fingerprint != ""
+
+
+def test_load_device_from_storage_shallow_degrades_package_fields(tmp_path: Path) -> None:
+    """Package-contributed blocks wait for the deep load; raw-text fields survive."""
+    (tmp_path / "board.yaml").write_text(
+        "esp32:\n  board: esp32dev\nmqtt:\n  broker: 10.0.0.5\n", encoding="utf-8"
+    )
+    yaml_file = tmp_path / "ble.yaml"
+    yaml_file.write_text(
+        "esphome:\n  name: ble\npackages:\n  board: !include board.yaml\n",
+        encoding="utf-8",
+    )
+    shallow = load_device_from_storage(yaml_file, shallow=True)
+    deep = load_device_from_storage(yaml_file)
+    assert shallow.name == deep.name == "ble"
+    assert shallow.target_platform == ""
+    assert deep.target_platform == "esp32"
+    assert shallow.uses_mqtt is False
+    assert deep.uses_mqtt is True
+    assert shallow.directly_referenced_integrations == []
+
+
+def test_load_device_from_storage_shallow_mqtt_extract_from_raw_text(tmp_path: Path) -> None:
+    """An inline ``mqtt:`` block still yields a usable extract without the resolved parse."""
+    yaml_file = tmp_path / "kitchen.yaml"
+    yaml_file.write_text("esphome:\n  name: kitchen\nmqtt:\n  broker: 10.0.0.5\n", encoding="utf-8")
+    device = load_device_from_storage(yaml_file, shallow=True)
+    assert device.uses_mqtt is True
+    assert device.mqtt_extract is not None
+    assert device.mqtt_extract.main_block == {"broker": "10.0.0.5"}
+    assert device.mqtt_extract.resolved_block is None
+
+
 def test_load_device_from_storage_detects_deep_sleep(tmp_path: Path) -> None:
     """A top-level ``deep_sleep:`` block sets ``uses_deep_sleep``; its absence clears it."""
     sleeper = tmp_path / "sleeper.yaml"

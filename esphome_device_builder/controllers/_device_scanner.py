@@ -320,10 +320,14 @@ class DeviceScanner(WakeWorker[str]):
         """Return the configured device for YAML filename *configuration*, or ``None``."""
         return self._index.get_by_configuration(configuration)
 
-    async def scan(self) -> None:
-        """Refresh the device cache from disk, emitting per-file change events."""
+    async def scan(self, shallow: bool = False) -> None:  # noqa: FBT001, FBT002
+        """
+        Refresh the device cache from disk, emitting per-file change events.
+
+        *shallow* skips the resolved-config parse.
+        """
         async with self._lock:
-            await self._do_scan()
+            await self._do_scan(shallow)
 
     async def reload(self, filename: str) -> bool:
         """
@@ -399,7 +403,7 @@ class DeviceScanner(WakeWorker[str]):
                     filename,
                 )
 
-    async def _do_scan(self) -> None:
+    async def _do_scan(self, shallow: bool = False) -> None:  # noqa: FBT001, FBT002
         path_to_cache_key = await run_in_executor(self._build_cache_keys)
 
         old_paths = set(self._index.by_path.keys())
@@ -414,7 +418,7 @@ class DeviceScanner(WakeWorker[str]):
 
         paths_to_load = added_paths | updated_paths
         if paths_to_load:
-            loaded = await run_in_executor(self._load_devices, paths_to_load)
+            loaded = await run_in_executor(self._load_devices, paths_to_load, shallow)
             for path, device in loaded.items():
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
                 previous = self._index.by_path.get(path)
@@ -444,7 +448,7 @@ class DeviceScanner(WakeWorker[str]):
             result[file] = (stat.st_ino, stat.st_dev, stat.st_mtime, stat.st_size)
         return result
 
-    def _load_devices(self, paths: set[Path]) -> dict[Path, Device]:
+    def _load_devices(self, paths: set[Path], shallow: bool = False) -> dict[Path, Device]:  # noqa: FBT001, FBT002
         """Materialise Device models for *paths*. Logs and skips on failure."""
         result: dict[Path, Device] = {}
         get_metadata = self._make_metadata_resolver()
@@ -464,6 +468,7 @@ class DeviceScanner(WakeWorker[str]):
                     queued_update=metadata.queued_update,
                     api_encryption_active=metadata.api_encryption_active,
                     previous=self._index.by_path.get(path),
+                    shallow=shallow,
                 )
             except Exception:  # noqa: BLE001 — best-effort scan; one bad YAML mustn't kill the sweep
                 _LOGGER.warning("Failed to load device from %s", path.name)
