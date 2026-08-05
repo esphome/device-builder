@@ -10,6 +10,7 @@ broker login. Re-runs lifecycle on each poll so monitors track edits.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import ssl
@@ -109,6 +110,10 @@ class DeviceMqttCoordinator:
         # Per-login dedupe for the same-username/different-password
         # WARNING — WARNING once, DEBUG on repeats.
         self._conflict_logged: set[BrokerKey] = set()
+        # Two concurrent reconciles (cold-start refine vs poll) would
+        # both see a broker absent and leak one running monitor on the
+        # dict overwrite.
+        self._reconcile_lock = asyncio.Lock()
 
     @property
     def active_brokers(self) -> int:
@@ -125,36 +130,37 @@ class DeviceMqttCoordinator:
                 )
             return
 
-        brokers = await run_in_executor(self._collect_brokers)
-        wanted_keys = {b.key for b in brokers}
-        existing_keys = set(self._monitors.keys())
+        async with self._reconcile_lock:
+            brokers = await run_in_executor(self._collect_brokers)
+            wanted_keys = {b.key for b in brokers}
+            existing_keys = set(self._monitors.keys())
 
-        for key in existing_keys - wanted_keys:
-            _LOGGER.info(
-                "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
-            )
-            await self._monitors.pop(key).stop()
+            for key in existing_keys - wanted_keys:
+                _LOGGER.info(
+                    "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
+                )
+                await self._monitors.pop(key).stop()
 
-        new_monitors: list[DeviceMqttMonitor] = []
-        for broker in brokers:
-            if broker.key in self._monitors:
-                continue
-            monitor = DeviceMqttMonitor(
-                broker,
-                self._on_state_change,
-                self._on_ip_change,
-                presence=self._presence,
-                on_connection_change=self._assign_publishers,
-            )
-            self._monitors[broker.key] = monitor
-            new_monitors.append(monitor)
+            new_monitors: list[DeviceMqttMonitor] = []
+            for broker in brokers:
+                if broker.key in self._monitors:
+                    continue
+                monitor = DeviceMqttMonitor(
+                    broker,
+                    self._on_state_change,
+                    self._on_ip_change,
+                    presence=self._presence,
+                    on_connection_change=self._assign_publishers,
+                )
+                self._monitors[broker.key] = monitor
+                new_monitors.append(monitor)
 
-        # Election runs before start() so a new monitor never connects
-        # wearing the default publisher flag, and again on every
-        # connection change via the callback above.
-        self._assign_publishers()
-        for monitor in new_monitors:
-            await monitor.start()
+            # Election runs before start() so a new monitor never connects
+            # wearing the default publisher flag, and again on every
+            # connection change via the callback above.
+            self._assign_publishers()
+            for monitor in new_monitors:
+                await monitor.start()
 
     async def stop(self) -> None:
         """Stop every active monitor and clear state."""

@@ -279,6 +279,10 @@ class StubBus:
     def __init__(self) -> None:
         self.listeners: list[tuple[EventType, Any]] = []
         self.unsub_calls = 0
+        self.fired: list[tuple[EventType, Any]] = []
+
+    def fire(self, event_type: EventType, data: Any = None) -> None:
+        self.fired.append((event_type, data))
 
     def add_listener(self, event_type: EventType, handler: Any) -> Any:
         self.listeners.append((event_type, handler))

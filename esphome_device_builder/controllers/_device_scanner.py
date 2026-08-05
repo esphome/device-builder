@@ -343,8 +343,8 @@ class DeviceScanner(WakeWorker[str]):
         reload.
 
         Returns True when the device exists and was re-read; False if
-        the file isn't tracked. Fires ``ScanChange.RELOADED`` on
-        success (the YAML itself is unchanged here).
+        the file isn't tracked. Fires ``ScanChange.RELOADED`` when the
+        re-read changed any field (the YAML itself is unchanged here).
         """
         async with self._lock:
             path = self._index.find_path_by_filename(filename)
@@ -379,7 +379,12 @@ class DeviceScanner(WakeWorker[str]):
             except OSError:
                 cache_key = previous_cache_key
             self._index.set(path, device, cache_key)
-            self._on_change(ScanChange.RELOADED, device, previous)
+            # Dataclass eq spans every field the wire serializes (and
+            # more), so an equal rebuild is a guaranteed no-op frame —
+            # suppressing it keeps the cold-start refine burst (and any
+            # steady-state reload) from re-sending unchanged rows.
+            if device != previous:
+                self._on_change(ScanChange.RELOADED, device, previous)
             return True
 
     # ------------------------------------------------------------------

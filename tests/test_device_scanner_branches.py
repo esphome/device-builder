@@ -259,11 +259,12 @@ async def test_reload_passes_previous_device(tmp_path: Path) -> None:
     cfg = tmp_path / "configs"
     cfg.mkdir()
     _write_yaml(cfg, "kitchen")
+    builds = iter(["first", "second"])
 
     with patch(
         "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
         side_effect=lambda path, *_a, **_kw: Device(
-            name=path.stem, friendly_name=path.stem, configuration=path.name
+            name=path.stem, friendly_name=next(builds), configuration=path.name
         ),
     ):
         scanner, events = _make_scanner(cfg)
@@ -275,6 +276,26 @@ async def test_reload_passes_previous_device(tmp_path: Path) -> None:
     assert [kind for kind, _dev, _prev in events] == [ScanChange.RELOADED]
     # Identity, not equality — an equal rebuilt Device must not pass.
     assert events[0][2] is first_device
+
+
+async def test_reload_suppresses_event_for_identical_rebuild(tmp_path: Path) -> None:
+    """A reload whose rebuilt Device equals the indexed one fires no change event."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=lambda path, *_a, **_kw: Device(
+            name=path.stem, friendly_name=path.stem, configuration=path.name
+        ),
+    ):
+        scanner, events = _make_scanner(cfg)
+        await scanner.scan()
+        events.clear()
+        assert await scanner.reload("kitchen.yaml") is True
+
+    assert events == []
 
 
 async def test_scan_removed_passes_none_previous(tmp_path: Path) -> None:

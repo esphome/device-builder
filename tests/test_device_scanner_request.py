@@ -16,6 +16,7 @@ ordering / failure-mode coverage lives in
 
 from __future__ import annotations
 
+from itertools import count
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -48,8 +49,15 @@ def _write_yaml(config_dir: Path, name: str) -> Path:
     return path
 
 
+_load_seq = count()
+
+
 def _stub_load(path: Path, *_a: Any, **_kw: Any) -> Device:
-    return Device(name=path.stem, friendly_name=path.stem, configuration=path.name)
+    # Monotonic friendly_name: every rebuild differs, so the reload's
+    # equal-rebuild event suppression never hides a drain under test.
+    return Device(
+        name=path.stem, friendly_name=f"{path.stem}-{next(_load_seq)}", configuration=path.name
+    )
 
 
 async def test_request_drains_one_file(tmp_path: Path) -> None:

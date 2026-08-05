@@ -19,7 +19,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import run_in_executor
+from ...helpers.async_ import drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
@@ -72,6 +72,7 @@ from . import (
     mutations_simple,
     mutations_yaml,
     reachability,
+    refine,
     scan_change,
     search,
     state_callbacks,
@@ -133,6 +134,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # configuration so a re-flash cancels its predecessor; cancelled
         # en masse in stop().
         self._reprobe_timers: dict[str, asyncio.TimerHandle] = {}
+        # Background deep-reload of the shallow cold-start seed.
+        self._refine_task: asyncio.Task[None] | None = None
 
         # Constructed before the scanner so the first
         # ``_resolve_device_metadata`` reads off the store.
@@ -205,7 +208,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             get_filenames=lambda: (d.configuration for d in self._get_devices()),
             get_metadata_snapshot=self._metadata_store.snapshot_all,
             persist_size=self._persist_build_size,
-            on_refreshed=self._scanner.reload,
+            # ``request`` (not ``reload``) so a refresh landing while the
+            # cold-start refine drain is running coalesces into it
+            # instead of deep-parsing the same file twice.
+            on_refreshed=self._request_scanner_reload,
             initial_sweep_delay=_BUILD_SIZE_SWEEP_DELAY_SECONDS,
         )
         # Build the state monitor first so the reachability tracker
@@ -284,7 +290,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             group.create_task(self._pending_keys.async_load())
             group.create_task(self.migrate_board_id_user_set())
             group.create_task(run_in_executor(self._load_ignored_devices))
-        await self._scanner.scan()
+        # Shallow seed; the refine task spawned below deep-reloads each
+        # device off the startup critical path.
+        await self._scanner.scan(shallow=True)
         self._scanner.start()
         _LOGGER.info("Devices controller started — %d devices loaded", len(self._scanner.devices))
         await self._state_monitor.start()
@@ -296,6 +304,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # sweep to pick up CLI-compile drift, then drains per-device
         # requests as they arrive from the job-completion hook.
         self._build_size.start()
+        if self._scanner.devices:
+            self._refine_task = asyncio.create_task(refine.refine_shallow_scan(self))
 
     async def stop(self) -> None:
         """Stop background monitors so the process exits cleanly."""
@@ -304,6 +314,12 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
+        # Before scanner.stop(): the worker's teardown sets its idle
+        # event, which would release the refine's wait_idle and let it
+        # reconcile against a torn-down coordinator.
+        if self._refine_task is not None:
+            await drain_tasks([self._refine_task], log_exceptions=True)
+            self._refine_task = None
         await self._scanner.stop()
         await self._build_size.stop()
         await self._mqtt_coordinator.stop()
@@ -1249,6 +1265,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         for handle in self._reprobe_timers.values():
             handle.cancel()
         self._reprobe_timers.clear()
+
+    async def _request_scanner_reload(self, configuration: str) -> None:
+        """Queue a coalescing background reload of *configuration*."""
+        self._scanner.request(configuration)
 
     def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
         """Merge a fresh build-size triple into the metadata store."""
