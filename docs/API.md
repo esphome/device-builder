@@ -369,7 +369,7 @@ User-defined chips (name + optional `#rrggbb` color) that can be assigned to dev
 | `labels/list` | — | `[Label]` | Return every label in the global catalog |
 | `labels/create` | `{name, color?}` | `Label` | Create a label. `name` 1-50 chars, unique case-insensitive. `color` is `#rrggbb` (lowercased on save) or null. Server generates `id`. Fires `label_created`. |
 | `labels/update` | `{label_id, name?, color?}` | `Label` | Rename and / or recolor. Pass `color: null` to clear; omit `color` to leave it unchanged. Fires `label_updated`. |
-| `labels/delete` | `{label_id}` | `{deleted: true}` | Delete a label and cascade — every device entry with this id has it removed in the same transaction, then each affected device fires `device_updated`; finally `label_deleted` fires. |
+| `labels/delete` | `{label_id}` | `{deleted: true}` | Delete a label and cascade — every device entry with this id has it removed in the same transaction, then each affected device whose reload changed the row fires `device_updated`; finally `label_deleted` fires. |
 
 Renaming or recoloring a label leaves device assignments untouched — devices reference labels by id, not by name. The frontend is expected to subscribe to `subscribe_events`, fetch the catalog once via `labels/list`, then resolve ids → name + color at render time.
 

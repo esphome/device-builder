@@ -380,9 +380,7 @@ class DeviceScanner(WakeWorker[str]):
                 cache_key = previous_cache_key
             self._index.set(path, device, cache_key)
             # Dataclass eq spans every field the wire serializes (and
-            # more), so an equal rebuild is a guaranteed no-op frame —
-            # suppressing it keeps the cold-start refine burst (and any
-            # steady-state reload) from re-sending unchanged rows.
+            # more), so an equal rebuild is a guaranteed no-op frame.
             if device != previous:
                 self._on_change(ScanChange.RELOADED, device, previous)
             return True

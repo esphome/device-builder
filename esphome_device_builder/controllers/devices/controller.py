@@ -135,7 +135,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # configuration so a re-flash cancels its predecessor; cancelled
         # en masse in stop().
         self._reprobe_timers: dict[str, asyncio.TimerHandle] = {}
-        # Background deep-reload of the shallow cold-start seed.
         self._refine_task: asyncio.Task[None] | None = None
 
         # Constructed before the scanner so the first
@@ -307,8 +306,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # requests as they arrive from the job-completion hook.
         self._build_size.start()
         if self._scanner.devices:
-            # A silent crash here would leave rows permanently shallow
-            # (sticky cache key) with no visible cause until stop().
             self._refine_task = asyncio.create_task(
                 refine.refine_shallow_scan(self), name="Cold-start refine"
             )

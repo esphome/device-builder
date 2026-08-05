@@ -360,6 +360,36 @@ Green. Two mechanisms keep it out:
 guard the invariant in CI. New code that needs `esphome.components.*` data
 precomputes it into the index or runs in the helper, never an in-process import.
 
+## Cold-start device scan (shallow seed → background refine)
+
+The other cold-start cost is the initial device scan: the resolved YAML parse
+(`yaml_util.load_yaml` + `resolve_packages`) is single-threaded and, with
+remote `packages:` needing git clones, can block startup for tens of seconds.
+`DevicesController.start()` therefore seeds the fleet **shallow** — StorageJSON
+plus sidecars plus the raw-text pass only (`scan(shallow=True)`, skipping the
+resolved parse and the validated-config read) — serves immediately, then a
+background refine task (`controllers/devices/refine.py`) deep-reloads every
+device through the scanner's request/drain worker and finally re-runs the MQTT
+reconcile. That trailing reconcile is load-bearing: `_collect_brokers` gates on
+`uses_mqtt`, which a shallow row can't see for a package-sourced `mqtt:` block,
+and the presence-gated `poll()` never runs on a headless install. Shallow rows
+are sticky against the mtime cache — only a `reload` / `request` deepens them —
+which is exactly what the refine provides; steady-state scans stay deep.
+
+Two rules the refine established that every later caller inherits:
+
+- **`ScanChange.RELOADED` is conditional.** `DeviceScanner.reload` compares the
+  rebuilt `Device` against the indexed one and fires only on a difference.
+  Dataclass equality spans every field the wire serializes (and more), so a
+  suppressed frame is provably a no-op for clients; `device_updated` from any
+  reload-driven path (labels, build size, post-compile refresh) now means "the
+  row changed", not "a reload ran".
+- **The refine emits `RELOADED`, never `UPDATED`.** `DEVICE_YAML_UPDATED`
+  (version-history commits) keys on `UPDATED`, and the network-fingerprint
+  regen deliberately skips `RELOADED` (it fires on `ADDED`/`UPDATED` to catch
+  out-of-band edits), so a restart's refine burst can neither commit to git
+  nor spawn `--only-generate` per device.
+
 ## Authentication
 
 Auth is opaque server-issued session tokens, gated by the WebSocket handshake. See [API.md](API.md#authentication) for the wire protocol and [THREAT_MODEL.md](THREAT_MODEL.md) for what the auth gate is defending (short version: authenticated callers are host-equivalent, because `external_components:` provides arbitrary Python at compile time).

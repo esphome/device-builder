@@ -139,15 +139,12 @@ class DeviceMqttCoordinator:
                 _LOGGER.info(
                     "Stopping MQTT monitor for %s:%s user %r", key.host, key.port, key.username
                 )
-                monitor = self._monitors.pop(key)
-                try:
-                    await monitor.stop()
-                except asyncio.CancelledError:
-                    # A cancel mid-teardown (refine drained during
-                    # shutdown) must not orphan a started monitor
-                    # outside the registry ``stop()`` walks.
-                    self._monitors[key] = monitor
-                    raise
+                # Deregister only after a completed teardown so a cancel
+                # mid-stop (refine drained during shutdown) can't orphan
+                # a started monitor outside the registry ``stop()``
+                # walks; ``monitor.stop()`` is idempotent.
+                await self._monitors[key].stop()
+                del self._monitors[key]
 
             new_monitors: list[DeviceMqttMonitor] = []
             for broker in brokers:
