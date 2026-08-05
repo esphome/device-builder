@@ -131,13 +131,8 @@ def _reconcile_importables_on_rename(
         or previous.name == device.name
     ):
         return
-    # The ADDED retraction keyed on the name at add time; when a later
-    # reload corrects it (a rename, or a package-provided name the
-    # first load couldn't resolve), the importable row for the
-    # corrected name would otherwise stay visible to connected clients
-    # until the next ADDED/REMOVED. The freed old name is the other
-    # half of the transition: a cached announcement the configured-name
-    # filter was suppressing can resurface now.
+    # The ADDED retraction keys on the name at add time; the freed old
+    # name may have a suppressed announcement worth resurfacing.
     controller._on_importable_removed(device.name)
     controller._state_monitor.importable.revisit_importable(previous.name)
 
