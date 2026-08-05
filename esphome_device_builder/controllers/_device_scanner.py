@@ -13,6 +13,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from enum import StrEnum
+from functools import partial
 from pathlib import Path
 from types import MappingProxyType
 from typing import NamedTuple
@@ -320,10 +321,15 @@ class DeviceScanner(WakeWorker[str]):
         """Return the configured device for YAML filename *configuration*, or ``None``."""
         return self._index.get_by_configuration(configuration)
 
-    async def scan(self, shallow: bool = False) -> None:  # noqa: FBT001, FBT002
-        """Rescan the config dir, emitting change events; *shallow* skips the resolved parse."""
+    async def scan(self, *, shallow: bool = False) -> None:
+        """
+        Rescan the config dir, emitting change events; *shallow* skips the resolved parse.
+
+        Shallow rows keep their fresh cache key, so later scans skip
+        them until a ``reload`` / ``request`` deepens the row.
+        """
         async with self._lock:
-            await self._do_scan(shallow)
+            await self._do_scan(shallow=shallow)
 
     async def reload(self, filename: str) -> bool:
         """
@@ -399,7 +405,7 @@ class DeviceScanner(WakeWorker[str]):
                     filename,
                 )
 
-    async def _do_scan(self, shallow: bool = False) -> None:  # noqa: FBT001, FBT002
+    async def _do_scan(self, *, shallow: bool = False) -> None:
         path_to_cache_key = await run_in_executor(self._build_cache_keys)
 
         old_paths = set(self._index.by_path.keys())
@@ -414,7 +420,9 @@ class DeviceScanner(WakeWorker[str]):
 
         paths_to_load = added_paths | updated_paths
         if paths_to_load:
-            loaded = await run_in_executor(self._load_devices, paths_to_load, shallow)
+            loaded = await run_in_executor(
+                partial(self._load_devices, paths_to_load, shallow=shallow)
+            )
             for path, device in loaded.items():
                 kind = ScanChange.ADDED if path in added_paths else ScanChange.UPDATED
                 previous = self._index.by_path.get(path)
@@ -444,7 +452,7 @@ class DeviceScanner(WakeWorker[str]):
             result[file] = (stat.st_ino, stat.st_dev, stat.st_mtime, stat.st_size)
         return result
 
-    def _load_devices(self, paths: set[Path], shallow: bool = False) -> dict[Path, Device]:  # noqa: FBT001, FBT002
+    def _load_devices(self, paths: set[Path], *, shallow: bool = False) -> dict[Path, Device]:
         """Materialise Device models for *paths*. Logs and skips on failure."""
         result: dict[Path, Device] = {}
         get_metadata = self._make_metadata_resolver()
