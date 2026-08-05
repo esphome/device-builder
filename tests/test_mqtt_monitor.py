@@ -3049,3 +3049,20 @@ async def test_coordinator_reconcile_survives_stop_during_teardown(
 
     assert coord.active_brokers == 0
     assert len(stub_monitor.instances) == 2
+
+
+async def test_coordinator_skips_monitor_starts_when_stopped_mid_pass(
+    tmp_path: Path,
+    stub_monitor: type[RecordingMonitor],
+) -> None:
+    """A ``stop()`` landing before the start loop leaves new monitors unstarted."""
+    devices = [write_mqtt_device(tmp_path, "alpha", "mqtt:\n  broker: 10.0.0.1\n")]
+    coord = make_mqtt_coordinator(tmp_path, devices)
+
+    def _stop_during_election() -> None:
+        coord._stopped = True
+
+    with patch.object(coord, "_assign_publishers", _stop_during_election):
+        await coord.reconcile()
+
+    assert stub_monitor.instances[0].started is False

@@ -20,7 +20,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import drain_tasks, log_task_exit, run_in_executor
+from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
@@ -316,7 +316,10 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # requests as they arrive from the job-completion hook.
         self._build_size.start()
         if self._scanner.devices:
-            self._refine_task = asyncio.create_task(
+            # Eager: the request loop runs to its ``wait_idle`` park
+            # before ``start()`` returns, so the drain batch is fully
+            # staged for coalescing.
+            self._refine_task = create_eager_task(
                 refine.refine_shallow_scan(self), name="Cold-start refine"
             )
             self._refine_task.add_done_callback(partial(log_task_exit, "Cold-start refine"))
@@ -364,7 +367,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._mqtt_reconcile_handle = None
             if self._stopped:
                 return
-            self._mqtt_reconcile_task = asyncio.create_task(
+            self._mqtt_reconcile_task = create_eager_task(
                 self._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
             )
             self._mqtt_reconcile_task.add_done_callback(

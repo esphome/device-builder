@@ -447,3 +447,49 @@ async def test_stop_cancels_pending_mqtt_nudge(tmp_path: Path, make_db: MakeDbFa
 
     assert controller._mqtt_reconcile_handle is None
     assert "mqtt.reconcile" not in log
+
+
+async def test_stop_drains_a_running_mqtt_nudge_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
+) -> None:
+    """A nudge task still reconciling at stop() is drained, not orphaned."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller._MQTT_RECONCILE_DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = DevicesController(make_db(tmp_path))
+
+    async def _parked_reconcile(**_kw: object) -> None:
+        await asyncio.Event().wait()
+
+    with (
+        patch.multiple(controller._mqtt_coordinator, reconcile=_parked_reconcile, stop=AsyncMock()),
+        patch.multiple(controller._state_monitor, stop=AsyncMock()),
+    ):
+        controller.schedule_mqtt_reconcile()
+        await asyncio.sleep(0.01)
+        task = controller._mqtt_reconcile_task
+        assert task is not None
+        await controller.stop()
+
+    assert task.done()
+    assert controller._mqtt_reconcile_task is None
+
+
+async def test_mqtt_nudge_fire_skips_reconcile_when_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, make_db: MakeDbFactory
+) -> None:
+    """A fire racing shutdown starts nothing."""
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.controller._MQTT_RECONCILE_DEBOUNCE_SECONDS",
+        0.0,
+    )
+    controller = DevicesController(make_db(tmp_path))
+
+    with _capture_monitor_and_mqtt(controller) as log:
+        controller.schedule_mqtt_reconcile()
+        controller._stopped = True
+        await asyncio.sleep(0.01)
+
+    assert controller._mqtt_reconcile_task is None
+    assert "mqtt.reconcile" not in log
