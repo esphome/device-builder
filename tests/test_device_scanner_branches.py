@@ -441,3 +441,23 @@ async def test_reload_after_shallow_scan_is_deep(tmp_path: Path) -> None:
         assert await scanner.reload("kitchen.yaml") is True
 
     assert seen == [True, False]
+
+
+async def test_plain_scan_does_not_redeepen_shallow_rows(tmp_path: Path) -> None:
+    """Sticky-shallow: a later plain ``scan()`` skips an unchanged shallow row."""
+    cfg = tmp_path / "configs"
+    cfg.mkdir()
+    _write_yaml(cfg, "kitchen")
+    seen: list[bool] = []
+
+    with patch(
+        "esphome_device_builder.controllers._device_scanner.load_device_from_storage",
+        side_effect=_shallow_capturing_loader(seen),
+    ):
+        scanner, _ = _make_scanner(cfg)
+        await scanner.scan(shallow=True)
+        await scanner.scan()
+
+    # The unchanged cache key skipped the file entirely; only reload /
+    # request deepens the row.
+    assert seen == [True]
