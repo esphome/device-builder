@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 from esphome.const import KEY_CORE
-from esphome.core import CORE
+from esphome.core import CORE, EsphomeError
 from esphome.platformio.toolchain import KEY_IDEDATA, get_idedata
 from esphome.storage_json import StorageJSON
 
@@ -275,7 +275,10 @@ def test_pin_idedata_pins_a_sentinel_when_the_cache_is_not_required(tmp_path: Pa
     assert KEY_IDEDATA in CORE.data[KEY_CORE]
     # get_idedata answers off the memo, so it can never reach _load_idedata;
     # the empty sentinel then fails the way the latch already handles.
-    with pytest.raises(KeyError):
+    # KeyError on esphome before 2026.8, EsphomeError once IDEData
+    # classifies a stale cache (esphome/esphome#18076); the latch
+    # catches Exception either way.
+    with pytest.raises((KeyError, EsphomeError)):
         _ = get_idedata({}).addr2line_path
 
 
