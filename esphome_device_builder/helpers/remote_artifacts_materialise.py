@@ -20,7 +20,6 @@ import io
 import logging
 import os
 import re
-import sys
 import tarfile
 import time
 from collections.abc import Iterator
@@ -28,7 +27,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePath
 from typing import Any, NamedTuple
 
-from esphome.helpers import rmtree
+from esphome.helpers import rmtree, write_file
 from esphome.storage_json import StorageJSON
 from esphome.writer import storage_should_clean
 
@@ -50,7 +49,7 @@ from .tarball_read import check_member_size, parse_json_object, read_member
 from .validated_config_cache import (
     CACHE_MEMBER_NAMES,
     path_for_member,
-    sibling_cache_path,
+    unlink_validated_cache,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -400,31 +399,17 @@ def _stage_offloader_validated_cache(
 ) -> None:
     """Stage the receiver's validated-config cache at the offloader's path.
 
-    Written 0600 because the cache resolves !secret references inline.
-    mtime is touched to "now" so esphome's fast path (which gates on
-    cache mtime >= source YAML mtime) takes the cache instead of
-    re-running read_config. The other format's file is dropped so a
-    stale sibling from a prior esphome version can't shadow this one.
+    Both formats are dropped first so a stale sibling from a prior
+    esphome version can't shadow this one. ``write_file(private=True)``
+    stages in the destination dir and moves into place, so the
+    secret-bearing cache is never observable half-written or at a
+    permissive mode; the fresh mtime satisfies esphome's fast-path gate
+    (cache mtime >= source YAML mtime).
     """
     path = path_for_member(member_name, configuration)
     path.parent.mkdir(parents=True, exist_ok=True)
-    sibling_cache_path(path, configuration).unlink(missing_ok=True)
-    # Open with 0600 at creation time so the file is never momentarily
-    # readable at the process umask between write_bytes() and chmod().
-    # O_CREAT honours an existing inode's mode bits, so tighten with
-    # an explicit chmod afterwards too (no-op on Windows). O_BINARY
-    # only exists on Windows where it disables the CRLF translation
-    # that would otherwise corrupt the YAML bytes.
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
-    fd = os.open(path, flags, 0o600)
-    try:
-        os.write(fd, payload)
-    finally:
-        os.close(fd)
-    if sys.platform != "win32":
-        path.chmod(0o600)
-    now = time.time()
-    os.utime(path, (now, now))
+    unlink_validated_cache(configuration)
+    write_file(path, payload, private=True)
 
 
 @contextmanager

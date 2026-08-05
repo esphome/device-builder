@@ -545,5 +545,5 @@ def compiled_config_has_ota_partition_access(configuration: str) -> bool:
         return False
     if _CONF_ALLOW_PARTITION_ACCESS not in text:
         return False
-    config = parse_validated_cache(path)
+    config = parse_validated_cache(path, text)
     return config is not None and extract_ota_partition_access(config)

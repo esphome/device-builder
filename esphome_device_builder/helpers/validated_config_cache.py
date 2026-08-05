@@ -11,7 +11,6 @@ tarball member naming.
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -19,19 +18,25 @@ from typing import Any
 from esphome import yaml_util
 from esphome.core import EsphomeError
 
+from .json import loads as json_loads
 from .storage_path import resolve_data_dir
 
 _LOGGER = logging.getLogger(__name__)
 
-_JSON_SUFFIX = ".validated.json"
-_LEGACY_YAML_SUFFIX = ".validated.yaml"
-_ENVELOPE_VERSION = 1
-
 # Remote-build tarball member basenames; the receiver ships whichever
-# file its esphome wrote.
+# file its esphome wrote. Order is the read preference should a tarball
+# ever carry both.
 JSON_CACHE_MEMBER_NAME = "validated.json"
 LEGACY_YAML_CACHE_MEMBER_NAME = "validated.yaml"
 CACHE_MEMBER_NAMES = (JSON_CACHE_MEMBER_NAME, LEGACY_YAML_CACHE_MEMBER_NAME)
+
+_JSON_SUFFIX = f".{JSON_CACHE_MEMBER_NAME}"
+_LEGACY_YAML_SUFFIX = f".{LEGACY_YAML_CACHE_MEMBER_NAME}"
+# Mirrors esphome.compiled_config._CACHE_VERSION; bump together. The
+# envelope's "esphome" version stamp is deliberately ignored here: the
+# dashboard only reads flags, so a cache from a different esphome
+# version is still a valid read (esphome itself re-validates).
+_ENVELOPE_VERSION = 1
 
 
 def json_cache_path(configuration: str) -> Path:
@@ -53,7 +58,7 @@ def find_validated_cache(configuration: str) -> Path | None:
     """
     freshest: Path | None = None
     freshest_mtime = float("-inf")
-    for path in (json_cache_path(configuration), legacy_yaml_cache_path(configuration)):
+    for path in _cache_paths(configuration):
         try:
             mtime = path.stat().st_mtime
         except OSError:
@@ -64,10 +69,11 @@ def find_validated_cache(configuration: str) -> Path | None:
     return freshest
 
 
-def parse_validated_cache(path: Path) -> dict[Any, Any] | None:
+def parse_validated_cache(path: Path, text: str | None = None) -> dict[Any, Any] | None:
     """
     Parse the cache at *path* (format from suffix) into a plain config dict.
 
+    *text* skips a re-read when the caller already has the JSON bytes.
     JSON caches keep their lambda sentinels as dicts (no ``Lambda``
     revival — the dashboard only reads flags); the YAML parse keeps
     ``clear_secrets=False`` so the read never wipes the process-wide
@@ -76,11 +82,12 @@ def parse_validated_cache(path: Path) -> dict[Any, Any] | None:
     """
     if path.name.endswith(_JSON_SUFFIX):
         try:
-            envelope = json.loads(path.read_text(encoding="utf-8"))
+            envelope = json_loads(text if text is not None else path.read_bytes())
         except (OSError, ValueError) as err:
             _log_unparseable(path, err)
             return None
         if not isinstance(envelope, dict) or envelope.get("v") != _ENVELOPE_VERSION:
+            _LOGGER.debug("Validated-config cache %s has a foreign envelope", path)
             return None
         config = envelope.get("config")
         return config if isinstance(config, dict) else None
@@ -94,7 +101,7 @@ def parse_validated_cache(path: Path) -> dict[Any, Any] | None:
 
 def unlink_validated_cache(configuration: str) -> None:
     """Remove both cache formats for *configuration*; no-op if absent."""
-    for path in (json_cache_path(configuration), legacy_yaml_cache_path(configuration)):
+    for path in _cache_paths(configuration):
         try:
             path.unlink(missing_ok=True)
         except OSError as exc:
@@ -105,28 +112,24 @@ def unlink_validated_cache(configuration: str) -> None:
 
 def member_name_for(cache_path: Path) -> str:
     """Return the tarball member basename for *cache_path*."""
-    return (
-        JSON_CACHE_MEMBER_NAME
-        if cache_path.name.endswith(_JSON_SUFFIX)
-        else (LEGACY_YAML_CACHE_MEMBER_NAME)
-    )
+    if cache_path.name.endswith(_JSON_SUFFIX):
+        return JSON_CACHE_MEMBER_NAME
+    return LEGACY_YAML_CACHE_MEMBER_NAME
 
 
 def path_for_member(member_name: str, configuration: str) -> Path:
     """Return the local cache path a tarball *member_name* stages to."""
-    if member_name == JSON_CACHE_MEMBER_NAME:
-        return json_cache_path(configuration)
-    if member_name == LEGACY_YAML_CACHE_MEMBER_NAME:
-        return legacy_yaml_cache_path(configuration)
-    msg = f"unknown validated-cache member {member_name!r}"
-    raise ValueError(msg)
+    if member_name not in CACHE_MEMBER_NAMES:
+        msg = f"unknown validated-cache member {member_name!r}"
+        raise ValueError(msg)
+    return _cache_path(configuration, f".{member_name}")
 
 
-def sibling_cache_path(cache_path: Path, configuration: str) -> Path:
-    """Return the other format's path so a stager can drop the stale sibling."""
-    if cache_path.name.endswith(_JSON_SUFFIX):
-        return legacy_yaml_cache_path(configuration)
-    return json_cache_path(configuration)
+def _cache_paths(configuration: str) -> tuple[Path, Path]:
+    """Both formats' paths off one data-dir resolve; JSON first."""
+    storage_dir = resolve_data_dir(configuration) / "storage"
+    name = Path(configuration).name
+    return (storage_dir / f"{name}{_JSON_SUFFIX}", storage_dir / f"{name}{_LEGACY_YAML_SUFFIX}")
 
 
 def _cache_path(configuration: str, suffix: str) -> Path:
