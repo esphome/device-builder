@@ -275,9 +275,7 @@ def test_pin_idedata_pins_a_sentinel_when_the_cache_is_not_required(tmp_path: Pa
     assert KEY_IDEDATA in CORE.data[KEY_CORE]
     # get_idedata answers off the memo, so it can never reach _load_idedata;
     # the empty sentinel then fails the way the latch already handles.
-    # KeyError on esphome before 2026.8, EsphomeError once IDEData
-    # classifies a stale cache (esphome/esphome#18076); the latch
-    # catches Exception either way.
+    # Older ESPHome raises KeyError here; newer raises EsphomeError.
     with pytest.raises((KeyError, EsphomeError)):
         _ = get_idedata({}).addr2line_path
 
