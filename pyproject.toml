@@ -62,7 +62,7 @@ version = "0.0.0" # Set by GH action on release
 
 [project.optional-dependencies]
 esphome = [
-  "esphome>=2026.7.3",
+  "esphome>=2026.7.4",
 ]
 test = [
   "blockbuster>=1.5.5,<1.6",
