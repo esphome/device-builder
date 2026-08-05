@@ -321,11 +321,7 @@ class DeviceScanner(WakeWorker[str]):
         return self._index.get_by_configuration(configuration)
 
     async def scan(self, shallow: bool = False) -> None:  # noqa: FBT001, FBT002
-        """
-        Refresh the device cache from disk, emitting per-file change events.
-
-        *shallow* skips the resolved-config parse.
-        """
+        """Rescan the config dir, emitting change events; *shallow* skips the resolved parse."""
         async with self._lock:
             await self._do_scan(shallow)
 
