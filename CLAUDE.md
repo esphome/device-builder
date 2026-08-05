@@ -334,10 +334,10 @@ against legacy behaviour before assuming the simpler version suffices.
   rationale in `docs/ARCHITECTURE.md` "Event bus → Typing event payloads".
 - **Persistent firmware queue — three concurrent lanes.** A CPU/compile
   lane (one job at a time), a network/upload lane (up to
-  `MAX_CONCURRENT_UPLOADS` flashes at once — 4, or 8 with esphome
+  `MAX_CONCURRENT_UPLOADS` flashes at once — 4, or 9 with esphome
   2026.8+ whose upload subprocess is slimmer and whose log sessions
   defer the platform import (esphome/esphome#17684, esphome/esphome#18093,
-  esphome/esphome#18048);
+  esphome/esphome#18105, esphome/esphome#18106, esphome/esphome#18048);
   the cap bounds subprocess-tree memory), and a single-slot thread
   upload lane, all
   running concurrently, so a slow upload doesn't block the next compile

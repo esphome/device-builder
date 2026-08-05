@@ -199,13 +199,15 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
 
 - Three concurrent lanes — a compile lane (CPU, one job at a time), an
   upload lane (network, up to `MAX_CONCURRENT_UPLOADS` flashes at once:
-  4, or 8 when the installed esphome is 2026.8 or later, whose upload
-  subprocess defers codegen, config validation, voluptuous and the
-  bundle machinery for ~28 MiB per flash — esphome/esphome#17684 and
-  esphome/esphome#18093 — and whose log sessions defer the
-  stacktrace-decoder platform import and so hand back ~10 MiB of host
-  budget per open esp32 log stream, esphome/esphome#18048), and a
-  single-slot thread upload lane. The lanes run in parallel
+  4, or 9 when the installed esphome is 2026.8 or later, whose upload
+  subprocess defers codegen, config validation, voluptuous, the bundle
+  machinery and stray stdlib imports, and reads the validated-config
+  cache as JSON so pyyaml never loads on a cache hit, for ~28 MiB peak
+  per flash — esphome/esphome#17684, esphome/esphome#18093,
+  esphome/esphome#18105, esphome/esphome#18106 — and whose log sessions
+  defer the stacktrace-decoder platform import and so hand back ~10 MiB
+  of host budget per open esp32 log stream, esphome/esphome#18048), and
+  a single-slot thread upload lane. The lanes run in parallel
   so a slow network flash doesn't block the next device's compile
   (#3702), and OTAs don't serialize behind each other (esphome
   discussion #3781). The concurrency exists for deep-sleep wake

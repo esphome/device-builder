@@ -291,14 +291,14 @@ def test_upload_lane_concurrency_defaults() -> None:
     ("version", "expected"),
     [
         pytest.param("2026.7.0", 4, id="pre_lean_release"),
-        pytest.param("2026.8.0", 8, id="lean_release"),
-        pytest.param("2026.8.0-dev", 8, id="lean_dev"),
-        pytest.param("2027.1.0", 8, id="later_release"),
+        pytest.param("2026.8.0", 9, id="lean_release"),
+        pytest.param("2026.8.0-dev", 9, id="lean_dev"),
+        pytest.param("2027.1.0", 9, id="later_release"),
         pytest.param("", 4, id="unknown_version"),
     ],
 )
 def test_max_concurrent_uploads_version_gate(version: str, expected: int) -> None:
-    """2026.8+ earns 8 upload slots; older and unknown versions keep 4."""
+    """2026.8+ earns 9 upload slots; older and unknown versions keep 4."""
     assert max_concurrent_uploads(version) == expected
 
 
