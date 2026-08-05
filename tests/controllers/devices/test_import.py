@@ -124,7 +124,7 @@ async def test_import_device_writes_adoption_yaml_and_returns_path(
     # path; pin the full call list so a regression that double-scans
     # (or sneaks in a stray ``reload``) breaks here instead of
     # silently passing the membership check.
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 async def test_import_device_omits_wifi_for_ethernet_network(
@@ -1246,7 +1246,7 @@ async def test_import_device_keeps_yaml_when_validator_unavailable(
 
     assert result == {"configuration": "kitchen.yaml"}
     assert (tmp_path / "kitchen.yaml").exists()
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 async def test_import_device_propagates_generic_runtime_error(

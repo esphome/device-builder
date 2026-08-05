@@ -133,7 +133,7 @@ async def test_delete_device_unlinks_yaml_then_scans(
     await controller.delete_device(configuration="kitchen.yaml")
 
     assert not yaml_path.exists()
-    assert ("scan",) in controller._scanner.calls
+    assert ("scan", False) in controller._scanner.calls
 
 
 @pytest.mark.usefixtures("redirect_storage_path")
@@ -169,7 +169,7 @@ async def test_delete_bulk_returns_per_device_success_with_mixed_outcomes(
         {"configuration": "bedroom.yaml", "success": True},
     ]
     # Only one scan for the whole batch.
-    scan_calls = [c for c in controller._scanner.calls if c == ("scan",)]
+    scan_calls = [c for c in controller._scanner.calls if c == ("scan", False)]
     assert len(scan_calls) == 1
 
 
@@ -210,7 +210,7 @@ async def test_archive_bulk_returns_per_device_success_with_mixed_outcomes(
     assert (tmp_path / "archive" / "kitchen.yaml").exists()
     assert (tmp_path / "archive" / "bedroom.yaml").exists()
     # Only one scan for the whole batch.
-    scan_calls = [c for c in controller._scanner.calls if c == ("scan",)]
+    scan_calls = [c for c in controller._scanner.calls if c == ("scan", False)]
     assert len(scan_calls) == 1
 
 

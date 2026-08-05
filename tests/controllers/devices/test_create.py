@@ -245,7 +245,7 @@ async def test_create_device_emits_minimal_stub_when_no_board_or_file_content(
     assert "Replace this with your actual platform" in content
     assert "api:\n  encryption:\n    key:" in content
     assert "  ssid: !secret wifi_ssid\n" in content
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
     # Stub branch deliberately skips the catalog lookup so an
     # arbitrary entry sharing ``esp32dev`` doesn't get pinned to
     # this device's metadata before the user picks real hardware.
@@ -702,7 +702,7 @@ async def test_create_device_accepts_invalid_file_content_for_user_repair(
     # the editor.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == invalid_file_content
     # Scanner nudged so the device shows up in ``devices/list``.
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
     # Validator must NOT have been called for the upload branch.
     validate.assert_not_called()
 
@@ -757,7 +757,7 @@ async def test_create_device_accepts_old_esphome_version_yaml(
     assert result.configuration == "old-device.yaml"
     written = (tmp_path / "old-device.yaml").read_text("utf-8")
     assert written == legacy_yaml
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 async def test_create_device_rejects_binary_file_content(
@@ -1119,7 +1119,7 @@ async def test_create_device_overwrite_preserves_metadata(
     assert post.get("labels") == ["kitchen-label"]
     assert post.get("comment") == "my note"
     assert post.get("board_id") == "esp32-pick"
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")

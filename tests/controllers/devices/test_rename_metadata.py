@@ -161,7 +161,7 @@ async def test_completed_rename_migrates_metadata_then_scans(
     moved = await controller._shared_sidecar.get("livingroom.yaml")
     assert moved.get("labels") == ["a"]
     assert moved.get("comment") == "downstairs"
-    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
+    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan", False)]
 
 
 async def test_completed_rename_normalizes_new_name_with_extension(
@@ -214,7 +214,7 @@ async def test_completed_rename_scans_even_when_migration_fails(
     firmware_sync.on_job_completed(controller, Event(EventType.JOB_COMPLETED, {"job": job}))
 
     await scheduled[0]
-    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan",)]
+    assert controller._scanner.calls == [("reload", "livingroom.yaml"), ("scan", False)]
 
 
 async def test_migrate_reloads_a_device_the_mtime_cache_would_skip(
@@ -271,4 +271,4 @@ async def test_completed_rename_without_new_name_falls_back_to_scan(
 
     assert len(scheduled) == 1
     await scheduled[0]
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("scan", False)]

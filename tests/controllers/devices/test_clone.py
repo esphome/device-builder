@@ -96,7 +96,7 @@ async def test_clone_device_writes_new_yaml_and_swaps_name_friendly_key(
     # Source file untouched.
     assert (tmp_path / "kitchen.yaml").read_text("utf-8") == SOURCE_YAML
     # Scanner nudged so the new file lands in the next ``devices/list``.
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers")

@@ -60,7 +60,7 @@ class RecordingScanner:
         self.by_path: dict[Path, object] = {}
 
     async def scan(self, shallow: bool = False) -> None:
-        self.calls.append(("scan",))
+        self.calls.append(("scan", shallow))
 
     async def reload(self, filename: str) -> bool:
         self.calls.append(("reload", filename))

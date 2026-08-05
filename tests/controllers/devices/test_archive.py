@@ -393,7 +393,7 @@ async def test_archive_device_full_flow_calls_scanner(
 
     assert not yaml_path.exists()
     assert (tmp_path / "archive" / "kitchen.yaml").exists()
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("scan", False)]
 
 
 async def test_unarchive_device_full_flow_calls_scanner(
@@ -413,7 +413,7 @@ async def test_unarchive_device_full_flow_calls_scanner(
 
     assert not (archive_dir / "kitchen.yaml").exists()
     assert (tmp_path / "kitchen.yaml").exists()
-    assert controller._scanner.calls == [("scan",)]
+    assert controller._scanner.calls == [("scan", False)]
 
 
 async def test_list_archived_full_flow(

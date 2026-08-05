@@ -135,7 +135,7 @@ async def test_list_devices_scans_then_returns_configured_and_importable(
     assert [d.name for d in response.configured] == ["kitchen"]
     assert [d.name for d in response.importable] == ["kitchen-1a2b3c"]
     # Scanner was kicked once before the listing.
-    assert ("scan",) in controller._scanner.calls
+    assert ("scan", False) in controller._scanner.calls
 
 
 async def test_list_devices_filters_importable_already_configured(

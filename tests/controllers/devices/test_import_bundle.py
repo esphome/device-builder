@@ -115,7 +115,7 @@ async def test_import_bundle_lands_full_tree(
     assert (tmp_path / "secrets.yaml").read_text("utf-8") == "wifi_password: hunter2\n"
     # manifest.json is never written into the config dir.
     assert not (tmp_path / "manifest.json").exists()
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
@@ -163,7 +163,7 @@ async def test_import_bundle_overwrite_replaces_only_chosen_files(
     # The response reports the partial import honestly.
     assert result.written == ["kitchen.yaml"]
     assert result.kept == ["common/wifi.yaml"]
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows doesn't honor POSIX mode bits")
@@ -234,7 +234,7 @@ async def test_import_bundle_overwrite_main_preserves_metadata(
     assert post.get("labels") == ["lab"]
     assert post.get("comment") == "note"
     assert post.get("board_id") == "esp32-pick"
-    assert ctrl._scanner.calls == [("scan",)]
+    assert ctrl._scanner.calls == [("scan", False)]
 
 
 @pytest.mark.usefixtures("stub_create_device_metadata_helpers", "_bundle_storage_under_tmp")
