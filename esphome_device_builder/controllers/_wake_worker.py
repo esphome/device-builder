@@ -81,7 +81,13 @@ class WakeWorker[T]:
         self._idle.set()
 
     def swap_pending(self) -> set[T]:
-        """Take the pending set for a drain cycle; unprocessed items re-queue at cycle end."""
+        """
+        Take the pending set for a drain cycle; unprocessed items re-queue at cycle end.
+
+        ``request``'s coalescing skip applies only to subclasses that
+        consume through this; a ``_drain`` popping ``pending`` directly
+        re-queues intra-cycle instead.
+        """
         self._draining, self.pending = self.pending, set()
         return self._draining
 

@@ -379,7 +379,8 @@ class DeviceScanner(WakeWorker[str]):
                 # file instead of trusting the stale row — a shallow
                 # seed would otherwise stay shallow forever.
                 self._index.set(path, previous, _POISONED_CACHE_KEY)
-                _LOGGER.warning("Reload of %s failed; will retry on the next scan", filename)
+                # ``_load_devices`` already warned for this failure.
+                _LOGGER.debug("Reload of %s failed; will retry on the next scan", filename)
                 return False
             # Refresh the cache key; if the YAML disappears in the
             # race window between load and re-stat, keep the
