@@ -259,8 +259,7 @@ class ArtifactsDownloadSender:
 
         task = self._downloads.track(
             self._run_download(session, job_id, firmware_job.configuration),
-            name=f"artifacts-download-{job_id}",
-            label=f"artifacts download {job_id}",
+            name=f"artifacts download {job_id}",
         )
         if task is None:
             _LOGGER.warning(

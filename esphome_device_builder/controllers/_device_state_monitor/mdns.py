@@ -13,7 +13,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable, Mapping
-from functools import partial
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any
 
@@ -29,7 +28,7 @@ from zeroconf import (
 from zeroconf.asyncio import AsyncServiceBrowser, AsyncServiceInfo
 from zeroconf.const import _CLASS_IN, _TYPE_A, _TYPE_AAAA, _TYPE_SRV, _TYPE_TXT
 
-from ...helpers.async_ import drain_tasks, log_task_exit
+from ...helpers.async_ import create_logged_task, drain_tasks
 from ...helpers.hostname import normalize_hostname
 from ...helpers.ip import drop_unusable_addresses
 from ...models import DeviceState
@@ -140,9 +139,8 @@ class MdnsSource:
         # Keep the responder bound to the live interface set (VPN / Wi-Fi /
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
-            self._interface_monitor_task = asyncio.create_task(monitor_interfaces(self._zeroconf))
-            self._interface_monitor_task.add_done_callback(
-                partial(log_task_exit, "Interface monitor")
+            self._interface_monitor_task = create_logged_task(
+                monitor_interfaces(self._zeroconf), "Interface monitor"
             )
 
     async def cancel_browser(self) -> None:

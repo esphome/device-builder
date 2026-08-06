@@ -25,10 +25,9 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from functools import partial
 from typing import Any, Protocol
 
-from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit
+from ...helpers.async_ import create_eager_task, create_logged_task, drain_tasks
 from ...helpers.ip import drop_unusable_addresses, is_unusable_address
 from ...helpers.mac_addresses import normalize_mac
 from ...helpers.subscriber_presence import SubscriberPresence
@@ -221,12 +220,9 @@ class DeviceStateMonitor(TaskControllerBase):
         """Start the importable flow, mDNS browser, ping sweep, API info fallback, and reviver."""
         self.importable.setup()
         await self.mdns.start()
-        self._ping_task = asyncio.create_task(self.ping.run())
-        self._ping_task.add_done_callback(partial(log_task_exit, "Ping sweep"))
-        self._api_info_task = asyncio.create_task(self.api_info.run())
-        self._api_info_task.add_done_callback(partial(log_task_exit, "API info fallback"))
-        self._api_reviver_task = asyncio.create_task(self.api_reviver.run())
-        self._api_reviver_task.add_done_callback(partial(log_task_exit, "API reviver"))
+        self._ping_task = create_logged_task(self.ping.run(), "Ping sweep")
+        self._api_info_task = create_logged_task(self.api_info.run(), "API info fallback")
+        self._api_reviver_task = create_logged_task(self.api_reviver.run(), "API reviver")
 
     async def stop(self) -> None:
         """Tear down the browser and drain the ping + API + resolve tasks (bounded)."""

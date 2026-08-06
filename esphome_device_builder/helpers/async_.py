@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from asyncio import AbstractEventLoop, Task, gather, get_running_loop
 from collections.abc import Callable, Coroutine, Iterable
+from functools import partial
 from typing import Any
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,6 +67,18 @@ async def run_in_executor[T](fn: Callable[..., T], *args: Any) -> T:
     case. Pass a ``functools.partial`` / lambda when *fn* needs keywords.
     """
     return await get_running_loop().run_in_executor(None, fn, *args)
+
+
+def create_logged_task[T](
+    coro: Coroutine[Any, Any, T],
+    name: str,
+    *,
+    loop: AbstractEventLoop | None = None,
+) -> Task[T]:
+    """Create a named eager task that logs an unexpected crash."""
+    task = create_eager_task(coro, name=name, loop=loop)
+    task.add_done_callback(partial(log_task_exit, name))
+    return task
 
 
 def create_eager_task[T](

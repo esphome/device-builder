@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,7 +19,7 @@ from esphome.zeroconf import AsyncEsphomeZeroconf
 
 from ...constants import is_secrets_file
 from ...helpers.api import CommandError, api_command
-from ...helpers.async_ import create_eager_task, drain_tasks, log_task_exit, run_in_executor
+from ...helpers.async_ import create_logged_task, drain_tasks, run_in_executor
 from ...helpers.build_size import BuildSizeRefreshResult
 from ...helpers.device_yaml import board_requires_wifi
 from ...helpers.event_bus import Event
@@ -323,10 +322,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             # Eager: the request loop runs to its ``wait_idle`` park
             # before ``start()`` returns, so the drain batch is fully
             # staged for coalescing.
-            self._refine_task = create_eager_task(
-                refine.refine_shallow_scan(self), name="Cold-start refine"
+            self._refine_task = create_logged_task(
+                refine.refine_shallow_scan(self), "Cold-start refine"
             )
-            self._refine_task.add_done_callback(partial(log_task_exit, "Cold-start refine"))
 
     async def stop(self) -> None:
         """Stop background monitors so the process exits cleanly."""
@@ -368,11 +366,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._mqtt_reconcile_handle = None
             if self._stopped:
                 return
-            task = create_eager_task(
-                self._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
-            )
+            task = create_logged_task(self._mqtt_coordinator.reconcile(), "MQTT reconcile nudge")
             self._mqtt_reconcile_tasks.add(task)
-            task.add_done_callback(partial(log_task_exit, "MQTT reconcile nudge"))
             task.add_done_callback(self._mqtt_reconcile_tasks.discard)
 
         self._mqtt_reconcile_handle = asyncio.get_running_loop().call_later(

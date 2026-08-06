@@ -28,11 +28,7 @@ class ExtractWindow(TaskWindow):
 
     def spawn(self, key: _Key, coro: Coroutine[Any, Any, None]) -> None:
         """Run *coro* as the tracked extract task for *key*; refused once stopped."""
-        task = self.track(
-            coro,
-            name=f"submit-job-extract-{key[1]}",
-            label=f"submit-job extract {key[1]}",
-        )
+        task = self.track(coro, name=f"submit-job extract {key[1]}")
         if task is None:
             return
         self._index[key] = task
