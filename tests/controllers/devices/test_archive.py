@@ -148,11 +148,14 @@ async def test_archive_wipes_build_caches(
     idedata.write_text("{}", encoding="utf-8")
     validated = tmp_path / ".esphome" / "storage" / "kitchen.yaml.validated.yaml"
     validated.write_text("esphome: {}\n", encoding="utf-8")
+    validated_json = tmp_path / ".esphome" / "storage" / "kitchen.yaml.validated.json"
+    validated_json.write_text('{"v": 1, "config": {"esphome": {}}}', encoding="utf-8")
 
     await controller._archive_single("kitchen.yaml")
 
     assert not idedata.exists()
     assert not validated.exists()
+    assert not validated_json.exists()
 
 
 async def test_archive_clears_volatile_metadata_keeps_identity(
@@ -643,6 +646,8 @@ async def test_delete_archived_removes_yaml_and_sidecars(
     storage_path.write_text("{}", encoding="utf-8")
     validated_path = storage_dir / "kitchen.yaml.validated.yaml"
     validated_path.write_text("esphome: {}\n", encoding="utf-8")
+    validated_json_path = storage_dir / "kitchen.yaml.validated.json"
+    validated_json_path.write_text('{"v": 1, "config": {"esphome": {}}}', encoding="utf-8")
 
     controller = make_controller(tmp_path)
     await controller._delete_archived_single("kitchen.yaml")
@@ -650,6 +655,7 @@ async def test_delete_archived_removes_yaml_and_sidecars(
     assert not (archive_dir / "kitchen.yaml").exists()
     assert not storage_path.exists()
     assert not validated_path.exists()
+    assert not validated_json_path.exists()
 
 
 async def test_delete_archived_preserves_active_sidecars(

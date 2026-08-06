@@ -3,10 +3,7 @@ Validated-config cache (esphome's ``compiled_config``) awareness.
 
 esphome < 2026.8 writes ``<basename>.validated.yaml`` (a raw YAML dump);
 2026.8+ writes ``<basename>.validated.json`` wrapped in a
-``{"v", "esphome", "config"}`` envelope and removes the legacy file on
-save. Single source of truth for the dashboard side: path resolution,
-newest-cache discovery, format-detected parsing, removal, and the
-remote-build tarball member naming.
+``{"v", "esphome", "config"}`` envelope.
 """
 
 from __future__ import annotations
@@ -50,18 +47,16 @@ def legacy_yaml_cache_path(configuration: str) -> Path:
 
 
 def find_validated_cache(configuration: str) -> Path | None:
-    """
-    Return the freshest on-disk cache for *configuration*, or ``None``.
-
-    Newest mtime wins so an esphome up/downgrade that leaves the other
-    format's file lingering never shadows the file current compiles write.
-    """
+    """Return the freshest on-disk cache for *configuration*, or ``None``."""
     freshest: Path | None = None
     freshest_mtime = float("-inf")
     for path in _cache_paths(configuration):
         try:
             mtime = path.stat().st_mtime
-        except OSError:
+        except FileNotFoundError:
+            continue
+        except OSError as err:
+            _LOGGER.debug("Validated-config cache %s unreadable (%s)", path, type(err).__name__)
             continue
         if mtime > freshest_mtime:
             freshest = path

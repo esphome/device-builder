@@ -96,9 +96,7 @@ BUILD_INFO_MEMBER_NAME = "build_info.json"
 # upload` / `esphome logs` skip the full `read_config()` pipeline. Optional
 # member — skipped when the receiver predates the cache — shipped under
 # whichever member name matches the format the receiver's esphome wrote
-# (``validated.yaml`` before 2026.8, ``validated.json`` after). The
-# cache member names and their path binding live in
-# ``helpers.validated_config_cache``; the rest of the wire set is here.
+# (``validated.yaml`` before 2026.8, ``validated.json`` after).
 _METADATA_MEMBERS: frozenset[str] = frozenset(
     {
         STORAGE_MEMBER_NAME,

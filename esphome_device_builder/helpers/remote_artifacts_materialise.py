@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from pathlib import Path, PurePath
 from typing import Any, NamedTuple
 
+from esphome.core import EsphomeError
 from esphome.helpers import rmtree, write_file
 from esphome.storage_json import StorageJSON
 from esphome.writer import storage_should_clean
@@ -397,19 +398,22 @@ def _stage_offloader_validated_cache(
     member_name: str,
     payload: bytes,
 ) -> None:
-    """Stage the receiver's validated-config cache at the offloader's path.
+    """
+    Stage the receiver's validated-config cache, atomically and 0600.
 
-    Both formats are dropped first so a stale sibling from a prior
-    esphome version can't shadow this one. ``write_file(private=True)``
-    stages in the destination dir and moves into place, so the
-    secret-bearing cache is never observable half-written or at a
-    permissive mode; the fresh mtime satisfies esphome's fast-path gate
-    (cache mtime >= source YAML mtime).
+    Best-effort drops both formats first; raises
+    :class:`MaterialiseError` when the write fails.
     """
     path = path_for_member(member_name, configuration)
     path.parent.mkdir(parents=True, exist_ok=True)
     unlink_validated_cache(configuration)
-    write_file(path, payload, private=True)
+    try:
+        write_file(path, payload, private=True)
+    except EsphomeError as err:
+        # write_file wraps OSError; translate so the runner's IO seam
+        # keeps its "materialise IO error" framing.
+        msg = f"could not stage validated-config cache: {err}"
+        raise MaterialiseError(msg) from err
 
 
 @contextmanager

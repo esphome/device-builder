@@ -25,7 +25,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
-from esphome.core import CORE
+from esphome.core import CORE, EsphomeError
 from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
@@ -246,6 +246,24 @@ def test_materialise_stages_validated_json_for_esphome_fast_path(
     assert staged.read_bytes() == cache_body
     if sys.platform != "win32":
         assert (staged.stat().st_mode & 0o777) == 0o600
+
+
+def test_materialise_cache_write_failure_raises_materialise_error(
+    paired_roots: tuple[Path, Path],
+) -> None:
+    """write_file's EsphomeError translates so the runner's IO seam catches it."""
+    receiver_root, offloader_root = paired_roots
+    cache_body = b'{"v": 1, "esphome": "2026.8.0", "config": {"esphome": {"name": "kitchen"}}}'
+    tarball = _pack_in_tmp(receiver_root, validated_json=cache_body)
+
+    with (
+        patch(
+            "esphome_device_builder.helpers.remote_artifacts_materialise.write_file",
+            side_effect=EsphomeError("disk full"),
+        ),
+        pytest.raises(MaterialiseError, match="could not stage validated-config cache"),
+    ):
+        _materialise_in_tmp(tarball, offloader_root)
 
 
 def test_materialise_json_cache_drops_stale_yaml_sibling(
