@@ -120,13 +120,20 @@ def test_member_name_round_trip() -> None:
         path_for_member("validated.toml", "lamp.yaml")
 
 
-def test_find_logs_unreadable_cache(caplog: pytest.LogCaptureFixture) -> None:
+def test_find_logs_unreadable_cache(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A stat failure that isn't absence is debug-logged and skipped."""
-    storage_parent = json_cache_path("lamp.yaml").parent
-    storage_parent.parent.mkdir(parents=True, exist_ok=True)
-    # A file where the storage dir should be: stat under it raises
-    # NotADirectoryError, an OSError that isn't FileNotFoundError.
-    storage_parent.write_text("not a directory", encoding="utf-8")
+    real_stat = Path.stat
+
+    def _denied_stat(self: Path, **kwargs: object) -> object:
+        # Windows maps a mid-path file to FileNotFoundError, so drive the
+        # non-absence branch directly instead of through the filesystem.
+        if ".validated." in self.name:
+            raise PermissionError(13, "denied", str(self))
+        return real_stat(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "stat", _denied_stat)
 
     with caplog.at_level(
         logging.DEBUG, logger="esphome_device_builder.helpers.validated_config_cache"
