@@ -3669,3 +3669,16 @@ def test_secret_bearing_rebuild_compares_equal(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     assert load_device_from_storage(yaml_file) == load_device_from_storage(yaml_file)
+
+
+def test_load_device_ota_partition_access_unreadable_cache(tmp_path: Path) -> None:
+    """A cache that stats but cannot be read stays off instead of raising."""
+    yaml_path = tmp_path / "lamp.yaml"
+    yaml_path.write_text("esphome:\n  name: lamp\n", encoding="utf-8")
+    write_storage_json(tmp_path, "lamp.yaml")
+    # A directory at the cache path: stat succeeds, read_text raises OSError.
+    (tmp_path / ".esphome" / "storage" / "lamp.yaml.validated.json").mkdir(parents=True)
+
+    device = load_device_from_storage(yaml_path)
+
+    assert device.ota_partition_access is False

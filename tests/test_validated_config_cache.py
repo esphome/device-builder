@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -117,3 +118,19 @@ def test_member_name_round_trip() -> None:
     assert path_for_member(LEGACY_YAML_CACHE_MEMBER_NAME, "lamp.yaml") == yaml_path
     with pytest.raises(ValueError, match="unknown validated-cache member"):
         path_for_member("validated.toml", "lamp.yaml")
+
+
+def test_find_logs_unreadable_cache(caplog: pytest.LogCaptureFixture) -> None:
+    """A stat failure that isn't absence is debug-logged and skipped."""
+    storage_parent = json_cache_path("lamp.yaml").parent
+    storage_parent.parent.mkdir(parents=True, exist_ok=True)
+    # A file where the storage dir should be: stat under it raises
+    # NotADirectoryError, an OSError that isn't FileNotFoundError.
+    storage_parent.write_text("not a directory", encoding="utf-8")
+
+    with caplog.at_level(
+        logging.DEBUG, logger="esphome_device_builder.helpers.validated_config_cache"
+    ):
+        assert find_validated_cache("lamp.yaml") is None
+
+    assert "unreadable" in caplog.text

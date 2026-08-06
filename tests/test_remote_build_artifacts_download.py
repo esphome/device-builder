@@ -41,6 +41,7 @@ from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
     UnpackArtifactsError,
     _download_type_files,
     _render_tarball,
+    _validated_cache_is_fresh,
     pack_build_artifacts,
     read_artifacts_tarball,
     unpack_artifacts_response,
@@ -1462,3 +1463,10 @@ def test_read_artifacts_tarball_surfaces_malformed_tarball_as_unpack_error() -> 
     """A corrupt gzip / tar header → ``UnpackArtifactsError`` (not a tarfile traceback)."""
     with pytest.raises(UnpackArtifactsError, match="is malformed"):
         read_artifacts_tarball(b"definitely not a tarball")
+
+
+def test_validated_cache_freshness_unstatable_is_stale(tmp_path: Path) -> None:
+    """A cache or sidecar that cannot be statted never packs."""
+    assert (
+        _validated_cache_is_fresh(tmp_path / "gone.validated.json", tmp_path / "gone.json") is False
+    )
