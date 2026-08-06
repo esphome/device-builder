@@ -140,7 +140,7 @@ class MdnsSource:
         # Docker churn) for the instance's lifetime; cancelled in close_zeroconf.
         if self._zeroconf is not None:
             self._interface_monitor_task = create_logged_task(
-                monitor_interfaces(self._zeroconf), "Interface monitor"
+                monitor_interfaces(self._zeroconf), name="Interface monitor"
             )
 
     async def cancel_browser(self) -> None:

@@ -323,7 +323,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             # before ``start()`` returns, so the drain batch is fully
             # staged for coalescing.
             self._refine_task = create_logged_task(
-                refine.refine_shallow_scan(self), "Cold-start refine"
+                refine.refine_shallow_scan(self), name="Cold-start refine"
             )
 
     async def stop(self) -> None:
@@ -366,7 +366,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._mqtt_reconcile_handle = None
             if self._stopped:
                 return
-            task = create_logged_task(self._mqtt_coordinator.reconcile(), "MQTT reconcile nudge")
+            task = create_logged_task(
+                self._mqtt_coordinator.reconcile(), name="MQTT reconcile nudge"
+            )
             self._mqtt_reconcile_tasks.add(task)
             task.add_done_callback(self._mqtt_reconcile_tasks.discard)
 

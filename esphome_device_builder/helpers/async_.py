@@ -71,8 +71,8 @@ async def run_in_executor[T](fn: Callable[..., T], *args: Any) -> T:
 
 def create_logged_task[T](
     coro: Coroutine[Any, Any, T],
-    name: str,
     *,
+    name: str,
     loop: AbstractEventLoop | None = None,
 ) -> Task[T]:
     """Create a named eager task that logs an unexpected crash."""
