@@ -67,7 +67,7 @@ class RemoteBuildPeerRefreshedData(TypedDict):
     Fired when a re-pair against an existing APPROVED row refreshes
     its introduction fields; carries the refreshed row minus
     status/connected so a subscriber patches its list from the
-    event alone.
+    event alone. ``paired_at`` is always the original pair time.
     """
 
     dashboard_id: str

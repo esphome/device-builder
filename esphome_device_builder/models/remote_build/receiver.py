@@ -35,6 +35,7 @@ class StoredPeer(DashboardModel):
     pin_sha256: str
     static_x25519_pub: bytes
     label: str
+    # Original pair time; never refreshed — a re-pair keeps it.
     paired_at: float
     peer_ip: str = ""
     # Offloader-advertised human machine label (its mDNS
