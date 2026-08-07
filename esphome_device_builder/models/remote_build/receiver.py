@@ -78,8 +78,6 @@ class StoredPeer(DashboardModel):
         """
         self.pin_sha256 = pin_sha256
         self.static_x25519_pub = static_x25519_pub
-        # A request without a display value must not blank a captured
-        # one; blank never beats a name the receiver already shows.
         if label:
             self.label = label
         self.paired_at = paired_at

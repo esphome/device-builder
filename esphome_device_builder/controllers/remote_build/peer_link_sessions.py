@@ -15,6 +15,7 @@ from ...models import (
     ReceiverPeerLinkSessionOpenedData,
     StoredPeer,
 )
+from .peer_crud import PEERS_SAVE_DELAY_SECONDS
 from .peer_link import PeerLinkSession, TerminateReason
 
 if TYPE_CHECKING:
@@ -156,7 +157,9 @@ def _refresh_peer_display_identity(
         peer.ha_addon = session.peer_ha_addon
         changed = True
     if changed:
-        controller._peers_store.async_delay_save(controller._serialize_peers)
+        controller._peers_store.async_delay_save(
+            controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
+        )
     return peer
 
 

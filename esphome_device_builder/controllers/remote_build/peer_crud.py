@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 
 # Debounce window for the receiver-side peers-store write so a
-# burst of approvals collapses to one disk write.
+# burst of peer-row writes collapses to one disk write.
 PEERS_SAVE_DELAY_SECONDS = 1.0
 
 
