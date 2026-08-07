@@ -2620,8 +2620,8 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
     primary key) and persisted ``status`` are left alone. Pin
     that contract here so a future refactor can't silently drop
     or add a field without the docstring keeping up — the helper
-    is the seam future re-pair callers will reach for, and a
-    silent shape drift would land as a security-relevant bug
+    backs ``record_pair_request``'s APPROVED re-pair branch, and
+    a silent shape drift would land as a security-relevant bug
     (e.g. failing to refresh ``peer_ip`` on a DHCP-renewed
     offloader leaves the inbox showing a stale source IP).
     """
@@ -2659,6 +2659,32 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
     # alone; mutating it would orphan the dict entry under the
     # caller.
     assert peer.dashboard_id == "alpha"
+
+
+def test_stored_peer_refresh_keeps_captured_friendly_name_on_empty() -> None:
+    """An old offloader sending no name must not blank a captured friendly_name."""
+    peer = StoredPeer(
+        dashboard_id="alpha",
+        pin_sha256="pin",
+        static_x25519_pub=b"\x11" * 32,
+        label="old",
+        paired_at=1.0,
+        friendly_name="Office-PC",
+    )
+
+    peer.refresh_from_pair_request(
+        pin_sha256="pin",
+        static_x25519_pub=b"\x11" * 32,
+        label="renamed",
+        paired_at=2.0,
+        peer_ip="10.0.0.7",
+        friendly_name="",
+        ha_addon=False,
+        label_auto=False,
+    )
+
+    assert peer.friendly_name == "Office-PC"
+    assert peer.label == "renamed"
 
 
 async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
@@ -3383,18 +3409,17 @@ async def test_record_pair_request_pending_pubkey_mismatch_returns_rejected(
     )
 
 
-async def test_record_pair_request_already_approved_same_pin_returns_approved(
+async def test_record_pair_request_already_approved_same_pin_refreshes_row(
     tmp_path: Path,
 ) -> None:
     """
-    Pair-request from a still-trusted peer (same pin) returns "approved", no row change.
+    Re-pair from a still-trusted peer (same pin) stays APPROVED and refreshes the row.
 
-    Demoting an already-trusted peer back to PENDING on every
-    stray pair_request would force the receiver-side user to
-    re-approve on every offloader hiccup; pin the
-    no-demotion contract for the legitimate case (same dashboard
-    id + same pin = same peer, just resending pair_request by
-    mistake).
+    The row must never demote to PENDING (that would force a
+    re-approve on every offloader hiccup), but the request's
+    introduction fields are authoritative: a corrected label /
+    display identity reaches the receiver's list without an
+    unpair-and-re-approve round.
     """
     controller = _make_controller(config_dir=tmp_path)
     controller.offloader._db.bus = MagicMock()
@@ -3413,16 +3438,39 @@ async def test_record_pair_request_already_approved_same_pin_returns_approved(
         dashboard_id="alpha",
         pin_sha256=pin,
         static_x25519_pub=pubkey,
-        label="renamed-but-ignored",
+        label="renamed",
         peer_ip="10.0.0.1",
+        friendly_name="Office-PC",
+        ha_addon=True,
+        label_auto=True,
     )
 
     assert response.response == "approved"
     [peer] = controller.receiver.state.approved_peers.values()
     assert peer.pin_sha256 == pin
-    assert peer.label == "alpha"
-    assert peer.paired_at == 1.0
-    controller.offloader._db.bus.fire.assert_not_called()
+    assert peer.label == "renamed"
+    assert peer.peer_ip == "10.0.0.1"
+    assert peer.friendly_name == "Office-PC"
+    assert peer.ha_addon is True
+    assert peer.label_auto is True
+    assert peer.paired_at > 1.0
+    event_type, payload = controller.offloader._db.bus.fire.call_args[0]
+    assert event_type is EventType.REMOTE_BUILD_PEER_REFRESHED
+    assert payload == {
+        "dashboard_id": "alpha",
+        "pin_sha256": pin,
+        "label": "renamed",
+        "peer_ip": "10.0.0.1",
+        "paired_at": peer.paired_at,
+        "friendly_name": "Office-PC",
+        "ha_addon": True,
+        "label_auto": True,
+    }
+    # The refreshed row reaches disk through the debounced store save.
+    await controller.receiver._peers_store.async_save_now()
+    saved = json.loads((tmp_path / ".receiver_peers.json").read_text())
+    [row] = saved["peers"]
+    assert row["label"] == "renamed"
 
 
 async def test_record_pair_request_unknown_dashboard_id_closed_window_returns_no_pairing_window(

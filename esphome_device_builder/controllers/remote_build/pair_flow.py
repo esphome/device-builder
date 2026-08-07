@@ -17,8 +17,10 @@ from ...models import (
     RejectReason,
     RemoteBuildPairRequestReceivedData,
     RemoteBuildPairStatusChangedData,
+    RemoteBuildPeerRefreshedData,
     StoredPeer,
 )
+from .peer_crud import _PEERS_SAVE_DELAY_SECONDS
 
 if TYPE_CHECKING:
     from .receiver import ReceiverController
@@ -61,7 +63,9 @@ async def record_pair_request(
     * ``APPROVED`` — row exists for ``dashboard_id`` with
       APPROVED status and matching pin. Re-pair against
       existing trust bypasses the pairing window so an
-      offloader hiccup doesn't force a re-approve.
+      offloader hiccup doesn't force a re-approve; the row's
+      introduction fields refresh from the request and
+      :attr:`EventType.REMOTE_BUILD_PEER_REFRESHED` fires.
     * ``PENDING`` — new ``StoredPeer`` created or existing
       PENDING row refreshed. Only reachable inside an open
       pairing window; fires
@@ -97,6 +101,32 @@ async def record_pair_request(
                 pin_sha256,
             )
             return IntentOutcome(IntentResponse.REJECTED, RejectReason.PIN_MISMATCH)
+        approved_peer.refresh_from_pair_request(
+            pin_sha256=pin_sha256,
+            static_x25519_pub=static_x25519_pub,
+            label=label,
+            paired_at=time.time(),
+            peer_ip=peer_ip,
+            friendly_name=friendly_name,
+            ha_addon=ha_addon,
+            label_auto=label_auto,
+        )
+        controller._peers_store.async_delay_save(
+            controller._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS
+        )
+        refreshed: RemoteBuildPeerRefreshedData = {
+            "dashboard_id": dashboard_id,
+            "pin_sha256": pin_sha256,
+            "label": label,
+            "peer_ip": peer_ip,
+            "paired_at": approved_peer.paired_at,
+            # Post-refresh row value — an empty request name keeps the
+            # captured one.
+            "friendly_name": approved_peer.friendly_name,
+            "ha_addon": ha_addon,
+            "label_auto": label_auto,
+        }
+        controller._db.bus.fire(EventType.REMOTE_BUILD_PEER_REFRESHED, refreshed)
         return IntentOutcome(IntentResponse.APPROVED)
 
     if not controller.is_pairing_window_open():

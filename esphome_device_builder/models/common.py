@@ -101,6 +101,8 @@ class EventType(StrEnum):
     REMOTE_BUILD_PAIR_REQUEST_RECEIVED = "remote_build_pair_request_received"
     # Receiver-side peer status change (approved/removed)
     REMOTE_BUILD_PAIR_STATUS_CHANGED = "remote_build_pair_status_changed"
+    # Re-pair against an APPROVED row refreshed its introduction fields
+    REMOTE_BUILD_PEER_REFRESHED = "remote_build_peer_refreshed"
     # Offloader-side counterpart to REMOTE_BUILD_PAIR_STATUS_CHANGED
     OFFLOADER_PAIR_STATUS_CHANGED = "offloader_pair_status_changed"
     # Offloader pairing row created (request_pair); STATUS_CHANGED only flips

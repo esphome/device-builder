@@ -77,7 +77,10 @@ class StoredPeer(DashboardModel):
         self.label = label
         self.paired_at = paired_at
         self.peer_ip = peer_ip
-        self.friendly_name = friendly_name
+        # Non-empty-only, mirroring the session-open refresh: an older
+        # offloader that sends no name must not blank a captured one.
+        if friendly_name:
+            self.friendly_name = friendly_name
         self.ha_addon = ha_addon
         self.label_auto = label_auto
 

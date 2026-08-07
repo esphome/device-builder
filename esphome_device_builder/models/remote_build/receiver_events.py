@@ -60,6 +60,25 @@ class RemoteBuildPairRequestReceivedData(TypedDict):
     label_auto: bool
 
 
+class RemoteBuildPeerRefreshedData(TypedDict):
+    """
+    Payload for ``EventType.REMOTE_BUILD_PEER_REFRESHED``.
+
+    Fired when a re-pair against an existing APPROVED row refreshes
+    its introduction fields; carries the full refreshed row so a
+    subscriber patches its list from the event alone.
+    """
+
+    dashboard_id: str
+    pin_sha256: str
+    label: str
+    peer_ip: str
+    paired_at: float
+    friendly_name: str
+    ha_addon: bool
+    label_auto: bool
+
+
 class RemoteBuildPairStatusChangedData(TypedDict):
     """
     Payload for ``EventType.REMOTE_BUILD_PAIR_STATUS_CHANGED``.

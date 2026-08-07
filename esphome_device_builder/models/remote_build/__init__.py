@@ -63,6 +63,7 @@ from .receiver_events import (
     RemoteBuildPairingWindowChangedData,
     RemoteBuildPairRequestReceivedData,
     RemoteBuildPairStatusChangedData,
+    RemoteBuildPeerRefreshedData,
 )
 from .wire_frames import (
     ArtifactsChunkFrameData,
@@ -137,6 +138,7 @@ __all__ = (
     "RemoteBuildPairStatusChangedData",
     "RemoteBuildPairingWindowChangedData",
     "RemoteBuildPeer",
+    "RemoteBuildPeerRefreshedData",
     "RemoteBuildPeerSource",
     "RemoteBuildSettings",
     "RemoteBuildSettingsView",
