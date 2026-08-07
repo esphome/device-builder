@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from aiohttp import web
 
+from ....helpers.dashboard_advertise import dashboard_display_identity
 from ....helpers.dashboard_identity import DASHBOARD_ID_MAX_CHARS, DASHBOARD_ID_PATTERN
 from ....helpers.peer_link_noise import (
     HandshakeNotCompleteError,
@@ -25,7 +26,6 @@ from ....helpers.peer_link_noise import (
     pin_sha256_for_pubkey,
 )
 from ....models import IntentResponse, PeerLinkIntent, RejectReason
-from ..display_identity import dashboard_display_identity
 from ..pair_flow import IntentOutcome
 from .session import _run_peer_link_session
 from .wire_io import (

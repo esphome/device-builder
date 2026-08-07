@@ -26,6 +26,7 @@ import time
 from typing import TYPE_CHECKING
 
 from ...helpers.api import CommandError
+from ...helpers.dashboard_advertise import dashboard_display_identity
 from ...models import (
     ErrorCode,
     EventType,
@@ -49,7 +50,6 @@ from ._validators import (
     validate_pin_sha256,
     validate_port,
 )
-from .display_identity import dashboard_display_identity
 from .peer_link_client import PeerLinkClientError, PeerLinkPinMismatchError
 from .peer_link_client import preview_pair as peer_link_preview_pair
 from .peer_link_client import request_pair as peer_link_request_pair

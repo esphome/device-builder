@@ -822,6 +822,7 @@ def make_ws_device_builder(
     trusted_domains: list[str] | None = None,
     desktop_version: str = "",
     desktop_update_capable: bool = False,
+    friendly_name: str = "test-dashboard",
 ) -> MagicMock:
     """MagicMock ``DeviceBuilder`` carrying the settings the /ws handshake reads."""
     settings = MagicMock()
@@ -833,6 +834,9 @@ def make_ws_device_builder(
     settings.desktop_update_capable = desktop_update_capable
     device_builder = MagicMock()
     device_builder.settings = settings
+    # ``dashboard_display_identity`` reads this; a bare MagicMock would
+    # leak into the handshake JSON.
+    device_builder.dashboard_advertiser.friendly_name = friendly_name
     return device_builder
 
 

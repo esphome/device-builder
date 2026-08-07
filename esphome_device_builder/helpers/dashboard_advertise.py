@@ -69,6 +69,8 @@ from .async_ import run_in_executor
 if TYPE_CHECKING:
     from esphome.zeroconf import AsyncEsphomeZeroconf
 
+    from ..device_builder import DeviceBuilder
+
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_TYPE = "_esphomebuilder._tcp.local."
@@ -104,6 +106,19 @@ def default_friendly_name() -> str:
     raw = socket.gethostname() or ""
     label = raw.split(".", 1)[0].strip()
     return label or "esphome-dashboard"
+
+
+def dashboard_display_identity(db: DeviceBuilder) -> tuple[str, bool]:
+    """
+    Return ``(friendly_name, ha_addon)`` for this dashboard.
+
+    Reads the running :class:`DashboardAdvertiser` (the same values
+    published in mDNS TXT); falls back to the hostname-derived
+    default when zeroconf never came up.
+    """
+    advertiser = db.dashboard_advertiser
+    friendly = advertiser.friendly_name if advertiser is not None else default_friendly_name()
+    return friendly, db.settings.on_ha_addon
 
 
 def _is_loopback_adapter(adapter: ifaddr.Adapter) -> bool:

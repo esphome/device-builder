@@ -13,8 +13,8 @@ from esphome_device_builder.helpers.json import loads
 from .conftest import make_ws_device_builder
 
 
-def _bare_app() -> web.Application:
-    device_builder = make_ws_device_builder()
+def _bare_app(**kwargs: str) -> web.Application:
+    device_builder = make_ws_device_builder(**kwargs)
     app = web.Application()
     app["device_builder"] = device_builder
     app["trusted_site"] = True
@@ -41,3 +41,13 @@ async def test_server_info_forwards_in_docker(
     assert info["ha_addon"] is False
     assert info["in_docker"] is in_docker
     assert "desktop_version" in info
+
+
+async def test_server_info_carries_advertised_friendly_name(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """The handshake forwards the advertised display name."""
+    client = await aiohttp_client(_bare_app(friendly_name="buildbox"))
+    async with client.ws_connect("/ws") as ws:
+        info = loads((await ws.receive(timeout=2.0)).data)
+    assert info["friendly_name"] == "buildbox"
