@@ -20,7 +20,7 @@ from ...models import (
     RemoteBuildPeerRefreshedData,
     StoredPeer,
 )
-from .peer_crud import _PEERS_SAVE_DELAY_SECONDS
+from .peer_crud import PEERS_SAVE_DELAY_SECONDS
 
 if TYPE_CHECKING:
     from .receiver import ReceiverController
@@ -112,19 +112,19 @@ async def record_pair_request(
             label_auto=label_auto,
         )
         controller._peers_store.async_delay_save(
-            controller._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS
+            controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
         )
+        # Single-sourced from the row post-refresh so the payload can't
+        # drift from what the snapshot projection would show.
         refreshed: RemoteBuildPeerRefreshedData = {
             "dashboard_id": dashboard_id,
-            "pin_sha256": pin_sha256,
-            "label": label,
-            "peer_ip": peer_ip,
+            "pin_sha256": approved_peer.pin_sha256,
+            "label": approved_peer.label,
+            "peer_ip": approved_peer.peer_ip,
             "paired_at": approved_peer.paired_at,
-            # Post-refresh row value — an empty request name keeps the
-            # captured one.
             "friendly_name": approved_peer.friendly_name,
-            "ha_addon": ha_addon,
-            "label_auto": label_auto,
+            "ha_addon": approved_peer.ha_addon,
+            "label_auto": approved_peer.label_auto,
         }
         controller._db.bus.fire(EventType.REMOTE_BUILD_PEER_REFRESHED, refreshed)
         return IntentOutcome(IntentResponse.APPROVED)

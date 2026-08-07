@@ -39,9 +39,11 @@ class StoredPeer(DashboardModel):
     peer_ip: str = ""
     # Offloader-advertised human machine label (its mDNS
     # ``friendly_name``). Captured at pair time and refreshed on
-    # session-open only when the offloader sends a non-empty value.
+    # session-open and re-pair only when the offloader sends a
+    # non-empty value.
     friendly_name: str = ""
-    # Offloader-advertised HA add-on flag; refreshed on session-open.
+    # Offloader-advertised HA add-on flag; refreshed on session-open
+    # and re-pair.
     ha_addon: bool = False
     # True when the offloader's pair dialog label was left at its
     # auto-derived prefill — the UI's signal that ``friendly_name``
@@ -65,20 +67,23 @@ class StoredPeer(DashboardModel):
         Update the fields a fresh ``intent="pair_request"`` supplies.
 
         ``dashboard_id`` (the row's primary key) is intentionally
-        left out of the refresh set. Caller is responsible for the
-        no-demote-when-APPROVED check before invoking — see
-        ``record_pair_request`` for the gating logic. (PENDING vs
-        APPROVED is tracked outside this row: PENDING rows live
-        in ``ReceiverController._pending_peers``, APPROVED in
+        left out of the refresh set, and ``label`` /
+        ``friendly_name`` overwrite only with a non-empty value.
+        Caller is responsible for the no-demote-when-APPROVED check
+        before invoking — see ``record_pair_request`` for the
+        gating logic. (PENDING vs APPROVED is tracked outside this
+        row: PENDING rows live in
+        ``ReceiverController._pending_peers``, APPROVED in
         ``ReceiverPeers.peers``.)
         """
         self.pin_sha256 = pin_sha256
         self.static_x25519_pub = static_x25519_pub
-        self.label = label
+        # A request without a display value must not blank a captured
+        # one; blank never beats a name the receiver already shows.
+        if label:
+            self.label = label
         self.paired_at = paired_at
         self.peer_ip = peer_ip
-        # Non-empty-only, mirroring the session-open refresh: an older
-        # offloader that sends no name must not blank a captured one.
         if friendly_name:
             self.friendly_name = friendly_name
         self.ha_addon = ha_addon

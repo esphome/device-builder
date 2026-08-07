@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 # Debounce window for the receiver-side peers-store write so a
 # burst of approvals collapses to one disk write.
-_PEERS_SAVE_DELAY_SECONDS = 1.0
+PEERS_SAVE_DELAY_SECONDS = 1.0
 
 
 async def approve_peer(
@@ -51,7 +51,7 @@ async def approve_peer(
 
     controller.state.approved_peers[clean_id] = pending
     controller._peers_store.async_delay_save(
-        controller._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS
+        controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
     )
     controller._fire_pair_status_changed(clean_id, "approved")
     return await controller._current_settings_view()
@@ -92,7 +92,7 @@ async def remove_peer(
         msg = f"no peer with dashboard_id: {clean_id}"
         raise CommandError(ErrorCode.NOT_FOUND, msg)
     controller._peers_store.async_delay_save(
-        controller._serialize_peers, delay=_PEERS_SAVE_DELAY_SECONDS
+        controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
     )
     controller._fire_pair_status_changed(clean_id, "removed")
     return await controller._current_settings_view()
