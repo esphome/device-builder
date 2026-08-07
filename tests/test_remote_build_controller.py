@@ -63,16 +63,16 @@ from esphome_device_builder.controllers.remote_build._validators import (
 from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
 )
+from esphome_device_builder.controllers.remote_build.display_identity import (
+    dashboard_display_identity,
+)
 from esphome_device_builder.controllers.remote_build.peer_link_client import (
     PreviewResult,
 )
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.async_ import drain_tasks
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
-from esphome_device_builder.helpers.dashboard_advertise import (
-    SERVICE_TYPE,
-    dashboard_display_identity,
-)
+from esphome_device_builder.helpers.dashboard_advertise import SERVICE_TYPE
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.helpers.peer_link_identity import PeerLinkIdentityStore
 from esphome_device_builder.helpers.remote_build_layout import RemoteBuildPath

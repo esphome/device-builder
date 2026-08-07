@@ -26,9 +26,9 @@ from zeroconf import Zeroconf
 
 from ...helpers.api import CommandError
 from ...helpers.async_ import drain_tasks
-from ...helpers.dashboard_advertise import dashboard_display_identity
 from ...models import ErrorCode, PeerStatus, StoredPairing
 from ._models import PeerLinkClientHandle
+from .display_identity import dashboard_display_identity
 from .peer_link_client import PeerLinkClient
 
 if TYPE_CHECKING:

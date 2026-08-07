@@ -13,11 +13,11 @@ from esphome_device_builder.helpers.json import loads
 from .conftest import make_ws_device_builder
 
 
-def _bare_app(**kwargs: str) -> web.Application:
+def _bare_app(*, trusted: bool = True, **kwargs: str | bool) -> web.Application:
     device_builder = make_ws_device_builder(**kwargs)
     app = web.Application()
     app["device_builder"] = device_builder
-    app["trusted_site"] = True
+    app["trusted_site"] = trusted
     init_ws_app(app)
     app.router.add_routes(create_ws_routes())
     return app
@@ -51,3 +51,16 @@ async def test_server_info_carries_advertised_friendly_name(
     async with client.ws_connect("/ws") as ws:
         info = loads((await ws.receive(timeout=2.0)).data)
     assert info["friendly_name"] == "buildbox"
+
+
+async def test_server_info_withholds_friendly_name_before_auth(
+    aiohttp_client: AiohttpClient,
+) -> None:
+    """A connection still facing the in-band auth handshake gets no host name."""
+    client = await aiohttp_client(
+        _bare_app(trusted=False, using_password=True, friendly_name="buildbox")
+    )
+    async with client.ws_connect("/ws") as ws:
+        info = loads((await ws.receive(timeout=2.0)).data)
+    assert info["requires_auth"] is True
+    assert info["friendly_name"] == ""

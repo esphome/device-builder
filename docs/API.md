@@ -15,7 +15,7 @@ On connect, the server sends a [`ServerInfoMessage`](../esphome_device_builder/m
 {"server_version": "0.0.0", "esphome_version": "2026.3.1", "port": 6052, "ha_addon": false, "friendly_name": "buildbox", "ha_ingress": false, "requires_auth": false, "desktop_version": "", "desktop_update_capable": false, "in_docker": false}
 ```
 
-`friendly_name` is the dashboard's advertised display name — the same value published in the mDNS TXT and sent in the pairing handshake — so the pair dialog can prefill "How this dashboard introduces itself" with what a receiver will actually display (for an HA add-on, the container hostname the frontend maps to "Home Assistant App"; see the discovery TXT table below).
+`friendly_name` is the dashboard's advertised display name — the same value published in the mDNS TXT and sent in the pairing handshake — so the pair dialog can prefill "How this dashboard introduces itself" with what a receiver will actually display (for an HA add-on, the container hostname the frontend maps to "Home Assistant App"; see the discovery TXT table below). It is `""` on a connection that still needs the in-band `auth` handshake, so an unauthenticated client can't read the host's machine name.
 
 `ha_ingress` is `true` only when the connection is proxied through the HA Supervisor ingress (the `X-Ingress-Path` header is present); the frontend slims its header in that case so HA's own panel bar isn't doubled up. An add-on reached directly on its exposed port reports `ha_addon: true` but `ha_ingress: false`.
 

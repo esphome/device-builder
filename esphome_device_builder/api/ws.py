@@ -20,7 +20,7 @@ from ..controllers.auth import AuthError
 from ..helpers.api import CommandError
 from ..helpers.async_ import create_eager_task, drain_tasks
 from ..helpers.auth import extract_bearer_token
-from ..helpers.dashboard_advertise import dashboard_display_identity
+from ..helpers.dashboard_advertise import advertised_friendly_name
 from ..helpers.event_bus import StreamBackpressureError
 from ..helpers.json import JSONDecodeError, dumps_str, loads
 from ..helpers.origin import host_in_allowlist, request_origin_allowed
@@ -333,13 +333,18 @@ async def websocket_handler(request: web.Request) -> web.StreamResponse:
 
     # Per-connection: trusted-site and bearer-pre-auth connections don't need
     # the in-band auth handshake, so the frontend skips the login prompt.
-    friendly_name, ha_addon = dashboard_display_identity(device_builder)
     info = ServerInfoMessage(
         server_version=__version__,
         esphome_version=esphome_version,
         port=settings.port,
-        ha_addon=ha_addon,
-        friendly_name=friendly_name,
+        ha_addon=settings.on_ha_addon,
+        # The handshake predates the in-band auth exchange; don't disclose
+        # the host's machine name to unauthenticated clients.
+        friendly_name=(
+            advertised_friendly_name(device_builder.dashboard_advertiser)
+            if pre_authenticated
+            else ""
+        ),
         # Supervisor sets X-Ingress-Path only on ingress-proxied requests
         # (this WS upgrade included).
         ha_ingress=bool(request.headers.get("X-Ingress-Path")),
