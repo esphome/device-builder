@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from aiohttp import web
 from pytest_aiohttp.plugin import AiohttpClient
@@ -13,7 +15,7 @@ from esphome_device_builder.helpers.json import loads
 from .conftest import make_ws_device_builder
 
 
-def _bare_app(*, trusted: bool = True, **kwargs: str | bool) -> web.Application:
+def _bare_app(*, trusted: bool = True, **kwargs: Any) -> web.Application:
     device_builder = make_ws_device_builder(**kwargs)
     app = web.Application()
     app["device_builder"] = device_builder

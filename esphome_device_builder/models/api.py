@@ -108,9 +108,8 @@ class ServerInfoMessage(DashboardModel):
     esphome_version: str
     port: int
     ha_addon: bool = False
-    # Advertised display name (mDNS TXT / pairing handshake); "" until the
-    # connection is authenticated. The frontend maps the HA-addon container
-    # hostname to "Home Assistant App".
+    # Advertised display name (mDNS TXT / pairing handshake); "" on a
+    # connection that still needs the in-band auth handshake.
     friendly_name: str = ""
     # True only when the connection is proxied through HA ingress; an
     # add-on reached directly on its exposed port is False, unlike ha_addon.
