@@ -64,8 +64,9 @@ async def record_pair_request(
       APPROVED status and matching pin. Re-pair against
       existing trust bypasses the pairing window so an
       offloader hiccup doesn't force a re-approve; the row's
-      introduction fields refresh from the request and
-      :attr:`EventType.REMOTE_BUILD_PEER_REFRESHED` fires.
+      introduction fields refresh from the request and, when any
+      field changed, :attr:`EventType.REMOTE_BUILD_PEER_REFRESHED`
+      fires.
     * ``PENDING`` — new ``StoredPeer`` created or existing
       PENDING row refreshed. Only reachable inside an open
       pairing window; fires

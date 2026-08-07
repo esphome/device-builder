@@ -3509,6 +3509,9 @@ async def test_record_pair_request_noop_repair_skips_save_and_event(
 
     assert response.response == "approved"
     controller.offloader._db.bus.fire.assert_not_called()
+    # Flushing writes only when a save was scheduled, so the file's
+    # absence proves the save was skipped, not merely still debounced.
+    await controller.receiver._peers_store.async_save_now()
     assert not (tmp_path / ".receiver_peers.json").exists()
 
 
