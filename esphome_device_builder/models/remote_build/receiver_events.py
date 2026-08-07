@@ -65,8 +65,9 @@ class RemoteBuildPeerRefreshedData(TypedDict):
     Payload for ``EventType.REMOTE_BUILD_PEER_REFRESHED``.
 
     Fired when a re-pair against an existing APPROVED row refreshes
-    its introduction fields; carries the full refreshed row so a
-    subscriber patches its list from the event alone.
+    its introduction fields; carries the refreshed row minus
+    status/connected so a subscriber patches its list from the
+    event alone.
     """
 
     dashboard_id: str
