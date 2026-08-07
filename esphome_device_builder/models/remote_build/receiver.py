@@ -62,29 +62,45 @@ class StoredPeer(DashboardModel):
         friendly_name: str,
         ha_addon: bool,
         label_auto: bool,
-    ) -> None:
+    ) -> bool:
         """
         Update the fields a fresh ``intent="pair_request"`` supplies.
 
         ``dashboard_id`` (the row's primary key) and ``paired_at``
         (the original pair time) are intentionally left out of the
-        refresh set, and ``label`` / ``friendly_name`` overwrite
-        only with a non-empty value. Caller is responsible for the
+        refresh set; ``label`` / ``peer_ip`` / ``friendly_name``
+        overwrite only with a non-empty value, and ``label_auto``
+        travels with the label it annotates. Returns True when any
+        field changed. Caller is responsible for the
         no-demote-when-APPROVED check before invoking — see
         ``record_pair_request`` for the gating logic. (PENDING vs
         APPROVED is tracked outside this row: PENDING rows live in
         ``ReceiverController._pending_peers``, APPROVED in
         ``ReceiverPeers.peers``.)
         """
+        before = self._refresh_fields()
         self.pin_sha256 = pin_sha256
         self.static_x25519_pub = static_x25519_pub
         if label:
             self.label = label
-        self.peer_ip = peer_ip
+            self.label_auto = label_auto
+        if peer_ip:
+            self.peer_ip = peer_ip
         if friendly_name:
             self.friendly_name = friendly_name
         self.ha_addon = ha_addon
-        self.label_auto = label_auto
+        return self._refresh_fields() != before
+
+    def _refresh_fields(self) -> tuple[str, bytes, str, str, str, bool, bool]:
+        return (
+            self.pin_sha256,
+            self.static_x25519_pub,
+            self.label,
+            self.peer_ip,
+            self.friendly_name,
+            self.ha_addon,
+            self.label_auto,
+        )
 
 
 @dataclass

@@ -775,7 +775,8 @@ class DeviceBuilder:
                 # Receiver-side peers (PENDING + APPROVED) for the
                 # Pairing-requests inbox + paired list. Live
                 # updates flow from
-                # ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED`` and
+                # ``REMOTE_BUILD_PAIR_REQUEST_RECEIVED``,
+                # ``REMOTE_BUILD_PEER_REFRESHED``, and
                 # ``REMOTE_BUILD_PAIR_STATUS_CHANGED`` events.
                 initial["peers"] = [
                     summary.to_dict() for summary in self.remote_build_receiver.peers_snapshot()

@@ -2635,7 +2635,7 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
     )
 
     new_pubkey = b"\x22" * 32
-    peer.refresh_from_pair_request(
+    changed = peer.refresh_from_pair_request(
         pin_sha256="newpin",
         static_x25519_pub=new_pubkey,
         label="renamed",
@@ -2645,6 +2645,7 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
         label_auto=True,
     )
 
+    assert changed is True
     # All documented fields refreshed.
     assert peer.pin_sha256 == "newpin"
     assert peer.static_x25519_pub == new_pubkey
@@ -2671,18 +2672,22 @@ def test_stored_peer_refresh_keeps_captured_display_fields_on_empty() -> None:
         friendly_name="Office-PC",
     )
 
-    peer.refresh_from_pair_request(
+    changed = peer.refresh_from_pair_request(
         pin_sha256="pin",
         static_x25519_pub=b"\x11" * 32,
         label="",
-        peer_ip="10.0.0.7",
+        peer_ip="",
         friendly_name="",
         ha_addon=False,
-        label_auto=False,
+        label_auto=True,
     )
 
+    assert changed is False
     assert peer.friendly_name == "Office-PC"
     assert peer.label == "old"
+    assert peer.peer_ip == ""
+    # label_auto travels with the label; a retained label keeps its flag.
+    assert peer.label_auto is False
 
 
 async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
@@ -3473,6 +3478,38 @@ async def test_record_pair_request_already_approved_same_pin_refreshes_row(
     saved = json.loads((tmp_path / ".receiver_peers.json").read_text())
     [row] = saved["peers"]
     assert row["label"] == "renamed"
+
+
+async def test_record_pair_request_noop_repair_skips_save_and_event(
+    tmp_path: Path,
+) -> None:
+    """A retry-loop re-pair carrying identical values fires no event."""
+    controller = _make_controller(config_dir=tmp_path)
+    controller.offloader._db.bus = MagicMock()
+    pubkey = b"\x22" * 32
+    pin = hashlib.sha256(pubkey).hexdigest()
+    _seed_peer(
+        controller,
+        _stored_peer(
+            dashboard_id="alpha",
+            pin_sha256=pin,
+            static_x25519_pub=pubkey,
+            label="alpha",
+            paired_at=1.0,
+        ),
+    )
+
+    response = await controller.receiver.record_pair_request(
+        dashboard_id="alpha",
+        pin_sha256=pin,
+        static_x25519_pub=pubkey,
+        label="alpha",
+        peer_ip="192.168.1.10",
+    )
+
+    assert response.response == "approved"
+    controller.offloader._db.bus.fire.assert_not_called()
+    assert not (tmp_path / ".receiver_peers.json").exists()
 
 
 async def test_record_pair_request_repair_payload_keeps_captured_display_fields(

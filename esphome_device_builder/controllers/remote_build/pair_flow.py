@@ -101,7 +101,9 @@ async def record_pair_request(
                 pin_sha256,
             )
             return IntentOutcome(IntentResponse.REJECTED, RejectReason.PIN_MISMATCH)
-        approved_peer.refresh_from_pair_request(
+        # A no-op re-pair (retry loop) skips the disk write and the
+        # broadcast, matching the session-open refresh.
+        if approved_peer.refresh_from_pair_request(
             pin_sha256=pin_sha256,
             static_x25519_pub=static_x25519_pub,
             label=label,
@@ -109,23 +111,23 @@ async def record_pair_request(
             friendly_name=friendly_name,
             ha_addon=ha_addon,
             label_auto=label_auto,
-        )
-        controller._peers_store.async_delay_save(
-            controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
-        )
-        # Single-sourced from the row post-refresh so the payload can't
-        # drift from what the snapshot projection would show.
-        refreshed: RemoteBuildPeerRefreshedData = {
-            "dashboard_id": dashboard_id,
-            "pin_sha256": approved_peer.pin_sha256,
-            "label": approved_peer.label,
-            "peer_ip": approved_peer.peer_ip,
-            "paired_at": approved_peer.paired_at,
-            "friendly_name": approved_peer.friendly_name,
-            "ha_addon": approved_peer.ha_addon,
-            "label_auto": approved_peer.label_auto,
-        }
-        controller._db.bus.fire(EventType.REMOTE_BUILD_PEER_REFRESHED, refreshed)
+        ):
+            controller._peers_store.async_delay_save(
+                controller._serialize_peers, delay=PEERS_SAVE_DELAY_SECONDS
+            )
+            # Single-sourced from the row post-refresh so the payload can't
+            # drift from what the snapshot projection would show.
+            refreshed: RemoteBuildPeerRefreshedData = {
+                "dashboard_id": dashboard_id,
+                "pin_sha256": approved_peer.pin_sha256,
+                "label": approved_peer.label,
+                "peer_ip": approved_peer.peer_ip,
+                "paired_at": approved_peer.paired_at,
+                "friendly_name": approved_peer.friendly_name,
+                "ha_addon": approved_peer.ha_addon,
+                "label_auto": approved_peer.label_auto,
+            }
+            controller._db.bus.fire(EventType.REMOTE_BUILD_PEER_REFRESHED, refreshed)
         return IntentOutcome(IntentResponse.APPROVED)
 
     if not controller.is_pairing_window_open():
