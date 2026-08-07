@@ -57,7 +57,6 @@ class StoredPeer(DashboardModel):
         pin_sha256: str,
         static_x25519_pub: bytes,
         label: str,
-        paired_at: float,
         peer_ip: str,
         friendly_name: str,
         ha_addon: bool,
@@ -66,13 +65,13 @@ class StoredPeer(DashboardModel):
         """
         Update the fields a fresh ``intent="pair_request"`` supplies.
 
-        ``dashboard_id`` (the row's primary key) is intentionally
-        left out of the refresh set, and ``label`` /
-        ``friendly_name`` overwrite only with a non-empty value.
-        Caller is responsible for the no-demote-when-APPROVED check
-        before invoking — see ``record_pair_request`` for the
-        gating logic. (PENDING vs APPROVED is tracked outside this
-        row: PENDING rows live in
+        ``dashboard_id`` (the row's primary key) and ``paired_at``
+        (the original pair time) are intentionally left out of the
+        refresh set, and ``label`` / ``friendly_name`` overwrite
+        only with a non-empty value. Caller is responsible for the
+        no-demote-when-APPROVED check before invoking — see
+        ``record_pair_request`` for the gating logic. (PENDING vs
+        APPROVED is tracked outside this row: PENDING rows live in
         ``ReceiverController._pending_peers``, APPROVED in
         ``ReceiverPeers.peers``.)
         """
@@ -80,7 +79,6 @@ class StoredPeer(DashboardModel):
         self.static_x25519_pub = static_x25519_pub
         if label:
             self.label = label
-        self.paired_at = paired_at
         self.peer_ip = peer_ip
         if friendly_name:
             self.friendly_name = friendly_name

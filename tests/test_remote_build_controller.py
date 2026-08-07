@@ -2639,7 +2639,6 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
         pin_sha256="newpin",
         static_x25519_pub=new_pubkey,
         label="renamed",
-        paired_at=2.0,
         peer_ip="10.0.0.7",
         friendly_name="Nicks-Mac-Studio",
         ha_addon=True,
@@ -2650,15 +2649,15 @@ def test_stored_peer_refresh_from_pair_request_updates_all_documented_fields() -
     assert peer.pin_sha256 == "newpin"
     assert peer.static_x25519_pub == new_pubkey
     assert peer.label == "renamed"
-    assert peer.paired_at == 2.0
     assert peer.peer_ip == "10.0.0.7"
     assert peer.friendly_name == "Nicks-Mac-Studio"
     assert peer.ha_addon is True
     assert peer.label_auto is True
     # ``dashboard_id`` is the primary key — intentionally left
     # alone; mutating it would orphan the dict entry under the
-    # caller.
+    # caller. ``paired_at`` keeps the original pair time.
     assert peer.dashboard_id == "alpha"
+    assert peer.paired_at == 1.0
 
 
 def test_stored_peer_refresh_keeps_captured_display_fields_on_empty() -> None:
@@ -2676,7 +2675,6 @@ def test_stored_peer_refresh_keeps_captured_display_fields_on_empty() -> None:
         pin_sha256="pin",
         static_x25519_pub=b"\x11" * 32,
         label="",
-        paired_at=2.0,
         peer_ip="10.0.0.7",
         friendly_name="",
         ha_addon=False,
@@ -2685,7 +2683,6 @@ def test_stored_peer_refresh_keeps_captured_display_fields_on_empty() -> None:
 
     assert peer.friendly_name == "Office-PC"
     assert peer.label == "old"
-    assert peer.paired_at == 2.0
 
 
 async def test_start_seeds_approved_peers_dict_from_disk(tmp_path: Path) -> None:
@@ -3454,7 +3451,8 @@ async def test_record_pair_request_already_approved_same_pin_refreshes_row(
     assert peer.friendly_name == "Office-PC"
     assert peer.ha_addon is True
     assert peer.label_auto is True
-    assert peer.paired_at > 1.0
+    # The original pair time survives the re-pair.
+    assert peer.paired_at == 1.0
     # Exactly one event — a re-pair must not also fire a status change.
     fire = controller.offloader._db.bus.fire
     fire.assert_called_once()

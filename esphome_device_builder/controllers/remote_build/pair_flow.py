@@ -105,7 +105,6 @@ async def record_pair_request(
             pin_sha256=pin_sha256,
             static_x25519_pub=static_x25519_pub,
             label=label,
-            paired_at=time.time(),
             peer_ip=peer_ip,
             friendly_name=friendly_name,
             ha_addon=ha_addon,
