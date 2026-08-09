@@ -1153,6 +1153,22 @@ async def test_regenerate_retry_budget_exhausts_to_stamp(
     assert "regen_failed_at" in _read_store(controller, "kitchen.yaml")
 
 
+async def test_arm_retry_replaces_and_cancels_prior_handle() -> None:
+    """Re-arming for the same configuration cancels the prior timer."""
+    state = RegenState()
+    loop = asyncio.get_running_loop()
+    first = loop.call_later(30.0, lambda: None)
+    second = loop.call_later(30.0, lambda: None)
+
+    state.arm_retry("kitchen.yaml", first)
+    state.arm_retry("kitchen.yaml", second)
+
+    assert first.cancelled()
+    assert not second.cancelled()
+    assert state.retry_timers == {"kitchen.yaml": second}
+    state.cancel_all_retry_timers()
+
+
 async def test_cancel_all_retry_timers_cancels_pending_handles() -> None:
     """``stop()``'s mass-cancel leaves no live retry timer or strike behind."""
     state = RegenState()
