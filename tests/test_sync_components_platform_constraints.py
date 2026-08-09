@@ -28,6 +28,7 @@ import voluptuous as vol
 from script.sync_components import (  # type: ignore[import-not-found]
     _apply_platform_constraints,
     _collect_platform_constraints,
+    _only_with_platforms,
     _platform_set,
 )
 
@@ -183,6 +184,59 @@ def test_collect_walks_explicit_platform_list() -> None:
     assert out == {("min_free",): ["bk72xx", "esp32", "ln882x", "rtl87xx"]}
 
 
+def test_collect_only_with_chip_key_marker() -> None:
+    """A chip-keyed ``cv.OnlyWith`` gates the field to that chip."""
+    schema = {cv.OnlyWith("nrf_saadc", "nrf52"): cv.string}
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {("nrf_saadc",): ["nrf52"]}
+
+
+def test_collect_only_with_mixed_list_takes_chips_only() -> None:
+    """A mixed chip+component list contributes only its chip names here.
+
+    The non-chip half lands as ``depends_on_component`` via
+    ``_collect_component_gates``; the frontend ANDs both gates.
+    """
+    schema = {cv.OnlyWith("zigbee_switch", ["nrf52", "zigbee"]): cv.string}
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {("zigbee_switch",): ["nrf52"]}
+
+
+def test_collect_only_with_non_chip_yields_no_constraint() -> None:
+    """A component-keyed ``cv.OnlyWith`` is not a platform gate."""
+    schema = {cv.OnlyWith("web_server_id", "web_server"): cv.string}
+    assert _collect_platform_constraints(_FakeManifest(schema)) == {}
+
+
+def test_collect_intersects_key_and_value_gates() -> None:
+    """A chip-keyed ``cv.OnlyWith`` and a value-side ``cv.only_on`` intersect."""
+    schema = {
+        cv.OnlyWith("x", "esp32"): vol.All(cv.only_on(["esp32", "esp8266"]), cv.string),
+    }
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {("x",): ["esp32"]}
+
+
+def test_collect_disjoint_key_and_value_gates_warn_and_skip(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Disjoint key/value gates log the schema bug and record no constraint."""
+    schema = {cv.OnlyWith("x", "esp32"): cv.only_on_esp8266}
+    with caplog.at_level("WARNING"):
+        out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {}
+    assert any("collapsed to empty" in rec.message for rec in caplog.records)
+
+
+def test_only_with_platforms_canonicalizes_strenum() -> None:
+    """``Platform`` StrEnum members come back as plain strings."""
+    from esphome.const import Platform  # noqa: PLC0415
+
+    chips = _only_with_platforms(cv.OnlyWith("nrf_saadc", Platform.NRF52))
+    assert chips == frozenset({"nrf52"})
+    assert all(type(name) is str for name in chips)
+
+
 def test_collect_returns_empty_when_manifest_has_no_schema() -> None:
     """Missing ``config_schema`` is handled gracefully."""
 
@@ -283,3 +337,27 @@ def test_collect_against_live_debug_sensor_manifest() -> None:
     # appear in the constraints dict.
     assert ("free",) not in out
     assert ("loop_time",) not in out
+
+
+def test_collect_against_live_adc_sensor_manifest() -> None:
+    """End-to-end: chip-keyed ``cv.OnlyWith`` gates recover from the real adc schema.
+
+    ``nrf_saadc`` is gated by the key marker
+    (``cv.OnlyWith(..., PLATFORM_NRF52)``) while sibling ``attenuation``
+    is gated by a value-side ``cv.only_on_esp32`` — the two recovery
+    paths must both hold or the field renders on every board.
+    """
+    pytest.importorskip("esphome.components.adc.sensor")
+    from esphome.components.adc import sensor as adc_sensor  # noqa: PLC0415
+
+    out = _collect_platform_constraints(_FakeManifest(adc_sensor.CONFIG_SCHEMA))
+
+    assert ("nrf_saadc",) in out, (
+        "sensor.adc.nrf_saadc lost its platform gate — check whether upstream "
+        "moved off the chip-keyed cv.OnlyWith marker"
+    )
+    assert "nrf52" in out[("nrf_saadc",)]
+    assert all(type(name) is str for name in out[("nrf_saadc",)])
+
+    assert ("attenuation",) in out
+    assert "esp32" in out[("attenuation",)]

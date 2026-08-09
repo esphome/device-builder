@@ -6221,6 +6221,16 @@ def _requires_component_gate(validator: Any) -> str | None:
     return None
 
 
+def _only_with_names(key: Any) -> list[Any] | None:
+    """Required-component names of a ``cv.OnlyWith`` key marker, else None."""
+    if type(key).__name__ != "OnlyWith":
+        return None
+    if getattr(type(key), "__module__", "") != "esphome.config_validation":
+        return None
+    component = getattr(key, "_component", None)
+    return component if isinstance(component, list) else [component]
+
+
 def _only_with_gate(key: Any) -> str | None:
     """
     Component gating a ``cv.OnlyWith`` key marker, else None.
@@ -6228,17 +6238,25 @@ def _only_with_gate(key: Any) -> str | None:
     A list value requires every named component; the gate is the first
     non-chip name (chip gating belongs to ``supported_platforms``).
     """
-    if type(key).__name__ != "OnlyWith":
+    names = _only_with_names(key)
+    if names is None:
         return None
-    if getattr(type(key), "__module__", "") != "esphome.config_validation":
-        return None
-    component = getattr(key, "_component", None)
-    names = component if isinstance(component, list) else [component]
     chips = _target_platform_names()
     for name in names:
         if isinstance(name, str) and name and name not in chips:
             return name
     return None
+
+
+def _only_with_platforms(key: Any) -> frozenset[str] | None:
+    """Chip names a ``cv.OnlyWith`` key marker requires, else None."""
+    names = _only_with_names(key)
+    if names is None:
+        return None
+    chips = _target_platform_names()
+    # ``str()`` canonicalizes ``Platform`` StrEnum members.
+    found = frozenset(str(name) for name in names if isinstance(name, str) and name in chips)
+    return found or None
 
 
 def _collect_component_gates(manifest: Any) -> dict[tuple[str, ...], str]:
@@ -7522,7 +7540,10 @@ def _collect_platform_constraints(
     manifest: Any,
 ) -> dict[tuple[str, ...], list[str]]:
     """
-    Walk the live ``CONFIG_SCHEMA`` for per-field ``cv.only_on`` gates.
+    Walk the live ``CONFIG_SCHEMA`` for per-field platform gates.
+
+    Recovers value-side ``cv.only_on`` validators and chip-keyed
+    ``cv.OnlyWith`` key markers.
 
     Returns ``{key_path: sorted_platforms}`` keyed by tuple paths
     so nested fields can be looked up unambiguously. A path that
@@ -7539,8 +7560,23 @@ def _collect_platform_constraints(
 
     out: dict[tuple[str, ...], list[str]] = {}
 
-    def visit(_key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
-        constraint = _platform_set(val)
+    def visit(key: Any, _key_name: str, val: Any, path: tuple[str, ...]) -> None:
+        value_set = _platform_set(val)
+        key_set = _only_with_platforms(key)
+        if value_set and key_set:
+            # A chip-keyed ``cv.OnlyWith`` and a value-side ``cv.only_on``
+            # on the same field are conjunctive.
+            constraint = value_set & key_set
+            if not constraint:
+                _LOGGER.warning(
+                    "platform constraint intersection collapsed to empty "
+                    "(cv.OnlyWith chips disjoint from value gate) at %r: %r vs %r",
+                    path,
+                    sorted(key_set),
+                    sorted(value_set),
+                )
+        else:
+            constraint = value_set or key_set
         if constraint:
             out[path] = sorted(constraint)
 
