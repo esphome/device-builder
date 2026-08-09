@@ -1301,7 +1301,7 @@ async def test_regenerate_warns_when_yaml_unreadable(
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A non-vanish stat error skips loudly instead of masquerading as a vanish."""
+    """A non-vanish stat error re-arms the ladder loudly instead of stranding it."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     spawn_calls: list[tuple[str, ...]] = []
 
@@ -1327,6 +1327,9 @@ async def test_regenerate_warns_when_yaml_unreadable(
 
     assert spawn_calls == []
     assert any("config unreadable" in record.message for record in caplog.records)
+    # A transient errno keeps the ladder alive: the base backoff re-arms.
+    assert set(controller.state.regen.retry_timers) == {"kitchen.yaml"}
+    controller.state.regen.cancel_all_retry_timers()
     assert controller.state.regen.pending == set()
 
 

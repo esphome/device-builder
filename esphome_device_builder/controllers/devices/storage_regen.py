@@ -65,10 +65,13 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             return
         except OSError:
             _LOGGER.warning(
-                "Storage regenerate for %s: config unreadable; skipping",
+                "Storage regenerate for %s: config unreadable; retrying",
                 configuration,
                 exc_info=True,
             )
+            # A transient errno (EACCES, EIO on a network mount) must not
+            # strand the ladder: the firing timer already popped itself.
+            _arm_retry(controller, configuration, _RETRY_BACKOFF_BASE_SECONDS)
             return
         stamp = _fresh_stamp(
             controller._metadata_store.get(configuration), current_mtime, time.time()

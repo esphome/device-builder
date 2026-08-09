@@ -131,8 +131,6 @@ def set_device_metadata(
     ip: str | None = None,
     expected_config_hash: str | None = None,
     mac_address: str | None = None,
-    regen_failed_mtime: float | None = None,
-    regen_failed_at: float | None = None,
     build_size_bytes: int | None = None,
     build_size_dir_mtime: int | None = None,
     build_size_info_mtime: int | None = None,
@@ -162,12 +160,6 @@ def set_device_metadata(
     Persisted so the dashboard renders the address immediately on
     startup, before the first mDNS probe response. Passing an
     empty string clears it.
-
-    ``regen_failed_mtime`` / ``regen_failed_at`` are the legacy
-    shared-sidecar halves of the storage-regen failure stamp; the
-    live stamp (including ``regen_failed_attempts``) is owned by the
-    device metadata store and documented in
-    ``controllers/devices/storage_regen.py``.
 
     ``build_size_bytes`` caches the total size of the per-device
     ``.esphome/build/<name>/`` tree at the freshness pair
@@ -207,10 +199,9 @@ def set_device_metadata(
                 entry.pop("labels", None)
         # Tri-state fields: ``None`` means "leave alone", a truthy
         # value writes, an explicit falsy (``""`` / ``0``) clears.
-        # The numeric stamps below (``regen_failed_*`` /
-        # ``build_size_*``) all carry timestamps or sizes whose
-        # legitimate values are strictly positive — ``0`` is
-        # therefore safe as the explicit-clear sentinel.
+        # The numeric ``build_size_*`` stamps carry timestamps or
+        # sizes whose legitimate values are strictly positive —
+        # ``0`` is therefore safe as the explicit-clear sentinel.
         # Loop over the (key, value) pairs so adding a new
         # tri-state field doesn't bump this function's branch
         # count (ruff PLR0912 caps at 12).
@@ -218,8 +209,6 @@ def set_device_metadata(
             ("board_id_user_set", board_id_user_set),
             ("expected_config_hash", expected_config_hash),
             ("mac_address", mac_address),
-            ("regen_failed_mtime", regen_failed_mtime),
-            ("regen_failed_at", regen_failed_at),
             ("build_size_bytes", build_size_bytes),
             ("build_size_dir_mtime", build_size_dir_mtime),
             ("build_size_info_mtime", build_size_info_mtime),

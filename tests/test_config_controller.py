@@ -354,56 +354,6 @@ def test_set_device_metadata_clears_mac_on_empty(tmp_path: Path) -> None:
     assert "mac_address" not in get_device_metadata(tmp_path, "kitchen.yaml")
 
 
-def test_set_device_metadata_persists_regen_failure_stamp(tmp_path: Path) -> None:
-    """``regen_failed_mtime`` + ``regen_failed_at`` round-trip together.
-
-    Persisted so a backend restart skips replaying a regen on a
-    YAML that already failed at this exact mtime — without it,
-    every dashboard boot burns a subprocess on broken configs
-    (missing ``!secret``, unreachable git package) just to fail
-    again. The wall-clock half feeds the controller-side TTL so
-    transient external problems eventually get re-checked even
-    when the YAML is untouched.
-    """
-    set_device_metadata(
-        tmp_path,
-        "kitchen.yaml",
-        regen_failed_mtime=1700000000.5,
-        regen_failed_at=1700000005.0,
-    )
-
-    assert get_device_metadata(tmp_path, "kitchen.yaml") == {
-        "regen_failed_mtime": 1700000000.5,
-        "regen_failed_at": 1700000005.0,
-    }
-
-
-def test_set_device_metadata_clears_regen_failure_stamp_on_zero(tmp_path: Path) -> None:
-    """Both stamp halves cleared explicitly via ``0.0``.
-
-    The success path of ``_schedule_storage_regenerate`` clears
-    both fields so a future backend restart picks up the now-good
-    YAML. Passing ``0.0`` is the explicit clear path; ``None``
-    leaves the field alone.
-    """
-    set_device_metadata(
-        tmp_path,
-        "kitchen.yaml",
-        regen_failed_mtime=1700000000.5,
-        regen_failed_at=1700000005.0,
-    )
-    set_device_metadata(
-        tmp_path,
-        "kitchen.yaml",
-        regen_failed_mtime=0.0,
-        regen_failed_at=0.0,
-    )
-
-    md = get_device_metadata(tmp_path, "kitchen.yaml")
-    assert "regen_failed_mtime" not in md
-    assert "regen_failed_at" not in md
-
-
 def test_set_device_metadata_persists_build_size_triple(tmp_path: Path) -> None:
     """The (bytes, dir_mtime, info_mtime) triple round-trips together.
 
