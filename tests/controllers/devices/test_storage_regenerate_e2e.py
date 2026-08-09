@@ -23,7 +23,7 @@ import asyncio
 import logging
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -33,7 +33,7 @@ from esphome_device_builder.controllers.devices._state import RegenState
 from tests._storage_fixtures import write_storage_json
 from tests.conftest import make_device, wait_until
 
-from .conftest import MakeControllerFactory
+from .conftest import MakeControllerFactory, MakeDbFactory
 
 
 def _seed_store(controller: DevicesController, filename: str, **fields: Any) -> None:
@@ -1180,48 +1180,25 @@ async def test_shutdown_stamps_armed_retries(
     assert "regen_failed_at" in _read_store(controller, "kitchen.yaml")
 
 
-async def test_stop_stamps_armed_retries(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_controller: MakeControllerFactory,
-) -> None:
+async def test_stop_stamps_armed_retries(tmp_path: Path, make_db: MakeDbFactory) -> None:
     """``stop()`` reaches the shutdown stamp for an armed retry."""
-    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    controller = DevicesController(make_db(tmp_path))
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
-
-    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        return _FakeProc(returncode=2, stderr=b"fatal: could not clone")
-
-    monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
-        _fake_spawn,
+    controller.state.regen.retry_strikes["kitchen.yaml"] = 1
+    controller.state.regen.retry_timers["kitchen.yaml"] = asyncio.get_running_loop().call_later(
+        30.0, lambda: None
     )
 
-    controller._schedule_storage_regenerate("kitchen.yaml")
-    await _drain(controller)
-    assert "kitchen.yaml" in controller.state.regen.retry_timers
-
-    # The bypass-init controller lacks the collaborators ``stop()``
-    # tears down after the regen shutdown; stub just enough to reach it.
-    controller._scanner.stop = AsyncMock()
-    for attr, value in {
-        "_stopped": False,
-        "_unsub_job_completed": None,
-        "_reprobe_timers": {},
-        "_mqtt_reconcile_handle": None,
-        "_mqtt_reconcile_tasks": set(),
-        "_refine_task": None,
-        "_build_size": AsyncMock(),
-        "_mqtt_coordinator": AsyncMock(),
-        "_state_monitor": AsyncMock(),
-        "_shutdown_callbacks": [],
-    }.items():
-        setattr(controller, attr, value)
-
-    await controller.stop()
+    with (
+        patch.multiple(controller._state_monitor, stop=AsyncMock()),
+        patch.multiple(controller._mqtt_coordinator, stop=AsyncMock()),
+        patch.multiple(controller._build_size, stop=AsyncMock()),
+        patch.multiple(controller._scanner, stop=AsyncMock()),
+    ):
+        await controller.stop()
 
     assert controller.state.regen.retry_timers == {}
-    assert "regen_failed_at" in _read_store(controller, "kitchen.yaml")
+    assert "regen_failed_at" in controller._metadata_store.get("kitchen.yaml")
 
 
 async def test_arm_retry_replaces_and_cancels_prior_handle() -> None:
