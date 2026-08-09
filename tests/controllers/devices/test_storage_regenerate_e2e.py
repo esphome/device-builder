@@ -760,23 +760,20 @@ async def test_regenerate_clamps_negative_stamp_age(
 ) -> None:
     """A future-dated ``regen_failed_at`` (clock skew, NTP step) is clamped to "fresh".
 
-    Without the ``max(0.0, ...)`` clamp, ``time.time() -
-    cached_at`` could be a large negative number — still less
-    than the TTL, so the guard would correctly skip the regen,
-    but only by accident of float comparison semantics. Pin the
-    clamp explicitly so a future refactor that drops it doesn't
-    silently change the contract.
+    ``_fresh_stamp``'s age clamp keeps the mid-ladder re-arm at the
+    rung's own backoff instead of inflating it by the skew.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
     current_mtime = yaml_path.stat().st_mtime
-    # Stamp claims the failure happened *in the future* (roughly year 2033).
+    # Stamp claims attempt 1 failed *in the future* (roughly year 2033).
     _seed_store(
         controller,
         "kitchen.yaml",
         regen_failed_mtime=current_mtime,
         regen_failed_at=2_000_000_000.0,
+        regen_failed_attempts=1,
     )
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.time.time",
@@ -798,6 +795,8 @@ async def test_regenerate_clamps_negative_stamp_age(
     await _drain(controller)
 
     assert spawn_calls == []
+    # age clamped to 0 → the full 30s remainder, not 30s plus the skew.
+    assert _armed_delay(controller) == pytest.approx(30.0, abs=1)
 
 
 async def test_regenerate_runs_when_only_one_stamp_half_present(
