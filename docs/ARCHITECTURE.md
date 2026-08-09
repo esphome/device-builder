@@ -402,8 +402,11 @@ Two rules the refine established that every later caller inherits:
   reload-driven path (labels, build size, post-compile refresh) now means "the
   row changed", not "a reload ran". The gate suppresses every RELOADED side
   effect in `on_scan_change`, not just the frame — all are implied by row
-  equality except `regen.reset` (failure marker, armed retry timer, strike
-  count), whose real repair path is a YAML edit (`UPDATED`) anyway.
+  equality except the regen failure marker: `RELOADED` discards it, while the
+  armed retry timer and strike count deliberately survive (the cold-start
+  refine's `RELOADED` burst must not cancel a pending recovery); the full
+  `regen.reset` runs only on `UPDATED`/`REMOVED`, whose real repair path is a
+  YAML edit anyway.
 - **The refine emits `RELOADED`, never `UPDATED`.** `DEVICE_YAML_UPDATED`
   (version-history commits) keys on `UPDATED`, and the network-fingerprint
   regen deliberately skips `RELOADED` (it fires on `ADDED`/`UPDATED` to catch

@@ -186,7 +186,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         #     up (``storage_regen._MAX_REGEN_RETRIES`` attempts).
         #   * ``state.regen.failed`` — YAMLs whose retry budget is
         #     spent. Don't retry until the file changes (cleared on
-        #     ``ScanChange.UPDATED``).
+        #     ``UPDATED``/``REMOVED`` along with the retry ladder, and
+        #     on ``RELOADED`` on its own).
         #   * ``_regenerate_lock`` — serialises the actual subprocess
         #     so we don't spawn N esphome compiles in parallel.
         self._regenerate_lock = asyncio.Lock()

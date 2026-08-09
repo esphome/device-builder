@@ -62,15 +62,13 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 
 
 async def shutdown(controller: DevicesController) -> None:
-    """
-    Stamp configurations with an armed retry, then cancel every timer.
-
-    A restart inside the retry window must not forget the failure, or
-    a restart loop spends a fresh spawn budget every cycle.
-    """
-    for configuration in list(controller.state.regen.retry_timers):
-        await controller._stamp_regen_failure(configuration)
+    """Cancel every armed retry, stamping each so a restart remembers the failure."""
+    # Cancel before the stamp's executor hop, or a timer expiring in
+    # that window fires ``schedule`` after the task drain.
+    armed = list(controller.state.regen.retry_timers)
     controller.state.regen.cancel_all_retry_timers()
+    for configuration in armed:
+        await controller._stamp_regen_failure(configuration)
 
 
 async def _run(controller: DevicesController, configuration: str) -> None:
