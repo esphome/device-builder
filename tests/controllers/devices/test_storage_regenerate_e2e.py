@@ -1261,7 +1261,8 @@ async def test_vanished_mid_run_records_nothing(
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        yaml_path.unlink()
+        # Off-loop: blockbuster flags blocking unlink on the loop (Linux CI).
+        await asyncio.to_thread(yaml_path.unlink)
         return _FakeProc(returncode=1, stderr=b"gone")
 
     monkeypatch.setattr(
