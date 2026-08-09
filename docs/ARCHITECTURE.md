@@ -402,13 +402,23 @@ Two rules the refine established that every later caller inherits:
   reload-driven path (labels, build size, post-compile refresh) now means "the
   row changed", not "a reload ran". The gate suppresses every RELOADED side
   effect in `on_scan_change`, not just the frame — all are implied by row
-  equality except `regenerate_failed.discard`, whose real repair path is a
-  YAML edit (`UPDATED`) anyway.
+  equality except `regen.reset` (failure marker, armed retry timer, strike
+  count), whose real repair path is a YAML edit (`UPDATED`) anyway.
 - **The refine emits `RELOADED`, never `UPDATED`.** `DEVICE_YAML_UPDATED`
   (version-history commits) keys on `UPDATED`, and the network-fingerprint
   regen deliberately skips `RELOADED` (it fires on `ADDED`/`UPDATED` to catch
   out-of-band edits), so a restart's refine burst can neither commit to git
   nor spawn `--only-generate` per device.
+- **Regen failures retry before they stamp** (#2532). A failed
+  `--only-generate` gets a bounded escalating retry (3 attempts, 30/60/120s)
+  before the session `regen.failed` marker and the one-hour disk stamp — a
+  transient environment failure (interrupted package clone, DNS) is
+  indistinguishable from a broken YAML without parsing subprocess stderr, so
+  every failure retries. The stamp is written only once the budget is spent;
+  a shutdown mid-window stamps any armed retries first so a restart loop
+  can't spend a fresh budget each cycle. Success at any attempt clears the
+  ladder and reloads the scanner, which also repairs an earlier swallowed
+  in-process package resolve.
 
 ## Authentication
 

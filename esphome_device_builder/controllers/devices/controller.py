@@ -100,7 +100,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # How long the persisted "regen failed" stamp is honoured before a
 # restart-time check is allowed to re-spawn ``--only-generate`` for
-# the same untouched YAML. The in-memory ``_regenerate_failed`` set
+# the same untouched YAML. The in-memory ``state.regen.failed`` set
 # blocks within a session until the user edits the YAML; the TTL
 # only applies cross-restart, so a transient external problem
 # (git package server flaky, DNS hiccup) eventually recovers
@@ -177,13 +177,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
         # a real build; we trigger it whenever a YAML is saved or
-        # first-seen with no compile output. Three guards stop us from
+        # first-seen with no compile output. Four bounds stop us from
         # spinning:
-        #   * ``state.regenerate_pending`` — configurations already in
+        #   * ``state.regen.pending`` — configurations already in
         #     flight (scheduled but not yet finished). Skip duplicate
         #     schedules.
-        #   * ``state.regenerate_failed`` — YAMLs whose last attempt
-        #     failed. Don't retry until the file changes (cleared on
+        #   * a bounded escalating retry between a failure and giving
+        #     up (``storage_regen._MAX_REGEN_RETRIES`` attempts).
+        #   * ``state.regen.failed`` — YAMLs whose retry budget is
+        #     spent. Don't retry until the file changes (cleared on
         #     ``ScanChange.UPDATED``).
         #   * ``_regenerate_lock`` — serialises the actual subprocess
         #     so we don't spawn N esphome compiles in parallel.
@@ -333,7 +335,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
-        self.state.regen.cancel_all_retry_timers()
+        await storage_regen.shutdown(self)
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()
             self._mqtt_reconcile_handle = None

@@ -37,10 +37,10 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     """
     Run ``esphome compile --only-generate <yaml>`` in the background.
 
-    Three guards bound the spawn rate: in-memory pending +
-    failed sets (per-session), an on-disk failure stamp
-    (cross-restart, TTL-gated), and ``_regenerate_lock``
-    serialising the subprocess itself.
+    Spawn rate is bounded four ways: the in-memory pending + failed
+    sets (per-session), a bounded escalating retry between a failure
+    and the failed marker, an on-disk failure stamp (cross-restart,
+    TTL-gated), and ``_regenerate_lock`` serialising the subprocess.
     """
     if is_secrets_file(configuration):
         # Shared credentials, not a buildable config: no build dir to
@@ -61,6 +61,18 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     controller._db.create_background_task(_run(controller, configuration))
 
 
+async def shutdown(controller: DevicesController) -> None:
+    """
+    Stamp configurations with an armed retry, then cancel every timer.
+
+    A restart inside the retry window must not forget the failure, or
+    a restart loop spends a fresh spawn budget every cycle.
+    """
+    for configuration in list(controller.state.regen.retry_timers):
+        await controller._stamp_regen_failure(configuration)
+    controller.state.regen.cancel_all_retry_timers()
+
+
 async def _run(controller: DevicesController, configuration: str) -> None:
     try:
         # Routed through the controller's bound delegates so
@@ -78,8 +90,14 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             return
         if _schedule_retry(controller, configuration):
             return
+        attempts = controller.state.regen.retry_strikes.get(configuration, 0) + 1
         controller.state.regen.reset(configuration)
         controller.state.regen.failed.add(configuration)
+        _LOGGER.warning(
+            "Storage regenerate for %s failed %d times; giving up until the YAML changes",
+            configuration,
+            attempts,
+        )
         await controller._stamp_regen_failure(configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
