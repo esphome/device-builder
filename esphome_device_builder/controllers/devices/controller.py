@@ -900,11 +900,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     def _schedule_storage_regenerate(self, configuration: str) -> None:
         storage_regen.schedule(self, configuration)
 
-    async def _spawn_only_generate(self, configuration: str) -> bool:
+    async def _spawn_only_generate(self, configuration: str) -> str | None:
         return await storage_regen.spawn_only_generate(self, configuration)
 
-    async def _stamp_regen_failure(self, configuration: str) -> int | None:
-        return await storage_regen.stamp_failure(self, configuration)
+    async def _stamp_regen_failure(self, configuration: str, mtime: float) -> int:
+        return await storage_regen.stamp_failure(self, configuration, mtime)
 
     async def _finalize_regen_success(self, configuration: str) -> None:
         await storage_regen.finalize_success(self, configuration)

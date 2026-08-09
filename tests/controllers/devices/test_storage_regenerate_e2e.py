@@ -289,7 +289,13 @@ async def test_regenerate_skips_when_stamp_terminal(
     await _drain(controller)
 
     assert spawn_calls == []
-    assert controller.state.regen.retry_timers == {}
+    # Only a TTL re-check timer is armed: no scan event fires for an
+    # untouched file, so expiry is the re-arm signal.
+    handle = controller.state.regen.retry_timers["kitchen.yaml"]
+    remaining = handle.when() - asyncio.get_running_loop().time()
+    ttl = storage_regen._REGEN_FAILURE_TTL_SECONDS
+    assert ttl - 301.0 < remaining <= ttl - 299.0
+    controller.state.regen.cancel_all_retry_timers()
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +341,9 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     assert persist_calls == []
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_failed_attempts"] == storage_regen._MAX_REGEN_ATTEMPTS
-    assert controller.state.regen.retry_timers == {}
+    # Terminal → only the TTL re-check timer remains.
+    assert set(controller.state.regen.retry_timers) == {"kitchen.yaml"}
+    controller.state.regen.cancel_all_retry_timers()
     # Pending cleared via the ``finally``.
     assert controller.state.regen.pending == set()
 
@@ -376,7 +384,8 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     assert not any(c[0] == "reload" for c in controller._scanner.calls)
     md = _read_store(controller, "kitchen.yaml")
     assert md["regen_failed_attempts"] == storage_regen._MAX_REGEN_ATTEMPTS
-    assert controller.state.regen.retry_timers == {}
+    assert set(controller.state.regen.retry_timers) == {"kitchen.yaml"}
+    controller.state.regen.cancel_all_retry_timers()
     assert controller.state.regen.pending == set()
 
 
@@ -1250,15 +1259,16 @@ async def test_communicate_failure_kills_child_and_counts_the_attempt(
     controller.state.regen.cancel_all_retry_timers()
 
 
-async def test_vanished_mid_run_records_nothing(
+async def test_vanished_mid_run_stamps_prespawn_mtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """A YAML deleted during the run stamps nothing and arms no retry."""
+    """A YAML deleted during the run stamps the pre-spawn mtime; the retry skips."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    prespawn_mtime = yaml_path.stat().st_mtime
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         # Off-loop: blockbuster flags blocking unlink on the loop (Linux CI).
@@ -1273,8 +1283,51 @@ async def test_vanished_mid_run_records_nothing(
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
 
-    assert _read_store(controller, "kitchen.yaml") == {}
+    md = _read_store(controller, "kitchen.yaml")
+    assert md["regen_failed_attempts"] == 1
+    assert md["regen_failed_mtime"] == prespawn_mtime
+
+    # The armed retry finds the file gone and skips without counting.
+    storage_regen._fire_retry(controller, "kitchen.yaml")
+    await _drain(controller)
+
+    assert _read_store(controller, "kitchen.yaml")["regen_failed_attempts"] == 1
     assert controller.state.regen.retry_timers == {}
+
+
+async def test_regenerate_warns_when_yaml_unreadable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A non-vanish stat error skips loudly instead of masquerading as a vanish."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    spawn_calls: list[tuple[str, ...]] = []
+
+    async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
+        spawn_calls.append(args)
+        return _FakeProc(returncode=0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    async def _denied(_fn: Any) -> float:
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_in_executor", _denied
+    )
+
+    with caplog.at_level(logging.WARNING):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        await _drain(controller)
+
+    assert spawn_calls == []
+    assert any("config unreadable" in record.message for record in caplog.records)
+    assert controller.state.regen.pending == set()
 
 
 async def test_edit_between_failures_resets_attempts(
@@ -1377,6 +1430,7 @@ async def test_regenerate_retry_budget_exhausts_to_stamp(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Persistent failure spends the budget, then stamps and marks failed."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
@@ -1397,20 +1451,26 @@ async def test_regenerate_retry_budget_exhausts_to_stamp(
         _fake_spawn,
     )
 
-    controller._schedule_storage_regenerate("kitchen.yaml")
-    # The terminal attempt count is the last step of the exhausted path.
-    await wait_until(
-        lambda: (
-            _read_store(controller, "kitchen.yaml").get("regen_failed_attempts", 0)
-            >= storage_regen._MAX_REGEN_ATTEMPTS
-        ),
-        1,
-        "terminal stamp",
-    )
-    await _drain(controller)
+    with caplog.at_level(logging.WARNING):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        # The terminal attempt count is the last step of the exhausted path.
+        await wait_until(
+            lambda: (
+                _read_store(controller, "kitchen.yaml").get("regen_failed_attempts", 0)
+                >= storage_regen._MAX_REGEN_ATTEMPTS
+            ),
+            1,
+            "terminal stamp",
+        )
+        await _drain(controller)
 
     assert spawns == storage_regen._MAX_REGEN_ATTEMPTS
-    assert controller.state.regen.retry_timers == {}
+    # The give-up warning carries the failure summary.
+    giveup = [r for r in caplog.records if "failed 4 times" in r.getMessage()]
+    assert giveup and "exit 1: YAML parse error" in giveup[0].getMessage()
+    # A TTL re-check timer covers in-session expiry.
+    assert set(controller.state.regen.retry_timers) == {"kitchen.yaml"}
+    controller.state.regen.cancel_all_retry_timers()
 
 
 async def test_stop_cancels_armed_retries_without_stamping(

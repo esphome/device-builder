@@ -54,11 +54,13 @@ class RegenState:
             existing.cancel()
         self.retry_timers[configuration] = handle
 
-    def cancel_retry(self, configuration: str) -> None:
-        """Cancel and drop *configuration*'s pending retry timer, if any."""
+    def cancel_retry(self, configuration: str) -> bool:
+        """Cancel and drop *configuration*'s retry timer; True iff one was armed."""
         handle = self.retry_timers.pop(configuration, None)
-        if handle is not None:
-            handle.cancel()
+        if handle is None:
+            return False
+        handle.cancel()
+        return True
 
     def cancel_all_retry_timers(self) -> None:
         """Cancel every pending retry timer."""

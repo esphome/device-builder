@@ -1316,6 +1316,30 @@ async def test_on_scan_change_reloaded_missing_fields_skips_regen(
     assert regenerated == []
 
 
+async def test_on_scan_change_updated_reschedules_cancelled_retry(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An edit that cancels an armed retry respawns the ladder for the new content."""
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+    handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
+    controller.state.regen.retry_timers["kitchen.yaml"] = handle
+
+    controller._on_scan_change(
+        ScanChange.UPDATED,
+        make_device(
+            name="kitchen",
+            network_fingerprint="same",
+            loaded_integrations=["wifi"],
+            expected_config_hash="abcd1234",
+        ),
+    )
+
+    assert handle.cancelled()
+    assert regenerated == ["kitchen.yaml"]
+
+
 async def test_on_scan_change_updated_same_network_skips_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

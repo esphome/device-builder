@@ -60,8 +60,15 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         config_path = controller._db.settings.rel_path(configuration)
         try:
             current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
+        except FileNotFoundError:
+            _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
+            return
         except OSError:
-            _LOGGER.debug("Storage regenerate for %s: config unreadable; skipping", configuration)
+            _LOGGER.warning(
+                "Storage regenerate for %s: config unreadable; skipping",
+                configuration,
+                exc_info=True,
+            )
             return
         stamp = _fresh_stamp(
             controller._metadata_store.get(configuration), current_mtime, time.time()
@@ -74,6 +81,8 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                     "waiting for a YAML change or the stamp TTL",
                     configuration,
                 )
+                # No scan event fires for an untouched file; re-check at expiry.
+                _arm_retry(controller, configuration, _REGEN_FAILURE_TTL_SECONDS - age)
                 return
             remaining = _delay_for(attempts) - age
             if remaining > 0:
@@ -82,39 +91,37 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                 return
         # Delegates so tests patching the class intercept.
         async with controller._regenerate_lock:
-            success = await controller._spawn_only_generate(configuration)
-        if success:
+            failure = await controller._spawn_only_generate(configuration)
+        if failure is None:
             controller.state.regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
             return
-        recorded = await controller._stamp_regen_failure(configuration)
-        if recorded is None:
-            _LOGGER.debug(
-                "Storage regenerate for %s: config vanished mid-run; nothing recorded",
-                configuration,
-            )
-            return
+        # Stamp against the pre-spawn mtime: an edit landing mid-run must
+        # not have the old content's failure charged to the new file.
+        recorded = await controller._stamp_regen_failure(configuration, current_mtime)
         if recorded < _MAX_REGEN_ATTEMPTS:
             _arm_retry(controller, configuration, _delay_for(recorded))
             return
         _LOGGER.warning(
-            "Storage regenerate for %s failed %d times; retrying after the "
-            "YAML changes or the failure stamp expires",
+            "Storage regenerate for %s failed %d times (%s); retrying after "
+            "the YAML changes or the failure stamp expires",
             configuration,
             recorded,
+            failure,
         )
+        # No scan event fires for an untouched file; re-check at expiry.
+        _arm_retry(controller, configuration, _REGEN_FAILURE_TTL_SECONDS)
     finally:
         controller.state.regen.pending.discard(configuration)
 
 
-async def spawn_only_generate(controller: DevicesController, configuration: str) -> bool:
+async def spawn_only_generate(controller: DevicesController, configuration: str) -> str | None:
     """
-    Run ``esphome compile --only-generate`` once. Return True iff exit code 0.
+    Run ``esphome compile --only-generate`` once.
 
-    Exceptions during spawn and non-zero exit codes both
-    produce False so the caller takes the same
-    retry-then-stamp branch.
+    Returns None on success, else a short failure summary the
+    give-up warning can carry.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller.state.esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
@@ -124,43 +131,38 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-    except Exception:
+    except Exception as err:
         _LOGGER.debug("Storage regenerate spawn failed for %s", configuration, exc_info=True)
-        return False
+        return f"spawn failed: {err!r}"
     try:
         _, stderr = await proc.communicate()
     except asyncio.CancelledError:
-        # Don't orphan the esphome/git child on the shutdown drain's cancel.
+        # Signals the direct esphome child only, not a git grandchild.
         kill_quietly(proc)
         raise
-    except Exception:
+    except Exception as err:
         kill_quietly(proc)
         _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
-        return False
+        return f"communicate failed: {err!r}"
     if proc.returncode != 0:
+        text = stderr.decode(errors="replace").strip()
         _LOGGER.debug(
             "Storage regenerate for %s exited %s: %s",
             configuration,
             proc.returncode,
-            stderr.decode(errors="replace").strip()[:500],
+            text[:500],
         )
-        return False
-    return True
+        return f"exit {proc.returncode}: {text[-200:]}" if text else f"exit {proc.returncode}"
+    return None
 
 
-async def stamp_failure(controller: DevicesController, configuration: str) -> int | None:
+async def stamp_failure(controller: DevicesController, configuration: str, mtime: float) -> int:
     """
-    Record one more failed attempt against the YAML's current mtime.
+    Record one more failed attempt against *mtime*.
 
     Returns the attempt count now on record. An edit or TTL expiry
-    since the prior failure resets the count to 1; a vanished file
-    stamps nothing and returns None.
+    since the prior failure resets the count to 1.
     """
-    config_path = controller._db.settings.rel_path(configuration)
-    try:
-        mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
-    except OSError:
-        return None
     now = time.time()
     prior = _fresh_stamp(controller._metadata_store.get(configuration), mtime, now)
     attempts = (prior[0] if prior is not None else 0) + 1

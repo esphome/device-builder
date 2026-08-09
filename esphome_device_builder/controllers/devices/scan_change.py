@@ -119,14 +119,18 @@ def _reconcile_regen_state(
     kind: ScanChange,
     device: Device,
 ) -> None:
-    """Drop the armed retry when the YAML changed or the file is gone.
-
-    The stamp needs no touch (an edit's mtime move invalidates it;
-    ``clear_volatile`` drops it on REMOVED). RELOADED leaves the timer
-    alone — the refine burst must not cancel a pending recovery.
     """
-    if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
-        controller.state.regen.cancel_retry(device.configuration)
+    Drop the armed retry when the YAML changed or the file is gone.
+
+    An UPDATED that cancelled one reschedules — the moved mtime
+    invalidates the stamp, so the edited YAML spawns fresh. RELOADED
+    leaves the timer alone.
+    """
+    if kind not in (ScanChange.UPDATED, ScanChange.REMOVED):
+        return
+    had_timer = controller.state.regen.cancel_retry(device.configuration)
+    if had_timer and kind is ScanChange.UPDATED:
+        controller._schedule_storage_regenerate(device.configuration)
 
 
 def _reconcile_rename(
