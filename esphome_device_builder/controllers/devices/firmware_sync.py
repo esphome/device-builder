@@ -208,9 +208,6 @@ def schedule_version_reprobe(controller: DevicesController, configuration: str) 
     tracked on the controller so ``stop`` can cancel anything still
     pending.
     """
-    existing = controller._reprobe_timers.pop(configuration, None)
-    if existing is not None:
-        existing.cancel()
     device = controller._scanner.get_by_configuration(configuration)
     loop = asyncio.get_running_loop()
     delay: float
@@ -224,8 +221,11 @@ def schedule_version_reprobe(controller: DevicesController, configuration: str) 
     else:
         delay = _POST_FLASH_VERSION_REPROBE_DELAY
         interval = deadline = None
-    controller._reprobe_timers[configuration] = loop.call_later(
-        delay, _fire_version_reprobe, controller, configuration, deadline, interval
+    controller.state.reprobe_timers.arm(
+        configuration,
+        loop.call_later(
+            delay, _fire_version_reprobe, controller, configuration, deadline, interval
+        ),
     )
 
 
@@ -276,7 +276,7 @@ def _fire_version_reprobe(
     once the device re-announces; and the api-info sweep serialises and
     caps probes, so this never fans out into concurrent dials.
     """
-    controller._reprobe_timers.pop(configuration, None)
+    controller.state.reprobe_timers.discard(configuration)
     device = controller._scanner.get_by_configuration(configuration)
     if device is None:
         return
@@ -285,8 +285,11 @@ def _fire_version_reprobe(
         return
     loop = asyncio.get_running_loop()
     if loop.time() + interval <= deadline:
-        controller._reprobe_timers[configuration] = loop.call_later(
-            interval, _fire_version_reprobe, controller, configuration, deadline, interval
+        controller.state.reprobe_timers.arm(
+            configuration,
+            loop.call_later(
+                interval, _fire_version_reprobe, controller, configuration, deadline, interval
+            ),
         )
 
 

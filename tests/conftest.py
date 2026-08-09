@@ -516,6 +516,11 @@ async def wait_until(
         await asyncio.sleep(interval)
 
 
+def make_timer_handle() -> asyncio.TimerHandle:
+    """Return a far-future no-op ``call_later`` handle for timer-registry seeding."""
+    return asyncio.get_running_loop().call_later(30.0, lambda: None)
+
+
 # ---------------------------------------------------------------------------
 # submit_job test helpers
 #

@@ -31,7 +31,7 @@ from esphome_device_builder.controllers._device_scanner import ScanChange
 from esphome_device_builder.controllers.devices import DevicesController, storage_regen
 from esphome_device_builder.controllers.devices._state import RegenState
 from tests._storage_fixtures import write_storage_json
-from tests.conftest import make_device, wait_until
+from tests.conftest import make_device, make_timer_handle, wait_until
 
 from .conftest import MakeControllerFactory, MakeDbFactory
 
@@ -1108,7 +1108,7 @@ async def test_regenerate_retry_fires_and_succeeds(
 
     assert outcomes == []
     assert controller.state.regen.failed == set()
-    assert controller.state.regen.retry_timers == {}
+    assert not controller.state.regen.retry_timers
     assert controller.state.regen.retry_strikes == {}
     reload_calls = [c for c in controller._scanner.calls if c[0] == "reload"]
     assert reload_calls == [("reload", "kitchen.yaml")]
@@ -1149,7 +1149,7 @@ async def test_regenerate_retry_budget_exhausts_to_stamp(
 
     assert spawns == 1 + storage_regen._MAX_REGEN_RETRIES
     assert controller.state.regen.failed == {"kitchen.yaml"}
-    assert controller.state.regen.retry_timers == {}
+    assert not controller.state.regen.retry_timers
     assert "regen_failed_at" in _read_store(controller, "kitchen.yaml")
 
 
@@ -1176,7 +1176,7 @@ async def test_shutdown_stamps_armed_retries(
 
     await storage_regen.shutdown(controller)
 
-    assert controller.state.regen.retry_timers == {}
+    assert not controller.state.regen.retry_timers
     assert "regen_failed_at" in _read_store(controller, "kitchen.yaml")
 
 
@@ -1185,9 +1185,7 @@ async def test_stop_stamps_armed_retries(tmp_path: Path, make_db: MakeDbFactory)
     controller = DevicesController(make_db(tmp_path))
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     controller.state.regen.retry_strikes["kitchen.yaml"] = 1
-    controller.state.regen.retry_timers["kitchen.yaml"] = asyncio.get_running_loop().call_later(
-        30.0, lambda: None
-    )
+    controller.state.regen.retry_timers.arm("kitchen.yaml", make_timer_handle())
 
     with (
         patch.multiple(controller._state_monitor, stop=AsyncMock()),
@@ -1197,36 +1195,18 @@ async def test_stop_stamps_armed_retries(tmp_path: Path, make_db: MakeDbFactory)
     ):
         await controller.stop()
 
-    assert controller.state.regen.retry_timers == {}
+    assert not controller.state.regen.retry_timers
     assert "regen_failed_at" in controller._metadata_store.get("kitchen.yaml")
 
 
-async def test_arm_retry_replaces_and_cancels_prior_handle() -> None:
-    """Re-arming for the same configuration cancels the prior timer."""
+async def test_cancel_all_retry_timers_drops_strikes_and_reports_armed() -> None:
+    """The mass-cancel clears the strike counts and reports the armed keys."""
     state = RegenState()
-    loop = asyncio.get_running_loop()
-    first = loop.call_later(30.0, lambda: None)
-    second = loop.call_later(30.0, lambda: None)
+    state.retry_timers.arm("a.yaml", make_timer_handle())
+    state.retry_strikes = {"a.yaml": 2, "b.yaml": 1}
 
-    state.arm_retry("kitchen.yaml", first)
-    state.arm_retry("kitchen.yaml", second)
+    armed = state.cancel_all_retry_timers()
 
-    assert first.cancelled()
-    assert not second.cancelled()
-    assert state.retry_timers == {"kitchen.yaml": second}
-    state.cancel_all_retry_timers()
-
-
-async def test_cancel_all_retry_timers_cancels_pending_handles() -> None:
-    """``stop()``'s mass-cancel leaves no live retry timer or strike behind."""
-    state = RegenState()
-    loop = asyncio.get_running_loop()
-    handles = [loop.call_later(30.0, lambda: None) for _ in range(2)]
-    state.retry_timers = {"a.yaml": handles[0], "b.yaml": handles[1]}
-    state.retry_strikes = {"a.yaml": 2}
-
-    state.cancel_all_retry_timers()
-
-    assert all(handle.cancelled() for handle in handles)
-    assert state.retry_timers == {}
+    assert armed == ["a.yaml"]
+    assert not state.retry_timers
     assert state.retry_strikes == {}

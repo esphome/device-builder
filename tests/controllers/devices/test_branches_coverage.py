@@ -26,7 +26,6 @@ Grouped by surface:
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock
@@ -54,7 +53,7 @@ from esphome_device_builder.models import (
     JobType,
 )
 from tests._recording_scanner import RecordingScanner
-from tests.conftest import make_device
+from tests.conftest import make_device, make_timer_handle
 
 from .conftest import (
     CaptureDevicesEventsFactory,
@@ -1097,15 +1096,15 @@ async def test_on_scan_change_updated_resets_regen_state(
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
     controller.state.regen.failed.add("kitchen.yaml")
     controller.state.regen.retry_strikes["kitchen.yaml"] = 1
-    handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
-    controller.state.regen.retry_timers["kitchen.yaml"] = handle
+    handle = make_timer_handle()
+    controller.state.regen.retry_timers.arm("kitchen.yaml", handle)
     device = _device("kitchen")
 
     controller._on_scan_change(ScanChange.UPDATED, device)
 
     assert "kitchen.yaml" not in controller.state.regen.failed
     assert handle.cancelled()
-    assert controller.state.regen.retry_timers == {}
+    assert not controller.state.regen.retry_timers
     assert controller.state.regen.retry_strikes == {}
 
 
@@ -1121,15 +1120,16 @@ async def test_on_scan_change_reloaded_keeps_armed_retry(
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
     controller.state.regen.failed.add("kitchen.yaml")
     controller.state.regen.retry_strikes["kitchen.yaml"] = 1
-    handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
-    controller.state.regen.retry_timers["kitchen.yaml"] = handle
+    handle = make_timer_handle()
+    controller.state.regen.retry_timers.arm("kitchen.yaml", handle)
     device = _device("kitchen")
 
     controller._on_scan_change(ScanChange.RELOADED, device)
 
     assert "kitchen.yaml" not in controller.state.regen.failed
     assert not handle.cancelled()
-    assert controller.state.regen.retry_timers == {"kitchen.yaml": handle}
+    assert controller.state.regen.retry_timers["kitchen.yaml"] is handle
+    assert len(controller.state.regen.retry_timers) == 1
     assert controller.state.regen.retry_strikes == {"kitchen.yaml": 1}
     handle.cancel()
 

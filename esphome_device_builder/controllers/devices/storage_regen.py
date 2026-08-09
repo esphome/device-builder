@@ -65,9 +65,7 @@ async def shutdown(controller: DevicesController) -> None:
     """Cancel every armed retry, stamping each so a restart remembers the failure."""
     # Cancel before the stamp's executor hop, or a timer expiring in
     # that window fires ``schedule`` after the task drain.
-    armed = list(controller.state.regen.retry_timers)
-    controller.state.regen.cancel_all_retry_timers()
-    for configuration in armed:
+    for configuration in controller.state.regen.cancel_all_retry_timers():
         await controller._stamp_regen_failure(configuration)
 
 
@@ -227,10 +225,12 @@ def _schedule_retry(controller: DevicesController, configuration: str) -> bool:
         _MAX_REGEN_RETRIES,
     )
     loop = asyncio.get_running_loop()
-    regen.arm_retry(configuration, loop.call_later(delay, _fire_retry, controller, configuration))
+    regen.retry_timers.arm(
+        configuration, loop.call_later(delay, _fire_retry, controller, configuration)
+    )
     return True
 
 
 def _fire_retry(controller: DevicesController, configuration: str) -> None:
-    controller.state.regen.retry_timers.pop(configuration, None)
+    controller.state.regen.retry_timers.discard(configuration)
     schedule(controller, configuration)

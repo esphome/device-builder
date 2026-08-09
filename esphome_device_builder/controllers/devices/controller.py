@@ -134,10 +134,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         self._unsub_job_completed: Any = None
         # Guards poll() from re-arming a torn-down scanner during the shutdown drain.
         self._stopped = False
-        # Pending post-flash version re-probe timers, keyed on
-        # configuration so a re-flash cancels its predecessor; cancelled
-        # en masse in stop().
-        self._reprobe_timers: dict[str, asyncio.TimerHandle] = {}
         self._refine_task: asyncio.Task[None] | None = None
         # Debounced scan-change → MQTT reconcile nudge (see
         # ``schedule_mqtt_reconcile``).
@@ -335,7 +331,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         if self._unsub_job_completed is not None:
             self._unsub_job_completed()
             self._unsub_job_completed = None
-        self._cancel_reprobe_timers()
+        self.state.reprobe_timers.cancel_all()
         await storage_regen.shutdown(self)
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()
@@ -1307,12 +1303,6 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
     def _schedule_version_reprobe(self, configuration: str) -> None:
         firmware_sync.schedule_version_reprobe(self, configuration)
-
-    def _cancel_reprobe_timers(self) -> None:
-        """Cancel any pending post-flash re-probe timers."""
-        for handle in self._reprobe_timers.values():
-            handle.cancel()
-        self._reprobe_timers.clear()
 
     def _persist_build_size(self, configuration: str, result: BuildSizeRefreshResult) -> None:
         """Merge a fresh build-size triple into the metadata store."""

@@ -28,9 +28,9 @@ What lives here vs on the controller:
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
 
+from ...helpers.timer_registry import TimerRegistry
 from ...models import AdoptableDevice
 
 
@@ -46,30 +46,20 @@ class RegenState:
 
     pending: set[str] = field(default_factory=set)
     failed: set[str] = field(default_factory=set)
-    retry_timers: dict[str, asyncio.TimerHandle] = field(default_factory=dict)
+    retry_timers: TimerRegistry[str] = field(default_factory=TimerRegistry)
     retry_strikes: dict[str, int] = field(default_factory=dict)
-
-    def arm_retry(self, configuration: str, handle: asyncio.TimerHandle) -> None:
-        """Install *handle* as the pending retry, cancelling any prior one."""
-        existing = self.retry_timers.pop(configuration, None)
-        if existing is not None:
-            existing.cancel()
-        self.retry_timers[configuration] = handle
 
     def reset(self, configuration: str) -> None:
         """Drop *configuration*'s failure marker, retry timer, and strikes."""
         self.failed.discard(configuration)
-        handle = self.retry_timers.pop(configuration, None)
-        if handle is not None:
-            handle.cancel()
+        self.retry_timers.discard(configuration)
         self.retry_strikes.pop(configuration, None)
 
-    def cancel_all_retry_timers(self) -> None:
-        """Cancel every pending retry timer and drop the strike counts."""
-        for handle in self.retry_timers.values():
-            handle.cancel()
-        self.retry_timers.clear()
+    def cancel_all_retry_timers(self) -> list[str]:
+        """Cancel every pending retry timer, drop the strikes; return the armed keys."""
+        armed = self.retry_timers.cancel_all()
         self.retry_strikes.clear()
+        return armed
 
 
 @dataclass
@@ -86,6 +76,10 @@ class DevicesState:
     # ``_regenerate_lock`` (kept on the controller) serialises the
     # actual subprocess.
     regen: RegenState = field(default_factory=RegenState)
+
+    # Post-flash Native-API version re-probe timers, armed and consumed
+    # by ``firmware_sync``; ``stop()`` mass-cancels.
+    reprobe_timers: TimerRegistry[str] = field(default_factory=TimerRegistry)
 
     # Discovery / import state. Keyed by ``device.name`` so the
     # WebSocket layer and ``devices/ignore`` can address entries
