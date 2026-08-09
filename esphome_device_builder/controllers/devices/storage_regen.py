@@ -235,7 +235,7 @@ def _fresh_stamp(
 
 def _delay_for(attempts: int) -> float:
     """Backoff delay after failed attempt number *attempts* (1-based)."""
-    return _RETRY_BACKOFF_BASE_SECONDS * 2 ** (attempts - 1)
+    return _RETRY_BACKOFF_BASE_SECONDS * 2.0 ** (attempts - 1)
 
 
 def _arm_retry(controller: DevicesController, configuration: str, delay: float) -> None:
