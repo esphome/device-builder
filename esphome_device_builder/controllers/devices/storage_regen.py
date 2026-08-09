@@ -91,10 +91,14 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         if stamp is not None:
             attempts, age = stamp
             if attempts >= _MAX_REGEN_ATTEMPTS:
-                _LOGGER.debug(
-                    "Storage regenerate for %s spent its attempt budget; "
-                    "waiting for a YAML change or the stamp TTL",
+                # The give-up warning fired in the session that spent the
+                # budget; without this one a restarted dashboard shows a
+                # hashless device with nothing in the log to explain it.
+                _LOGGER.warning(
+                    "Storage regenerate for %s failed %d times previously; "
+                    "retrying after the YAML changes or the failure stamp expires",
                     configuration,
+                    attempts,
                 )
                 _arm_ttl_recheck(controller, configuration, age)
                 return
@@ -146,11 +150,17 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     except Exception as err:
         _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
         return f"subprocess error: {err!r}"
+    text = result.stdout[-4096:].decode(errors="replace").strip()
     if result.timed_out:
+        _LOGGER.warning(
+            "Storage regenerate for %s timed out after %.0fs; output tail: %s",
+            configuration,
+            _ONLY_GENERATE_TIMEOUT_SECONDS,
+            text[-500:],
+        )
         return f"timed out after {_ONLY_GENERATE_TIMEOUT_SECONDS:.0f}s"
     if result.returncode == 0:
         return None
-    text = result.stdout[-4096:].decode(errors="replace").strip()
     _LOGGER.debug(
         "Storage regenerate for %s exited %s: %s",
         configuration,

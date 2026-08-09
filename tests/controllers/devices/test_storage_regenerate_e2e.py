@@ -260,6 +260,7 @@ async def test_regenerate_skips_when_stamp_terminal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A fresh stamp with the budget spent → no spawn.
 
@@ -281,10 +282,14 @@ async def test_regenerate_skips_when_stamp_terminal(
         _fake_spawn,
     )
 
-    controller._schedule_storage_regenerate("kitchen.yaml")
-    await _drain(controller)
+    with caplog.at_level(logging.WARNING):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        await _drain(controller)
 
     assert spawn_calls == []
+    # A restarted session re-warns; the give-up warning fired in the
+    # session that spent the budget.
+    assert any("failed 4 times previously" in r.getMessage() for r in caplog.records)
     # Only a TTL re-check timer is armed: no scan event fires for an
     # untouched file, so expiry is the re-arm signal.
     assert _armed_delay(controller) == pytest.approx(
@@ -722,17 +727,16 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
     assert len(spawn_calls) == 1
 
 
-async def test_regenerate_skips_when_yaml_unreadable(
+async def test_regenerate_skips_when_yaml_vanished(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """YAML vanished between scan and schedule → no spawn against it.
+    """YAML vanished between scan and schedule → no spawn, nothing armed.
 
-    A torn ``stat()`` (file removed mid-flight by an editor or
-    archive) returns ``OSError``; a spawn would just fail against
-    the missing file, so the run skips and the next scan event
-    for the path retriggers.
+    The pre-run ``stat()`` raises ``FileNotFoundError`` (file removed
+    mid-flight by an editor or archive); the run skips quietly and the
+    next scan event for the path retriggers.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     spawn_calls: list[tuple[str, ...]] = []
@@ -1202,22 +1206,26 @@ async def test_timed_out_run_counts_the_attempt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A run the capture helper timed out feeds the ladder."""
+    """A run the capture helper timed out warns with the output tail and feeds the ladder."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _timed_out_capture(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
-        return CapturedSubprocess(returncode=None, stdout=b"", timed_out=True)
+        return CapturedSubprocess(returncode=None, stdout=b"cloning package...", timed_out=True)
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
         _timed_out_capture,
     )
 
-    controller._schedule_storage_regenerate("kitchen.yaml")
-    await _drain(controller)
+    with caplog.at_level(logging.WARNING):
+        controller._schedule_storage_regenerate("kitchen.yaml")
+        await _drain(controller)
 
+    timeouts = [r for r in caplog.records if "timed out after 300s" in r.getMessage()]
+    assert timeouts and "cloning package..." in timeouts[0].getMessage()
     assert _read_store(controller, "kitchen.yaml")["regen_failed_attempts"] == 1
     assert _armed_delay(controller) == pytest.approx(30.0, abs=1)
 
