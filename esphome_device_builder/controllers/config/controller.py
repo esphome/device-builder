@@ -11,6 +11,7 @@ from esphome.storage_json import StorageJSON
 from ...constants import __version__ as server_version
 from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import run_in_executor
+from ...helpers.device_yaml import dotted_loaded_platforms
 from ...helpers.secrets_state import (
     SecretsContentError,
     is_valid_secret_key,
@@ -220,8 +221,9 @@ class ConfigController:
                 "target_platform": storage.target_platform,
                 "current_version": storage.esphome_version,
                 "deployed_version": storage.firmware_bin_path,
-                "loaded_integrations": storage.loaded_integrations,
-                "loaded_platforms": sorted(storage.loaded_platforms),
+                # ``sorted`` also converts upstream's set — orjson refuses sets.
+                "loaded_integrations": sorted(storage.loaded_integrations),
+                "loaded_platforms": dotted_loaded_platforms(storage.loaded_platforms),
             }
 
         return await run_in_executor(_load_info)

@@ -30,6 +30,7 @@ from ._generation import (
 )
 from ._loading import (
     compute_has_pending_changes,
+    dotted_loaded_platforms,
     load_device_from_storage,
     load_device_yaml,
     pending_changes_via_hash,
@@ -94,6 +95,7 @@ __all__ = [
     "detect_platform_from_yaml",
     "device_ap_label",
     "device_uses_mqtt",
+    "dotted_loaded_platforms",
     "extract_directly_referenced_integrations",
     "extract_esphome_meta_from_config",
     "extract_mqtt_block",

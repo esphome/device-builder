@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -51,6 +52,11 @@ _LOGGER = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Device construction
 # ---------------------------------------------------------------------------
+
+
+def dotted_loaded_platforms(pairs: Iterable[str]) -> list[str]:
+    """StorageJSON's slash pairs (``ota/esphome``) as sorted dotted catalog ids."""
+    return sorted(p.replace("/", ".", 1) for p in pairs)
 
 
 def load_device_from_storage(
@@ -255,11 +261,7 @@ def load_device_from_storage(
     )
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
-    # StorageJSON separates pairs with "/" (``ota/esphome``); the catalog
-    # and frontend speak dotted ids.
-    loaded_platforms = (
-        sorted(p.replace("/", ".", 1) for p in storage.loaded_platforms) if storage else []
-    )
+    loaded_platforms = dotted_loaded_platforms(storage.loaded_platforms) if storage else []
     # Subset of loaded_integrations the user directly wrote — top-
     # level keys + ``- platform:`` stems. Frontend's device-drawer
     # splits the loaded list into "direct" (these) and "indirect"

@@ -1032,6 +1032,15 @@ def test_load_device_from_storage_loaded_platforms_dotted(tmp_path: Path) -> Non
     missing.write_text("esphome:\n  name: fresh\nesp32:\n", encoding="utf-8")
     assert load_device_from_storage(missing).loaded_platforms == []
 
+    # Pre-2025 sidecar without the key at all (upstream ``.get`` degrade).
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_text("esphome:\n  name: legacy\nesp32:\n", encoding="utf-8")
+    sidecar = write_storage_json(tmp_path, "legacy.yaml")
+    stripped = json.loads(sidecar.read_text(encoding="utf-8"))
+    del stripped["loaded_platforms"]
+    sidecar.write_text(json.dumps(stripped), encoding="utf-8")
+    assert load_device_from_storage(legacy).loaded_platforms == []
+
 
 @pytest.mark.parametrize(
     "ota",
