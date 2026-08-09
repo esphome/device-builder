@@ -84,7 +84,7 @@ async def _drain(controller: DevicesController) -> None:
     regenerate coroutine fails the test instead of silently masking
     as ``None`` in the gather result. Production swallows the error
     branches in its own ``try/except`` (and asserts on
-    ``_regenerate_failed``); anything reaching the gather here is a
+    ``state.regen.failed``); anything reaching the gather here is a
     bug we want surfaced.
     """
     pending: list[asyncio.Task] = controller._spawned_tasks  # type: ignore[attr-defined]
@@ -208,7 +208,7 @@ def test_regenerate_skips_when_esphome_cmd_unset(
 
     Synchronous test — the guard is the very first check in the
     function and short-circuits before scheduling the
-    background task. No spawn, no _regenerate_pending mutation.
+    background task. No spawn, no ``state.regen.pending`` mutation.
     """
     # ``esphome_cmd=[]`` triggers the early-return guard.
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=[])
@@ -238,7 +238,7 @@ def test_regenerate_skips_secrets_yaml(
 def test_regenerate_skips_duplicate_schedule(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Configuration already in ``_regenerate_pending`` → second schedule is a no-op.
+    """Configuration already in ``state.regen.pending`` → second schedule is a no-op.
 
     Without this, repeated saves while a regenerate is already
     in flight would queue N background tasks all racing on the
@@ -255,7 +255,7 @@ def test_regenerate_skips_duplicate_schedule(
 def test_regenerate_skips_after_failed_marker(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """Configuration in ``_regenerate_failed`` → no respin.
+    """Configuration in ``state.regen.failed`` → no respin.
 
     The marker is cleared by ``_on_scan_change`` when the YAML's
     cache key changes (i.e. the user actually edited it). Until
@@ -368,7 +368,7 @@ async def test_regenerate_dedupes_same_tick_calls(
 
     Pins the pre-yield window the in-flight test below can't
     reach; the second sync call has to see
-    ``_regenerate_pending`` populated before the spawned
+    ``state.regen.pending`` populated before the spawned
     coroutine runs.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
@@ -592,9 +592,9 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     """Cross-restart skip: persisted stamp matches and is within TTL → no spawn.
 
     Simulates the "broken config + backend restart" case. The
-    in-memory ``_regenerate_failed`` set is empty (fresh process)
+    in-memory ``state.regen.failed`` set is empty (fresh process)
     but the sidecar carries the prior backend's failure stamp;
-    the schedule call must populate ``_regenerate_failed`` and
+    the schedule call must populate ``state.regen.failed`` and
     skip the spawn rather than burning another subprocess.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])

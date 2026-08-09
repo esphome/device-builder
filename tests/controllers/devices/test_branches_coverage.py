@@ -1083,7 +1083,7 @@ def test_get_devices_bridge_returns_scanner_property(
 # ---------------------------------------------------------------------------
 
 
-async def test_on_scan_change_updated_clears_regenerate_failed_marker(
+async def test_on_scan_change_updated_resets_regen_state(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A YAML edit clears the prior storage-regenerate failure marker.
