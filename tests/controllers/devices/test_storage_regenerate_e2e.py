@@ -60,17 +60,17 @@ def _read_store(controller: DevicesController, filename: str) -> dict[str, Any]:
 class _FakeProc:
     """Minimal ``asyncio.subprocess.Process`` stand-in.
 
-    ``communicate`` returns the configured stderr bytes;
+    ``communicate`` returns the configured merged-stream bytes;
     ``returncode`` carries the configured exit code. Only the
     bits ``_schedule_storage_regenerate`` reads.
     """
 
-    def __init__(self, returncode: int = 0, stderr: bytes = b"") -> None:
+    def __init__(self, returncode: int = 0, output: bytes = b"") -> None:
         self.returncode = returncode
-        self._stderr = stderr
+        self._output = output
 
     async def communicate(self) -> tuple[bytes, bytes]:
-        return (b"", self._stderr)
+        return (self._output, b"")
 
 
 def _seed_attempts(
@@ -320,7 +320,7 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     _seed_attempts(controller, "kitchen.yaml", 3, age=200.0)
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        return _FakeProc(returncode=1, stderr=b"YAML parse error at line 3")
+        return _FakeProc(returncode=1, output=b"YAML parse error at line 3")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -508,7 +508,7 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     expected_mtime = yaml_path.stat().st_mtime
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        return _FakeProc(returncode=1, stderr=b"YAML parse error")
+        return _FakeProc(returncode=1, output=b"YAML parse error")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -741,7 +741,7 @@ async def test_regenerate_skips_when_yaml_unreadable(
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
         spawn_calls.append(args)
-        return _FakeProc(returncode=1, stderr=b"missing")
+        return _FakeProc(returncode=1, output=b"missing")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -1113,7 +1113,7 @@ async def test_ttl_expiry_grants_fresh_budget(
     )
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        return _FakeProc(returncode=1, stderr=b"YAML parse error")
+        return _FakeProc(returncode=1, output=b"YAML parse error")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -1172,7 +1172,7 @@ async def test_backoff_elapsed_runs_next_attempt(
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
         spawn_calls.append(args)
-        return _FakeProc(returncode=1, stderr=b"YAML parse error")
+        return _FakeProc(returncode=1, output=b"YAML parse error")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -1273,7 +1273,7 @@ async def test_vanished_mid_run_stamps_prespawn_mtime(
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         # Off-loop: blockbuster flags blocking unlink on the loop (Linux CI).
         await asyncio.to_thread(yaml_path.unlink)
-        return _FakeProc(returncode=1, stderr=b"gone")
+        return _FakeProc(returncode=1, output=b"gone")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -1301,8 +1301,10 @@ async def test_regenerate_warns_when_yaml_unreadable(
     make_controller: MakeControllerFactory,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A non-vanish stat error re-arms the ladder loudly instead of stranding it."""
+    """A non-vanish stat error re-arms the ladder loudly, escalating per strike."""
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
@@ -1313,13 +1315,23 @@ async def test_regenerate_warns_when_yaml_unreadable(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
         _fake_spawn,
     )
+    real_run_in_executor = storage_regen.run_in_executor
+    denials = 2
 
-    async def _denied(_fn: Any) -> float:
-        raise PermissionError("denied")
+    async def _denied(fn: Any, *args: Any) -> Any:
+        nonlocal denials
+        if denials:
+            denials -= 1
+            raise PermissionError("denied")
+        return await real_run_in_executor(fn, *args)
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.run_in_executor", _denied
     )
+
+    def _armed_delay() -> float:
+        handle = controller.state.regen.retry_timers["kitchen.yaml"]
+        return handle.when() - asyncio.get_running_loop().time()
 
     with caplog.at_level(logging.WARNING):
         controller._schedule_storage_regenerate("kitchen.yaml")
@@ -1328,8 +1340,22 @@ async def test_regenerate_warns_when_yaml_unreadable(
     assert spawn_calls == []
     assert any("config unreadable" in record.message for record in caplog.records)
     # A transient errno keeps the ladder alive: the base backoff re-arms.
-    assert set(controller.state.regen.retry_timers) == {"kitchen.yaml"}
-    controller.state.regen.cancel_all_retry_timers()
+    assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 1}
+    assert 29.0 < _armed_delay() <= 30.0
+
+    # A second strike widens the re-arm.
+    storage_regen._fire_retry(controller, "kitchen.yaml")
+    await _drain(controller)
+
+    assert controller.state.regen.unreadable_strikes == {"kitchen.yaml": 2}
+    assert 59.0 < _armed_delay() <= 60.0
+
+    # The stat recovering clears the strikes and spawns.
+    storage_regen._fire_retry(controller, "kitchen.yaml")
+    await _drain(controller)
+
+    assert controller.state.regen.unreadable_strikes == {}
+    assert len(spawn_calls) == 1
     assert controller.state.regen.pending == set()
 
 
@@ -1344,7 +1370,7 @@ async def test_edit_between_failures_resets_attempts(
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        return _FakeProc(returncode=2, stderr=b"fatal: could not clone")
+        return _FakeProc(returncode=2, output=b"fatal: could not clone")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -1378,7 +1404,7 @@ async def test_regenerate_first_failure_stamps_and_arms_retry(
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
-        return _FakeProc(returncode=2, stderr=b"fatal: could not clone")
+        return _FakeProc(returncode=2, output=b"fatal: could not clone")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
@@ -1405,7 +1431,7 @@ async def test_regenerate_retry_fires_and_succeeds(
         "esphome_device_builder.controllers.devices.storage_regen._RETRY_BACKOFF_BASE_SECONDS",
         0.0,
     )
-    outcomes = [_FakeProc(returncode=2, stderr=b"fatal: clone interrupted"), _FakeProc()]
+    outcomes = [_FakeProc(returncode=2, output=b"fatal: clone interrupted"), _FakeProc()]
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         return outcomes.pop(0)
@@ -1447,7 +1473,7 @@ async def test_regenerate_retry_budget_exhausts_to_stamp(
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         nonlocal spawns
         spawns += 1
-        return _FakeProc(returncode=1, stderr=b"YAML parse error")
+        return _FakeProc(returncode=1, output=b"YAML parse error")
 
     monkeypatch.setattr(
         "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",

@@ -128,6 +128,7 @@ def _reconcile_regen_state(
     """
     if kind not in (ScanChange.UPDATED, ScanChange.REMOVED):
         return
+    controller.state.regen.unreadable_strikes.pop(device.configuration, None)
     had_timer = controller.state.regen.cancel_retry(device.configuration)
     if had_timer and kind is ScanChange.UPDATED:
         controller._schedule_storage_regenerate(device.configuration)

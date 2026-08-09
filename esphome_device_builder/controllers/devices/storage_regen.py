@@ -62,17 +62,25 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
         except FileNotFoundError:
             _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
+            controller.state.regen.unreadable_strikes.pop(configuration, None)
             return
         except OSError:
+            # A transient errno (EACCES, EIO on a network mount) must not
+            # strand the ladder: the firing timer already popped itself.
+            # Without an mtime the stamp can't key the failure, so a RAM
+            # strike escalates the re-arm up to the TTL.
+            strikes = controller.state.regen.unreadable_strikes.get(configuration, 0) + 1
+            controller.state.regen.unreadable_strikes[configuration] = strikes
             _LOGGER.warning(
                 "Storage regenerate for %s: config unreadable; retrying",
                 configuration,
                 exc_info=True,
             )
-            # A transient errno (EACCES, EIO on a network mount) must not
-            # strand the ladder: the firing timer already popped itself.
-            _arm_retry(controller, configuration, _RETRY_BACKOFF_BASE_SECONDS)
+            _arm_retry(
+                controller, configuration, min(_delay_for(strikes), _REGEN_FAILURE_TTL_SECONDS)
+            )
             return
+        controller.state.regen.unreadable_strikes.pop(configuration, None)
         stamp = _fresh_stamp(
             controller._metadata_store.get(configuration), current_mtime, time.time()
         )
@@ -129,16 +137,18 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller.state.esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
     try:
+        # Merged streams: esphome safe_prints validation errors to stdout
+        # while load errors log to stderr; the summary needs both.
         proc = await create_subprocess_exec(
             *cmd,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
         )
     except Exception as err:
         _LOGGER.debug("Storage regenerate spawn failed for %s", configuration, exc_info=True)
         return f"spawn failed: {err!r}"
     try:
-        _, stderr = await proc.communicate()
+        output, _ = await proc.communicate()
     except asyncio.CancelledError:
         # Signals the direct esphome child only, not a git grandchild.
         kill_quietly(proc)
@@ -148,7 +158,7 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
         _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
         return f"communicate failed: {err!r}"
     if proc.returncode != 0:
-        text = stderr.decode(errors="replace").strip()
+        text = output.decode(errors="replace").strip()
         _LOGGER.debug(
             "Storage regenerate for %s exited %s: %s",
             configuration,

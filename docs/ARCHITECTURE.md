@@ -414,7 +414,7 @@ Two rules the refine established that every later caller inherits:
   failed `--only-generate` earns a bounded escalating retry (4 attempts,
   30/60/120s between them) — a transient environment failure (interrupted
   package clone, DNS) is indistinguishable from a broken YAML without
-  parsing subprocess stderr, so every failure retries. Every failure stamps
+  parsing subprocess output, so every failure retries. Every failure stamps
   the store (`regen_failed_mtime`/`_at`/`_attempts`), making the stamp the
   single source of truth: the ladder resumes across restarts at the recorded
   attempt (a restart inside a backoff window re-arms the *remainder*, not an
