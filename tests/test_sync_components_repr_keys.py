@@ -20,9 +20,11 @@ from script.sync_components import (  # type: ignore[import-not-found]
 
 _LEAKED_KEY = "<function validate_parameter_name at 0x7f05234eefc0>"
 
-# Full-string reprs only, so prose mentioning an address ("Defaults to
-# `0x7f`") never trips it.
+# Values: full-string reprs only, so prose mentioning an address
+# ("Defaults to `0x7f`") never trips it. Keys legitimately never
+# contain an address, so they also get the unanchored check.
 _REPRISH_RE = re.compile(r"^<.+ at 0x[0-9a-f]+>$|^<class '.+'>$")
+_ADDRESS_RE = re.compile(r" at 0x[0-9a-f]+")
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +37,7 @@ def _clean_accumulator() -> Iterator[None]:
 def _reprish_strings(node: Any, path: str) -> Iterator[str]:
     if isinstance(node, dict):
         for key, value in node.items():
-            if isinstance(key, str) and _REPRISH_RE.match(key):
+            if isinstance(key, str) and (_REPRISH_RE.match(key) or _ADDRESS_RE.search(key)):
                 yield f"{path}.{key}"
             yield from _reprish_strings(value, f"{path}.{key}")
     elif isinstance(node, list):
@@ -60,6 +62,19 @@ def test_shipped_script_execute_drops_wildcard_entry() -> None:
     assert {e["key"] for e in body["config_entries"]} == {"id"}
 
 
+def test_shipped_user_keyed_map_forms_survive() -> None:
+    """The legitimate ``string``-keyed forms must never fall to the wildcard drop.
+
+    Extending ``_HANDLED_WILDCARD_KEYS`` with ``string`` would silently
+    wipe the substitutions form and the whole packages editor.
+    """
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "substitutions.json").read_bytes())
+    assert [e["key"] for e in body["config_entries"]] == ["string"]
+    body = orjson.loads((_OUTPUT_BODIES_DIR / "packages.json").read_bytes())
+    entry = next(e for e in body["config_entries"] if e["key"] == "string")
+    assert "url" in {c["key"] for c in entry["config_entries"]}
+
+
 def test_handled_wildcard_key_is_dropped(tmp_path: Path) -> None:
     """An acknowledged callable-repr key produces no entry and no canary row."""
     schema_node = {"config_vars": {_LEAKED_KEY: {"key": "Optional", "templatable": True}}}
@@ -71,7 +86,7 @@ def test_handled_wildcard_key_is_dropped(tmp_path: Path) -> None:
 
 
 def test_normalized_wildcard_placeholder_is_dropped(tmp_path: Path) -> None:
-    """The dumper's post-fix ``string`` placeholder (esphome/esphome#18218) also drops."""
+    """The dumper's normalized ``string`` placeholder also drops."""
     schema_node = {
         "config_vars": {
             "string": {
@@ -106,6 +121,7 @@ def test_unknown_wildcard_placeholder_fails_the_sync(tmp_path: Path) -> None:
         pytest.param("<function frob at 0x1f>", id="unknown_function"),
         pytest.param("<function <lambda> at 0x1f>", id="lambda"),
         pytest.param("<bound method X.y of <X object at 0x1f>>", id="bound_method"),
+        pytest.param("functools.partial(<function frob at 0x1f>, 3)", id="embedded_repr"),
     ],
 )
 def test_unhandled_repr_key_fails_the_sync(key: str, tmp_path: Path) -> None:

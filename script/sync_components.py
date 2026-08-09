@@ -1029,9 +1029,7 @@ def main() -> int:
             len(automations["conditions"]),
             len(automations["light_effects"]),
         )
-        # Accepts a split-version tree (components already emitted
-        # above): hoisting the automations build over that emit to get
-        # a single checkpoint isn't worth the restructure.
+        # Guards the automations emit; components are already on disk.
         _fail_on_unhandled_repr_keys()
         _emit_split_automations_catalog(automations, version)
     else:
@@ -2903,16 +2901,16 @@ def _merge_extends_config_vars(
     return merged, {key: ref for key, ref in origin_ref.items() if key not in config_vars}
 
 
-def _is_wildcard_key(component_id: str, key: str, raw: dict | None) -> bool:
+def _drop_opaque_key(component_id: str, key: str, raw: dict | None) -> bool:
     """
-    Report whether *key* is a callable wildcard matcher's, dropped from the catalog.
+    Drop a stringified-object key, recording unacknowledged ones for the canary.
 
-    Two dumper spellings: the leaked repr (``<function ... at 0x...>``)
-    and the normalized ``string`` placeholder carrying the validator in
-    ``key_type`` (esphome/esphome#18218). An unacknowledged validator is
-    recorded for the pre-emit canary.
+    Two dumper spellings: the leaked repr (``<function ... at 0x...>``,
+    or one embedded in a larger key) and the normalized ``string``
+    placeholder carrying the validator in ``key_type``
+    (esphome/esphome#18218).
     """
-    if key.startswith("<") and key.endswith(">"):
+    if (key.startswith("<") and key.endswith(">")) or _REPR_ADDRESS_RE.search(key):
         match = _REPR_KEY_RE.match(key)
         if match is None or match.group(1) not in _HANDLED_WILDCARD_KEYS:
             _UNHANDLED_REPR_KEYS.add((component_id, key))
@@ -2943,7 +2941,7 @@ def _convert_config_vars(
     for key, raw in merged.items():
         if key in _SKIP_KEYS:
             continue
-        if _is_wildcard_key(component_id, key, raw):
+        if _drop_opaque_key(component_id, key, raw):
             continue
         if (component_id, key) in _DEPRECATED_FIELDS:
             continue
@@ -8305,6 +8303,9 @@ _RENAME_SWEEP_COUNT = [0]
 
 _REPR_KEY_RE = re.compile(r"^<function (\w+) at 0x[0-9a-f]+>$")
 
+# A key legitimately never contains an address, so unanchored is safe.
+_REPR_ADDRESS_RE = re.compile(r" at 0x[0-9a-f]+")
+
 #: Callable wildcard matchers acknowledged as deliberately dropped.
 #: ``validate_parameter_name``: script.execute accepts arbitrary
 #: user-defined parameter names as action keys; the editor's dynamic
@@ -9788,6 +9789,8 @@ def _extract_automation_param_schema(
     stripped: set[str] = set()
     for key, raw in _merge_extends_config_vars(schema, schema_dir)[0].items():
         if not isinstance(raw, dict):
+            continue
+        if _drop_opaque_key("", key, raw):
             continue
         rtype = raw.get("type")
         if rtype == "trigger" or (rtype == "registry" and raw.get("registry") == "action"):
