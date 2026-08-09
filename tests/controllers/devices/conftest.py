@@ -416,7 +416,7 @@ def seed_device() -> SeedDeviceFactory:
                 "loaded_integrations": (
                     loaded_integrations if loaded_integrations is not None else ["api"]
                 ),
-                "loaded_platforms": ["esp32"],
+                "loaded_platforms": ["ota/esphome"],
             },
         )
 

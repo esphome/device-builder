@@ -763,6 +763,7 @@ def test_load_device_from_storage_address_uses_storage_when_set(  # type: ignore
         firmware_bin_path = None
         esphome_version = ""
         loaded_integrations: ClassVar[list[str]] = []
+        loaded_platforms: ClassVar[list[str]] = []
 
     monkeypatch.setattr(device_yaml.StorageJSON, "load", staticmethod(lambda _p: _FakeStorage()))
 

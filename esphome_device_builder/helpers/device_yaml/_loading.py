@@ -255,6 +255,11 @@ def load_device_from_storage(
     )
 
     loaded_integrations = sorted(storage.loaded_integrations) if storage else []
+    # StorageJSON separates pairs with "/" (``ota/esphome``); the catalog
+    # and frontend speak dotted ids.
+    loaded_platforms = (
+        sorted(p.replace("/", ".", 1) for p in storage.loaded_platforms) if storage else []
+    )
     # Subset of loaded_integrations the user directly wrote — top-
     # level keys + ``- platform:`` stems. Frontend's device-drawer
     # splits the loaded list into "direct" (these) and "indirect"
@@ -343,6 +348,7 @@ def load_device_from_storage(
         current_version=const.__version__,
         expected_config_hash=expected_config_hash,
         loaded_integrations=loaded_integrations,
+        loaded_platforms=loaded_platforms,
         directly_referenced_integrations=directly_referenced_integrations,
         has_pending_changes=has_pending,
         pending_changes_via_hash=pending_via_hash,

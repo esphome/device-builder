@@ -182,6 +182,10 @@ class Device(DashboardModel):
     # runtime publishes via ``App.get_config_hash()``.
     expected_config_hash: str = ""
     loaded_integrations: list[str] = field(default_factory=list)  # from StorageJSON after compile
+    # Dotted ``domain.platform`` pairs (``ota.esphome``,
+    # ``time.homeassistant``) from StorageJSON's slash-separated
+    # ``loaded_platforms``; empty until first compile.
+    loaded_platforms: list[str] = field(default_factory=list)
     # Subset of ``loaded_integrations`` the user directly wrote in
     # YAML — top-level keys (``api:``, ``wifi:``, ``sensor:``) plus
     # the platform stems from ``- platform: <name>`` references

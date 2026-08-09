@@ -57,7 +57,7 @@ _STORAGE_LOADED: Final[dict[str, object]] = {
         "uptime",
         "wifi",
     ],
-    "loaded_platforms": ["binary_sensor", "sensor"],
+    "loaded_platforms": ["binary_sensor/gpio", "sensor/uptime", "ota/esphome"],
 }
 
 

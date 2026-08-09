@@ -1060,6 +1060,7 @@ async def test_get_info_returns_storage_metadata_dict(
             "address": "kitchen.local",
             "web_port": 80,
             "loaded_integrations": ["api", "wifi", "ota"],
+            "loaded_platforms": ["time/sntp", "ota/esphome"],
             "target_platform": "esp32",
         },
     )
@@ -1087,6 +1088,7 @@ async def test_get_info_returns_storage_metadata_dict(
     # collection of strings).
     integrations = result.pop("loaded_integrations")
     assert set(integrations) == {"api", "wifi", "ota"}
+    assert result.pop("loaded_platforms") == ["ota/esphome", "time/sntp"]
     assert result == {
         "name": "kitchen",
         "friendly_name": "Kitchen",

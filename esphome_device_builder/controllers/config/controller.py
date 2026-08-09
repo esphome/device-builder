@@ -221,6 +221,7 @@ class ConfigController:
                 "current_version": storage.esphome_version,
                 "deployed_version": storage.firmware_bin_path,
                 "loaded_integrations": storage.loaded_integrations,
+                "loaded_platforms": sorted(storage.loaded_platforms),
             }
 
         return await run_in_executor(_load_info)
