@@ -1109,6 +1109,31 @@ async def test_on_scan_change_updated_clears_regenerate_failed_marker(
     assert controller.state.regen.retry_strikes == {}
 
 
+async def test_on_scan_change_reloaded_keeps_armed_retry(
+    tmp_path: Path, make_controller: MakeControllerFactory
+) -> None:
+    """A metadata reload clears the failure marker but not the armed retry.
+
+    The cold-start refine emits RELOADED for every device; cancelling
+    the retry there would drop the only pending recovery for a config
+    whose first regen failed.
+    """
+    controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
+    controller.state.regen.failed.add("kitchen.yaml")
+    controller.state.regen.retry_strikes["kitchen.yaml"] = 1
+    handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
+    controller.state.regen.retry_timers["kitchen.yaml"] = handle
+    device = _device("kitchen")
+
+    controller._on_scan_change(ScanChange.RELOADED, device)
+
+    assert "kitchen.yaml" not in controller.state.regen.failed
+    assert not handle.cancelled()
+    assert controller.state.regen.retry_timers == {"kitchen.yaml": handle}
+    assert controller.state.regen.retry_strikes == {"kitchen.yaml": 1}
+    handle.cancel()
+
+
 def test_on_scan_change_updated_fires_yaml_updated(
     tmp_path: Path,
     make_controller: MakeControllerFactory,

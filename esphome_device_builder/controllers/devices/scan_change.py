@@ -60,12 +60,7 @@ def on_scan_change(
         # keeps pinging addresses resolved from the old one (#2486) or
         # waits out the remainder of the periodic interval.
         controller._state_monitor.address_retargeted(device.name)
-    if kind in (ScanChange.UPDATED, ScanChange.RELOADED, ScanChange.REMOVED):
-        # YAML cache key changed (or a reload re-read it); drop any
-        # prior failure marker and retry state so the next edit gets a
-        # fresh chance at ``--only-generate`` (and re-creating a
-        # deleted file later doesn't inherit the old failure).
-        controller.state.regen.reset(device.configuration)
+    _reconcile_regen_state(controller, kind, device)
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
         _sync_network_fingerprint(controller, kind, device)
     _nudge_mqtt(controller, kind, device, previous)
@@ -117,6 +112,25 @@ def on_scan_change(
         # Idempotent for the controller-driven delete/archive
         # paths; the safety net is external ``rm`` / rename.
         controller._metadata_store.clear_volatile(device.configuration)
+
+
+def _reconcile_regen_state(
+    controller: DevicesController,
+    kind: ScanChange,
+    device: Device,
+) -> None:
+    """Reset or trim the regen failure state after a scan change."""
+    if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
+        # YAML cache key changed or the file is gone; drop the failure
+        # marker and any armed retry so the next sight starts fresh
+        # (re-creating a deleted file doesn't inherit the old failure).
+        controller.state.regen.reset(device.configuration)
+    elif kind is ScanChange.RELOADED:
+        # Metadata reload, YAML unchanged: a stale failure marker clears
+        # (a post-compile reload proves the YAML builds) but an armed
+        # retry survives — the cold-start refine's RELOADED must not
+        # cancel the only pending recovery.
+        controller.state.regen.failed.discard(device.configuration)
 
 
 def _reconcile_rename(

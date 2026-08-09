@@ -39,10 +39,9 @@ class RegenState:
     """
     Bookkeeping for background ``--only-generate`` runs.
 
-    ``pending`` blocks duplicate schedules while a run is in flight;
-    ``failed`` blocks retries until the YAML changes (cleared by
-    ``scan_change``); ``retry_timers`` + ``retry_strikes`` drive the
-    bounded escalating retry between a failure and the disk stamp.
+    ``pending`` dedupes in-flight schedules, ``failed`` blocks retries
+    until the YAML changes, and the retry fields drive the bounded
+    escalating retry between a failure and the disk stamp.
     """
 
     pending: set[str] = field(default_factory=set)
