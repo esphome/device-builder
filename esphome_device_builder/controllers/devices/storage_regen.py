@@ -12,7 +12,7 @@ from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
 from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.subprocess import create_subprocess_exec, kill_quietly
+from ...helpers.subprocess import run_subprocess_capture
 
 if TYPE_CHECKING:
     from .controller import DevicesController
@@ -29,6 +29,10 @@ _REGEN_FAILURE_TTL_SECONDS: float = 4 * 3600.0
 # in the metadata store, resuming the ladder across restarts.
 _RETRY_BACKOFF_BASE_SECONDS: float = 30.0
 _MAX_REGEN_ATTEMPTS: int = 4
+
+# A hung run (stalled package fetch) would hold ``_regenerate_lock``
+# indefinitely; matches the config-bundle build timeout.
+_ONLY_GENERATE_TIMEOUT_SECONDS: float = 300.0
 
 
 def schedule(controller: DevicesController, configuration: str) -> None:
@@ -58,19 +62,19 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 async def _run(controller: DevicesController, configuration: str) -> None:
     try:
         config_path = controller._db.settings.rel_path(configuration)
+        regen = controller.state.regen
         try:
-            current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
+            current_mtime = (await run_in_executor(config_path.stat)).st_mtime
         except FileNotFoundError:
             _LOGGER.debug("Storage regenerate for %s: config vanished; skipping", configuration)
-            controller.state.regen.unreadable_strikes.pop(configuration, None)
+            regen.clear_strikes(configuration)
             return
         except OSError:
             # A transient errno (EACCES, EIO on a network mount) must not
             # strand the ladder: the firing timer already popped itself.
             # Without an mtime the stamp can't key the failure, so a RAM
             # strike escalates the re-arm up to the TTL.
-            strikes = controller.state.regen.unreadable_strikes.get(configuration, 0) + 1
-            controller.state.regen.unreadable_strikes[configuration] = strikes
+            strikes = regen.record_strike(configuration)
             _LOGGER.warning(
                 "Storage regenerate for %s: config unreadable; retrying",
                 configuration,
@@ -80,7 +84,7 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                 controller, configuration, min(_delay_for(strikes), _REGEN_FAILURE_TTL_SECONDS)
             )
             return
-        controller.state.regen.unreadable_strikes.pop(configuration, None)
+        regen.clear_strikes(configuration)
         stamp = _fresh_stamp(
             controller._metadata_store.get(configuration), current_mtime, time.time()
         )
@@ -92,8 +96,7 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                     "waiting for a YAML change or the stamp TTL",
                     configuration,
                 )
-                # No scan event fires for an untouched file; re-check at expiry.
-                _arm_retry(controller, configuration, _REGEN_FAILURE_TTL_SECONDS - age)
+                _arm_ttl_recheck(controller, configuration, age)
                 return
             remaining = _delay_for(attempts) - age
             if remaining > 0:
@@ -104,13 +107,13 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         async with controller._regenerate_lock:
             failure = await controller._spawn_only_generate(configuration)
         if failure is None:
-            controller.state.regen.cancel_retry(configuration)
+            regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
             return
         # Stamp against the pre-spawn mtime: an edit landing mid-run must
         # not have the old content's failure charged to the new file.
-        recorded = await controller._stamp_regen_failure(configuration, current_mtime)
+        recorded = controller._stamp_regen_failure(configuration, current_mtime)
         if recorded < _MAX_REGEN_ATTEMPTS:
             _arm_retry(controller, configuration, _delay_for(recorded))
             return
@@ -121,8 +124,7 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             recorded,
             failure,
         )
-        # No scan event fires for an untouched file; re-check at expiry.
-        _arm_retry(controller, configuration, _REGEN_FAILURE_TTL_SECONDS)
+        _arm_ttl_recheck(controller, configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
 
@@ -137,39 +139,29 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller.state.esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
     try:
-        # Merged streams: esphome safe_prints validation errors to stdout
-        # while load errors log to stderr; the summary needs both.
-        proc = await create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
+        # Merged streams (the helper's default): esphome safe_prints
+        # validation errors to stdout while load errors log to stderr;
+        # the summary needs both.
+        result = await run_subprocess_capture(*cmd, timeout=_ONLY_GENERATE_TIMEOUT_SECONDS)
     except Exception as err:
-        _LOGGER.debug("Storage regenerate spawn failed for %s", configuration, exc_info=True)
-        return f"spawn failed: {err!r}"
-    try:
-        output, _ = await proc.communicate()
-    except asyncio.CancelledError:
-        # Signals the direct esphome child only, not a git grandchild.
-        kill_quietly(proc)
-        raise
-    except Exception as err:
-        kill_quietly(proc)
         _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
-        return f"communicate failed: {err!r}"
-    if proc.returncode != 0:
-        text = output.decode(errors="replace").strip()
-        _LOGGER.debug(
-            "Storage regenerate for %s exited %s: %s",
-            configuration,
-            proc.returncode,
-            text[:500],
-        )
-        return f"exit {proc.returncode}: {text[-200:]}" if text else f"exit {proc.returncode}"
-    return None
+        return f"subprocess error: {err!r}"
+    if result.timed_out:
+        return f"timed out after {_ONLY_GENERATE_TIMEOUT_SECONDS:.0f}s"
+    if result.returncode == 0:
+        return None
+    text = result.stdout[-4096:].decode(errors="replace").strip()
+    _LOGGER.debug(
+        "Storage regenerate for %s exited %s: %s",
+        configuration,
+        result.returncode,
+        text[-500:],
+    )
+    summary = f"exit {result.returncode}"
+    return f"{summary}: {text[-200:]}" if text else summary
 
 
-async def stamp_failure(controller: DevicesController, configuration: str, mtime: float) -> int:
+def stamp_failure(controller: DevicesController, configuration: str, mtime: float) -> int:
     """
     Record one more failed attempt against *mtime*.
 
@@ -248,6 +240,15 @@ def _fresh_stamp(
 def _delay_for(attempts: int) -> float:
     """Backoff delay after failed attempt number *attempts* (1-based)."""
     return _RETRY_BACKOFF_BASE_SECONDS * 2.0 ** (attempts - 1)
+
+
+def _arm_ttl_recheck(controller: DevicesController, configuration: str, age: float = 0.0) -> None:
+    """Arm the stamp-expiry re-check unless one is already pending."""
+    # No scan event fires for an untouched file, and the deadline never
+    # moves for the same stamp — re-arming would only churn the timer.
+    if configuration in controller.state.regen.retry_timers:
+        return
+    _arm_retry(controller, configuration, _REGEN_FAILURE_TTL_SECONDS - age)
 
 
 def _arm_retry(controller: DevicesController, configuration: str, delay: float) -> None:

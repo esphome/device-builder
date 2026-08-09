@@ -426,8 +426,9 @@ Two rules the refine established that every later caller inherits:
   at any attempt clears the stamp triple and reloads the scanner, which also
   repairs an earlier swallowed in-process package resolve; a run cancelled
   mid-subprocess kills the child and records nothing (an interrupted clone
-  is not evidence of failure), and the give-up warning carries the last
-  failure's summary.
+  is not evidence of failure), a hung run is killed after five minutes and
+  counts as a failure, and the give-up warning carries the last failure's
+  summary.
 
 ## Authentication
 

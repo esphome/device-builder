@@ -64,11 +64,27 @@ class RegenState:
         handle.cancel()
         return True
 
+    def record_strike(self, configuration: str) -> int:
+        """Count one more stat failure against *configuration*; returns the streak."""
+        strikes = self.unreadable_strikes.get(configuration, 0) + 1
+        self.unreadable_strikes[configuration] = strikes
+        return strikes
+
+    def clear_strikes(self, configuration: str) -> None:
+        """Drop *configuration*'s stat-failure streak."""
+        self.unreadable_strikes.pop(configuration, None)
+
+    def forget(self, configuration: str) -> bool:
+        """Drop all in-RAM regen bookkeeping for *configuration*; True iff a retry was armed."""
+        self.clear_strikes(configuration)
+        return self.cancel_retry(configuration)
+
     def cancel_all_retry_timers(self) -> None:
-        """Cancel every pending retry timer."""
+        """Cancel every pending retry timer and drop the strike streaks."""
         for handle in self.retry_timers.values():
             handle.cancel()
         self.retry_timers.clear()
+        self.unreadable_strikes.clear()
 
 
 @dataclass

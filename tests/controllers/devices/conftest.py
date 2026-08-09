@@ -454,7 +454,7 @@ class MakeControllerFactory(Protocol):
 
 
 @pytest.fixture
-def make_controller() -> MakeControllerFactory:
+def make_controller() -> Iterator[MakeControllerFactory]:
     """Return a factory that builds a bypass-init ``DevicesController``.
 
     Most ``tests/controllers/devices/`` files exercise a single
@@ -598,9 +598,15 @@ def make_controller() -> MakeControllerFactory:
 
         controller.state.esphome_cmd = esphome_cmd if esphome_cmd is not None else []
 
+        controllers.append(controller)
         return controller
 
-    return _make
+    controllers: list[DevicesController] = []
+    yield _make
+    # Regen retry timers survive the test body otherwise; central
+    # teardown replaces a per-test cancel epilogue.
+    for controller in controllers:
+        controller.state.regen.cancel_all_retry_timers()
 
 
 CaptureDevicesEventsFactory = Callable[..., list[Event]]

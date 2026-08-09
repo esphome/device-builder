@@ -60,36 +60,11 @@ def on_scan_change(
         # keeps pinging addresses resolved from the old one (#2486) or
         # waits out the remainder of the periodic interval.
         controller._state_monitor.address_retargeted(device.name)
-    _reconcile_regen_state(controller, kind, device)
+    dropped_retry = _reconcile_regen_state(controller, kind, device)
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
         _sync_network_fingerprint(controller, kind, device)
     _nudge_mqtt(controller, kind, device, previous)
-    # Devices with no compile output carry the ``<filename>.local``
-    # address fallback and an empty ``loaded_integrations`` list.
-    # Schedule a background ``--only-generate`` so the next scan picks
-    # up the real StorageJSON-derived values without making the user
-    # wait for a real compile. Also fire when ``expected_config_hash``
-    # is empty even though ``loaded_integrations`` is populated:
-    # devices configured before build_info.json existed have a
-    # working StorageJSON but no hash, and would otherwise show
-    # a permanent em-dash for "Local config hash" until the user
-    # edits the YAML. UPDATED covers out-of-band edits repairing a
-    # previously stamped YAML.
-    needs_storage_regen = kind in (ScanChange.ADDED, ScanChange.UPDATED) and (
-        not device.loaded_integrations or not device.expected_config_hash
-    )
-    if needs_storage_regen:
-        missing = []
-        if not device.loaded_integrations:
-            missing.append("loaded_integrations")
-        if not device.expected_config_hash:
-            missing.append("expected_config_hash")
-        _LOGGER.debug(
-            "Scheduling --only-generate for %s (missing: %s)",
-            device.configuration,
-            ", ".join(missing),
-        )
-        controller._schedule_storage_regenerate(device.configuration)
+    _schedule_regen_if_needed(controller, kind, device, dropped_retry=dropped_retry)
     if kind is ScanChange.REMOVED:
         # Upstream's DashboardImportDiscovery only fires
         # on_update on first sight; without a nudge a deleted
@@ -114,24 +89,59 @@ def on_scan_change(
         controller._metadata_store.clear_volatile(device.configuration)
 
 
+def _schedule_regen_if_needed(
+    controller: DevicesController,
+    kind: ScanChange,
+    device: Device,
+    *,
+    dropped_retry: bool,
+) -> None:
+    """Spawn a background ``--only-generate`` when the change warrants one."""
+    # Devices with no compile output carry the ``<filename>.local``
+    # address fallback and an empty ``loaded_integrations`` list.
+    # Schedule a background ``--only-generate`` so the next scan picks
+    # up the real StorageJSON-derived values without making the user
+    # wait for a real compile. Also fire when ``expected_config_hash``
+    # is empty even though ``loaded_integrations`` is populated:
+    # devices configured before build_info.json existed have a
+    # working StorageJSON but no hash, and would otherwise show
+    # a permanent em-dash for "Local config hash" until the user
+    # edits the YAML. UPDATED covers out-of-band edits repairing a
+    # previously stamped YAML; one that cancelled an armed retry
+    # respawns regardless — the edit invalidated the stamp the timer
+    # was waiting out.
+    if kind not in (ScanChange.ADDED, ScanChange.UPDATED):
+        return
+    reasons = []
+    if not device.loaded_integrations:
+        reasons.append("loaded_integrations missing")
+    if not device.expected_config_hash:
+        reasons.append("expected_config_hash missing")
+    if dropped_retry:
+        reasons.append("armed retry dropped")
+    if not reasons:
+        return
+    _LOGGER.debug(
+        "Scheduling --only-generate for %s (%s)",
+        device.configuration,
+        ", ".join(reasons),
+    )
+    controller._schedule_storage_regenerate(device.configuration)
+
+
 def _reconcile_regen_state(
     controller: DevicesController,
     kind: ScanChange,
     device: Device,
-) -> None:
+) -> bool:
     """
-    Drop the armed retry when the YAML changed or the file is gone.
+    Drop regen bookkeeping when the YAML changed or is gone; True iff a retry was armed.
 
-    An UPDATED that cancelled one reschedules — the moved mtime
-    invalidates the stamp, so the edited YAML spawns fresh. RELOADED
-    leaves the timer alone.
+    RELOADED leaves everything alone.
     """
     if kind not in (ScanChange.UPDATED, ScanChange.REMOVED):
-        return
-    controller.state.regen.unreadable_strikes.pop(device.configuration, None)
-    had_timer = controller.state.regen.cancel_retry(device.configuration)
-    if had_timer and kind is ScanChange.UPDATED:
-        controller._schedule_storage_regenerate(device.configuration)
+        return False
+    return controller.state.regen.forget(device.configuration)
 
 
 def _reconcile_rename(
