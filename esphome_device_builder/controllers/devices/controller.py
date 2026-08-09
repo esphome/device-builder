@@ -333,6 +333,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
+        self.state.regen.cancel_all_retry_timers()
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()
             self._mqtt_reconcile_handle = None

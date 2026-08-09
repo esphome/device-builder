@@ -26,6 +26,7 @@ Grouped by surface:
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock
@@ -1082,7 +1083,7 @@ def test_get_devices_bridge_returns_scanner_property(
 # ---------------------------------------------------------------------------
 
 
-def test_on_scan_change_updated_clears_regenerate_failed_marker(
+async def test_on_scan_change_updated_clears_regenerate_failed_marker(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
     """A YAML edit clears the prior storage-regenerate failure marker.
@@ -1094,12 +1095,18 @@ def test_on_scan_change_updated_clears_regenerate_failed_marker(
     storage refresh forever.
     """
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
-    controller.state.regenerate_failed.add("kitchen.yaml")
+    controller.state.regen.failed.add("kitchen.yaml")
+    controller.state.regen.retry_strikes["kitchen.yaml"] = 1
+    handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
+    controller.state.regen.retry_timers["kitchen.yaml"] = handle
     device = _device("kitchen")
 
     controller._on_scan_change(ScanChange.UPDATED, device)
 
-    assert "kitchen.yaml" not in controller.state.regenerate_failed
+    assert "kitchen.yaml" not in controller.state.regen.failed
+    assert handle.cancelled()
+    assert controller.state.regen.retry_timers == {}
+    assert controller.state.regen.retry_strikes == {}
 
 
 def test_on_scan_change_updated_fires_yaml_updated(

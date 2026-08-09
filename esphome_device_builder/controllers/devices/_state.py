@@ -28,9 +28,49 @@ What lives here vs on the controller:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from ...models import AdoptableDevice
+
+
+@dataclass
+class RegenState:
+    """
+    Bookkeeping for background ``--only-generate`` runs.
+
+    ``pending`` blocks duplicate schedules while a run is in flight;
+    ``failed`` blocks retries until the YAML changes (cleared by
+    ``scan_change``); ``retry_timers`` + ``retry_strikes`` drive the
+    bounded escalating retry between a failure and the disk stamp.
+    """
+
+    pending: set[str] = field(default_factory=set)
+    failed: set[str] = field(default_factory=set)
+    retry_timers: dict[str, asyncio.TimerHandle] = field(default_factory=dict)
+    retry_strikes: dict[str, int] = field(default_factory=dict)
+
+    def arm_retry(self, configuration: str, handle: asyncio.TimerHandle) -> None:
+        """Install *handle* as the pending retry, cancelling any prior one."""
+        existing = self.retry_timers.pop(configuration, None)
+        if existing is not None:
+            existing.cancel()
+        self.retry_timers[configuration] = handle
+
+    def reset(self, configuration: str) -> None:
+        """Drop *configuration*'s failure marker, retry timer, and strikes."""
+        self.failed.discard(configuration)
+        handle = self.retry_timers.pop(configuration, None)
+        if handle is not None:
+            handle.cancel()
+        self.retry_strikes.pop(configuration, None)
+
+    def cancel_all_retry_timers(self) -> None:
+        """Cancel every pending retry timer and drop the strike counts."""
+        for handle in self.retry_timers.values():
+            handle.cancel()
+        self.retry_timers.clear()
+        self.retry_strikes.clear()
 
 
 @dataclass
@@ -43,15 +83,10 @@ class DevicesState:
     # picks first.
     esphome_cmd: list[str] = field(default_factory=list)
 
-    # Background ``--only-generate`` bookkeeping. Three guards:
-    # ``regenerate_pending`` blocks duplicate schedules while
-    # the subprocess is in flight; ``regenerate_failed`` blocks
-    # retries until the YAML changes (cleared on
-    # ``ScanChange.UPDATED``); the controller's
-    # ``_regenerate_lock`` (kept on the controller) serialises
-    # the actual subprocess.
-    regenerate_pending: set[str] = field(default_factory=set)
-    regenerate_failed: set[str] = field(default_factory=set)
+    # Background ``--only-generate`` bookkeeping; the controller's
+    # ``_regenerate_lock`` (kept on the controller) serialises the
+    # actual subprocess.
+    regen: RegenState = field(default_factory=RegenState)
 
     # Discovery / import state. Keyed by ``device.name`` so the
     # WebSocket layer and ``devices/ignore`` can address entries

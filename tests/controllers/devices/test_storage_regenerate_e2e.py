@@ -28,9 +28,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from esphome_device_builder.controllers._device_scanner import ScanChange
-from esphome_device_builder.controllers.devices import DevicesController
+from esphome_device_builder.controllers.devices import DevicesController, storage_regen
+from esphome_device_builder.controllers.devices._state import RegenState
 from tests._storage_fixtures import write_storage_json
-from tests.conftest import make_device
+from tests.conftest import make_device, wait_until
 
 from .conftest import MakeControllerFactory
 
@@ -69,6 +70,11 @@ class _FakeProc:
 
     async def communicate(self) -> tuple[bytes, bytes]:
         return (b"", self._stderr)
+
+
+def _spend_retry_budget(controller: DevicesController, configuration: str) -> None:
+    """Consume the retry budget so the next failure stamps immediately."""
+    controller.state.regen.retry_strikes[configuration] = storage_regen._MAX_REGEN_RETRIES
 
 
 async def _drain(controller: DevicesController) -> None:
@@ -143,9 +149,9 @@ async def test_regenerate_spawns_esphome_compile_only_generate(
     reload_calls = [c for c in controller._scanner.calls if c[0] == "reload"]
     assert reload_calls == [("reload", "kitchen.yaml")]
     # Pending guard cleared in the ``finally``.
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.pending == set()
     # Success → not in failed set.
-    assert controller.state.regenerate_failed == set()
+    assert controller.state.regen.failed == set()
 
 
 async def test_out_of_band_network_edit_spawns_only_generate(
@@ -210,7 +216,7 @@ def test_regenerate_skips_when_esphome_cmd_unset(
     controller._schedule_storage_regenerate("kitchen.yaml")
 
     assert controller._spawned_tasks == []  # type: ignore[attr-defined]
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.pending == set()
 
 
 def test_regenerate_skips_secrets_yaml(
@@ -226,7 +232,7 @@ def test_regenerate_skips_secrets_yaml(
     controller._schedule_storage_regenerate("secrets.yaml")
 
     assert controller._spawned_tasks == []  # type: ignore[attr-defined]
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.pending == set()
 
 
 def test_regenerate_skips_duplicate_schedule(
@@ -239,7 +245,7 @@ def test_regenerate_skips_duplicate_schedule(
     same YAML.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-    controller.state.regenerate_pending.add("kitchen.yaml")
+    controller.state.regen.pending.add("kitchen.yaml")
 
     controller._schedule_storage_regenerate("kitchen.yaml")
 
@@ -257,7 +263,7 @@ def test_regenerate_skips_after_failed_marker(
     bad input.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-    controller.state.regenerate_failed.add("kitchen.yaml")
+    controller.state.regen.failed.add("kitchen.yaml")
 
     controller._schedule_storage_regenerate("kitchen.yaml")
 
@@ -274,13 +280,14 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """``esphome compile`` exiting non-zero → no reload, ``_regenerate_failed`` set.
+    """Non-zero exit with the retry budget spent → no reload, failure remembered.
 
     Captures the typical "user saved a YAML with a syntax error"
     case. The controller has to remember the failure so the
     next save (with the same broken YAML) doesn't re-spawn.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _spend_retry_budget(controller, "kitchen.yaml")
 
     async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         return _FakeProc(returncode=1, stderr=b"YAML parse error at line 3")
@@ -302,9 +309,9 @@ async def test_regenerate_marks_failed_on_nonzero_exit(
     # Failure → reload skipped, persist skipped, failed marker set.
     assert not any(c[0] == "reload" for c in controller._scanner.calls)
     assert persist_calls == []
-    assert controller.state.regenerate_failed == {"kitchen.yaml"}
+    assert controller.state.regen.failed == {"kitchen.yaml"}
     # Pending cleared via the ``finally``.
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.pending == set()
 
 
 async def test_regenerate_marks_failed_on_spawn_oserror(
@@ -312,7 +319,7 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """``create_subprocess_exec`` raising → ``_regenerate_failed`` set.
+    """Spawn raising with the retry budget spent → failure remembered.
 
     Triggers when ``esphome`` is missing from PATH (broken pip
     install, dashboard running outside its venv). The pending
@@ -321,6 +328,7 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     duplicate-schedule guard.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _spend_retry_budget(controller, "kitchen.yaml")
 
     async def _broken_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
         raise OSError("esphome: command not found")
@@ -341,8 +349,8 @@ async def test_regenerate_marks_failed_on_spawn_oserror(
     await _drain(controller)
 
     assert not any(c[0] == "reload" for c in controller._scanner.calls)
-    assert controller.state.regenerate_failed == {"kitchen.yaml"}
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.failed == {"kitchen.yaml"}
+    assert controller.state.regen.pending == set()
 
 
 # ---------------------------------------------------------------------------
@@ -386,10 +394,10 @@ async def test_regenerate_dedupes_same_tick_calls(
     assert len(controller._spawned_tasks) == 1  # type: ignore[attr-defined]
     # Sync ``.add()`` in ``schedule`` is the load-bearing piece —
     # without it the second call wouldn't see the marker yet.
-    assert controller.state.regenerate_pending == {"kitchen.yaml"}
+    assert controller.state.regen.pending == {"kitchen.yaml"}
 
     await _drain(controller)
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.pending == set()
 
 
 async def test_regenerate_pending_blocks_in_flight_dupe(
@@ -426,7 +434,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
 
     controller._schedule_storage_regenerate("kitchen.yaml")
     await asyncio.wait_for(in_flight.wait(), timeout=2.0)
-    assert controller.state.regenerate_pending == {"kitchen.yaml"}
+    assert controller.state.regen.pending == {"kitchen.yaml"}
 
     # Second schedule while the first is still inside ``communicate``.
     controller._schedule_storage_regenerate("kitchen.yaml")
@@ -435,7 +443,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
 
     release.set()
     await _drain(controller)
-    assert controller.state.regenerate_pending == set()
+    assert controller.state.regen.pending == set()
 
 
 # ---------------------------------------------------------------------------
@@ -448,16 +456,17 @@ async def test_regenerate_persists_mtime_and_wallclock_on_failure(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Failure → YAML mtime + wall-clock stamped into the metadata sidecar.
+    """Budget-spent failure → YAML mtime + wall-clock stamped into the sidecar.
 
     The whole point of the cross-restart guard: a backend reboot
     that re-encounters the same broken YAML reads these stamps,
     sees the mtime hasn't moved AND the failure is fresh, and
     skips replaying the regen. The wall-clock side feeds the
-    TTL — without it, a transient external problem (git package
-    server flake) would never get re-checked.
+    TTL — without it, a persistent external problem would never
+    get re-checked.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _spend_retry_budget(controller, "kitchen.yaml")
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("not: valid: yaml\n", encoding="utf-8")
     expected_mtime = yaml_path.stat().st_mtime
@@ -493,13 +502,14 @@ async def test_regenerate_persists_stamp_on_spawn_oserror(
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """Spawn-raises path also stamps the failure marker.
+    """Spawn-raises path also stamps the failure marker once the budget is spent.
 
     Both failure exits — non-zero returncode and ``OSError`` from
     the spawn itself — feed the same persistent guard. Catches
     regressions where one branch persists and the other doesn't.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    _spend_retry_budget(controller, "kitchen.yaml")
     yaml_path = tmp_path / "kitchen.yaml"
     yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     expected_mtime = yaml_path.stat().st_mtime
@@ -621,7 +631,7 @@ async def test_regenerate_skips_when_stamp_fresh_and_mtime_matches(
     # The skip path also seeds the in-memory set so subsequent
     # same-session schedules hit the cheaper guard instead of
     # re-reading the sidecar.
-    assert controller.state.regenerate_failed == {"kitchen.yaml"}
+    assert controller.state.regen.failed == {"kitchen.yaml"}
 
 
 async def test_regenerate_retries_when_stamp_older_than_ttl(
@@ -1032,3 +1042,127 @@ async def test_regenerate_success_clears_stamp_when_build_info_missing(
         "Could not read config_hash from build_info.json" in record.message
         for record in caplog.records
     )
+
+
+# ---------------------------------------------------------------------------
+# Bounded retry before the stamp
+# ---------------------------------------------------------------------------
+
+
+async def test_regenerate_failure_arms_retry_instead_of_stamp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A first failure arms a backoff retry: no failed marker, no disk stamp."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return _FakeProc(returncode=2, stderr=b"fatal: could not clone")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert controller.state.regen.failed == set()
+    assert "regen_failed_at" not in _read_store(controller, "kitchen.yaml")
+    assert "kitchen.yaml" in controller.state.regen.retry_timers
+    assert controller.state.regen.retry_strikes == {"kitchen.yaml": 1}
+    controller.state.regen.cancel_all_retry_timers()
+
+
+async def test_regenerate_retry_fires_and_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """The armed retry re-runs the regen; a success clears the retry state."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen._RETRY_BACKOFF_BASE_SECONDS",
+        0.0,
+    )
+    outcomes = [_FakeProc(returncode=2, stderr=b"fatal: clone interrupted"), _FakeProc()]
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        return outcomes.pop(0)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+    monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    # The success cycle's scanner reload is the last observable step.
+    await wait_until(
+        lambda: any(c[0] == "reload" for c in controller._scanner.calls), 1, "scanner reload"
+    )
+    await _drain(controller)
+
+    assert outcomes == []
+    assert controller.state.regen.failed == set()
+    assert controller.state.regen.retry_timers == {}
+    assert controller.state.regen.retry_strikes == {}
+    reload_calls = [c for c in controller._scanner.calls if c[0] == "reload"]
+    assert reload_calls == [("reload", "kitchen.yaml")]
+
+
+async def test_regenerate_retry_budget_exhausts_to_stamp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """Persistent failure spends the budget, then stamps and marks failed."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("not: valid: yaml\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen._RETRY_BACKOFF_BASE_SECONDS",
+        0.0,
+    )
+    spawns = 0
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        nonlocal spawns
+        spawns += 1
+        return _FakeProc(returncode=1, stderr=b"YAML parse error")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    # The disk stamp is the terminal step of the exhausted-budget path.
+    await wait_until(
+        lambda: "regen_failed_at" in _read_store(controller, "kitchen.yaml"),
+        1,
+        "failure stamp",
+    )
+    await _drain(controller)
+
+    assert spawns == 1 + storage_regen._MAX_REGEN_RETRIES
+    assert controller.state.regen.failed == {"kitchen.yaml"}
+    assert controller.state.regen.retry_timers == {}
+    assert "regen_failed_at" in _read_store(controller, "kitchen.yaml")
+
+
+async def test_cancel_all_retry_timers_cancels_pending_handles() -> None:
+    """``stop()``'s mass-cancel leaves no live retry timer or strike behind."""
+    state = RegenState()
+    loop = asyncio.get_running_loop()
+    handles = [loop.call_later(30.0, lambda: None) for _ in range(2)]
+    state.retry_timers = {"a.yaml": handles[0], "b.yaml": handles[1]}
+    state.retry_strikes = {"a.yaml": 2}
+
+    state.cancel_all_retry_timers()
+
+    assert all(handle.cancelled() for handle in handles)
+    assert state.retry_timers == {}
+    assert state.retry_strikes == {}

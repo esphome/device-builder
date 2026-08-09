@@ -264,7 +264,7 @@ async def test_set_encryption_key_never_compiled_package_device_gets_key(
     _configure(ctrl, tmp_path, yaml_text, api_enabled=False)
     # The bypass-init _db mock would swallow the post-persist regen
     # task's coroutine; pre-marking pending short-circuits the schedule.
-    ctrl.state.regenerate_pending.add("kitchen.yaml")
+    ctrl.state.regen.pending.add("kitchen.yaml")
 
     result = await ctrl.set_encryption_key(name="kitchen", key=KEY, mac="aabbccddeeff")
 

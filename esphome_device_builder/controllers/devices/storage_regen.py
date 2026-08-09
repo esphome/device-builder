@@ -25,6 +25,13 @@ _LOGGER = logging.getLogger(__name__)
 # later without having to touch the file.
 _REGEN_FAILURE_TTL_SECONDS: float = 3600.0
 
+# Every failure gets a bounded escalating retry before the stamp:
+# a transient environment failure (interrupted package clone, DNS,
+# network) is indistinguishable from a broken YAML without parsing
+# stderr, and parsing is brittle.
+_RETRY_BACKOFF_BASE_SECONDS: float = 30.0
+_MAX_REGEN_RETRIES: int = 3
+
 
 def schedule(controller: DevicesController, configuration: str) -> None:
     """
@@ -41,16 +48,16 @@ def schedule(controller: DevicesController, configuration: str) -> None:
         return
     if not controller.state.esphome_cmd:
         return  # ``start()`` hasn't run yet.
-    if configuration in controller.state.regenerate_pending:
+    if configuration in controller.state.regen.pending:
         return  # already scheduled.
-    if configuration in controller.state.regenerate_failed:
+    if configuration in controller.state.regen.failed:
         # Same-session retry would replay the same error.
         return
 
     # Mark synchronously so a second same-tick call sees the
     # marker before the coroutine yields. ``_run``'s finally
     # discards on completion.
-    controller.state.regenerate_pending.add(configuration)
+    controller.state.regen.pending.add(configuration)
     controller._db.create_background_task(_run(controller, configuration))
 
 
@@ -60,18 +67,22 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         # tests patching any of the four async helpers on the
         # class still intercept.
         if await controller._regen_already_failed_recently_async(configuration):
-            controller.state.regenerate_failed.add(configuration)
+            controller.state.regen.failed.add(configuration)
             return
         async with controller._regenerate_lock:
             success = await controller._spawn_only_generate(configuration)
         if success:
+            controller.state.regen.reset(configuration)
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
-        else:
-            controller.state.regenerate_failed.add(configuration)
-            await controller._stamp_regen_failure(configuration)
+            return
+        if _schedule_retry(controller, configuration):
+            return
+        controller.state.regen.reset(configuration)
+        controller.state.regen.failed.add(configuration)
+        await controller._stamp_regen_failure(configuration)
     finally:
-        controller.state.regenerate_pending.discard(configuration)
+        controller.state.regen.pending.discard(configuration)
 
 
 async def spawn_only_generate(controller: DevicesController, configuration: str) -> bool:
@@ -80,7 +91,7 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
 
     Exceptions during spawn and non-zero exit codes both
     produce False so the caller takes the same
-    persist-failure-stamp branch.
+    retry-then-stamp branch.
     """
     config_path = str(controller._db.settings.rel_path(configuration))
     cmd = [*controller.state.esphome_cmd, "--dashboard", "compile", "--only-generate", config_path]
@@ -182,3 +193,28 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
         )
         return
     _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
+
+
+def _schedule_retry(controller: DevicesController, configuration: str) -> bool:
+    """Arm one escalating-backoff retry; False once the budget is spent."""
+    regen = controller.state.regen
+    strikes = regen.retry_strikes.get(configuration, 0)
+    if strikes >= _MAX_REGEN_RETRIES:
+        return False
+    regen.retry_strikes[configuration] = strikes + 1
+    delay = _RETRY_BACKOFF_BASE_SECONDS * 2**strikes
+    _LOGGER.debug(
+        "Storage regenerate for %s failed; retrying in %.0fs (attempt %d/%d)",
+        configuration,
+        delay,
+        strikes + 1,
+        _MAX_REGEN_RETRIES,
+    )
+    loop = asyncio.get_running_loop()
+    regen.arm_retry(configuration, loop.call_later(delay, _fire_retry, controller, configuration))
+    return True
+
+
+def _fire_retry(controller: DevicesController, configuration: str) -> None:
+    controller.state.regen.retry_timers.pop(configuration, None)
+    schedule(controller, configuration)

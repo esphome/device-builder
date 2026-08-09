@@ -61,11 +61,11 @@ def on_scan_change(
         # waits out the remainder of the periodic interval.
         controller._state_monitor.address_retargeted(device.name)
     if kind in (ScanChange.UPDATED, ScanChange.RELOADED, ScanChange.REMOVED):
-        # YAML cache key changed (or a reload re-read it); clear any
-        # prior failure marker so the next edit gets a fresh chance at
-        # ``--only-generate`` (and re-creating a deleted file
-        # later doesn't inherit the old failure).
-        controller.state.regenerate_failed.discard(device.configuration)
+        # YAML cache key changed (or a reload re-read it); drop any
+        # prior failure marker and retry state so the next edit gets a
+        # fresh chance at ``--only-generate`` (and re-creating a
+        # deleted file later doesn't inherit the old failure).
+        controller.state.regen.reset(device.configuration)
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
         _sync_network_fingerprint(controller, kind, device)
     _nudge_mqtt(controller, kind, device, previous)

@@ -30,7 +30,7 @@ from esphome_device_builder.controllers.devices import DevicesController
 from esphome_device_builder.controllers.devices._metadata_store import DeviceMetadataStore
 from esphome_device_builder.controllers.devices._pending_keys_store import PendingKeysStore
 from esphome_device_builder.controllers.devices._shared_sidecar import SharedSidecarClient
-from esphome_device_builder.controllers.devices._state import DevicesState
+from esphome_device_builder.controllers.devices._state import DevicesState, RegenState
 from esphome_device_builder.controllers.devices._yaml_search_cache import YamlSearchCache
 from esphome_device_builder.controllers.devices.import_upload import UploadTokens
 from esphome_device_builder.helpers.device_yaml import configuration_stem
@@ -474,9 +474,8 @@ def make_controller() -> MakeControllerFactory:
     copy-pasting (and a ``DevicesController`` field rename only
     has to update one site).
 
-    ``with_regenerate_state=True`` adds the three guards
-    (``_regenerate_pending`` / ``_regenerate_failed`` /
-    ``_regenerate_lock``) plus a real
+    ``with_regenerate_state=True`` adds a fresh ``state.regen``
+    plus the ``_regenerate_lock`` and a real
     ``_db.create_background_task`` that records spawned tasks on
     ``controller._spawned_tasks`` (test-only attr) so callers can
     ``await`` them — used by the ``_schedule_storage_regenerate``
@@ -594,8 +593,7 @@ def make_controller() -> MakeControllerFactory:
 
             controller._db.create_background_task = _create_bg
             controller._spawned_tasks = spawned_tasks  # type: ignore[attr-defined]
-            controller.state.regenerate_pending = set()
-            controller.state.regenerate_failed = set()
+            controller.state.regen = RegenState()
             controller._regenerate_lock = asyncio.Lock()
 
         controller.state.esphome_cmd = esphome_cmd if esphome_cmd is not None else []
