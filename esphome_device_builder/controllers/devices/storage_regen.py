@@ -5,42 +5,43 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from ...constants import is_secrets_file
 from ...helpers.async_ import run_in_executor
+from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
-from ...helpers.subprocess import create_subprocess_exec
+from ...helpers.subprocess import create_subprocess_exec, kill_quietly
 
 if TYPE_CHECKING:
     from .controller import DevicesController
 
 _LOGGER = logging.getLogger(__name__)
 
-# How long the persisted "regen failed" stamp is honoured before
-# a restart-time check is allowed to re-spawn ``--only-generate``
-# for the same untouched YAML. One hour: short enough that a
-# debugger restart-loop doesn't churn through 10 spawns on the
-# same broken config, long enough that the user can come back
-# later without having to touch the file.
-_REGEN_FAILURE_TTL_SECONDS: float = 3600.0
+# How long a failure stamp is honoured before the same untouched YAML
+# earns a fresh attempt budget. Four hours: transient problems are the
+# in-window retry ladder's job, so the TTL only paces re-checks (and
+# the give-up warning) for a genuinely broken config; an edit resets
+# the ladder immediately either way.
+_REGEN_FAILURE_TTL_SECONDS: float = 4 * 3600.0
 
-# Every failure gets a bounded escalating retry before the stamp:
-# a transient environment failure (interrupted package clone, DNS,
-# network) is indistinguishable from a broken YAML without parsing
-# stderr, and parsing is brittle.
+# Every failure gets a bounded escalating retry before the terminal
+# stamp: a transient environment failure (interrupted package clone,
+# DNS, network) is indistinguishable from a broken YAML without parsing
+# stderr, and parsing is brittle. The attempt count persists in the
+# metadata store, so the ladder resumes across restarts.
 _RETRY_BACKOFF_BASE_SECONDS: float = 30.0
-_MAX_REGEN_RETRIES: int = 3
+_MAX_REGEN_ATTEMPTS: int = 4
 
 
 def schedule(controller: DevicesController, configuration: str) -> None:
     """
     Run ``esphome compile --only-generate <yaml>`` in the background.
 
-    Spawn rate is bounded four ways: the in-memory pending + failed
-    sets (per-session), a bounded escalating retry between a failure
-    and the failed marker, an on-disk failure stamp (cross-restart,
-    TTL-gated), and ``_regenerate_lock`` serialising the subprocess.
+    Spawn rate is bounded three ways: the in-memory pending set, the
+    persisted failure stamp ``_run`` consults (attempt budget, backoff
+    min-age, TTL), and ``_regenerate_lock`` serialising the subprocess.
     """
     if is_secrets_file(configuration):
         # Shared credentials, not a buildable config: no build dir to
@@ -50,9 +51,6 @@ def schedule(controller: DevicesController, configuration: str) -> None:
         return  # ``start()`` hasn't run yet.
     if configuration in controller.state.regen.pending:
         return  # already scheduled.
-    if configuration in controller.state.regen.failed:
-        # Same-session retry would replay the same error.
-        return
 
     # Mark synchronously so a second same-tick call sees the
     # marker before the coroutine yields. ``_run``'s finally
@@ -61,42 +59,52 @@ def schedule(controller: DevicesController, configuration: str) -> None:
     controller._db.create_background_task(_run(controller, configuration))
 
 
-async def shutdown(controller: DevicesController) -> None:
-    """Cancel every armed retry, stamping each so a restart remembers the failure."""
-    # Cancel before the stamp's executor hop, or a timer expiring in
-    # that window fires ``schedule`` after the task drain.
-    armed = list(controller.state.regen.retry_timers)
-    controller.state.regen.cancel_all_retry_timers()
-    for configuration in armed:
-        await controller._stamp_regen_failure(configuration)
-
-
 async def _run(controller: DevicesController, configuration: str) -> None:
     try:
-        # Routed through the controller's bound delegates so
-        # tests patching any of the four async helpers on the
-        # class still intercept.
-        if await controller._regen_already_failed_recently_async(configuration):
-            controller.state.regen.failed.add(configuration)
-            return
+        config_path = controller._db.settings.rel_path(configuration)
+        stamp = None
+        try:
+            current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
+        except OSError:
+            pass
+        else:
+            stamp = _fresh_stamp(
+                controller._metadata_store.get(configuration), current_mtime, time.time()
+            )
+        if stamp is not None:
+            attempts, age = stamp
+            if attempts >= _MAX_REGEN_ATTEMPTS:
+                _LOGGER.debug(
+                    "Storage regenerate for %s spent its attempt budget; "
+                    "waiting for a YAML change or the stamp TTL",
+                    configuration,
+                )
+                return
+            remaining = _delay_for(attempts) - age
+            if remaining > 0:
+                # Resume an interrupted backoff (a restart mid-window)
+                # with the remainder rather than spawning early.
+                _arm_retry(controller, configuration, remaining)
+                return
+        # The spawn/stamp/finalize steps route through the controller's
+        # bound delegates so tests patching them on the class intercept.
         async with controller._regenerate_lock:
             success = await controller._spawn_only_generate(configuration)
         if success:
-            controller.state.regen.reset(configuration)
+            controller.state.regen.cancel_retry(configuration)
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
             return
-        if _schedule_retry(controller, configuration):
+        attempts = await controller._stamp_regen_failure(configuration)
+        if attempts < _MAX_REGEN_ATTEMPTS:
+            _arm_retry(controller, configuration, _delay_for(attempts))
             return
-        attempts = controller.state.regen.retry_strikes.get(configuration, 0) + 1
-        controller.state.regen.reset(configuration)
-        controller.state.regen.failed.add(configuration)
         _LOGGER.warning(
-            "Storage regenerate for %s failed %d times; giving up until the YAML changes",
+            "Storage regenerate for %s failed %d times; retrying after the "
+            "YAML changes or the failure stamp expires",
             configuration,
             attempts,
         )
-        await controller._stamp_regen_failure(configuration)
     finally:
         controller.state.regen.pending.discard(configuration)
 
@@ -117,9 +125,18 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
         )
-        _, stderr = await proc.communicate()
     except Exception:
         _LOGGER.debug("Storage regenerate spawn failed for %s", configuration, exc_info=True)
+        return False
+    try:
+        _, stderr = await proc.communicate()
+    except asyncio.CancelledError:
+        # The shutdown drain cancels the run mid-subprocess; don't
+        # orphan the esphome/git child.
+        kill_quietly(proc)
+        raise
+    except Exception:
+        _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
         return False
     if proc.returncode != 0:
         _LOGGER.debug(
@@ -132,53 +149,29 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     return True
 
 
-async def already_failed_recently_async(controller: DevicesController, configuration: str) -> bool:
+async def stamp_failure(controller: DevicesController, configuration: str) -> int:
     """
-    Return True iff the persisted failure stamp is unchanged-and-fresh.
+    Record one more failed attempt against the YAML's current mtime.
 
-    Both halves must hold: the YAML's ``stat.st_mtime`` equals
-    the cached ``regen_failed_mtime``, and the cached
-    ``regen_failed_at`` is within ``_REGEN_FAILURE_TTL_SECONDS``
-    (clamped against future-dated stamps so clock skew can't
-    lock the regen out indefinitely).
-    """
-    config_path = controller._db.settings.rel_path(configuration)
-
-    try:
-        current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
-    except OSError:
-        return False
-    md = controller._metadata_store.get(configuration)
-    cached_mtime = md.get("regen_failed_mtime")
-    cached_at = md.get("regen_failed_at")
-    if not cached_mtime or not cached_at:
-        return False
-    try:
-        mtime_matches = float(cached_mtime) == current_mtime
-        age = max(0.0, time.time() - float(cached_at))
-    except (TypeError, ValueError):
-        return False
-    return mtime_matches and age < _REGEN_FAILURE_TTL_SECONDS
-
-
-async def stamp_failure(controller: DevicesController, configuration: str) -> None:
-    """
-    Persist the cross-restart "we already tried, gave up" marker.
-
-    Reads the YAML's mtime on the executor and samples
-    wall-clock alongside it so the stamp captures the same
-    instant the file's mtime was observed.
+    Returns the attempt count now on record. An edit or TTL expiry
+    since the prior failure resets the count to 1; a vanished file
+    stamps nothing and reports the budget spent.
     """
     config_path = controller._db.settings.rel_path(configuration)
     try:
         mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
     except OSError:
-        return  # file vanished mid-regen; nothing to stamp.
+        return _MAX_REGEN_ATTEMPTS
+    now = time.time()
+    prior = _fresh_stamp(controller._metadata_store.get(configuration), mtime, now)
+    attempts = (prior[0] if prior is not None else 0) + 1
     controller._metadata_store.update(
         configuration,
         regen_failed_mtime=mtime,
-        regen_failed_at=time.time(),
+        regen_failed_at=now,
+        regen_failed_attempts=attempts,
     )
+    return attempts
 
 
 async def finalize_success(controller: DevicesController, configuration: str) -> None:
@@ -194,6 +187,7 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     fields: dict[str, Any] = {
         "regen_failed_mtime": 0.0,
         "regen_failed_at": 0.0,
+        "regen_failed_attempts": 0,
     }
     if new_hash:
         fields["expected_config_hash"] = new_hash
@@ -211,24 +205,45 @@ async def finalize_success(controller: DevicesController, configuration: str) ->
     _LOGGER.debug("Stored expected_config_hash for %s: %s", configuration, new_hash)
 
 
-def _schedule_retry(controller: DevicesController, configuration: str) -> bool:
-    """Arm one escalating-backoff retry; False once the budget is spent."""
-    regen = controller.state.regen
-    strikes = regen.retry_strikes.get(configuration, 0)
-    if strikes >= _MAX_REGEN_RETRIES:
-        return False
-    regen.retry_strikes[configuration] = strikes + 1
-    delay = _RETRY_BACKOFF_BASE_SECONDS * 2**strikes
-    _LOGGER.debug(
-        "Storage regenerate for %s failed; retrying in %.0fs (attempt %d/%d)",
-        configuration,
-        delay,
-        strikes + 1,
-        _MAX_REGEN_RETRIES,
-    )
+def _fresh_stamp(
+    md: Mapping[str, Any], current_mtime: float, now: float
+) -> tuple[int, float] | None:
+    """
+    Return ``(attempts, age)`` for an unexpired stamp matching *current_mtime*.
+
+    A stamp without a parseable attempt count reads as terminal (a
+    pre-attempts stamp was only written once the budget was spent).
+    Future-dated stamps clamp to age 0 so clock skew can't lock the
+    regen out indefinitely.
+    """
+    cached_mtime = md.get("regen_failed_mtime")
+    cached_at = md.get("regen_failed_at")
+    if not cached_mtime or not cached_at:
+        return None
+    try:
+        if float(cached_mtime) != current_mtime:
+            return None
+        age = max(0.0, now - float(cached_at))
+    except (TypeError, ValueError):
+        return None
+    if age >= _REGEN_FAILURE_TTL_SECONDS:
+        return None
+    attempts = coerce_sidecar_int(md.get("regen_failed_attempts"))
+    # Missing, unparseable, or non-positive reads as terminal.
+    return (attempts if attempts >= 1 else _MAX_REGEN_ATTEMPTS), age
+
+
+def _delay_for(attempts: int) -> float:
+    """Backoff delay after failed attempt number *attempts* (1-based)."""
+    return _RETRY_BACKOFF_BASE_SECONDS * 2 ** (attempts - 1)
+
+
+def _arm_retry(controller: DevicesController, configuration: str, delay: float) -> None:
+    _LOGGER.debug("Storage regenerate retry for %s in %.0fs", configuration, delay)
     loop = asyncio.get_running_loop()
-    regen.arm_retry(configuration, loop.call_later(delay, _fire_retry, controller, configuration))
-    return True
+    controller.state.regen.arm_retry(
+        configuration, loop.call_later(delay, _fire_retry, controller, configuration)
+    )
 
 
 def _fire_retry(controller: DevicesController, configuration: str) -> None:

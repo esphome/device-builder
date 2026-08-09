@@ -610,6 +610,7 @@ def test_store_fields_pinned() -> None:
                 "build_size_info_mtime",
                 "regen_failed_mtime",
                 "regen_failed_at",
+                "regen_failed_attempts",
             }
         )
         == STORE_FIELDS

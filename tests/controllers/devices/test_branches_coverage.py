@@ -1083,54 +1083,39 @@ def test_get_devices_bridge_returns_scanner_property(
 # ---------------------------------------------------------------------------
 
 
-async def test_on_scan_change_updated_resets_regen_state(
+async def test_on_scan_change_updated_cancels_armed_retry(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A YAML edit clears the prior storage-regenerate failure marker.
-
-    The marker is sticky to spare us spamming a known-broken YAML
-    with retried ``--only-generate`` calls. An UPDATED / REMOVED
-    scan change is the user's signal that the file might be
-    fixed, so the marker has to clear or the device sits with no
-    storage refresh forever.
-    """
+    """A YAML edit drops the armed retry; the edit's mtime invalidates the stamp."""
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
-    controller.state.regen.failed.add("kitchen.yaml")
-    controller.state.regen.retry_strikes["kitchen.yaml"] = 1
     handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
     controller.state.regen.retry_timers["kitchen.yaml"] = handle
     device = _device("kitchen")
 
     controller._on_scan_change(ScanChange.UPDATED, device)
 
-    assert "kitchen.yaml" not in controller.state.regen.failed
     assert handle.cancelled()
     assert controller.state.regen.retry_timers == {}
-    assert controller.state.regen.retry_strikes == {}
 
 
 async def test_on_scan_change_reloaded_keeps_armed_retry(
     tmp_path: Path, make_controller: MakeControllerFactory
 ) -> None:
-    """A metadata reload clears the failure marker but not the armed retry.
+    """A metadata reload leaves the armed retry alone.
 
     The cold-start refine emits RELOADED for every device; cancelling
     the retry there would drop the only pending recovery for a config
     whose first regen failed.
     """
     controller = make_controller(tmp_path, with_state_monitor=True, with_regenerate_state=True)
-    controller.state.regen.failed.add("kitchen.yaml")
-    controller.state.regen.retry_strikes["kitchen.yaml"] = 1
     handle = asyncio.get_running_loop().call_later(30.0, lambda: None)
     controller.state.regen.retry_timers["kitchen.yaml"] = handle
     device = _device("kitchen")
 
     controller._on_scan_change(ScanChange.RELOADED, device)
 
-    assert "kitchen.yaml" not in controller.state.regen.failed
     assert not handle.cancelled()
     assert controller.state.regen.retry_timers == {"kitchen.yaml": handle}
-    assert controller.state.regen.retry_strikes == {"kitchen.yaml": 1}
     handle.cancel()
 
 
@@ -1267,7 +1252,13 @@ async def test_on_scan_change_updated_network_change_schedules_regen(
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
 
     controller._on_scan_change(
-        ScanChange.UPDATED, make_device(name="kitchen", network_fingerprint="new")
+        ScanChange.UPDATED,
+        make_device(
+            name="kitchen",
+            network_fingerprint="new",
+            loaded_integrations=["wifi"],
+            expected_config_hash="abcd1234",
+        ),
     )
 
     assert regenerated == ["kitchen.yaml"]
@@ -1295,6 +1286,36 @@ async def test_on_scan_change_added_network_change_schedules_regen(
     assert regenerated == ["kitchen.yaml"]
 
 
+async def test_on_scan_change_updated_missing_fields_schedules_regen(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An out-of-band edit of a config with missing fields schedules a regen."""
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+
+    controller._on_scan_change(
+        ScanChange.UPDATED, make_device(name="kitchen", network_fingerprint="same")
+    )
+
+    assert regenerated == ["kitchen.yaml"]
+
+
+async def test_on_scan_change_reloaded_missing_fields_skips_regen(
+    tmp_path: Path,
+    make_controller: MakeControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A metadata reload never schedules a regen, missing fields or not."""
+    controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
+
+    controller._on_scan_change(
+        ScanChange.RELOADED, make_device(name="kitchen", network_fingerprint="same")
+    )
+
+    assert regenerated == []
+
+
 async def test_on_scan_change_updated_same_network_skips_regen(
     tmp_path: Path,
     make_controller: MakeControllerFactory,
@@ -1304,7 +1325,13 @@ async def test_on_scan_change_updated_same_network_skips_regen(
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "same")
 
     controller._on_scan_change(
-        ScanChange.UPDATED, make_device(name="kitchen", network_fingerprint="same")
+        ScanChange.UPDATED,
+        make_device(
+            name="kitchen",
+            network_fingerprint="same",
+            loaded_integrations=["wifi"],
+            expected_config_hash="abcd1234",
+        ),
     )
 
     assert regenerated == []
@@ -1319,7 +1346,13 @@ async def test_on_scan_change_empty_fingerprint_is_no_information(
     controller, regenerated = _fingerprint_rig(tmp_path, make_controller, monkeypatch, "old")
 
     controller._on_scan_change(
-        ScanChange.UPDATED, make_device(name="kitchen", network_fingerprint="")
+        ScanChange.UPDATED,
+        make_device(
+            name="kitchen",
+            network_fingerprint="",
+            loaded_integrations=["wifi"],
+            expected_config_hash="abcd1234",
+        ),
     )
 
     assert regenerated == []

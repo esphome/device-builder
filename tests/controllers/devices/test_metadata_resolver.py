@@ -279,7 +279,6 @@ def test_added_device_without_hash_triggers_regenerate(
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
     controller.state = DevicesState()
-    controller.state.regen.failed = set()
     controller._state_monitor = RecordingStateMonitor()
     controller._metadata_store = MagicMock(**{"get.return_value": {}})
     regenerated: list[str] = []
@@ -325,7 +324,6 @@ def test_added_device_fully_populated_does_not_regenerate(
     controller = DevicesController.__new__(DevicesController)
     controller._db = MagicMock()
     controller.state = DevicesState()
-    controller.state.regen.failed = set()
     controller._state_monitor = MagicMock()
     controller._metadata_store = MagicMock(**{"get.return_value": {}})
     regenerated: list[str] = []

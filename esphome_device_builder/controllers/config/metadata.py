@@ -163,20 +163,11 @@ def set_device_metadata(
     startup, before the first mDNS probe response. Passing an
     empty string clears it.
 
-    ``regen_failed_mtime`` is the YAML's mtime when the last
-    ``--only-generate`` storage-regen attempt failed; pair it with
-    ``regen_failed_at`` (the wall-clock time the failure was
-    recorded). Together they let a backend restart skip retrying
-    the same broken config (missing ``!secret`` / ``!include`` /
-    unreachable git package) — the next attempt only runs when
-    the YAML's mtime has actually moved past the cached stamp,
-    OR when the cached stamp is older than the controller's
-    failure-TTL (so transient external problems eventually get
-    re-checked). The two fields are written together by
-    :meth:`DevicesController._stamp_regen_failure`; the
-    success / archive paths clear them by passing ``0.0`` to
-    *both* — clearing only one half leaves the other behind, so
-    callers should always touch the pair as a unit.
+    ``regen_failed_mtime`` / ``regen_failed_at`` are the legacy
+    shared-sidecar halves of the storage-regen failure stamp; the
+    live stamp (including ``regen_failed_attempts``) is owned by the
+    device metadata store and documented in
+    ``controllers/devices/storage_regen.py``.
 
     ``build_size_bytes`` caches the total size of the per-device
     ``.esphome/build/<name>/`` tree at the freshness pair

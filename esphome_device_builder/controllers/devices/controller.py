@@ -98,18 +98,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# How long the persisted "regen failed" stamp is honoured before a
-# restart-time check is allowed to re-spawn ``--only-generate`` for
-# the same untouched YAML. The in-memory ``state.regen.failed`` set
-# blocks within a session until the user edits the YAML; the TTL
-# only applies cross-restart, so a transient external problem
-# (git package server flaky, DNS hiccup) eventually recovers
-# without forcing the user to touch the file. One hour is short
-# enough that "I'll come back to this in a bit and restart" works,
-# long enough that a debugger restarting the dashboard 10x in a
-# row doesn't churn through 10 spawns on the same broken config.
-_REGEN_FAILURE_TTL_SECONDS: float = 3600.0
-
 # Keeps the fleet-wide build-tree walk out of the cold-start window
 # where store loads and job restore need the disk.
 _BUILD_SIZE_SWEEP_DELAY_SECONDS: float = 20.0
@@ -176,18 +164,15 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
 
         # Background ``--only-generate`` bookkeeping. ``--only-generate``
         # validates a YAML and writes its ``StorageJSON`` without doing
-        # a real build; we trigger it whenever a YAML is saved or
-        # first-seen with no compile output. Four bounds stop us from
-        # spinning:
+        # a real build; we trigger it whenever a YAML is saved or seen
+        # with no compile output. Three bounds stop us from spinning:
         #   * ``state.regen.pending`` — configurations already in
         #     flight (scheduled but not yet finished). Skip duplicate
         #     schedules.
-        #   * a bounded escalating retry between a failure and giving
-        #     up (``storage_regen._MAX_REGEN_RETRIES`` attempts).
-        #   * ``state.regen.failed`` — YAMLs whose retry budget is
-        #     spent. Don't retry until the file changes (cleared on
-        #     ``UPDATED``/``REMOVED`` along with the retry ladder, and
-        #     on ``RELOADED`` on its own).
+        #   * the persisted failure stamp (metadata store: mtime,
+        #     wall clock, attempt count) — a bounded escalating retry
+        #     ladder that resumes across restarts; a spent budget holds
+        #     until the YAML changes or the stamp's TTL expires.
         #   * ``_regenerate_lock`` — serialises the actual subprocess
         #     so we don't spawn N esphome compiles in parallel.
         self._regenerate_lock = asyncio.Lock()
@@ -336,7 +321,9 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
-        await storage_regen.shutdown(self)
+        # Cancel armed regen retries before the background-task drain —
+        # an expiring timer would otherwise schedule into the drained set.
+        self.state.regen.cancel_all_retry_timers()
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()
             self._mqtt_reconcile_handle = None
@@ -921,11 +908,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _spawn_only_generate(self, configuration: str) -> bool:
         return await storage_regen.spawn_only_generate(self, configuration)
 
-    async def _regen_already_failed_recently_async(self, configuration: str) -> bool:
-        return await storage_regen.already_failed_recently_async(self, configuration)
-
-    async def _stamp_regen_failure(self, configuration: str) -> None:
-        await storage_regen.stamp_failure(self, configuration)
+    async def _stamp_regen_failure(self, configuration: str) -> int:
+        return await storage_regen.stamp_failure(self, configuration)
 
     async def _finalize_regen_success(self, configuration: str) -> None:
         await storage_regen.finalize_success(self, configuration)

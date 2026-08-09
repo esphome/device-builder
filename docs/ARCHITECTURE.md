@@ -412,16 +412,22 @@ Two rules the refine established that every later caller inherits:
   regen deliberately skips `RELOADED` (it fires on `ADDED`/`UPDATED` to catch
   out-of-band edits), so a restart's refine burst can neither commit to git
   nor spawn `--only-generate` per device.
-- **Regen failures retry before they stamp** (#2532). A failed
-  `--only-generate` gets a bounded escalating retry (3 attempts, 30/60/120s)
-  before the session `regen.failed` marker and the one-hour disk stamp — a
-  transient environment failure (interrupted package clone, DNS) is
-  indistinguishable from a broken YAML without parsing subprocess stderr, so
-  every failure retries. The stamp is written only once the budget is spent;
-  a shutdown mid-window stamps any armed retries first so a restart loop
-  can't spend a fresh budget each cycle. Success at any attempt clears the
-  ladder and reloads the scanner, which also repairs an earlier swallowed
-  in-process package resolve.
+- **Regen failures ladder through the metadata store** (#2532, #2534). A
+  failed `--only-generate` earns a bounded escalating retry (4 attempts,
+  30/60/120s between them) — a transient environment failure (interrupted
+  package clone, DNS) is indistinguishable from a broken YAML without
+  parsing subprocess stderr, so every failure retries. Every failure stamps
+  the store (`regen_failed_mtime`/`_at`/`_attempts`), making the stamp the
+  single source of truth: the ladder resumes across restarts at the recorded
+  attempt (a restart inside a backoff window re-arms the *remainder*, not an
+  immediate spawn), a spent budget holds until the YAML's mtime moves or the
+  four-hour TTL expires (in-session too — there is no separate session
+  marker), and shutdown only cancels the in-RAM timers. An edit resets the
+  ladder by construction (the stamp's mtime no longer matches). Success at
+  any attempt clears the stamp triple and reloads the scanner, which also
+  repairs an earlier swallowed in-process package resolve; a run cancelled
+  mid-subprocess kills the child and records nothing (an interrupted clone
+  is not evidence of failure).
 
 ## Authentication
 

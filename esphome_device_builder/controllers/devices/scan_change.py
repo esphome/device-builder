@@ -64,18 +64,19 @@ def on_scan_change(
     if kind in (ScanChange.ADDED, ScanChange.UPDATED, ScanChange.RELOADED):
         _sync_network_fingerprint(controller, kind, device)
     _nudge_mqtt(controller, kind, device, previous)
-    # First-sight devices with no compile output carry the
-    # ``<filename>.local`` address fallback and an empty
-    # ``loaded_integrations`` list. Schedule a background
-    # ``--only-generate`` so the next scan picks up the real
-    # StorageJSON-derived values without making the user wait
-    # for a real compile. Also fire when ``expected_config_hash``
+    # Devices with no compile output carry the ``<filename>.local``
+    # address fallback and an empty ``loaded_integrations`` list.
+    # Schedule a background ``--only-generate`` so the next scan picks
+    # up the real StorageJSON-derived values without making the user
+    # wait for a real compile. Also fire when ``expected_config_hash``
     # is empty even though ``loaded_integrations`` is populated:
     # devices configured before build_info.json existed have a
     # working StorageJSON but no hash, and would otherwise show
     # a permanent em-dash for "Local config hash" until the user
-    # edits the YAML.
-    needs_storage_regen = kind is ScanChange.ADDED and (
+    # edits the YAML. UPDATED covers out-of-band edits (git pull,
+    # external editor) repairing a previously stamped YAML; the
+    # persisted stamp and the pending set absorb duplicates.
+    needs_storage_regen = kind in (ScanChange.ADDED, ScanChange.UPDATED) and (
         not device.loaded_integrations or not device.expected_config_hash
     )
     if needs_storage_regen:
@@ -119,18 +120,17 @@ def _reconcile_regen_state(
     kind: ScanChange,
     device: Device,
 ) -> None:
-    """Reset or trim the regen failure state after a scan change."""
+    """Drop the armed retry when the YAML changed or the file is gone.
+
+    The persisted stamp needs no touch: an edit's mtime move invalidates
+    it and REMOVED's ``clear_volatile`` drops it with the entry. A
+    RELOADED deliberately leaves an armed retry alone — the cold-start
+    refine's RELOADED burst must not cancel a pending recovery — and
+    needs no stamp clearing either: a successful compile fills the very
+    fields the regen would have computed, making the stamp moot.
+    """
     if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
-        # YAML cache key changed or the file is gone; drop the failure
-        # marker and any armed retry so the next sight starts fresh
-        # (re-creating a deleted file doesn't inherit the old failure).
-        controller.state.regen.reset(device.configuration)
-    elif kind is ScanChange.RELOADED:
-        # Metadata reload, YAML unchanged: a stale failure marker clears
-        # (a post-compile reload proves the YAML builds) but an armed
-        # retry survives — the cold-start refine's RELOADED must not
-        # cancel the only pending recovery.
-        controller.state.regen.failed.discard(device.configuration)
+        controller.state.regen.cancel_retry(device.configuration)
 
 
 def _reconcile_rename(

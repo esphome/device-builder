@@ -34,6 +34,7 @@ STORE_FIELDS: frozenset[str] = frozenset(
         "build_size_info_mtime",
         "regen_failed_mtime",
         "regen_failed_at",
+        "regen_failed_attempts",
     }
 )
 
