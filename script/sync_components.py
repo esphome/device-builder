@@ -2903,6 +2903,27 @@ def _merge_extends_config_vars(
     return merged, {key: ref for key, ref in origin_ref.items() if key not in config_vars}
 
 
+def _is_wildcard_key(component_id: str, key: str, raw: dict | None) -> bool:
+    """
+    Report whether *key* is a callable wildcard matcher's, dropped from the catalog.
+
+    Two dumper spellings: the leaked repr (``<function ... at 0x...>``)
+    and the normalized ``string`` placeholder carrying the validator in
+    ``key_type`` (esphome/esphome#18218). An unacknowledged validator is
+    recorded for the pre-emit canary.
+    """
+    if key.startswith("<") and key.endswith(">"):
+        match = _REPR_KEY_RE.match(key)
+        if match is None or match.group(1) not in _HANDLED_WILDCARD_KEYS:
+            _UNHANDLED_REPR_KEYS.add((component_id, key))
+        return True
+    if key == "string" and isinstance(raw, dict) and "key_type" in raw:
+        if raw["key_type"] not in _HANDLED_WILDCARD_KEYS:
+            _UNHANDLED_REPR_KEYS.add((component_id, f"string[key_type={raw['key_type']}]"))
+        return True
+    return False
+
+
 def _convert_config_vars(
     schema_node: dict,
     schema_dir: Path,
@@ -2922,12 +2943,7 @@ def _convert_config_vars(
     for key, raw in merged.items():
         if key in _SKIP_KEYS:
             continue
-        if key.startswith("<") and key.endswith(">"):
-            # A repr leaked as a key (the schema dumper stringified a
-            # callable wildcard matcher); never a real config key.
-            match = _REPR_KEY_RE.match(key)
-            if match is None or match.group(1) not in _HANDLED_WILDCARD_KEYS:
-                _UNHANDLED_REPR_KEYS.add((component_id, key))
+        if _is_wildcard_key(component_id, key, raw):
             continue
         if (component_id, key) in _DEPRECATED_FIELDS:
             continue

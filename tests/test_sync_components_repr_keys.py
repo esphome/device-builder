@@ -70,6 +70,36 @@ def test_handled_wildcard_key_is_dropped(tmp_path: Path) -> None:
     assert set() == _UNHANDLED_REPR_KEYS
 
 
+def test_normalized_wildcard_placeholder_is_dropped(tmp_path: Path) -> None:
+    """The dumper's post-fix ``string`` placeholder (esphome/esphome#18218) also drops."""
+    schema_node = {
+        "config_vars": {
+            "string": {
+                "key": "Optional",
+                "key_type": "validate_parameter_name",
+                "templatable": True,
+            }
+        }
+    }
+
+    entries = _convert_config_vars(schema_node, tmp_path)
+
+    assert entries == []
+    assert set() == _UNHANDLED_REPR_KEYS
+
+
+def test_unknown_wildcard_placeholder_fails_the_sync(tmp_path: Path) -> None:
+    """A ``string`` placeholder with an unacknowledged validator aborts before emit."""
+    schema_node = {"config_vars": {"string": {"key": "Optional", "key_type": "frob"}}}
+
+    entries = _convert_config_vars(schema_node, tmp_path, component_id="widget")
+
+    assert entries == []
+    assert {("widget", "string[key_type=frob]")} == _UNHANDLED_REPR_KEYS
+    with pytest.raises(SystemExit, match="widget"):
+        _fail_on_unhandled_repr_keys()
+
+
 @pytest.mark.parametrize(
     "key",
     [
