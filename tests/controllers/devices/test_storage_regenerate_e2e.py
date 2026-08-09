@@ -291,6 +291,14 @@ async def test_regenerate_skips_when_stamp_terminal(
         storage_regen._REGEN_FAILURE_TTL_SECONDS - 300.0, abs=1
     )
 
+    # A redundant schedule keeps the pending timer instead of churning it.
+    handle = controller.state.regen.retry_timers["kitchen.yaml"]
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert spawn_calls == []
+    assert controller.state.regen.retry_timers["kitchen.yaml"] is handle
+
 
 # ---------------------------------------------------------------------------
 # Failure paths
@@ -1189,6 +1197,30 @@ async def test_cancelled_run_records_nothing(
 
     assert _read_store(controller, "kitchen.yaml") == {}
     assert controller.state.regen.pending == set()
+
+
+async def test_timed_out_run_counts_the_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A run the capture helper timed out feeds the ladder."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    async def _timed_out_capture(*_args: str, **_kwargs: Any) -> CapturedSubprocess:
+        return CapturedSubprocess(returncode=None, stdout=b"", timed_out=True)
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.run_subprocess_capture",
+        _timed_out_capture,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert _read_store(controller, "kitchen.yaml")["regen_failed_attempts"] == 1
+    assert _armed_delay(controller) == pytest.approx(30.0, abs=1)
 
 
 async def test_capture_error_counts_the_attempt(
