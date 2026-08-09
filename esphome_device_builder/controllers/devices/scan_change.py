@@ -73,9 +73,8 @@ def on_scan_change(
     # devices configured before build_info.json existed have a
     # working StorageJSON but no hash, and would otherwise show
     # a permanent em-dash for "Local config hash" until the user
-    # edits the YAML. UPDATED covers out-of-band edits (git pull,
-    # external editor) repairing a previously stamped YAML; the
-    # persisted stamp and the pending set absorb duplicates.
+    # edits the YAML. UPDATED covers out-of-band edits repairing a
+    # previously stamped YAML.
     needs_storage_regen = kind in (ScanChange.ADDED, ScanChange.UPDATED) and (
         not device.loaded_integrations or not device.expected_config_hash
     )
@@ -122,12 +121,9 @@ def _reconcile_regen_state(
 ) -> None:
     """Drop the armed retry when the YAML changed or the file is gone.
 
-    The persisted stamp needs no touch: an edit's mtime move invalidates
-    it and REMOVED's ``clear_volatile`` drops it with the entry. A
-    RELOADED deliberately leaves an armed retry alone — the cold-start
-    refine's RELOADED burst must not cancel a pending recovery — and
-    needs no stamp clearing either: a successful compile fills the very
-    fields the regen would have computed, making the stamp moot.
+    The stamp needs no touch (an edit's mtime move invalidates it;
+    ``clear_volatile`` drops it on REMOVED). RELOADED leaves the timer
+    alone — the refine burst must not cancel a pending recovery.
     """
     if kind in (ScanChange.UPDATED, ScanChange.REMOVED):
         controller.state.regen.cancel_retry(device.configuration)

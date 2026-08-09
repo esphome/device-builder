@@ -166,15 +166,11 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
         # validates a YAML and writes its ``StorageJSON`` without doing
         # a real build; we trigger it whenever a YAML is saved or seen
         # with no compile output. Three bounds stop us from spinning:
-        #   * ``state.regen.pending`` — configurations already in
-        #     flight (scheduled but not yet finished). Skip duplicate
-        #     schedules.
-        #   * the persisted failure stamp (metadata store: mtime,
-        #     wall clock, attempt count) — a bounded escalating retry
-        #     ladder that resumes across restarts; a spent budget holds
-        #     until the YAML changes or the stamp's TTL expires.
-        #   * ``_regenerate_lock`` — serialises the actual subprocess
-        #     so we don't spawn N esphome compiles in parallel.
+        #   * ``state.regen.pending`` — dedupes in-flight schedules.
+        #   * the persisted failure stamp (mtime, wall clock, attempt
+        #     count) — an escalating retry ladder resuming across
+        #     restarts; a spent budget holds until edit or TTL expiry.
+        #   * ``_regenerate_lock`` — serialises the actual subprocess.
         self._regenerate_lock = asyncio.Lock()
 
         # ``yaml/search`` per-file cache. The class owns its own
@@ -321,8 +317,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
-        # Idempotent with the pre-drain cancel in ``_stop_network``;
-        # kept for direct-stop callers.
+        # Idempotent with the pre-drain cancel in ``_stop_network``.
         self.state.regen.cancel_all_retry_timers()
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()

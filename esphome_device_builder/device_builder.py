@@ -610,8 +610,7 @@ class DeviceBuilder:
         if self._bg_poll is not None:
             self._bg_poll.unsubscribe()
         if self.devices is not None:
-            # Cancel armed regen retries before the drain — an expiring
-            # timer would otherwise schedule a task into the drained set.
+            # An expiring regen retry would schedule into the drained set.
             self.devices.state.regen.cancel_all_retry_timers()
         await drain_tasks(self._background_tasks)
         # Tear down the remote-build listener (if it was bound)

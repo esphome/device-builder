@@ -20,17 +20,13 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # How long a failure stamp is honoured before the same untouched YAML
-# earns a fresh attempt budget. Four hours: transient problems are the
-# in-window retry ladder's job, so the TTL only paces re-checks (and
-# the give-up warning) for a genuinely broken config; an edit resets
-# the ladder immediately either way.
+# earns a fresh attempt budget.
 _REGEN_FAILURE_TTL_SECONDS: float = 4 * 3600.0
 
-# Every failure gets a bounded escalating retry before the terminal
-# stamp: a transient environment failure (interrupted package clone,
-# DNS, network) is indistinguishable from a broken YAML without parsing
-# stderr, and parsing is brittle. The attempt count persists in the
-# metadata store, so the ladder resumes across restarts.
+# A transient environment failure (interrupted clone, DNS) is
+# indistinguishable from a broken YAML without parsing stderr, so every
+# failure earns a bounded escalating retry; the attempt count persists
+# in the metadata store, resuming the ladder across restarts.
 _RETRY_BACKOFF_BASE_SECONDS: float = 30.0
 _MAX_REGEN_ATTEMPTS: int = 4
 
@@ -65,7 +61,6 @@ async def _run(controller: DevicesController, configuration: str) -> None:
         try:
             current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
         except OSError:
-            # Unreadable or vanished config; a spawn would fail against it.
             _LOGGER.debug("Storage regenerate for %s: config unreadable; skipping", configuration)
             return
         stamp = _fresh_stamp(
@@ -82,12 +77,10 @@ async def _run(controller: DevicesController, configuration: str) -> None:
                 return
             remaining = _delay_for(attempts) - age
             if remaining > 0:
-                # Resume an interrupted backoff (a restart mid-window)
-                # with the remainder rather than spawning early.
+                # A restart mid-window resumes the remainder, not an early spawn.
                 _arm_retry(controller, configuration, remaining)
                 return
-        # The spawn/stamp/finalize steps route through the controller's
-        # bound delegates so tests patching them on the class intercept.
+        # Delegates so tests patching the class intercept.
         async with controller._regenerate_lock:
             success = await controller._spawn_only_generate(configuration)
         if success:
@@ -137,8 +130,7 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     try:
         _, stderr = await proc.communicate()
     except asyncio.CancelledError:
-        # The shutdown drain cancels the run mid-subprocess; don't
-        # orphan the esphome/git child.
+        # Don't orphan the esphome/git child on the shutdown drain's cancel.
         kill_quietly(proc)
         raise
     except Exception:
@@ -218,10 +210,8 @@ def _fresh_stamp(
     """
     Return ``(attempts, age)`` for an unexpired stamp matching *current_mtime*.
 
-    A stamp without a parseable attempt count reads as terminal (a
-    pre-attempts stamp was only written once the budget was spent).
-    Future-dated stamps clamp to age 0 so clock skew can't lock the
-    regen out indefinitely.
+    A missing or unparseable attempt count reads as terminal;
+    future-dated stamps clamp to age 0.
     """
     cached_mtime = md.get("regen_failed_mtime")
     cached_at = md.get("regen_failed_at")
