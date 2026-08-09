@@ -62,15 +62,15 @@ def schedule(controller: DevicesController, configuration: str) -> None:
 async def _run(controller: DevicesController, configuration: str) -> None:
     try:
         config_path = controller._db.settings.rel_path(configuration)
-        stamp = None
         try:
             current_mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
         except OSError:
-            pass
-        else:
-            stamp = _fresh_stamp(
-                controller._metadata_store.get(configuration), current_mtime, time.time()
-            )
+            # Unreadable or vanished config; a spawn would fail against it.
+            _LOGGER.debug("Storage regenerate for %s: config unreadable; skipping", configuration)
+            return
+        stamp = _fresh_stamp(
+            controller._metadata_store.get(configuration), current_mtime, time.time()
+        )
         if stamp is not None:
             attempts, age = stamp
             if attempts >= _MAX_REGEN_ATTEMPTS:
@@ -95,15 +95,21 @@ async def _run(controller: DevicesController, configuration: str) -> None:
             await controller._finalize_regen_success(configuration)
             await controller._scanner.reload(configuration)
             return
-        attempts = await controller._stamp_regen_failure(configuration)
-        if attempts < _MAX_REGEN_ATTEMPTS:
-            _arm_retry(controller, configuration, _delay_for(attempts))
+        recorded = await controller._stamp_regen_failure(configuration)
+        if recorded is None:
+            _LOGGER.debug(
+                "Storage regenerate for %s: config vanished mid-run; nothing recorded",
+                configuration,
+            )
+            return
+        if recorded < _MAX_REGEN_ATTEMPTS:
+            _arm_retry(controller, configuration, _delay_for(recorded))
             return
         _LOGGER.warning(
             "Storage regenerate for %s failed %d times; retrying after the "
             "YAML changes or the failure stamp expires",
             configuration,
-            attempts,
+            recorded,
         )
     finally:
         controller.state.regen.pending.discard(configuration)
@@ -136,6 +142,7 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
         kill_quietly(proc)
         raise
     except Exception:
+        kill_quietly(proc)
         _LOGGER.debug("Storage regenerate failed for %s", configuration, exc_info=True)
         return False
     if proc.returncode != 0:
@@ -149,19 +156,19 @@ async def spawn_only_generate(controller: DevicesController, configuration: str)
     return True
 
 
-async def stamp_failure(controller: DevicesController, configuration: str) -> int:
+async def stamp_failure(controller: DevicesController, configuration: str) -> int | None:
     """
     Record one more failed attempt against the YAML's current mtime.
 
     Returns the attempt count now on record. An edit or TTL expiry
     since the prior failure resets the count to 1; a vanished file
-    stamps nothing and reports the budget spent.
+    stamps nothing and returns None.
     """
     config_path = controller._db.settings.rel_path(configuration)
     try:
         mtime = await run_in_executor(lambda: config_path.stat().st_mtime)
     except OSError:
-        return _MAX_REGEN_ATTEMPTS
+        return None
     now = time.time()
     prior = _fresh_stamp(controller._metadata_store.get(configuration), mtime, now)
     attempts = (prior[0] if prior is not None else 0) + 1

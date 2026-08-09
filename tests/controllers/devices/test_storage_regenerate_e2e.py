@@ -184,6 +184,7 @@ async def test_out_of_band_network_edit_spawns_only_generate(
         _fake_spawn,
     )
     monkeypatch.setattr(DevicesController, "_finalize_regen_success", AsyncMock())
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     _seed_store(controller, "kitchen.yaml", network_fingerprint="pre-edit-digest")
 
     controller._on_scan_change(
@@ -440,6 +441,7 @@ async def test_regenerate_pending_blocks_in_flight_dupe(
     guard fires and no second task lands.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
     in_flight = asyncio.Event()
     release = asyncio.Event()
 
@@ -713,30 +715,19 @@ async def test_regenerate_runs_when_yaml_mtime_moves_past_stamp(
     assert len(spawn_calls) == 1
 
 
-async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
+async def test_regenerate_skips_when_yaml_unreadable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     make_controller: MakeControllerFactory,
 ) -> None:
-    """YAML file vanished between scan and schedule → guard is permissive.
+    """YAML vanished between scan and schedule → no spawn against it.
 
     A torn ``stat()`` (file removed mid-flight by an editor or
-    archive) returns ``OSError``; the guard treats that as "we
-    can't verify, let the spawn try" rather than silently
-    skipping. The spawn itself will then fail and re-stamp; the
-    important thing is we don't dead-end on a missing file.
+    archive) returns ``OSError``; a spawn would just fail against
+    the missing file, so the run skips and the next scan event
+    for the path retriggers.
     """
     controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
-    # Persist a stamp without ever creating the YAML — simulates the
-    # race window. The metadata sidecar's entry is keyed by filename,
-    # not file-existence.
-    _seed_store(
-        controller,
-        "kitchen.yaml",
-        regen_failed_mtime=12345.0,
-        regen_failed_at=1700000000.0,
-    )
-
     spawn_calls: list[tuple[str, ...]] = []
 
     async def _fake_spawn(*args: str, **_kwargs: Any) -> _FakeProc:
@@ -751,8 +742,8 @@ async def test_regenerate_runs_when_yaml_missing_for_stamp_check(
     controller._schedule_storage_regenerate("kitchen.yaml")
     await _drain(controller)
 
-    # The spawn ran (the stat() failed → guard didn't short-circuit).
-    assert len(spawn_calls) == 1
+    assert spawn_calls == []
+    assert controller.state.regen.pending == set()
 
 
 async def test_regenerate_clamps_negative_stamp_age(
@@ -1218,6 +1209,71 @@ async def test_cancelled_run_kills_subprocess_without_stamp(
     assert proc.killed
     assert _read_store(controller, "kitchen.yaml") == {}
     assert controller.state.regen.pending == set()
+
+
+async def test_communicate_failure_kills_child_and_counts_the_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A pipe error mid-communicate kills the child and feeds the ladder."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    class _BrokenPipeProc:
+        returncode: int | None = None
+
+        def __init__(self) -> None:
+            self.killed = False
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            raise OSError("broken pipe")
+
+        def kill(self) -> None:
+            self.killed = True
+
+    proc = _BrokenPipeProc()
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _BrokenPipeProc:
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert proc.killed
+    assert _read_store(controller, "kitchen.yaml")["regen_failed_attempts"] == 1
+    controller.state.regen.cancel_all_retry_timers()
+
+
+async def test_vanished_mid_run_records_nothing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    make_controller: MakeControllerFactory,
+) -> None:
+    """A YAML deleted during the run stamps nothing and arms no retry."""
+    controller = make_controller(tmp_path, with_regenerate_state=True, esphome_cmd=["esphome"])
+    yaml_path = tmp_path / "kitchen.yaml"
+    yaml_path.write_text("esphome:\n  name: kitchen\n", encoding="utf-8")
+
+    async def _fake_spawn(*_args: str, **_kwargs: Any) -> _FakeProc:
+        yaml_path.unlink()
+        return _FakeProc(returncode=1, stderr=b"gone")
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.devices.storage_regen.create_subprocess_exec",
+        _fake_spawn,
+    )
+
+    controller._schedule_storage_regenerate("kitchen.yaml")
+    await _drain(controller)
+
+    assert _read_store(controller, "kitchen.yaml") == {}
+    assert controller.state.regen.retry_timers == {}
 
 
 async def test_edit_between_failures_resets_attempts(

@@ -321,8 +321,8 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
             self._unsub_job_completed()
             self._unsub_job_completed = None
         self._cancel_reprobe_timers()
-        # Cancel armed regen retries before the background-task drain —
-        # an expiring timer would otherwise schedule into the drained set.
+        # Idempotent with the pre-drain cancel in ``_stop_network``;
+        # kept for direct-stop callers.
         self.state.regen.cancel_all_retry_timers()
         if self._mqtt_reconcile_handle is not None:
             self._mqtt_reconcile_handle.cancel()
@@ -908,7 +908,7 @@ class DevicesController(  # noqa: PLR0904 (grandfathered; new public methods nee
     async def _spawn_only_generate(self, configuration: str) -> bool:
         return await storage_regen.spawn_only_generate(self, configuration)
 
-    async def _stamp_regen_failure(self, configuration: str) -> int:
+    async def _stamp_regen_failure(self, configuration: str) -> int | None:
         return await storage_regen.stamp_failure(self, configuration)
 
     async def _finalize_regen_success(self, configuration: str) -> None:
