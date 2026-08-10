@@ -35,5 +35,5 @@ source:
   type: esphome-devices
   remote_id: AquaPing
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/AquaPing/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: 248f0ee3e41f1ee7df41cf550a9f780696da3c208035e71682feaa41c9d0c913

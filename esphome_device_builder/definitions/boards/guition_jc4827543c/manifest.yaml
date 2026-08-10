@@ -71,5 +71,5 @@ source:
   type: esphome-devices
   remote_id: Guition-JC4827543C
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Guition-JC4827543C/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: f61b99705fabd2c67e3690942e0c05cdf72b3d60742d963d7c5c21db188d3cb3

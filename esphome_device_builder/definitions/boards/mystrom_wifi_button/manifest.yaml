@@ -118,5 +118,5 @@ source:
   type: esphome-devices
   remote_id: myStrom-Wifi-Button
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/myStrom-Wifi-Button/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: 3f1e84cf59b1bd6edd7216596aa3fa98e49ff3681347292515e27daf2940a7a6

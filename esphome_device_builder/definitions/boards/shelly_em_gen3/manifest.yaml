@@ -154,5 +154,5 @@ source:
   type: esphome-devices
   remote_id: Shelly-EM-Gen3
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Shelly-EM-Gen3/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: b32b65da1111017e12267084fca82250c48d59289f0079da9af2da21bd8bac7d

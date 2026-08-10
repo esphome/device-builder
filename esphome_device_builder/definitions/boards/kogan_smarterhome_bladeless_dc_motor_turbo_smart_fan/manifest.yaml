@@ -49,5 +49,5 @@ source:
   type: esphome-devices
   remote_id: Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Kogan-Smarterhome-Bladeless-DC-Motor-Turbo-Smart-Fan/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: 772fbb29e615c1d4c12618ea9e95812ea3295e5e88ca2a00674913729d149db9

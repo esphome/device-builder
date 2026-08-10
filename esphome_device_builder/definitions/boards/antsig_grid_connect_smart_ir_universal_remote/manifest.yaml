@@ -27,5 +27,5 @@ source:
   type: esphome-devices
   remote_id: Antsig-Grid-Connect-Smart-IR-Universal-Remote
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Antsig-Grid-Connect-Smart-IR-Universal-Remote/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: cd0b04d92ee877babf38b2b12c9115985cf24e299700487a52edd22a56fe0b5a

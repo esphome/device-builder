@@ -109,5 +109,5 @@ source:
   type: esphome-devices
   remote_id: LoraTap-SC511WSC
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/LoraTap-SC511WSC/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: d10aea73cb4825e163f424d8d9dbfc15dbcbc525569d373bbe1e39a2b75987ae

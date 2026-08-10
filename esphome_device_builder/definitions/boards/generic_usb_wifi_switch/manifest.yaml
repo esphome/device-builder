@@ -88,5 +88,5 @@ source:
   type: esphome-devices
   remote_id: Generic-USB-Wifi-Switch
   upstream_url: https://github.com/esphome/devices.esphome.io/blob/main/src/docs/devices/Generic-USB-Wifi-Switch/index.md
-  upstream_revision: f463c62ebaa25d95616f25f2cb148597caa90591
+  upstream_revision: f89c1fd7b1c939a8d07d8c05c0a8352a70559f7c
   content_hash: e3b7ff961e2bd1f5266843600a8d52ae350ba0f3f47fadd0fb18099f24c29354
