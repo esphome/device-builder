@@ -8,6 +8,7 @@ import orjson
 
 from script.sync_components import (  # type: ignore[import-not-found]
     _OUTPUT_BODIES_DIR,
+    _annotate_constraint_descriptions,
     _apply_nested_field_sections,
     _enumerate_mdx_field_sections,
     _extract_mdx_field_descriptions,
@@ -323,7 +324,51 @@ def test_extract_mdx_field_descriptions_reads_top_level_section() -> None:
     assert fields == {"top_a": "A top-level field."}
 
 
+def test_backfill_then_annotate_keeps_prose_and_help_link() -> None:
+    """The constraint hint prepends to backfilled prose instead of blocking it."""
+    mdx = """\
+---
+title: X
+---
+
+## Eap
+
+- **identity** (*Optional*, string): The outer identity to pass.
+- **certificate** (*Optional*, string): Path to a PEM encoded certificate.
+- **key** (*Optional*, string): Path to a PEM encoded private key.
+"""
+    eap = {
+        "key": "eap",
+        "type": "nested",
+        "required_groups": [{"kind": "at_least_one", "keys": ["identity", "certificate"]}],
+        "config_entries": [
+            {"key": "identity", "type": "string"},
+            {"key": "certificate", "type": "string", "group": "certificate_and_key"},
+            {"key": "key", "type": "string", "group": "certificate_and_key"},
+        ],
+    }
+    entries = [eap]
+    _apply_nested_field_sections(
+        entries, _enumerate_mdx_field_sections(mdx), docs_url="https://esphome.io/components/wifi"
+    )
+    _annotate_constraint_descriptions({"config_entries": entries})
+    cert = eap["config_entries"][1]
+    assert cert["description"].startswith("**Required")
+    assert "PEM encoded certificate" in cert["description"]
+    assert cert["help_link"] == "https://esphome.io/components/wifi#eap"
+
+
 # --- Catalog pins: the regenerated bodies carry the matched descriptions ---
+
+
+def test_catalog_wifi_eap_constraint_members_keep_prose() -> None:
+    for path in (("eap", "certificate"), ("networks", "eap", "certificate")):
+        cert = _leaf("wifi", *path)
+        assert cert is not None
+        description = cert.get("description") or ""
+        assert description.startswith("**Required")
+        assert "PEM encoded certificate" in description
+        assert (cert.get("help_link") or "").strip()
 
 
 def test_catalog_wifi_networks_fields_documented() -> None:

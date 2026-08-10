@@ -1333,6 +1333,16 @@ def build_catalog(
     # ``ota.http_request``).
     _backfill_descriptions_from_mdx(out)
 
+    # Prepend a markdown hint to each constraint-involved field's
+    # description so an older frontend (one that doesn't yet
+    # consume ``required_groups`` / ``group``) still surfaces the
+    # rule to the user as readable prose — issue #924. Drops out
+    # naturally once the FE renders the structured fields inline.
+    # After the MDX backfill: the backfill fills only description-less
+    # fields, so an earlier hint would block the prose and help_link.
+    for entry in out:
+        _annotate_constraint_descriptions(entry)
+
     # After the MDX backfill so a real MDX title still wins.
     _fix_borrowed_page_titles(out, _components_with_own_docs_page())
 
@@ -2724,12 +2734,9 @@ def build_component_entry(
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
     _apply_required_groups(component, introspection.get("required_groups") or {})
-    # Prepend a markdown hint to each constraint-involved field's
-    # description so an older frontend (one that doesn't yet
-    # consume ``required_groups`` / ``group``) still surfaces the
-    # rule to the user as readable prose — issue #924. Drops out
-    # naturally once the FE renders the structured fields inline.
-    _annotate_constraint_descriptions(component)
+    # Constraint-hint annotation is deferred to ``build_catalog`` — it must
+    # run after the MDX backfill, whose fill targets only description-less
+    # fields; a hint stamped here would block the prose and its help_link.
     _apply_ethernet_platform_split(component)
     return component
 
