@@ -8236,7 +8236,7 @@ def _list_fields_in_schema(schema: Any) -> dict[tuple[str, ...], bool]:
         if _is_list_validator(val):
             out[path] = True
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
 
 

@@ -103,6 +103,17 @@ def test_collect_list_fields_empty_for_schemaless_manifest() -> None:
     assert sync_components._collect_list_fields(SimpleNamespace(config_schema=None)) == {}
 
 
+def test_collect_list_fields_descends_list_item_schemas() -> None:
+    """A bare-list field inside a ``cv.ensure_list`` item keeps its path."""
+    schema = {
+        cv.Optional("channels"): cv.ensure_list(
+            {cv.Optional("timing"): cv.All([cv.int_], cv.Length(min=1))}
+        ),
+    }
+    manifest = SimpleNamespace(config_schema=schema)
+    assert ("channels", "timing") in sync_components._collect_list_fields(manifest)
+
+
 def test_collect_list_fields_descends_a_registry_schema() -> None:
     """``remote_receiver``'s binary_sensor schema is a registry-entry callable."""
     loader = sync_components._get_esphome_loader()
