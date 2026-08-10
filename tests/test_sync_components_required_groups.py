@@ -223,6 +223,19 @@ def test_collect_required_groups_captures_nested_constraint() -> None:
     }
 
 
+def test_collect_required_groups_descends_list_item_schemas() -> None:
+    """A constraint on a ``cv.ensure_list`` item schema lands at the list field's path."""
+    item = vol.All(
+        cv.Schema({cv.Optional("identity"): cv.string, cv.Optional("certificate"): cv.string}),
+        cv.has_at_least_one_key("identity", "certificate"),
+    )
+    schema = cv.Schema({cv.Optional("networks"): cv.ensure_list(item)})
+    out = _collect_required_groups(_FakeManifest(schema))
+    assert out == {
+        ("networks",): [{"kind": "at_least_one", "keys": ["identity", "certificate"]}],
+    }
+
+
 def test_collect_required_groups_handles_all_four_kinds() -> None:
     """Every ``cv.has_*_one_key`` flavour serialises to its wire kind."""
     schema = cv.All(

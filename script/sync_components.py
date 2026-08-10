@@ -7753,6 +7753,11 @@ def _collect_required_groups(
             out.setdefault(path, []).extend(groups)
         target = _unwrap_schema_to_dict(node)
         if target is None:
+            # A constraint on a ``cv.ensure_list`` item schema lands at the
+            # list field's own path, matching the catalog's nesting.
+            item = _ensure_list_item_validator(_templatable_inner(node) or node)
+            if item is not None:
+                walk(item, path, depth + 1)
             return
         if id(target) in visited:
             return
