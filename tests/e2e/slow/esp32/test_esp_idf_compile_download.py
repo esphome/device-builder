@@ -45,7 +45,9 @@ def _local_download_set(data_dir: Path) -> set[str]:
     against the receiver's own storage + build dir, so the parity check
     shares one source of truth with the offloader side.
     """
-    [storage_path] = list((data_dir / "storage").glob("*.json"))
+    # esphome dev writes `<file>.validated.json` beside the sidecar, so a
+    # `*.json` glob can't single out the StorageJSON.
+    storage_path = data_dir / "storage" / f"{_CONFIGURATION_FILENAME}.json"
     storage = StorageJSON.load(storage_path)
     assert storage is not None
     return {entry["file"] for entry in collect_download_entries(storage, storage_path)}
