@@ -895,9 +895,7 @@ def test_walk_descends_templatable_list_of_mappings(cv: ModuleType) -> None:
         }
     )
     keys: set[str] = set()
-    _walk_schema_keys(
-        schema, lambda _k, key_name, _v, _path: keys.add(key_name), descend_list_items=True
-    )
+    _walk_schema_keys(schema, lambda _k, key_name, _v, _path: keys.add(key_name))
     assert "payload" in keys
 
 

@@ -4881,9 +4881,7 @@ def _collect_bleed_keys(
     range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
-        # Both signals walk list items, so the key set must too or the
-        # guard is blind to list-item paths.
-        keys = _platform_field_keys([platform_manifest], descend_list_items=True)
+        keys = _platform_field_keys([platform_manifest])
         platform_ranges = _collect_field_ranges(platform_manifest)
         bled = {
             path: platform_ranges.get(path)
@@ -5586,11 +5584,20 @@ def _ensure_list_item_validator(node: Any) -> Any | None:
     return None
 
 
+def _list_item_schema(node: Any) -> Any | None:
+    """
+    Return the item schema of a ``cv.ensure_list`` node, or ``None``.
+
+    Peels a ``cv.templatable`` wrapper first; the peel matters only
+    for mapping-shaped items (a scalar item types the parent entry
+    via ``classify`` instead).
+    """
+    return _ensure_list_item_validator(_templatable_inner(node) or node)
+
+
 def _walk_schema_keys(
     schema: Any,
     visit: Callable[[Any, str, Any, tuple[str, ...]], None],
-    *,
-    descend_list_items: bool = False,
 ) -> None:
     """
     Walk *schema* and call ``visit(key, key_name, val, path)`` per dict entry.
@@ -5615,9 +5622,9 @@ def _walk_schema_keys(
     sub-schema shared between two fields must be visited at both paths
     or whichever comes second is silently shadowed.
 
-    ``descend_list_items`` additionally walks into ``cv.ensure_list``
-    item schemas at the same path (the catalog keys list-item fields
-    under the list field itself, e.g. ``(uart, stop_bits)``).
+    ``cv.ensure_list`` item schemas are walked at the same path (the
+    catalog keys list-item fields under the list field itself, e.g.
+    ``(uart, stop_bits)``).
     """
     visited: set[tuple[int, tuple[str, ...]]] = set()
 
@@ -5632,12 +5639,10 @@ def _walk_schema_keys(
             # no path segment) so the collectors reach variant-only fields
             # like ethernet's ``clock_speed``.
             branches = _typed_branch_schemas(node)
-            if branches is None and descend_list_items:
-                # ``cv.ensure_list(...)`` is also a closure, sometimes
-                # behind a ``cv.templatable`` wrapper; the peel matters
-                # only for mapping-shaped items (a scalar item types the
-                # parent entry via ``classify`` instead).
-                item = _ensure_list_item_validator(_templatable_inner(node) or node)
+            if branches is None:
+                # ``cv.ensure_list(...)`` is also a closure, not a
+                # ``vol.*`` wrapper.
+                item = _list_item_schema(node)
                 branches = {"": item} if item is not None else None
             for branch in (branches or {}).values():
                 walk(branch, path, depth + 1)
@@ -5770,7 +5775,7 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
         if per_platform:
             out[path] = per_platform
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -6185,7 +6190,7 @@ def _refined_types_in_schema(  # noqa: C901
         elif _is_dict_list_union(val):
             out[path] = RefinedType("unknown")
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -6288,7 +6293,7 @@ def _collect_component_gates(manifest: Any) -> dict[tuple[str, ...], str]:
         if gate is not None:
             out[path] = gate
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
 
     visited_set = set(visited)
     by_parent: dict[tuple[str, ...], list[tuple[str, ...]]] = {}
@@ -6651,7 +6656,7 @@ def _collect_pin_constraints(
         if constraint.mode is not None or constraint.features:
             out[path] = constraint
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -7600,7 +7605,7 @@ def _collect_platform_constraints(
         if constraint:
             out[path] = sorted(constraint)
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -7712,7 +7717,7 @@ def _collect_inclusive_groups(
         if isinstance(group, str) and group:
             out[path] = group
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -7755,7 +7760,7 @@ def _collect_required_groups(
         if target is None:
             # A constraint on a ``cv.ensure_list`` item schema lands at the
             # list field's own path, matching the catalog's nesting.
-            item = _ensure_list_item_validator(_templatable_inner(node) or node)
+            item = _list_item_schema(node)
             if item is not None:
                 walk(item, path, depth + 1)
             return
@@ -8144,7 +8149,7 @@ def _field_ranges_in_schema(
         if bounds is not None:
             out[path] = bounds
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
@@ -8168,20 +8173,14 @@ def _drop_machine_derived_ranges(
     return {path: bounds for path, bounds in field_ranges.items() if path not in denylisted}
 
 
-def _platform_field_keys(
-    platform_manifests: list[Any], *, descend_list_items: bool = False
-) -> set[tuple[str, ...]]:
+def _platform_field_keys(platform_manifests: list[Any]) -> set[tuple[str, ...]]:
     """Every config-var key path defined across *platform_manifests*' schemas."""
     keys: set[tuple[str, ...]] = set()
     for manifest in platform_manifests:
         schema = getattr(manifest, "config_schema", None)
         if schema is None:
             continue
-        _walk_schema_keys(
-            schema,
-            lambda _k, _kn, _v, path: keys.add(path),
-            descend_list_items=descend_list_items,
-        )
+        _walk_schema_keys(schema, lambda _k, _kn, _v, path: keys.add(path))
     return keys
 
 
@@ -8236,7 +8235,7 @@ def _list_fields_in_schema(schema: Any) -> dict[tuple[str, ...], bool]:
         if _is_list_validator(val):
             out[path] = True
 
-    _walk_schema_keys(schema, visit, descend_list_items=True)
+    _walk_schema_keys(schema, visit)
     return out
 
 
