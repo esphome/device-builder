@@ -228,6 +228,29 @@ def test_collect_disjoint_key_and_value_gates_warn_and_skip(
     assert any("collapsed to empty" in rec.message for rec in caplog.records)
 
 
+def test_platform_set_recovers_chip_requires_component() -> None:
+    """``cv.requires_component(<chip>)`` restricts the field to that chip."""
+    assert _platform_set(cv.requires_component("esp32")) == frozenset({"esp32"})
+
+
+def test_platform_set_ignores_non_chip_requires_component() -> None:
+    """A component-name ``cv.requires_component`` is not a platform gate."""
+    assert _platform_set(cv.requires_component("zigbee")) is None
+
+
+def test_collect_requires_component_chain_intersects_to_chip() -> None:
+    """The zigbee ``report`` shape: component + chip requires in one chain."""
+    schema = {
+        cv.Optional("report"): vol.All(
+            cv.requires_component("zigbee"),
+            cv.requires_component("esp32"),
+            cv.string,
+        ),
+    }
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {("report",): ["esp32"]}
+
+
 def test_only_with_platforms_canonicalizes_strenum() -> None:
     """``Platform`` StrEnum members come back as plain strings."""
     from esphome.const import Platform  # noqa: PLC0415
@@ -361,3 +384,26 @@ def test_collect_against_live_adc_sensor_manifest() -> None:
 
     assert ("attenuation",) in out
     assert "esp32" in out[("attenuation",)]
+
+
+def test_collect_against_live_zigbee_manifest() -> None:
+    """End-to-end: chip-named ``cv.requires_component`` gates recover from zigbee.
+
+    ``ieee802154_vendor_oui`` is gated by a value-side
+    ``requires_component("nrf52")``; the entity-schema ``report`` is the
+    mixed chain (``requires_component("zigbee")`` +
+    ``requires_component("esp32")``) whose chip half must land here while
+    the component half stays a ``depends_on_component`` gate.
+    """
+    pytest.importorskip("esphome.components.zigbee")
+    from esphome.components import zigbee  # noqa: PLC0415
+
+    out = _collect_platform_constraints(_FakeManifest(zigbee.CONFIG_SCHEMA))
+    assert ("ieee802154_vendor_oui",) in out
+    assert "nrf52" in out[("ieee802154_vendor_oui",)]
+
+    base = _collect_platform_constraints(_FakeManifest(zigbee.BASE_SCHEMA))
+    assert base.get(("report",)) == ["esp32"], (
+        "zigbee report lost its esp32 gate — check whether upstream moved "
+        "off the requires_component('esp32') chain"
+    )

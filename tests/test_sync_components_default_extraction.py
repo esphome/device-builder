@@ -64,7 +64,7 @@ def test_default_with_multi_component_picks_first_with_warning(
     raw = {
         "default_with": {
             "value": "DC_SOURCE",
-            "components": ["zigbee", "nrf52"],
+            "components": ["zigbee", "wifi"],
         },
     }
     with caplog.at_level(logging.WARNING, logger="sync_components"):
@@ -75,7 +75,23 @@ def test_default_with_multi_component_picks_first_with_warning(
     msg = caplog.records[0].getMessage()
     assert "power_source" in msg
     assert "zigbee" in msg
-    assert "nrf52" in msg
+    assert "wifi" in msg
+
+
+def test_default_with_chip_only_yields_no_gate() -> None:
+    """Chip names never gate — the value flows, the chip half lives in supported_platforms."""
+    raw = {"default_with": {"value": "False", "components": ["nrf52"]}}
+    assert _extract_default(raw, key="wipe_on_boot") == (False, None)
+
+
+def test_default_with_mixed_list_gates_on_the_non_chip(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A chip+component list gates on the component alone, without a multi warning."""
+    raw = {"default_with": {"value": "True", "components": ["nrf52", "wifi"]}}
+    with caplog.at_level(logging.WARNING, logger="sync_components"):
+        assert _extract_default(raw, key="x") == (True, "wifi")
+    assert not caplog.records
 
 
 def test_default_with_empty_components_returns_no_gate() -> None:
@@ -143,8 +159,8 @@ def test_extract_default_software_coexistence_fixture() -> None:
 
 
 def test_extract_default_power_source_fixture() -> None:
-    """Real ``power_source`` raw entry — string default."""
-    assert _extract_default(_FIXTURE_POWER_SOURCE) == ("DC_SOURCE", "nrf52")
+    """Real ``power_source`` raw entry — string default, chip gate filtered."""
+    assert _extract_default(_FIXTURE_POWER_SOURCE) == ("DC_SOURCE", None)
 
 
 def test_extract_default_tx_power_fixture_skipped_for_now() -> None:
@@ -170,14 +186,14 @@ def test_convert_field_software_coexistence_carries_gate_and_default(
     assert entry["required"] is False
 
 
-def test_convert_field_power_source_carries_gate_and_string_default(
+def test_convert_field_power_source_carries_string_default_no_chip_gate(
     schema_dir: Path,
 ) -> None:
-    """OnlyWith enum field with a string default — verifies no bool coercion."""
+    """Chip-gated OnlyWith enum field — string default flows, no bool coercion, no chip gate."""
     entry = _convert_field("power_source", _FIXTURE_POWER_SOURCE, schema_dir)
     assert entry is not None
     assert entry["default_value"] == "DC_SOURCE"
-    assert entry["depends_on_component"] == "nrf52"
+    assert entry["depends_on_component"] is None
     option_values = {opt["value"] for opt in entry["options"] or []}
     assert "DC_SOURCE" in option_values
     assert "BATTERY" in option_values

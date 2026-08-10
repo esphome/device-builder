@@ -42,7 +42,9 @@ def test_boolean_refinement_folds_into_existing_options(schema_dir: Path) -> Non
     assert entry["type"] == "string"
     assert [option["value"] for option in entry["options"]] == ["true", "false", "once"]
     assert entry["default_value"] == "false"
-    assert entry["depends_on_component"] == "nrf52"
+    # The chip half of the ``default_with`` gate is filtered — it lives
+    # in ``supported_platforms``, not ``depends_on_component``.
+    assert entry["depends_on_component"] is None
 
 
 def test_boolean_refinement_without_options_still_retypes() -> None:

@@ -4068,12 +4068,15 @@ def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
     value marked default (:func:`_enum_default`). ``default_without``
     (``cv.OnlyWithout``) has inverse-gate semantics that
     ``depends_on_component`` can't model — no default surfaces for
-    those fields. Multi-component ``default_with`` picks the first
-    component and logs a warning (no upstream call site uses a
-    list today). *key* is the field name for the log context.
+    those fields. Chip names never gate (they belong to
+    ``supported_platforms``); of the rest, multi-component
+    ``default_with`` picks the first and logs a warning (no upstream
+    call site uses a list today). *key* is the field name for the
+    log context.
     """
     if (gated := raw.get("default_with")) is not None:
-        components = gated.get("components") or []
+        chips = _target_platform_names()
+        components = [c for c in gated.get("components") or [] if c not in chips]
         if len(components) > 1:
             _LOGGER.warning(
                 "%s: default_with with multiple components %s; only "
@@ -6198,22 +6201,32 @@ def _target_platform_names() -> frozenset[str]:
     return frozenset(p.value for p in Platform)
 
 
+def _requires_component_name(validator: Any) -> str | None:
+    """Component name of a bare ``cv.requires_component`` validator, else None."""
+    qualname = getattr(validator, "__qualname__", "") or ""
+    if not qualname.startswith("requires_component."):
+        return None
+    if getattr(validator, "__module__", "") != "esphome.config_validation":
+        return None
+    try:
+        comp = _closure_nonlocals(validator).get("comp")
+    except ValueError:
+        comp = None
+    if isinstance(comp, str) and comp:
+        return comp
+    return None
+
+
 def _requires_component_gate(validator: Any) -> str | None:
     """
     Component name from a ``cv.requires_component`` validator chain, else None.
 
-    Peels ``vol.All`` wrappers; the first gate in chain order wins.
+    Peels ``vol.All`` wrappers; the first non-chip gate in chain order
+    wins (chip gating belongs to ``supported_platforms``).
     """
-    qualname = getattr(validator, "__qualname__", "") or ""
-    if qualname.startswith("requires_component.") and (
-        getattr(validator, "__module__", "") == "esphome.config_validation"
-    ):
-        try:
-            comp = _closure_nonlocals(validator).get("comp")
-        except ValueError:
-            comp = None
-        if isinstance(comp, str) and comp:
-            return comp
+    comp = _requires_component_name(validator)
+    if comp is not None and comp not in _target_platform_names():
+        return comp
     for inner in getattr(validator, "validators", None) or ():
         gate = _requires_component_gate(inner)
         if gate is not None:
@@ -7461,6 +7474,34 @@ def _apply_platform_defaults(
     _walk_catalog_entries(entries, visit)
 
 
+def _leaf_platform_set(node: Any) -> frozenset[str] | None:
+    """
+    Platform constraint of a single validator closure, else None.
+
+    ``cv.only_on`` carries its list in the ``platforms`` nonlocal;
+    ``cv.requires_component(<chip>)`` is chip gating in component
+    clothing — requiring a target-platform component equals
+    restricting the field to that platform.
+    """
+    if not (callable(node) and getattr(node, "__closure__", None)):
+        return None
+    try:
+        nonlocals = _closure_nonlocals(node)
+    except (TypeError, ValueError):
+        nonlocals = {}
+    platforms = nonlocals.get("platforms")
+    if isinstance(platforms, list):
+        # ``Platform`` is a ``StrEnum``; ``str()`` yields the
+        # canonical identifier (``esp32``, ``esp8266``, ...).
+        names = [str(p) for p in platforms if isinstance(p, str | StrEnum)]
+        if names:
+            return frozenset(names)
+    comp = _requires_component_name(node)
+    if comp is not None and comp in _target_platform_names():
+        return frozenset({str(comp)})
+    return None
+
+
 def _platform_set(node: Any) -> frozenset[str] | None:
     """
     Return allowed target platforms for *node*, or ``None`` if unconstrained.
@@ -7485,18 +7526,8 @@ def _platform_set(node: Any) -> frozenset[str] | None:
     chain constrains platform — empty-set would mean "no platform
     accepted," a schema bug we don't want to silently mask.
     """
-    if callable(node) and getattr(node, "__closure__", None):
-        try:
-            nonlocals = _closure_nonlocals(node)
-        except (TypeError, ValueError):
-            nonlocals = {}
-        platforms = nonlocals.get("platforms")
-        if isinstance(platforms, list):
-            # ``Platform`` is a ``StrEnum``; ``str()`` yields the
-            # canonical identifier (``esp32``, ``esp8266``, ...).
-            names = [str(p) for p in platforms if isinstance(p, str | StrEnum)]
-            if names:
-                return frozenset(names)
+    if (leaf := _leaf_platform_set(node)) is not None:
+        return leaf
 
     if isinstance(node, vol.Any):
         sets = [_platform_set(child) for child in node.validators]

@@ -63,6 +63,25 @@ def test_first_gate_in_a_multi_requires_chain_wins(cv) -> None:
     assert _collect_component_gates(_manifest(schema)) == {("report",): "zigbee"}
 
 
+def test_requires_chain_skips_chip_regardless_of_order(cv) -> None:
+    """Chip gating belongs to ``supported_platforms``, not ``depends_on_component``."""
+    schema = cv.Schema(
+        {
+            cv.Optional("report"): cv.All(
+                cv.requires_component("esp32"), cv.requires_component("zigbee"), cv.boolean
+            )
+        }
+    )
+    assert _collect_component_gates(_manifest(schema)) == {("report",): "zigbee"}
+
+
+def test_chip_only_requires_chain_yields_no_gate(cv) -> None:
+    schema = cv.Schema(
+        {cv.Optional("ieee802154_vendor_oui"): cv.All(cv.requires_component("nrf52"), cv.string)}
+    )
+    assert _collect_component_gates(_manifest(schema)) == {}
+
+
 def test_only_with_key_marker_is_discovered(cv) -> None:
     schema = cv.Schema({cv.OnlyWith("web_server_id", "web_server"): cv.string})
     assert _collect_component_gates(_manifest(schema)) == {("web_server_id",): "web_server"}
