@@ -5585,13 +5585,7 @@ def _ensure_list_item_validator(node: Any) -> Any | None:
 
 
 def _list_item_schema(node: Any) -> Any | None:
-    """
-    Return the item schema of a ``cv.ensure_list`` node, or ``None``.
-
-    Peels a ``cv.templatable`` wrapper first; the peel matters only
-    for mapping-shaped items (a scalar item types the parent entry
-    via ``classify`` instead).
-    """
+    """Return the item schema of a ``cv.ensure_list`` node (peeling ``cv.templatable``), or None."""
     return _ensure_list_item_validator(_templatable_inner(node) or node)
 
 
@@ -8174,7 +8168,7 @@ def _drop_machine_derived_ranges(
 
 
 def _platform_field_keys(platform_manifests: list[Any]) -> set[tuple[str, ...]]:
-    """Every config-var key path defined across *platform_manifests*' schemas."""
+    """Every config-var key path (list-item paths included) across *platform_manifests*' schemas."""
     keys: set[tuple[str, ...]] = set()
     for manifest in platform_manifests:
         schema = getattr(manifest, "config_schema", None)
