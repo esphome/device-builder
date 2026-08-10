@@ -251,6 +251,52 @@ def test_collect_requires_component_chain_intersects_to_chip() -> None:
     assert out == {("report",): ["esp32"]}
 
 
+def test_collect_descends_list_item_schemas() -> None:
+    """Gates inside a ``cv.ensure_list`` item schema keep their paths."""
+    schema = {
+        cv.Optional("entries"): cv.ensure_list(
+            {
+                cv.Optional("psram"): cv.All(cv.only_on_esp32, cv.string),
+                cv.OnlyWith("nrf_saadc", "nrf52"): cv.string,
+                cv.Optional("free"): cv.string,
+            }
+        ),
+    }
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {
+        ("entries", "psram"): ["esp32"],
+        ("entries", "nrf_saadc"): ["nrf52"],
+    }
+
+
+def test_collect_only_with_mixed_list_inside_list_item_schema() -> None:
+    """A mixed chip+component ``cv.OnlyWith`` in a list item keeps its chip half."""
+    schema = {
+        cv.Optional("entries"): cv.ensure_list(
+            {cv.OnlyWith("zigbee_switch", ["nrf52", "zigbee"]): cv.string}
+        ),
+    }
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {("entries", "zigbee_switch"): ["nrf52"]}
+
+
+def test_collect_requires_component_chain_inside_list_item_schema() -> None:
+    """A component + chip ``requires_component`` chain in a list item keeps its chip half."""
+    schema = {
+        cv.Optional("entries"): cv.ensure_list(
+            {
+                cv.Optional("report"): vol.All(
+                    cv.requires_component("zigbee"),
+                    cv.requires_component("esp32"),
+                    cv.string,
+                ),
+            }
+        ),
+    }
+    out = _collect_platform_constraints(_FakeManifest(schema))
+    assert out == {("entries", "report"): ["esp32"]}
+
+
 def test_only_with_platforms_canonicalizes_strenum() -> None:
     """``Platform`` StrEnum members come back as plain strings."""
     from esphome.const import Platform  # noqa: PLC0415

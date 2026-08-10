@@ -7601,7 +7601,7 @@ def _collect_platform_constraints(
         if constraint:
             out[path] = sorted(constraint)
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
 
 
