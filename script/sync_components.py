@@ -7712,7 +7712,7 @@ def _collect_inclusive_groups(
         if isinstance(group, str) and group:
             out[path] = group
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
 
 

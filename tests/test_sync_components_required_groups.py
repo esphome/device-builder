@@ -144,6 +144,23 @@ def test_collect_inclusive_groups_walks_nested_vol_all_values() -> None:
     }
 
 
+def test_collect_inclusive_groups_descends_list_item_schemas() -> None:
+    """Inclusive markers inside a ``cv.ensure_list`` item keep their paths."""
+    schema = {
+        cv.Optional("entries"): cv.ensure_list(
+            {
+                cv.Inclusive("certificate", "cert_and_key"): cv.string,
+                cv.Inclusive("key", "cert_and_key"): cv.string,
+            }
+        ),
+    }
+    out = _collect_inclusive_groups(_FakeManifest(schema))
+    assert out == {
+        ("entries", "certificate"): "cert_and_key",
+        ("entries", "key"): "cert_and_key",
+    }
+
+
 def test_collect_inclusive_groups_returns_empty_when_manifest_has_no_schema() -> None:
     """Missing ``config_schema`` is handled gracefully."""
 
