@@ -5771,7 +5771,7 @@ def _collect_platform_defaults(manifest: Any) -> dict[tuple[str, ...], dict[str,
         if per_platform:
             out[path] = per_platform
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
 
 
