@@ -219,6 +219,20 @@ def test_collect_nested_range() -> None:
     assert out == {("inner", "value"): (0, 100)}
 
 
+def test_collect_range_inside_list_item_schema() -> None:
+    """Bounds inside a ``cv.ensure_list`` item schema keep their paths."""
+    schema = {
+        cv.Optional("entries"): cv.ensure_list(
+            {
+                cv.Optional("endpoint"): cv.All(cv.positive_int, cv.Range(min=1, max=239)),
+                cv.Optional("name"): cv.string,
+            }
+        ),
+    }
+    out = _collect_field_ranges(_FakeManifest(schema))
+    assert out == {("entries", "endpoint"): (1, 239)}
+
+
 def test_collect_returns_empty_when_manifest_has_no_schema() -> None:
     """Missing ``config_schema`` is handled gracefully."""
 

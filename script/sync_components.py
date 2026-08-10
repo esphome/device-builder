@@ -4881,7 +4881,9 @@ def _collect_bleed_keys(
     range_bleed: dict[str, dict[tuple[str, ...], tuple[int | float, int | float] | None]] = {}
     refined_bleed: dict[str, dict[tuple[str, ...], RefinedType | None]] = {}
     for domain, platform_manifest in platform_manifests_by_domain:
-        keys = _platform_field_keys([platform_manifest])
+        # Both signals walk list items, so the key set must too or the
+        # guard is blind to list-item paths.
+        keys = _platform_field_keys([platform_manifest], descend_list_items=True)
         platform_ranges = _collect_field_ranges(platform_manifest)
         bled = {
             path: platform_ranges.get(path)
@@ -4890,14 +4892,11 @@ def _collect_bleed_keys(
         }
         if bled:
             range_bleed[domain] = bled
-        # Refined types walk list items, so the key set must too or the
-        # guard is blind to list-item paths.
-        list_keys = _platform_field_keys([platform_manifest], descend_list_items=True)
         platform_refined = _collect_refined_types(platform_manifest)
         refined_bled = {
             path: platform_refined.get(path)
             for path in hub_refined
-            if path in list_keys and platform_refined.get(path) != hub_refined[path]
+            if path in keys and platform_refined.get(path) != hub_refined[path]
         }
         if refined_bled:
             refined_bleed[domain] = refined_bled
@@ -8140,7 +8139,7 @@ def _field_ranges_in_schema(
         if bounds is not None:
             out[path] = bounds
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
 
 
