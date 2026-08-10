@@ -6651,7 +6651,7 @@ def _collect_pin_constraints(
         if constraint.mode is not None or constraint.features:
             out[path] = constraint
 
-    _walk_schema_keys(schema, visit)
+    _walk_schema_keys(schema, visit, descend_list_items=True)
     return out
 
 

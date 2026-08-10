@@ -126,6 +126,25 @@ def test_collect_returns_empty_without_loader() -> None:
     assert _collect_pin_constraints(None, "output", "gpio", "gpio.output") == {}
 
 
+def test_collect_descends_list_item_schemas() -> None:
+    """A pin schema inside a ``cv.ensure_list`` item keeps its path."""
+    import esphome.config_validation as cv  # noqa: PLC0415
+    from esphome import pins as esphome_pins  # noqa: PLC0415
+
+    schema = {
+        cv.Optional("channels"): cv.ensure_list(
+            {cv.Required("pin"): esphome_pins.gpio_output_pin_schema}
+        ),
+    }
+
+    class _Loader:
+        def get_component(self, _top_key: str) -> object:
+            return type("M", (), {"config_schema": schema})()
+
+    constraints = _collect_pin_constraints(_Loader(), None, "foo", "foo")
+    assert constraints[("channels", "pin")].mode == PinMode.OUTPUT
+
+
 # --- _apply_pin_constraints: stamping derived constraints onto catalog entries ---
 
 
