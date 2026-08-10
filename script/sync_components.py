@@ -49,7 +49,7 @@ import time
 import unicodedata
 import urllib.request
 import zipfile
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import cache
@@ -4068,8 +4068,7 @@ def _extract_default(raw: dict, key: str = "") -> tuple[Any, str | None]:
     value marked default (:func:`_enum_default`). ``default_without``
     (``cv.OnlyWithout``) has inverse-gate semantics that
     ``depends_on_component`` can't model — no default surfaces for
-    those fields. Chip names never gate (they belong to
-    ``supported_platforms``); of the rest, multi-component
+    those fields. Chip names never gate; of the rest, multi-component
     ``default_with`` picks the first and logs a warning (no upstream
     call site uses a list today). *key* is the field name for the
     log context.
@@ -6202,7 +6201,7 @@ def _target_platform_names() -> frozenset[str]:
 
 
 def _requires_component_name(validator: Any) -> str | None:
-    """Component name of a bare ``cv.requires_component`` validator, else None."""
+    """Canonical component name of a bare ``cv.requires_component`` validator, else None."""
     qualname = getattr(validator, "__qualname__", "") or ""
     if not qualname.startswith("requires_component."):
         return None
@@ -6213,7 +6212,8 @@ def _requires_component_name(validator: Any) -> str | None:
     except ValueError:
         comp = None
     if isinstance(comp, str) and comp:
-        return comp
+        # ``str()`` canonicalizes ``Platform`` StrEnum members.
+        return str(comp)
     return None
 
 
@@ -6221,8 +6221,7 @@ def _requires_component_gate(validator: Any) -> str | None:
     """
     Component name from a ``cv.requires_component`` validator chain, else None.
 
-    Peels ``vol.All`` wrappers; the first non-chip gate in chain order
-    wins (chip gating belongs to ``supported_platforms``).
+    Peels ``vol.All`` wrappers; the first non-chip gate in chain order wins.
     """
     comp = _requires_component_name(validator)
     if comp is not None and comp not in _target_platform_names():
@@ -6234,14 +6233,16 @@ def _requires_component_gate(validator: Any) -> str | None:
     return None
 
 
-def _only_with_names(key: Any) -> list[Any] | None:
-    """Required-component names of a ``cv.OnlyWith`` key marker, else None."""
+def _only_with_names(key: Any) -> list[str] | None:
+    """Canonical required-component names of a ``cv.OnlyWith`` key marker, else None."""
     if type(key).__name__ != "OnlyWith":
         return None
     if getattr(type(key), "__module__", "") != "esphome.config_validation":
         return None
     component = getattr(key, "_component", None)
-    return component if isinstance(component, list) else [component]
+    names = component if isinstance(component, list) else [component]
+    # ``str()`` canonicalizes ``Platform`` StrEnum members.
+    return [str(name) for name in names if isinstance(name, str) and name]
 
 
 def _only_with_gate(key: Any) -> str | None:
@@ -6255,10 +6256,7 @@ def _only_with_gate(key: Any) -> str | None:
     if names is None:
         return None
     chips = _target_platform_names()
-    for name in names:
-        if isinstance(name, str) and name and name not in chips:
-            return name
-    return None
+    return next((name for name in names if name not in chips), None)
 
 
 def _only_with_platforms(key: Any) -> frozenset[str] | None:
@@ -6267,9 +6265,7 @@ def _only_with_platforms(key: Any) -> frozenset[str] | None:
     if names is None:
         return None
     chips = _target_platform_names()
-    # ``str()`` canonicalizes ``Platform`` StrEnum members.
-    found = frozenset(str(name) for name in names if isinstance(name, str) and name in chips)
-    return found or None
+    return frozenset(name for name in names if name in chips) or None
 
 
 def _collect_component_gates(manifest: Any) -> dict[tuple[str, ...], str]:
@@ -7479,9 +7475,8 @@ def _leaf_platform_set(node: Any) -> frozenset[str] | None:
     Platform constraint of a single validator closure, else None.
 
     ``cv.only_on`` carries its list in the ``platforms`` nonlocal;
-    ``cv.requires_component(<chip>)`` is chip gating in component
-    clothing — requiring a target-platform component equals
-    restricting the field to that platform.
+    requiring a target-platform component (``cv.requires_component``
+    with a chip name) equals restricting the field to that platform.
     """
     if not (callable(node) and getattr(node, "__closure__", None)):
         return None
@@ -7498,7 +7493,7 @@ def _leaf_platform_set(node: Any) -> frozenset[str] | None:
             return frozenset(names)
     comp = _requires_component_name(node)
     if comp is not None and comp in _target_platform_names():
-        return frozenset({str(comp)})
+        return frozenset({comp})
     return None
 
 
@@ -7544,27 +7539,28 @@ def _platform_set(node: Any) -> frozenset[str] | None:
         ]
         if not constrained:
             return None
-        result = frozenset.intersection(*constrained)
-        if not result:
-            # Disjoint ``cv.only_on`` gates in the same ``vol.All``
-            # chain (e.g. ``All(only_on_esp32, only_on_esp8266)``)
-            # would intersect to the empty set — a field that
-            # accepts no platform. That's an upstream schema bug;
-            # we can't represent "no platforms" in the wire format
-            # (``[]`` already means "no restriction"). Log so the
-            # bug surfaces in the next sync run, then fall through
-            # to ``return result or None`` below so the empty set
-            # doesn't get silently serialised as ``[]`` and the
-            # field stays visible — the compile-time validator will
-            # catch the actual incompatibility.
-            _LOGGER.warning(
-                "platform constraint intersection collapsed to empty "
-                "(disjoint cv.only_on gates in vol.All chain): %r",
-                constrained,
-            )
-        return result or None
+        return _intersect_platform_sets(constrained, "disjoint cv.only_on gates in vol.All chain")
 
     return None
+
+
+def _intersect_platform_sets(sets: Sequence[frozenset[str]], context: str) -> frozenset[str] | None:
+    """
+    Intersect conjunctive platform constraints; an empty result warns and yields None.
+
+    The wire format can't express "no platforms" (``[]`` means
+    unrestricted), so a disjoint intersection — an upstream schema bug —
+    logs and leaves the field unconstrained for the compile-time
+    validator to catch.
+    """
+    result = frozenset.intersection(*sets)
+    if not result:
+        _LOGGER.warning(
+            "platform constraint intersection collapsed to empty (%s): %r",
+            context,
+            [sorted(s) for s in sets],
+        )
+    return result or None
 
 
 def _collect_platform_constraints(
@@ -7597,15 +7593,9 @@ def _collect_platform_constraints(
         if value_set and key_set:
             # A chip-keyed ``cv.OnlyWith`` and a value-side ``cv.only_on``
             # on the same field are conjunctive.
-            constraint = value_set & key_set
-            if not constraint:
-                _LOGGER.warning(
-                    "platform constraint intersection collapsed to empty "
-                    "(cv.OnlyWith chips disjoint from value gate) at %r: %r vs %r",
-                    path,
-                    sorted(key_set),
-                    sorted(value_set),
-                )
+            constraint = _intersect_platform_sets(
+                (value_set, key_set), f"cv.OnlyWith chips vs value gate at {path!r}"
+            )
         else:
             constraint = value_set or key_set
         if constraint:
