@@ -439,16 +439,27 @@ async def _pump_output_until_exit(
     """
     assert proc.stdout is not None  # type narrowing
     reader = asyncio.get_running_loop().create_task(consume_lines(proc.stdout, on_line))
+    warned_wedged = False
     try:
         while True:
             done, _pending = await asyncio.wait({reader}, timeout=_EXIT_POLL_SECONDS)
             if done:
                 await reader
                 return await proc.wait()
-            if proc.returncode is not None and job_id in cancel_requested:
+            if proc.returncode is None:
+                continue
+            if job_id in cancel_requested:
                 await asyncio.wait({reader}, timeout=_CANCELLED_PIPE_DRAIN_SECONDS)
-                await drain_tasks((reader,))
+                await drain_tasks((reader,), log_exceptions=True)
                 return proc.returncode
+            if not warned_wedged:
+                warned_wedged = True
+                _LOGGER.warning(
+                    "Job %s: process exited (%s) but a descendant still holds "
+                    "the output pipe — waiting for EOF",
+                    job_id,
+                    proc.returncode,
+                )
     finally:
         # Sync only, so a propagating CancelledError is never swallowed
         # or stalled; the loop finishes cancelling the reader on its own.

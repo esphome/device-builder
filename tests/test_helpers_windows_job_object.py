@@ -92,6 +92,12 @@ def fake_win32(monkeypatch: pytest.MonkeyPatch) -> _FakeWin32:
     return fake
 
 
+def test_create_for_pid_none_without_bindings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No pywin32 (POSIX) → no job object; the caller's taskkill fallback owns the kill."""
+    monkeypatch.setattr(wjo_module, "win32job", None)
+    assert WindowsJobObject.create_for_pid(4242) is None
+
+
 def test_create_for_pid_happy_path(fake_win32: _FakeWin32) -> None:
     """Create → kill-on-close limit → open pid → assign → close the process handle."""
     job = WindowsJobObject.create_for_pid(4242)
@@ -165,3 +171,20 @@ def test_close_is_idempotent(fake_win32: _FakeWin32) -> None:
     job.close()
     job.close()
     assert fake_win32.job.close_calls == 1
+
+
+def test_close_failure_is_logged_not_raised(
+    fake_win32: _FakeWin32, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failing CloseHandle warns (possible leaked tree) and still marks the wrapper closed."""
+
+    class _RefusingHandle(_FakeHandle):
+        def Close(self) -> None:  # noqa: N802
+            super().Close()
+            raise _Win32Error(6, "CloseHandle", "invalid handle")
+
+    job = WindowsJobObject(_RefusingHandle("job"))
+    with caplog.at_level("WARNING"):
+        job.close()
+    assert any("Closing job object failed" in rec.getMessage() for rec in caplog.records)
+    assert job.terminate() is False

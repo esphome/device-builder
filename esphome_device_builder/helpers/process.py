@@ -27,8 +27,8 @@ module:
 
 The orchestration helper ``terminate_subtree_with_grace`` ties those
 together: SIGTERM the group → wait the grace window → SIGKILL the
-group on POSIX; ``TerminateJobObject`` → ``taskkill`` → single-shot
-kill on Windows. That's the shape
+group on POSIX; ``taskkill`` sweep → ``TerminateJobObject`` →
+single-shot kill on Windows. That's the shape
 ``FirmwareController._terminate_job_process`` needs.
 
 POSIX vs Windows asymmetry is deliberate: the POSIX path has a
@@ -167,11 +167,11 @@ async def terminate_subtree_with_grace(
     group exists to signal — without that, only the direct child
     receives the signal and the compiler grandchildren orphan.
 
-    Windows: ``TerminateJobObject`` on *win_job* when the spawn site
-    assigned one — the only primitive that atomically kills the whole
-    tree. Fall back to ``taskkill /F /T``, then ``proc.kill()`` so the
-    direct child at least dies. There's no graceful stage on Windows
-    because the compile chain ignores polite signals.
+    Windows: ``taskkill /F /T`` sweeps the PID tree first, then
+    ``TerminateJobObject`` on *win_job* atomically kills every job
+    member, then ``proc.kill()`` so the direct child at least dies.
+    There's no graceful stage on Windows because the compile chain
+    ignores polite signals.
 
     No-op when *proc* has already exited. *job_label* is used in
     the warning log if the SIGTERM grace window expires (POSIX only).
@@ -179,9 +179,13 @@ async def terminate_subtree_with_grace(
     if proc.returncode is not None:
         return
     if sys.platform == "win32":
-        if win_job is not None and win_job.terminate():
-            return
-        if not await _terminate_subtree_windows(proc.pid):
+        # Sweep before the job kill: a child spawned between
+        # CreateProcess and the job assignment is in no job, and the
+        # PID-tree walk can only reach it while the tracked parent is
+        # still alive to walk from.
+        swept = await _terminate_subtree_windows(proc.pid)
+        job_killed = win_job is not None and win_job.terminate()
+        if not swept and not job_killed:
             kill_quietly(proc)
         return
     if not _signal_process_group(proc.pid, signal.SIGTERM):

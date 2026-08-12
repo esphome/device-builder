@@ -63,7 +63,7 @@ import asyncio
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -752,6 +752,118 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
             raise RuntimeError(msg)
 
     assert job.job_id not in controller.state.processes
+
+
+class _FakeJobObject:
+    """``WindowsJobObject`` stand-in recording ``close()`` calls."""
+
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def _force_job_object(monkeypatch: pytest.MonkeyPatch, job_obj: _FakeJobObject | None) -> None:
+    """Route the spawn's win32 gate to a stubbed ``create_for_pid`` on any platform."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    stub = MagicMock()
+    stub.create_for_pid.return_value = job_obj
+    monkeypatch.setattr(runner_module, "WindowsJobObject", stub)
+
+
+async def test_tracked_subprocess_registers_and_closes_job_object(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The job-object registry mirrors ``processes``: held for the run, closed on exit."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    job = _make_job("j1")
+    fake = _FakeJobObject()
+    _force_job_object(monkeypatch, fake)
+
+    async with controller._tracked_subprocess(
+        job,
+        sys.executable,
+        "-c",
+        "import sys\nsys.exit(0)\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert controller.state.job_objects[job.job_id] is fake
+        await proc.wait()
+
+    assert job.job_id not in controller.state.job_objects
+    assert fake.close_calls == 1
+
+
+async def test_tracked_subprocess_restores_prior_job_object(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A nested spawn restores the outer registration and closes only its own object."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    job = _make_job("j1")
+    outer = _FakeJobObject()
+    inner = _FakeJobObject()
+    controller.state.job_objects[job.job_id] = outer  # type: ignore[assignment]
+    _force_job_object(monkeypatch, inner)
+
+    async with controller._tracked_subprocess(
+        job,
+        sys.executable,
+        "-c",
+        "import sys\nsys.exit(0)\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert controller.state.job_objects[job.job_id] is inner
+        await proc.wait()
+
+    assert controller.state.job_objects[job.job_id] is outer
+    assert inner.close_calls == 1
+    assert outer.close_calls == 0
+
+
+async def test_tracked_subprocess_pops_stale_job_object_when_creation_fails(
+    firmware_controller_factory: FirmwareControllerFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No job object for this spawn drops a stale entry so cancel can't kill the wrong tree."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    job = _make_job("j1")
+    outer = _FakeJobObject()
+    controller.state.job_objects[job.job_id] = outer  # type: ignore[assignment]
+    _force_job_object(monkeypatch, None)
+
+    async with controller._tracked_subprocess(
+        job,
+        sys.executable,
+        "-c",
+        "import sys\nsys.exit(0)\n",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    ) as proc:
+        assert job.job_id not in controller.state.job_objects
+        await proc.wait()
+
+    assert controller.state.job_objects[job.job_id] is outer
+    assert outer.close_calls == 0
+
+
+async def test_release_lane_slot_closes_job_object(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """Finalising a job closes a job-object registration left behind by its run."""
+    job = _make_job("j1")
+    controller = firmware_controller_factory(job, with_settings=False, with_terminate=True)
+    fake = _FakeJobObject()
+    controller.state.job_objects[job.job_id] = fake  # type: ignore[assignment]
+
+    controller._finalize_terminal(job, JobStatus.FAILED)
+
+    assert job.job_id not in controller.state.job_objects
+    assert fake.close_calls == 1
 
 
 async def test_tracked_subprocess_gets_devnull_stdin(

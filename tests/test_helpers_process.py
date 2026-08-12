@@ -256,59 +256,98 @@ class _FakeWinJob:
         return self.terminate_result
 
 
+@dataclass
+class _FakeTaskkill:
+    """Recorder + tunable verdict for the patched ``_terminate_subtree_windows``."""
+
+    calls: list[int] = field(default_factory=list)
+    return_value: bool = True
+
+
 @pytest.fixture
-def fake_taskkill(monkeypatch: pytest.MonkeyPatch) -> list[int]:
-    """Patch ``_terminate_subtree_windows`` (returns False) with a pid recorder."""
-    calls: list[int] = []
+def fake_taskkill(monkeypatch: pytest.MonkeyPatch) -> _FakeTaskkill:
+    """Patch ``_terminate_subtree_windows`` with a recorder; return the handle."""
+    fake = _FakeTaskkill()
 
     async def _impl(pid: int) -> bool:
-        calls.append(pid)
-        return False
+        fake.calls.append(pid)
+        return fake.return_value
 
     monkeypatch.setattr(
         "esphome_device_builder.helpers.process._terminate_subtree_windows",
         _impl,
     )
-    return calls
+    return fake
 
 
 @windows_only
-async def test_terminate_subtree_with_grace_job_object_short_circuits(
+async def test_terminate_subtree_with_grace_sweeps_before_job_object(
     fake_proc: _FakeProc,
-    fake_taskkill: list[int],
+    fake_taskkill: _FakeTaskkill,
 ) -> None:
-    """Windows: a successful ``TerminateJobObject`` skips taskkill and ``proc.kill()``."""
+    """Windows: taskkill sweeps the live tree first, then the job object fires — no ``proc.kill()``.
+
+    Ordering is load-bearing: a child spawned before the job assignment
+    is only reachable by the PID walk while the tracked parent is alive.
+    """
+    win_job = _FakeWinJob()
+
+    await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]
+
+    assert fake_taskkill.calls == [fake_proc.pid]
+    assert win_job.terminate_calls == 1
+    assert fake_proc.kill_calls == 0
+
+
+@windows_only
+async def test_terminate_subtree_with_grace_job_object_covers_failed_sweep(
+    fake_proc: _FakeProc,
+    fake_taskkill: _FakeTaskkill,
+) -> None:
+    """Windows: taskkill failing still ends with the job-object kill, no ``proc.kill()``."""
+    fake_taskkill.return_value = False
     win_job = _FakeWinJob()
 
     await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]
 
     assert win_job.terminate_calls == 1
-    assert fake_taskkill == []
     assert fake_proc.kill_calls == 0
 
 
 @windows_only
-async def test_terminate_subtree_with_grace_job_object_failure_falls_through(
+async def test_terminate_subtree_with_grace_sweep_covers_failed_job_object(
     fake_proc: _FakeProc,
-    fake_taskkill: list[int],
+    fake_taskkill: _FakeTaskkill,
 ) -> None:
-    """Windows: job-object kill failing falls to taskkill, then ``proc.kill()``."""
+    """Windows: a successful sweep suffices when the job-object kill fails."""
     win_job = _FakeWinJob(terminate_result=False)
 
     await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]
 
-    assert win_job.terminate_calls == 1
-    assert fake_taskkill == [fake_proc.pid]
+    assert fake_proc.kill_calls == 0
+
+
+@windows_only
+async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_when_both_fail(
+    fake_proc: _FakeProc,
+    fake_taskkill: _FakeTaskkill,
+) -> None:
+    """Windows: sweep and job-object kill both failing degrades to ``proc.kill()``."""
+    fake_taskkill.return_value = False
+    win_job = _FakeWinJob(terminate_result=False)
+
+    await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]
+
     assert fake_proc.kill_calls == 1
 
 
 @windows_only
 async def test_terminate_subtree_with_grace_without_job_object_uses_taskkill(
     fake_proc: _FakeProc,
-    fake_taskkill: list[int],
+    fake_taskkill: _FakeTaskkill,
 ) -> None:
-    """Windows: no job object preserves the taskkill-first chain."""
+    """Windows: no job object — a successful taskkill sweep alone suffices."""
     await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
 
-    assert fake_taskkill == [fake_proc.pid]
-    assert fake_proc.kill_calls == 1
+    assert fake_taskkill.calls == [fake_proc.pid]
+    assert fake_proc.kill_calls == 0

@@ -74,4 +74,7 @@ class WindowsJobObject:
         if self._handle is None:
             return
         handle, self._handle = self._handle, None
-        handle.Close()
+        try:
+            handle.Close()
+        except pywintypes.error as err:
+            _LOGGER.warning("Closing job object failed (tree may leak): %s", err)
