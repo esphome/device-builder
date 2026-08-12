@@ -1,9 +1,6 @@
-"""Win32 job-object wrapper — the Windows process-tree kill primitive.
+"""Kill-on-close Win32 job objects — the Windows process-tree kill primitive.
 
-A kill-on-close job object is the Windows equivalent of the POSIX
-process group: ``TerminateJobObject`` takes down the whole spawned
-tree, and closing the handle reaps survivors. Importable on every
-platform; the pywin32 bindings exist only on Windows.
+Importable on every platform; the pywin32 bindings exist only on Windows.
 """
 
 from __future__ import annotations

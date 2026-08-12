@@ -285,11 +285,7 @@ async def test_terminate_subtree_with_grace_sweeps_before_job_object(
     fake_proc: _FakeProc,
     fake_taskkill: _FakeTaskkill,
 ) -> None:
-    """Windows: taskkill sweeps the live tree first, then the job object fires — no ``proc.kill()``.
-
-    Ordering is load-bearing: a child spawned before the job assignment
-    is only reachable by the PID walk while the tracked parent is alive.
-    """
+    """Windows: taskkill sweeps the live tree first, then the job object — no ``proc.kill()``."""
     win_job = _FakeWinJob()
 
     await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]

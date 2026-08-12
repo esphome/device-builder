@@ -49,15 +49,28 @@ def controller(
 @windows_only
 async def test_terminate_kills_grandchild_via_job_object(
     controller: FirmwareController,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The job object takes down a grandchild the parent-only kill would orphan."""
+    """The job object alone takes down a grandchild when the taskkill sweep fails.
+
+    The spawned parent blocks on stdin until the job assignment has
+    landed, so the grandchild is deterministically a job member; the
+    sweep is forced to fail so only ``TerminateJobObject`` can kill.
+    """
+
+    async def _sweep_fails(_pid: int) -> bool:
+        return False
+
+    monkeypatch.setattr(process_module, "_terminate_subtree_windows", _sweep_fails)
     proc = await create_subprocess_exec(
         sys.executable,
         "-c",
         "import subprocess, sys; "
+        "sys.stdin.readline(); "
         "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
         "print(f'GRANDCHILD_PID={child.pid}', flush=True); "
         "child.wait()",
+        stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
@@ -68,6 +81,9 @@ async def test_terminate_kills_grandchild_via_job_object(
     controller.state.job_objects[job.job_id] = win_job
 
     try:
+        assert proc.stdin is not None
+        proc.stdin.write(b"\n")
+        await proc.stdin.drain()
         assert proc.stdout is not None
         line = await asyncio.wait_for(proc.stdout.readline(), timeout=10.0)
         grandchild_pid = int(line.decode().split("=", 1)[1])

@@ -554,11 +554,7 @@ async def test_execute_job_runner_shutdown_kills_subprocess_group(
 async def test_user_cancel_kills_process_tree_and_finalizes_promptly(
     firmware_controller_factory: FirmwareControllerFactory, tmp_path: Path
 ) -> None:
-    """``firmware/cancel`` kills the spawn's pipe-holding child too and finalizes in seconds.
-
-    Runs on every OS in the matrix — the Windows leg is the #2552
-    regression coverage.
-    """
+    """``firmware/cancel`` kills the spawn's pipe-holding child too and finalizes in seconds."""
     controller = firmware_controller_factory(with_queue=True)
     _wire_real_queue(controller)
     _fake_esphome(

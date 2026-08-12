@@ -1,11 +1,4 @@
-"""Tests for ``helpers/windows_job_object.py`` — the Win32 tree-kill primitive.
-
-Cross-platform: the module's pywin32 bindings are monkeypatched with
-recording fakes, so the create → set-limits → assign sequence and every
-failure branch run on any OS in the matrix. Real-kernel coverage lives
-in the windows-only integration test in
-``tests/controllers/firmware/test_stop_windows.py``.
-"""
+"""``WindowsJobObject`` unit tests over recording pywin32 fakes, runnable on any OS."""
 
 from __future__ import annotations
 

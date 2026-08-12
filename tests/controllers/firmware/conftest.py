@@ -28,12 +28,6 @@ import signal
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import suppress
-
-if sys.platform == "win32":
-    import pywintypes
-    import win32api
-    import win32con
-    import win32process
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -62,6 +56,12 @@ from esphome_device_builder.models import (
 )
 
 from ...conftest import running_task, wait_until
+
+if sys.platform == "win32":
+    import pywintypes
+    import win32api
+    import win32con
+    import win32process
 
 
 class EnqueueStep(StrEnum):

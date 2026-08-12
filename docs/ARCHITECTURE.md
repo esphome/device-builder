@@ -222,8 +222,11 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   so cancel signals exactly one job. Cancel kills the whole spawn tree:
   the process group on POSIX (`start_new_session=True` at the spawn), a
   kill-on-close Win32 job object on Windows (the parallel
-  `FirmwareState.job_objects` registry; `TerminateJobObject` first,
-  `taskkill /F /T` then a parent-only kill as fallbacks — #2552). A
+  `FirmwareState.job_objects` registry; a `taskkill /F /T` sweep runs
+  first while the tracked parent is alive to walk the PID tree from —
+  a child spawned before the job assignment is in no job — then
+  `TerminateJobObject`, then a parent-only kill when both fail —
+  #2552). A
   cancelled job's finalisation doesn't wait for stdout-pipe EOF: a
   kill survivor inherits the write handle (`close_fds=False`), so the
   runner's output pump abandons the pipe after a short drain window

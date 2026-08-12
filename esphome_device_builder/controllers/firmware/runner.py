@@ -360,8 +360,9 @@ async def tracked_subprocess(
     # traceback in the streamed job output instead.
     kwargs.setdefault("stdin", asyncio.subprocess.DEVNULL)
     proc = await create_subprocess_exec(*args, **kwargs)
-    # Windows tree-kill primitive; assigned on the same event-loop
-    # tick as the spawn, before the child can start children.
+    # Windows tree-kill primitive. A child started before this
+    # assignment lands is outside the job; the terminate path's
+    # taskkill sweep covers that window.
     job_obj = WindowsJobObject.create_for_pid(proc.pid) if sys.platform == "win32" else None
     processes = controller.state.processes
     job_objects = controller.state.job_objects

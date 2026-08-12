@@ -174,10 +174,10 @@ async def terminate_job_process(controller: FirmwareController, job: FirmwareJob
 
     Walks the whole process group via
     :func:`terminate_subtree_with_grace` so SIGTERM reaches
-    esphome → platformio → gcc / esptool on POSIX, the job object
-    (``taskkill /F /T`` fallback) on Windows. The runner loop is what
-    actually finalises the job on exit — this helper only nudges the
-    process. Job-scoped so cancelling an upload never signals a
+    esphome → platformio → gcc / esptool on POSIX; Windows runs the
+    ``taskkill /F /T`` sweep then the job object. The runner loop is
+    what actually finalises the job on exit — this helper only nudges
+    the process. Job-scoped so cancelling an upload never signals a
     concurrent compile.
     """
     proc = controller.state.processes.get(job.job_id)

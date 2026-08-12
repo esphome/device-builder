@@ -1,11 +1,4 @@
-"""``_pump_output_until_exit``: a cancelled job's exit isn't gated on pipe EOF.
-
-The compile chain runs with ``close_fds=False`` end to end, so any
-descendant that survives a cancel kill holds the inherited stdout write
-handle and the pipe never EOFs. These tests run on every OS in the
-matrix — the surviving-grandchild shape reproduces on POSIX too by
-skipping the kill entirely.
-"""
+"""``_pump_output_until_exit`` exit and drain semantics when a descendant holds the pipe."""
 
 from __future__ import annotations
 
