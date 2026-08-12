@@ -725,6 +725,29 @@ async def test_tracked_subprocess_restores_prior_value_on_exception(
     assert job.job_id not in controller.state.spawns
 
 
+async def test_tracked_subprocess_terminates_spawn_on_cancellation(
+    firmware_controller_factory: FirmwareControllerFactory,
+) -> None:
+    """A cancellation unwinding the body terminates the spawn and still propagates."""
+    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
+    job = _make_job("j1")
+
+    with pytest.raises(asyncio.CancelledError):
+        async with controller._tracked_subprocess(
+            job,
+            sys.executable,
+            "-c",
+            "import sys\nsys.exit(0)\n",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        ) as proc:
+            await proc.wait()
+            raise asyncio.CancelledError
+
+    controller._terminate_job_process.assert_awaited_once_with(job)
+    assert job.job_id not in controller.state.spawns
+
+
 class _FakeJobObject:
     """``WindowsJobObject`` stand-in recording ``close()`` calls."""
 
