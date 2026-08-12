@@ -23,13 +23,17 @@ silently absorbing into a stub.
 from __future__ import annotations
 
 import asyncio
-import ctypes
 import os
 import signal
 import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
+
+if sys.platform == "win32":
+    import pywintypes
+    import win32api
+    import win32process
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -45,7 +49,6 @@ from esphome_device_builder.controllers.firmware.download import DownloadTokens
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
-from esphome_device_builder.helpers.windows_job_object import _kernel32
 from esphome_device_builder.models import (
     TERMINAL_JOB_STATUSES,
     DeviceState,
@@ -463,19 +466,14 @@ def pid_alive(pid: int) -> bool:
     if sys.platform == "win32":
         # ``os.kill(pid, 0)`` on Windows is a TerminateProcess, not a
         # probe — query the exit code through a limited-rights handle.
-        k32 = _kernel32()
-        k32.GetExitCodeProcess.restype = ctypes.c_int
-        k32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-        handle = k32.OpenProcess(0x1000, 0, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
-        if not handle:
+        try:
+            handle = win32api.OpenProcess(0x1000, 0, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        except pywintypes.error:
             return False
         try:
-            code = ctypes.c_ulong()
-            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
-                return False
-            return code.value == 259  # STILL_ACTIVE
+            return win32process.GetExitCodeProcess(handle) == 259  # STILL_ACTIVE
         finally:
-            k32.CloseHandle(handle)
+            handle.Close()
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
