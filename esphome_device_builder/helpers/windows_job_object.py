@@ -14,16 +14,14 @@ from typing import Any
 try:
     import pywintypes
     import win32api
+    import win32con
     import win32job
 except ImportError:  # non-Windows
-    pywintypes = win32api = win32job = None
+    pywintypes = win32api = win32con = win32job = None
 
 __all__ = ["WindowsJobObject"]
 
 _LOGGER = logging.getLogger(__name__)
-
-_PROCESS_SET_QUOTA = 0x0100
-_PROCESS_TERMINATE = 0x0001
 
 
 class WindowsJobObject:
@@ -35,6 +33,8 @@ class WindowsJobObject:
     @classmethod
     def create_for_pid(cls, pid: int) -> WindowsJobObject | None:
         """Create a kill-on-close job object and assign *pid*'s tree to it; None on failure."""
+        if win32job is None:
+            return None
         try:
             job = win32job.CreateJobObject(None, "")
             info = win32job.QueryInformationJobObject(
@@ -46,7 +46,9 @@ class WindowsJobObject:
             win32job.SetInformationJobObject(job, win32job.JobObjectExtendedLimitInformation, info)
             # No PID-reuse race here: the asyncio Process keeps its child
             # handle open until reaped, which pins the pid.
-            proc = win32api.OpenProcess(_PROCESS_SET_QUOTA | _PROCESS_TERMINATE, 0, pid)
+            proc = win32api.OpenProcess(
+                win32con.PROCESS_SET_QUOTA | win32con.PROCESS_TERMINATE, 0, pid
+            )
             try:
                 win32job.AssignProcessToJobObject(job, proc)
             finally:

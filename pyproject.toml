@@ -32,9 +32,9 @@ dependencies = [
   "mashumaro>=3.13",
   "orjson>=3.9.0",
   # Win32 job objects — the cancel path's process-tree kill primitive
-  # (``helpers/windows_job_object.py``); maintained bindings instead
-  # of hand-rolled ctypes structs.
-  "pywin32>=308; sys_platform == 'win32'",
+  # (``helpers/windows_job_object.py``). 311 is the first release with
+  # cp314 wheels, the Python the Windows CI leg runs.
+  "pywin32>=311; sys_platform == 'win32'",
   "pyyaml>=6.0",
   # ESPHome already ships ruamel.yaml as a transitive dependency,
   # but the automations editor's parse / upsert path imports it

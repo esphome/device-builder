@@ -26,13 +26,13 @@ import asyncio
 import os
 import signal
 import sys
-import time
 from collections.abc import Callable, Iterator
 from contextlib import suppress
 
 if sys.platform == "win32":
     import pywintypes
     import win32api
+    import win32con
     import win32process
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -61,7 +61,7 @@ from esphome_device_builder.models import (
     StoredPairing,
 )
 
-from ...conftest import running_task
+from ...conftest import running_task, wait_until
 
 
 class EnqueueStep(StrEnum):
@@ -467,11 +467,11 @@ def pid_alive(pid: int) -> bool:
         # ``os.kill(pid, 0)`` on Windows is a TerminateProcess, not a
         # probe — query the exit code through a limited-rights handle.
         try:
-            handle = win32api.OpenProcess(0x1000, 0, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            handle = win32api.OpenProcess(win32con.PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
         except pywintypes.error:
             return False
         try:
-            return win32process.GetExitCodeProcess(handle) == 259  # STILL_ACTIVE
+            return win32process.GetExitCodeProcess(handle) == win32con.STILL_ACTIVE
         finally:
             handle.Close()
     try:
@@ -484,14 +484,9 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
-async def wait_dead(pid: int, timeout: float = 5.0) -> bool:
-    """Poll until *pid* exits or *timeout* elapses; True iff it died."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not pid_alive(pid):
-            return True
-        await asyncio.sleep(0.05)
-    return not pid_alive(pid)
+async def wait_dead(pid: int, timeout: float = 5.0) -> None:
+    """Poll until *pid* exits; pytest-fail naming it on timeout."""
+    await wait_until(lambda: not pid_alive(pid), timeout, f"pid {pid} to exit", interval=0.05)
 
 
 def kill_pid(pid: int) -> None:

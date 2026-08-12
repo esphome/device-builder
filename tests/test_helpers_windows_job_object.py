@@ -11,19 +11,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 from esphome_device_builder.helpers import windows_job_object as wjo_module
-from esphome_device_builder.helpers.windows_job_object import (
-    _PROCESS_SET_QUOTA,
-    _PROCESS_TERMINATE,
-    WindowsJobObject,
-)
-
-_KILL_ON_JOB_CLOSE = 0x2000
-_EXTENDED_INFO_CLASS = 9
+from esphome_device_builder.helpers.windows_job_object import WindowsJobObject
 
 
 class _Win32Error(Exception):
@@ -43,10 +36,14 @@ class _FakeHandle:
 
 @dataclass
 class _FakeWin32:
-    """Recording ``win32job`` + ``win32api`` stand-in with failure toggles."""
+    """Recording ``win32job`` + ``win32api`` + ``win32con`` stand-in with a failure toggle."""
+
+    JobObjectExtendedLimitInformation: ClassVar[int] = 9
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: ClassVar[int] = 0x2000
+    PROCESS_SET_QUOTA: ClassVar[int] = 0x0100
+    PROCESS_TERMINATE: ClassVar[int] = 0x0001
 
     fail_at: str | None = None
-    terminate_error: bool = False
     calls: list[tuple[str, tuple[Any, ...]]] = field(default_factory=list)
     job: _FakeHandle = field(default_factory=lambda: _FakeHandle("job"))
     proc: _FakeHandle = field(default_factory=lambda: _FakeHandle("proc"))
@@ -78,9 +75,7 @@ class _FakeWin32:
         self._record("AssignProcessToJobObject", args)
 
     def TerminateJobObject(self, *args: Any) -> None:  # noqa: N802
-        self.calls.append(("TerminateJobObject", args))
-        if self.terminate_error:
-            raise _Win32Error(6, "TerminateJobObject", "invalid handle")
+        self._record("TerminateJobObject", args)
 
     def names(self) -> list[str]:
         return [name for name, _ in self.calls]
@@ -90,10 +85,9 @@ class _FakeWin32:
 def fake_win32(monkeypatch: pytest.MonkeyPatch) -> _FakeWin32:
     """Patch the module's pywin32 bindings with a recording fake."""
     fake = _FakeWin32()
-    fake.JobObjectExtendedLimitInformation = _EXTENDED_INFO_CLASS  # type: ignore[attr-defined]
-    fake.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = _KILL_ON_JOB_CLOSE  # type: ignore[attr-defined]
     monkeypatch.setattr(wjo_module, "win32job", fake)
     monkeypatch.setattr(wjo_module, "win32api", fake)
+    monkeypatch.setattr(wjo_module, "win32con", fake)
     monkeypatch.setattr(wjo_module, "pywintypes", SimpleNamespace(error=_Win32Error))
     return fake
 
@@ -111,9 +105,18 @@ def test_create_for_pid_happy_path(fake_win32: _FakeWin32) -> None:
         "AssignProcessToJobObject",
     ]
     set_args = fake_win32.calls[2][1]
-    assert set_args == (fake_win32.job, _EXTENDED_INFO_CLASS, fake_win32.info)
-    assert fake_win32.info["BasicLimitInformation"]["LimitFlags"] & _KILL_ON_JOB_CLOSE
-    assert fake_win32.calls[3][1] == (_PROCESS_SET_QUOTA | _PROCESS_TERMINATE, 0, 4242)
+    assert set_args == (
+        fake_win32.job,
+        _FakeWin32.JobObjectExtendedLimitInformation,
+        fake_win32.info,
+    )
+    limit_flags = fake_win32.info["BasicLimitInformation"]["LimitFlags"]
+    assert limit_flags & _FakeWin32.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    assert fake_win32.calls[3][1] == (
+        _FakeWin32.PROCESS_SET_QUOTA | _FakeWin32.PROCESS_TERMINATE,
+        0,
+        4242,
+    )
     assert fake_win32.calls[4][1] == (fake_win32.job, fake_win32.proc)
     # Only the short-lived process handle is released; the job handle stays open.
     assert fake_win32.proc.close_calls == 1
@@ -144,7 +147,7 @@ def test_terminate_maps_kernel_result(fake_win32: _FakeWin32) -> None:
     job = WindowsJobObject(fake_win32.job)
     assert job.terminate() is True
     assert fake_win32.calls[-1] == ("TerminateJobObject", (fake_win32.job, 1))
-    fake_win32.terminate_error = True
+    fake_win32.fail_at = "TerminateJobObject"
     assert job.terminate() is False
 
 

@@ -64,7 +64,7 @@ async def test_terminate_kills_grandchild_via_job_object(
     win_job = WindowsJobObject.create_for_pid(proc.pid)
     assert win_job is not None
     job = MagicMock(job_id="test-job")
-    controller.state.processes[job.job_id] = proc  # type: ignore[assignment]
+    controller.state.processes[job.job_id] = proc
     controller.state.job_objects[job.job_id] = win_job
 
     try:
@@ -76,7 +76,7 @@ async def test_terminate_kills_grandchild_via_job_object(
         await controller._terminate_job_process(job)
 
         await asyncio.wait_for(proc.wait(), timeout=5.0)
-        assert await wait_dead(grandchild_pid), "grandchild survived the kill"
+        await wait_dead(grandchild_pid)
     finally:
         win_job.terminate()
         win_job.close()

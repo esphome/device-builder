@@ -452,8 +452,7 @@ async def _pump_output_until_exit(
     finally:
         # Sync only, so a propagating CancelledError is never swallowed
         # or stalled; the loop finishes cancelling the reader on its own.
-        if not reader.done():
-            reader.cancel()
+        reader.cancel()
 
 
 def _is_compile_start_line(line: str) -> bool:
