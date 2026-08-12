@@ -31,6 +31,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from esphome.const import __version__ as _offloader_esphome_version
@@ -43,7 +44,6 @@ from ...helpers.remote_artifacts_materialise import (
     MaterialiseError,
     materialise_remote_artifacts,
 )
-from ...helpers.subprocess import iter_lines_with_progress
 from ...models import (
     EventType,
     FirmwareJob,
@@ -66,7 +66,12 @@ from ..remote_build.peer_link_client import (
 from . import lifecycle
 from .bundle_phase import run_bundle_phase
 from .constants import ESPHOME_SUBPROCESS_ENV
-from .helpers import _fire_job_progress, _ingest_notice_line, _ingest_output_line
+from .helpers import (
+    _fire_job_progress,
+    _ingest_notice_line,
+    _ingest_output_line,
+    _pump_output_until_exit,
+)
 
 if TYPE_CHECKING:
     from ...helpers.event_bus import Event, EventBus
@@ -830,11 +835,12 @@ async def _run_upload_subprocess(
         if job.job_id in controller.state.cancel_requested:
             await controller._terminate_job_process(job)
 
-        assert proc.stdout is not None  # type narrowing
-        async for line in iter_lines_with_progress(proc.stdout):
-            _ingest_output_line(job, bus, line)
-
-        exit_code = await proc.wait()
+        exit_code = await _pump_output_until_exit(
+            job.job_id,
+            proc,
+            partial(_ingest_output_line, job, bus),
+            controller.state.cancel_requested,
+        )
 
     if lifecycle.cancel_if_requested(controller, job):
         return None

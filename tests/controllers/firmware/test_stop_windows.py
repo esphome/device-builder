@@ -1,10 +1,10 @@
-"""Stop-button cancellation on Windows uses ``taskkill /F /T``.
+"""Stop-button cancellation on Windows: job object first, ``taskkill /F /T`` fallback.
 
 The POSIX path (``test_firmware_stop.py``) relies on process groups
 and ``killpg`` — primitives that don't exist on Windows. This module
 covers the Windows-specific branch in ``_terminate_job_process``:
-``taskkill`` walks the kernel's parent-PID tree and force-kills the
-whole subtree in one shot.
+``TerminateJobObject`` kills the whole tree atomically; ``taskkill``
+walks the kernel's parent-PID tree when no job object was assigned.
 """
 
 from __future__ import annotations
@@ -19,7 +19,12 @@ from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.helpers import process as process_module
 from esphome_device_builder.helpers.process import _terminate_subtree_windows
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
-from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
+from esphome_device_builder.helpers.windows_job_object import WindowsJobObject
+from tests.controllers.firmware.conftest import (
+    BareFirmwareControllerFactory,
+    pid_alive,
+    wait_dead,
+)
 
 # Only the integration test below — which spawns a real subprocess
 # and exercises ``_terminate_job_process``'s Windows branch end
@@ -39,6 +44,45 @@ def controller(
 ) -> FirmwareController:
     """Stand up a FirmwareController shell — only the bits termination touches."""
     return bare_firmware_controller_factory()
+
+
+@windows_only
+async def test_terminate_kills_grandchild_via_job_object(
+    controller: FirmwareController,
+) -> None:
+    """The job object takes down a grandchild the parent-only kill would orphan."""
+    proc = await create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import subprocess, sys; "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)']); "
+        "print(f'GRANDCHILD_PID={child.pid}', flush=True); "
+        "child.wait()",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    win_job = WindowsJobObject.create_for_pid(proc.pid)
+    assert win_job is not None
+    job = MagicMock(job_id="test-job")
+    controller.state.processes[job.job_id] = proc  # type: ignore[assignment]
+    controller.state.job_objects[job.job_id] = win_job
+
+    try:
+        assert proc.stdout is not None
+        line = await asyncio.wait_for(proc.stdout.readline(), timeout=10.0)
+        grandchild_pid = int(line.decode().split("=", 1)[1])
+        assert pid_alive(grandchild_pid)
+
+        await controller._terminate_job_process(job)
+
+        await asyncio.wait_for(proc.wait(), timeout=5.0)
+        assert await wait_dead(grandchild_pid), "grandchild survived the kill"
+    finally:
+        win_job.terminate()
+        win_job.close()
+        if proc.returncode is None:
+            proc.kill()
+            await proc.wait()
 
 
 @windows_only

@@ -242,3 +242,73 @@ async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_on_taskkill_
     await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
 
     assert fake_proc.kill_calls == 1
+
+
+@dataclass
+class _FakeWinJob:
+    """``WindowsJobObject`` stand-in: counted ``terminate()`` with a tunable verdict."""
+
+    terminate_result: bool = True
+    terminate_calls: int = 0
+
+    def terminate(self) -> bool:
+        self.terminate_calls += 1
+        return self.terminate_result
+
+
+@pytest.fixture
+def fake_taskkill(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Patch ``_terminate_subtree_windows`` (returns False) with a pid recorder."""
+    calls: list[int] = []
+
+    async def _impl(pid: int) -> bool:
+        calls.append(pid)
+        return False
+
+    monkeypatch.setattr(
+        "esphome_device_builder.helpers.process._terminate_subtree_windows",
+        _impl,
+    )
+    return calls
+
+
+@windows_only
+async def test_terminate_subtree_with_grace_job_object_short_circuits(
+    fake_proc: _FakeProc,
+    fake_taskkill: list[int],
+) -> None:
+    """Windows: a successful ``TerminateJobObject`` skips taskkill and ``proc.kill()``."""
+    win_job = _FakeWinJob()
+
+    await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]
+
+    assert win_job.terminate_calls == 1
+    assert fake_taskkill == []
+    assert fake_proc.kill_calls == 0
+
+
+@windows_only
+async def test_terminate_subtree_with_grace_job_object_failure_falls_through(
+    fake_proc: _FakeProc,
+    fake_taskkill: list[int],
+) -> None:
+    """Windows: job-object kill failing falls to taskkill, then ``proc.kill()``."""
+    win_job = _FakeWinJob(terminate_result=False)
+
+    await terminate_subtree_with_grace(fake_proc, win_job=win_job)  # type: ignore[arg-type]
+
+    assert win_job.terminate_calls == 1
+    assert fake_taskkill == [fake_proc.pid]
+    assert fake_proc.kill_calls == 1
+
+
+@windows_only
+async def test_terminate_subtree_with_grace_without_job_object_uses_taskkill(
+    fake_proc: _FakeProc,
+    fake_taskkill: list[int],
+) -> None:
+    """Windows: no job object preserves the taskkill-first chain."""
+    await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]
+
+    assert fake_taskkill == [fake_proc.pid]
+    assert fake_proc.kill_calls == 1

@@ -96,6 +96,8 @@ def finalize_unexpected_error(
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:
     """Clear *job*'s lane slot and subprocess registration, if any."""
     controller.state.processes.pop(job.job_id, None)
+    if (job_obj := controller.state.job_objects.pop(job.job_id, None)) is not None:
+        job_obj.close()
     for lane in controller.state.lanes():
         lane.active.pop(job.job_id, None)
 
@@ -172,15 +174,20 @@ async def terminate_job_process(controller: FirmwareController, job: FirmwareJob
 
     Walks the whole process group via
     :func:`terminate_subtree_with_grace` so SIGTERM reaches
-    esphome → platformio → gcc / esptool on POSIX, ``taskkill /F
-    /T`` on Windows. The runner loop is what actually finalises
-    the job on exit — this helper only nudges the process. Job-scoped
-    so cancelling an upload never signals a concurrent compile.
+    esphome → platformio → gcc / esptool on POSIX, the job object
+    (``taskkill /F /T`` fallback) on Windows. The runner loop is what
+    actually finalises the job on exit — this helper only nudges the
+    process. Job-scoped so cancelling an upload never signals a
+    concurrent compile.
     """
     proc = controller.state.processes.get(job.job_id)
     if proc is None:
         return
-    await terminate_subtree_with_grace(proc, job_label=f"job {job.job_id}")
+    await terminate_subtree_with_grace(
+        proc,
+        job_label=f"job {job.job_id}",
+        win_job=controller.state.job_objects.get(job.job_id),
+    )
 
 
 def _defer_install_if_target_offline(controller: FirmwareController, job: FirmwareJob) -> None:

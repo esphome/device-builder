@@ -9,6 +9,7 @@ under ``tests/controllers/firmware/test_helpers.py``.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 import os
@@ -21,7 +22,8 @@ from typing import TYPE_CHECKING
 from esphome.upload_targets import PortType, get_port_type
 
 from ...helpers.api import CommandError
-from ...helpers.subprocess import run_subprocess_capture
+from ...helpers.async_ import drain_tasks
+from ...helpers.subprocess import consume_lines, run_subprocess_capture
 from ...models import (
     OTA_PORT,
     DeviceState,
@@ -50,10 +52,21 @@ from .constants import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ...helpers.event_bus import EventBus
     from .controller import FirmwareController
 
 _LOGGER = logging.getLogger(__name__)
+
+# How often the output pump re-checks the tracked process for a reap
+# the pipe can't signal (asyncio's ``Process.wait`` is EOF-gated).
+_EXIT_POLL_SECONDS = 0.5
+
+# How long a cancelled job's output reader may keep draining after the
+# tracked process exits, before it's abandoned (surviving descendants
+# hold the inherited pipe handle open indefinitely).
+_CANCELLED_PIPE_DRAIN_SECONDS = 1.0
 
 
 def _is_no_module_named_esphome(text: str) -> bool:
@@ -409,6 +422,38 @@ def _ingest_notice_line(job: FirmwareJob, bus: EventBus, text: str) -> None:
     """Ingest a synthetic ``*** text ***`` line, separating it from an unterminated tail."""
     prefix = "\n" if job.output and not job.output[-1].endswith(("\n", "\r")) else ""
     _ingest_output_line(job, bus, f"{prefix}*** {text} ***\n")
+
+
+async def _pump_output_until_exit(
+    job_id: str,
+    proc: asyncio.subprocess.Process,
+    on_line: Callable[[str], None],
+    cancel_requested: set[str],
+) -> int:
+    """
+    Stream *proc*'s stdout to *on_line* and return its exit code.
+
+    A cancel-flagged *job_id* returns at the tracked process's reap
+    after a short drain window, even when a kill survivor holds the
+    pipe open past EOF.
+    """
+    assert proc.stdout is not None  # type narrowing
+    reader = asyncio.get_running_loop().create_task(consume_lines(proc.stdout, on_line))
+    try:
+        while True:
+            done, _pending = await asyncio.wait({reader}, timeout=_EXIT_POLL_SECONDS)
+            if done:
+                await reader
+                return await proc.wait()
+            if proc.returncode is not None and job_id in cancel_requested:
+                await asyncio.wait({reader}, timeout=_CANCELLED_PIPE_DRAIN_SECONDS)
+                await drain_tasks((reader,))
+                return proc.returncode
+    finally:
+        # Sync only, so a propagating CancelledError is never swallowed
+        # or stalled; the loop finishes cancelling the reader on its own.
+        if not reader.done():
+            reader.cancel()
 
 
 def _is_compile_start_line(line: str) -> bool:

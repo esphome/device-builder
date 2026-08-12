@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
+from ...helpers.windows_job_object import WindowsJobObject
 from ...models import FirmwareJob, JobSource, JobStatus, JobType
 from .constants import MAX_CONCURRENT_UPLOADS
 
@@ -130,6 +131,10 @@ class FirmwareState:
     # ``firmware/cancel`` signals. Job-keyed rather than per-lane so an
     # off-lane spawn (the remote-install local flash) is cancellable too.
     processes: dict[str, asyncio.subprocess.Process] = field(default_factory=dict)
+
+    # Win32 job objects for running spawns, keyed by ``job_id`` (empty
+    # on POSIX).
+    job_objects: dict[str, WindowsJobObject] = field(default_factory=dict)
 
     # Active + recent jobs keyed by ``job_id``. ``persistence``
     # reads / writes on every state transition; ``clean``,

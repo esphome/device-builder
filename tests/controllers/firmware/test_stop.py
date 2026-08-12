@@ -13,7 +13,6 @@ and asserting both pids are gone shortly after.
 from __future__ import annotations
 
 import asyncio
-import os
 import signal
 import subprocess
 import sys
@@ -29,7 +28,11 @@ from esphome_device_builder.controllers.firmware import lifecycle as _firmware_l
 from esphome_device_builder.helpers import process as _process_mod
 from esphome_device_builder.helpers.process import _signal_process_group
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
-from tests.controllers.firmware.conftest import BareFirmwareControllerFactory
+from tests.controllers.firmware.conftest import (
+    BareFirmwareControllerFactory,
+    pid_alive,
+    wait_dead,
+)
 
 # Process groups, ``os.fork``, and ``SIGKILL`` are POSIX-only. The
 # whole stop-button cancellation strategy here (``killpg`` against the
@@ -39,29 +42,6 @@ pytestmark = pytest.mark.skipif(
     sys.platform == "win32",
     reason="POSIX process-group / fork / SIGKILL semantics — not applicable on Windows.",
 )
-
-
-def _is_alive(pid: int) -> bool:
-    """Return True if *pid* is still running. Survives EPERM on macOS."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Process exists but we can't signal it — for our test that
-        # only happens if reused as a system pid (negligible odds).
-        return True
-    return True
-
-
-async def _wait_dead(pid: int, timeout: float = 3.0) -> bool:
-    """Poll until *pid* exits or *timeout* elapses."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not _is_alive(pid):
-            return True
-        await asyncio.sleep(0.05)
-    return _is_alive(pid) is False
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +198,8 @@ async def test_terminate_kills_grandchild_via_process_group(
                 grandchild_pid = int(text.split("=", 1)[1])
         assert parent_pid is not None, "child never reported its pid"
         assert grandchild_pid is not None, "grandchild never reported its pid"
-        assert _is_alive(parent_pid)
-        assert _is_alive(grandchild_pid)
+        assert pid_alive(parent_pid)
+        assert pid_alive(grandchild_pid)
 
         # Hit Stop. Both pids must die — SIGTERM is ignored, so the
         # controller's grace window expires and SIGKILL escalates to
@@ -227,8 +207,8 @@ async def test_terminate_kills_grandchild_via_process_group(
         await controller._terminate_job_process(job)
         await proc.wait()
 
-        assert await _wait_dead(parent_pid), f"parent pid {parent_pid} still alive after stop"
-        grandchild_alive = not await _wait_dead(grandchild_pid)
+        assert await wait_dead(parent_pid), f"parent pid {parent_pid} still alive after stop"
+        grandchild_alive = not await wait_dead(grandchild_pid)
         assert not grandchild_alive, (
             f"grandchild pid {grandchild_pid} still alive after stop — "
             "process-group signal didn't reach it"

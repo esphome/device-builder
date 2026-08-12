@@ -23,7 +23,13 @@ silently absorbing into a stub.
 from __future__ import annotations
 
 import asyncio
+import ctypes
+import os
+import signal
+import sys
+import time
 from collections.abc import Callable, Iterator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -39,6 +45,7 @@ from esphome_device_builder.controllers.firmware.download import DownloadTokens
 from esphome_device_builder.helpers.build_scheduler import BuildSchedulerInputs
 from esphome_device_builder.helpers.event_bus import Event, EventBus
 from esphome_device_builder.helpers.version_compat import VersionMatchPolicy
+from esphome_device_builder.helpers.windows_job_object import _kernel32
 from esphome_device_builder.models import (
     TERMINAL_JOB_STATUSES,
     DeviceState,
@@ -449,6 +456,51 @@ def seed_yamls(tmp_path: Path, *names: str) -> None:
     for name in names:
         stem = name.removesuffix(".yaml")
         (tmp_path / name).write_text(f"esphome:\n  name: {stem}\n", encoding="utf-8")
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether *pid* is a live process, on either platform."""
+    if sys.platform == "win32":
+        # ``os.kill(pid, 0)`` on Windows is a TerminateProcess, not a
+        # probe — query the exit code through a limited-rights handle.
+        k32 = _kernel32()
+        k32.GetExitCodeProcess.restype = ctypes.c_int
+        k32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        handle = k32.OpenProcess(0x1000, 0, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return False
+        try:
+            code = ctypes.c_ulong()
+            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Process exists but we can't signal it (macOS EPERM).
+        return True
+    return True
+
+
+async def wait_dead(pid: int, timeout: float = 5.0) -> bool:
+    """Poll until *pid* exits or *timeout* elapses; True iff it died."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not pid_alive(pid):
+            return True
+        await asyncio.sleep(0.05)
+    return not pid_alive(pid)
+
+
+def kill_pid(pid: int) -> None:
+    """Best-effort unconditional kill for test cleanup, on either platform."""
+    sig = signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL
+    with suppress(OSError):
+        os.kill(pid, sig)
 
 
 def attach_device(controller: FirmwareController, configuration: str, state: DeviceState) -> None:

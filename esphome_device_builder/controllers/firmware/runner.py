@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from ...controllers.remote_build.env_provisioner import EnvProvisionError
 from ...helpers.async_ import run_in_executor
-from ...helpers.subprocess import create_subprocess_exec, iter_lines_with_progress
+from ...helpers.subprocess import create_subprocess_exec
+from ...helpers.windows_job_object import WindowsJobObject
 from ...models import (
     FirmwareJob,
     JobFailureReason,
@@ -24,6 +25,7 @@ from .constants import _ERROR_PATTERNS
 from .helpers import (
     _ingest_output_line,
     _is_no_module_named_esphome,
+    _pump_output_until_exit,
 )
 from .remote_runner import run_remote_job
 
@@ -181,35 +183,25 @@ async def execute_job(  # noqa: PLR0915, PLR0912, C901
             if job.job_id in controller.state.cancel_requested:
                 await controller._terminate_job_process(job)
 
-            assert proc.stdout is not None  # type narrowing
-
-            # ``iter_lines_with_progress`` splits on `\n` _or_ `\r`
-            # so carriage-return-based in-place updates (esptool's
-            # `Writing at 0x... (5%)\r`, PlatformIO's progress
-            # bars) survive the pipe instead of getting buffered
-            # until the next newline. Each chunk keeps its
-            # trailing terminator so the frontend can decide
-            # whether to append a new line or overwrite the last
-            # one.
-            async for line in iter_lines_with_progress(proc.stdout):
-                # Shared with the source-routed remote runner
-                # (``remote_runner._on_output``). The helper
-                # buffers + trims + fires ``JOB_OUTPUT`` and
-                # advances ``JOB_PROGRESS`` on a parseable
-                # percentage — same per-line bookkeeping
-                # whether the build's bytes come from this
-                # CPU or a paired receiver. ``_check_error``
-                # stays inline because it mutates the
-                # nonlocal ``has_error_in_output`` /
-                # ``saw_no_esphome_module`` flags the
-                # post-exit handler reads; remote builds
-                # surface a structured ``failed`` status from
-                # the receiver instead, so the stderr scrape
-                # only matters here.
+            # Shared with the source-routed remote runner
+            # (``remote_runner._on_output``). ``_ingest_output_line``
+            # buffers + trims + fires ``JOB_OUTPUT`` and advances
+            # ``JOB_PROGRESS`` on a parseable percentage — same
+            # per-line bookkeeping whether the build's bytes come
+            # from this CPU or a paired receiver. ``_check_error``
+            # stays inline because it mutates the nonlocal
+            # ``has_error_in_output`` / ``saw_no_esphome_module``
+            # flags the post-exit handler reads; remote builds
+            # surface a structured ``failed`` status from the
+            # receiver instead, so the stderr scrape only matters
+            # here.
+            def _on_line(line: str) -> None:
                 _ingest_output_line(job, controller._db.bus, line)
                 _check_error(line)
 
-            exit_code = await proc.wait()
+            exit_code = await _pump_output_until_exit(
+                job.job_id, proc, _on_line, controller.state.cancel_requested
+            )
             job.exit_code = exit_code
 
         # If the user cancelled this job mid-run, the subprocess
@@ -368,9 +360,20 @@ async def tracked_subprocess(
     # traceback in the streamed job output instead.
     kwargs.setdefault("stdin", asyncio.subprocess.DEVNULL)
     proc = await create_subprocess_exec(*args, **kwargs)
+    # Windows tree-kill primitive; assigned on the same event-loop
+    # tick as the spawn, before the child can start children.
+    job_obj = WindowsJobObject.create_for_pid(proc.pid) if sys.platform == "win32" else None
     processes = controller.state.processes
+    job_objects = controller.state.job_objects
     prev = processes.get(job.job_id)
+    prev_job_obj = job_objects.get(job.job_id)
     processes[job.job_id] = proc
+    # Kept in lockstep with ``processes`` — a stale entry would pair a
+    # nested spawn's proc with the outer spawn's kill handle.
+    if job_obj is None:
+        job_objects.pop(job.job_id, None)
+    else:
+        job_objects[job.job_id] = job_obj
     try:
         yield proc
     except asyncio.CancelledError:
@@ -391,3 +394,9 @@ async def tracked_subprocess(
             processes.pop(job.job_id, None)
         else:
             processes[job.job_id] = prev
+        if prev_job_obj is None:
+            job_objects.pop(job.job_id, None)
+        else:
+            job_objects[job.job_id] = prev_job_obj
+        if job_obj is not None:
+            job_obj.close()

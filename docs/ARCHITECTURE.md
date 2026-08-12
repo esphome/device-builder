@@ -219,7 +219,15 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   (peak concurrency is the cap plus one thread flash); each lane spawns
   `Lane.max_concurrency` workers off one FIFO queue, and running
   subprocesses live in the job-keyed `FirmwareState.processes` registry
-  so cancel signals exactly one job. **OpenThread flashes serialize**:
+  so cancel signals exactly one job. Cancel kills the whole spawn tree:
+  the process group on POSIX (`start_new_session=True` at the spawn), a
+  kill-on-close Win32 job object on Windows (the parallel
+  `FirmwareState.job_objects` registry; `TerminateJobObject` first,
+  `taskkill /F /T` then a parent-only kill as fallbacks — #2552). A
+  cancelled job's finalisation doesn't wait for stdout-pipe EOF: a
+  kill survivor inherits the write handle (`close_fds=False`), so the
+  runner's output pump abandons the pipe after a short drain window
+  once the tracked process is reaped. **OpenThread flashes serialize**:
   Thread devices share one mesh / border router, and concurrent OTAs
   over the mesh starve each other, so `lane_for` routes a network flash
   whose device loads `openthread` (per `DevicesController.is_thread_device`,

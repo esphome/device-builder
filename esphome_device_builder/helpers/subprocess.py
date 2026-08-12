@@ -213,6 +213,12 @@ async def iter_lines_with_progress(stream: asyncio.StreamReader) -> AsyncIterato
             yield chunk.decode("utf-8", errors="replace")
 
 
+async def consume_lines(stream: asyncio.StreamReader, on_line: Callable[[str], None]) -> None:
+    """Stream *stream* to *on_line* per chunk, split via :func:`iter_lines_with_progress`."""
+    async for chunk in iter_lines_with_progress(stream):
+        on_line(chunk)
+
+
 async def _consume_stdout(
     stdout: asyncio.StreamReader, on_line: Callable[[str], None] | None, buf: bytearray
 ) -> None:
@@ -226,8 +232,7 @@ async def _consume_stdout(
         while data := await stdout.read(_STREAM_READ_SIZE):
             buf += data
         return
-    async for chunk in iter_lines_with_progress(stdout):
-        on_line(chunk)
+    await consume_lines(stdout, on_line)
 
 
 async def _write_stdin(proc: asyncio.subprocess.Process, data: bytes) -> None:

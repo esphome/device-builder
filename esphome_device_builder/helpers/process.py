@@ -27,9 +27,9 @@ module:
 
 The orchestration helper ``terminate_subtree_with_grace`` ties those
 together: SIGTERM the group → wait the grace window → SIGKILL the
-group on POSIX; ``taskkill`` with a single-shot kill fallback on
-Windows. That's the shape ``FirmwareController._terminate_job_process``
-needs.
+group on POSIX; ``TerminateJobObject`` → ``taskkill`` → single-shot
+kill on Windows. That's the shape
+``FirmwareController._terminate_job_process`` needs.
 
 POSIX vs Windows asymmetry is deliberate: the POSIX path has a
 graceful SIGTERM stage because well-behaved tools (``esptool``,
@@ -46,8 +46,12 @@ import logging
 import os
 import signal
 import sys
+from typing import TYPE_CHECKING
 
 from .subprocess import create_subprocess_exec, kill_quietly
+
+if TYPE_CHECKING:
+    from .windows_job_object import WindowsJobObject
 
 __all__ = [
     "kill_quietly",
@@ -152,6 +156,7 @@ async def terminate_subtree_with_grace(
     *,
     grace_seconds: float = _TERMINATE_GRACE_SECONDS,
     job_label: str = "subprocess",
+    win_job: WindowsJobObject | None = None,
 ) -> None:
     """
     Bring down *proc* and its descendants, gracefully if possible.
@@ -162,12 +167,11 @@ async def terminate_subtree_with_grace(
     group exists to signal — without that, only the direct child
     receives the signal and the compiler grandchildren orphan.
 
-    Windows: ``taskkill /F /T`` to walk the kernel's parent-child
-    accounting and force-kill the subtree. There's no graceful
-    stage on Windows because the compile chain ignores polite
-    signals; if ``taskkill`` is missing or hangs, fall back to
-    ``proc.kill()`` so the direct child at least dies and the
-    runner loop can finalise the job.
+    Windows: ``TerminateJobObject`` on *win_job* when the spawn site
+    assigned one — the only primitive that atomically kills the whole
+    tree. Fall back to ``taskkill /F /T``, then ``proc.kill()`` so the
+    direct child at least dies. There's no graceful stage on Windows
+    because the compile chain ignores polite signals.
 
     No-op when *proc* has already exited. *job_label* is used in
     the warning log if the SIGTERM grace window expires (POSIX only).
@@ -175,6 +179,8 @@ async def terminate_subtree_with_grace(
     if proc.returncode is not None:
         return
     if sys.platform == "win32":
+        if win_job is not None and win_job.terminate():
+            return
         if not await _terminate_subtree_windows(proc.pid):
             kill_quietly(proc)
         return
