@@ -21,11 +21,10 @@ from esphome_device_builder.helpers.process import (
     terminate_subtree_with_grace,
 )
 
-# Platform skipif markers — every signal-group test below is POSIX-only,
-# every taskkill test is Windows-only. Naming them once keeps the per-test
-# decorator a one-liner and the reason string in lockstep across the file.
+# The signal-group tests are POSIX-only; the fully-faked Windows chain
+# tests instead patch ``sys.platform`` (``win32_platform``) so the
+# sweep-before-job-object ordering is pinned on every matrix leg.
 posix_only = pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal-group path")
-windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows taskkill path")
 
 
 @dataclass
@@ -217,10 +216,10 @@ async def test_terminate_subtree_with_grace_returns_when_sigterm_undelivered(
     assert waited is False
 
 
-@windows_only
 async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_on_taskkill_failure(
     monkeypatch: pytest.MonkeyPatch,
     fake_proc: _FakeProc,
+    win32_platform: None,
 ) -> None:
     """Windows: taskkill returning False triggers the ``proc.kill()`` fallback.
 
@@ -280,10 +279,16 @@ def fake_taskkill(monkeypatch: pytest.MonkeyPatch) -> _FakeTaskkill:
     return fake
 
 
-@windows_only
+@pytest.fixture
+def win32_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Route ``terminate_subtree_with_grace`` down its win32 branch on any OS."""
+    monkeypatch.setattr(sys, "platform", "win32")
+
+
 async def test_terminate_subtree_with_grace_sweeps_before_job_object(
     fake_proc: _FakeProc,
     fake_taskkill: _FakeTaskkill,
+    win32_platform: None,
 ) -> None:
     """Windows: taskkill sweeps the live tree first, then the job object — no ``proc.kill()``."""
     win_job = _FakeWinJob()
@@ -295,10 +300,10 @@ async def test_terminate_subtree_with_grace_sweeps_before_job_object(
     assert fake_proc.kill_calls == 0
 
 
-@windows_only
 async def test_terminate_subtree_with_grace_job_object_covers_failed_sweep(
     fake_proc: _FakeProc,
     fake_taskkill: _FakeTaskkill,
+    win32_platform: None,
 ) -> None:
     """Windows: taskkill failing still ends with the job-object kill, no ``proc.kill()``."""
     fake_taskkill.return_value = False
@@ -310,10 +315,10 @@ async def test_terminate_subtree_with_grace_job_object_covers_failed_sweep(
     assert fake_proc.kill_calls == 0
 
 
-@windows_only
 async def test_terminate_subtree_with_grace_sweep_covers_failed_job_object(
     fake_proc: _FakeProc,
     fake_taskkill: _FakeTaskkill,
+    win32_platform: None,
 ) -> None:
     """Windows: a successful sweep suffices when the job-object kill fails."""
     win_job = _FakeWinJob(terminate_result=False)
@@ -323,10 +328,10 @@ async def test_terminate_subtree_with_grace_sweep_covers_failed_job_object(
     assert fake_proc.kill_calls == 0
 
 
-@windows_only
 async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_when_both_fail(
     fake_proc: _FakeProc,
     fake_taskkill: _FakeTaskkill,
+    win32_platform: None,
 ) -> None:
     """Windows: sweep and job-object kill both failing degrades to ``proc.kill()``."""
     fake_taskkill.return_value = False
@@ -337,10 +342,10 @@ async def test_terminate_subtree_with_grace_falls_back_to_proc_kill_when_both_fa
     assert fake_proc.kill_calls == 1
 
 
-@windows_only
 async def test_terminate_subtree_with_grace_without_job_object_uses_taskkill(
     fake_proc: _FakeProc,
     fake_taskkill: _FakeTaskkill,
+    win32_platform: None,
 ) -> None:
     """Windows: no job object — a successful taskkill sweep alone suffices."""
     await terminate_subtree_with_grace(fake_proc)  # type: ignore[arg-type]

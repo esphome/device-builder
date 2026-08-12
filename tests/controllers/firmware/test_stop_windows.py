@@ -1,10 +1,11 @@
-"""Stop-button cancellation on Windows: job object first, ``taskkill /F /T`` fallback.
+"""Stop-button cancellation on Windows: ``taskkill /F /T`` sweep, then the job object.
 
 The POSIX path (``test_firmware_stop.py``) relies on process groups
 and ``killpg`` — primitives that don't exist on Windows. This module
-covers the Windows-specific branch in ``_terminate_job_process``:
-``TerminateJobObject`` kills the whole tree atomically; ``taskkill``
-walks the kernel's parent-PID tree when no job object was assigned.
+covers the Windows-specific branch in ``_terminate_job_process``: the
+sweep walks the kernel's parent-PID tree first (it alone reaches a
+child spawned before the job assignment landed), then
+``TerminateJobObject`` kills every job member atomically.
 """
 
 from __future__ import annotations

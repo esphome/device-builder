@@ -438,7 +438,9 @@ async def _pump_output_until_exit(
     pipe open past EOF.
     """
     assert proc.stdout is not None  # type narrowing
-    reader = asyncio.get_running_loop().create_task(consume_lines(proc.stdout, on_line))
+    reader = asyncio.get_running_loop().create_task(
+        consume_lines(proc.stdout, on_line), name=f"job {job_id} output reader"
+    )
     warned_wedged = False
     try:
         while True:
