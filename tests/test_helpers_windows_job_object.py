@@ -98,6 +98,17 @@ def test_create_for_pid_none_without_bindings(monkeypatch: pytest.MonkeyPatch) -
     assert WindowsJobObject.create_for_pid(4242) is None
 
 
+def test_missing_bindings_on_windows_warn(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A broken pywin32 on a real Windows host degrades loudly, not silently."""
+    monkeypatch.setattr(wjo_module, "win32job", None)
+    monkeypatch.setattr(wjo_module.sys, "platform", "win32")
+    with caplog.at_level("WARNING"):
+        assert WindowsJobObject.create_for_pid(4242) is None
+    assert any("pywin32 is unavailable" in rec.getMessage() for rec in caplog.records)
+
+
 def test_create_for_pid_happy_path(fake_win32: _FakeWin32) -> None:
     """Create → kill-on-close limit → open pid → assign → close the process handle."""
     job = WindowsJobObject.create_for_pid(4242)
@@ -134,9 +145,10 @@ def test_create_for_pid_happy_path(fake_win32: _FakeWin32) -> None:
     ["CreateJobObject", "SetInformationJobObject", "OpenProcess", "AssignProcessToJobObject"],
 )
 def test_create_for_pid_none_on_failure(fake_win32: _FakeWin32, fail_at: str) -> None:
-    """A win32 error at any step logs and returns None instead of raising."""
+    """A win32 error at any step returns None and releases the job handle."""
     fake_win32.fail_at = fail_at
     assert WindowsJobObject.create_for_pid(4242) is None
+    assert fake_win32.job.close_calls == (0 if fail_at == "CreateJobObject" else 1)
 
 
 def test_create_for_pid_assign_failure_still_closes_process_handle(

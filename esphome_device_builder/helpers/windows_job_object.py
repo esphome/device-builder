@@ -9,6 +9,8 @@ platform; the pywin32 bindings exist only on Windows.
 from __future__ import annotations
 
 import logging
+import sys
+from contextlib import suppress
 from typing import Any
 
 try:
@@ -34,7 +36,10 @@ class WindowsJobObject:
     def create_for_pid(cls, pid: int) -> WindowsJobObject | None:
         """Create a kill-on-close job object and assign *pid*'s tree to it; None on failure."""
         if win32job is None:
+            if sys.platform == "win32":
+                _LOGGER.warning("pywin32 is unavailable; cancel falls back to the taskkill sweep")
             return None
+        job = None
         try:
             job = win32job.CreateJobObject(None, "")
             info = win32job.QueryInformationJobObject(
@@ -55,6 +60,9 @@ class WindowsJobObject:
                 proc.Close()
         except pywintypes.error as err:
             _LOGGER.warning("Job-object setup failed for pid %d: %s", pid, err)
+            if job is not None:
+                with suppress(pywintypes.error):
+                    job.Close()
             return None
         return cls(job)
 
