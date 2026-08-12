@@ -3,12 +3,58 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 
 from ...helpers.windows_job_object import WindowsJobObject
 from ...models import FirmwareJob, JobSource, JobStatus, JobType
 from .constants import MAX_CONCURRENT_UPLOADS
+
+
+@dataclass
+class SpawnHandle:
+    """One tracked spawn: the subprocess and its Windows kill handle."""
+
+    proc: asyncio.subprocess.Process
+    win_job: WindowsJobObject | None = None
+
+    @classmethod
+    def track(cls, proc: asyncio.subprocess.Process) -> SpawnHandle:
+        """Wrap *proc*, assigning it to a kill-on-close job object on Windows."""
+        # A child started before the job assignment lands is outside the
+        # job; the terminate path's taskkill sweep covers that window.
+        win_job = WindowsJobObject.create_for_pid(proc.pid) if sys.platform == "win32" else None
+        return cls(proc, win_job)
+
+    def close(self) -> None:
+        """Release the Windows kill handle, if any."""
+        if self.win_job is not None:
+            self.win_job.close()
+
+
+class SpawnRegistry(dict[str, SpawnHandle]):
+    """Job-keyed running spawns — what ``firmware/cancel`` targets."""
+
+    @contextmanager
+    def register(self, job_id: str, spawn: SpawnHandle) -> Iterator[None]:
+        """Hold *spawn* for *job_id*; restore any prior entry and close *spawn* on exit."""
+        prev = self.get(job_id)
+        self[job_id] = spawn
+        try:
+            yield
+        finally:
+            if prev is None:
+                self.pop(job_id, None)
+            else:
+                self[job_id] = prev
+            spawn.close()
+
+    def release(self, job_id: str) -> None:
+        """Drop *job_id*'s entry, closing its kill handle; no-op when absent."""
+        if (spawn := self.pop(job_id, None)) is not None:
+            spawn.close()
 
 
 @dataclass
@@ -127,14 +173,10 @@ class FirmwareState:
     # False routes every flash to the normal upload lane.
     is_thread_configuration: Callable[[str], bool] = field(default=lambda _configuration: False)
 
-    # Subprocesses spawned for running jobs, keyed by ``job_id`` — what
+    # Spawns for running jobs, keyed by ``job_id`` — what
     # ``firmware/cancel`` signals. Job-keyed rather than per-lane so an
     # off-lane spawn (the remote-install local flash) is cancellable too.
-    processes: dict[str, asyncio.subprocess.Process] = field(default_factory=dict)
-
-    # Win32 job objects for running spawns, keyed by ``job_id`` (empty
-    # on POSIX).
-    job_objects: dict[str, WindowsJobObject] = field(default_factory=dict)
+    spawns: SpawnRegistry = field(default_factory=SpawnRegistry)
 
     # Active + recent jobs keyed by ``job_id``. ``persistence``
     # reads / writes on every state transition; ``clean``,

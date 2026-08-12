@@ -25,6 +25,7 @@ import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
 from esphome_device_builder.controllers.firmware import lifecycle as _firmware_lifecycle_mod
+from esphome_device_builder.controllers.firmware._state import SpawnHandle
 from esphome_device_builder.helpers import process as _process_mod
 from esphome_device_builder.helpers.process import _signal_process_group
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
@@ -179,7 +180,7 @@ async def test_terminate_kills_grandchild_via_process_group(
         start_new_session=True,
     )
     job = MagicMock(job_id="test-job")
-    controller.state.processes[job.job_id] = proc  # type: ignore[assignment]
+    controller.state.spawns[job.job_id] = SpawnHandle(proc)
 
     try:
         # Read the two pid lines from stdout so we know what to verify.

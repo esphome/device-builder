@@ -257,7 +257,7 @@ async def test_terminate_job_process_no_op_when_no_process(
 
     The cancel handler always calls ``_terminate_job_process``
     after flipping the status — but the QUEUED-cancel path runs
-    before the runner has spawned anything, so ``state.processes``
+    before the runner has spawned anything, so ``state.spawns``
     has no entry for the job. Pin the early return
     so a regression that fell through to ``terminate_subtree_*``
     against ``None`` would surface as a hard error here.

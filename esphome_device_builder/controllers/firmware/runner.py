@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 from ...controllers.remote_build.env_provisioner import EnvProvisionError
 from ...helpers.async_ import run_in_executor
 from ...helpers.subprocess import create_subprocess_exec
-from ...helpers.windows_job_object import WindowsJobObject
 from ...models import (
     FirmwareJob,
     JobFailureReason,
@@ -21,6 +20,7 @@ from ...models import (
     JobType,
 )
 from . import lifecycle, rename_flow
+from ._state import SpawnHandle
 from .constants import _ERROR_PATTERNS
 from .helpers import (
     _ingest_output_line,
@@ -327,7 +327,7 @@ async def tracked_subprocess(
     Required for every ``create_subprocess_exec`` call in the
     runner path — both the main install/upload spawn in
     ``_execute_job`` and pre-flight probes like
-    ``_verify_chip``. Registering in ``state.processes`` is what
+    ``_verify_chip``. Registering in ``state.spawns`` is what
     lets a concurrent ``firmware/cancel`` actually land SIGTERM
     on the running spawn; a direct ``create_subprocess_exec``
     call without this registration silently regresses the
@@ -360,44 +360,19 @@ async def tracked_subprocess(
     # traceback in the streamed job output instead.
     kwargs.setdefault("stdin", asyncio.subprocess.DEVNULL)
     proc = await create_subprocess_exec(*args, **kwargs)
-    # Windows tree-kill primitive. A child started before this
-    # assignment lands is outside the job; the terminate path's
-    # taskkill sweep covers that window.
-    job_obj = WindowsJobObject.create_for_pid(proc.pid) if sys.platform == "win32" else None
-    processes = controller.state.processes
-    job_objects = controller.state.job_objects
-    prev = processes.get(job.job_id)
-    prev_job_obj = job_objects.get(job.job_id)
-    processes[job.job_id] = proc
-    # Kept in lockstep with ``processes`` — a stale entry would pair a
-    # nested spawn's proc with the outer spawn's kill handle.
-    if job_obj is None:
-        job_objects.pop(job.job_id, None)
-    else:
-        job_objects[job.job_id] = job_obj
-    try:
-        yield proc
-    except asyncio.CancelledError:
-        # Runner-shutdown cancellation: the runner task itself
-        # was cancelled (vs. a user-driven ``firmware/cancel``,
-        # which calls ``_terminate_job_process`` from the
-        # cancel handler directly). Reuse the same group-aware
-        # termination helper here so SIGTERM walks the whole
-        # process group (esphome → platformio → gcc / esptool).
-        # ``proc.terminate()`` would only signal the python
-        # parent — on POSIX with ``start_new_session=True``
-        # that orphans the child tree and the build keeps
-        # running until the children finish on their own.
-        await controller._terminate_job_process(job)
-        raise
-    finally:
-        if prev is None:
-            processes.pop(job.job_id, None)
-        else:
-            processes[job.job_id] = prev
-        if prev_job_obj is None:
-            job_objects.pop(job.job_id, None)
-        else:
-            job_objects[job.job_id] = prev_job_obj
-        if job_obj is not None:
-            job_obj.close()
+    with controller.state.spawns.register(job.job_id, SpawnHandle.track(proc)):
+        try:
+            yield proc
+        except asyncio.CancelledError:
+            # Runner-shutdown cancellation: the runner task itself
+            # was cancelled (vs. a user-driven ``firmware/cancel``,
+            # which calls ``_terminate_job_process`` from the
+            # cancel handler directly). Reuse the same group-aware
+            # termination helper here so SIGTERM walks the whole
+            # process group (esphome → platformio → gcc / esptool).
+            # ``proc.terminate()`` would only signal the python
+            # parent — on POSIX with ``start_new_session=True``
+            # that orphans the child tree and the build keeps
+            # running until the children finish on their own.
+            await controller._terminate_job_process(job)
+            raise

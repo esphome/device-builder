@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController, remote_runner
-from esphome_device_builder.controllers.firmware._state import FirmwareState
+from esphome_device_builder.controllers.firmware._state import FirmwareState, SpawnHandle
 from esphome_device_builder.helpers.event_bus import EventBus
 from esphome_device_builder.models import (
     EventType,
@@ -169,7 +169,7 @@ def test_finalize_terminal_releases_slot_before_listener_fires(
     controller = _make_controller_with_real_bus()
     job = _job()
     controller.state.compile_lane.active[job.job_id] = job
-    controller.state.processes[job.job_id] = MagicMock()
+    controller.state.spawns[job.job_id] = SpawnHandle(MagicMock())
     captured = _capture_snapshot_in_listener(controller, event_type)
 
     controller._finalize_terminal(job, status)
@@ -177,7 +177,7 @@ def test_finalize_terminal_releases_slot_before_listener_fires(
     assert captured == [(True, False, 0)]
     # And the slot stays released after the fire returns.
     assert not controller.state.compile_lane.active
-    assert job.job_id not in controller.state.processes
+    assert job.job_id not in controller.state.spawns
 
 
 def test_finalize_terminal_skips_release_when_job_not_active() -> None:
@@ -243,7 +243,7 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
     controller = _make_controller_with_real_bus()
     job = _job()
     controller.state.compile_lane.active[job.job_id] = job
-    controller.state.processes[job.job_id] = MagicMock()
+    controller.state.spawns[job.job_id] = SpawnHandle(MagicMock())
     captured = _capture_snapshot_in_listener(controller, event_type)
 
     if fn_name == "_finalize_success":
@@ -253,7 +253,7 @@ def test_remote_runner_terminal_helpers_release_slot_before_fire(
 
     assert captured == [(True, False, 0)]
     assert not controller.state.compile_lane.active
-    assert job.job_id not in controller.state.processes
+    assert job.job_id not in controller.state.spawns
     assert job.status is status
     if status is JobStatus.FAILED:
         # ``_fail_locally`` stamps ``job.error`` before

@@ -315,7 +315,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
     - JOB_STARTED fires *before* the subprocess spawn (the runner
       flips the status before it ``await``s ``create_subprocess_exec``).
       Synchronising on it would race the spawn and we'd terminate
-      a process that hasn't been registered in ``state.processes``
+      a process that hasn't been registered in ``state.spawns``
       yet. So we wait for the first JOB_OUTPUT instead — that's
       the earliest signal the subprocess is alive AND the
       registry entry has been written.
@@ -348,7 +348,7 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         captured.append({"type": event_type, "data": data})
         # First JOB_OUTPUT line means the subprocess is up,
         # streaming through ``iter_lines_with_progress``, and
-        # ``state.processes[job_id]`` has been registered.
+        # ``state.spawns[job_id]`` has been registered.
         if event_type == EventType.JOB_OUTPUT:
             proc_alive.set()
         elif event_type == EventType.JOB_CANCELLED:
@@ -364,8 +364,8 @@ async def test_compile_mid_run_cancel_marks_cancelled(
         # up the cancel flag when it loops back to read the next
         # line and sees EOF.
         controller.state.cancel_requested.add(job.job_id)
-        assert job.job_id in controller.state.processes
-        controller.state.processes[job.job_id].terminate()
+        assert job.job_id in controller.state.spawns
+        controller.state.spawns[job.job_id].proc.terminate()
 
         # Wait for the cancel event from the runner's natural
         # post-``proc.wait()`` path, NOT from the context exit's
@@ -400,7 +400,7 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
     surrounding runner loop unwinds.
 
     Sequencing: wait for the first JOB_OUTPUT (proves the subprocess
-    is up *and* registered in ``state.processes``) before
+    is up *and* registered in ``state.spawns``) before
     cancelling, otherwise we'd race the subprocess spawn and either
     leak the process or hit the cancel before the try-block had
     entered.
@@ -439,8 +439,8 @@ async def test_execute_job_runner_shutdown_terminates_and_marks_cancelled(
 
     async with running_task(controller._run_queue()) as runner_task:
         await asyncio.wait_for(proc_alive.wait(), timeout=10.0)
-        assert job.job_id in controller.state.processes
-        proc = controller.state.processes[job.job_id]
+        assert job.job_id in controller.state.spawns
+        proc = controller.state.spawns[job.job_id].proc
 
         # Cancel the runner task itself — this is the shutdown shape,
         # not the user-cancel one. Nothing is added to

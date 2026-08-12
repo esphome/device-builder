@@ -1558,7 +1558,7 @@ def _wire_upload_subprocess(
     runner doesn't reach into the (absent in unit tests)
     devices controller's address cache. The runner's
     ``_tracked_subprocess`` is the real method — it
-    registers the spawn in ``state.processes`` so the
+    registers the spawn in ``state.spawns`` so the
     cancel-during-upload tests can SIGTERM the chain.
     """
     quoted_stdout = repr(stdout)
@@ -1800,7 +1800,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     User Stop during the ``esphome upload`` subprocess finalises as CANCELLED.
 
     The runner's ``_tracked_subprocess`` registers the
-    upload spawn in ``controller.state.processes``, and
+    upload spawn in ``controller.state.spawns``, and
     ``FirmwareController.cancel``'s
     ``_terminate_job_process`` lands SIGTERM on the
     spawned tree. The subprocess exits non-zero (terminated
@@ -1834,9 +1834,9 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     ]
 
     async def _terminate(target: FirmwareJob) -> None:
-        proc = controller.state.processes.get(target.job_id)
-        assert proc is not None  # type narrowing
-        proc.terminate()
+        spawn = controller.state.spawns.get(target.job_id)
+        assert spawn is not None  # type narrowing
+        spawn.proc.terminate()
 
     controller._terminate_job_process = _terminate  # type: ignore[method-assign]
     job = _make_remote_install_job()
@@ -1846,7 +1846,7 @@ async def test_remote_install_cancel_during_local_upload_finalises_as_cancelled(
     _fire_state(controller, job_id=job.job_id, status="completed")
 
     # Wait until the subprocess is up.
-    while job.job_id not in controller.state.processes:
+    while job.job_id not in controller.state.spawns:
         await asyncio.sleep(0.01)
 
     _request_remote_cancel(controller, job)

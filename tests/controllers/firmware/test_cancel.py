@@ -149,7 +149,7 @@ async def test_cancel_queued_does_not_touch_terminate_job_process(
     """The QUEUED branch never reaches the subprocess terminator.
 
     Belt-and-braces: ``_terminate_job_process`` looks up the job in
-    ``state.processes`` and signals it. For a queued job
+    ``state.spawns`` and signals it. For a queued job
     there is no subprocess (no registry entry),
     so calling it here is at best a no-op; at worst a future
     refactor of the terminator that doesn't gracefully handle the

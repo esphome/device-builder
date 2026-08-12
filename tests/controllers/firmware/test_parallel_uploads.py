@@ -146,7 +146,7 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
         await _wait_started(started, *names)
         # JOB_STARTED fires before the spawn; wait for every registration.
         async with asyncio.timeout(10):
-            while not all(job.job_id in controller.state.processes for job in jobs):
+            while not all(job.job_id in controller.state.spawns for job in jobs):
                 await asyncio.sleep(0.01)
 
         await controller.cancel(job_id=jobs[1].job_id)
@@ -157,8 +157,8 @@ async def test_cancel_one_of_three_concurrent_uploads_spares_siblings(
         # Siblings never saw a signal — still parked and RUNNING.
         assert jobs[0].status is JobStatus.RUNNING
         assert jobs[2].status is JobStatus.RUNNING
-        assert controller.state.processes[jobs[0].job_id].returncode is None
-        assert controller.state.processes[jobs[2].job_id].returncode is None
+        assert controller.state.spawns[jobs[0].job_id].proc.returncode is None
+        assert controller.state.spawns[jobs[2].job_id].proc.returncode is None
 
 
 # Each upload sleeps a per-device staggered duration (indexed by the

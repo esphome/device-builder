@@ -348,8 +348,9 @@ against legacy behaviour before assuming the simpler version suffices.
   `FirmwareState.compile_lane` / `upload_lane` / `thread_upload_lane`
   (`controllers/firmware/_state.py`); each lane spawns
   `Lane.max_concurrency` workers off one FIFO queue, jobs occupying a
-  lane sit in `Lane.active` (job-id keyed), and running subprocesses live
-  in the job-keyed `FirmwareState.processes` registry so cancel
+  lane sit in `Lane.active` (job-id keyed), and running spawns live in
+  the job-keyed `FirmwareState.spawns` registry (`SpawnHandle` pairs
+  the subprocess with its Win32 job object) so cancel
   (`terminate_job_process`) signals exactly one job. `lane_for(job)`
   routes a network flash of an OpenThread device to the thread lane
   (Thread devices share one mesh/border router — concurrent OTAs starve

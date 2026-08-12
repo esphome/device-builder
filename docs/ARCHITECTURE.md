@@ -217,16 +217,16 @@ firmware/install {configuration} → QUEUED → RUNNING → output... → COMPLE
   devices went back to sleep, and their updates failed. The upload cap
   bounds the combined memory of concurrent esphome subprocess trees
   (peak concurrency is the cap plus one thread flash); each lane spawns
-  `Lane.max_concurrency` workers off one FIFO queue, and running
-  subprocesses live in the job-keyed `FirmwareState.processes` registry
-  so cancel signals exactly one job. Cancel kills the whole spawn tree:
-  the process group on POSIX (`start_new_session=True` at the spawn), a
-  kill-on-close Win32 job object on Windows (the parallel
-  `FirmwareState.job_objects` registry; a `taskkill /F /T` sweep runs
-  first while the tracked parent is alive to walk the PID tree from —
-  a child spawned before the job assignment is in no job — then
-  `TerminateJobObject`, then a parent-only kill when both fail —
-  #2552). A
+  `Lane.max_concurrency` workers off one FIFO queue, and running spawns
+  live in the job-keyed `FirmwareState.spawns` registry (a
+  `SpawnRegistry` of `SpawnHandle`s pairing each subprocess with its
+  kill-on-close Win32 job object) so cancel signals exactly one job.
+  Cancel kills the whole spawn tree: the process group on POSIX
+  (`start_new_session=True` at the spawn); on Windows a
+  `taskkill /F /T` sweep runs first while the tracked parent is alive
+  to walk the PID tree from — a child spawned before the job
+  assignment is in no job — then `TerminateJobObject`, then a
+  parent-only kill when both fail — #2552. A
   cancelled job's finalisation doesn't wait for stdout-pipe EOF: a
   kill survivor inherits the write handle (`close_fds=False`), so the
   runner's output pump abandons the pipe after a short drain window

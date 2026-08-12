@@ -94,10 +94,8 @@ def finalize_unexpected_error(
 
 
 def _release_lane_slot(controller: FirmwareController, job: FirmwareJob) -> None:
-    """Clear *job*'s lane slot and subprocess registration, if any."""
-    controller.state.processes.pop(job.job_id, None)
-    if (job_obj := controller.state.job_objects.pop(job.job_id, None)) is not None:
-        job_obj.close()
+    """Clear *job*'s lane slot and spawn registration, if any."""
+    controller.state.spawns.release(job.job_id)
     for lane in controller.state.lanes():
         lane.active.pop(job.job_id, None)
 
@@ -180,13 +178,13 @@ async def terminate_job_process(controller: FirmwareController, job: FirmwareJob
     the process. Job-scoped so cancelling an upload never signals a
     concurrent compile.
     """
-    proc = controller.state.processes.get(job.job_id)
-    if proc is None:
+    spawn = controller.state.spawns.get(job.job_id)
+    if spawn is None:
         return
     await terminate_subtree_with_grace(
-        proc,
+        spawn.proc,
         job_label=f"job {job.job_id}",
-        win_job=controller.state.job_objects.get(job.job_id),
+        win_job=spawn.win_job,
     )
 
 

@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from esphome_device_builder.controllers.firmware import FirmwareController
+from esphome_device_builder.controllers.firmware._state import SpawnHandle
 from esphome_device_builder.helpers import process as process_module
 from esphome_device_builder.helpers.process import _terminate_subtree_windows
 from esphome_device_builder.helpers.subprocess import create_subprocess_exec
@@ -77,8 +78,7 @@ async def test_terminate_kills_grandchild_via_job_object(
     win_job = WindowsJobObject.create_for_pid(proc.pid)
     assert win_job is not None
     job = MagicMock(job_id="test-job")
-    controller.state.processes[job.job_id] = proc
-    controller.state.job_objects[job.job_id] = win_job
+    controller.state.spawns[job.job_id] = SpawnHandle(proc, win_job)
 
     try:
         assert proc.stdin is not None
@@ -114,7 +114,7 @@ async def test_terminate_kills_subprocess_via_taskkill(
         stderr=asyncio.subprocess.STDOUT,
     )
     job = MagicMock(job_id="test-job")
-    controller.state.processes[job.job_id] = proc  # type: ignore[assignment]
+    controller.state.spawns[job.job_id] = SpawnHandle(proc)
 
     try:
         await controller._terminate_job_process(job)
