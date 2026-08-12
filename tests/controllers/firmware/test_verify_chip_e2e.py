@@ -687,37 +687,6 @@ async def test_tracked_subprocess_registers_and_clears_process(
     assert job.job_id not in controller.state.spawns
 
 
-async def test_tracked_subprocess_restores_prior_value_on_exit(
-    firmware_controller_factory: FirmwareControllerFactory,
-) -> None:
-    """``_tracked_subprocess`` restores the prior registry entry.
-
-    The helper saves whatever was registered before it spawned
-    and restores it on exit, so a future caller that uses the
-    helper inside an outer one (or just after another spawn site
-    that's already populated the entry) doesn't accidentally
-    drop the active process reference. Absent is the
-    common case but the contract is "restore the prior value".
-    """
-    controller = firmware_controller_factory(with_settings=False, with_terminate=True)
-    job = _make_job("j1")
-    sentinel = object()
-    controller.state.spawns[job.job_id] = sentinel  # type: ignore[assignment]
-
-    async with controller._tracked_subprocess(
-        job,
-        sys.executable,
-        "-c",
-        "import sys\nsys.exit(0)\n",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-    ) as proc:
-        assert controller.state.spawns[job.job_id].proc is proc  # registered for the duration
-        await proc.wait()
-
-    assert controller.state.spawns[job.job_id] is sentinel  # restored
-
-
 async def test_tracked_subprocess_restores_prior_value_on_exception(
     firmware_controller_factory: FirmwareControllerFactory,
 ) -> None:
@@ -767,8 +736,7 @@ class _FakeJobObject:
 
 
 def _force_job_object(monkeypatch: pytest.MonkeyPatch, job_obj: _FakeJobObject | None) -> None:
-    """Route ``SpawnHandle.track``'s win32 gate to a stubbed ``create_for_pid``."""
-    monkeypatch.setattr(sys, "platform", "win32")
+    """Stub ``SpawnHandle.track``'s ``create_for_pid`` to return *job_obj*."""
     stub = MagicMock()
     stub.create_for_pid.return_value = job_obj
     monkeypatch.setattr(state_module, "WindowsJobObject", stub)

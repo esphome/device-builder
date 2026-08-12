@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -25,8 +24,7 @@ class SpawnHandle:
         """Wrap *proc*, assigning it to a kill-on-close job object on Windows."""
         # A child started before the job assignment lands is outside the
         # job; the terminate path's taskkill sweep covers that window.
-        win_job = WindowsJobObject.create_for_pid(proc.pid) if sys.platform == "win32" else None
-        return cls(proc, win_job)
+        return cls(proc, WindowsJobObject.create_for_pid(proc.pid))
 
     def close(self) -> None:
         """Release the Windows kill handle, if any."""
@@ -35,7 +33,11 @@ class SpawnHandle:
 
 
 class SpawnRegistry(dict[str, SpawnHandle]):
-    """Job-keyed running spawns — what ``firmware/cancel`` targets."""
+    """
+    Job-keyed running spawns — what ``firmware/cancel`` targets.
+
+    Mutate through ``register`` / ``release`` so kill handles close.
+    """
 
     @contextmanager
     def register(self, job_id: str, spawn: SpawnHandle) -> Iterator[None]:

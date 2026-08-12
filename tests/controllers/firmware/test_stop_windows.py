@@ -27,9 +27,9 @@ from tests.controllers.firmware.conftest import (
     wait_dead,
 )
 
-# Only the integration test below — which spawns a real subprocess
-# and exercises ``_terminate_job_process``'s Windows branch end
-# to end — needs the Windows-only guard. The unit tests for
+# Only the integration tests below — which spawn real subprocesses
+# and exercise ``_terminate_job_process``'s Windows branch end
+# to end — need the Windows-only guard. The unit tests for
 # ``_terminate_subtree_windows`` patch out ``create_subprocess_exec``
 # entirely, so they're cross-platform-safe and contribute Windows-
 # branch coverage on every OS in the matrix.
