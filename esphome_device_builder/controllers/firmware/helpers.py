@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from esphome.upload_targets import PortType, get_port_type
 
 from ...helpers.api import CommandError
-from ...helpers.async_ import drain_tasks
+from ...helpers.async_ import create_logged_task, drain_tasks
 from ...helpers.subprocess import consume_lines, run_subprocess_capture
 from ...models import (
     OTA_PORT,
@@ -453,6 +453,9 @@ async def _pump_output_until_exit(
             if job_id in cancel_requested:
                 await asyncio.wait({reader}, timeout=_CANCELLED_PIPE_DRAIN_SECONDS)
                 await drain_tasks((reader,), log_exceptions=True)
+                # The abandoned pipe EOFs when the survivor exits; reap
+                # the transport then instead of leaving it to GC.
+                create_logged_task(proc.wait(), name=f"job {job_id} spawn reaper")
                 return proc.returncode
             if not warned_wedged:
                 warned_wedged = True

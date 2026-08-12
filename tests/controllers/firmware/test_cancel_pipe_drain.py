@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from contextlib import suppress
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -119,7 +119,7 @@ async def test_poll_continues_until_process_reaped(
     monkeypatch.setattr(helpers_module, "_EXIT_POLL_SECONDS", 0)
     monkeypatch.setattr(helpers_module, "_CANCELLED_PIPE_DRAIN_SECONDS", 0)
     never_eof = asyncio.StreamReader()
-    proc = MagicMock(stdout=never_eof, returncode=None)
+    proc = MagicMock(stdout=never_eof, returncode=None, wait=AsyncMock(return_value=3))
     task = asyncio.get_running_loop().create_task(
         _pump_output_until_exit("cancel-3", proc, lambda _line: None, {"cancel-3"})
     )
