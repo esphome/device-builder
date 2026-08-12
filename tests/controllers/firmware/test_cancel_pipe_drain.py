@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -44,13 +43,12 @@ async def test_cancelled_job_finalizes_despite_pipe_held_open() -> None:
         for line in lines:
             if line.startswith("GRANDCHILD_PID="):
                 kill_pid(int(line.split("=", 1)[1]))
-        # The grandchild's death EOFs the pipe; drain it and give the
-        # disconnect callbacks a few ticks so the transport closes
-        # inside this loop rather than warning at GC time.
-        assert proc.stdout is not None
-        with suppress(TimeoutError):
-            await asyncio.wait_for(proc.stdout.read(), timeout=5.0)
-        await proc.wait()
+        # The grandchild's death EOFs the pipe; the pump's reaper task
+        # drains it and closes the transport — await it so the close
+        # lands inside this loop rather than warning at GC time.
+        reapers = [t for t in asyncio.all_tasks() if "spawn reaper" in t.get_name()]
+        assert reapers, "the cancel path should have scheduled a spawn reaper"
+        await asyncio.wait_for(asyncio.gather(*reapers), timeout=5.0)
         for _ in range(3):
             await asyncio.sleep(0)
     assert exit_code == 0
@@ -128,6 +126,13 @@ async def test_poll_continues_until_process_reaped(
 
     proc.returncode = 3
     assert await asyncio.wait_for(task, timeout=5.0) == 3
+
+    # Let the scheduled reaper task drain leftovers, see EOF, and
+    # finish before teardown.
+    never_eof.feed_data(b"leftover output the reaper must discard\n")
+    never_eof.feed_eof()
+    reapers = [t for t in asyncio.all_tasks() if "spawn reaper" in t.get_name()]
+    await asyncio.wait_for(asyncio.gather(*reapers), timeout=5.0)
 
 
 async def test_outer_cancellation_propagates_through_drain(

@@ -68,6 +68,8 @@ _EXIT_POLL_SECONDS = 0.5
 # hold the inherited pipe handle open indefinitely).
 _CANCELLED_PIPE_DRAIN_SECONDS = 1.0
 
+_ABANDONED_PIPE_READ_SIZE = 65536
+
 
 def _is_no_module_named_esphome(text: str) -> bool:
     """Return True if *text* names ``esphome`` itself as missing.
@@ -453,9 +455,7 @@ async def _pump_output_until_exit(
             if job_id in cancel_requested:
                 await asyncio.wait({reader}, timeout=_CANCELLED_PIPE_DRAIN_SECONDS)
                 await drain_tasks((reader,), log_exceptions=True)
-                # The abandoned pipe EOFs when the survivor exits; reap
-                # the transport then instead of leaving it to GC.
-                create_logged_task(proc.wait(), name=f"job {job_id} spawn reaper")
+                create_logged_task(_reap_abandoned_spawn(proc), name=f"job {job_id} spawn reaper")
                 return proc.returncode
             if not warned_wedged:
                 warned_wedged = True
@@ -469,6 +469,19 @@ async def _pump_output_until_exit(
         # Sync only, so a propagating CancelledError is never swallowed
         # or stalled; the loop finishes cancelling the reader on its own.
         reader.cancel()
+
+
+async def _reap_abandoned_spawn(proc: asyncio.subprocess.Process) -> None:
+    """
+    Discard *proc*'s abandoned stdout until EOF, then reap the transport.
+
+    Without a consumer the stream buffer fills and pauses the pipe, so
+    EOF is never observed and the transport lives until GC.
+    """
+    assert proc.stdout is not None  # type narrowing
+    while await proc.stdout.read(_ABANDONED_PIPE_READ_SIZE):
+        pass
+    await proc.wait()
 
 
 def _is_compile_start_line(line: str) -> bool:

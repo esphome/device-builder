@@ -119,8 +119,8 @@ async def _terminate_subtree_windows(pid: int) -> bool:
 
     Returns False (and logs a warning) when ``taskkill`` is missing,
     times out, or exits non-zero (access denied, invalid pid, partial
-    failure). The caller should fall back to ``proc.kill()`` so the
-    parent at least dies even when the tree-walk fails.
+    failure); the chain then leans on the job object, with
+    ``proc.kill()`` as the last resort.
     """
     try:
         killer = await create_subprocess_exec(
@@ -143,7 +143,7 @@ async def _terminate_subtree_windows(pid: int) -> bool:
         return False
     if killer.returncode != 0:
         _LOGGER.warning(
-            "taskkill exited %s for pid %d — caller should fall back to proc.kill()",
+            "taskkill exited %s for pid %d — falling through to the job object",
             killer.returncode,
             pid,
         )
