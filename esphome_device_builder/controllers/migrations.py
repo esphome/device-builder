@@ -168,7 +168,9 @@ def _apply_component_block_field(lines: list[str], rule: MigrationRule) -> list[
     # inside a mapping body is a nested list, not a multi_conf item.
     list_form = False
     for idx in range(header + 1, min(end, len(lines))):
-        if in_scalar[idx]:
+        # A scalar open before the column-0 header ends at it, so a masked
+        # line can't precede the block's first content line.
+        if in_scalar[idx]:  # pragma: no cover
             continue
         stripped = lines[idx].strip()
         if not stripped or stripped.startswith("#"):

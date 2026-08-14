@@ -623,6 +623,12 @@ def test_component_block_field_mapping_key_before_nested_automation(generated_ru
     assert "    - lambda: 'x'\n" in new_text
 
 
+def test_component_block_field_leading_comment_does_not_decide_form(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  # items\n\n  - old_key: a\n"
+    assert "  - new_key: a\n" in _respell(text)
+
+
 def test_component_block_field_mapping_scalar_dash_is_not_the_form(generated_rules) -> None:
     generated_rules(_BLOCK_RULE)
     text = "mycomp:\n  lambda: |-\n    - old_key: fake\n  old_key: 1\n"
