@@ -189,11 +189,20 @@ def test_shared_closure_reachable_both_ways_classifies_nested(cv: ModuleType) ->
     assert _collect_rename_keys(_manifest(schema)) == {("service", "action"): False}
 
 
-def test_list_form_component_pair_routes_to_the_canary() -> None:
-    """A multi_conf component's block is a list the block rule can't address."""
-    _classify_rename_pairs("uart", {("old", "new"): True}, list_form=True)
+def test_platform_domain_pair_routes_to_the_canary() -> None:
+    """A platform-domain block's ``- platform:`` items the block rule can't address."""
+    _classify_rename_pairs("sensor", {("old", "new"): True}, platform_domain=True)
     assert set() == _MIGRATION_RULES
-    assert {("uart", "old", "new")} == _UNHANDLED_RENAME_KEYS
+    assert {("sensor", "old", "new")} == _UNHANDLED_RENAME_KEYS
+
+
+def test_multi_conf_component_pair_ships_data_driven() -> None:
+    """The block rule handles the list form, so multi_conf pairs emit as rules."""
+    _classify_rename_pairs("xiaomi_rtcgq02lm", {("esp32_ble_id", "ble_hub_id"): True})
+    assert {
+        ("component_block_field", "xiaomi_rtcgq02lm", "", "", "esp32_ble_id", "ble_hub_id")
+    } == _MIGRATION_RULES
+    assert set() == _UNHANDLED_RENAME_KEYS
 
 
 def test_non_direct_pair_routes_to_the_canary() -> None:
