@@ -3782,7 +3782,9 @@ def _emit_platform_capabilities_index() -> None:
     # ``{title, description, file}`` with a sentinel storage. libretiny (reads
     # the build's firmware.json) and nrf52 (probes built files) are build-dir
     # dependent and stay out of the index — device-builder-helper handles them.
-    sentinel = SimpleNamespace(name="{name}")
+    # firmware_bin_path must be set: since esphome 2026.9 an unset path
+    # means "never built" and get_download_types returns no entries.
+    sentinel = SimpleNamespace(name="{name}", firmware_bin_path="firmware.bin")
     download_types: dict[str, list[dict[str, str]]] = {}
     for component in ("esp32", "esp8266", RP2_CANONICAL_PLATFORM):
         module = importlib.import_module(f"esphome.components.{component}")

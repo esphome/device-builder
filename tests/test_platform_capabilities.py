@@ -67,7 +67,9 @@ def test_index_within_installed_esphome() -> None:
     installed_no_wifi_boards = {
         board for board, info in BOARDS.items() if not info.get("wifi", False)
     }
-    sentinel = SimpleNamespace(name="{name}")
+    # firmware_bin_path must be set: since esphome 2026.9 an unset path
+    # means "never built" and get_download_types returns no entries.
+    sentinel = SimpleNamespace(name="{name}", firmware_bin_path="firmware.bin")
     pairs = [
         (set(caps.esp32_variants), set(VARIANTS)),
         (set(caps.esp32_no_wifi_variants), set(NO_WIFI_VARIANTS)),
