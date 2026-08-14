@@ -22,6 +22,7 @@ from ..helpers.yaml.scan import (
     block_end_index,
     child_block_end,
     find_block_header,
+    is_list_item_line,
     leading_ws,
     top_list_item_starts,
 )
@@ -163,8 +164,18 @@ def _apply_component_block_field(lines: list[str], rule: MigrationRule) -> list[
         return lines
     in_scalar = _block_scalar_mask(lines)
     end = block_end_index(lines, header)
-    items = top_list_item_starts(lines, header, end)
-    if not items:
+    # The block's first content line decides its form; a deeper dash
+    # inside a mapping body is a nested list, not a multi_conf item.
+    list_form = False
+    for idx in range(header + 1, min(end, len(lines))):
+        if in_scalar[idx]:
+            continue
+        stripped = lines[idx].strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        list_form = is_list_item_line(stripped)
+        break
+    if not list_form:
         hit = _respell_body_field(lines, header, 0, rule.old, rule.new, in_scalar)
         if hit is None:
             return lines
@@ -172,6 +183,7 @@ def _apply_component_block_field(lines: list[str], rule: MigrationRule) -> list[
         out[hit[0]] = hit[1]
         return out
     out = list(lines)
+    items = top_list_item_starts(lines, header, end)
     for item_start in items:
         keys = _item_child_keys(lines, item_start, end, in_scalar)
         if any(key == rule.new for _idx, _col, key in keys):

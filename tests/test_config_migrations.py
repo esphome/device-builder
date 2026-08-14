@@ -605,6 +605,15 @@ def test_component_block_field_list_ignores_deeper_decoys(generated_rules) -> No
     assert render_migrations("mycomp:\n  - child:\n      old_key: 1\n") is None
 
 
+def test_component_block_field_mapping_with_nested_list_stays_mapping(generated_rules) -> None:
+    """A dash inside a mapping body is a nested list, not the multi_conf form."""
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  seq:\n    - old_key: nested\n  old_key: 1\n"
+    new_text = _respell(text)
+    assert "  new_key: 1\n" in new_text
+    assert "    - old_key: nested\n" in new_text
+
+
 def test_generated_and_bespoke_rules_share_one_diff(generated_rules) -> None:
     generated_rules(_VOC_RULE)
     text = _LEGACY_API_YAML + "\n" + _SGP4X_YAML
