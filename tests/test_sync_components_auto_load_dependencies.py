@@ -25,7 +25,7 @@ class _FakeLoader:
         return self._platforms.get((domain, name))
 
 
-def _manifest(auto_load: list[str] | None = None, dependencies: list[str] | None = None) -> Any:
+def _manifest(auto_load: Any = None, dependencies: list[str] | None = None) -> Any:
     return SimpleNamespace(auto_load=auto_load or [], dependencies=dependencies or [])
 
 
@@ -109,3 +109,110 @@ def test_real_esphome_climate_ir_lg_gains_remote_transmitter() -> None:
     """The #1991 shape against the installed esphome."""
     pytest.importorskip("esphome")
     assert "remote_transmitter" in _auto_loaded_dependencies("climate", "climate_ir_lg")
+
+
+def _assemble(meta: dict[str, Any], key: str) -> list[str]:
+    full = sc._assemble_dependencies(meta, [], "", key, key)
+    return sc._prune_alternative_platform_deps(full, meta)
+
+
+@pytest.fixture
+def _no_implicit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sc, "_implicit_dependencies", frozenset)
+
+
+def test_multi_platform_closure_deps_are_alternatives(
+    monkeypatch: pytest.MonkeyPatch, _no_implicit: None
+) -> None:
+    """The 2026.8 bluetooth_proxy shape: union arms must not become AND deps."""
+    loader = _FakeLoader(
+        components={
+            "proxy": _manifest(auto_load=["conn"]),
+            "conn": _manifest(auto_load=["tracker_esp32", "tracker_rp2"]),
+            "tracker_esp32": _manifest(dependencies=["esp32"]),
+            "tracker_rp2": _manifest(dependencies=["rp2"]),
+        },
+        platforms={},
+    )
+    _install(monkeypatch, loader)
+    meta = {"dependencies": ["api"]}
+    full = sc._assemble_dependencies(meta, [], "", "proxy", "proxy")
+    assert set(full) == {"api", "esp32", "rp2"}
+    assert sc._prune_alternative_platform_deps(full, meta) == ["api"]
+    assert set(sc._derive_supported_platforms("proxy", full, {})) == {"esp32", "rp2"}
+
+
+def test_single_platform_closure_dep_still_narrows(
+    monkeypatch: pytest.MonkeyPatch, _no_implicit: None
+) -> None:
+    loader = _FakeLoader(
+        components={
+            "leaf": _manifest(auto_load=["tracker"]),
+            "tracker": _manifest(dependencies=["esp32"]),
+        },
+        platforms={},
+    )
+    _install(monkeypatch, loader)
+    assert _assemble({}, "leaf") == ["esp32"]
+
+
+def test_direct_platform_dep_survives_closure_conflict(
+    monkeypatch: pytest.MonkeyPatch, _no_implicit: None
+) -> None:
+    loader = _FakeLoader(
+        components={
+            "leaf": _manifest(auto_load=["backend"]),
+            "backend": _manifest(dependencies=["rp2"]),
+        },
+        platforms={},
+    )
+    _install(monkeypatch, loader)
+    assert _assemble({"dependencies": ["esp32"]}, "leaf") == ["esp32"]
+
+
+def test_rp2_alias_counts_as_one_platform(
+    monkeypatch: pytest.MonkeyPatch, _no_implicit: None
+) -> None:
+    loader = _FakeLoader(
+        components={
+            "leaf": _manifest(auto_load=["backend"]),
+            "backend": _manifest(dependencies=["rp2040"]),
+        },
+        platforms={},
+    )
+    _install(monkeypatch, loader)
+    assert _assemble({"dependencies": ["rp2"]}, "leaf") == ["rp2", "rp2040"]
+
+
+def test_platform_arm_alternatives_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Per-chip AUTO_LOAD arms admit exactly the chips with no foreign platform dep."""
+    esphome_core = pytest.importorskip("esphome.core")
+
+    def _arm(mapping: dict[str, list[str]], default: list[str]) -> Any:
+        def auto_load() -> list[str]:
+            return mapping.get(esphome_core.CORE.target_platform, default)
+
+        return auto_load
+
+    loader = _FakeLoader(
+        components={
+            "proxy": _manifest(
+                auto_load=_arm(
+                    {
+                        "esp32": ["tracker_esp32"],
+                        "bk72xx": ["base"],
+                        "rp2": ["tracker_rp2"],
+                    },
+                    ["tracker_esp32", "tracker_rp2"],
+                )
+            ),
+            "tracker_esp32": _manifest(dependencies=["esp32"]),
+            "tracker_rp2": _manifest(dependencies=["rp2"]),
+            "base": _manifest(),
+        },
+        platforms={},
+    )
+    _install(monkeypatch, loader)
+    deps = ["api", "esp32", "rp2"]
+    assert sc._platform_arm_alternatives("", "proxy", deps) == ["bk72xx", "esp32", "rp2"]
+    assert sc._platform_arm_alternatives("", "proxy", ["api", "esp32"]) is None

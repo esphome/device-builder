@@ -2622,6 +2622,48 @@ def _assemble_dependencies(
     return dependencies
 
 
+def _prune_alternative_platform_deps(dependencies: list[str], meta: dict[str, Any]) -> list[str]:
+    """
+    Drop closure platform deps naming several platforms.
+
+    A callable ``AUTO_LOAD`` resolved without a target platform unions its
+    per-platform arms, so their platform deps are alternatives, not
+    conjunctive requirements; schema-direct platform deps stay. The unpruned
+    list still feeds ``_platform_arm_alternatives`` so the arms count.
+    """
+    platforms = {normalize_platform(dep) for dep in dependencies if dep in _TARGET_PLATFORMS}
+    if len(platforms) <= 1:
+        return dependencies
+    direct = {dep for dep in meta.get("dependencies") or [] if dep in _TARGET_PLATFORMS}
+    return [dep for dep in dependencies if dep not in _TARGET_PLATFORMS or dep in direct]
+
+
+def _platform_arm_alternatives(
+    domain: str, stem_or_key: str, dependencies: list[str]
+) -> list[str] | None:
+    """
+    Supported chips for a component whose deps name several platforms.
+
+    Re-resolves the ``AUTO_LOAD`` closure once per target chip; a chip is
+    supported when its arm's platform deps name no other chip. ``None``
+    when the deps name at most one platform, or no chip qualifies.
+    """
+    named = {normalize_platform(dep) for dep in dependencies if dep in _TARGET_PLATFORMS}
+    if len(named) <= 1:
+        return None
+    admitted = [
+        chip
+        for chip in sorted(_target_platform_names() - {"libretiny"})
+        if {
+            normalize_platform(dep)
+            for dep in _auto_loaded_dependencies(domain, stem_or_key, chip)
+            if dep in _TARGET_PLATFORMS
+        }
+        <= {chip}
+    ]
+    return admitted or None
+
+
 def build_component_entry(
     top_key: str,
     section: dict,
@@ -2714,15 +2756,18 @@ def build_component_entry(
         "category": category,
         "docs_url": _strip_anchor(docs.url or ""),
         "image_url": image_map.get(component_id) or image_map.get(stem) or "",
-        "dependencies": dependencies,
+        "dependencies": _prune_alternative_platform_deps(dependencies, meta),
         "multi_conf": (
             introspection.get("multi_conf", False) or component_id in _LIST_SCHEMA_MULTI_CONF
         ),
         "bus_constraints": bus_constraints,
-        "supported_platforms": _derive_supported_platforms(
-            stem if domain else top_key,
-            dependencies,
-            introspection,
+        "supported_platforms": (
+            _platform_arm_alternatives(domain, stem if domain else top_key, dependencies)
+            or _derive_supported_platforms(
+                stem if domain else top_key,
+                dependencies,
+                introspection,
+            )
         ),
         # Resolved against referenced classes in ``build_catalog``; the
         # raw class→path map is stashed under ``_impl_class_paths`` until then.
@@ -4767,25 +4812,25 @@ _TARGET_PLATFORMS: frozenset[str] = frozenset(
 _NETWORK_TRANSPORTS: frozenset[str] = frozenset({"wifi", "ethernet", "openthread", "host"})
 
 
-def _resolve_auto_load(raw_auto_load: Any) -> list[str]:
+def _resolve_auto_load(raw_auto_load: Any, platform: str | None = None) -> list[str]:
     """
     Resolve a possibly-callable ``AUTO_LOAD`` to a list, else ``[]``.
 
-    A callable is invoked with no target platform set, so platform-gated extras
-    drop out and only the unconditional auto-loads come through; failures (raise
-    or non-list) fall back to ``[]``.
+    A callable is invoked with *platform* as the target platform (default
+    none, so platform-gated extras drop out and only the unconditional
+    auto-loads come through); failures (raise or non-list) fall back to ``[]``.
     """
     if callable(raw_auto_load):
         try:
             from esphome.const import KEY_CORE, KEY_TARGET_PLATFORM
             from esphome.core import CORE
 
-            # Force (not setdefault) the platform-agnostic state for the call,
-            # then restore so resolution can't leak CORE state between calls.
+            # Force (not setdefault) the requested state for the call, then
+            # restore so resolution can't leak CORE state between calls.
             core = CORE.data.setdefault(KEY_CORE, {})
             had_platform = KEY_TARGET_PLATFORM in core
             prev_platform = core.get(KEY_TARGET_PLATFORM)
-            core[KEY_TARGET_PLATFORM] = None
+            core[KEY_TARGET_PLATFORM] = platform
             try:
                 raw_auto_load = raw_auto_load()
             finally:
@@ -4799,15 +4844,17 @@ def _resolve_auto_load(raw_auto_load: Any) -> list[str]:
 
 
 @cache
-def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
+def _auto_loaded_dependencies(
+    domain: str, stem_or_key: str, platform: str | None = None
+) -> tuple[str, ...]:
     """
     ``DEPENDENCIES`` contributed by a component's ``AUTO_LOAD`` closure.
 
     ``AUTO_LOAD`` lives on the platform manifest for ``<domain>.<stem>``
-    entries and on the component manifest for bare ones. The auto-loaded
-    components themselves are always present so they never become
-    dependencies; only what *they* require does. Empty when ``esphome``
-    isn't importable.
+    entries and on the component manifest for bare ones; callables resolve
+    against *platform*. The auto-loaded components themselves are always
+    present so they never become dependencies; only what *they* require
+    does. Empty when ``esphome`` isn't importable.
     """
     loader = _get_esphome_loader()
     if loader is None:
@@ -4827,7 +4874,7 @@ def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
         return ()
     collected: list[str] = []
     seen: set[str] = set()
-    queue = [name for name in _resolve_auto_load(root.auto_load) if isinstance(name, str)]
+    queue = [name for name in _resolve_auto_load(root.auto_load, platform) if isinstance(name, str)]
     while queue:
         current = queue.pop()
         if current in seen:
@@ -4840,7 +4887,9 @@ def _auto_loaded_dependencies(domain: str, stem_or_key: str) -> tuple[str, ...]:
             dep for dep in getattr(manifest, "dependencies", None) or [] if isinstance(dep, str)
         )
         queue.extend(
-            name for name in _resolve_auto_load(manifest.auto_load) if isinstance(name, str)
+            name
+            for name in _resolve_auto_load(manifest.auto_load, platform)
+            if isinstance(name, str)
         )
     # A dep that is itself auto-loaded is always present — never a dependency.
     return tuple(dict.fromkeys(dep for dep in collected if dep and dep not in seen))
