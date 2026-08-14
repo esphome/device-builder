@@ -398,9 +398,10 @@ against legacy behaviour before assuming the simpler version suffices.
   hand-written code. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click
   nudge is the repair path in place of read support or write-time
-  respell (those remain bespoke-only). A `multi_conf` component's
-  block is a list the block rule can't address, so its pairs stay
-  canary-guarded. Anything else (wrapper-nested pairs like api's
+  respell (those remain bespoke-only). The block rule handles both the
+  mapping and the list form of a component block, so `multi_conf`
+  pairs ship data-driven too; platform-domain blocks (`- platform:`
+  lists) stay canary-guarded. Anything else (wrapper-nested pairs like api's
   item discriminator, registry-node renames needing the id alias) needs
   bespoke handling: hard-coded read support, a canonical respell on any
   write touching the legacy-spelled block (per the pass-through

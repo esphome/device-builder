@@ -157,15 +157,32 @@ def _apply_generated_renames(lines: list[str]) -> list[str]:
 
 
 def _apply_component_block_field(lines: list[str], rule: MigrationRule) -> list[str]:
-    """Rename a child key of the top-level ``<component>:`` block."""
+    """Rename a child key of the top-level ``<component>:`` block, mapping or list form."""
     header = find_block_header(lines, rule.component)
     if header is None:
         return lines
-    hit = _respell_body_field(lines, header, 0, rule.old, rule.new, _block_scalar_mask(lines))
-    if hit is None:
-        return lines
+    in_scalar = _block_scalar_mask(lines)
+    end = block_end_index(lines, header)
+    items = top_list_item_starts(lines, header, end)
+    if not items:
+        hit = _respell_body_field(lines, header, 0, rule.old, rule.new, in_scalar)
+        if hit is None:
+            return lines
+        out = list(lines)
+        out[hit[0]] = hit[1]
+        return out
     out = list(lines)
-    out[hit[0]] = hit[1]
+    for item_start in items:
+        keys = _item_child_keys(lines, item_start, end, in_scalar)
+        if any(key == rule.new for _idx, _col, key in keys):
+            continue
+        target = next(((idx, col) for idx, col, key in keys if key == rule.old), None)
+        if target is None:
+            continue
+        idx, col = target
+        content = lines[idx].rstrip("\n\r")
+        eol = lines[idx][len(content) :]
+        out[idx] = content[:col] + rule.new + content[col + len(rule.old) :] + eol
     return out
 
 

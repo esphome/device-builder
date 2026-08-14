@@ -5013,13 +5013,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     platform_manifests = [pm for _domain, pm in platform_manifests_by_domain]
 
     manifest_multi_conf = bool(getattr(manifest, "multi_conf", False))
-    # Platform-domain blocks (sensor:, ota:, …) are - platform: lists,
-    # the same shape multi_conf makes of a component block.
-    list_form = (
-        manifest_multi_conf
-        or bool(getattr(manifest, "is_platform_component", False))
-        or component_id in _LIST_SCHEMA_MULTI_CONF
-    )
+    # Platform-domain blocks (sensor:, ota:, …) are - platform: lists whose
+    # items the block rule can't address by component key; a multi_conf
+    # component's own list form is handled by the block rule.
+    list_form = bool(getattr(manifest, "is_platform_component", False))
     _classify_rename_pairs(component_id, _collect_rename_keys(manifest), list_form=list_form)
     for domain, platform_manifest in platform_manifests_by_domain:
         _classify_rename_pairs(component_id, _collect_rename_keys(platform_manifest), domain=domain)
@@ -8449,9 +8446,9 @@ def _classify_rename_pairs(
     A *direct* pair (the validator sits on the schema's own mapping, no
     wrapper descent) is a plain child-key rename the generic migration
     engine applies; anything else needs bespoke handling. *list_form*
-    marks a ``multi_conf`` component whose block is a list —
-    ``component_block_field`` can't address those, so its pairs fall to
-    the canary.
+    marks a platform-domain block, whose ``- platform:`` items
+    ``component_block_field`` can't address, so its pairs fall to the
+    canary.
     """
     for (old, new), direct in pairs.items():
         if (component_id, old, new) in _HANDLED_RENAME_KEYS:

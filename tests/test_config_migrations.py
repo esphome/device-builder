@@ -582,6 +582,29 @@ def test_component_block_field_absent_component_is_a_noop(generated_rules) -> No
     assert render_migrations("other:\n  old_key: 1\n") is None
 
 
+def test_component_block_field_list_form_renames_every_item(generated_rules) -> None:
+    """The multi_conf shape (xiaomi_rtcgq02lm esp32_ble_id -> ble_hub_id)."""
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  - old_key: a  # note\n    other: 1\n  - old_key: b\n"
+    new_text = _respell(text)
+    assert "  - new_key: a  # note\n" in new_text
+    assert "  - new_key: b\n" in new_text
+    assert "    other: 1\n" in new_text
+
+
+def test_component_block_field_list_item_collision_skips_that_item(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  - old_key: a\n    new_key: b\n  - old_key: c\n"
+    new_text = _respell(text)
+    assert "  - old_key: a\n" in new_text
+    assert "  - new_key: c\n" in new_text
+
+
+def test_component_block_field_list_ignores_deeper_decoys(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    assert render_migrations("mycomp:\n  - child:\n      old_key: 1\n") is None
+
+
 def test_generated_and_bespoke_rules_share_one_diff(generated_rules) -> None:
     generated_rules(_VOC_RULE)
     text = _LEGACY_API_YAML + "\n" + _SGP4X_YAML
