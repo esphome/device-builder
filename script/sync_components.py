@@ -5016,8 +5016,10 @@ def introspect_component(component_id: str) -> dict[str, Any]:
     # Platform-domain blocks (sensor:, ota:, …) are - platform: lists whose
     # items the block rule can't address by component key; a multi_conf
     # component's own list form is handled by the block rule.
-    list_form = bool(getattr(manifest, "is_platform_component", False))
-    _classify_rename_pairs(component_id, _collect_rename_keys(manifest), list_form=list_form)
+    platform_domain = bool(getattr(manifest, "is_platform_component", False))
+    _classify_rename_pairs(
+        component_id, _collect_rename_keys(manifest), platform_domain=platform_domain
+    )
     for domain, platform_manifest in platform_manifests_by_domain:
         _classify_rename_pairs(component_id, _collect_rename_keys(platform_manifest), domain=domain)
 
@@ -8438,14 +8440,14 @@ def _classify_rename_pairs(
     pairs: Mapping[tuple[str, str], bool],
     *,
     domain: str | None = None,
-    list_form: bool = False,
+    platform_domain: bool = False,
 ) -> None:
     """
     Route discovered pairs: expressible → migration-rules artifact, else canary.
 
     A *direct* pair (the validator sits on the schema's own mapping, no
     wrapper descent) is a plain child-key rename the generic migration
-    engine applies; anything else needs bespoke handling. *list_form*
+    engine applies; anything else needs bespoke handling. *platform_domain*
     marks a platform-domain block, whose ``- platform:`` items
     ``component_block_field`` can't address, so its pairs fall to the
     canary.
@@ -8453,7 +8455,7 @@ def _classify_rename_pairs(
     for (old, new), direct in pairs.items():
         if (component_id, old, new) in _HANDLED_RENAME_KEYS:
             continue
-        if direct and not list_form and old != new:
+        if direct and not platform_domain and old != new:
             if domain is None:
                 _MIGRATION_RULES.add(("component_block_field", component_id, "", "", old, new))
             else:

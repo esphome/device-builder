@@ -183,18 +183,9 @@ def _apply_component_block_field(lines: list[str], rule: MigrationRule) -> list[
         out[hit[0]] = hit[1]
         return out
     out = list(lines)
-    items = top_list_item_starts(lines, header, end)
-    for item_start in items:
+    for item_start in top_list_item_starts(lines, header, end):
         keys = _item_child_keys(lines, item_start, end, in_scalar)
-        if any(key == rule.new for _idx, _col, key in keys):
-            continue
-        target = next(((idx, col) for idx, col, key in keys if key == rule.old), None)
-        if target is None:
-            continue
-        idx, col = target
-        content = lines[idx].rstrip("\n\r")
-        eol = lines[idx][len(content) :]
-        out[idx] = content[:col] + rule.new + content[col + len(rule.old) :] + eol
+        _respell_item_key(lines, out, keys, rule.old, rule.new)
     return out
 
 
@@ -214,16 +205,27 @@ def _apply_platform_item_field(lines: list[str], rule: MigrationRule) -> list[st
         )
         if platform != rule.platform:
             continue
-        if any(key == rule.new for _idx, _col, key in keys):
-            continue
-        target = next(((idx, col) for idx, col, key in keys if key == rule.old), None)
-        if target is None:
-            continue
-        idx, col = target
-        content = lines[idx].rstrip("\n\r")
-        eol = lines[idx][len(content) :]
-        out[idx] = content[:col] + rule.new + content[col + len(rule.old) :] + eol
+        _respell_item_key(lines, out, keys, rule.old, rule.new)
     return out
+
+
+def _respell_item_key(
+    lines: list[str],
+    out: list[str],
+    keys: list[tuple[int, int, str]],
+    old: str,
+    new: str,
+) -> None:
+    """Respell a list item's *old* depth-1 key into *out*; no-op on collision or absence."""
+    if any(key == new for _idx, _col, key in keys):
+        return
+    target = next(((idx, col) for idx, col, key in keys if key == old), None)
+    if target is None:
+        return
+    idx, col = target
+    content = lines[idx].rstrip("\n\r")
+    eol = lines[idx][len(content) :]
+    out[idx] = content[:col] + new + content[col + len(old) :] + eol
 
 
 #: Upstream's closed ``CLK_MODES_DEPRECATED`` table — anything else is an

@@ -614,6 +614,23 @@ def test_component_block_field_mapping_with_nested_list_stays_mapping(generated_
     assert "    - old_key: nested\n" in new_text
 
 
+def test_component_block_field_mapping_key_before_nested_automation(generated_rules) -> None:
+    """The ble_client shape: the real key beside an on_x automation list."""
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  old_key: my_tracker\n  on_connect:\n    - lambda: 'x'\n"
+    new_text = _respell(text)
+    assert "  new_key: my_tracker\n" in new_text
+    assert "    - lambda: 'x'\n" in new_text
+
+
+def test_component_block_field_mapping_scalar_dash_is_not_the_form(generated_rules) -> None:
+    generated_rules(_BLOCK_RULE)
+    text = "mycomp:\n  lambda: |-\n    - old_key: fake\n  old_key: 1\n"
+    new_text = _respell(text)
+    assert "  new_key: 1\n" in new_text
+    assert "    - old_key: fake\n" in new_text
+
+
 def test_generated_and_bespoke_rules_share_one_diff(generated_rules) -> None:
     generated_rules(_VOC_RULE)
     text = _LEGACY_API_YAML + "\n" + _SGP4X_YAML
