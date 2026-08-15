@@ -252,6 +252,32 @@ def test_load_metadata_missing_file_stays_silent(
     assert not caplog.text
 
 
+def test_load_metadata_never_clobbers_earlier_corrupt_copy(tmp_path: Path) -> None:
+    """A second incident lands beside the first ``.corrupt``, not over it."""
+    corrupt_path = tmp_path / ".device-builder.json.corrupt"
+    corrupt_path.write_bytes(b'{"kitchen.yaml": {"friendly_name": "Kit')
+    (tmp_path / ".device-builder.json").write_bytes(b"{}trailing")
+
+    assert _load_metadata(tmp_path) == {}
+
+    assert corrupt_path.read_bytes() == b'{"kitchen.yaml": {"friendly_name": "Kit'
+    siblings = list(tmp_path.glob(".device-builder.json.corrupt.*"))
+    assert len(siblings) == 1
+    assert siblings[0].read_bytes() == b"{}trailing"
+
+
+def test_load_metadata_race_already_moved_stays_quiet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A concurrent reader winning the side-rename is not a rename failure."""
+    (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
+    monkeypatch.setattr(Path, "replace", MagicMock(side_effect=FileNotFoundError))
+
+    with caplog.at_level(logging.WARNING):
+        assert _load_metadata(tmp_path) == {}
+    assert "Could not move" not in caplog.text
+
+
 def test_load_metadata_survives_failed_side_rename(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

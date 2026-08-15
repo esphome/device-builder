@@ -6,6 +6,7 @@ import logging
 import os
 import stat
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -106,6 +107,10 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
         # write-back atomically replaces the file, which would silently
         # destroy the user-authored fields still inside the corrupt bytes.
         corrupt_path = path.with_name(_METADATA_CORRUPT_FILE)
+        if corrupt_path.exists():
+            # An earlier incident's copy holds the richest bytes (the
+            # regenerated sidecar starts sparse) — never clobber it.
+            corrupt_path = corrupt_path.with_name(f"{_METADATA_CORRUPT_FILE}.{time.time_ns()}")
         _LOGGER.warning(
             "Metadata sidecar %s is unparsable (%s); moving it to %s and starting fresh",
             path,
@@ -114,6 +119,8 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
         )
         try:
             path.replace(corrupt_path)
+        except FileNotFoundError:
+            pass  # a concurrent reader already moved it aside
         except OSError as rename_err:
             _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
         return {}
