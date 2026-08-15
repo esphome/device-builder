@@ -336,6 +336,21 @@ def test_quarantine_survives_backwards_clock(tmp_path: Path) -> None:
     assert b'{"truncated":' in contents
 
 
+def test_quarantine_prune_failure_is_logged_not_raised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An unlink failure during pruning leaves a trace instead of raising."""
+    for ts in range(1, 6):
+        (tmp_path / f".device-builder.json.corrupt.{ts}").write_bytes(b"old")
+    (tmp_path / ".device-builder.json.corrupt").write_bytes(b"original")
+    (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
+    monkeypatch.setattr(Path, "unlink", MagicMock(side_effect=OSError("busy")))
+
+    with caplog.at_level(logging.DEBUG):
+        assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
+    assert "Could not prune corrupt sidecar copy" in caplog.text
+
+
 def test_quarantine_ignores_non_decimal_corrupt_suffixes(tmp_path: Path) -> None:
     """A stray ``.corrupt.²`` file neither raises nor is pruned."""
     stray = tmp_path / ".device-builder.json.corrupt.²"
