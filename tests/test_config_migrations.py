@@ -102,7 +102,25 @@ def test_prefilter_covers_every_bespoke_rule() -> None:
 
 
 def test_has_pending_migrations_token_hit_without_migration() -> None:
+    assert has_pending_migrations("esphome:\n  service: desk\n") is False
+
+
+def test_has_pending_migrations_prose_skips_the_fold() -> None:
     assert has_pending_migrations("esphome:\n  comment: service desk\n") is False
+
+
+def test_prefilter_matches_space_padded_keys() -> None:
+    """The loosest matchers fire on ``key :``; the prefilter must too."""
+    padded = (
+        "sensor:\n  - platform: sgp4x\n    voc :\n      name: x\n",
+        (
+            "esphome:\n  on_boot:\n    then:\n"
+            "      - homeassistant.service:\n          service : light.turn_on\n"
+        ),
+    )
+    for text in padded:
+        assert render_migrations(text) is not None, text
+        assert has_pending_migrations(text) is True, text
 
 
 def test_legacy_items_under_canonical_block() -> None:

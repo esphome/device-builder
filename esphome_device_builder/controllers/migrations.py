@@ -92,9 +92,11 @@ def has_pending_migrations(yaml_text: str) -> bool:
 
 @cache
 def _legacy_token_re(rules: tuple[MigrationRule, ...]) -> re.Pattern[str]:
-    """Alternation over every substring some migration rule requires."""
+    """Alternation matching every rule's legacy spelling in key position."""
+    # ``\s*:`` mirrors the loosest matcher (split-on-colon tolerates padding
+    # before the colon) so prose mentions don't force the full fold.
     tokens = _BESPOKE_LEGACY_TOKENS.union(rule.old for rule in rules)
-    return re.compile("|".join(re.escape(token) for token in sorted(tokens)))
+    return re.compile("|".join(re.escape(token) + r"\s*:" for token in sorted(tokens)))
 
 
 def _canonicalize_api_actions(lines: list[str]) -> list[str]:
