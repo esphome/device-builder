@@ -29,11 +29,13 @@ from esphome.core import CORE, EsphomeError
 from esphome.storage_json import StorageJSON
 
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+    pack_build_artifacts,
+)
+from esphome_device_builder.helpers.artifacts_tarball_members import (
     BUILD_INFO_MEMBER_NAME,
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
-    pack_build_artifacts,
 )
 from esphome_device_builder.helpers.config_hash import read_build_info_hash
 from esphome_device_builder.helpers.remote_artifacts_materialise import (

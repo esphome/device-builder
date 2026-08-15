@@ -8,16 +8,13 @@ from typing import Any
 
 import pytest
 
-from esphome_device_builder.controllers.config import (
-    _load_metadata,
-    _save_metadata,
-)
 from esphome_device_builder.controllers.devices._metadata_store import (
     _DEFAULT_SAVE_DELAY,
     STORE_FIELDS,
     DeviceMetadataStore,
 )
 from esphome_device_builder.helpers.device_yaml import load_device_from_storage
+from esphome_device_builder.helpers.metadata_sidecar import _load_metadata, _save_metadata
 
 
 def _make_store(tmp_path: Path) -> DeviceMetadataStore:

@@ -18,7 +18,6 @@ import pytest
 
 from esphome_device_builder.controllers.boards import BoardCatalog
 from esphome_device_builder.controllers.config import (
-    _load_metadata,
     get_device_metadata,
     set_device_metadata,
 )
@@ -29,6 +28,7 @@ from esphome_device_builder.controllers.devices.metadata import (
     _USER_SET_MIGRATED_KEY,
     _migrate_board_id_user_set_sync,
 )
+from esphome_device_builder.helpers.metadata_sidecar import _load_metadata
 
 _APOLLO = "apollo-esk-1"
 _AVATTO = "avatto_s06_ir_remote_no_temp_no_humidity_new_version"

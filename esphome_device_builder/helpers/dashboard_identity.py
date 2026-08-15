@@ -38,8 +38,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..controllers.config import metadata_transaction
 from .async_ import run_in_executor
+from .metadata_sidecar import metadata_transaction
 from .peer_link_identity import PeerLinkIdentity, PeerLinkIdentityStore
 
 _DASHBOARD_ID_BYTES = 24

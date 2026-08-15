@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...helpers.async_ import run_in_executor
+from ...helpers.metadata_sidecar import _load_metadata, metadata_transaction
 from ...models import RemoteBuildSettings
-from .metadata import _load_metadata, metadata_transaction
 
 if TYPE_CHECKING:
     from .settings import DashboardSettings

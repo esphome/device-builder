@@ -9,9 +9,9 @@ from typing import Any
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.json import JSONDecodeError, dumps_indent, loads
+from ...helpers.metadata_sidecar import _load_metadata, metadata_transaction
 from ...helpers.storage import ShutdownRegister, Store
 from ...models import UserPreferences
-from .metadata import _load_metadata, metadata_transaction
 from .preferences import _PREFS_KEY
 
 _LOGGER = logging.getLogger(__name__)

@@ -23,12 +23,12 @@ from esphome.core import CORE
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.atomic_io import atomic_write
+from ...helpers.metadata_sidecar import _load_metadata, metadata_transaction
 from ...models import (
     FirmwareJob,
     JobStatus,
     JobType,
 )
-from ..config import _load_metadata, metadata_transaction
 from . import rename_flow
 from .constants import (
     _JOBS_KEY,

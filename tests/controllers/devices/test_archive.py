@@ -24,8 +24,6 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.controllers.config import (
-    _load_metadata,
-    _save_metadata,
     clear_volatile_device_metadata,
     get_device_metadata,
     set_device_metadata,
@@ -33,6 +31,7 @@ from esphome_device_builder.controllers.config import (
 from esphome_device_builder.controllers.devices import archive as archive_module
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_artifacts import unlink_storage_sidecar
+from esphome_device_builder.helpers.metadata_sidecar import _load_metadata, _save_metadata
 from esphome_device_builder.models import ErrorCode
 from tests._storage_fixtures import write_storage_json
 

@@ -34,9 +34,6 @@ from esphome_device_builder.controllers.remote_build.artifacts_download import (
     ArtifactsDownloadSender,
 )
 from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
-    IDEDATA_MEMBER_NAME,
-    PLATFORMIO_INI_MEMBER_NAME,
-    STORAGE_MEMBER_NAME,
     PackedArtifacts,
     UnpackArtifactsError,
     _download_type_files,
@@ -50,6 +47,11 @@ from esphome_device_builder.controllers.remote_build.peer_link_client import (
     DownloadArtifactsResult,
 )
 from esphome_device_builder.definitions import EMPTY_PLATFORM_CAPABILITIES
+from esphome_device_builder.helpers.artifacts_tarball_members import (
+    IDEDATA_MEMBER_NAME,
+    PLATFORMIO_INI_MEMBER_NAME,
+    STORAGE_MEMBER_NAME,
+)
 from esphome_device_builder.helpers.build_artifacts import load_build_artifacts
 from esphome_device_builder.helpers.peer_link_bundle import BUNDLE_CHUNK_SIZE_BYTES
 from esphome_device_builder.helpers.storage_path import (

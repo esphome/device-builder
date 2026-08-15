@@ -40,7 +40,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from esphome.util import SerialPort
 
-from esphome_device_builder.controllers import config as config_module
 from esphome_device_builder.controllers.config import (
     _APP_DESC_MAGIC,
     _APP_DESC_SIZE,
@@ -51,12 +50,10 @@ from esphome_device_builder.controllers.config import (
     _chip_family_to_descriptor,
     _classify_esptool_failure,
     _is_valid_port_name,
-    _load_metadata,
     _parse_chip_family_line,
     _parse_project_name,
     _read_descriptor_file,
     _run_esptool,
-    _save_metadata,
     clear_volatile_device_metadata,
     delete_label_cascade,
     effective_remote_build_settings,
@@ -66,7 +63,6 @@ from esphome_device_builder.controllers.config import (
     labels_transaction,
     load_labels,
     load_remote_build_settings,
-    metadata_transaction,
     remote_build_settings_transaction,
     remove_device_metadata,
     save_labels,
@@ -76,7 +72,13 @@ from esphome_device_builder.controllers.config import (
 )
 from esphome_device_builder.controllers.config._preferences_store import PreferencesStore
 from esphome_device_builder.controllers.config.chip_detect import _CHIP_FAMILY_MAP
+from esphome_device_builder.helpers import metadata_sidecar
 from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.metadata_sidecar import (
+    _load_metadata,
+    _save_metadata,
+    metadata_transaction,
+)
 from esphome_device_builder.helpers.secrets_state import read_secrets_yaml
 from esphome_device_builder.models import (
     DEFAULT_CLEANUP_TTL_SECONDS,
@@ -139,7 +141,7 @@ def test_metadata_transaction_serialises_across_flocks(
     """Cross-process flock serialises peers RMW-ing disjoint keys."""
     # Bypass _METADATA_LOCK so the two threads race directly at
     # the flock — the same path two real processes would hit.
-    monkeypatch.setattr(config_module.metadata, "_METADATA_LOCK", nullcontext())
+    monkeypatch.setattr(metadata_sidecar, "_METADATA_LOCK", nullcontext())
 
     thread_a_in_block = threading.Event()
     release_a = threading.Event()
@@ -191,7 +193,7 @@ def test_metadata_transaction_rejects_non_regular_lock_file(
     # Real block/char devices need root + a special FS; flip
     # ``S_ISREG`` in the module so a normal regular-file open
     # takes the rejection branch as if it had hit one.
-    monkeypatch.setattr(config_module.metadata.stat, "S_ISREG", lambda _mode: False)
+    monkeypatch.setattr(metadata_sidecar.stat, "S_ISREG", lambda _mode: False)
 
     with pytest.raises(OSError, match="is not a regular file"), metadata_transaction(tmp_path):
         pass
@@ -2202,7 +2204,7 @@ def test_metadata_transaction_persists_without_fcntl(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The no-fcntl degraded path (Windows / no fcntl) still round-trips the write."""
-    monkeypatch.setattr(config_module.metadata, "_HAS_FCNTL", False)
+    monkeypatch.setattr(metadata_sidecar, "_HAS_FCNTL", False)
 
     with metadata_transaction(tmp_path) as data:
         data["kitchen.yaml"] = {"board_id": "esp32"}
@@ -2240,7 +2242,7 @@ def test_metadata_transaction_no_fcntl_skips_unchanged_write(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The degraded path applies the same no-op write suppression."""
-    monkeypatch.setattr(config_module.metadata, "_HAS_FCNTL", False)
+    monkeypatch.setattr(metadata_sidecar, "_HAS_FCNTL", False)
     with metadata_transaction(tmp_path) as data:
         data["kitchen.yaml"] = {"board_id": "esp32"}
     sidecar = tmp_path / ".device-builder.json"

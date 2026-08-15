@@ -8,8 +8,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from ...helpers.metadata_sidecar import _load_metadata, metadata_transaction
 from ...models import Label
-from .metadata import _load_metadata, metadata_transaction
 
 _LOGGER = logging.getLogger(__name__)
 

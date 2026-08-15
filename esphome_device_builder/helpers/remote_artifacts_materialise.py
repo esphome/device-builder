@@ -33,7 +33,7 @@ from esphome.storage_json import StorageJSON
 from esphome.writer import storage_should_clean
 
 from ..constants import TOOLCHAIN_ESP_IDF
-from ..controllers.remote_build.artifacts_tarball import (
+from .artifacts_tarball_members import (
     IDEDATA_MEMBER_NAME,
     PLATFORMIO_INI_MEMBER_NAME,
     STORAGE_MEMBER_NAME,

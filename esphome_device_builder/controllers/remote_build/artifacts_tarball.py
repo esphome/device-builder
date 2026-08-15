@@ -61,6 +61,12 @@ from typing import TYPE_CHECKING, Any
 from esphome.storage_json import StorageJSON
 
 from ...constants import TOOLCHAIN_ESP_IDF
+from ...helpers.artifacts_tarball_members import (
+    BUILD_INFO_MEMBER_NAME,
+    IDEDATA_MEMBER_NAME,
+    PLATFORMIO_INI_MEMBER_NAME,
+    STORAGE_MEMBER_NAME,
+)
 from ...helpers.build_artifacts import _firmware_offset_for_platform, iter_flash_images
 from ...helpers.cross_os_path import cross_os_basename
 from ...helpers.peer_link_bundle import FIRMWARE_MAX_TOTAL_BYTES
@@ -78,19 +84,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Tarball member names that ride alongside the build tree. The
-# offloader-side materialiser pulls these out of the tarball and
-# stages them at the offloader's canonical cache locations; the
-# WS-adapter (:func:`unpack_artifacts_response`) ignores
-# ``storage.json`` / ``platformio.ini`` (they're not flash images)
-# and reads ``idedata.json`` to recover the upstream-canonical
-# flash-image manifest.
-STORAGE_MEMBER_NAME = "storage.json"
-IDEDATA_MEMBER_NAME = "idedata.json"
-PLATFORMIO_INI_MEMBER_NAME = "platformio.ini"
-# Read by the offloader's ``read_build_info_hash`` to populate
-# ``expected_config_hash`` post-build (see #654).
-BUILD_INFO_MEMBER_NAME = "build_info.json"
 # Receiver-side esphome >= 2026.6.0 dumps the validated config alongside
 # the StorageJSON sidecar; reusing it on the offloader lets `esphome
 # upload` / `esphome logs` skip the full `read_config()` pipeline. Optional
@@ -296,9 +289,9 @@ def _download_type_files(storage: StorageJSON, storage_path: Path) -> list[str]:
     platforms, device-builder-helper subprocess for libretiny / nrf52, so the
     receiver process never imports ``esphome.components.*``.
     """
-    # Function-local: a top-level import pulls firmware/__init__ -> controller ->
-    # remote_runner -> helpers.remote_artifacts_materialise, which imports this
-    # module back (circular). The import cost is gone but the cycle remains.
+    # Function-local: a top-level import still cycles — firmware/__init__ ->
+    # controller -> remote_build.env_provisioner triggers remote_build/__init__
+    # -> receiver -> artifacts_download -> this module.
     from ..firmware.download import _download_types_for  # noqa: PLC0415
 
     entries = _download_types_for(storage, storage_path, label=storage.name)

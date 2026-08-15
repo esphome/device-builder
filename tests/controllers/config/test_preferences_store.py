@@ -8,11 +8,11 @@ from pathlib import Path
 import orjson
 import pytest
 
-from esphome_device_builder.controllers.config import _load_metadata, _save_metadata
 from esphome_device_builder.controllers.config._preferences_store import (
     _STORE_FILENAME,
     PreferencesStore,
 )
+from esphome_device_builder.helpers.metadata_sidecar import _load_metadata, _save_metadata
 from esphome_device_builder.models import UserPreferences
 from esphome_device_builder.models.preferences import (
     EditorLayout,

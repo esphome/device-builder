@@ -12,9 +12,9 @@ from ...helpers.build_size import coerce_sidecar_int
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.device_yaml import parse_platform_from_yaml
 from ...helpers.ip import is_unusable_address
+from ...helpers.metadata_sidecar import metadata_transaction
 from .._device_builder_base import DeviceBuilderBase
 from .._device_scanner import DeviceFileMetadata, MetadataResolver
-from ..config import metadata_transaction
 from ._metadata_store import STORE_FIELDS
 
 if TYPE_CHECKING:

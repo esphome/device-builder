@@ -6,8 +6,8 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from ...helpers.metadata_sidecar import _load_metadata
 from ..config import (
-    _load_metadata,
     clear_volatile_device_metadata,
     get_device_metadata,
     remove_device_metadata,

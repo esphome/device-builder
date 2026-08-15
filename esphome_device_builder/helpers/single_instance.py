@@ -9,7 +9,7 @@ lives in ``data_dir`` and is per-flavor there. Same-data-dir
 double-launches (dev mode against the same ``--config-dir``)
 are still caught. Cross-flavor writes to the shared
 ``.device-builder.json`` are serialised separately by an
-``fcntl.flock`` inside :func:`controllers.config.metadata_transaction`.
+``fcntl.flock`` inside :func:`helpers.metadata_sidecar.metadata_transaction`.
 
 Mirrors :func:`homeassistant.runner.ensure_single_execution`:
 open ``<data_dir>/.device-builder.lock`` in append mode, take

@@ -63,12 +63,12 @@ import pytest
 from esphome.core import CORE
 from esphome.storage_json import StorageJSON
 
-from esphome_device_builder.controllers.remote_build.artifacts_tarball import (
+from esphome_device_builder.helpers.api import CommandError
+from esphome_device_builder.helpers.artifacts_tarball_members import (
     BUILD_INFO_MEMBER_NAME,
     IDEDATA_MEMBER_NAME,
     STORAGE_MEMBER_NAME,
 )
-from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.build_scheduler import (
     BuildPath,
     pick_build_path,
