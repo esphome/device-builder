@@ -13,6 +13,7 @@ from esphome_device_builder.controllers.migrations import (
     render_migrations,
 )
 from esphome_device_builder.definitions import MigrationRule
+from esphome_device_builder.migration_rule_kinds import MIGRATION_RULE_EXTRA_FIELDS
 
 _LEGACY_API_YAML = """esphome:
   name: demo
@@ -80,10 +81,18 @@ def test_already_canonical_returns_none() -> None:
     assert render_migrations(canonical) is None
 
 
-def test_has_pending_migrations_covers_every_bespoke_rule() -> None:
-    assert has_pending_migrations(_LEGACY_API_YAML) is True
-    assert has_pending_migrations(_LEGACY_HA_YAML) is True
-    assert has_pending_migrations(_ETHERNET_YAML) is True
+def test_prefilter_covers_every_bespoke_rule() -> None:
+    """A rule joining ``_RULES`` without a firing fixture here fails the set compare."""
+    fixtures = {
+        "_canonicalize_api_actions": _LEGACY_API_YAML,
+        "_canonicalize_action_nodes": _LEGACY_HA_YAML,
+        "_migrate_ethernet_clk": _ETHERNET_YAML,
+    }
+    bespoke = {rule.__name__ for rule in migrations._RULES} - {"_apply_generated_renames"}
+    assert bespoke == set(fixtures)
+    for name, text in fixtures.items():
+        assert render_migrations(text) is not None, name
+        assert has_pending_migrations(text) is True, name
     assert has_pending_migrations(_respell(_LEGACY_API_YAML)) is False
 
 
@@ -464,11 +473,6 @@ def test_rp2040_platform_key_respelled_to_rp2(generated_rules: Callable[..., Non
     assert "wifi:\n  ssid: foo\n" in new_text
 
 
-def test_has_pending_migrations_generated_rules(generated_rules: Callable[..., None]) -> None:
-    generated_rules(_RP2_RULE)
-    assert has_pending_migrations(_RP2040_YAML) is True
-
-
 def test_rp2040_absent_untouched(generated_rules: Callable[..., None]) -> None:
     generated_rules(_RP2_RULE)
     assert render_migrations("esphome:\n  name: pico\n\nrp2:\n  board: rpipicow\n") is None
@@ -665,3 +669,25 @@ def test_generated_and_bespoke_rules_share_one_diff(generated_rules) -> None:
     assert "actions:" in new_text
     assert "voc_index:" in new_text
     assert diff.fromLine <= diff.toLine
+
+
+def test_prefilter_covers_every_generated_rule_kind(generated_rules) -> None:
+    """A new rule kind added without a firing fixture here fails the key compare."""
+    firing = {
+        "component_key": (_RP2_RULE, _RP2040_YAML),
+        "platform_item_field": (_VOC_RULE, _SGP4X_YAML),
+        "component_block_field": (_BLOCK_RULE, "mycomp:\n  old_key: 1\n"),
+    }
+    assert set(firing) == set(MIGRATION_RULE_EXTRA_FIELDS)
+    for kind, (rule, text) in firing.items():
+        generated_rules(rule)
+        assert render_migrations(text) is not None, kind
+        assert has_pending_migrations(text) is True, kind
+
+
+def test_prefilter_agrees_with_fold_on_every_fixture() -> None:
+    """The predicate must never disagree with the fold on any module fixture."""
+    fixtures = {n: v for n, v in globals().items() if n.endswith("_YAML") and isinstance(v, str)}
+    assert len(fixtures) >= 5
+    for name, text in fixtures.items():
+        assert has_pending_migrations(text) is (render_migrations(text) is not None), name
