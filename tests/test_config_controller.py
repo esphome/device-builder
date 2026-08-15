@@ -31,6 +31,7 @@ import logging
 import os
 import sys
 import threading
+import time
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -76,6 +77,7 @@ from esphome_device_builder.helpers import metadata_sidecar
 from esphome_device_builder.helpers.api import CommandError
 from esphome_device_builder.helpers.metadata_sidecar import (
     _load_metadata,
+    _load_metadata_guarded,
     _save_metadata,
     metadata_transaction,
 )
@@ -231,7 +233,7 @@ def test_load_metadata_quarantines_invalid_json(
     metadata_path.write_bytes(b'{"truncated":')
 
     with caplog.at_level(logging.WARNING):
-        assert _load_metadata(tmp_path, quarantine=True) == {}
+        assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
 
     assert not metadata_path.exists()
     assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b'{"truncated":'
@@ -261,7 +263,7 @@ def test_load_metadata_non_dict_sidecar_quarantines(
     metadata_path.write_bytes(b"[]")
 
     with caplog.at_level(logging.WARNING):
-        assert _load_metadata(tmp_path, quarantine=True) == {}
+        assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
 
     assert not metadata_path.exists()
     assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b"[]"
@@ -283,7 +285,7 @@ def test_load_metadata_never_clobbers_earlier_corrupt_copy(tmp_path: Path) -> No
     corrupt_path.write_bytes(b'{"kitchen.yaml": {"friendly_name": "Kit')
     (tmp_path / ".device-builder.json").write_bytes(b"{}trailing")
 
-    assert _load_metadata(tmp_path, quarantine=True) == {}
+    assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
 
     assert corrupt_path.read_bytes() == b'{"kitchen.yaml": {"friendly_name": "Kit'
     siblings = list(tmp_path.glob(".device-builder.json.corrupt.*"))
@@ -299,7 +301,7 @@ def test_load_metadata_race_already_moved_stays_quiet(
     monkeypatch.setattr(Path, "replace", MagicMock(side_effect=FileNotFoundError))
 
     with caplog.at_level(logging.WARNING):
-        assert _load_metadata(tmp_path, quarantine=True) == {}
+        assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
     assert "Could not move" not in caplog.text
 
 
@@ -310,7 +312,7 @@ def test_quarantine_prunes_oldest_timestamped_siblings(tmp_path: Path) -> None:
         (tmp_path / f".device-builder.json.corrupt.{ts}").write_bytes(b"old")
     (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
 
-    assert _load_metadata(tmp_path, quarantine=True) == {}
+    assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
 
     assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b"original"
     siblings = list(tmp_path.glob(".device-builder.json.corrupt.*"))
@@ -318,6 +320,20 @@ def test_quarantine_prunes_oldest_timestamped_siblings(tmp_path: Path) -> None:
     assert not (tmp_path / ".device-builder.json.corrupt.1").exists()
     assert not (tmp_path / ".device-builder.json.corrupt.2").exists()
     assert (tmp_path / ".device-builder.json.corrupt.4").exists()
+
+
+def test_quarantine_survives_backwards_clock(tmp_path: Path) -> None:
+    """A fresh copy stamped below its siblings is never pruned."""
+    future = time.time_ns() + 10**15
+    for offset in range(3):
+        (tmp_path / f".device-builder.json.corrupt.{future + offset}").write_bytes(b"old")
+    (tmp_path / ".device-builder.json.corrupt").write_bytes(b"original")
+    (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
+
+    assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
+
+    contents = {p.read_bytes() for p in tmp_path.glob(".device-builder.json.corrupt.*")}
+    assert b'{"truncated":' in contents
 
 
 def test_metadata_transaction_discards_write_when_quarantine_fails(
@@ -343,7 +359,7 @@ def test_load_metadata_survives_failed_side_rename(
     monkeypatch.setattr(Path, "replace", MagicMock(side_effect=OSError("denied")))
 
     with caplog.at_level(logging.WARNING):
-        assert _load_metadata(tmp_path, quarantine=True) == {}
+        assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, False)
     assert "Could not move corrupt metadata sidecar aside" in caplog.text
 
 

@@ -96,14 +96,9 @@ def _open_metadata_lock_file(path: str, flags: int) -> int:
     return os.open(path, flags | os.O_NOFOLLOW, 0o644)
 
 
-def _load_metadata(config_dir: Path, *, quarantine: bool = False) -> dict[str, Any]:
-    """
-    Load the sidecar dict; corrupt content returns ``{}``.
-
-    ``quarantine=True`` — only safe under ``metadata_transaction``'s
-    locks — side-renames corrupt content to ``.corrupt``.
-    """
-    return _load_metadata_guarded(config_dir, quarantine=quarantine)[0]
+def _load_metadata(config_dir: Path) -> dict[str, Any]:
+    """Lock-free pure read of the sidecar dict; corrupt or missing content returns ``{}``."""
+    return _load_metadata_guarded(config_dir, quarantine=False)[0]
 
 
 def _load_metadata_guarded(config_dir: Path, *, quarantine: bool) -> tuple[dict[str, Any], bool]:
@@ -128,37 +123,38 @@ def _load_metadata_guarded(config_dir: Path, *, quarantine: bool) -> tuple[dict[
 
 
 def _handle_corrupt_sidecar(path: Path, reason: str, *, quarantine: bool) -> bool:
+    _LOGGER.warning("Metadata sidecar %s is unparsable (%s)", path, reason)
     if not quarantine:
-        _LOGGER.warning("Metadata sidecar %s is unparsable (%s)", path, reason)
         return False
     corrupt_path = path.with_name(_METADATA_CORRUPT_FILE)
     if corrupt_path.exists():
         # An earlier incident's copy holds the richest bytes (the
         # regenerated sidecar starts sparse) — never clobber it.
         corrupt_path = corrupt_path.with_name(f"{_METADATA_CORRUPT_FILE}.{time.time_ns()}")
-    _LOGGER.warning(
-        "Metadata sidecar %s is unparsable (%s); moving it to %s and starting fresh",
-        path,
-        reason,
-        corrupt_path,
-    )
     try:
         replace_with_retry(path, corrupt_path)
     except FileNotFoundError:
-        pass  # another process already moved it aside (no-flock platforms)
+        return True  # another process already moved it aside (no-flock platforms)
     except OSError as rename_err:
         _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
         return False
-    _prune_corrupt_siblings(path)
+    _LOGGER.warning("Moved corrupt metadata sidecar to %s; starting fresh", corrupt_path)
+    _prune_corrupt_siblings(path, corrupt_path)
     return True
 
 
-def _prune_corrupt_siblings(path: Path) -> None:
+def _prune_corrupt_siblings(path: Path, fresh: Path) -> None:
+    # ``fresh`` is exempt regardless of its stamp — ``time.time_ns`` is
+    # wall-clock, and a pre-NTP boot or backwards correction can stamp
+    # the copy just written below its older siblings.
     siblings = sorted(
         (p for p in path.parent.glob(f"{_METADATA_CORRUPT_FILE}.*") if p.suffix[1:].isdigit()),
         key=lambda p: int(p.suffix[1:]),
     )
-    for stale in siblings[:-_MAX_CORRUPT_SIBLINGS]:
+    keep = set(siblings[-_MAX_CORRUPT_SIBLINGS:])
+    for stale in siblings:
+        if stale in keep or stale == fresh:
+            continue
         with contextlib.suppress(OSError):
             stale.unlink()
 
