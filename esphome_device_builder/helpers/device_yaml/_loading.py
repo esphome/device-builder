@@ -16,6 +16,10 @@ from esphome.core import EsphomeError
 from esphome.storage_json import StorageJSON
 
 from ...constants import SECRETS_FILENAME
+
+# Load-bearing direction: controllers.automations (pulled in transitively)
+# must never import helpers.device_yaml, or module load cycles.
+from ...controllers.migrations import has_pending_migrations
 from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..atomic_io import read_text_with_stat
@@ -355,6 +359,8 @@ def load_device_from_storage(
         has_pending_changes=has_pending,
         pending_changes_via_hash=pending_via_hash,
         update_available=update_available,
+        # Raw main-file text on purpose — same scope as the editor's migrate nudge.
+        migration_available=has_pending_migrations(yaml_content),
         # ``uses_mqtt`` keeps its prior shape — the resolved config
         # wins, raw-text fills in mid-edit, and we don't have a
         # ``loaded_integrations`` entry that maps cleanly to "uses

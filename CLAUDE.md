@@ -421,7 +421,9 @@ against legacy behaviour before assuming the simpler version suffices.
   values); acknowledge bespoke handling in `_HANDLED_ALIASES`. The
   frontend's migrate nudge drives the
   one-click whole-file update; new migrations extend the artifact or
-  add a rule function — never a new command.
+  add a rule function — never a new command. The dashboard list
+  surfaces the same signal per device via `Device.migration_available`
+  (computed at device load).
 - **The long-lived process never imports `esphome.components.*`.**
   Importing `esphome.components.esp32` drags in espidf → requests →
   `esphome.config` (~9s of cold start on an HA Green). Static platform

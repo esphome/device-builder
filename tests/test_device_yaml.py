@@ -1281,6 +1281,23 @@ def test_load_device_from_storage_detects_deep_sleep(tmp_path: Path) -> None:
     assert load_device_from_storage(awake).uses_deep_sleep is False
 
 
+def test_load_device_from_storage_detects_pending_migrations(tmp_path: Path) -> None:
+    """A legacy spelling the migration fold would respell sets ``migration_available``."""
+    legacy = tmp_path / "legacy.yaml"
+    legacy.write_text(
+        "esphome:\n  name: legacy\napi:\n  services:\n    - service: beep\n      then: []\n",
+        encoding="utf-8",
+    )
+    assert load_device_from_storage(legacy).migration_available is True
+
+    clean = tmp_path / "clean.yaml"
+    clean.write_text(
+        "esphome:\n  name: clean\napi:\n  actions:\n    - action: beep\n      then: []\n",
+        encoding="utf-8",
+    )
+    assert load_device_from_storage(clean).migration_available is False
+
+
 def test_load_device_from_storage_detects_name_add_mac_suffix(tmp_path: Path) -> None:
     """A truthy ``esphome.name_add_mac_suffix`` sets the flag; false or absent clears it."""
     suffixed = tmp_path / "suffixed.yaml"

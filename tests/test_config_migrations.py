@@ -8,7 +8,10 @@ import pytest
 
 from esphome_device_builder.controllers import migrations
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
-from esphome_device_builder.controllers.migrations import render_migrations
+from esphome_device_builder.controllers.migrations import (
+    has_pending_migrations,
+    render_migrations,
+)
 from esphome_device_builder.definitions import MigrationRule
 
 _LEGACY_API_YAML = """esphome:
@@ -75,6 +78,17 @@ def test_legacy_api_block_and_items() -> None:
 def test_already_canonical_returns_none() -> None:
     canonical = _LEGACY_API_YAML.replace("services:", "actions:").replace("- service:", "- action:")
     assert render_migrations(canonical) is None
+
+
+def test_has_pending_migrations_covers_every_bespoke_rule() -> None:
+    assert has_pending_migrations(_LEGACY_API_YAML) is True
+    assert has_pending_migrations(_LEGACY_HA_YAML) is True
+    assert has_pending_migrations(_ETHERNET_YAML) is True
+    assert has_pending_migrations(_respell(_LEGACY_API_YAML)) is False
+
+
+def test_has_pending_migrations_token_hit_without_migration() -> None:
+    assert has_pending_migrations("esphome:\n  comment: service desk\n") is False
 
 
 def test_legacy_items_under_canonical_block() -> None:
@@ -448,6 +462,11 @@ def test_rp2040_platform_key_respelled_to_rp2(generated_rules: Callable[..., Non
     assert "  board: rpipicow\n" in new_text
     assert "    platform_version: 1.2.0\n" in new_text
     assert "wifi:\n  ssid: foo\n" in new_text
+
+
+def test_has_pending_migrations_generated_rules(generated_rules: Callable[..., None]) -> None:
+    generated_rules(_RP2_RULE)
+    assert has_pending_migrations(_RP2040_YAML) is True
 
 
 def test_rp2040_absent_untouched(generated_rules: Callable[..., None]) -> None:

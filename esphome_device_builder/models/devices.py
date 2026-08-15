@@ -209,6 +209,9 @@ class Device(DashboardModel):
     # compare (vs the local mtime fallback).
     pending_changes_via_hash: bool = False
     update_available: bool = False  # True if compiled with older ESPHome version
+    # True when ``render_migrations`` would rewrite the raw main-file
+    # YAML (packages/!include contents are not scanned).
+    migration_available: bool = False
     uses_mqtt: bool = False  # True if the YAML declares a top-level mqtt: block
     # Server-side only; ``repr=False`` because the resolved block can
     # carry baked-in credentials.
