@@ -303,6 +303,38 @@ def test_load_metadata_race_already_moved_stays_quiet(
     assert "Could not move" not in caplog.text
 
 
+def test_quarantine_prunes_oldest_timestamped_siblings(tmp_path: Path) -> None:
+    """Repeat incidents keep the original ``.corrupt`` plus the newest three siblings."""
+    (tmp_path / ".device-builder.json.corrupt").write_bytes(b"original")
+    for ts in range(1, 5):
+        (tmp_path / f".device-builder.json.corrupt.{ts}").write_bytes(b"old")
+    (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
+
+    assert _load_metadata(tmp_path, quarantine=True) == {}
+
+    assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b"original"
+    siblings = list(tmp_path.glob(".device-builder.json.corrupt.*"))
+    assert len(siblings) == 3
+    assert not (tmp_path / ".device-builder.json.corrupt.1").exists()
+    assert not (tmp_path / ".device-builder.json.corrupt.2").exists()
+    assert (tmp_path / ".device-builder.json.corrupt.4").exists()
+
+
+def test_metadata_transaction_discards_write_when_quarantine_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A write-back never lands on top of corrupt bytes that couldn't be moved aside."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"truncated":')
+    monkeypatch.setattr(Path, "replace", MagicMock(side_effect=OSError("denied")))
+
+    with caplog.at_level(logging.WARNING), metadata_transaction(tmp_path) as data:
+        data["office.yaml"] = {"board_id": "esp32"}
+
+    assert metadata_path.read_bytes() == b'{"truncated":'
+    assert "Discarding metadata write-back" in caplog.text
+
+
 def test_load_metadata_survives_failed_side_rename(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

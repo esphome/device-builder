@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import stat
@@ -26,6 +27,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _METADATA_FILE = ".device-builder.json"
 _METADATA_CORRUPT_FILE = ".device-builder.json.corrupt"
+# Original ``.corrupt`` plus at most this many timestamped siblings;
+# repeat incidents drop the oldest sibling instead of growing without
+# bound in the user-browsable config dir.
+_MAX_CORRUPT_SIBLINGS = 3
 # Separate sibling file for the flock — ``_save_metadata`` swaps
 # ``_METADATA_FILE``'s inode via ``Path.replace`` mid-transaction,
 # which would yank the lock out from under any holder.
@@ -53,17 +58,18 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     ``fcntl.flock`` on the sibling lock file — needed for the HA
     addon multi-flavor shape where Prod/Beta/DEV share
     ``/config/esphome``. Exceptions inside the block skip the
-    save. The per-process lock is non-reentrant; nested calls
+    save, and so does a corrupt sidecar that could not be
+    quarantined. The per-process lock is non-reentrant; nested calls
     deadlock by design (each call loads its own snapshot, so
     nesting would clobber the inner write at the outer's exit).
     Windows / no-fcntl degrades to per-process only.
     """
     with _METADATA_LOCK:
         if not _HAS_FCNTL:
-            data = _load_metadata(config_dir, quarantine=True)
+            data, safe = _load_metadata_guarded(config_dir, quarantine=True)
             before = dumps_indent(data)
             yield data
-            _save_metadata_if_changed(config_dir, data, before)
+            _finish_transaction(config_dir, data, before, safe=safe)
             return
         lock_path = config_dir / _METADATA_LOCK_FILE
         with open(lock_path, "a+", encoding="utf-8", opener=_open_metadata_lock_file) as lock_fh:
@@ -79,10 +85,10 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
             # lock) — a transient WS-command race should queue,
             # not fail.
             fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
-            data = _load_metadata(config_dir, quarantine=True)
+            data, safe = _load_metadata_guarded(config_dir, quarantine=True)
             before = dumps_indent(data)
             yield data
-            _save_metadata_if_changed(config_dir, data, before)
+            _finish_transaction(config_dir, data, before, safe=safe)
 
 
 def _open_metadata_lock_file(path: str, flags: int) -> int:
@@ -94,11 +100,14 @@ def _load_metadata(config_dir: Path, *, quarantine: bool = False) -> dict[str, A
     """
     Load the sidecar dict; corrupt content returns ``{}``.
 
-    ``quarantine=True`` (only safe under ``metadata_transaction``'s
-    locks) side-renames corrupt content to ``.corrupt`` so the
-    write-back can't destroy it; lock-free readers must stay pure —
-    a stale decode racing a rewrite would quarantine the fresh file.
+    ``quarantine=True`` — only safe under ``metadata_transaction``'s
+    locks — side-renames corrupt content to ``.corrupt``.
     """
+    return _load_metadata_guarded(config_dir, quarantine=quarantine)[0]
+
+
+def _load_metadata_guarded(config_dir: Path, *, quarantine: bool) -> tuple[dict[str, Any], bool]:
+    """Load plus a write-back-safe flag: ``False`` while corrupt bytes remain in place."""
     path = config_dir / _METADATA_FILE
     try:
         # orjson decodes bytes directly, so skip the read_text → encode
@@ -108,22 +117,20 @@ def _load_metadata(config_dir: Path, *, quarantine: bool = False) -> dict[str, A
         # lock-free, so it can open the file mid-rename.
         data = loads(read_bytes_with_retry(path))
     except FileNotFoundError:
-        return {}
+        return {}, True
     except JSONDecodeError as err:
-        _handle_corrupt_sidecar(path, str(err), quarantine=quarantine)
-        return {}
+        return {}, _handle_corrupt_sidecar(path, str(err), quarantine=quarantine)
     if isinstance(data, dict):
-        return data
-    _handle_corrupt_sidecar(
+        return data, True
+    return {}, _handle_corrupt_sidecar(
         path, f"top-level {type(data).__name__} is not an object", quarantine=quarantine
     )
-    return {}
 
 
-def _handle_corrupt_sidecar(path: Path, reason: str, *, quarantine: bool) -> None:
+def _handle_corrupt_sidecar(path: Path, reason: str, *, quarantine: bool) -> bool:
     if not quarantine:
         _LOGGER.warning("Metadata sidecar %s is unparsable (%s)", path, reason)
-        return
+        return False
     corrupt_path = path.with_name(_METADATA_CORRUPT_FILE)
     if corrupt_path.exists():
         # An earlier incident's copy holds the richest bytes (the
@@ -141,6 +148,28 @@ def _handle_corrupt_sidecar(path: Path, reason: str, *, quarantine: bool) -> Non
         pass  # another process already moved it aside (no-flock platforms)
     except OSError as rename_err:
         _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
+        return False
+    _prune_corrupt_siblings(path)
+    return True
+
+
+def _prune_corrupt_siblings(path: Path) -> None:
+    siblings = sorted(
+        (p for p in path.parent.glob(f"{_METADATA_CORRUPT_FILE}.*") if p.suffix[1:].isdigit()),
+        key=lambda p: int(p.suffix[1:]),
+    )
+    for stale in siblings[:-_MAX_CORRUPT_SIBLINGS]:
+        with contextlib.suppress(OSError):
+            stale.unlink()
+
+
+def _finish_transaction(
+    config_dir: Path, data: dict[str, Any], before: bytes, *, safe: bool
+) -> None:
+    if safe:
+        _save_metadata_if_changed(config_dir, data, before)
+        return
+    _LOGGER.warning("Discarding metadata write-back; the corrupt sidecar is still in place")
 
 
 def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
