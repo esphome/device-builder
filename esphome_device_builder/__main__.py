@@ -371,7 +371,6 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _exit_cleanly_on_signal)
     if sys.platform == "win32":
         signal.signal(signal.SIGBREAK, _exit_cleanly_on_signal)
-        suppress_child_error_dialogs()
 
     parser = _build_arg_parser()
 
@@ -425,6 +424,7 @@ def main() -> None:
     startup_timer.mark("settings")
 
     drop_inherited_idf_env()
+    suppress_child_error_dialogs()
 
     # Keyed on ``CORE.data_dir`` (not ``config_dir``) so the HA
     # addon's Prod/Beta/DEV flavors — each with its own per-instance
