@@ -6,8 +6,7 @@ Re-exports ``FirmwareController`` so existing
 keep resolving after the subpackage split. Submodules:
 
 - ``constants`` — error patterns, history caps, output cap tunables.
-- ``helpers`` — pure free functions (``_find_esphome_cmd`` is the
-  only one called from outside the firmware subpackage).
+- ``helpers`` — pure free functions used inside the subpackage.
 - ``controller`` — ``FirmwareController`` itself + the queue runner.
 """
 

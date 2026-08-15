@@ -17,9 +17,9 @@ from ...helpers.async_ import run_in_executor
 from ...helpers.build_artifacts import resolve_elf_path
 from ...helpers.config_hash import read_build_info_hash
 from ...helpers.json import JSONDecodeError, dumps, loads
+from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_idedata_path, resolve_storage_path
 from ...helpers.subprocess import run_subprocess_capture
-from ..firmware.helpers import helper_cli_cmd
 
 if TYPE_CHECKING:
     from .controller import DevicesController

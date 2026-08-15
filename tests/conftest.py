@@ -109,7 +109,7 @@ _STARTUP_BLOCKING_OK: tuple[tuple[str, str], ...] = (
     # call is on a request path (``_run_esptool`` for chip detect,
     # ``verify_chip`` for firmware install) but every subsequent
     # one hits the cache.
-    ("controllers/firmware/helpers.py", "_find_sibling_cli"),
+    ("helpers/sibling_cli.py", "_find_sibling_cli"),
     # ``CORE.data_dir`` walks ``CORE.config_dir`` which stats — one-time
     # at controller construction.
     ("controllers/devices/controller.py", "__init__"),

@@ -25,9 +25,9 @@ from ...helpers.capability_tokens import CapabilityTokens
 from ...helpers.json import JSONDecodeError
 from ...helpers.json import loads as json_loads
 from ...helpers.paths import resolve_under_root
+from ...helpers.sibling_cli import helper_cli_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...models.boards import normalize_platform
-from .helpers import helper_cli_cmd
 
 if TYPE_CHECKING:
     from .controller import FirmwareController

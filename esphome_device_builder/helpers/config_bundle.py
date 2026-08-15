@@ -48,8 +48,8 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from ..controllers.firmware.helpers import _find_esphome_cmd
 from .async_ import run_in_executor
+from .sibling_cli import _find_esphome_cmd
 from .subprocess import run_subprocess_capture
 
 _LOGGER = logging.getLogger(__name__)

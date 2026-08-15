@@ -31,6 +31,7 @@ from ...helpers.secrets_state import (
     wifi_secrets_defined,
     write_wifi_secrets,
 )
+from ...helpers.sibling_cli import _find_esphome_cmd
 from ...helpers.storage import ShutdownCallback, drain_shutdown_callbacks
 from ...helpers.yaml import write_user_yaml
 from ...models import (
@@ -55,7 +56,6 @@ from .._device_mqtt_coordinator import DeviceMqttCoordinator
 from .._device_scanner import DeviceScanner, ScanChange
 from .._device_state_monitor import DeviceStateMonitor
 from .._reachability_tracker import ReachabilityTracker
-from ..firmware.helpers import _find_esphome_cmd
 from ..version_history import GIT_COMMIT_ERRORS
 from . import (
     add_component,

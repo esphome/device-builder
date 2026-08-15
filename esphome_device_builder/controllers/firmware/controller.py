@@ -27,6 +27,7 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.device_yaml import configuration_filename
 from ...helpers.event_bus import Event
+from ...helpers.sibling_cli import _find_esphome_cmd
 from ...models import (
     COMPILING_JOB_TYPES,
     LOCAL_JOB_BUILD_SOURCE,
@@ -56,7 +57,6 @@ from . import clean as clean_mod
 from . import download as download_mod
 from ._state import FirmwareState, Lane
 from .helpers import (
-    _find_esphome_cmd,
     _ingest_output_line,
     _validate_upload_target,
     _verify_esphome_importable,
