@@ -223,16 +223,58 @@ def test_load_metadata_returns_empty_when_missing(tmp_path: Path) -> None:
     assert _load_metadata(tmp_path) == {}
 
 
-def test_load_metadata_returns_empty_on_invalid_json(tmp_path: Path) -> None:
-    """A corrupted JSON file falls back to empty rather than raising.
+def test_load_metadata_side_renames_invalid_json(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Corrupt JSON returns empty, warns, and moves the file to ``.corrupt``.
 
-    A user (or a botched migration) leaving truncated JSON on
-    disk shouldn't crash the dashboard at startup — every reader
-    would suddenly see ``JSONDecodeError`` from a path called
-    deep inside the executor.
+    Returning ``{}`` silently would let the next transaction's
+    atomic write-back permanently destroy the user-authored
+    fields still inside the corrupt bytes.
     """
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"truncated":')
+
+    with caplog.at_level(logging.WARNING):
+        assert _load_metadata(tmp_path) == {}
+
+    assert not metadata_path.exists()
+    assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b'{"truncated":'
+    assert "unparsable" in caplog.text
+
+
+def test_load_metadata_missing_file_stays_silent(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The fresh-install fast path logs nothing."""
+    with caplog.at_level(logging.WARNING):
+        assert _load_metadata(tmp_path) == {}
+    assert not caplog.text
+
+
+def test_load_metadata_survives_failed_side_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A failed side-rename still returns empty instead of raising."""
     (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
-    assert _load_metadata(tmp_path) == {}
+    monkeypatch.setattr(Path, "replace", MagicMock(side_effect=OSError("denied")))
+
+    with caplog.at_level(logging.WARNING):
+        assert _load_metadata(tmp_path) == {}
+    assert "Could not move corrupt metadata sidecar aside" in caplog.text
+
+
+def test_metadata_transaction_after_corruption_preserves_corrupt_copy(tmp_path: Path) -> None:
+    """A write-back after corruption starts fresh; the corrupt bytes survive aside."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"kitchen.yaml": {"friendly_name": "Kit')
+
+    with metadata_transaction(tmp_path) as data:
+        data["office.yaml"] = {"board_id": "esp32"}
+
+    assert json.loads(metadata_path.read_bytes()) == {"office.yaml": {"board_id": "esp32"}}
+    corrupt = (tmp_path / ".device-builder.json.corrupt").read_bytes()
+    assert corrupt == b'{"kitchen.yaml": {"friendly_name": "Kit'
 
 
 def test_save_metadata_uses_atomic_replace(tmp_path: Path) -> None:

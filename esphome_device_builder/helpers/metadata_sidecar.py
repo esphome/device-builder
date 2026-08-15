@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
 import threading
@@ -20,7 +21,10 @@ except ImportError:  # pragma: no cover — Windows path
 from .atomic_io import atomic_write, read_bytes_with_retry
 from .json import JSONDecodeError, dumps_indent, loads
 
+_LOGGER = logging.getLogger(__name__)
+
 _METADATA_FILE = ".device-builder.json"
+_METADATA_CORRUPT_FILE = ".device-builder.json.corrupt"
 # Separate sibling file for the flock — ``_save_metadata`` swaps
 # ``_METADATA_FILE``'s inode via ``Path.replace`` mid-transaction,
 # which would yank the lock out from under any holder.
@@ -95,7 +99,23 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
         # lock-free, so it can open the file mid-rename.
         data = loads(read_bytes_with_retry(path))
         return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, JSONDecodeError):
+    except FileNotFoundError:
+        return {}
+    except JSONDecodeError as err:
+        # Side-rename before returning empty — the next transaction's
+        # write-back atomically replaces the file, which would silently
+        # destroy the user-authored fields still inside the corrupt bytes.
+        corrupt_path = path.with_name(_METADATA_CORRUPT_FILE)
+        _LOGGER.warning(
+            "Metadata sidecar %s is unparsable (%s); moving it to %s and starting fresh",
+            path,
+            err,
+            corrupt_path,
+        )
+        try:
+            path.replace(corrupt_path)
+        except OSError as rename_err:
+            _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
         return {}
 
 
