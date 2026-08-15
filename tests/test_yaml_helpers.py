@@ -67,6 +67,7 @@ from esphome_device_builder.helpers.yaml.scalar import (
     _plain_is_fast_safe,
     _plain_is_safe,
 )
+from esphome_device_builder.helpers.yaml.scan import find_block_header, top_level_key_index
 from esphome_device_builder.models import ErrorCode
 from esphome_device_builder.models.common import ConfigEntry, ConfigEntryType
 from esphome_device_builder.models.components import (
@@ -2428,3 +2429,24 @@ def test_child_block_end_trims_shallow_banner_but_keeps_deep_comment() -> None:
     text = "api:\n  actions:\n  - action: a\n    # for a\n\n  # banner\n  encryption:\n    key: k\n"
     # The deep ``# for a`` stays inside; the blank + shallow banner trim off.
     assert _cbe(text, 1, "  ") == 4
+
+
+def test_top_level_key_index_matches_find_block_header() -> None:
+    lines = [
+        "esphome:\n",
+        "sensor:  # comment\n",
+        "wifi: !secret creds\n",
+        "logger:\n",
+        '"quoted":\n',
+        "a:b:\n",
+        "  nested:\n",
+        "- dash:\n",
+        "script: |\n",
+        "  fake:\n",
+        "ota :\n",
+        "sensor:\n",
+    ]
+    index = top_level_key_index(lines)
+    assert index == {"esphome": 0, "sensor": 1, "logger": 3, '"quoted"': 4, "a:b": 5}
+    for key in (*index, "wifi", "quoted", "a", "nested", "dash", "script", "fake", "ota"):
+        assert index.get(key) == find_block_header(lines, key)

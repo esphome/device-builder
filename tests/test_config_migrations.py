@@ -595,6 +595,14 @@ def test_platform_item_rename_skips_block_scalars(generated_rules) -> None:
     assert render_migrations(text) is None
 
 
+def test_platform_item_platformless_item_untouched(generated_rules) -> None:
+    generated_rules(_VOC_RULE)
+    text = "sensor:\n  - voc: bare\n  - platform: sgp4x\n    voc: a\n"
+    new_text = _respell(text)
+    assert "  - voc: bare\n" in new_text
+    assert "    voc_index: a\n" in new_text
+
+
 def test_platform_value_tolerates_quotes_and_comment(generated_rules) -> None:
     generated_rules(_VOC_RULE)
     text = 'sensor:\n  - platform: "sgp4x"  # gas\n    voc:\n      name: x\n'
