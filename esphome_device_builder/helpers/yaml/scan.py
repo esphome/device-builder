@@ -31,6 +31,20 @@ def find_block_header(lines: list[str], key: str) -> int | None:
     return None
 
 
+#: Generic column-0 form of ``key_header_re`` — keep the two shapes in sync.
+_TOP_LEVEL_HEADER_RE = re.compile(r"^(\S+):\s*(?:#.*)?$")
+
+
+def top_level_key_index(lines: list[str]) -> dict[str, int]:
+    """First-occurrence index of every column-0 ``<key>:`` header line."""
+    index: dict[str, int] = {}
+    for idx, line in enumerate(lines):
+        match = _TOP_LEVEL_HEADER_RE.match(line.rstrip("\n\r"))
+        if match is not None:
+            index.setdefault(match.group(1), idx)
+    return index
+
+
 def block_end_index(lines: list[str], start: int) -> int:
     """First line after *start* that opens the next top-level block; ``len(lines)`` at EOF."""
     for idx in range(start + 1, len(lines)):
