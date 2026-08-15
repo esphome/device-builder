@@ -16,6 +16,7 @@ per-device dashboard flag at scanner load time.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
 
@@ -500,7 +501,7 @@ def _entry_value(line: str, col: int) -> str:
 # Each bespoke rule is paired with the substrings it needs present before it
 # can fire, so a rule can't join the fold without feeding the prefilter; the
 # generated leg's tokens join from the rules index at predicate time.
-_RULES = (
+_RULES: tuple[tuple[Callable[[list[str]], list[str]], frozenset[str]], ...] = (
     (
         _canonicalize_api_actions,
         frozenset((*api_actions.BLOCK_KEYS[1:], *api_actions.ITEM_KEYS[1:])),
