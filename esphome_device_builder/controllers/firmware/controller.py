@@ -27,7 +27,7 @@ from ...helpers.api import CommandError, api_command
 from ...helpers.async_ import create_eager_task, drain_tasks, run_in_executor
 from ...helpers.device_yaml import configuration_filename
 from ...helpers.event_bus import Event
-from ...helpers.sibling_cli import _find_esphome_cmd
+from ...helpers.sibling_cli import find_esphome_cmd
 from ...models import (
     COMPILING_JOB_TYPES,
     LOCAL_JOB_BUILD_SOURCE,
@@ -197,7 +197,7 @@ class FirmwareController:  # noqa: PLR0904 (grandfathered; new public methods ne
 
     async def start(self) -> None:
         """Start the queue processor and restore persisted jobs."""
-        self.state.esphome_cmd = _find_esphome_cmd()
+        self.state.esphome_cmd = find_esphome_cmd()
         _LOGGER.info(
             "ESPHome command: %s (interpreter: %s)",
             " ".join(self.state.esphome_cmd),

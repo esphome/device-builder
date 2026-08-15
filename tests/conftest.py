@@ -852,7 +852,7 @@ def make_ws_device_builder(
 def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub the network / subprocess surfaces so ``DeviceBuilder.start()`` runs hermetically.
 
-    - ``_find_esphome_cmd`` returns a fake invocation so the resolver
+    - ``find_esphome_cmd`` returns a fake invocation so the resolver
       doesn't depend on a real esphome install.
     - ``_verify_esphome_importable`` short-circuits to ``(True, "")``
       so the firmware controller's startup probe doesn't spawn a
@@ -880,7 +880,7 @@ def _hermetic_lifecycle(monkeypatch: pytest.MonkeyPatch) -> None:
         "esphome_device_builder.controllers.editor",
         "esphome_device_builder.controllers.devices.controller",
     ):
-        monkeypatch.setattr(f"{module}._find_esphome_cmd", lambda: fake_cmd)
+        monkeypatch.setattr(f"{module}.find_esphome_cmd", lambda: fake_cmd)
     monkeypatch.setattr(FirmwareController, "_load_jobs", AsyncMock())
     monkeypatch.setattr(
         "esphome_device_builder.controllers.firmware.controller._verify_esphome_importable",

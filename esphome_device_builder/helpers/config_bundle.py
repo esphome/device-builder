@@ -25,7 +25,7 @@ build:
   sees the wrong layout.
 * Matches the existing pattern the firmware controller uses
   for every compile / upload (subprocess, same
-  :func:`_find_esphome_cmd` resolver), so a future ESPHome
+  :func:`find_esphome_cmd` resolver), so a future ESPHome
   bump only has to be validated against one integration
   surface.
 
@@ -49,7 +49,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .async_ import run_in_executor
-from .sibling_cli import _find_esphome_cmd
+from .sibling_cli import find_esphome_cmd
 from .subprocess import run_subprocess_capture
 
 _LOGGER = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ async def build_yaml_bundle(
     caller being cancelled mid-build).
     """
     # Every filesystem syscall here (``is_file`` → ``os.stat``,
-    # ``_find_esphome_cmd`` → ``Path.exists`` → ``os.stat``,
+    # ``find_esphome_cmd`` → ``Path.exists`` → ``os.stat``,
     # ``NamedTemporaryFile`` → ``os.open``, ``read_bytes`` →
     # ``os.read``, ``unlink`` → ``os.unlink``) is blocking;
     # blockbuster catches them when run on the event loop in CI.
@@ -140,7 +140,7 @@ def _prepare_build_bundle(yaml_path: Path) -> tuple[list[str], Path]:
     if not yaml_path.is_file():
         msg = f"YAML not found: {yaml_path}"
         raise FileNotFoundError(msg)
-    return _find_esphome_cmd(), _allocate_temp_bundle_path()
+    return find_esphome_cmd(), _allocate_temp_bundle_path()
 
 
 def _allocate_temp_bundle_path() -> Path:

@@ -156,7 +156,7 @@ async def test_start_runs_full_initialisation_chain(
     cold-start.
     """
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
     db = make_db(tmp_path)
@@ -192,7 +192,7 @@ async def test_start_pre_scan_loads_complete_before_scan(
 ) -> None:
     """The gathered store/migration/ignore loads all land before the scanner runs."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
     db = make_db(tmp_path)
@@ -226,7 +226,7 @@ async def test_build_size_worker_starts_live_with_delayed_sweep(
 ) -> None:
     """The worker spawns at ``start()`` with its fleet sweep held on the cold-start delay."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
     db = make_db(tmp_path)
@@ -250,7 +250,7 @@ async def test_start_refines_shallow_seed_then_reconciles(
 ) -> None:
     """The refine task deep-reloads the seeded fleet and re-runs the MQTT reconcile."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         list,
     )
     # ``logger.baud_rate`` is resolved-only: the shallow seed carries
@@ -285,7 +285,7 @@ async def test_stop_cancels_refine_mid_drain(
 ) -> None:
     """A shutdown during the refine drain cancels the task and skips the trailing reconcile."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.devices.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.devices.controller.find_esphome_cmd",
         list,
     )
     (tmp_path / "kitchen.yaml").write_text("esphome:\n  name: kitchen\n", encoding="utf-8")

@@ -9,9 +9,9 @@ from typing import Any
 import pytest
 
 from esphome_device_builder.helpers.sibling_cli import (
-    _find_esphome_cmd,
-    _find_esptool_cmd,
     _find_sibling_cli,
+    find_esphome_cmd,
+    find_esptool_cmd,
 )
 
 
@@ -56,7 +56,7 @@ def test_find_esphome_cmd_prefers_sibling_binary_when_present(
     sibling.write_text("#!/bin/sh\necho fake-esphome\n", encoding="utf-8")
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
-    cmd = _find_esphome_cmd()
+    cmd = find_esphome_cmd()
 
     assert cmd == [str(sibling)]
 
@@ -82,7 +82,7 @@ def test_find_esphome_cmd_falls_back_to_python_dash_m(
     # Deliberately don't create a sibling esphome script.
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
-    cmd = _find_esphome_cmd()
+    cmd = find_esphome_cmd()
 
     assert cmd == [str(fake_python), "-m", "esphome"]
 
@@ -113,7 +113,7 @@ def test_find_esphome_cmd_picks_bare_esphome_on_posix(
     (bin_dir / "esphome").write_text("#!/bin/sh\n", encoding="utf-8")
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
-    cmd = _find_esphome_cmd()
+    cmd = find_esphome_cmd()
 
     assert cmd == [str(bin_dir / "esphome")]
 
@@ -138,7 +138,7 @@ def test_find_esphome_cmd_picks_esphome_exe_on_windows(
     (bin_dir / "esphome.exe").write_text("MZ\n", encoding="utf-8")
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
-    cmd = _find_esphome_cmd()
+    cmd = find_esphome_cmd()
 
     assert cmd == [str(bin_dir / "esphome.exe")]
 
@@ -156,7 +156,7 @@ def test_find_esptool_cmd_prefers_sibling_script(
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
 
-    assert _find_esptool_cmd() == [str(sibling)]
+    assert find_esptool_cmd() == [str(sibling)]
 
 
 def test_find_esptool_cmd_falls_back_to_python_dash_m(
@@ -170,7 +170,7 @@ def test_find_esptool_cmd_falls_back_to_python_dash_m(
 
     monkeypatch.setattr(sys, "executable", str(fake_python))
 
-    assert _find_esptool_cmd() == [str(fake_python), "-m", "esptool"]
+    assert find_esptool_cmd() == [str(fake_python), "-m", "esptool"]
 
 
 def test_find_esphome_cmd_does_not_substitute_sibling_python(
@@ -200,7 +200,7 @@ def test_find_esphome_cmd_does_not_substitute_sibling_python(
     # No sibling esphome → expect the fallback.
 
     monkeypatch.setattr(sys, "executable", str(weird))
-    cmd = _find_esphome_cmd()
+    cmd = find_esphome_cmd()
 
     assert cmd == [str(weird), "-m", "esphome"]
     assert str(bin_dir / "python") not in cmd

@@ -2,7 +2,7 @@
 Unit tests for :mod:`helpers.config_bundle`.
 
 The bundle helper spawns ``esphome bundle <yaml> -o <tarball>`` and
-streams its output. Tests monkeypatch ``_find_esphome_cmd`` to a tiny
+streams its output. Tests monkeypatch ``find_esphome_cmd`` to a tiny
 ``sys.executable`` script standing in for esphome, so the helper's
 plumbing (streaming, temp-file lifecycle, error mapping, timeout,
 missing-yaml pre-check) is exercised against a real subprocess.
@@ -32,10 +32,10 @@ def _install_fake_esphome(
     *,
     patch_output_path: bool = True,
 ) -> Path:
-    """Point ``_find_esphome_cmd`` at a stand-in script; return the reserved output path."""
+    """Point ``find_esphome_cmd`` at a stand-in script; return the reserved output path."""
     script = tmp_path / "fake_esphome.py"
     script.write_text(_SCRIPT_PRELUDE + body, encoding="utf-8")
-    monkeypatch.setattr(config_bundle, "_find_esphome_cmd", lambda: [sys.executable, str(script)])
+    monkeypatch.setattr(config_bundle, "find_esphome_cmd", lambda: [sys.executable, str(script)])
     output_path = tmp_path / "bundle-out.tar.gz"
     if patch_output_path:
         monkeypatch.setattr(config_bundle, "_allocate_temp_bundle_path", lambda: output_path)

@@ -11,11 +11,11 @@ and the recorded subprocess invocations) drive the assertions.
 touches; it's the runner entry point and exists to be driven
 in tests this way.
 
-The chip-id check spawns ``[*_find_esptool_cmd(), '--port', <port>,
+The chip-id check spawns ``[*find_esptool_cmd(), '--port', <port>,
 'chip-id']`` via ``create_subprocess_exec``. The resolved command is
 either a sibling ``esptool`` script next to ``sys.executable`` or
 ``[sys.executable, '-m', 'esptool']`` as a fallback (see
-``_find_esptool_cmd`` in ``helpers.sibling_cli``). Tests
+``find_esptool_cmd`` in ``helpers.sibling_cli``). Tests
 substitute ``create_subprocess_exec`` module-level so each one's
 "esptool" output can be controlled while the real subsequent build
 still runs through the same wrapper (substitute returns a no-op
@@ -141,7 +141,7 @@ _BUILD_SCRIPT_OK = "import sys\nsys.exit(0)\n"
 
 
 def _is_esptool_spawn(args: tuple[Any, ...]) -> bool:
-    """Match either esptool-spawn argv shape ``_find_esptool_cmd`` produces.
+    """Match either esptool-spawn argv shape ``find_esptool_cmd`` produces.
 
     Sibling script (``<bin>/esptool``) on dev venvs;
     ``[sys.executable, '-m', 'esptool']`` fallback on slim images.

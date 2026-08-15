@@ -20,7 +20,7 @@ from ..helpers.api import api_command
 from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.json import JSONDecodeError, dumps, loads
 from ..helpers.process import kill_quietly
-from ..helpers.sibling_cli import _find_esphome_cmd
+from ..helpers.sibling_cli import find_esphome_cmd
 from ..helpers.subprocess import create_subprocess_exec
 from ..models.automations import MigrateConfigResponse
 from .migrations import render_migrations
@@ -98,7 +98,7 @@ class EditorController:
     async def start(self) -> None:
         """Async initialize the controller."""
         # resolve the `esphome` CLI invocation used to spawn validator subprocesses
-        self._esphome_cmd = _find_esphome_cmd()
+        self._esphome_cmd = find_esphome_cmd()
         self._reaper_task = asyncio.create_task(
             self._reaper_loop(), name="editor-subprocess-reaper"
         )

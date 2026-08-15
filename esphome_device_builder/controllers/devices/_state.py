@@ -93,7 +93,7 @@ class DevicesState:
 
     # ``esphome`` CLI invocation discovered at ``start()`` —
     # ``[sys.executable, "-m", "esphome"]`` or the on-PATH
-    # ``esphome`` binary, whichever ``_find_esphome_cmd``
+    # ``esphome`` binary, whichever ``find_esphome_cmd``
     # picks first.
     esphome_cmd: list[str] = field(default_factory=list)
 

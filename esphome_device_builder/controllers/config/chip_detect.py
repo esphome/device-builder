@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ...definitions import load_platform_capabilities_index
 from ...helpers.chips import normalize_chip_variant
-from ...helpers.sibling_cli import _find_esptool_cmd
+from ...helpers.sibling_cli import find_esptool_cmd
 from ...helpers.subprocess import run_subprocess_capture
 
 _LOGGER = logging.getLogger(__name__)
@@ -256,7 +256,7 @@ def _parse_chip_family_line(output: str) -> dict[str, str] | None:
 async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes, bool]:
     """Spawn esptool with *args* and capture stdout+stderr.
 
-    Uses :func:`helpers.sibling_cli._find_esptool_cmd` to
+    Uses :func:`helpers.sibling_cli.find_esptool_cmd` to
     pick the right invocation (sibling script preferred over
     ``python -m esptool``) and runs through
     :func:`helpers.subprocess.run_subprocess_capture` — the same
@@ -267,7 +267,7 @@ async def _run_esptool(args: list[str], timeout: float) -> tuple[int, bytes, boo
     error message can recommend an unplug/replug rather than
     pointing at the cable.
     """
-    cmd = _find_esptool_cmd()
+    cmd = find_esptool_cmd()
     result = await run_subprocess_capture(*cmd, *args, timeout=timeout)
     rc = result.returncode if result.returncode is not None else -1
     return rc, result.stdout, result.timed_out

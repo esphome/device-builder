@@ -499,11 +499,11 @@ async def test_get_api_key_fallback_skipped_when_esphome_cmd_unset(
     Pre-``start()`` controllers (and the bypass-init test factory
     that doesn't pass ``esphome_cmd=``) don't have the binary
     resolved. Production hits this only during the brief startup
-    window before ``_find_esphome_cmd`` runs, but the same guard
+    window before ``find_esphome_cmd`` runs, but the same guard
     keeps the test factory's default path working without
     requiring every test to set ``esphome_cmd=`` defensively.
     Empty list is the documented "no esphome found" sentinel from
-    ``_find_esphome_cmd``.
+    ``find_esphome_cmd``.
     """
     # Note: ``esphome_cmd`` deliberately NOT set on the factory.
     controller = make_controller(tmp_path)

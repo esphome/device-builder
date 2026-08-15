@@ -67,9 +67,9 @@ from tests.controllers.firmware.conftest import FirmwareControllerFactory
 
 @pytest.fixture
 def patch_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub ``_find_esphome_cmd`` so ``start()`` runs without probing the interpreter."""
+    """Stub ``find_esphome_cmd`` so ``start()`` runs without probing the interpreter."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.firmware.controller.find_esphome_cmd",
         lambda: ["fake-esphome"],
     )
 
@@ -489,7 +489,7 @@ async def test_start_schedules_esphome_sanity_probe(
 ) -> None:
     """A pip/dev install gets the CLI sanity probe as a background task."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.firmware.controller.find_esphome_cmd",
         lambda: ["fake-esphome"],
     )
     # A desktop-app shell exporting these would flip the prebuilt gate.
@@ -509,7 +509,7 @@ async def test_start_skips_esphome_sanity_probe_on_prebuilt_environment(
 ) -> None:
     """A pre-built environment (HA add-on, desktop app) schedules no sanity probe."""
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.firmware.controller._find_esphome_cmd",
+        "esphome_device_builder.controllers.firmware.controller.find_esphome_cmd",
         lambda: ["fake-esphome"],
     )
     spy = MagicMock()

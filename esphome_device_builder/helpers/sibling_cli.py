@@ -17,7 +17,7 @@ def helper_cli_cmd() -> tuple[str, ...]:
     return _find_sibling_cli("device-builder-helper", "esphome_device_builder.helper_cli")
 
 
-def _find_esphome_cmd() -> list[str]:
+def find_esphome_cmd() -> list[str]:
     """Locate the ``esphome`` CLI, preferring the same interpreter as ours.
 
     The backend's own interpreter (``sys.executable``) is the
@@ -37,10 +37,10 @@ def _find_esphome_cmd() -> list[str]:
     return list(_find_sibling_cli("esphome"))
 
 
-def _find_esptool_cmd() -> list[str]:
+def find_esptool_cmd() -> list[str]:
     """Locate the ``esptool`` CLI, preferring the same interpreter as ours.
 
-    Same sibling-script-first lookup as :func:`_find_esphome_cmd`.
+    Same sibling-script-first lookup as :func:`find_esphome_cmd`.
     The sibling script's shebang is pinned to our interpreter so it
     can't accidentally jump to a different Python — and it dodges
     the ``"No module named esptool"`` failure mode under VS Code's

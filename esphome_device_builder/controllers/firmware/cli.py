@@ -13,7 +13,7 @@ from esphome.storage_json import StorageJSON
 
 from ...helpers.async_ import run_in_executor
 from ...helpers.remote_build_layout import parse_from_configuration as parse_remote_build_path
-from ...helpers.sibling_cli import _find_esptool_cmd
+from ...helpers.sibling_cli import find_esptool_cmd
 from ...helpers.storage_path import resolve_storage_path
 from ...models import OTA_PORT, FirmwareJob, JobType
 from . import lifecycle
@@ -136,7 +136,7 @@ async def verify_chip(controller: FirmwareController, job: FirmwareJob) -> None:
 
     async with controller._tracked_subprocess(
         job,
-        *_find_esptool_cmd(),
+        *find_esptool_cmd(),
         "--port",
         job.port,
         "chip-id",

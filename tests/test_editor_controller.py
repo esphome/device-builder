@@ -387,7 +387,7 @@ def test_init_sets_default_state() -> None:
 async def test_start_resolves_esphome_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``start()`` populates ``_esphome_cmd`` via ``_find_esphome_cmd``.
+    """``start()`` populates ``_esphome_cmd`` via ``find_esphome_cmd``.
 
     The cmd is later spliced with ``vscode <config_dir> --ace`` to
     spawn the validator. Pin the lookup so a refactor that moved
@@ -398,7 +398,7 @@ async def test_start_resolves_esphome_command(
     controller._esphome_cmd = []  # ensure start() actually populates it
 
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.editor._find_esphome_cmd",
+        "esphome_device_builder.controllers.editor.find_esphome_cmd",
         lambda: ["python", "-m", "esphome"],
     )
 
@@ -1044,7 +1044,7 @@ async def test_start_creates_reaper_task_stop_cancels_it(
     """``start()`` launches the reaper; ``stop()`` cancels and clears it."""
     controller = _make_controller(tmp_path)
     monkeypatch.setattr(
-        "esphome_device_builder.controllers.editor._find_esphome_cmd",
+        "esphome_device_builder.controllers.editor.find_esphome_cmd",
         lambda: ["esphome"],
     )
 

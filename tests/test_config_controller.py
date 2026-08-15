@@ -1513,7 +1513,7 @@ def test_read_descriptor_file_returns_none_on_oserror(tmp_path: Path) -> None:
 async def test_run_esptool_calls_run_subprocess_capture_with_resolved_cmd(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``_run_esptool`` resolves the CLI via ``_find_esptool_cmd`` and forwards args.
+    """``_run_esptool`` resolves the CLI via ``find_esptool_cmd`` and forwards args.
 
     Mocks ``run_subprocess_capture`` (the underlying one-shot helper) and
     asserts the full argv shape — sibling-script first slot, then the

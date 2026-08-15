@@ -857,7 +857,7 @@ When changing the sync script or catalog handling, watch for these:
 
 - **Don't swap `sys.executable` for a sibling `python`.** It silently
   jumps to a different interpreter (e.g. system Python without `esphome`)
-  → "No module named esphome" at compile time. `_find_esphome_cmd` uses
+  → "No module named esphome" at compile time. `find_esphome_cmd` uses
   `sys.executable` directly.
 - **`extends:` references need a deep merge.** The schema uses partial
   overrides — `dht.sensor.humidity.config_vars.device_class` carries only
