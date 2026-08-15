@@ -23,15 +23,7 @@ def _helper_modules() -> list[str]:
 
 
 def test_helpers_import_standalone() -> None:
-    """No helper module depends on ``controllers.*`` (or anything else) importing first.
-
-    A ``helpers`` module that imports ``controllers.*`` can form a
-    cycle that only surfaces when the helper is imported before the
-    controller package — ``helpers.config_bundle`` hit exactly this
-    via ``controllers.firmware.remote_runner``. Each module is
-    imported into a purged ``sys.modules`` so it is always the very
-    first package module loaded, in one subprocess.
-    """
+    """No helper module depends on ``controllers.*`` (or anything else) importing first."""
     modules = _helper_modules()
     assert "esphome_device_builder.helpers.config_bundle" in modules
     script = textwrap.dedent(
@@ -42,6 +34,7 @@ def test_helpers_import_standalone() -> None:
 
         failures = []
         for mod in %r:
+            # Purge the package so each module is the very first package import.
             stale = [
                 name
                 for name in sys.modules
