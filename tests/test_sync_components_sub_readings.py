@@ -360,4 +360,6 @@ def test_catalog_singleton_base_ids_advanced_multi_stay_shown() -> None:
     spi = {e["key"]: e for e in _load_body("sensor.bmp280_spi")["config_entries"]}
     assert spi["spi_id"].get("advanced", False) is False
     ble = {e["key"]: e for e in _load_body("sensor.mopeka_pro_check")["config_entries"]}
-    assert ble["esp32_ble_id"].get("advanced", False) is False
+    # 2026.8 renamed the hub binding key esp32_ble_id -> ble_hub_id.
+    hub_id = "ble_hub_id" if "ble_hub_id" in ble else "esp32_ble_id"
+    assert ble[hub_id].get("advanced", False) is False

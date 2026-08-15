@@ -47,6 +47,20 @@ def test_empty_schema_wrapper_collapses(schema_dir: Path) -> None:
     assert not entry.get("config_entries")
 
 
+def test_trigger_only_nested_group_drops(schema_dir: Path) -> None:
+    """The mitsubishi_cn105 ``vane`` shape: every child filters away, so the group goes."""
+    raw = {
+        "key": "Optional",
+        "type": "schema",
+        "schema": {
+            "config_vars": {
+                "on_state": {"key": "Optional", "type": "trigger"},
+            },
+        },
+    }
+    assert _convert_field("vane", raw, schema_dir) is None
+
+
 def test_local_field_reuses_root_extends_ref(schema_dir: Path) -> None:
     """A local field re-extending the root's ref expands; it isn't a cycle."""
     node = {

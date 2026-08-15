@@ -713,7 +713,7 @@ _MACHINE_DERIVED_RANGE_FIELDS: set[tuple[str, tuple[str, ...]]] = {
 # upstream validates each rate and a re-sync captures it; CN105's choice is
 # permanent (variable by heat-pump model).
 _CURATED_BUS_CONSTRAINTS: dict[str, dict[str, dict[str, Any]]] = {
-    "climate.mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
+    "mitsubishi_cn105": {"uart": {"baud_rate": [2400, 9600]}},
     "sensor.bl0940": {"uart": {"baud_rate": 4800}},
     "sensor.pzem004t": {"uart": {"baud_rate": 9600}},
     "sensor.senseair": {"uart": {"baud_rate": 9600}},
@@ -3523,6 +3523,12 @@ def _convert_field(  # noqa: PLR0912, PLR0915, C901
     # Recurse into nested schemas for type=nested.
     if entry_type == "nested" and isinstance(inner_schema, dict):
         inner = _convert_config_vars(inner_schema, schema_dir, _seen_refs=_seen_refs)
+        if not inner and not inner_schema.get("extends"):
+            # Every own child filtered away (a trigger-only group like
+            # mitsubishi_cn105's vane) — drop the empty dead-end group.
+            # An extends-carrying group stays: its emptiness is a cycle
+            # guard or an unresolved base, not a dead end.
+            return None
         entry["config_entries"] = inner or None
         entry["platform_type"] = _detect_platform_type(inner_schema)
         # When every child would render as advanced anyway, hide the

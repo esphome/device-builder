@@ -101,7 +101,14 @@ def test_cv_all_wrapped_final_validate_is_unwrapped(tmp_path: Path) -> None:
 
 def test_curated_cn105_is_a_baud_choice_list() -> None:
     """CN105's rate is heat-pump-dependent, so it's curated as a 2400/9600 choice."""
-    assert _CURATED_BUS_CONSTRAINTS["climate.mitsubishi_cn105"]["uart"]["baud_rate"] == [2400, 9600]
+    assert _CURATED_BUS_CONSTRAINTS["mitsubishi_cn105"]["uart"]["baud_rate"] == [2400, 9600]
+
+
+def _cn105_body() -> dict[str, Any]:
+    """Load the CN105 uart owner: the 2026.8 hub when shipped, else the legacy climate platform."""
+    hub = _OUTPUT_BODIES_DIR / "mitsubishi_cn105.json"
+    path = hub if hub.exists() else _OUTPUT_BODIES_DIR / "climate.mitsubishi_cn105.json"
+    return orjson.loads(path.read_bytes())
 
 
 def test_curated_fixed_baud_rows_are_scalars() -> None:
@@ -143,7 +150,7 @@ def test_apply_curated_is_noop_for_unlisted_component() -> None:
 
 def test_shipped_catalog_carries_curated_baud() -> None:
     """The generated bodies merge the curated baud (CN105 list, sim800l onto its require_*)."""
-    cn105 = orjson.loads((_OUTPUT_BODIES_DIR / "climate.mitsubishi_cn105.json").read_bytes())
+    cn105 = _cn105_body()
     assert cn105["bus_constraints"]["uart"]["baud_rate"] == [2400, 9600]
     sim = orjson.loads((_OUTPUT_BODIES_DIR / "sim800l.json").read_bytes())
     assert sim["bus_constraints"]["uart"]["baud_rate"] == 9600
@@ -152,8 +159,7 @@ def test_shipped_catalog_carries_curated_baud() -> None:
 
 def test_shipped_catalog_captures_cn105_cv_all_constraints() -> None:
     """CN105's cv.All-wrapped FINAL_VALIDATE constraints land beside the curated baud."""
-    cn105 = orjson.loads((_OUTPUT_BODIES_DIR / "climate.mitsubishi_cn105.json").read_bytes())
-    uart = cn105["bus_constraints"]["uart"]
+    uart = _cn105_body()["bus_constraints"]["uart"]
     assert uart["parity"] == "EVEN"
     assert uart["require_rx"] is True
     assert uart["require_tx"] is True
