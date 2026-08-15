@@ -336,6 +336,18 @@ def test_quarantine_survives_backwards_clock(tmp_path: Path) -> None:
     assert b'{"truncated":' in contents
 
 
+def test_quarantine_ignores_non_decimal_corrupt_suffixes(tmp_path: Path) -> None:
+    """A stray ``.corrupt.²`` file neither raises nor is pruned."""
+    stray = tmp_path / ".device-builder.json.corrupt.²"
+    stray.write_bytes(b"stray")
+    (tmp_path / ".device-builder.json.corrupt").write_bytes(b"original")
+    (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
+
+    assert _load_metadata_guarded(tmp_path, quarantine=True) == ({}, True)
+
+    assert stray.read_bytes() == b"stray"
+
+
 def test_metadata_transaction_discards_write_when_quarantine_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

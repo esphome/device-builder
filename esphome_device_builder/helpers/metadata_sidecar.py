@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import os
 import stat
@@ -147,16 +146,20 @@ def _prune_corrupt_siblings(path: Path, fresh: Path) -> None:
     # ``fresh`` is exempt regardless of its stamp — ``time.time_ns`` is
     # wall-clock, and a pre-NTP boot or backwards correction can stamp
     # the copy just written below its older siblings.
+    # ``isdecimal`` (not ``isdigit``) — the latter admits codepoints
+    # like superscripts that ``int()`` rejects.
     siblings = sorted(
-        (p for p in path.parent.glob(f"{_METADATA_CORRUPT_FILE}.*") if p.suffix[1:].isdigit()),
+        (p for p in path.parent.glob(f"{_METADATA_CORRUPT_FILE}.*") if p.suffix[1:].isdecimal()),
         key=lambda p: int(p.suffix[1:]),
     )
     keep = set(siblings[-_MAX_CORRUPT_SIBLINGS:])
     for stale in siblings:
         if stale in keep or stale == fresh:
             continue
-        with contextlib.suppress(OSError):
+        try:
             stale.unlink()
+        except OSError as err:
+            _LOGGER.debug("Could not prune corrupt sidecar copy %s: %s", stale, err)
 
 
 def _finish_transaction(
