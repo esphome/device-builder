@@ -223,24 +223,49 @@ def test_load_metadata_returns_empty_when_missing(tmp_path: Path) -> None:
     assert _load_metadata(tmp_path) == {}
 
 
-def test_load_metadata_side_renames_invalid_json(
+def test_load_metadata_quarantines_invalid_json(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Corrupt JSON returns empty, warns, and moves the file to ``.corrupt``.
+    """Corrupt JSON under ``quarantine=True`` warns and moves the file to ``.corrupt``."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b'{"truncated":')
 
-    Returning ``{}`` silently would let the next transaction's
-    atomic write-back permanently destroy the user-authored
-    fields still inside the corrupt bytes.
-    """
+    with caplog.at_level(logging.WARNING):
+        assert _load_metadata(tmp_path, quarantine=True) == {}
+
+    assert not metadata_path.exists()
+    assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b'{"truncated":'
+    assert "unparsable" in caplog.text
+
+
+def test_load_metadata_lock_free_read_never_quarantines(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The default lock-free read warns but leaves the corrupt file in place."""
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"truncated":')
 
     with caplog.at_level(logging.WARNING):
         assert _load_metadata(tmp_path) == {}
 
-    assert not metadata_path.exists()
-    assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b'{"truncated":'
+    assert metadata_path.read_bytes() == b'{"truncated":'
+    assert not (tmp_path / ".device-builder.json.corrupt").exists()
     assert "unparsable" in caplog.text
+
+
+def test_load_metadata_non_dict_sidecar_quarantines(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Valid JSON that isn't an object takes the same quarantine path."""
+    metadata_path = tmp_path / ".device-builder.json"
+    metadata_path.write_bytes(b"[]")
+
+    with caplog.at_level(logging.WARNING):
+        assert _load_metadata(tmp_path, quarantine=True) == {}
+
+    assert not metadata_path.exists()
+    assert (tmp_path / ".device-builder.json.corrupt").read_bytes() == b"[]"
+    assert "not an object" in caplog.text
 
 
 def test_load_metadata_missing_file_stays_silent(
@@ -258,7 +283,7 @@ def test_load_metadata_never_clobbers_earlier_corrupt_copy(tmp_path: Path) -> No
     corrupt_path.write_bytes(b'{"kitchen.yaml": {"friendly_name": "Kit')
     (tmp_path / ".device-builder.json").write_bytes(b"{}trailing")
 
-    assert _load_metadata(tmp_path) == {}
+    assert _load_metadata(tmp_path, quarantine=True) == {}
 
     assert corrupt_path.read_bytes() == b'{"kitchen.yaml": {"friendly_name": "Kit'
     siblings = list(tmp_path.glob(".device-builder.json.corrupt.*"))
@@ -269,12 +294,12 @@ def test_load_metadata_never_clobbers_earlier_corrupt_copy(tmp_path: Path) -> No
 def test_load_metadata_race_already_moved_stays_quiet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A concurrent reader winning the side-rename is not a rename failure."""
+    """Another process winning the side-rename is not a rename failure."""
     (tmp_path / ".device-builder.json").write_bytes(b'{"truncated":')
     monkeypatch.setattr(Path, "replace", MagicMock(side_effect=FileNotFoundError))
 
     with caplog.at_level(logging.WARNING):
-        assert _load_metadata(tmp_path) == {}
+        assert _load_metadata(tmp_path, quarantine=True) == {}
     assert "Could not move" not in caplog.text
 
 
@@ -286,7 +311,7 @@ def test_load_metadata_survives_failed_side_rename(
     monkeypatch.setattr(Path, "replace", MagicMock(side_effect=OSError("denied")))
 
     with caplog.at_level(logging.WARNING):
-        assert _load_metadata(tmp_path) == {}
+        assert _load_metadata(tmp_path, quarantine=True) == {}
     assert "Could not move corrupt metadata sidecar aside" in caplog.text
 
 

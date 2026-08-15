@@ -19,7 +19,7 @@ try:
 except ImportError:  # pragma: no cover — Windows path
     _HAS_FCNTL = False
 
-from .atomic_io import atomic_write, read_bytes_with_retry
+from .atomic_io import atomic_write, read_bytes_with_retry, replace_with_retry
 from .json import JSONDecodeError, dumps_indent, loads
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     """
     with _METADATA_LOCK:
         if not _HAS_FCNTL:
-            data = _load_metadata(config_dir)
+            data = _load_metadata(config_dir, quarantine=True)
             before = dumps_indent(data)
             yield data
             _save_metadata_if_changed(config_dir, data, before)
@@ -79,7 +79,7 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
             # lock) — a transient WS-command race should queue,
             # not fail.
             fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
-            data = _load_metadata(config_dir)
+            data = _load_metadata(config_dir, quarantine=True)
             before = dumps_indent(data)
             yield data
             _save_metadata_if_changed(config_dir, data, before)
@@ -90,7 +90,15 @@ def _open_metadata_lock_file(path: str, flags: int) -> int:
     return os.open(path, flags | os.O_NOFOLLOW, 0o644)
 
 
-def _load_metadata(config_dir: Path) -> dict[str, Any]:
+def _load_metadata(config_dir: Path, *, quarantine: bool = False) -> dict[str, Any]:
+    """
+    Load the sidecar dict; corrupt content returns ``{}``.
+
+    ``quarantine=True`` (only safe under ``metadata_transaction``'s
+    locks) side-renames corrupt content to ``.corrupt`` so the
+    write-back can't destroy it; lock-free readers must stay pure —
+    a stale decode racing a rewrite would quarantine the fresh file.
+    """
     path = config_dir / _METADATA_FILE
     try:
         # orjson decodes bytes directly, so skip the read_text → encode
@@ -99,31 +107,40 @@ def _load_metadata(config_dir: Path) -> dict[str, Any]:
         # against a concurrent ``_save_metadata`` replace — the read is
         # lock-free, so it can open the file mid-rename.
         data = loads(read_bytes_with_retry(path))
-        return data if isinstance(data, dict) else {}
     except FileNotFoundError:
         return {}
     except JSONDecodeError as err:
-        # Side-rename before returning empty — the next transaction's
-        # write-back atomically replaces the file, which would silently
-        # destroy the user-authored fields still inside the corrupt bytes.
-        corrupt_path = path.with_name(_METADATA_CORRUPT_FILE)
-        if corrupt_path.exists():
-            # An earlier incident's copy holds the richest bytes (the
-            # regenerated sidecar starts sparse) — never clobber it.
-            corrupt_path = corrupt_path.with_name(f"{_METADATA_CORRUPT_FILE}.{time.time_ns()}")
-        _LOGGER.warning(
-            "Metadata sidecar %s is unparsable (%s); moving it to %s and starting fresh",
-            path,
-            err,
-            corrupt_path,
-        )
-        try:
-            path.replace(corrupt_path)
-        except FileNotFoundError:
-            pass  # a concurrent reader already moved it aside
-        except OSError as rename_err:
-            _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
+        _handle_corrupt_sidecar(path, str(err), quarantine=quarantine)
         return {}
+    if isinstance(data, dict):
+        return data
+    _handle_corrupt_sidecar(
+        path, f"top-level {type(data).__name__} is not an object", quarantine=quarantine
+    )
+    return {}
+
+
+def _handle_corrupt_sidecar(path: Path, reason: str, *, quarantine: bool) -> None:
+    if not quarantine:
+        _LOGGER.warning("Metadata sidecar %s is unparsable (%s)", path, reason)
+        return
+    corrupt_path = path.with_name(_METADATA_CORRUPT_FILE)
+    if corrupt_path.exists():
+        # An earlier incident's copy holds the richest bytes (the
+        # regenerated sidecar starts sparse) — never clobber it.
+        corrupt_path = corrupt_path.with_name(f"{_METADATA_CORRUPT_FILE}.{time.time_ns()}")
+    _LOGGER.warning(
+        "Metadata sidecar %s is unparsable (%s); moving it to %s and starting fresh",
+        path,
+        reason,
+        corrupt_path,
+    )
+    try:
+        replace_with_retry(path, corrupt_path)
+    except FileNotFoundError:
+        pass  # another process already moved it aside (no-flock platforms)
+    except OSError as rename_err:
+        _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
 
 
 def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:

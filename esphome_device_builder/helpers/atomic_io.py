@@ -61,7 +61,7 @@ def atomic_write(
     """
     if make_parents:
         path.parent.mkdir(parents=True, exist_ok=True)
-    _staged_write(path, data, mode=mode, publish=_replace_with_retry)
+    _staged_write(path, data, mode=mode, publish=replace_with_retry)
 
 
 def atomic_write_preserving_mode(path: Path, data: bytes, *, default_mode: int = 0o644) -> None:
@@ -98,6 +98,11 @@ def atomic_write_exclusive(path: Path, data: bytes, *, mode: int = 0o644) -> Non
 def read_bytes_with_retry(path: Path) -> bytes:
     """Read *path*'s bytes, retried on a Windows handle race with a concurrent replace."""
     return _retry_windows_permission(path.read_bytes)
+
+
+def replace_with_retry(src: Path, dst: Path) -> None:
+    """``Path.replace`` *src* onto *dst*, retried on a Windows handle race."""
+    _retry_windows_permission(lambda: src.replace(dst))
 
 
 def read_text_with_stat(path: Path) -> tuple[os.stat_result, str]:
@@ -180,11 +185,6 @@ def _publish_exclusive(src: Path, dst: Path) -> None:
     # ``PermissionError``); a transient hold by an AV / indexer gets
     # the shared retry policy.
     _retry_windows_permission(lambda: src.rename(dst))
-
-
-def _replace_with_retry(src: Path, dst: Path) -> None:
-    """``Path.replace`` *src* onto *dst*, retried on a Windows handle race."""
-    _retry_windows_permission(lambda: src.replace(dst))
 
 
 def _retry_windows_permission[T](op: Callable[[], T], retries: int = _REPLACE_RETRIES) -> T:
