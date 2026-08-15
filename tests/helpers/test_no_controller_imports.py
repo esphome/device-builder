@@ -55,12 +55,17 @@ def _module_scope_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportF
 
 
 def _is_type_checking_guard(node: ast.stmt) -> bool:
-    """Report whether *node* is ``if TYPE_CHECKING:`` (bare or ``typing.``-qualified)."""
+    """Report whether *node* is ``if TYPE_CHECKING:`` or ``if typing.TYPE_CHECKING:``."""
     if not isinstance(node, ast.If):
         return False
     test = node.test
-    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
-        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id == "typing"
     )
 
 
