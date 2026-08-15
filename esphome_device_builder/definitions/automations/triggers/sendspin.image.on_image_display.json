@@ -1,0 +1,1 @@
+{"id":"sendspin.image.on_image_display","name":"Image.Sendspin → On Image Display","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["image.sendspin"],"is_device_level":false,"supports_list":true,"config_entries":[]}

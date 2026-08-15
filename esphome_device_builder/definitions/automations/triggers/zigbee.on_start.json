@@ -1,0 +1,1 @@
+{"id":"zigbee.on_start","name":"Zigbee → On Start","description":"Automation to run when the Zigbee stack is fully initialized and can be interacted with. It will then try to (re-)join a network.","docs_url":"https://esphome.io/components/zigbee#configuration-variables","applies_to":["zigbee"],"is_device_level":false,"supports_list":true,"config_entries":[]}

@@ -1,0 +1,1 @@
+{"id":"modbus_client.on_custom_response","name":"Modbus Client → On Custom Response","description":"","docs_url":"https://esphome.io/automations/actions","applies_to":["modbus_client"],"is_device_level":false,"supports_list":false,"config_entries":[]}

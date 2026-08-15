@@ -1,9 +1,311 @@
 {
   "rules": [
     {
+      "component": "airthings_ble",
+      "kind": "component_block_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id"
+    },
+    {
+      "component": "mopeka_ble",
+      "kind": "component_block_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id"
+    },
+    {
+      "component": "radon_eye_ble",
+      "kind": "component_block_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id"
+    },
+    {
+      "component": "ruuvi_ble",
+      "kind": "component_block_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id"
+    },
+    {
+      "component": "xiaomi_ble",
+      "kind": "component_block_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id"
+    },
+    {
+      "component": "xiaomi_rtcgq02lm",
+      "kind": "component_block_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id"
+    },
+    {
       "kind": "component_key",
       "new": "rp2",
       "old": "rp2040"
+    },
+    {
+      "domain": "binary_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "ble_presence"
+    },
+    {
+      "domain": "binary_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_cgpr1"
+    },
+    {
+      "domain": "binary_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_mjyd02yla"
+    },
+    {
+      "domain": "binary_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_mue4094rt"
+    },
+    {
+      "domain": "binary_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_wx08zm"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "atc_mithermometer"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "b_parasite"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "ble_rssi"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "bthome_mithermometer"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "inkbird_ibsth1_mini"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "mopeka_pro_check"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "mopeka_std_check"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "pvvx_mithermometer"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "ruuvitag"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "nox_index",
+      "old": "nox",
+      "platform": "sen5x"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "voc_index",
+      "old": "voc",
+      "platform": "sen5x"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "nox_index",
+      "old": "nox",
+      "platform": "sen6x"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "voc_index",
+      "old": "voc",
+      "platform": "sen6x"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "nox_index",
+      "old": "nox",
+      "platform": "sgp4x"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "voc_index",
+      "old": "voc",
+      "platform": "sgp4x"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "thermopro_ble"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_cgd1"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_cgdk2"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_cgg1"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_gcls002"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_hhccjcy01"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_hhccjcy10"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_hhccpot002"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_jqjcy01ym"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_lywsd02"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_lywsd02mmc"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_lywsd03mmc"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_lywsdcgq"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_mhoc303"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_mhoc401"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_miscale"
+    },
+    {
+      "domain": "sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "xiaomi_xmwsdj04mmc"
+    },
+    {
+      "domain": "text_sensor",
+      "kind": "platform_item_field",
+      "new": "ble_hub_id",
+      "old": "esp32_ble_id",
+      "platform": "ble_scanner"
     }
   ]
 }
