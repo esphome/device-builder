@@ -27,6 +27,7 @@ from .constants import (
 from .helpers.credentials import resolve_credentials
 from .helpers.logging import activate_log_queue_handler
 from .helpers.startup_timing import StartupTimer
+from .helpers.windows_error_mode import suppress_child_error_dialogs
 
 if TYPE_CHECKING:
     from .controllers.config import DashboardSettings
@@ -370,6 +371,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _exit_cleanly_on_signal)
     if sys.platform == "win32":
         signal.signal(signal.SIGBREAK, _exit_cleanly_on_signal)
+        suppress_child_error_dialogs()
 
     parser = _build_arg_parser()
 
