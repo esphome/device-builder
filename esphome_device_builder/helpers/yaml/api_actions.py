@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import re
 
-from ...helpers.yaml.scan import child_block_end, is_list_item_line
 from ...models.automations import YamlDiff
+from .scan import child_block_end, is_list_item_line
 
 #: Accepted spellings, canonical first — esphome's ``cv.rename_key``
 #: aliases in ``components/api``. The catalog sync fails when upstream

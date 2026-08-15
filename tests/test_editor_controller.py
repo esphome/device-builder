@@ -1282,8 +1282,8 @@ async def test_migrate_config_null_when_canonical(tmp_path: Path) -> None:
 async def test_migrate_config_applies_generated_rules(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from esphome_device_builder.controllers import migrations  # noqa: PLC0415
     from esphome_device_builder.definitions import MigrationRule  # noqa: PLC0415
+    from esphome_device_builder.helpers import migrations  # noqa: PLC0415
 
     rule = MigrationRule(
         kind="platform_item_field", old="voc", new="voc_index", domain="sensor", platform="sgp4x"

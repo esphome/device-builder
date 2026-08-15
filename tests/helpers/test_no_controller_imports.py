@@ -49,8 +49,12 @@ def _module_scope_imports(tree: ast.Module) -> Iterator[ast.Import | ast.ImportF
         elif _is_type_checking_guard(node):
             stack.extend(node.orelse)
         else:
+            # ``excepthandler`` / ``match_case`` are not ``stmt`` subclasses;
+            # without them an ``except ImportError:`` arm hides its imports.
             stack.extend(
-                child for child in ast.iter_child_nodes(node) if isinstance(child, ast.stmt)
+                child
+                for child in ast.iter_child_nodes(node)
+                if isinstance(child, (ast.stmt, ast.excepthandler, ast.match_case))
             )
 
 

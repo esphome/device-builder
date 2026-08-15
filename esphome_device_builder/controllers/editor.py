@@ -19,11 +19,11 @@ from fnv_hash_fast import fnv1a_32
 from ..helpers.api import api_command
 from ..helpers.async_ import drain_tasks, run_in_executor
 from ..helpers.json import JSONDecodeError, dumps, loads
+from ..helpers.migrations import render_migrations
 from ..helpers.process import kill_quietly
 from ..helpers.sibling_cli import find_esphome_cmd
 from ..helpers.subprocess import create_subprocess_exec
 from ..models.automations import MigrateConfigResponse
-from .migrations import render_migrations
 
 if TYPE_CHECKING:
     from ..device_builder import DeviceBuilder

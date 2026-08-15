@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from ...helpers.api import CommandError
-from ...helpers.yaml.scan import block_end_index, find_block_header, top_list_item_starts
 from ...models.api import ErrorCode
 from ...models.automations import YamlDiff
+from ..api import CommandError
+from .scan import block_end_index, find_block_header, top_list_item_starts
 
 
 def _indent_for_top_list(rendered_item: str) -> str:

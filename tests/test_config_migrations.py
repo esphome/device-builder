@@ -6,13 +6,13 @@ from collections.abc import Callable
 
 import pytest
 
-from esphome_device_builder.controllers import migrations
 from esphome_device_builder.controllers.automations.parsing import parse_device_yaml
-from esphome_device_builder.controllers.migrations import (
+from esphome_device_builder.definitions import MigrationRule
+from esphome_device_builder.helpers import migrations
+from esphome_device_builder.helpers.migrations import (
     has_pending_migrations,
     render_migrations,
 )
-from esphome_device_builder.definitions import MigrationRule
 from esphome_device_builder.migration_rule_kinds import MIGRATION_RULE_EXTRA_FIELDS
 
 _LEGACY_API_YAML = """esphome:

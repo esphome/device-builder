@@ -20,6 +20,7 @@ from ...models import Device, DeviceRuntimeState
 from ...models.boards import normalize_platform
 from ..atomic_io import read_text_with_stat
 from ..mac_addresses import derive_interface_macs
+from ..migrations import has_pending_migrations
 from ..storage_path import resolve_storage_path
 from ..validated_config_cache import find_validated_cache, parse_validated_cache
 from ._mqtt_block import build_mqtt_extract
@@ -124,11 +125,6 @@ def load_device_from_storage(
     read; resolved-only fields degrade to their raw-text / StorageJSON
     fallbacks.
     """
-    # Function-local: the migrations fold lives in controllers (it folds
-    # controllers.automations), and helpers must not module-scope-import
-    # controllers — tests/helpers/test_no_controller_imports.py.
-    from ...controllers.migrations import has_pending_migrations  # noqa: PLC0415
-
     filename = path.name
     storage = StorageJSON.load(resolve_storage_path(filename))
 

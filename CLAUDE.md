@@ -393,7 +393,7 @@ against legacy behaviour before assuming the simpler version suffices.
   every discovered `cv.rename_key`: a *direct* pair (the validator sits
   on a component or platform schema's own mapping) is emitted to the
   generated `definitions/migration_rules.index.json`, which
-  `editor/migrate_config` (`controllers/migrations.py`) folds as
+  `editor/migrate_config` (`helpers/migrations.py`) folds as
   data-driven rules — a plain upstream rename ships with zero
   hand-written code. Data-driven pairs get the migration leg *only*:
   esphome itself still accepts the legacy spelling, and the one-click

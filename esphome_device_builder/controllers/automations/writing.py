@@ -24,6 +24,7 @@ from ...helpers.yaml import (
     YamlUpsertNotSupportedError,
     _indent_block,
     _splice_into_domain_block,
+    api_actions,
     child_block_end,
     remove_inline_handler,
     remove_nested_handler,
@@ -31,6 +32,12 @@ from ...helpers.yaml import (
     upsert_inline_handler,
     upsert_nested_handler,
     upsert_subentity_handler,
+)
+from ...helpers.yaml.writing_layout import (
+    _build_diff_for_append,
+    _indent_for_top_list,
+    _locate_singleton_block,
+    _locate_top_list_item,
 )
 from ...models.api import ErrorCode
 from ...models.automations import (
@@ -46,7 +53,7 @@ from ...models.automations import (
     ScriptLocation,
     YamlDiff,
 )
-from . import api_actions, catalog
+from . import catalog
 from .emitter import (
     dump,
     emit_trigger_list_item,
@@ -63,12 +70,6 @@ from .parsing import (
     resolve_action_field_target,
     resolve_component_domain,
     resolve_component_target,
-)
-from .writing_layout import (
-    _build_diff_for_append,
-    _indent_for_top_list,
-    _locate_singleton_block,
-    _locate_top_list_item,
 )
 from .writing_lists import (
     ListContainerStrategy,

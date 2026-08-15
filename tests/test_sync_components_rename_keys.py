@@ -138,12 +138,12 @@ def test_registry_sweep_finds_and_handles_the_homeassistant_action_pair(cv: Modu
 
 def test_handled_list_matches_the_writer_constants() -> None:
     """Every _HANDLED_RENAME_KEYS entry must have a writer/canonicalizer counterpart."""
-    from esphome_device_builder.controllers.automations.api_actions import (  # noqa: PLC0415
+    from esphome_device_builder.helpers.migrations import (  # noqa: PLC0415
+        _ACTION_NODE_RENAMES,
+    )
+    from esphome_device_builder.helpers.yaml.api_actions import (  # noqa: PLC0415
         BLOCK_KEYS,
         ITEM_KEYS,
-    )
-    from esphome_device_builder.controllers.migrations import (  # noqa: PLC0415
-        _ACTION_NODE_RENAMES,
     )
     from script.sync_components import _HANDLED_RENAME_KEYS  # noqa: PLC0415
 

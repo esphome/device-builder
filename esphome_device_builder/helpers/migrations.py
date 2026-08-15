@@ -21,7 +21,9 @@ from dataclasses import dataclass
 from functools import cache
 
 from ..definitions import MigrationRule, load_migration_rules_index
-from ..helpers.yaml.scan import (
+from ..models.automations import YamlDiff
+from .yaml import api_actions
+from .yaml.scan import (
     block_end_index,
     child_block_end,
     is_list_item_line,
@@ -29,9 +31,7 @@ from ..helpers.yaml.scan import (
     top_level_key_index,
     top_list_item_starts,
 )
-from ..models.automations import YamlDiff
-from .automations import api_actions
-from .automations.writing_layout import (
+from .yaml.writing_layout import (
     _build_diff_for_append,
     _locate_singleton_block,
 )
