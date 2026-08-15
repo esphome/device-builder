@@ -363,19 +363,21 @@ def test_quarantine_ignores_non_decimal_corrupt_suffixes(tmp_path: Path) -> None
     assert stray.read_bytes() == b"stray"
 
 
-def test_metadata_transaction_discards_write_when_quarantine_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_metadata_transaction_raises_when_quarantine_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A write-back never lands on top of corrupt bytes that couldn't be moved aside."""
     metadata_path = tmp_path / ".device-builder.json"
     metadata_path.write_bytes(b'{"truncated":')
     monkeypatch.setattr(Path, "replace", MagicMock(side_effect=OSError("denied")))
 
-    with caplog.at_level(logging.WARNING), metadata_transaction(tmp_path) as data:
+    with (
+        pytest.raises(OSError, match="could not be quarantined"),
+        metadata_transaction(tmp_path) as data,
+    ):
         data["office.yaml"] = {"board_id": "esp32"}
 
     assert metadata_path.read_bytes() == b'{"truncated":'
-    assert "Discarding metadata write-back" in caplog.text
 
 
 def test_load_metadata_survives_failed_side_rename(

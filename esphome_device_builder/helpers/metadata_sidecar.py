@@ -57,8 +57,9 @@ def metadata_transaction(config_dir: Path) -> Iterator[dict[str, Any]]:
     ``fcntl.flock`` on the sibling lock file — needed for the HA
     addon multi-flavor shape where Prod/Beta/DEV share
     ``/config/esphome``. Exceptions inside the block skip the
-    save, and so does a corrupt sidecar that could not be
-    quarantined. The per-process lock is non-reentrant; nested calls
+    save; a corrupt sidecar that could not be quarantined raises
+    ``OSError`` at exit instead of overwriting it.
+    The per-process lock is non-reentrant; nested calls
     deadlock by design (each call loads its own snapshot, so
     nesting would clobber the inner write at the outer's exit).
     Windows / no-fcntl degrades to per-process only.
@@ -133,7 +134,9 @@ def _handle_corrupt_sidecar(path: Path, reason: str, *, quarantine: bool) -> boo
     try:
         replace_with_retry(path, corrupt_path)
     except FileNotFoundError:
-        return True  # another process already moved it aside (no-flock platforms)
+        # Another process already moved it aside (no-flock platforms).
+        _LOGGER.debug("Corrupt metadata sidecar %s already moved aside", path)
+        return True
     except OSError as rename_err:
         _LOGGER.warning("Could not move corrupt metadata sidecar aside: %s", rename_err)
         return False
@@ -165,10 +168,12 @@ def _prune_corrupt_siblings(path: Path, fresh: Path) -> None:
 def _finish_transaction(
     config_dir: Path, data: dict[str, Any], before: bytes, *, safe: bool
 ) -> None:
-    if safe:
-        _save_metadata_if_changed(config_dir, data, before)
-        return
-    _LOGGER.warning("Discarding metadata write-back; the corrupt sidecar is still in place")
+    if not safe:
+        # Same failure surface as a failed ``atomic_write`` — loud, so
+        # callers with an ``except OSError`` degrade instead of acting
+        # on a write that never landed.
+        raise OSError("Metadata write-back aborted; the corrupt sidecar could not be quarantined")
+    _save_metadata_if_changed(config_dir, data, before)
 
 
 def _save_metadata(config_dir: Path, data: dict[str, Any]) -> None:
