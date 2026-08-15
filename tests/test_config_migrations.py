@@ -88,7 +88,12 @@ def test_prefilter_covers_every_bespoke_rule() -> None:
         "_canonicalize_action_nodes": _LEGACY_HA_YAML,
         "_migrate_ethernet_clk": _ETHERNET_YAML,
     }
-    bespoke = {rule.__name__ for rule in migrations._RULES} - {"_apply_generated_renames"}
+    bespoke = set()
+    for rule, tokens in migrations._RULES:
+        if rule.__name__ == "_apply_generated_renames":
+            continue
+        assert tokens, rule.__name__
+        bespoke.add(rule.__name__)
     assert bespoke == set(fixtures)
     for name, text in fixtures.items():
         assert render_migrations(text) is not None, name

@@ -64,13 +64,6 @@ _SCALAR_HEADER_RE = re.compile(r"[|>][0-9+-]*\s*$")
 
 _ETHERNET_CLK_MODE_KEY = "clk_mode"
 
-# A substring each bespoke rule in ``_RULES`` needs present before it can
-# fire; the data-driven tokens join from the rules index at predicate time.
-_BESPOKE_LEGACY_TOKENS = frozenset(
-    {_ETHERNET_CLK_MODE_KEY, *api_actions.BLOCK_KEYS[1:], *api_actions.ITEM_KEYS[1:]}
-    | {t for r in _ACTION_NODE_RENAMES for t in (r.legacy_id, r.legacy_field)}
-)
-
 
 def render_migrations(yaml_text: str) -> tuple[str, YamlDiff] | None:
     """
@@ -80,7 +73,7 @@ def render_migrations(yaml_text: str) -> tuple[str, YamlDiff] | None:
     changed span, or ``None`` when nothing needed migrating.
     """
     out = yaml_text.splitlines(keepends=True)
-    for rule in _RULES:
+    for rule, _tokens in _RULES:
         out = rule(out)
     new_text = "".join(out)
     if new_text == yaml_text:
@@ -504,9 +497,19 @@ def _entry_value(line: str, col: int) -> str:
     return value
 
 
+# Each bespoke rule is paired with the substrings it needs present before it
+# can fire, so a rule can't join the fold without feeding the prefilter; the
+# generated leg's tokens join from the rules index at predicate time.
 _RULES = (
-    _canonicalize_api_actions,
-    _canonicalize_action_nodes,
-    _migrate_ethernet_clk,
-    _apply_generated_renames,
+    (
+        _canonicalize_api_actions,
+        frozenset((*api_actions.BLOCK_KEYS[1:], *api_actions.ITEM_KEYS[1:])),
+    ),
+    (
+        _canonicalize_action_nodes,
+        frozenset(t for r in _ACTION_NODE_RENAMES for t in (r.legacy_id, r.legacy_field)),
+    ),
+    (_migrate_ethernet_clk, frozenset((_ETHERNET_CLK_MODE_KEY,))),
+    (_apply_generated_renames, frozenset()),
 )
+_BESPOKE_LEGACY_TOKENS = frozenset().union(*(tokens for _, tokens in _RULES))
