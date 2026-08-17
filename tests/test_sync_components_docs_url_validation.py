@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from script.sync_components import (  # type: ignore[import-not-found]
+import script.sync_components as sc  # type: ignore[import-not-found]
+from script.sync_components import (
     _assert_docs_urls_valid,
     _docs_page_path,
     _repair_help_links,
@@ -269,3 +270,22 @@ def test_assert_ignores_non_component_help_links() -> None:
 def test_blockquote_code_span_mention_does_not_rescue() -> None:
     pages = {"esphome": "> Creators can provide `dashboard_import` URL for end users.\n"}
     assert _resolve_docs_url("", "dashboard_import", pages) == ("", None)
+
+
+def test_assert_curated_help_links_pass_when_live(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        sc, "_UART_DEBUG_OVERRIDE", {"help_link": "https://esphome.io/components/uart#debugging"}
+    )
+    monkeypatch.setattr(sc, "_FIELD_OVERRIDES", {})
+    sc._assert_curated_help_links_valid({"uart": "## Debugging\n"})
+
+
+def test_assert_curated_help_links_raise_on_stale_anchor(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        sc,
+        "_FIELD_OVERRIDES",
+        {("x", "y"): {"nested": [{"help_link": "https://esphome.io/components/uart#gone"}]}},
+    )
+    monkeypatch.setattr(sc, "_UART_DEBUG_OVERRIDE", {})
+    with pytest.raises(SystemExit, match="curated help_link"):
+        sc._assert_curated_help_links_valid({"uart": "## Debugging\n"})
