@@ -39,6 +39,7 @@ featured_components:
       locked: true
   requires:
   - uart_modbus_server
+  - modbus_server
 - id: uart_modbus_server
   component_id: uart
   fields:

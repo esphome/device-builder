@@ -45,6 +45,7 @@ featured_components:
       locked: true
   requires:
   - modbus_uart
+  - modbus_hub
 - id: modbus_uart
   component_id: uart
   fields:

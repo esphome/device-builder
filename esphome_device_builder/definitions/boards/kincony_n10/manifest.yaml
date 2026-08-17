@@ -45,6 +45,7 @@ featured_components:
   fields: {}
   requires:
   - uart_bus
+  - modbus_bus
 - id: uart_bus
   component_id: uart
   fields:
