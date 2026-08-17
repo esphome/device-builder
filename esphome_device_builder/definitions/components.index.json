@@ -962,5 +962,5 @@
 {"category":"ota","description":"Over-the-Air firmware updates. When `ota:` is configured as a bare mapping (no `- platform:` list — the legacy form), ESPHome implicitly uses the `esphome` platform. Modern configs select a platform explicitly: available platforms are `esphome`, `http_request`, `web_server`, `zephyr_mcumgr`.","docs_url":"https://esphome.io/components/ota/","id":"ota","image_url":"https://esphome.io/images/system-update.svg","name":"OTA Updates"},
 {"category":"time","description":"Time source / real-time clock for the device. When `time:` is configured as a bare mapping (no `- platform:` list — the legacy form), ESPHome implicitly uses the `homeassistant` platform. Modern configs select a platform explicitly: available platforms are `bm8563`, `ds1307`, `gps`, `homeassistant`, `host`, `pcf85063`, `pcf8563`, `rx8130`, `sntp`, `zigbee`.","docs_url":"https://esphome.io/components/time/","id":"time","image_url":"https://esphome.io/images/home-assistant.svg","name":"Time Source"}
 ],
-"esphome_schema_version":"2026.8.0b3"
+"esphome_schema_version":"2026.8.0b4"
 }
