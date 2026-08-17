@@ -70,6 +70,7 @@ def _stub_mdx(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sc, "_load_mdx_descriptions", dict)
     monkeypatch.setattr(sc, "_load_mdx_field_descriptions", dict)
     monkeypatch.setattr(sc, "_load_mdx_field_sections", dict)
+    monkeypatch.setattr(sc, "_load_docs_page_index", lambda: {"image/animation": ""})
     monkeypatch.setattr(sc, "_shared_docs_page_aliases", lambda _documented: {})
 
 
