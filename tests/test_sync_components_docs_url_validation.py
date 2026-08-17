@@ -7,6 +7,7 @@ import pytest
 from script.sync_components import (  # type: ignore[import-not-found]
     _assert_docs_urls_valid,
     _docs_page_path,
+    _repair_help_links,
     _resolve_docs_url,
 )
 
@@ -129,3 +130,78 @@ def test_assert_raises_on_unknown_anchor() -> None:
     entries = [{"id": "a", "docs_url": "https://esphome.io/components/light#nope"}]
     with pytest.raises(SystemExit, match="no such anchor"):
         _assert_docs_urls_valid(entries, {"light": _XIAOMI_PAGE})
+
+
+def test_unique_code_span_mention_rescues_without_anchor() -> None:
+    pages = {"climate/climate_ir": "## Supported\n\n| Coolix | `coolix` | yes |\n"}
+    assert _resolve_docs_url("", "climate.coolix", pages) == (
+        "https://esphome.io/components/climate/climate_ir",
+        None,
+    )
+
+
+def test_ambiguous_code_span_mention_yields_no_link() -> None:
+    pages = {"a": "uses `color` here", "b": "also `color` here"}
+    assert _resolve_docs_url("", "color", pages) == ("", None)
+
+
+def test_repair_help_links_repoints_dead_page_to_component_url() -> None:
+    component = {
+        "id": "sensor.atc_mithermometer",
+        "docs_url": "https://esphome.io/components/sensor/xiaomi_ble#lywsd03mmc",
+        "config_entries": [
+            {"key": "a", "help_link": "https://esphome.io/components/sensor/atc_mithermometer#x"},
+            {"key": "b", "help_link": "https://esphome.io/components/sensor/xiaomi_ble#y"},
+            {"key": "c", "help_link": "https://esphome.io/automations/actions#z"},
+        ],
+    }
+    _repair_help_links([component], {"sensor/xiaomi_ble": ""})
+    entries = component["config_entries"]
+    assert entries[0]["help_link"] == "https://esphome.io/components/sensor/xiaomi_ble#lywsd03mmc"
+    assert entries[1]["help_link"] == "https://esphome.io/components/sensor/xiaomi_ble#y"
+    assert entries[2]["help_link"] == "https://esphome.io/automations/actions#z"
+
+
+def test_repair_help_links_drops_link_when_component_has_no_page() -> None:
+    component = {
+        "id": "sensor.ld6002b",
+        "docs_url": "",
+        "config_entries": [
+            {
+                "key": "outer",
+                "help_link": "https://esphome.io/components/sensor/ld6002b#v",
+                "config_entries": [
+                    {"key": "inner", "help_link": "https://esphome.io/components/sensor/ld6002b#v"}
+                ],
+            }
+        ],
+    }
+    _repair_help_links([component], {"light": ""})
+    assert "help_link" not in component["config_entries"][0]
+    assert "help_link" not in component["config_entries"][0]["config_entries"][0]
+
+
+def test_assert_raises_on_dead_help_link_page() -> None:
+    entries = [
+        {
+            "id": "a",
+            "docs_url": "",
+            "config_entries": [{"key": "f", "help_link": "https://esphome.io/components/nope#x"}],
+        }
+    ]
+    with pytest.raises(SystemExit, match="help_link"):
+        _assert_docs_urls_valid(entries, {"light": _XIAOMI_PAGE})
+
+
+def test_assert_ignores_help_link_anchors_and_non_component_links() -> None:
+    entries = [
+        {
+            "id": "a",
+            "docs_url": "",
+            "config_entries": [
+                {"key": "f", "help_link": "https://esphome.io/components/light#fabricated-anchor"},
+                {"key": "g", "help_link": "https://esphome.io/automations/actions#x"},
+            ],
+        }
+    ]
+    _assert_docs_urls_valid(entries, {"light": _XIAOMI_PAGE})

@@ -1371,6 +1371,9 @@ def build_catalog(
     # see a fragment.
     _attach_docs_anchors(out, _load_docs_page_index())
 
+    # After the anchor pass so the fallback help_link is the final URL.
+    _repair_help_links(out, _load_docs_page_index())
+
     _resolve_provides(out, schema_dir)
     _apply_libretiny_family_provides(out)
     _apply_libretiny_family_options(out)
@@ -1513,22 +1516,67 @@ def _attach_docs_anchors(entries: list[dict], pages: Mapping[str, str]) -> None:
                 entry["docs_url"] = f"{url}#{seealso}"
 
 
+def _iter_config_entries(config_entries: list[dict]) -> Iterator[dict]:
+    """Depth-first walk over config entries and their nested children."""
+    for entry in config_entries:
+        yield entry
+        yield from _iter_config_entries(entry.get("config_entries") or [])
+
+
+def _repair_help_links(entries: list[dict], pages: Mapping[str, str]) -> None:
+    """
+    Repoint or drop per-field help_links whose docs page doesn't exist.
+
+    A dead components-page link falls back to the component's own resolved
+    ``docs_url``; with no page at all the key is dropped. Links outside
+    ``/components/`` pass through untouched.
+    """
+    repointed = dropped = 0
+    for component in entries:
+        fallback = component.get("docs_url") or ""
+        for entry in _iter_config_entries(component.get("config_entries") or []):
+            link = entry.get("help_link") or ""
+            path = _docs_page_path(link)
+            if path is None or path in pages:
+                continue
+            if fallback:
+                entry["help_link"] = fallback
+                repointed += 1
+            else:
+                del entry["help_link"]
+                dropped += 1
+    if repointed or dropped:
+        _LOGGER.info(
+            "Help links on dead docs pages: repointed %d to the component page, dropped %d",
+            repointed,
+            dropped,
+        )
+
+
 def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> None:
-    """Fail the sync when any entry's docs_url names a page or anchor that doesn't exist."""
+    """
+    Fail the sync when a docs_url names a missing page or anchor.
+
+    Also checks every per-field help_link's page (anchors excluded — the
+    section extractor still fabricates some from fenced YAML comments).
+    """
     bad: list[str] = []
     for entry in entries:
         url = entry.get("docs_url") or ""
-        if not url:
-            continue
-        path = _docs_page_path(url)
-        if path is None or path not in pages:
-            bad.append(f"{entry['id']}: {url} (no such docs page)")
-            continue
-        if "#" in url:
-            anchor = url.split("#", 1)[1]
-            headings, explicit = _page_anchor_index(pages[path])
-            if anchor not in {slug for _, slug in headings} | explicit:
-                bad.append(f"{entry['id']}: {url} (no such anchor)")
+        if url:
+            path = _docs_page_path(url)
+            if path is None or path not in pages:
+                bad.append(f"{entry['id']}: {url} (no such docs page)")
+            elif "#" in url:
+                anchor = url.split("#", 1)[1]
+                headings, explicit = _page_anchor_index(pages[path])
+                if anchor not in {slug for _, slug in headings} | explicit:
+                    bad.append(f"{entry['id']}: {url} (no such anchor)")
+        for centry in _iter_config_entries(entry.get("config_entries") or []):
+            link = centry.get("help_link") or ""
+            lpath = _docs_page_path(link)
+            if lpath is not None and lpath not in pages:
+                bad.append(f"{entry['id']}: help_link {link} (no such docs page)")
     if bad:
         raise SystemExit("docs_url validation failed:\n  " + "\n  ".join(bad))
 
@@ -2177,8 +2225,8 @@ def _resolve_docs_url(
     URL whose page exists is kept verbatim; otherwise candidates are tried
     narrowest-first — the id-derived path, its bus-variant-suffix-stripped
     form, a bare top-level ``<stem>`` page, a unique ``<domain>/<stem>``
-    page in another domain, then a unique page whose config example names
-    the component (the returned section slug points there). No page → ``""``.
+    page in another domain, then a unique page whose content names the
+    component (the returned section slug points there). No page → ``""``.
     """
     if existing:
         path = _docs_page_path(existing)
@@ -2191,6 +2239,23 @@ def _resolve_docs_url(
     cross = [p for p in pages if "/" in p and p.rsplit("/", 1)[1] == stem]
     if len(cross) == 1:
         return f"https://esphome.io/components/{cross[0]}", None
+    if (found := _find_docs_page_by_content(component_id, pages)) is not None:
+        path, slug = found
+        return f"https://esphome.io/components/{path}", (path, slug) if slug else None
+    return "", None
+
+
+def _find_docs_page_by_content(
+    component_id: str, pages: Mapping[str, str]
+) -> tuple[str, str] | None:
+    """
+    Find the unique docs page whose content names *component_id*, with its section slug.
+
+    A config-example match wins and carries the section slug; a component
+    documented without one (a supported-platforms table row) matches on an
+    inline ``<stem>`` code span with no slug. Either scan bails unless
+    exactly one page matches.
+    """
     matches: list[tuple[str, str]] = []
     for path, text in pages.items():
         slug = _find_component_section(text, component_id)
@@ -2199,9 +2264,12 @@ def _resolve_docs_url(
             if len(matches) > 1:
                 break
     if len(matches) == 1:
-        path, slug = matches[0]
-        return f"https://esphome.io/components/{path}", (path, slug) if slug else None
-    return "", None
+        return matches[0]
+    span = f"`{component_id.split('.', 1)[-1]}`"
+    hits = [path for path, text in pages.items() if span in text]
+    if len(hits) == 1:
+        return hits[0], ""
+    return None
 
 
 def _load_mdx_titles() -> dict[str, str]:

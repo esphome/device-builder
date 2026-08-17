@@ -83,6 +83,13 @@ the explicit opt-in to regenerate everything against your installed ESPHome
 and re-stamp that version — that's for a deliberate catalog-wide ESPHome bump,
 not a routine board edit.
 
+The component catalog's `script/sync_components.py` additionally requires
+network access on first run: it validates every emitted `docs_url` and
+`help_link` against a shallow clone of `esphome/esphome.io` (cached in
+`.cache/esphome.io/`) and exits with `esphome.io docs clone unavailable`
+rather than shipping links that may 404. This applies to
+`--limit-component` debugging runs too.
+
 ### Troubleshooting: the pre-commit hook fails on every attempt
 
 The `sync-boards` pre-commit hook reruns the full sync whenever a commit
