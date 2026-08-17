@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from script.sync_components import (  # type: ignore[import-not-found]
     _attach_docs_anchors,
+    _docs_site_slug,
     _find_component_section,
     _page_anchor_index,
 )
@@ -37,6 +40,26 @@ Some prose without a config example.
 
 Duplicate heading to exercise slug dedup.
 """
+
+
+@pytest.mark.parametrize(
+    ("heading", "slug"),
+    [
+        pytest.param("Daikin_ARC", "daikin_arc", id="underscore-kept"),
+        pytest.param("Over I²C", "over-ic", id="superscript-deleted"),
+        pytest.param("E1.31 Effect", "e1-31-effect", id="dot-dashed"),
+        pytest.param(
+            "RTCGQ02LM - Mi Motion Sensor 2",
+            "rtcgq02lm---mi-motion-sensor-2",
+            id="dash-runs-uncollapsed",
+        ),
+        pytest.param("Component/Hub", "componenthub", id="slash-deleted"),
+        pytest.param("`uart` Debugging", "uart-debugging", id="backticks-stripped"),
+    ],
+)
+def test_docs_site_slug_matches_live_ids(heading: str, slug: str) -> None:
+    """Real esphome.io heading ids, verified against the rendered site."""
+    assert _docs_site_slug(heading) == slug
 
 
 def test_page_anchor_index_slugs_and_explicit_ids() -> None:
@@ -145,3 +168,8 @@ def test_attach_skips_blank_and_unknown_pages() -> None:
     assert entries[0]["docs_url"] == ""
     assert entries[1]["docs_url"] == "https://esphome.io/components/nope"
     assert all("_docs_anchor" not in e and "_docs_anchor_seealso" not in e for e in entries)
+
+
+def test_find_component_section_underscore_heading_matches_stem() -> None:
+    page = "### Daikin_ARC\n\nProse without a config example.\n"
+    assert _find_component_section(page, "climate.daikin_arc") == "daikin_arc"

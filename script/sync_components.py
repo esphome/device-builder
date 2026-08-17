@@ -2133,14 +2133,33 @@ def _docs_page_path(url: str) -> str | None:
     return m.group(1).strip("/")
 
 
-def _iter_deduped_headings(body: str) -> Iterator[tuple[re.Match[str], str]]:
+def _iter_deduped_headings(
+    body: str, slugify: Callable[[str], str] | None = None
+) -> Iterator[tuple[re.Match[str], str]]:
     """H2-H4 heading matches of a frontmatter-stripped body with docs-site ``-N`` slug dedup."""
+    slugify = slugify or _slugify_heading
     slug_seen: dict[str, int] = {}
     for m in _MDX_HEADING.finditer(body):
-        base = _slugify_heading(m.group("title").strip())
+        base = slugify(m.group("title").strip())
         n = slug_seen.get(base, 0)
         slug_seen[base] = n + 1
         yield m, base if n == 0 else f"{base}-{n}"
+
+
+def _docs_site_slug(heading: str) -> str:
+    """
+    Mirror the docs site's heading ids: github-slugger after ``.`` → ``-``.
+
+    github-slugger keeps letters, digits, ``-`` and ``_``, turns each space
+    into a ``-`` (runs uncollapsed), and deletes everything else.
+    """
+    out: list[str] = []
+    for ch in heading.replace("`", "").replace(".", "-").lower():
+        if ch == " ":
+            out.append("-")
+        elif ch in "-_" or unicodedata.category(ch)[0] == "L" or (ch.isascii() and ch.isdigit()):
+            out.append(ch)
+    return "".join(out)
 
 
 @cache
@@ -2148,11 +2167,12 @@ def _page_anchor_index(text: str) -> tuple[list[tuple[int, str]], frozenset[str]
     """
     In-order ``(position, slug)`` for a page's H2-H4 headings, plus explicit ids.
 
-    Positions are offsets into the frontmatter-stripped body; explicit ids
-    come from ``<span id>`` / ``<a id>`` tags.
+    Slugs use the docs site's own slugger; positions are offsets into the
+    frontmatter-stripped body; explicit ids come from ``<span id>`` /
+    ``<a id>`` tags.
     """
     body = _strip_mdx_frontmatter(text)
-    headings = [(m.start(), slug) for m, slug in _iter_deduped_headings(body)]
+    headings = [(m.start(), slug) for m, slug in _iter_deduped_headings(body, _docs_site_slug)]
     explicit = frozenset(re.findall(r'<(?:span|a)\s+id="([^"]+)"', body))
     return headings, explicit
 
@@ -2171,7 +2191,7 @@ def _find_component_section(text: str, component_id: str) -> str | None:
     Matched on the first config example naming it (``- platform: <stem>``
     for a dotted id, a top-level ``<id>:`` key otherwise) → the nearest
     preceding heading's slug ("" when the example precedes every heading);
-    else a heading whose slug equals the dashed stem; else ``None``.
+    else a heading whose slug equals the stem or its dashed form; else ``None``.
     """
     stem = component_id.split(".", 1)[-1]
     body = _strip_mdx_frontmatter(text)
@@ -2183,9 +2203,9 @@ def _find_component_section(text: str, component_id: str) -> str | None:
     if m := example.search(body):
         preceding = [slug for start, slug in headings if start <= m.start()]
         return preceding[-1] if preceding else ""
-    dashed = stem.replace("_", "-")
+    names = {stem, stem.replace("_", "-")}
     for _, slug in headings:
-        if slug == dashed:
+        if slug in names:
             return slug
     return None
 
@@ -2260,8 +2280,13 @@ def _find_docs_page_by_content(
                 break
     if len(matches) == 1:
         return matches[0]
+    # Blockquote mentions are commentary about the component, not its docs.
     span = f"`{component_id.split('.', 1)[-1]}`"
-    hits = [path for path, text in pages.items() if span in text]
+    hits = [
+        path
+        for path, text in pages.items()
+        if any(span in line and not line.lstrip().startswith(">") for line in text.splitlines())
+    ]
     if len(hits) == 1:
         return hits[0], ""
     return None

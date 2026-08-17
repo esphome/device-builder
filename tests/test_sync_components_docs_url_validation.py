@@ -205,3 +205,8 @@ def test_assert_ignores_help_link_anchors_and_non_component_links() -> None:
         }
     ]
     _assert_docs_urls_valid(entries, {"light": _XIAOMI_PAGE})
+
+
+def test_blockquote_code_span_mention_does_not_rescue() -> None:
+    pages = {"esphome": "> Creators can provide `dashboard_import` URL for end users.\n"}
+    assert _resolve_docs_url("", "dashboard_import", pages) == ("", None)
