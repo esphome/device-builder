@@ -89,3 +89,23 @@ def test_unrelated_page_with_no_owner_entry_untouched() -> None:
     entries = [_entry("as3935_spi", "AMS AS3935 Franklin Lightning Sensor", "as3935")]
     _fix_borrowed_page_titles(entries, frozenset())
     assert entries[0]["name"] == "AMS AS3935 Franklin Lightning Sensor"
+
+
+def test_platform_domain_landing_borrow_renamed() -> None:
+    """A See-also link to a bare domain landing page is a borrow; the name resets."""
+    entries = [
+        _entry("e131", "Light Component", "light"),
+        _entry("stepper.a4988", "Stepper Component", "stepper"),
+        _entry("stepper.uln2003", "Stepper Component", "stepper"),
+    ]
+    _fix_borrowed_page_titles(entries, frozenset())
+    assert entries[0]["name"] == "E1.31"
+    assert entries[1]["name"] == "A4988"
+    assert entries[2]["name"] == "ULN2003"
+
+
+def test_platform_domain_page_owner_untouched() -> None:
+    """An entry whose stem equals the domain-landing slug keeps its title."""
+    entries = [_entry("binary_sensor.remote_receiver", "Remote Receiver", "remote_receiver")]
+    _fix_borrowed_page_titles(entries, frozenset())
+    assert entries[0]["name"] == "Remote Receiver"

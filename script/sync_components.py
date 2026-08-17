@@ -1252,6 +1252,10 @@ _DOCS_SEE_ALSO = re.compile(
     r"\s*\*See also:\s*\[([^\]]+)\]\(([^)]+)\)\*\s*$",
 )
 
+# A docs body that is only the section heading with no prose under it
+# (e.g. e131's schema docs).
+_CONFIG_VARS_BOILERPLATE = re.compile(r"\*\*Configuration variables:?\*\*:?")
+
 
 @dataclass
 class CleanedDocs:
@@ -1279,9 +1283,11 @@ def clean_docs(raw: str | None) -> CleanedDocs:
         text = text[: m.start()].rstrip()
     text = _DOCS_TYPE_PREFIX.sub("", text).strip()
     # ESPHome's schema dump serializes a missing docstring as the literal
-    # string "None" (often with a real See-also footer); treat the body as
-    # absent so the MDX backfill can fill in. Keep the extracted name/url.
-    if text == "None":
+    # string "None" (often with a real See-also footer); a bare
+    # "**Configuration variables:**" heading is the same no-prose shape.
+    # Treat the body as absent so the MDX backfill can fill in. Keep the
+    # extracted name/url.
+    if text == "None" or _CONFIG_VARS_BOILERPLATE.fullmatch(text):
         text = ""
     return CleanedDocs(text=text, name=name, url=url)
 
@@ -1361,6 +1367,10 @@ def build_catalog(
     if not limit:
         _inject_umbrella_entries(out)
 
+    # After every docs_url rewrite above so segment-parsing passes never
+    # see a fragment.
+    _attach_docs_anchors(out, _load_docs_page_index())
+
     _resolve_provides(out, schema_dir)
     _apply_libretiny_family_provides(out)
     _apply_libretiny_family_options(out)
@@ -1382,6 +1392,8 @@ def build_catalog(
     # leaked fenced-code examples and dangling ``One of:`` list-introducers.
     tidied = _tidy_all_descriptions(out)
     _LOGGER.info("Tidied %d description(s): stripped code fences / dangling introducers", tidied)
+
+    _assert_docs_urls_valid(out, _load_docs_page_index())
 
     return out
 
@@ -1445,8 +1457,15 @@ def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str])
         slug, parent = segs[-1], segs[-2]
         if parent == "components":
             # Same page or a same-family variant (``pn532_spi`` -> ``pn532``):
-            # the shared title is correct.
-            if slug and slug != stem and not stem.startswith(slug) and slug in ids:
+            # the shared title is correct. A platform-domain landing page
+            # (``e131`` -> ``components/light``) is a borrow even though no
+            # bare ``light`` catalog id exists.
+            if (
+                slug
+                and slug != stem
+                and not stem.startswith(slug)
+                and (slug in ids or slug in _PLATFORM_DOMAINS)
+            ):
                 entry["name"] = _name_from_stem(stem)
             continue
         if cid in own_page_ids and slug == stem and "." not in cid and f"{parent}.{slug}" in ids:
@@ -1454,6 +1473,64 @@ def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str])
             entry["docs_url"] = _derive_docs_url(cid)
             entry["description"] = ""
             entry["image_url"] = ""
+
+
+def _attach_docs_anchors(entries: list[dict], pages: Mapping[str, str]) -> None:
+    """
+    Attach a validated ``#section`` anchor to entries that need one.
+
+    Consumes both scratch keys. A resolver rescue anchor applies only while
+    the entry still points at the page it was found on. A See-also anchor is
+    restored only for a platform-domain landing page — the one target where
+    the bare page is uselessly vague — validated against the page's anchor
+    set and repaired via the config-example section when upstream's anchor
+    doesn't exist.
+    """
+    anchor_sets: dict[str, frozenset[str]] = {}
+
+    def anchors_for(path: str) -> frozenset[str]:
+        if path not in anchor_sets:
+            headings, explicit = _page_anchor_index(pages[path])
+            anchor_sets[path] = frozenset(slug for _, slug in headings) | explicit
+        return anchor_sets[path]
+
+    for entry in entries:
+        rescue = entry.pop("_docs_anchor", None)
+        seealso = entry.pop("_docs_anchor_seealso", None)
+        url = entry.get("docs_url") or ""
+        path = _docs_page_path(url)
+        if not path or path not in pages:
+            continue
+        if rescue:
+            rescue_path, slug = rescue
+            if rescue_path == path and slug in anchors_for(path):
+                entry["docs_url"] = f"{url}#{slug}"
+            continue
+        if seealso and path in _PLATFORM_DOMAINS:
+            if seealso not in anchors_for(path):
+                seealso = _find_component_section(pages[path], entry["id"])
+            if seealso and seealso in anchors_for(path):
+                entry["docs_url"] = f"{url}#{seealso}"
+
+
+def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> None:
+    """Fail the sync when any entry's docs_url names a page or anchor that doesn't exist."""
+    bad: list[str] = []
+    for entry in entries:
+        url = entry.get("docs_url") or ""
+        if not url:
+            continue
+        path = _docs_page_path(url)
+        if path is None or path not in pages:
+            bad.append(f"{entry['id']}: {url} (no such docs page)")
+            continue
+        if "#" in url:
+            anchor = url.split("#", 1)[1]
+            headings, explicit = _page_anchor_index(pages[path])
+            if anchor not in {slug for _, slug in headings} | explicit:
+                bad.append(f"{entry['id']}: {url} (no such anchor)")
+    if bad:
+        raise SystemExit("docs_url validation failed:\n  " + "\n  ".join(bad))
 
 
 def _resolve_provides(entries: list[dict], schema_dir: Path) -> None:
@@ -1637,7 +1714,7 @@ def _repair_field_bullet_descriptions(entries: list[dict]) -> None:
         )
 
 
-def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:  # noqa: C901
+def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:
     """Fill empty names, descriptions and field docs from the docs MDX.
 
     The prebuilt schema's index sometimes only lists ``dependencies``
@@ -1651,14 +1728,14 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:  # noqa: C901
     - a frontmatter / intro ``description:``
     - a ``## Configuration variables`` bullet list of per-field docs
 
-    Silently skipped when the docs repo can't be cloned/fetched.
+    Also resolves each entry's ``docs_url`` against the real docs-page
+    tree; fails the sync when the docs repo can't be cloned/fetched.
     """
+    pages = _load_docs_page_index()
     descriptions = _load_mdx_descriptions()
     field_descriptions = _load_mdx_field_descriptions()
     field_sections = _load_mdx_field_sections()
     titles = _load_mdx_titles()
-    if not descriptions and not field_descriptions and not field_sections and not titles:
-        return
     # Titles stay un-aliased so the chip families keep distinct names.
     aliases = _shared_docs_page_aliases(descriptions.keys())
 
@@ -1691,12 +1768,15 @@ def _backfill_descriptions_from_mdx(entries: list[dict]) -> None:  # noqa: C901
                 entry["description"] = text
                 backfilled_components += 1
 
-        # docs_url: when the schema's See-also link is missing, derive
-        # from the catalog id (matches the docs site's URL convention
-        # ``/components/<domain>/<stem>/`` for platform-providing
-        # components, ``/components/<bare>/`` for non-platform).
-        if not entry.get("docs_url"):
-            entry["docs_url"] = _derive_docs_url(alias or cid)
+        # docs_url: validate the schema's See-also page against the real
+        # docs tree and fall back through progressively broader candidates.
+        # Before the field backfill below so help_link fragments are built
+        # from the corrected page. A component no page documents ships no
+        # link at all — the frontend hides "More info".
+        url, anchor = _resolve_docs_url(entry.get("docs_url") or "", alias or cid, pages)
+        entry["docs_url"] = url
+        if anchor:
+            entry["_docs_anchor"] = anchor
 
         # Per-field descriptions inside config_entries.
         field_map = (
@@ -1837,8 +1917,8 @@ def _derive_docs_url(component_id: str) -> str:
         ``<domain>.<stem>`` → /components/<domain>/<stem>/
         ``<bare>``          → /components/<bare>/
 
-    Used as a fallback when the schema's per-component ``docs`` field
-    has no ``See also`` link (notably the OTA platforms).
+    Callers gate on the page actually existing (``_fix_borrowed_page_titles``
+    via *own_page_ids*, ``_resolve_docs_url`` via the page index).
     """
     if "." in component_id:
         domain, stem = component_id.split(".", 1)
@@ -1988,6 +2068,140 @@ def _components_with_own_docs_page() -> frozenset[str]:
     if not root.exists():
         return frozenset()
     return frozenset(p.parent.name for p in root.glob("*/index.mdx"))
+
+
+@cache
+def _load_docs_page_index() -> dict[str, str]:
+    """
+    Map every real docs-site component-page path to its MDX text.
+
+    ``<dir>/index.mdx`` maps to ``<dir>``; paths are extensionless,
+    slash-joined, exact-case, no leading/trailing slash.
+    """
+    docs_dir = _ensure_docs_repo()
+    root = docs_dir / "src" / "content" / "docs" / "components" if docs_dir is not None else None
+    if root is None or not root.exists():
+        raise SystemExit(
+            "esphome.io docs clone unavailable — cannot validate docs_url; "
+            "the catalog would ship links that may 404."
+        )
+    pages: dict[str, str] = {}
+    for mdx_path in root.rglob("*.mdx"):
+        parts = mdx_path.relative_to(root).with_suffix("").parts
+        if parts[-1] == "index":
+            parts = parts[:-1]
+        if parts:
+            pages["/".join(parts)] = mdx_path.read_text(encoding="utf-8")
+    return pages
+
+
+_DOCS_COMPONENTS_URL_RE = re.compile(r"https://(?:beta\.|next\.)?esphome\.io/components/([^#?]*)")
+
+
+def _docs_page_path(url: str) -> str | None:
+    """``/components/<path>`` extracted from a docs URL, sans anchor and slashes."""
+    m = _DOCS_COMPONENTS_URL_RE.fullmatch(_strip_anchor(url))
+    if not m:
+        return None
+    return m.group(1).strip("/")
+
+
+def _page_anchor_index(text: str) -> tuple[list[tuple[int, str]], frozenset[str]]:
+    """
+    In-order ``(position, slug)`` for a page's H2-H4 headings, plus explicit ids.
+
+    Slugs get the docs site's document-order ``-N`` dedup; positions are
+    offsets into the frontmatter-stripped body. Explicit ids come from
+    ``<span id>`` / ``<a id>`` tags.
+    """
+    body = _strip_mdx_frontmatter(text)
+    slug_seen: dict[str, int] = {}
+    headings: list[tuple[int, str]] = []
+    for m in _MDX_HEADING.finditer(body):
+        base = _slugify_heading(m.group("title").strip())
+        n = slug_seen.get(base, 0)
+        slug_seen[base] = n + 1
+        headings.append((m.start(), base if n == 0 else f"{base}-{n}"))
+    explicit = frozenset(re.findall(r'<(?:span|a)\s+id="([^"]+)"', body))
+    return headings, explicit
+
+
+def _find_component_section(text: str, component_id: str) -> str | None:
+    """
+    Anchor slug of the section documenting *component_id* inside a docs page.
+
+    Matched on the first config example naming it (``- platform: <stem>``
+    for a dotted id, a top-level ``<id>:`` key otherwise) → the nearest
+    preceding heading's slug ("" when the example precedes every heading);
+    else a heading whose slug equals the dashed stem; else ``None``.
+    """
+    stem = component_id.split(".", 1)[-1]
+    body = _strip_mdx_frontmatter(text)
+    if "." in component_id:
+        example = re.compile(rf"^\s*-\s+platform:\s+{re.escape(stem)}\s*$", re.MULTILINE)
+    else:
+        example = re.compile(rf"^{re.escape(component_id)}:\s*$", re.MULTILINE)
+    headings, _ = _page_anchor_index(text)
+    if m := example.search(body):
+        preceding = [slug for start, slug in headings if start <= m.start()]
+        return preceding[-1] if preceding else ""
+    dashed = stem.replace("_", "-")
+    for _, slug in headings:
+        if slug == dashed:
+            return slug
+    return None
+
+
+_VARIANT_SUFFIX_RE = re.compile(r"_(?:i2c|spi|uart)$")
+
+
+def _docs_url_candidates(component_id: str) -> list[str]:
+    """Candidate docs-page paths for *component_id*, narrowest first."""
+    if "." in component_id:
+        domain, stem = component_id.split(".", 1)
+        paths = [f"{domain}/{stem}", f"{domain}/{_VARIANT_SUFFIX_RE.sub('', stem)}"]
+    else:
+        stem = component_id
+        paths = [component_id, _VARIANT_SUFFIX_RE.sub("", component_id)]
+    paths.append(stem)
+    return list(dict.fromkeys(paths))
+
+
+def _resolve_docs_url(
+    existing: str, component_id: str, pages: Mapping[str, str]
+) -> tuple[str, tuple[str, str] | None]:
+    """
+    Resolve a component's docs link against the real docs-page tree.
+
+    Returns ``(docs_url, (page_path, section_slug) | None)``. An *existing*
+    URL whose page exists is kept verbatim; otherwise candidates are tried
+    narrowest-first — the id-derived path, its bus-variant-suffix-stripped
+    form, a bare top-level ``<stem>`` page, a unique ``<domain>/<stem>``
+    page in another domain, then a unique page whose config example names
+    the component (the returned section slug points there). No page → ``""``.
+    """
+    if existing:
+        path = _docs_page_path(existing)
+        if path and path in pages:
+            return existing, None
+    for path in _docs_url_candidates(component_id):
+        if path in pages:
+            return f"https://esphome.io/components/{path}", None
+    stem = component_id.split(".", 1)[-1]
+    cross = [p for p in pages if "/" in p and p.rsplit("/", 1)[1] == stem]
+    if len(cross) == 1:
+        return f"https://esphome.io/components/{cross[0]}", None
+    matches: list[tuple[str, str]] = []
+    for path, text in pages.items():
+        slug = _find_component_section(text, component_id)
+        if slug is not None:
+            matches.append((path, slug))
+            if len(matches) > 1:
+                break
+    if len(matches) == 1:
+        path, slug = matches[0]
+        return f"https://esphome.io/components/{path}", (path, slug) if slug else None
+    return "", None
 
 
 def _load_mdx_titles() -> dict[str, str]:
@@ -2775,6 +2989,10 @@ def build_component_entry(
         "config_entries": config_entries,
     }
     component["_impl_class_paths"] = _implemented_classes(section, schema_dir)
+    # Kept out of ``docs_url`` so segment-parsing passes never see a
+    # fragment; ``_attach_docs_anchors`` restores it where it helps.
+    if docs.url and "#" in docs.url:
+        component["_docs_anchor_seealso"] = docs.url.split("#", 1)[1]
     # Required-groups straddle the component root (path ``()``) and
     # nested ``NESTED`` entries; the applier needs the whole
     # component dict to stamp both locations.
@@ -4656,6 +4874,8 @@ _ACRONYM_NORMALISATIONS: dict[str, str] = {
     "Rfid": "RFID",
     "Pn532": "PN532",
     "Rc522": "RC522",
+    "E131": "E1.31",
+    "Uln2003": "ULN2003",
     "Esp32": "ESP32",
     "Esp8266": "ESP8266",
     "Esphome": "ESPHome",

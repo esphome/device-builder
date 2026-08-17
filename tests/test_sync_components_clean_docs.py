@@ -31,3 +31,21 @@ def test_clean_docs_keeps_text_starting_with_none() -> None:
 def test_clean_docs_passes_through_a_normal_description() -> None:
     """A regular description round-trips with its type prefix stripped."""
     assert clean_docs("**string**: The friendly name.").text == "The friendly name."
+
+
+def test_clean_docs_boilerplate_only_body_is_empty() -> None:
+    """A body that is only the config-variables heading drops to empty, keeps name/url."""
+    cleaned = clean_docs(
+        "**Configuration variables:**\n\n"
+        "*See also: [Light Component](https://esphome.io/components/light#e131-component)*"
+    )
+    assert cleaned.text == ""
+    assert cleaned.name == "Light Component"
+    assert cleaned.url == "https://esphome.io/components/light#e131-component"
+
+
+def test_clean_docs_keeps_prose_after_boilerplate_heading() -> None:
+    """The heading followed by real prose is not blanked."""
+    assert clean_docs("**Configuration variables:**\n\n- **pin**: The pin.").text == (
+        "**pin**: The pin."
+    )
