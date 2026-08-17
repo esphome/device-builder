@@ -1594,17 +1594,8 @@ def _remap_stale_fragment(fragment: str, anchors: frozenset[str]) -> str | None:
     return hits[0] if len(hits) == 1 else None
 
 
-# The module-level override tables that carry hand-written help_links.
-_CURATED_HELP_LINK_TABLES: tuple[str, ...] = ("_UART_DEBUG_OVERRIDE", "_FIELD_OVERRIDES")
-
-
 def _assert_curated_help_links_valid(pages: Mapping[str, str]) -> None:
-    """
-    Fail the sync when a hand-written override help_link names a dead page or anchor.
-
-    The entry repair pass silently heals merged links, so staleness in the
-    curated tables must be caught at the tables themselves.
-    """
+    """Fail the sync when a hand-written override help_link names a dead page or anchor."""
 
     def walk(obj: Any) -> Iterator[str]:
         if isinstance(obj, dict):
@@ -1617,10 +1608,13 @@ def _assert_curated_help_links_valid(pages: Mapping[str, str]) -> None:
             for value in obj:
                 yield from walk(value)
 
+    # Discovered from the module globals so a new override table is
+    # covered on arrival.
     bad = [
         f"{name}: {link} ({status})"
-        for name in _CURATED_HELP_LINK_TABLES
-        for link in walk(globals()[name])
+        for name, obj in globals().items()
+        if isinstance(obj, (dict, list, tuple))
+        for link in walk(obj)
         if (status := _link_status(link, pages)[0]) in ("dead_page", "dead_anchor")
     ]
     if bad:
