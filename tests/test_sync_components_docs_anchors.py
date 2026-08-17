@@ -54,7 +54,7 @@ Duplicate heading to exercise slug dedup.
             id="dash-runs-uncollapsed",
         ),
         pytest.param("Component/Hub", "componenthub", id="slash-deleted"),
-        pytest.param("`uart` Debugging", "uart-debugging", id="backticks-stripped"),
+        pytest.param("`uart.write` Action", "uart-write-action", id="backticks-stripped"),
     ],
 )
 def test_docs_site_slug_matches_live_ids(heading: str, slug: str) -> None:

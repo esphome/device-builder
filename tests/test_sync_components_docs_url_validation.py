@@ -155,11 +155,23 @@ def test_repair_help_links_repoints_dead_page_to_component_url() -> None:
             {"key": "c", "help_link": "https://esphome.io/automations/actions#z"},
         ],
     }
-    _repair_help_links([component], {"sensor/xiaomi_ble": ""})
+    _repair_help_links([component], {"sensor/xiaomi_ble": "## Y\n"})
     entries = component["config_entries"]
     assert entries[0]["help_link"] == "https://esphome.io/components/sensor/xiaomi_ble#lywsd03mmc"
     assert entries[1]["help_link"] == "https://esphome.io/components/sensor/xiaomi_ble#y"
     assert entries[2]["help_link"] == "https://esphome.io/automations/actions#z"
+
+
+def test_repair_help_links_strips_dead_anchor_on_live_page() -> None:
+    component = {
+        "id": "sensor.dht",
+        "docs_url": "https://esphome.io/components/sensor/dht",
+        "config_entries": [
+            {"key": "name", "help_link": "https://esphome.io/components/light#optional-variables"}
+        ],
+    }
+    _repair_help_links([component], {"light": "## Effects\n", "sensor/dht": ""})
+    assert component["config_entries"][0]["help_link"] == "https://esphome.io/components/light"
 
 
 def test_repair_help_links_drops_link_when_component_has_no_page() -> None:
@@ -193,13 +205,27 @@ def test_assert_raises_on_dead_help_link_page() -> None:
         _assert_docs_urls_valid(entries, {"light": _XIAOMI_PAGE})
 
 
-def test_assert_ignores_help_link_anchors_and_non_component_links() -> None:
+def test_assert_raises_on_dead_help_link_anchor() -> None:
     entries = [
         {
             "id": "a",
             "docs_url": "",
             "config_entries": [
-                {"key": "f", "help_link": "https://esphome.io/components/light#fabricated-anchor"},
+                {"key": "f", "help_link": "https://esphome.io/components/light#fabricated-anchor"}
+            ],
+        }
+    ]
+    with pytest.raises(SystemExit, match="no such anchor"):
+        _assert_docs_urls_valid(entries, {"light": _XIAOMI_PAGE})
+
+
+def test_assert_ignores_non_component_help_links() -> None:
+    entries = [
+        {
+            "id": "a",
+            "docs_url": "",
+            "config_entries": [
+                {"key": "f", "help_link": "https://esphome.io/components/light#lywsd03mmc"},
                 {"key": "g", "help_link": "https://esphome.io/automations/actions#x"},
             ],
         }
