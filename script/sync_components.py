@@ -1480,23 +1480,12 @@ def _fix_borrowed_page_titles(entries: list[dict], own_page_ids: frozenset[str])
 
 def _attach_docs_anchors(entries: list[dict], pages: Mapping[str, str]) -> None:
     """
-    Attach a validated ``#section`` anchor to entries that need one.
+    Attach a validated ``#section`` anchor to entries that need one; pops both scratch keys.
 
-    Consumes both scratch keys. A resolver rescue anchor applies only while
-    the entry still points at the page it was found on. A See-also anchor is
-    restored only for a platform-domain landing page — the one target where
-    the bare page is uselessly vague — validated against the page's anchor
-    set and repaired via the config-example section when upstream's anchor
-    doesn't exist.
+    A rescue anchor applies only while the entry still points at the page it
+    was found on; a See-also anchor only on a platform-domain landing page,
+    repaired via the config-example section when upstream's is invalid.
     """
-    anchor_sets: dict[str, frozenset[str]] = {}
-
-    def anchors_for(path: str) -> frozenset[str]:
-        if path not in anchor_sets:
-            headings, explicit = _page_anchor_index(pages[path])
-            anchor_sets[path] = frozenset(slug for _, slug in headings) | explicit
-        return anchor_sets[path]
-
     for entry in entries:
         rescue = entry.pop("_docs_anchor", None)
         seealso = entry.pop("_docs_anchor_seealso", None)
@@ -1506,13 +1495,16 @@ def _attach_docs_anchors(entries: list[dict], pages: Mapping[str, str]) -> None:
             continue
         if rescue:
             rescue_path, slug = rescue
-            if rescue_path == path and slug in anchors_for(path):
+            if rescue_path == path:
                 entry["docs_url"] = f"{url}#{slug}"
             continue
+        # Landing pages only: the runtime stem-alias dedupe keys on the full
+        # URL string (controllers/components/controller.py stem_candidates),
+        # so anchoring shared non-landing pages would split those buckets.
         if seealso and path in _PLATFORM_DOMAINS:
-            if seealso not in anchors_for(path):
+            if seealso not in _page_anchor_set(pages[path]):
                 seealso = _find_component_section(pages[path], entry["id"])
-            if seealso and seealso in anchors_for(path):
+            if seealso and seealso in _page_anchor_set(pages[path]):
                 entry["docs_url"] = f"{url}#{seealso}"
 
 
@@ -1557,8 +1549,8 @@ def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> No
     """
     Fail the sync when a docs_url names a missing page or anchor.
 
-    Also checks every per-field help_link's page (anchors excluded — the
-    section extractor still fabricates some from fenced YAML comments).
+    Also checks every per-field help_link's page; help_link anchors are
+    not checked.
     """
     bad: list[str] = []
     for entry in entries:
@@ -1567,11 +1559,8 @@ def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> No
             path = _docs_page_path(url)
             if path is None or path not in pages:
                 bad.append(f"{entry['id']}: {url} (no such docs page)")
-            elif "#" in url:
-                anchor = url.split("#", 1)[1]
-                headings, explicit = _page_anchor_index(pages[path])
-                if anchor not in {slug for _, slug in headings} | explicit:
-                    bad.append(f"{entry['id']}: {url} (no such anchor)")
+            elif "#" in url and url.split("#", 1)[1] not in _page_anchor_set(pages[path]):
+                bad.append(f"{entry['id']}: {url} (no such anchor)")
         for centry in _iter_config_entries(entry.get("config_entries") or []):
             link = centry.get("help_link") or ""
             lpath = _docs_page_path(link)
@@ -1958,20 +1947,8 @@ def _shared_docs_page_aliases(documented: Collection[str]) -> dict[str, str]:
 
 
 def _derive_docs_url(component_id: str) -> str:
-    """Build the docs site URL for *component_id* using the canonical pattern.
-
-    ESPHome's docs site mirrors the source repo layout:
-
-        ``<domain>.<stem>`` → /components/<domain>/<stem>/
-        ``<bare>``          → /components/<bare>/
-
-    Callers gate on the page actually existing (``_fix_borrowed_page_titles``
-    via *own_page_ids*, ``_resolve_docs_url`` via the page index).
-    """
-    if "." in component_id:
-        domain, stem = component_id.split(".", 1)
-        return f"https://esphome.io/components/{domain}/{stem}"
-    return f"https://esphome.io/components/{component_id}"
+    """Docs-site URL derived from *component_id*; existence is not checked."""
+    return _docs_url_for_path(component_id.replace(".", "/", 1))
 
 
 def _is_truncated_prefix(existing: str, full: str) -> bool:
@@ -2032,6 +2009,15 @@ def _strip_mdx_frontmatter(text: str) -> str:
     return re.sub(r"^---\s*\n.*?\n---\s*\n", "", text, count=1, flags=re.DOTALL)
 
 
+def _docs_components_root() -> Path | None:
+    """Resolve the docs clone's components content dir; None when unavailable."""
+    docs_dir = _ensure_docs_repo()
+    if docs_dir is None:
+        return None
+    root = docs_dir / "src" / "content" / "docs" / "components"
+    return root if root.exists() else None
+
+
 def _iter_component_mdx() -> Iterator[tuple[str, str, Path]]:
     """
     Yield ``(component_id, stem, mdx_path)`` for each per-component docs page.
@@ -2040,11 +2026,8 @@ def _iter_component_mdx() -> Iterator[tuple[str, str, Path]]:
     page, ``<domain>.<stem>`` for a platform page; ``index`` pages and deeper
     nesting are skipped. Empty when the docs repo can't be resolved.
     """
-    docs_dir = _ensure_docs_repo()
-    if docs_dir is None:
-        return
-    components_root = docs_dir / "src" / "content" / "docs" / "components"
-    if not components_root.exists():
+    components_root = _docs_components_root()
+    if components_root is None:
         return
     for mdx_path in components_root.rglob("*.mdx"):
         parts = mdx_path.relative_to(components_root).with_suffix("").parts
@@ -2109,11 +2092,8 @@ def _components_with_own_docs_page() -> frozenset[str]:
     to tell a genuine page borrow from a single-platform component legitimately
     documented under its category (``sensor/adc128s102``).
     """
-    docs_dir = _ensure_docs_repo()
-    if docs_dir is None:
-        return frozenset()
-    root = docs_dir / "src" / "content" / "docs" / "components"
-    if not root.exists():
+    root = _docs_components_root()
+    if root is None:
         return frozenset()
     return frozenset(p.parent.name for p in root.glob("*/index.mdx"))
 
@@ -2126,9 +2106,8 @@ def _load_docs_page_index() -> dict[str, str]:
     ``<dir>/index.mdx`` maps to ``<dir>``; paths are extensionless,
     slash-joined, exact-case, no leading/trailing slash.
     """
-    docs_dir = _ensure_docs_repo()
-    root = docs_dir / "src" / "content" / "docs" / "components" if docs_dir is not None else None
-    if root is None or not root.exists():
+    root = _docs_components_root()
+    if root is None:
         raise SystemExit(
             "esphome.io docs clone unavailable — cannot validate docs_url; "
             "the catalog would ship links that may 404."
@@ -2154,24 +2133,35 @@ def _docs_page_path(url: str) -> str | None:
     return m.group(1).strip("/")
 
 
-def _page_anchor_index(text: str) -> tuple[list[tuple[int, str]], frozenset[str]]:
-    """
-    In-order ``(position, slug)`` for a page's H2-H4 headings, plus explicit ids.
-
-    Slugs get the docs site's document-order ``-N`` dedup; positions are
-    offsets into the frontmatter-stripped body. Explicit ids come from
-    ``<span id>`` / ``<a id>`` tags.
-    """
-    body = _strip_mdx_frontmatter(text)
+def _iter_deduped_headings(body: str) -> Iterator[tuple[re.Match[str], str]]:
+    """H2-H4 heading matches of a frontmatter-stripped body with docs-site ``-N`` slug dedup."""
     slug_seen: dict[str, int] = {}
-    headings: list[tuple[int, str]] = []
     for m in _MDX_HEADING.finditer(body):
         base = _slugify_heading(m.group("title").strip())
         n = slug_seen.get(base, 0)
         slug_seen[base] = n + 1
-        headings.append((m.start(), base if n == 0 else f"{base}-{n}"))
+        yield m, base if n == 0 else f"{base}-{n}"
+
+
+@cache
+def _page_anchor_index(text: str) -> tuple[list[tuple[int, str]], frozenset[str]]:
+    """
+    In-order ``(position, slug)`` for a page's H2-H4 headings, plus explicit ids.
+
+    Positions are offsets into the frontmatter-stripped body; explicit ids
+    come from ``<span id>`` / ``<a id>`` tags.
+    """
+    body = _strip_mdx_frontmatter(text)
+    headings = [(m.start(), slug) for m, slug in _iter_deduped_headings(body)]
     explicit = frozenset(re.findall(r'<(?:span|a)\s+id="([^"]+)"', body))
     return headings, explicit
+
+
+@cache
+def _page_anchor_set(text: str) -> frozenset[str]:
+    """Every anchor a docs page exposes: deduped heading slugs plus explicit ids."""
+    headings, explicit = _page_anchor_index(text)
+    return frozenset(slug for _, slug in headings) | explicit
 
 
 def _find_component_section(text: str, component_id: str) -> str | None:
@@ -2200,18 +2190,23 @@ def _find_component_section(text: str, component_id: str) -> str | None:
     return None
 
 
+# A suffix missing here degrades gracefully: the resolver falls through to
+# the content-match rescue, worst case shipping no link — never a dead one.
 _VARIANT_SUFFIX_RE = re.compile(r"_(?:i2c|spi|uart)$")
+
+
+def _docs_url_for_path(path: str) -> str:
+    """Docs-site URL for a ``/components/`` page path."""
+    return f"https://esphome.io/components/{path}"
 
 
 def _docs_url_candidates(component_id: str) -> list[str]:
     """Candidate docs-page paths for *component_id*, narrowest first."""
     if "." in component_id:
         domain, stem = component_id.split(".", 1)
-        paths = [f"{domain}/{stem}", f"{domain}/{_VARIANT_SUFFIX_RE.sub('', stem)}"]
+        paths = [f"{domain}/{stem}", f"{domain}/{_VARIANT_SUFFIX_RE.sub('', stem)}", stem]
     else:
-        stem = component_id
         paths = [component_id, _VARIANT_SUFFIX_RE.sub("", component_id)]
-    paths.append(stem)
     return list(dict.fromkeys(paths))
 
 
@@ -2234,14 +2229,14 @@ def _resolve_docs_url(
             return existing, None
     for path in _docs_url_candidates(component_id):
         if path in pages:
-            return f"https://esphome.io/components/{path}", None
+            return _docs_url_for_path(path), None
     stem = component_id.split(".", 1)[-1]
     cross = [p for p in pages if "/" in p and p.rsplit("/", 1)[1] == stem]
     if len(cross) == 1:
-        return f"https://esphome.io/components/{cross[0]}", None
+        return _docs_url_for_path(cross[0]), None
     if (found := _find_docs_page_by_content(component_id, pages)) is not None:
         path, slug = found
-        return f"https://esphome.io/components/{path}", (path, slug) if slug else None
+        return _docs_url_for_path(path), (path, slug) if slug else None
     return "", None
 
 
@@ -2453,11 +2448,13 @@ def _enumerate_mdx_field_sections(text: str) -> list[dict]:
     from matching rather than relying on field-set overlap to filter them.
     """
     body = _strip_mdx_frontmatter(text)
-    heads = list(_MDX_HEADING.finditer(body))
+    # The shared iterator advances the dedup counter for every heading,
+    # bullet-bearing or not — the docs site's slugger sees each rendered
+    # heading, so a bulletless duplicate still shifts a later ``-N`` anchor.
+    heads = list(_iter_deduped_headings(body))
     sections: list[dict] = []
-    slug_seen: dict[str, int] = {}
     auto_stack: list[tuple[int, bool]] = []  # (level, is_automation) for ancestor headings
-    for i, m in enumerate(heads):
+    for i, (m, slug) in enumerate(heads):
         level = len(m.group("hashes"))
         title = m.group("title").strip()
         while auto_stack and auto_stack[-1][0] >= level:
@@ -2465,17 +2462,10 @@ def _enumerate_mdx_field_sections(text: str) -> list[dict]:
         is_auto = bool(auto_stack and auto_stack[-1][1]) or bool(_AUTOMATION_HEADING.search(title))
         auto_stack.append((level, is_auto))
         start = m.end()
-        end = heads[i + 1].start() if i + 1 < len(heads) else len(body)
+        end = heads[i + 1][0].start() if i + 1 < len(heads) else len(body)
         fields = _parse_config_var_bullets(body[start:end], first_paragraph_only=True)
-        # Advance the dedup counter for every heading, bullet-bearing or not — the
-        # docs site's slugger sees each rendered heading, so a bulletless duplicate
-        # still shifts a later section's ``-N`` anchor.
-        base = _slugify_heading(title)
-        n = slug_seen.get(base, 0)
-        slug_seen[base] = n + 1
         if not fields:
             continue
-        slug = base if n == 0 else f"{base}-{n}"
         sections.append(
             {"heading": title, "slug": slug, "fields": fields, "is_automation": is_auto}
         )
