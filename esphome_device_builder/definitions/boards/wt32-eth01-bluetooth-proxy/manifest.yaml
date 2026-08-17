@@ -34,5 +34,5 @@ source:
   type: bluetooth-proxies
   remote_id: wt32/wt32-eth01
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/wt32/wt32-eth01.yaml
-  upstream_revision: c65f649a834bb308bdc4c76c2f3c398640d96bd6
+  upstream_revision: 6387b836d61375b273065501a31fe936225eb620
   content_hash: 9c1bfb84dabfef372e66ad6955b2e484222d0797901a4ab8164efce798b4fd80

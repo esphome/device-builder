@@ -40,5 +40,5 @@ source:
   type: bluetooth-proxies
   remote_id: olimex/olimex-esp32-poe-iso
   upstream_url: https://github.com/esphome/bluetooth-proxies/blob/main/olimex/olimex-esp32-poe-iso.yaml
-  upstream_revision: c65f649a834bb308bdc4c76c2f3c398640d96bd6
+  upstream_revision: 6387b836d61375b273065501a31fe936225eb620
   content_hash: 26115f2784c1c975a6aacaa90acdecc8c7b7ec17f0fb27b40698c308d083df50
