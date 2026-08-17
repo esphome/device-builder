@@ -70,7 +70,7 @@ def _section(name):
     return next(s for s in _enumerate_mdx_field_sections(_MDX) if s["heading"] == name)
 
 
-def test_slugify_and_dedup() -> None:
+def test_docs_site_slug_and_dedup() -> None:
     assert _docs_site_slug("Advanced Configuration") == "advanced-configuration"
     assert _docs_site_slug("`mqtt.publish` Action") == "mqtt-publish-action"
     slugs = [s["slug"] for s in _enumerate_mdx_field_sections(_MDX)]
@@ -311,7 +311,7 @@ def test_apply_recurses_into_deeper_nodes() -> None:
     assert all((c.get("description") or "").strip() for c in deep)
 
 
-def test_slugify_heading_edge_cases() -> None:
+def test_docs_site_slug_edge_cases() -> None:
     # github-slugger semantics: spaces dash one-for-one, specials deleted,
     # nothing collapsed or stripped.
     assert _docs_site_slug("Advanced   Configuration!") == "advanced---configuration"

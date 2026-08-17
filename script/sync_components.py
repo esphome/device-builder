@@ -1520,11 +1520,12 @@ def _repair_help_links(entries: list[dict], pages: Mapping[str, str]) -> None:
     Repair per-field help_links naming a docs page or anchor that doesn't exist.
 
     A dead page falls back to the component's own resolved ``docs_url`` (the
-    key is dropped when there is none); a dead anchor on a live page is
-    stripped to the bare page. Links outside ``/components/`` pass through
-    untouched.
+    key is dropped when there is none); a dead anchor on a live page remaps
+    to the unique live anchor with the same alphanumerics, else strips to the
+    bare page. The fallback runs through the same anchor check. Links outside
+    ``/components/`` pass through untouched.
     """
-    repointed = dropped = stripped = 0
+    repointed = dropped = remapped = stripped = 0
     for component in entries:
         fallback = component.get("docs_url") or ""
         for entry in _iter_config_entries(component.get("config_entries") or []):
@@ -1533,23 +1534,43 @@ def _repair_help_links(entries: list[dict], pages: Mapping[str, str]) -> None:
             if path is None:
                 continue
             if path not in pages:
-                if fallback:
-                    entry["help_link"] = fallback
-                    repointed += 1
-                else:
+                if not fallback:
                     del entry["help_link"]
                     dropped += 1
-            elif "#" in link and link.split("#", 1)[1] not in _page_anchor_set(pages[path]):
-                entry["help_link"] = _strip_anchor(link)
-                stripped += 1
-    if repointed or dropped or stripped:
+                    continue
+                link = fallback
+                entry["help_link"] = link
+                repointed += 1
+                path = _docs_page_path(link) or ""
+                if path not in pages:
+                    continue
+            if "#" in link and (fragment := link.split("#", 1)[1]) not in _page_anchor_set(
+                pages[path]
+            ):
+                anchor = _remap_stale_fragment(fragment, _page_anchor_set(pages[path]))
+                if anchor:
+                    entry["help_link"] = f"{_strip_anchor(link)}#{anchor}"
+                    remapped += 1
+                else:
+                    entry["help_link"] = _strip_anchor(link)
+                    stripped += 1
+    if repointed or dropped or remapped or stripped:
         _LOGGER.info(
             "Repaired help links: %d repointed to the component page, %d dropped, "
-            "%d dead anchors stripped",
+            "%d stale anchors remapped, %d dead anchors stripped",
             repointed,
             dropped,
+            remapped,
             stripped,
         )
+
+
+@cache
+def _remap_stale_fragment(fragment: str, anchors: frozenset[str]) -> str | None:
+    """Find the unique live anchor sharing *fragment*'s alphanumerics, else None."""
+    norm = re.sub(r"[^a-z0-9]", "", fragment.lower())
+    hits = [a for a in anchors if re.sub(r"[^a-z0-9]", "", a.lower()) == norm]
+    return hits[0] if len(hits) == 1 else None
 
 
 def _assert_docs_urls_valid(entries: list[dict], pages: Mapping[str, str]) -> None:

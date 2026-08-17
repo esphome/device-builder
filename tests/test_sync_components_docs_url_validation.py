@@ -155,11 +155,44 @@ def test_repair_help_links_repoints_dead_page_to_component_url() -> None:
             {"key": "c", "help_link": "https://esphome.io/automations/actions#z"},
         ],
     }
-    _repair_help_links([component], {"sensor/xiaomi_ble": "## Y\n"})
+    _repair_help_links([component], {"sensor/xiaomi_ble": "## LYWSD03MMC\n\n## Y\n"})
     entries = component["config_entries"]
     assert entries[0]["help_link"] == "https://esphome.io/components/sensor/xiaomi_ble#lywsd03mmc"
     assert entries[1]["help_link"] == "https://esphome.io/components/sensor/xiaomi_ble#y"
     assert entries[2]["help_link"] == "https://esphome.io/automations/actions#z"
+
+
+def test_repair_help_links_repoint_strips_dead_fallback_anchor() -> None:
+    component = {
+        "id": "sensor.atc_mithermometer",
+        "docs_url": "https://esphome.io/components/sensor/xiaomi_ble#gone",
+        "config_entries": [
+            {"key": "a", "help_link": "https://esphome.io/components/sensor/atc_mithermometer#x"}
+        ],
+    }
+    _repair_help_links([component], {"sensor/xiaomi_ble": "## Y\n"})
+    assert (
+        component["config_entries"][0]["help_link"]
+        == "https://esphome.io/components/sensor/xiaomi_ble"
+    )
+
+
+def test_repair_help_links_remaps_stale_fragment_spelling() -> None:
+    component = {
+        "id": "water_heater",
+        "docs_url": "",
+        "config_entries": [
+            {
+                "key": "a",
+                "help_link": "https://esphome.io/components/water_heater#water_heatercontrol-action",
+            }
+        ],
+    }
+    _repair_help_links([component], {"water_heater": "## `water_heater.control` Action\n"})
+    assert (
+        component["config_entries"][0]["help_link"]
+        == "https://esphome.io/components/water_heater#water_heater-control-action"
+    )
 
 
 def test_repair_help_links_strips_dead_anchor_on_live_page() -> None:
