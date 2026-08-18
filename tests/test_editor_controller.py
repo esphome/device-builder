@@ -45,6 +45,7 @@ from esphome_device_builder.controllers.editor import (
     ValidatorUnavailableError,
     _EditorSession,
 )
+from esphome_device_builder.helpers.device_yaml import extract_component_source_fingerprint
 from esphome_device_builder.helpers.json import dumps
 
 
@@ -933,6 +934,91 @@ async def test_validate_yaml_cache_misses_on_different_content(tmp_path: Path) -
     )
 
     assert calls == ["esphome:\n  name: kitchen\n", "esphome:\n  name: kitchen-2\n"]
+
+
+# ---------------------------------------------------------------------------
+# validate_yaml — component-source fingerprint respawn
+# ---------------------------------------------------------------------------
+
+_BASE_YAML = "esphome:\n  name: kitchen\nesp32:\n  board: esp32dev\n"
+_OVERRIDE_YAML = (
+    "esphome:\n  name: kitchen\n"
+    "external_components:\n  - source: github://a/b\n    components: [esp32]\n"
+    "esp32:\n  board: esp32dev\n"
+)
+
+
+def _spawn_recorder(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
+    """Patch spawn to hand out fresh fake procs; return the list of procs spawned."""
+    spawned: list[Any] = []
+
+    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
+        proc, _reader, _stdin = _make_fake_proc([dumps({"type": "version"}) + b"\n"])
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec",
+        _fake_spawn,
+    )
+    return spawned
+
+
+async def test_validate_yaml_reuses_subprocess_while_component_sources_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Edits outside the source blocks keep the warm subprocess."""
+    controller = _make_controller(tmp_path)
+    spawned = _spawn_recorder(monkeypatch)
+    controller._validate_locked = AsyncMock(  # type: ignore[method-assign]
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content=_OVERRIDE_YAML)
+    await controller.validate_yaml(
+        configuration="kitchen.yaml",
+        content=_OVERRIDE_YAML.replace("esp32dev", "esp32-s3-devkitc-1"),
+    )
+
+    assert len(spawned) == 1
+    assert controller._sessions["kitchen.yaml"].proc is spawned[0]
+
+
+async def test_validate_yaml_respawns_subprocess_when_component_sources_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A changed external_components block exits the warm subprocess and spawns a fresh one."""
+    controller = _make_controller(tmp_path)
+    spawned = _spawn_recorder(monkeypatch)
+    controller._validate_locked = AsyncMock(  # type: ignore[method-assign]
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content=_BASE_YAML)
+    await controller.validate_yaml(configuration="kitchen.yaml", content=_OVERRIDE_YAML)
+
+    assert len(spawned) == 2
+    session = controller._sessions["kitchen.yaml"]
+    assert session.proc is spawned[1]
+    assert session.source_fingerprint == extract_component_source_fingerprint(_OVERRIDE_YAML)
+    spawned[0].wait.assert_awaited()
+
+
+async def test_validate_yaml_respawns_subprocess_when_component_sources_removed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dropping the override block respawns so the built-in module is loaded again."""
+    controller = _make_controller(tmp_path)
+    spawned = _spawn_recorder(monkeypatch)
+    controller._validate_locked = AsyncMock(  # type: ignore[method-assign]
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content=_OVERRIDE_YAML)
+    await controller.validate_yaml(configuration="kitchen.yaml", content=_BASE_YAML)
+
+    assert len(spawned) == 2
+    assert controller._sessions["kitchen.yaml"].source_fingerprint == ""
 
 
 # ---------------------------------------------------------------------------
