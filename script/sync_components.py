@@ -980,6 +980,8 @@ def main() -> int:
     _sweep_registry_rename_keys()
     _sweep_component_aliases()
     _fail_on_unhandled_renames()
+    if not args.limit_component:
+        _fail_on_missing_channel_colors_rules()
     _fail_on_unhandled_repr_keys()
 
     # Collected (and guarded) before any emit so the abort below leaves
@@ -8766,9 +8768,13 @@ _HANDLED_RENAME_KEYS = {
 
 _UNHANDLED_RENAME_KEYS: set[tuple[str, str, str]] = set()
 
-#: Per-schema memo for :func:`_schema_has_channel_colors_fold`, keyed on
-#: identity like :data:`_RENAME_KEYS_MEMO`.
+#: Per-schema memo for :func:`_schema_has_channel_colors_fold`; the
+#: stored schema ref keeps the id from being reused.
 _CHANNEL_COLORS_MEMO: dict[int, tuple[Any, bool]] = {}
+
+#: Components acknowledged as bespoke-handled fold carriers. Empty is
+#: the steady state: a platform-schema fold ships data-driven.
+_HANDLED_CHANNEL_COLORS: set[str] = set()
 
 #: Components whose schema carries ``light.migrate_channel_colors``
 #: somewhere the ``platform_channel_colors`` rule can't address.
@@ -8923,8 +8929,31 @@ def _fail_on_unhandled_renames() -> None:
             "platform schema, which the platform_channel_colors rule can't "
             "address:\n"
             f"{rows}\n"
-            "Extend the migration engine's fold to that shape."
+            "Extend the migration engine's fold to that shape, then "
+            "acknowledge each in _HANDLED_CHANNEL_COLORS."
         )
+
+
+def _fail_on_missing_channel_colors_rules() -> None:
+    """Abort when esphome carries the channel-colors fold but detection emitted no rules."""
+    if any(row[0] == "platform_channel_colors" for row in _MIGRATION_RULES):
+        return
+    if not _installed_esphome_has_channel_colors_fold():
+        return
+    raise SystemExit(
+        "esphome carries light.migrate_channel_colors but introspection "
+        "emitted no platform_channel_colors rules; the fold detection is "
+        "broken and the migration would silently vanish from the artifact."
+    )
+
+
+def _installed_esphome_has_channel_colors_fold() -> bool:
+    """Report whether the installed esphome ships ``light.migrate_channel_colors``."""
+    try:
+        from esphome.components.light import migrate_channel_colors  # noqa: F401
+    except ImportError:
+        return False
+    return True
 
 
 def _fail_on_unhandled_repr_keys() -> None:
@@ -9021,7 +9050,7 @@ def _classify_channel_colors_folds(
     platform_manifests_by_domain: list[tuple[str, Any]],
 ) -> None:
     """Route discovered ``migrate_channel_colors`` folds: platform schema → rule row, else canary."""
-    if _collect_channel_colors_fold(manifest):
+    if _collect_channel_colors_fold(manifest) and component_id not in _HANDLED_CHANNEL_COLORS:
         _UNHANDLED_CHANNEL_COLORS.add(component_id)
     for domain, platform_manifest in platform_manifests_by_domain:
         if _collect_channel_colors_fold(platform_manifest):
@@ -9044,11 +9073,15 @@ def _schema_has_channel_colors_fold(schema: Any) -> bool:
     if memoised is not None:
         return memoised[1]
     found = False
+    capped = False
     visited: set[int] = set()
     stack: list[tuple[Any, int]] = [(schema, 0)]
     while stack:
         node, depth = stack.pop()
-        if node is None or depth > 10 or id(node) in visited:
+        if node is None or id(node) in visited:
+            continue
+        if depth > 10:
+            capped = True
             continue
         visited.add(id(node))
         if isinstance(node, FunctionType) and node.__qualname__.startswith(
@@ -9057,6 +9090,8 @@ def _schema_has_channel_colors_fold(schema: Any) -> bool:
             found = True
             break
         stack.extend((child, depth + 1) for child, _direct in _rename_walk_children(node))
+    if capped and not found:
+        _LOGGER.warning("channel-colors walk hit the depth cap; coverage may be incomplete")
     _CHANNEL_COLORS_MEMO[id(schema)] = (schema, found)
     return found
 

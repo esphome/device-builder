@@ -405,11 +405,50 @@ def test_live_led_strip_fold_emits_the_platform_rule(cv: ModuleType) -> None:
     assert set() == _UNHANDLED_CHANNEL_COLORS
 
 
-def test_channel_colors_fold_outside_a_platform_schema_fails_the_sync() -> None:
+def test_channel_colors_fold_outside_a_platform_schema_fails_the_sync(cv: ModuleType) -> None:
+    schema = cv.All(cv.Schema({}), _fold_validator())
+    sync_components._classify_channel_colors_folds("weird_component", _manifest(schema), [])
+    assert {"weird_component"} == _UNHANDLED_CHANNEL_COLORS
     _RENAME_SWEEP_COUNT[0] = 1
-    _UNHANDLED_CHANNEL_COLORS.add("weird_component")
     with pytest.raises(SystemExit, match="weird_component"):
         _fail_on_unhandled_renames()
+
+
+def test_acknowledged_channel_colors_fold_is_skipped(
+    cv: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    schema = cv.All(cv.Schema({}), _fold_validator())
+    monkeypatch.setattr(sync_components, "_HANDLED_CHANNEL_COLORS", {"weird_component"})
+    sync_components._classify_channel_colors_folds("weird_component", _manifest(schema), [])
+    assert set() == _UNHANDLED_CHANNEL_COLORS
+
+
+def test_missing_channel_colors_rules_fail_a_fold_capable_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(sync_components, "_installed_esphome_has_channel_colors_fold", lambda: True)
+    with pytest.raises(SystemExit, match="platform_channel_colors"):
+        sync_components._fail_on_missing_channel_colors_rules()
+    _MIGRATION_RULES.add(
+        (
+            "platform_channel_colors",
+            "",
+            "light",
+            "esp32_rmt_led_strip",
+            "rgb_order",
+            "channel_colors",
+        )
+    )
+    sync_components._fail_on_missing_channel_colors_rules()
+
+
+def test_fold_free_esphome_passes_the_missing_rules_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sync_components, "_installed_esphome_has_channel_colors_fold", lambda: False
+    )
+    sync_components._fail_on_missing_channel_colors_rules()
 
 
 def test_unreadable_rename_closure_yields_sentinel_pair() -> None:

@@ -18,6 +18,7 @@ from ..yaml import (
     TRUTHY_BOOL_STRINGS,
     _split_value_and_comment,
     _strip_yaml_quotes,
+    parse_config_boolean,
     parse_substitution_ref,
     rewrite_fallback_ap_ssid,
 )
@@ -274,7 +275,7 @@ def _config_truthy_child(config: dict | None, block_key: str, key: str) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.strip().lower() in TRUTHY_BOOL_STRINGS
+        return parse_config_boolean(value) is True
     return False
 
 

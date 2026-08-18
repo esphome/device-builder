@@ -19,11 +19,11 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
+from itertools import permutations
 
 from ..definitions import MigrationRule, load_migration_rules_index
 from ..models.automations import YamlDiff
-from .yaml import api_actions
-from .yaml.scalar import parse_config_boolean
+from .yaml import _split_value_and_comment, api_actions, parse_config_boolean
 from .yaml.scan import (
     block_end_index,
     child_block_end,
@@ -295,9 +295,9 @@ def _respell_item_key(
     keys[slot] = (idx, col, new)
 
 
-#: Upstream ``light.RGB_ORDERS`` — the closed value set of the deprecated
-#: ``rgb_order`` key; anything else must keep failing validation loudly.
-_RGB_ORDERS = frozenset({"RGB", "RBG", "GRB", "GBR", "BGR", "BRG"})
+#: The deprecated ``rgb_order`` key's closed value set — every R/G/B
+#: permutation; anything else must keep failing validation loudly.
+_RGB_ORDERS = frozenset(map("".join, permutations("RGB")))
 
 
 def _fold_channel_colors_items(
@@ -308,15 +308,14 @@ def _fold_channel_colors_items(
     """
     Fold ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` into ``channel_colors``.
 
-    Applied to the *platforms* items of the domain block at *header*
-    (the ``platform_channel_colors`` rule kind, esphome/esphome#18474).
+    Applied to the *platforms* items of the domain block at *header*.
     ``is_wrgb`` prepends ``W`` to the order, ``is_rgbw`` appends it. An
     undecodable item is left alone; an existing ``channel_colors``
     entry is replaced wholesale.
     """
     end = block_end_index(lines, header)
     in_scalar = _block_scalar_mask(lines)
-    out = lines
+    out = list(lines)
     # Last item first, so earlier items' line indexes stay valid in *out*.
     for item_start in reversed(top_list_item_starts(lines, header, end)):
         keys = _item_child_keys(lines, item_start, end, in_scalar)
@@ -333,13 +332,8 @@ def _fold_channel_colors_items(
             continue
         content = lines[anchor_idx].rstrip("\n\r")
         eol = lines[anchor_idx][len(content) :] or "\n"
-        comment = ""
-        comment_match = _TRAILING_COMMENT_RE.search(content[anchor_col:].split(":", 1)[1])
-        if comment_match is not None:
-            comment = "  " + comment_match.group(1)
+        _old_value, comment = _split_value_and_comment(content[anchor_col:].split(":", 1)[1])
         replacement = f"{content[:anchor_col]}channel_colors: {value}{comment}{eol}"
-        if out is lines:
-            out = list(lines)
         splices = [(anchor_idx, [replacement])] + [(idx, []) for idx, _col in delete]
         for idx, rep in sorted(splices, key=lambda t: -t[0]):
             out[idx : idx + 1] = rep
@@ -359,26 +353,27 @@ def _fold_channel_colors(
     order = entries.get("rgb_order")
     if order is None:
         return None
-    flags: dict[str, bool] = {}
+    flags: list[bool] = []
     delete: list[tuple[int, int]] = []
     for key in ("is_rgbw", "is_wrgb"):
         entry = entries.get(key)
         if entry is None:
-            flags[key] = False
+            flags.append(False)
             continue
         decoded = parse_config_boolean(_entry_value(lines[entry[0]], entry[1]))
         if decoded is None:
             return None
-        flags[key] = decoded
+        flags.append(decoded)
         delete.append(entry)
-    if flags["is_rgbw"] and flags["is_wrgb"]:
+    is_rgbw, is_wrgb = flags
+    if is_rgbw and is_wrgb:
         return None
     value = _entry_value(lines[order[0]], order[1]).upper()
     if value not in _RGB_ORDERS:
         return None
-    if flags["is_wrgb"]:
+    if is_wrgb:
         value = f"W{value}"
-    elif flags["is_rgbw"]:
+    elif is_rgbw:
         value = f"{value}W"
     existing = entries.get("channel_colors")
     if existing is not None:
