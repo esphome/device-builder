@@ -315,8 +315,8 @@ def _fold_channel_colors_items(
 
     Applied to the *platforms* items of the domain block at *header*.
     ``is_wrgb`` prepends ``W`` to the order, ``is_rgbw`` appends it. An
-    undecodable item is left alone; an existing ``channel_colors``
-    entry is replaced wholesale.
+    undecodable item is left alone, as is one already carrying
+    ``channel_colors`` — upstream refuses that combination.
     """
     end = block_end_index(lines, header)
     in_scalar = _block_scalar_mask(lines)
@@ -355,7 +355,7 @@ def _fold_channel_colors(
     closed tables (the config must keep failing validation loudly).
     """
     order = entries.get("rgb_order")
-    if order is None:
+    if order is None or "channel_colors" in entries:
         return None
     flags: list[bool] = []
     delete: list[int] = []
@@ -379,9 +379,6 @@ def _fold_channel_colors(
         value = f"W{value}"
     elif is_rgbw:
         value = f"{value}W"
-    existing = entries.get("channel_colors")
-    if existing is not None:
-        delete.append(existing[0])
     return order, value, delete
 
 

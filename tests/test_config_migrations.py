@@ -778,16 +778,14 @@ def test_channel_colors_both_flags_untouched(generated_rules) -> None:
     assert render_migrations(_CHANNEL_ITEM + "    is_rgbw: true\n    is_wrgb: true\n") is None
 
 
-def test_channel_colors_existing_entry_replaced_wholesale(generated_rules) -> None:
+def test_channel_colors_beside_existing_entry_untouched(generated_rules) -> None:
+    # Upstream refuses the combination, so the fold must not pick a winner.
     generated_rules(*_CHANNEL_RULES)
     text = (
         "light:\n  - platform: esp32_rmt_led_strip\n    channel_colors: BGR\n"
         "    rgb_order: GRB\n    is_rgbw: true\n"
     )
-    new_text = _respell(text)
-    assert "    channel_colors: GRBW\n" in new_text
-    assert "BGR" not in new_text
-    assert new_text.count("channel_colors") == 1
+    assert render_migrations(text) is None
 
 
 def test_channel_colors_on_the_dash_line(generated_rules) -> None:
