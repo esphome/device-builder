@@ -818,15 +818,11 @@ async def test_apply_presets_drops_non_manifest_fields(
             "name": "RGB LEDs",
             # Frontend default-fills the user never touched — these go.
             "gamma_correct": 2.8,
-            "is_rgbw": False,
-            "is_wrgb": False,
             "use_psram": True,
             "default_transition_length": "1s",
         },
     )
     assert "gamma_correct" not in out
-    assert "is_rgbw" not in out
-    assert "is_wrgb" not in out
     assert "use_psram" not in out
     assert "default_transition_length" not in out
     # Manifest-supplied chipset preset filled in even though the user
@@ -1152,7 +1148,7 @@ async def test_add_component_featured_drops_non_manifest_defaults(
     End-to-end check that bridges the two halves of the fix: the
     frontend can submit a full form's worth of catalog defaults, and
     the YAML still comes out as the curated short block the manifest
-    describes — no ``gamma_correct``/``is_rgbw``/``use_psram`` noise.
+    describes — no ``gamma_correct``/``use_psram`` noise.
     """
     (tmp_path / "kit.yaml").write_text("esphome:\n  name: kit\napi:\n", "utf-8")
     ctrl = make_add_component_controller(catalog, tmp_path)
@@ -1163,8 +1159,6 @@ async def test_add_component_featured_drops_non_manifest_defaults(
         fields={
             # Frontend default-fills:
             "gamma_correct": 2.8,
-            "is_rgbw": False,
-            "is_wrgb": False,
             "use_psram": True,
             "default_transition_length": "1s",
             "flash_transition_length": "0s",
@@ -1183,8 +1177,6 @@ async def test_add_component_featured_drops_non_manifest_defaults(
     # Frontend's default-fills are stripped.
     for noise in (
         "gamma_correct",
-        "is_rgbw",
-        "is_wrgb",
         "use_psram",
         "default_transition_length",
         "flash_transition_length",
