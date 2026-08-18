@@ -8938,47 +8938,65 @@ def _fail_on_missing_channel_colors_rules() -> None:
     """
     Abort when the channel-colors fold's rules would silently vanish.
 
-    Fires when esphome ships the fold but detection emitted nothing, and
-    when the committed artifact carries rules this sweep didn't re-emit
-    (upstream renamed or removed the fold) — dropping the migration must
-    be a decision, not a silent artifact regression.
+    Fires per platform when the committed artifact carries a rule this
+    sweep didn't re-emit, and when esphome ships the fold but detection
+    emitted nothing — dropping the migration must be a decision, not a
+    silent artifact regression.
     """
-    if any(row[0] == "platform_channel_colors" for row in _MIGRATION_RULES):
-        return
-    if not (
-        _installed_esphome_has_channel_colors_fold()
-        or _committed_artifact_has_channel_colors_rules()
-    ):
-        return
-    raise SystemExit(
-        "esphome carries light.migrate_channel_colors (or the committed "
-        "migration_rules.index.json carries platform_channel_colors rules) "
-        "but introspection emitted none; fix the fold detection, or remove "
-        "the fold machinery if upstream retired the migration."
-    )
+    emitted = {
+        (domain, platform)
+        for kind, _component, domain, platform, _old, _new in _MIGRATION_RULES
+        if kind == "platform_channel_colors"
+    }
+    missing = _committed_channel_colors_platforms() - emitted
+    if missing:
+        rows = "\n".join(f"  {domain}: {platform}" for domain, platform in sorted(missing))
+        raise SystemExit(
+            "platform_channel_colors rules in the committed "
+            "migration_rules.index.json were not re-emitted:\n"
+            f"{rows}\n"
+            "Fix the fold detection, or remove the fold machinery if "
+            "upstream retired the migration."
+        )
+    if not emitted and _installed_esphome_has_channel_colors_fold():
+        raise SystemExit(
+            "esphome carries light.migrate_channel_colors but introspection "
+            "emitted no platform_channel_colors rules; the fold detection is "
+            "broken."
+        )
 
 
 def _installed_esphome_has_channel_colors_fold() -> bool:
-    """Report whether the installed esphome ships ``light.migrate_channel_colors``."""
-    try:
-        from esphome.components.light import migrate_channel_colors  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    """
+    Report whether the installed esphome ships ``light.migrate_channel_colors``.
+
+    An import failure propagates — a broken esphome must abort the sync,
+    not read as feature-absence.
+    """
+    from esphome.components import light
+
+    return hasattr(light, "migrate_channel_colors")
 
 
-def _committed_artifact_has_channel_colors_rules() -> bool:
-    """Report whether the committed rules artifact carries ``platform_channel_colors`` rows."""
+def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
+    """
+    ``(domain, platform)`` pairs of the committed ``platform_channel_colors`` rows.
+
+    An unreadable or malformed artifact aborts — it is indistinguishable
+    from vanished rules.
+    """
     try:
         payload = orjson.loads(_MIGRATION_RULES_INDEX_FILE.read_bytes())
-    except (OSError, orjson.JSONDecodeError):
-        return False
+    except (OSError, orjson.JSONDecodeError) as exc:
+        raise SystemExit(f"migration_rules.index.json unreadable: {exc}") from exc
     rules = payload.get("rules") if isinstance(payload, dict) else None
     if not isinstance(rules, list):
-        return False
-    return any(
-        isinstance(rule, dict) and rule.get("kind") == "platform_channel_colors" for rule in rules
-    )
+        raise SystemExit("migration_rules.index.json: payload must be {'rules': [...]}")
+    return {
+        (rule.get("domain", ""), rule.get("platform", ""))
+        for rule in rules
+        if isinstance(rule, dict) and rule.get("kind") == "platform_channel_colors"
+    }
 
 
 def _fail_on_unhandled_repr_keys() -> None:
@@ -9093,12 +9111,7 @@ def _collect_channel_colors_fold(manifest: Any) -> bool:
 
 
 def _schema_has_channel_colors_fold(schema: Any) -> bool:
-    """
-    Walk *schema* for ``light.migrate_channel_colors`` closures; memoised.
-
-    Unlike the rename walk there is no visited-gate bypass, so the
-    visited set alone terminates the walk — no depth cap needed.
-    """
+    """Walk *schema* for ``light.migrate_channel_colors`` closures; memoised."""
     memoised = _CHANNEL_COLORS_MEMO.get(id(schema))
     if memoised is not None:
         return memoised[1]

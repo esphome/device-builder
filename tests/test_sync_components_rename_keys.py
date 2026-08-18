@@ -428,10 +428,26 @@ def test_missing_channel_colors_rules_fail_a_fold_capable_sync(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(sync_components, "_installed_esphome_has_channel_colors_fold", lambda: True)
+    monkeypatch.setattr(sync_components, "_committed_channel_colors_platforms", set)
     with pytest.raises(SystemExit, match="platform_channel_colors"):
         sync_components._fail_on_missing_channel_colors_rules()
     _MIGRATION_RULES.add(_LED_STRIP_RULE_ROW)
     sync_components._fail_on_missing_channel_colors_rules()
+
+
+def test_vanished_committed_rule_fails_per_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One platform's row disappearing must abort even while sibling rows survive."""
+    monkeypatch.setattr(sync_components, "_installed_esphome_has_channel_colors_fold", lambda: True)
+    monkeypatch.setattr(
+        sync_components,
+        "_committed_channel_colors_platforms",
+        lambda: {("light", "esp32_rmt_led_strip"), ("light", "rp2040_pio_led_strip")},
+    )
+    _MIGRATION_RULES.add(_LED_STRIP_RULE_ROW)
+    with pytest.raises(SystemExit, match="rp2040_pio_led_strip"):
+        sync_components._fail_on_missing_channel_colors_rules()
 
 
 def test_stale_committed_rules_fail_the_missing_rules_guard(
@@ -442,9 +458,11 @@ def test_stale_committed_rules_fail_the_missing_rules_guard(
         sync_components, "_installed_esphome_has_channel_colors_fold", lambda: False
     )
     monkeypatch.setattr(
-        sync_components, "_committed_artifact_has_channel_colors_rules", lambda: True
+        sync_components,
+        "_committed_channel_colors_platforms",
+        lambda: {("light", "esp32_rmt_led_strip")},
     )
-    with pytest.raises(SystemExit, match="platform_channel_colors"):
+    with pytest.raises(SystemExit, match="esp32_rmt_led_strip"):
         sync_components._fail_on_missing_channel_colors_rules()
 
 
@@ -454,10 +472,27 @@ def test_fold_free_esphome_passes_the_missing_rules_guard(
     monkeypatch.setattr(
         sync_components, "_installed_esphome_has_channel_colors_fold", lambda: False
     )
-    monkeypatch.setattr(
-        sync_components, "_committed_artifact_has_channel_colors_rules", lambda: False
-    )
+    monkeypatch.setattr(sync_components, "_committed_channel_colors_platforms", set)
     sync_components._fail_on_missing_channel_colors_rules()
+
+
+def test_unreadable_committed_artifact_fails_the_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A corrupt artifact is indistinguishable from vanished rules — abort, don't fail open."""
+    bad = tmp_path / "migration_rules.index.json"
+    bad.write_bytes(b"{not json")
+    monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", bad)
+    with pytest.raises(SystemExit, match="unreadable"):
+        sync_components._committed_channel_colors_platforms()
+    bad.write_bytes(b"[]")
+    with pytest.raises(SystemExit, match="rules"):
+        sync_components._committed_channel_colors_platforms()
+
+
+def test_committed_artifact_platforms_read_the_real_artifact() -> None:
+    """The shipped artifact parses; it carries no fold rows until the catalog bump."""
+    assert sync_components._committed_channel_colors_platforms() == set()
 
 
 def test_unreadable_rename_closure_yields_sentinel_pair() -> None:
