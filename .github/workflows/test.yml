@@ -365,8 +365,15 @@ jobs:
           python-version: "3.14"
           install-args: -c esphome-constraints.txt -e .[esphome,test]
 
-      - name: Install mosquitto
-        run: sudo apt-get update && sudo apt-get install -y mosquitto
+      - name: Install mosquitto (cached)
+        # Cache-hit restores skip ``apt-get update`` entirely, so an apt
+        # mirror outage can't hang the job; the timeout bounds the
+        # cold-cache install path.
+        timeout-minutes: 10
+        uses: awalsh128/cache-apt-pkgs-action@a6c3917cc929dd0345bfb2d3feaf9101823370ad  # v1.4.2
+        with:
+          packages: mosquitto
+          version: 1.0
 
       - name: Run MQTT discovery e2e
         timeout-minutes: 5
@@ -465,14 +472,16 @@ jobs:
           restore-keys: |
             e2e-espidf-ccache-${{ runner.os }}-
 
-      - name: Install ccache
+      - name: Install ccache (cached)
         # esphome's native-IDF build enables ccache whenever the binary is
         # on PATH (``espidf/framework.py``'s ``_ccache_env``) and respects
         # a pre-set CCACHE_DIR, so the run step below points it at the
         # dedicated cached dir instead of the default inside the prefix.
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends ccache
+        timeout-minutes: 10
+        uses: awalsh128/cache-apt-pkgs-action@a6c3917cc929dd0345bfb2d3feaf9101823370ad  # v1.4.2
+        with:
+          packages: ccache
+          version: 1.0
 
       - name: Run native ESP-IDF e2e
         # A cold native-IDF compile installs the IDF toolchain then runs
