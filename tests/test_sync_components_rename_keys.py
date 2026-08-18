@@ -386,22 +386,23 @@ def test_channel_colors_fold_is_discovered_under_a_wrapper(cv: ModuleType) -> No
     assert _collect_channel_colors_fold(_manifest(schema)) is True
 
 
-def test_live_led_strip_fold_emits_the_platform_rule(cv: ModuleType) -> None:
+_LED_STRIP_RULE_ROW = (
+    "platform_channel_colors",
+    "",
+    "light",
+    "esp32_rmt_led_strip",
+    "rgb_order",
+    "channel_colors",
+)
+
+
+def test_live_led_strip_fold_emits_the_platform_rule() -> None:
     """Once the installed esphome carries the fold, the sync emits its rule row."""
     pytest.importorskip("esphome.loader")
-    try:
-        from esphome.components.light import migrate_channel_colors  # noqa: F401,PLC0415
-    except ImportError:
+    if not sync_components._installed_esphome_has_channel_colors_fold():
         pytest.skip("installed esphome predates channel_colors")
     introspect_component("esp32_rmt_led_strip")
-    assert (
-        "platform_channel_colors",
-        "",
-        "light",
-        "esp32_rmt_led_strip",
-        "rgb_order",
-        "channel_colors",
-    ) in _MIGRATION_RULES
+    assert _LED_STRIP_RULE_ROW in _MIGRATION_RULES
     assert set() == _UNHANDLED_CHANNEL_COLORS
 
 
@@ -429,17 +430,22 @@ def test_missing_channel_colors_rules_fail_a_fold_capable_sync(
     monkeypatch.setattr(sync_components, "_installed_esphome_has_channel_colors_fold", lambda: True)
     with pytest.raises(SystemExit, match="platform_channel_colors"):
         sync_components._fail_on_missing_channel_colors_rules()
-    _MIGRATION_RULES.add(
-        (
-            "platform_channel_colors",
-            "",
-            "light",
-            "esp32_rmt_led_strip",
-            "rgb_order",
-            "channel_colors",
-        )
-    )
+    _MIGRATION_RULES.add(_LED_STRIP_RULE_ROW)
     sync_components._fail_on_missing_channel_colors_rules()
+
+
+def test_stale_committed_rules_fail_the_missing_rules_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Upstream retiring the fold must surface as a decision, not a silent row drop."""
+    monkeypatch.setattr(
+        sync_components, "_installed_esphome_has_channel_colors_fold", lambda: False
+    )
+    monkeypatch.setattr(
+        sync_components, "_committed_artifact_has_channel_colors_rules", lambda: True
+    )
+    with pytest.raises(SystemExit, match="platform_channel_colors"):
+        sync_components._fail_on_missing_channel_colors_rules()
 
 
 def test_fold_free_esphome_passes_the_missing_rules_guard(
@@ -447,6 +453,9 @@ def test_fold_free_esphome_passes_the_missing_rules_guard(
 ) -> None:
     monkeypatch.setattr(
         sync_components, "_installed_esphome_has_channel_colors_fold", lambda: False
+    )
+    monkeypatch.setattr(
+        sync_components, "_committed_artifact_has_channel_colors_rules", lambda: False
     )
     sync_components._fail_on_missing_channel_colors_rules()
 

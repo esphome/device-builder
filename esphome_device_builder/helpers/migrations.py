@@ -23,7 +23,12 @@ from itertools import permutations
 
 from ..definitions import MigrationRule, load_migration_rules_index
 from ..models.automations import YamlDiff
-from .yaml import _split_value_and_comment, api_actions, parse_config_boolean
+from .yaml import (
+    _split_value_and_comment,
+    _strip_yaml_quotes,
+    api_actions,
+    parse_config_boolean,
+)
 from .yaml.scan import (
     block_end_index,
     child_block_end,
@@ -328,24 +333,23 @@ def _fold_channel_colors_items(
             continue
         (anchor_idx, anchor_col), value, delete = folded
         # Deleting the dash line would orphan the rest of the item.
-        if any(idx == item_start for idx, _col in delete):
+        if item_start in delete:
             continue
         content = lines[anchor_idx].rstrip("\n\r")
         eol = lines[anchor_idx][len(content) :] or "\n"
         _old_value, comment = _split_value_and_comment(content[anchor_col:].split(":", 1)[1])
-        replacement = f"{content[:anchor_col]}channel_colors: {value}{comment}{eol}"
-        splices = [(anchor_idx, [replacement])] + [(idx, []) for idx, _col in delete]
-        for idx, rep in sorted(splices, key=lambda t: -t[0]):
-            out[idx : idx + 1] = rep
+        out[anchor_idx] = f"{content[:anchor_col]}channel_colors: {value}{comment}{eol}"
+        for idx in sorted(delete, reverse=True):
+            del out[idx]
     return out
 
 
 def _fold_channel_colors(
     lines: list[str],
     entries: dict[str, tuple[int, int]],
-) -> tuple[tuple[int, int], str, list[tuple[int, int]]] | None:
+) -> tuple[tuple[int, int], str, list[int]] | None:
     """
-    ``(anchor entry, folded value, entries to delete)`` for one strip item.
+    ``(anchor entry, folded value, lines to delete)`` for one strip item.
 
     ``None`` when there is nothing to fold or a value falls outside the
     closed tables (the config must keep failing validation loudly).
@@ -354,7 +358,7 @@ def _fold_channel_colors(
     if order is None:
         return None
     flags: list[bool] = []
-    delete: list[tuple[int, int]] = []
+    delete: list[int] = []
     for key in ("is_rgbw", "is_wrgb"):
         entry = entries.get(key)
         if entry is None:
@@ -364,7 +368,7 @@ def _fold_channel_colors(
         if decoded is None:
             return None
         flags.append(decoded)
-        delete.append(entry)
+        delete.append(entry[0])
     is_rgbw, is_wrgb = flags
     if is_rgbw and is_wrgb:
         return None
@@ -377,7 +381,7 @@ def _fold_channel_colors(
         value = f"{value}W"
     existing = entries.get("channel_colors")
     if existing is not None:
-        delete.append(existing)
+        delete.append(existing[0])
     return order, value, delete
 
 
@@ -624,13 +628,8 @@ def _item_child_keys(
 
 def _entry_value(line: str, col: int) -> str:
     """Return the ``key: value`` entry's scalar at *col*, comment and quotes stripped."""
-    value = line.rstrip("\n\r")[col:].split(":", 1)[1].strip()
-    comment = _TRAILING_COMMENT_RE.search(value)
-    if comment is not None:
-        value = value[: comment.start()].strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-        value = value[1:-1]
-    return value
+    value, _comment = _split_value_and_comment(line.rstrip("\n\r")[col:].split(":", 1)[1])
+    return _strip_yaml_quotes(value)
 
 
 # Each bespoke rule is paired with the substrings it needs present before it
