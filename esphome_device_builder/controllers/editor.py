@@ -83,6 +83,9 @@ class _EditorSession:
     # ``extract_component_source_fingerprint`` of the content the subprocess
     # was spawned for.
     source_fingerprint: str = ""
+    # Bumped by ``invalidate_cache`` so an in-flight validate can't
+    # reinstate a pre-write result into ``cached``.
+    invalidation_epoch: int = 0
 
 
 class EditorController:
@@ -132,13 +135,16 @@ class EditorController:
         subprocess on the next validate — the write may have touched a
         referenced ``packages:`` / ``!include`` file that carries
         ``external_components:``, which the buffer-derived fingerprint
-        can't see.
+        can't see. Out-of-band edits to a ``type: local`` component's
+        own files fire no config-dir write and stay uncovered until
+        the idle reap.
         """
         # Snapshot the values: this is await-free so the dict can't change
         # under us today, but the copy keeps it safe if a future caller adds
         # a suspension point mid-clear.
         for session in tuple(self._sessions.values()):
             session.cached = None
+            session.invalidation_epoch += 1
             if session.source_fingerprint:
                 session.source_fingerprint = _STALE_SOURCES
 
@@ -368,6 +374,7 @@ class EditorController:
             if cached is not None and cached.is_fresh_for(content_hash):
                 return cached.result
             ok = False
+            epoch = session.invalidation_epoch
             try:
                 # Warm the subprocess outside the budget so a cold start
                 # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
@@ -386,9 +393,10 @@ class EditorController:
                 # for callers) propagates unchanged.
                 if not ok:
                     await self._terminate_subprocess(session)
-            session.cached = _CachedValidation(
-                content_hash=content_hash, result=result, at=time.monotonic()
-            )
+            if session.invalidation_epoch == epoch:
+                session.cached = _CachedValidation(
+                    content_hash=content_hash, result=result, at=time.monotonic()
+                )
             return result
 
     async def _validate_locked(

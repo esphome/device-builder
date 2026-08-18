@@ -907,6 +907,16 @@ def test_extract_component_source_fingerprint_without_source_blocks() -> None:
     assert extract_component_source_fingerprint("esphome:\n  name: dev\nlogger:\n") == ""
 
 
+def test_extract_component_source_fingerprint_covers_root_merge_key() -> None:
+    """A top-level merge key counts as a source block; its edits move the digest."""
+    yaml_content = "esphome:\n  name: dev\n<<: !include base.yaml\nlogger:\n"
+    fingerprint = extract_component_source_fingerprint(yaml_content)
+    assert fingerprint
+    assert fingerprint != extract_component_source_fingerprint(
+        yaml_content.replace("base.yaml", "base2.yaml")
+    )
+
+
 def test_extract_component_source_fingerprint_covers_packages() -> None:
     """A packages edit moves the digest; a package can carry external_components."""
     yaml_content = "esphome:\n  name: dev\npackages:\n  base: !include common/base.yaml\nlogger:\n"
@@ -934,7 +944,7 @@ def test_extract_component_source_fingerprint_substitutions_only_when_referenced
 
 
 def test_extract_component_source_fingerprint_ignores_comments_and_blanks() -> None:
-    """Cosmetic edits inside a source block must not move the digest."""
+    """Full-line comments and blank lines inside a source block must not move the digest."""
     plain = "external_components:\n  - source: github://a/b\nlogger:\n"
     cosmetic = "external_components:\n# a comment\n\n  - source: github://a/b\nlogger:\n"
     assert extract_component_source_fingerprint(plain) == extract_component_source_fingerprint(

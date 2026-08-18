@@ -211,12 +211,14 @@ def extract_network_address_fingerprint(yaml_content: str) -> str:
 
 
 # The blocks that decide *which* component modules esphome loads:
-# ``external_components:`` installs the overrides, ``packages:`` can
-# pull an ``external_components:`` block in by reference.
-# ``substitutions:`` joins only when one of them references a
-# substitution; unconditionally it would respawn the validator on
-# every unrelated substitutions edit.
-_COMPONENT_SOURCE_KEYS = frozenset({CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES})
+# ``external_components:`` installs the overrides; ``packages:`` and a
+# top-level ``<<:`` merge key can pull an ``external_components:``
+# block in by reference. ``substitutions:`` joins only when one of
+# them references a substitution; unconditionally it would respawn
+# the validator on every unrelated substitutions edit. A ``${...}``
+# inside a *referenced* file stays invisible here — the stale gate in
+# ``EditorController.invalidate_cache`` covers those at save time.
+_COMPONENT_SOURCE_KEYS = frozenset({CONF_EXTERNAL_COMPONENTS, CONF_PACKAGES, "<<"})
 _SUBSTITUTIONS_KEY = frozenset({CONF_SUBSTITUTIONS})
 
 

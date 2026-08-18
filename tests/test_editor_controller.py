@@ -998,6 +998,11 @@ async def test_validate_yaml_respawns_only_when_component_sources_change(
     ("content", "expected_spawns"),
     [
         pytest.param(_OVERRIDE_YAML, 2, id="sourced-session-respawns"),
+        pytest.param(
+            "esphome:\n  name: kitchen\n<<: !include base.yaml\n",
+            2,
+            id="merge-key-session-respawns",
+        ),
         pytest.param(_BASE_YAML, 1, id="sourceless-session-keeps-proc"),
     ],
 )
@@ -1030,6 +1035,32 @@ async def test_invalidate_cache_stales_sourced_sessions(
 
     assert len(spawned) == expected_spawns
     assert controller._sessions["kitchen.yaml"].proc is spawned[-1]
+
+
+async def test_invalidate_cache_mid_validate_discards_inflight_result(tmp_path: Path) -> None:
+    """A validate overlapping a config-dir write must not reinstate its pre-write result."""
+    controller = _make_controller(tmp_path)
+    controller._ensure_subprocess = AsyncMock()  # type: ignore[method-assign]
+    in_flight = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _blocked(*_args: Any, **_kwargs: Any) -> dict:
+        in_flight.set()
+        await release.wait()
+        return {"yaml_errors": [], "validation_errors": []}
+
+    controller._validate_locked = _blocked  # type: ignore[method-assign]
+
+    task = asyncio.create_task(
+        controller.validate_yaml(configuration="kitchen.yaml", content="esphome:\n")
+    )
+    await in_flight.wait()
+    controller.invalidate_cache()
+    release.set()
+    result = await task
+
+    assert result == {"yaml_errors": [], "validation_errors": []}
+    assert controller._sessions["kitchen.yaml"].cached is None
 
 
 # ---------------------------------------------------------------------------
