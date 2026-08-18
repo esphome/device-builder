@@ -419,6 +419,16 @@ against legacy behaviour before assuming the simpler version suffices.
   rules, failing when the top-level respell can't express an alias (a
   platform domain, or a provider whose name appears as `- platform:`
   values); acknowledge bespoke handling in `_HANDLED_ALIASES`. The
+  led-strip `rgb_order`/`is_rgbw`/`is_wrgb`→`channel_colors`
+  consolidation (esphome/esphome#18474) is the hybrid shape: the value
+  fold is coded once in `helpers/migrations.py`
+  (`_fold_channel_colors_items`), but which platforms it applies to is
+  data-driven — the sync detects `light.migrate_channel_colors`
+  validators on platform schemas and emits `platform_channel_colors`
+  rules, so the fold stays dormant until the catalog syncs against a
+  `channel_colors`-aware esphome and new adopting platforms join
+  without a code change; a fold validator outside a platform schema
+  fails the sync. The
   frontend's migrate nudge drives the
   one-click whole-file update; new migrations extend the artifact or
   add a rule function — never a new command. The dashboard list

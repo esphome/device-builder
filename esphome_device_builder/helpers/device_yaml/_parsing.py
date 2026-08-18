@@ -15,6 +15,7 @@ from ...definitions import load_platform_capabilities_index
 from ...models.boards import RP2_PLATFORM_ALIASES, normalize_platform
 from ..chips import normalize_chip_variant
 from ..yaml import (
+    TRUTHY_BOOL_STRINGS,
     _split_value_and_comment,
     _strip_yaml_quotes,
     parse_substitution_ref,
@@ -246,10 +247,6 @@ def yaml_has_api_encryption(yaml_content: str) -> bool:
     return bool(_RAW_API_ENCRYPTION_RE.search(yaml_content))
 
 
-# esphome's ``cv.boolean`` truthy spellings.
-_TRUTHY_BOOL_STRINGS = frozenset({"true", "yes", "on", "enable"})
-
-
 def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
     # Truthy *key* indented under top-level *block*. The body
     # alternatives are exclusive so the engine can't backtrack
@@ -257,7 +254,7 @@ def _truthy_child_re(block: str, key: str) -> re.Pattern[str]:
     # (YAML keys are case-sensitive), and the value may be quoted.
     return re.compile(
         rf"^{block}:[^\n]*\n(?:[ \t][^\n]*\n|#[^\n]*\n|\n)*"
-        rf"""[ \t]+{key}:[ \t]*["']?(?i:{"|".join(sorted(_TRUTHY_BOOL_STRINGS))})\b""",
+        rf"""[ \t]+{key}:[ \t]*["']?(?i:{"|".join(sorted(TRUTHY_BOOL_STRINGS))})\b""",
         re.MULTILINE,
     )
 
@@ -277,7 +274,7 @@ def _config_truthy_child(config: dict | None, block_key: str, key: str) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.strip().lower() in _TRUTHY_BOOL_STRINGS
+        return value.strip().lower() in TRUTHY_BOOL_STRINGS
     return False
 
 

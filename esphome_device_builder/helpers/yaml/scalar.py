@@ -255,6 +255,21 @@ def read_yaml_scalar(yaml_text: str, path: Sequence[str]) -> str | None:
     return captured[0] if captured else None
 
 
+#: esphome ``cv.boolean``'s closed spelling tables.
+TRUTHY_BOOL_STRINGS = frozenset({"true", "yes", "on", "enable"})
+FALSY_BOOL_STRINGS = frozenset({"false", "no", "off", "disable"})
+
+
+def parse_config_boolean(value: str) -> bool | None:
+    """Decode *value* per esphome's ``cv.boolean``; ``None`` when it isn't one."""
+    lowered = value.strip().lower()
+    if lowered in TRUTHY_BOOL_STRINGS:
+        return True
+    if lowered in FALSY_BOOL_STRINGS:
+        return False
+    return None
+
+
 # The plain-vs-quoted decision and the escaping are delegated to PyYAML
 # so neither can drift from what the parser accepts. analyze_scalar
 # answers the syntax half (safe unquoted?); the resolver answers the

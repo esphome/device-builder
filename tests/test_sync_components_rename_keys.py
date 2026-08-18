@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from typing import Any
 
 import orjson
 import pytest
@@ -13,8 +15,10 @@ from script.sync_components import (  # type: ignore[import-not-found]
     _MIGRATION_RULES,
     _RENAME_SWEEP_COUNT,
     _UNHANDLED_ALIASES,
+    _UNHANDLED_CHANNEL_COLORS,
     _UNHANDLED_RENAME_KEYS,
     _classify_rename_pairs,
+    _collect_channel_colors_fold,
     _collect_rename_keys,
     _emit_migration_rules_index,
     _fail_on_unhandled_renames,
@@ -38,11 +42,13 @@ def cv() -> ModuleType:
 def _clean_accumulators():
     _UNHANDLED_RENAME_KEYS.clear()
     _UNHANDLED_ALIASES.clear()
+    _UNHANDLED_CHANNEL_COLORS.clear()
     _MIGRATION_RULES.clear()
     saved_sweeps = _RENAME_SWEEP_COUNT[0]
     yield
     _UNHANDLED_RENAME_KEYS.clear()
     _UNHANDLED_ALIASES.clear()
+    _UNHANDLED_CHANNEL_COLORS.clear()
     _MIGRATION_RULES.clear()
     _RENAME_SWEEP_COUNT[0] = saved_sweeps
 
@@ -355,6 +361,55 @@ def test_handled_pairs_do_not_fail_the_sync() -> None:
     _note_unhandled_rename_keys("api", [("services", "actions"), ("service", "action")])
     _fail_on_unhandled_renames()
     assert set() == _UNHANDLED_RENAME_KEYS
+
+
+def _fold_validator() -> Callable[[Any], Any]:
+    """Return a closure shaped like ``light.migrate_channel_colors``'s."""
+
+    def validator(value: Any) -> Any:
+        return value
+
+    validator.__qualname__ = "migrate_channel_colors.<locals>.validator"
+    return validator
+
+
+def test_channel_colors_fold_is_discovered_on_the_validator_chain(cv: ModuleType) -> None:
+    schema = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
+    assert _collect_channel_colors_fold(_manifest(schema)) is True
+    assert _collect_channel_colors_fold(_manifest(cv.Schema({}))) is False
+    assert _collect_channel_colors_fold(SimpleNamespace(config_schema=None)) is False
+
+
+def test_channel_colors_fold_is_discovered_under_a_wrapper(cv: ModuleType) -> None:
+    item = cv.All(cv.Schema({cv.Optional("channel_colors"): cv.string}), _fold_validator())
+    schema = cv.Schema({cv.Optional("strips"): cv.ensure_list(item)})
+    assert _collect_channel_colors_fold(_manifest(schema)) is True
+
+
+def test_live_led_strip_fold_emits_the_platform_rule(cv: ModuleType) -> None:
+    """Once the installed esphome carries the fold, the sync emits its rule row."""
+    pytest.importorskip("esphome.loader")
+    try:
+        from esphome.components.light import migrate_channel_colors  # noqa: F401,PLC0415
+    except ImportError:
+        pytest.skip("installed esphome predates channel_colors")
+    introspect_component("esp32_rmt_led_strip")
+    assert (
+        "platform_channel_colors",
+        "",
+        "light",
+        "esp32_rmt_led_strip",
+        "rgb_order",
+        "channel_colors",
+    ) in _MIGRATION_RULES
+    assert set() == _UNHANDLED_CHANNEL_COLORS
+
+
+def test_channel_colors_fold_outside_a_platform_schema_fails_the_sync() -> None:
+    _RENAME_SWEEP_COUNT[0] = 1
+    _UNHANDLED_CHANNEL_COLORS.add("weird_component")
+    with pytest.raises(SystemExit, match="weird_component"):
+        _fail_on_unhandled_renames()
 
 
 def test_unreadable_rename_closure_yields_sentinel_pair() -> None:

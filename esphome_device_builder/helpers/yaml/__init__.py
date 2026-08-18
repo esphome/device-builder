@@ -68,12 +68,14 @@ from .inline import upsert_subentity_handler as upsert_subentity_handler
 from .scalar import ESPHOME_FRIENDLY_NAME_PATH as ESPHOME_FRIENDLY_NAME_PATH
 from .scalar import ESPHOME_NAME_PATH as ESPHOME_NAME_PATH
 from .scalar import ESPHOME_YAML_INDENT as ESPHOME_YAML_INDENT
+from .scalar import TRUTHY_BOOL_STRINGS as TRUTHY_BOOL_STRINGS
 from .scalar import YamlUpsertNotSupportedError as YamlUpsertNotSupportedError
 from .scalar import _quote as _quote
 from .scalar import _safe_yaml_scalar as _safe_yaml_scalar
 from .scalar import _split_value_and_comment as _split_value_and_comment
 from .scalar import _strip_yaml_quotes as _strip_yaml_quotes
 from .scalar import is_plain_literal_scalar as is_plain_literal_scalar
+from .scalar import parse_config_boolean as parse_config_boolean
 from .scalar import read_yaml_scalar as read_yaml_scalar
 from .scalar import rewrite_yaml_scalar as rewrite_yaml_scalar
 from .scan import child_block_end as child_block_end

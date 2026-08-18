@@ -23,6 +23,7 @@ from functools import cache
 from ..definitions import MigrationRule, load_migration_rules_index
 from ..models.automations import YamlDiff
 from .yaml import api_actions
+from .yaml.scalar import parse_config_boolean
 from .yaml.scan import (
     block_end_index,
     child_block_end,
@@ -162,7 +163,9 @@ def _apply_action_node_rename(
 # bare-mapping ``ota:`` / ``time:`` form (implicit platform).
 def _apply_generated_renames(lines: list[str]) -> list[str]:
     """Apply the sync-discovered rename rules from the generated artifact."""
-    key_rules, block_groups, item_groups = _group_generated_rules(load_migration_rules_index())
+    key_rules, block_groups, item_groups, fold_groups = _group_generated_rules(
+        load_migration_rules_index()
+    )
     out = list(lines)
     headers = top_level_key_index(out)
     # Key respells first, so a same-release field rename inside the
@@ -186,6 +189,10 @@ def _apply_generated_renames(lines: list[str]) -> list[str]:
     for domain, by_platform in item_groups.items():
         if (header := headers.get(domain)) is not None:
             _apply_platform_item_fields(out, header, by_platform, mask())
+    # Folds last — they delete lines, so each re-anchors on fresh indexes.
+    for domain, platforms in fold_groups.items():
+        if (header := top_level_key_index(out).get(domain)) is not None:
+            out = _fold_channel_colors_items(out, header, platforms)
     return out
 
 
@@ -195,11 +202,13 @@ def _group_generated_rules(
     list[MigrationRule],
     dict[str, list[MigrationRule]],
     dict[str, dict[str, list[MigrationRule]]],
+    dict[str, set[str]],
 ]:
-    """Split *rules* into key respells, per-component block groups, and per-platform item groups."""
+    """Split *rules* into key respells, block groups, item groups, and fold platform sets."""
     key_rules: list[MigrationRule] = []
     block_groups: dict[str, list[MigrationRule]] = {}
     item_groups: dict[str, dict[str, list[MigrationRule]]] = {}
+    fold_groups: dict[str, set[str]] = {}
     for rule in rules:
         # No fallthrough: a kind this build doesn't know is dropped here,
         # never misapplied as some other kind's rename.
@@ -209,7 +218,9 @@ def _group_generated_rules(
             block_groups.setdefault(rule.component, []).append(rule)
         elif rule.kind == "platform_item_field":
             item_groups.setdefault(rule.domain, {}).setdefault(rule.platform, []).append(rule)
-    return key_rules, block_groups, item_groups
+        elif rule.kind == "platform_channel_colors":
+            fold_groups.setdefault(rule.domain, set()).add(rule.platform)
+    return key_rules, block_groups, item_groups, fold_groups
 
 
 def _apply_component_block_fields(
@@ -282,6 +293,97 @@ def _respell_item_key(
     eol = lines[idx][len(content) :]
     lines[idx] = content[:col] + new + content[col + len(old) :] + eol
     keys[slot] = (idx, col, new)
+
+
+#: Upstream ``light.RGB_ORDERS`` — the closed value set of the deprecated
+#: ``rgb_order`` key; anything else must keep failing validation loudly.
+_RGB_ORDERS = frozenset({"RGB", "RBG", "GRB", "GBR", "BGR", "BRG"})
+
+
+def _fold_channel_colors_items(
+    lines: list[str],
+    header: int,
+    platforms: set[str],
+) -> list[str]:
+    """
+    Fold ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` into ``channel_colors``.
+
+    Applied to the *platforms* items of the domain block at *header*
+    (the ``platform_channel_colors`` rule kind, esphome/esphome#18474).
+    ``is_wrgb`` prepends ``W`` to the order, ``is_rgbw`` appends it. An
+    undecodable item is left alone; an existing ``channel_colors``
+    entry is replaced wholesale.
+    """
+    end = block_end_index(lines, header)
+    in_scalar = _block_scalar_mask(lines)
+    out = lines
+    # Last item first, so earlier items' line indexes stay valid in *out*.
+    for item_start in reversed(top_list_item_starts(lines, header, end)):
+        keys = _item_child_keys(lines, item_start, end, in_scalar)
+        entries = {key: (idx, col) for idx, col, key in keys}
+        platform = entries.get("platform")
+        if platform is None or _entry_value(lines[platform[0]], platform[1]) not in platforms:
+            continue
+        folded = _fold_channel_colors(lines, entries)
+        if folded is None:
+            continue
+        (anchor_idx, anchor_col), value, delete = folded
+        # Deleting the dash line would orphan the rest of the item.
+        if any(idx == item_start for idx, _col in delete):
+            continue
+        content = lines[anchor_idx].rstrip("\n\r")
+        eol = lines[anchor_idx][len(content) :] or "\n"
+        comment = ""
+        comment_match = _TRAILING_COMMENT_RE.search(content[anchor_col:].split(":", 1)[1])
+        if comment_match is not None:
+            comment = "  " + comment_match.group(1)
+        replacement = f"{content[:anchor_col]}channel_colors: {value}{comment}{eol}"
+        if out is lines:
+            out = list(lines)
+        splices = [(anchor_idx, [replacement])] + [(idx, []) for idx, _col in delete]
+        for idx, rep in sorted(splices, key=lambda t: -t[0]):
+            out[idx : idx + 1] = rep
+    return out
+
+
+def _fold_channel_colors(
+    lines: list[str],
+    entries: dict[str, tuple[int, int]],
+) -> tuple[tuple[int, int], str, list[tuple[int, int]]] | None:
+    """
+    ``(anchor entry, folded value, entries to delete)`` for one strip item.
+
+    ``None`` when there is nothing to fold or a value falls outside the
+    closed tables (the config must keep failing validation loudly).
+    """
+    order = entries.get("rgb_order")
+    if order is None:
+        return None
+    flags: dict[str, bool] = {}
+    delete: list[tuple[int, int]] = []
+    for key in ("is_rgbw", "is_wrgb"):
+        entry = entries.get(key)
+        if entry is None:
+            flags[key] = False
+            continue
+        decoded = parse_config_boolean(_entry_value(lines[entry[0]], entry[1]))
+        if decoded is None:
+            return None
+        flags[key] = decoded
+        delete.append(entry)
+    if flags["is_rgbw"] and flags["is_wrgb"]:
+        return None
+    value = _entry_value(lines[order[0]], order[1]).upper()
+    if value not in _RGB_ORDERS:
+        return None
+    if flags["is_wrgb"]:
+        value = f"W{value}"
+    elif flags["is_rgbw"]:
+        value = f"{value}W"
+    existing = entries.get("channel_colors")
+    if existing is not None:
+        delete.append(existing)
+    return order, value, delete
 
 
 #: Upstream's closed ``CLK_MODES_DEPRECATED`` table — anything else is an
