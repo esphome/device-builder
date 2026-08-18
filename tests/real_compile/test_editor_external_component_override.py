@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -50,16 +49,6 @@ def _override_yaml(components_dir: Path) -> str:
     )
 
 
-def _make_controller(config_dir: Path) -> EditorController:
-    controller = EditorController.__new__(EditorController)
-    controller._db = MagicMock()
-    controller._db.settings.config_dir = config_dir
-    controller._sessions = {}
-    controller._esphome_cmd = [sys.executable, "-m", "esphome"]
-    controller._reaper_task = None
-    return controller
-
-
 def _messages(result: dict) -> list[str]:
     return [err["message"] for err in result["validation_errors"]]
 
@@ -70,7 +59,10 @@ async def test_override_added_after_first_validate_takes_effect(tmp_path: Path) 
     components_dir = tmp_path / "components"
     (components_dir / "captive_portal").mkdir(parents=True)
     (components_dir / "captive_portal" / "__init__.py").write_text(_OVERRIDE_INIT)
-    controller = _make_controller(tmp_path)
+    db = MagicMock()
+    db.settings.config_dir = tmp_path
+    controller = EditorController(db)
+    await controller.start()
     try:
         first = await controller.validate_yaml(configuration="testtest.yaml", content=_BASE_YAML)
         assert any("enable_exfat" in message for message in _messages(first))

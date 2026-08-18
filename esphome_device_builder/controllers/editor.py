@@ -77,8 +77,8 @@ class _EditorSession:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     cached: _CachedValidation | None = None
     last_used: float = field(default_factory=time.monotonic)
-    # ``extract_component_source_fingerprint`` of the content the warm
-    # subprocess was primed with; a mismatch forces a respawn.
+    # ``extract_component_source_fingerprint`` of the content the subprocess
+    # was spawned for.
     source_fingerprint: str = ""
 
 
@@ -136,10 +136,20 @@ class EditorController:
     # Subprocess management
     # ------------------------------------------------------------------
 
-    async def _ensure_subprocess(self, session: _EditorSession) -> None:
-        """Spawn the `esphome vscode --ace` subprocess for `session` if not already running."""
+    async def _ensure_subprocess(self, session: _EditorSession, source_fingerprint: str) -> None:
+        """Spawn the `esphome vscode --ace` subprocess for `session` unless a matching one runs."""
         if session.proc is not None and session.proc.returncode is None:
-            return
+            if session.source_fingerprint == source_fingerprint:
+                return
+            # esphome's loader cache and ``sys.modules`` outlive the
+            # subprocess's per-validate ``CORE.reset()``, so changed
+            # ``external_components:`` / ``packages:`` need a fresh process.
+            _LOGGER.info(
+                "Restarting vscode subprocess for %s: component sources changed",
+                session.configuration,
+            )
+            await self._terminate_subprocess(session)
+        session.source_fingerprint = source_fingerprint
 
         config_dir = str(self._db.settings.config_dir)
         cmd = [*self._esphome_cmd, "vscode", config_dir, "--ace"]
@@ -349,24 +359,11 @@ class EditorController:
                 return cached.result
             ok = False
             try:
-                # The warm subprocess pins every component module it has
-                # imported (esphome's loader cache and ``sys.modules`` outlive
-                # its per-validate ``CORE.reset()``), so a buffer whose
-                # ``external_components:`` / ``packages:`` blocks changed
-                # would keep validating against the previously loaded
-                # modules. Respawn so the new sources take effect.
-                fingerprint = extract_component_source_fingerprint(content)
-                if session.source_fingerprint != fingerprint:
-                    if session.proc is not None and session.proc.returncode is None:
-                        _LOGGER.info(
-                            "Restarting vscode subprocess for %s: component sources changed",
-                            configuration,
-                        )
-                        await self._terminate_subprocess(session)
-                    session.source_fingerprint = fingerprint
                 # Warm the subprocess outside the budget so a cold start
                 # (own ``_STARTUP_TIMEOUT``) doesn't eat a short import timeout.
-                await self._ensure_subprocess(session)
+                await self._ensure_subprocess(
+                    session, extract_component_source_fingerprint(content)
+                )
                 result = await asyncio.wait_for(
                     self._validate_locked(session, configuration, content),
                     timeout=timeout,

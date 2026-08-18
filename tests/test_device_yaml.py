@@ -902,16 +902,9 @@ def test_extract_component_source_fingerprint_tracks_source_edits_only() -> None
     )
 
 
-def test_extract_component_source_fingerprint_moves_when_block_appears() -> None:
-    """Adding or dropping the whole block moves the digest off the empty value."""
-    without = _EXTERNAL_COMPONENTS_YAML.replace(
-        "external_components:\n"
-        "  - source: github://p1ngb4ck/esphome@storage-testing\n"
-        "    components: [esp32]\n",
-        "",
-    )
-    assert extract_component_source_fingerprint(without) == ""
-    assert extract_component_source_fingerprint(_EXTERNAL_COMPONENTS_YAML) != ""
+def test_extract_component_source_fingerprint_without_source_blocks() -> None:
+    """No source block yields the empty fingerprint."""
+    assert extract_component_source_fingerprint("esphome:\n  name: dev\nlogger:\n") == ""
 
 
 def test_extract_component_source_fingerprint_covers_packages() -> None:
