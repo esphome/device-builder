@@ -8940,8 +8940,7 @@ def _fail_on_missing_channel_colors_rules() -> None:
 
     Fires per platform when the committed artifact carries a rule this
     sweep didn't re-emit, and when esphome ships the fold but detection
-    emitted nothing — dropping the migration must be a decision, not a
-    silent artifact regression.
+    emitted nothing.
     """
     emitted = {
         (domain, platform)
@@ -8970,8 +8969,7 @@ def _installed_esphome_has_channel_colors_fold() -> bool:
     """
     Report whether the installed esphome ships ``light.migrate_channel_colors``.
 
-    An import failure propagates — a broken esphome must abort the sync,
-    not read as feature-absence.
+    An import failure propagates.
     """
     from esphome.components import light
 
@@ -8982,8 +8980,7 @@ def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
     """
     ``(domain, platform)`` pairs of the committed ``platform_channel_colors`` rows.
 
-    An unreadable or malformed artifact aborts — it is indistinguishable
-    from vanished rules.
+    Raises ``SystemExit`` on an unreadable or malformed artifact.
     """
     try:
         payload = orjson.loads(_MIGRATION_RULES_INDEX_FILE.read_bytes())
@@ -8992,11 +8989,20 @@ def _committed_channel_colors_platforms() -> set[tuple[str, str]]:
     rules = payload.get("rules") if isinstance(payload, dict) else None
     if not isinstance(rules, list):
         raise SystemExit("migration_rules.index.json: payload must be {'rules': [...]}")
-    return {
-        (rule.get("domain", ""), rule.get("platform", ""))
-        for rule in rules
-        if isinstance(rule, dict) and rule.get("kind") == "platform_channel_colors"
-    }
+    out: set[tuple[str, str]] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise SystemExit("migration_rules.index.json: non-mapping rule row")
+        if rule.get("kind") != "platform_channel_colors":
+            continue
+        domain = rule.get("domain")
+        platform = rule.get("platform")
+        if not (isinstance(domain, str) and domain and isinstance(platform, str) and platform):
+            raise SystemExit(
+                "migration_rules.index.json: platform_channel_colors row missing domain/platform"
+            )
+        out.add((domain, platform))
+    return out
 
 
 def _fail_on_unhandled_repr_keys() -> None:

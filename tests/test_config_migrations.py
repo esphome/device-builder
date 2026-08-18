@@ -754,6 +754,14 @@ def test_channel_colors_false_flag_dropped(generated_rules) -> None:
     assert "is_rgbw" not in new_text
 
 
+def test_channel_colors_keeps_a_deleted_flag_line_comment(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    new_text = _respell(_CHANNEL_ITEM + "    is_rgbw: true  # white last\n")
+    assert "    channel_colors: GRBW\n" in new_text
+    assert "    # white last\n" in new_text
+    assert "is_rgbw" not in new_text
+
+
 @pytest.mark.parametrize("flag", ["yes", "on", "enable", "True"])
 def test_channel_colors_truthy_flag_spellings(generated_rules, flag: str) -> None:
     generated_rules(*_CHANNEL_RULES)

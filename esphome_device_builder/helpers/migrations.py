@@ -314,7 +314,8 @@ def _fold_channel_colors_items(
     Fold ``rgb_order`` / ``is_rgbw`` / ``is_wrgb`` into ``channel_colors``.
 
     Applied to the *platforms* items of the domain block at *header*.
-    ``is_wrgb`` prepends ``W`` to the order, ``is_rgbw`` appends it. An
+    ``is_wrgb`` prepends ``W`` to the order, ``is_rgbw`` appends it; a
+    deleted flag's trailing comment stays behind as its own line. An
     undecodable item is left alone, as is one already carrying
     ``channel_colors`` — upstream refuses that combination.
     """
@@ -340,7 +341,13 @@ def _fold_channel_colors_items(
         _old_value, comment = _split_value_and_comment(content[anchor_col:].split(":", 1)[1])
         out[anchor_idx] = f"{content[:anchor_col]}channel_colors: {value}{comment}{eol}"
         for idx in sorted(delete, reverse=True):
-            del out[idx]
+            flag_content = lines[idx].rstrip("\n\r")
+            _flag_value, flag_comment = _split_value_and_comment(flag_content.split(":", 1)[1])
+            if flag_comment:
+                flag_eol = lines[idx][len(flag_content) :] or "\n"
+                out[idx] = f"{leading_ws(flag_content)}{flag_comment.lstrip()}{flag_eol}"
+            else:
+                del out[idx]
     return out
 
 

@@ -364,7 +364,7 @@ def test_handled_pairs_do_not_fail_the_sync() -> None:
 
 
 def _fold_validator() -> Callable[[Any], Any]:
-    """Return a closure shaped like ``light.migrate_channel_colors``'s."""
+    """Return a closure whose qualname matches the fold detector."""
 
     def validator(value: Any) -> Any:
         return value
@@ -453,7 +453,7 @@ def test_vanished_committed_rule_fails_per_platform(
 def test_stale_committed_rules_fail_the_missing_rules_guard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Upstream retiring the fold must surface as a decision, not a silent row drop."""
+    """Committed rows absent from the sweep abort the sync."""
     monkeypatch.setattr(
         sync_components, "_installed_esphome_has_channel_colors_fold", lambda: False
     )
@@ -476,23 +476,34 @@ def test_fold_free_esphome_passes_the_missing_rules_guard(
     sync_components._fail_on_missing_channel_colors_rules()
 
 
+@pytest.mark.parametrize(
+    ("payload", "match"),
+    [
+        pytest.param(b"{not json", "unreadable", id="corrupt"),
+        pytest.param(b"[]", "rules", id="wrong-shape"),
+        pytest.param(b'{"rules": ["bare"]}', "non-mapping", id="non-mapping-row"),
+        pytest.param(
+            b'{"rules": [{"kind": "platform_channel_colors", "domain": "light"}]}',
+            "missing domain/platform",
+            id="missing-field",
+        ),
+    ],
+)
 def test_unreadable_committed_artifact_fails_the_guard(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: bytes, match: str
 ) -> None:
-    """A corrupt artifact is indistinguishable from vanished rules — abort, don't fail open."""
+    """A corrupt, mis-shaped, or field-less artifact aborts instead of reading as empty."""
     bad = tmp_path / "migration_rules.index.json"
-    bad.write_bytes(b"{not json")
+    bad.write_bytes(payload)
     monkeypatch.setattr(sync_components, "_MIGRATION_RULES_INDEX_FILE", bad)
-    with pytest.raises(SystemExit, match="unreadable"):
-        sync_components._committed_channel_colors_platforms()
-    bad.write_bytes(b"[]")
-    with pytest.raises(SystemExit, match="rules"):
+    with pytest.raises(SystemExit, match=match):
         sync_components._committed_channel_colors_platforms()
 
 
 def test_committed_artifact_platforms_read_the_real_artifact() -> None:
-    """The shipped artifact parses; it carries no fold rows until the catalog bump."""
-    assert sync_components._committed_channel_colors_platforms() == set()
+    """The shipped artifact parses into well-formed pairs."""
+    for domain, platform in sync_components._committed_channel_colors_platforms():
+        assert domain and platform
 
 
 def test_unreadable_rename_closure_yields_sentinel_pair() -> None:
