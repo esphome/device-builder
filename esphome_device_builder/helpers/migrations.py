@@ -325,6 +325,11 @@ def _fold_channel_colors_items(
     # Last item first, so earlier items' line indexes stay valid in *out*.
     for item_start in reversed(top_list_item_starts(lines, header, end)):
         keys = _item_child_keys(lines, item_start, end, in_scalar)
+        # A merge key (``<<``) or quoted key hides fields from this
+        # depth-1 view; folding a partial item would emit the
+        # channel_colors-plus-flag combination upstream rejects.
+        if any(not key.isidentifier() for _idx, _col, key in keys):
+            continue
         entries = {key: (idx, col) for idx, col, key in keys}
         platform = entries.get("platform")
         if platform is None or _entry_value(lines[platform[0]], platform[1]) not in platforms:

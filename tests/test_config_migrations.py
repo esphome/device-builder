@@ -814,6 +814,23 @@ def test_channel_colors_ignores_deeper_decoys(generated_rules) -> None:
     assert render_migrations(text) is None
 
 
+def test_channel_colors_merge_key_item_untouched(generated_rules) -> None:
+    # The anchor may carry is_rgbw; folding the visible keys alone would
+    # emit the channel_colors-plus-flag combination upstream rejects.
+    generated_rules(*_CHANNEL_RULES)
+    text = (
+        "common: &common\n  is_rgbw: true\n\n"
+        "light:\n  - platform: esp32_rmt_led_strip\n    <<: *common\n    rgb_order: GRB\n"
+    )
+    assert render_migrations(text) is None
+
+
+def test_channel_colors_quoted_flag_key_untouched(generated_rules) -> None:
+    generated_rules(*_CHANNEL_RULES)
+    text = 'light:\n  - platform: esp32_rmt_led_strip\n    rgb_order: GRB\n    "is_rgbw": true\n'
+    assert render_migrations(text) is None
+
+
 def test_channel_colors_other_domain_untouched(generated_rules) -> None:
     generated_rules(*_CHANNEL_RULES)
     assert render_migrations("output:\n  - platform: esp32_rmt_led_strip\n    pin: 1\n") is None
