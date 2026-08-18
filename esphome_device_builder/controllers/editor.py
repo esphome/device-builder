@@ -48,6 +48,9 @@ _VALIDATE_CACHE_TTL = 60.0
 # user leaves.
 _IDLE_SUBPROCESS_TIMEOUT = 600.0
 _REAP_INTERVAL = 60.0
+# ``_EditorSession.source_fingerprint`` sentinel that matches no real
+# digest, so the next validate respawns the subprocess.
+_STALE_SOURCES = "stale"
 
 
 class ValidatorUnavailableError(RuntimeError):
@@ -124,13 +127,20 @@ class EditorController:
 
         Cleared for all sessions, not just the written file: a referenced
         file (secrets, ``!include``, ``packages``) the content-hash key
-        can't see affects any open device's validation.
+        can't see affects any open device's validation. Sessions whose
+        content declares component sources also lose their warm
+        subprocess on the next validate — the write may have touched a
+        referenced ``packages:`` / ``!include`` file that carries
+        ``external_components:``, which the buffer-derived fingerprint
+        can't see.
         """
         # Snapshot the values: this is await-free so the dict can't change
         # under us today, but the copy keeps it safe if a future caller adds
         # a suspension point mid-clear.
         for session in tuple(self._sessions.values()):
             session.cached = None
+            if session.source_fingerprint:
+                session.source_fingerprint = _STALE_SOURCES
 
     # ------------------------------------------------------------------
     # Subprocess management

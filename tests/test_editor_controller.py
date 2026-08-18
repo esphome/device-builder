@@ -989,6 +989,47 @@ async def test_validate_yaml_respawns_only_when_component_sources_change(
 
     assert len(spawned) == expected_spawns
     assert controller._sessions["kitchen.yaml"].proc is spawned[-1]
+    if expected_spawns == 2:
+        # The replaced subprocess must be torn down, not leaked.
+        spawned[0].wait.assert_awaited()
+
+
+@pytest.mark.parametrize(
+    ("content", "expected_spawns"),
+    [
+        pytest.param(_OVERRIDE_YAML, 2, id="sourced-session-respawns"),
+        pytest.param(_BASE_YAML, 1, id="sourceless-session-keeps-proc"),
+    ],
+)
+async def test_invalidate_cache_stales_sourced_sessions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    content: str,
+    expected_spawns: int,
+) -> None:
+    """A config-dir write respawns sessions with component sources; sourceless ones keep theirs."""
+    controller = _make_controller(tmp_path)
+    spawned: list[Any] = []
+
+    async def _fake_spawn(*_args: Any, **_kwargs: Any) -> Any:
+        proc, _reader, _stdin = _make_fake_proc([dumps({"type": "version"}) + b"\n"])
+        spawned.append(proc)
+        return proc
+
+    monkeypatch.setattr(
+        "esphome_device_builder.controllers.editor.create_subprocess_exec",
+        _fake_spawn,
+    )
+    controller._validate_locked = AsyncMock(  # type: ignore[method-assign]
+        return_value={"yaml_errors": [], "validation_errors": []}
+    )
+
+    await controller.validate_yaml(configuration="kitchen.yaml", content=content)
+    controller.invalidate_cache()
+    await controller.validate_yaml(configuration="kitchen.yaml", content=content)
+
+    assert len(spawned) == expected_spawns
+    assert controller._sessions["kitchen.yaml"].proc is spawned[-1]
 
 
 # ---------------------------------------------------------------------------

@@ -30,6 +30,7 @@ on:
       - "esphome_device_builder/controllers/remote_build/artifacts_tarball.py"
       - "esphome_device_builder/helpers/storage_path.py"
       - "esphome_device_builder/controllers/editor.py"
+      - "esphome_device_builder/helpers/device_yaml/_parsing.py"
       - "tests/real_compile/**"
       - ".github/workflows/real-compile-tests.yml"
   pull_request:
