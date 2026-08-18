@@ -30,6 +30,13 @@ export const PROTOCOL_VERSION = 1;
 export interface ReadyMessage {
   type: "esphome-web-flash:ready";
   version: number;
+  // Whether the flasher's browser can actually flash (Web Serial present).
+  // The flasher runs on a secure origin, so it can feature-detect for real,
+  // unlike a dashboard on plain http. Additive (v1): older flashers omit it,
+  // and the opener declines the handoff only on an explicit false; when the
+  // field is absent the handoff proceeds and the flasher reports the error
+  // itself after the firmware arrives.
+  webSerial?: boolean;
 }
 
 // One image to write at a flash offset. Bytes ride as a transferable
