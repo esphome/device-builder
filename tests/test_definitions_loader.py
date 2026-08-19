@@ -450,8 +450,24 @@ def test_load_migration_rules_reads_every_kind(tmp_path: Path) -> None:
             id="non_string_since",
         ),
         pytest.param(
-            {"kind": "component_key", "old": "rp2040", "new": "rp2", "removed_in": ""},
+            {
+                "kind": "component_key",
+                "old": "rp2040",
+                "new": "rp2",
+                "since": "2026.7.0",
+                "removed_in": "",
+            },
             id="empty_removed_in",
+        ),
+        pytest.param(
+            {
+                "kind": "component_key",
+                "old": "rp2040",
+                "new": "rp2",
+                "since": "2026.7.0",
+                "removed_in": "soon",
+            },
+            id="non_pep440_removed_in",
         ),
         pytest.param(
             {"kind": "component_key", "old": "rp2040", "new": "rp2", "since": "2026.8.0bX"},
