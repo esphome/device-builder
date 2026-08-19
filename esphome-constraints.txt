@@ -8,4 +8,4 @@
 # as the early-warning tier. Not the package's runtime dependency (that stays
 # esphome>=… in pyproject); this only constrains CI installs via uv pip
 # install -c.
-esphome==2026.8.0b5
+esphome==2026.8.0b6
